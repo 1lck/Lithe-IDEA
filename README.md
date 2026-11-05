@@ -10,6 +10,8 @@
     <a href="#core-features">Core features</a> ·
     <a href="#product-tour">Product tour</a> ·
     <a href="#download-and-install">Download</a> ·
+    <a href="https://github.com/Lithe-IDEA/Lithe-store">Plugin marketplace</a> ·
+    <a href="https://github.com/Lithe-IDEA/lithe-plugin-docs">Plugin development</a> ·
     <a href="https://1lck.github.io/Lithe-IDEA/">Decision board</a> ·
     <a href="#develop-lithe">Develop Lithe</a>
   </p>
@@ -44,7 +46,7 @@ Welcome to join the Lithe community, share your experience, ask questions, and f
   </tr>
   <tr>
     <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="QR code for the Lithe QQ group"></a></td>
-    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr-2026-10.png" width="280" alt="QR code for the Lithe WeChat group"></a></td>
+    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.jpg" width="280" alt="QR code for the Lithe WeChat group"></a></td>
   </tr>
 </table>
 </div>
@@ -367,6 +369,16 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
     </td>
     <td>
       <a href="https://www.atlascloud.ai/zh"><strong>Atlas Cloud</strong></a> provides AI model relay services with access to <strong>over 400 models</strong>, giving developers more options through one platform. Thank you to Atlas Cloud for supporting Lithe!
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://www.compshare.cn?ytag=GPU_YY_YX_git_litheidea">
+        <img src="./docs/assets/sponsors/compshare.png" width="64" alt="优云智算 Compshare">
+      </a>
+    </td>
+    <td>
+      <a href="https://www.compshare.cn?ytag=GPU_YY_YX_git_litheidea"><strong>优云智算 Compshare</strong></a> UCloud’s AI cloud platform provides GPU computing and monthly or pay-per-use Coding Plans for Chinese AI models, with Claude Code, Codex, and API access. Its H3 video generation plans support up to 2K resolution and 30-second videos, starting at ¥0.08 per second. Enterprise concurrency, 24/7 technical support, and self-service invoicing are available.
     </td>
   </tr>
   <tr>

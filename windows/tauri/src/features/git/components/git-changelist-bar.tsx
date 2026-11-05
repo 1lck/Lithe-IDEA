@@ -48,12 +48,12 @@ export function GitChangelistBar({
     setEditing(id);
     setError(false);
   };
-  const save = () => {
+  const save = async () => {
     if (disabled || unavailable || editing === null) return;
     const store = useGitChangelistsStore.getState();
     const saved = editing
-      ? store.renameList(workspace, editing, name)
-      : store.createList(workspace, name, crypto.randomUUID());
+      ? await store.renameList(workspace, editing, name)
+      : await store.createList(workspace, name, crypto.randomUUID());
     if (saved) setEditing(null);
     else setError(true);
   };
@@ -76,7 +76,9 @@ export function GitChangelistBar({
             value={state.activeId}
             disabled={disabled || unavailable}
             options={state.lists.map((list) => ({ value: list.id, label: title(list) }))}
-            onChange={(id) => useGitChangelistsStore.getState().activateList(workspace, id)}
+            onChange={(id) => {
+              void useGitChangelistsStore.getState().activateList(workspace, id);
+            }}
           />
           <span className="min-w-0 flex-1" />
           <Button
@@ -112,7 +114,7 @@ export function GitChangelistBar({
                   title: t("git.changelists.delete"),
                 })
               ) {
-                useGitChangelistsStore.getState().removeList(workspace, id);
+                await useGitChangelistsStore.getState().removeList(workspace, id);
               }
             }}
           >

@@ -111,7 +111,7 @@ test('a follow-up commit reruns only the lanes its own changes affect', async (t
   assert.equal(result.run.release, false);
 });
 
-test('a lane still running in the earlier run is reused and that run is kept', async (t) => {
+test('an active lane reruns because concurrency can cancel its source', async (t) => {
   const f = fixtureRepository(t);
   f.write('macos/Sources/Lithe/App.swift', 'struct App { let a = 1 }');
   f.write('rust/lithe-core/src/lib.rs', 'pub fn value() -> u8 { 2 }');
@@ -121,11 +121,12 @@ test('a lane still running in the earlier run is reused and that run is kept', a
   const github = fakeGitHub({ runs: [run(10, first, 'in_progress', '2026-10-17T01:00:00Z')], jobs: { 10: fullMacJobs(100, null, 'in_progress') }, baseTips: [{ at: '2026-10-17T00:00:00Z', sha: f.base }] });
   const result = await plan(f, { head: second, github });
   assert.equal(result.run.swift, true);
-  assert.equal(result.reuse.rust.status, 'in_progress');
+  assert.equal(result.run.rust, true);
+  assert.deepEqual(result.reuse, {});
   assert.deepEqual(github.cancelled, []);
 });
 
-test('an earlier run no lane reuses is cancelled', async (t) => {
+test('cancellation is delegated to workflow concurrency, without API writes', async (t) => {
   const f = fixtureRepository(t);
   f.write('macos/Sources/Lithe/App.swift', 'struct App { let a = 1 }');
   const first = f.commit('swift');
@@ -134,10 +135,10 @@ test('an earlier run no lane reuses is cancelled', async (t) => {
   const github = fakeGitHub({ runs: [run(10, first, 'in_progress', '2026-10-17T01:00:00Z')], jobs: { 10: [job(101, 'Swift tests', 'in_progress', null)] }, baseTips: [{ at: '2026-10-17T00:00:00Z', sha: f.base }] });
   const result = await plan(f, { head: second, github });
   assert.equal(result.run.swift, true);
-  assert.deepEqual(github.cancelled, [10]);
+  assert.deepEqual(github.cancelled, []);
 });
 
-test('hosted queues remain reusable while unfinished self-hosted jobs rerun', async (t) => {
+test('all unfinished jobs rerun regardless of runner labels', async (t) => {
   const f = fixtureRepository(t);
   f.write('macos/Sources/Lithe/App.swift', 'struct App { let a = 1 }');
   const first = f.commit('swift');
@@ -151,11 +152,9 @@ test('hosted queues remain reusable while unfinished self-hosted jobs rerun', as
         baseTips: [{ at: '2026-10-17T00:00:00Z', sha: f.base }],
       });
       const result = await plan(f, { head: second, github });
-      const retired = labels.includes('self-hosted');
-      assert.equal(result.run.swift, retired, `${status}: ${labels}`);
-      if (retired) assert.deepEqual(result.reuse, {});
-      else assert.equal(result.reuse.swift.job_id, 101);
-      assert.deepEqual(github.cancelled, retired ? [10] : []);
+      assert.equal(result.run.swift, true, `${status}: ${labels}`);
+      assert.deepEqual(result.reuse, {});
+      assert.deepEqual(github.cancelled, []);
     }
   }
 });
@@ -177,7 +176,7 @@ test('a run created after this one is neither cancelled nor reused', async (t) =
   });
   const result = await plan(f, { head: second, github });
   assert.equal(result.run.swift, true);
-  assert.deepEqual(github.cancelled, [10]);
+  assert.deepEqual(github.cancelled, []);
 });
 
 test('a change to a file with a Chinese name is not mistaken for no change', async (t) => {
@@ -356,10 +355,12 @@ test('planning failures and non pull request events run every selected lane', as
 
 test('CI infrastructure paths are recognised', () => {
   assert.equal(isCiInfrastructure('scripts/plugins/plugin-settings-schema.test.mjs'), true);
-  for (const path of ['.github/workflows/ci-macos.yml', 'scripts/ci/common/classify-ci-changes.sh', 'scripts/macos/test/test-macos.sh', 'Package.resolved', 'rust/Cargo.lock', 'rust/lithe-core/Cargo.toml', 'windows/tauri/crates/project/Cargo.toml', 'windows/tauri/rust-toolchain.toml', '.agents/skills/write-stable-tests/scripts/x.sh']) {
+  assert.equal(isCiInfrastructure('scripts/logging/generate-log-events.mjs'), true);
+  assert.equal(isCiInfrastructure('scripts/architecture/language-specifics-baseline.json'), true);
+  for (const path of ['.github/workflows/ci-macos.yml', 'scripts/ci/common/classify-ci-changes.sh', 'scripts/ci/common/verify-rust-shards.mjs', 'scripts/ci/common/rust-shards.test.mjs', 'scripts/rust-core/verify-rust-core-static.sh', 'scripts/macos/test/test-macos.sh', 'Package.resolved', 'rust/Cargo.lock', 'rust/lithe-core/Cargo.toml', 'windows/tauri/crates/project/Cargo.toml', 'windows/tauri/rust-toolchain.toml', '.agents/skills/write-stable-tests/scripts/x.sh']) {
     assert.equal(isCiInfrastructure(path), true, path);
   }
-  for (const path of ['macos/Sources/Lithe/App.swift', 'README.md', 'rust/lithe-core/src/lib.rs']) {
+  for (const path of ['macos/Sources/Lithe/App.swift', 'README.md', 'rust/lithe-core/src/lib.rs', 'scripts/architecture/verify-java-semantic-ownership.mjs']) {
     assert.equal(isCiInfrastructure(path), false, path);
   }
 });
@@ -372,6 +373,10 @@ test('CI infrastructure reaches only the workflows that read it', () => {
   const reached = (path) => ['macos', 'plugins', 'windows'].filter((workflow) => infrastructureAffects(path, workflow, references));
   const shared = ['macos', 'plugins', 'windows'];
   const expectations = {
+    'scripts/logging/generate-log-events.mjs': [],
+    'scripts/architecture/verify-no-host-language-specifics.mjs': [],
+    'scripts/architecture/verify-no-host-language-specifics.test.mjs': [],
+    'scripts/architecture/language-specifics-allowlist.json': [],
     // Shared Rust workspace: the Windows product links Rust Core by path.
     'rust/Cargo.lock': shared,
     'rust/lithe-core/Cargo.toml': shared,

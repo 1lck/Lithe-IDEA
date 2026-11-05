@@ -81,8 +81,19 @@ async function readRegistry() {
   // are mutable user state, never download artifacts. Runtime profile import is
   // owned by the platform startup adapters; this build reuse route always rejects
   // both original state and migration snapshots and must not gain a validator.
+  // Build Provider snapshots remain under the excluded per-workspace PluginState
+  // owner, including after removing the old macOS Maven tree output allocator.
+  // They are mutable upstream state and must never gain a download validator.
+  // User-authored Build preferences, machine-local differences and source-identity migration receipts are never reusable.
+  // Private instance defaults, Windows app-data/build-options/<workspace-digest>.json
+  // and runtime-preference migration receipts follow that same refusal route; no validator or copy stage.
+  // Per-operation Maven report snapshots have no reusable identity and must remain isolated.
+  // Native configuration probes (including their isolated repository manager), source-identity cache v2 and secret-bearing
+  // conditional replacements and private provider-written outputs/<operation-id>.json use the same explicit rejection route.
   // Plugin grammar workers use checkout-built editor assets; decoded grammars,
   // document tokens and editor action leases are memory-only, never reusable.
+  // Shared logging catalogs and generated API sources also use the refusal route:
+  // validate with generate-log-events.mjs in the target checkout; never copy.
   // Shared i18n source and generated tables take this same refusal route:
   // rebuild from the target checkout, never copy another worktree's translations.
   // AutoBuild publication checkpoints and baseline downloads are invocation-owned,
@@ -388,11 +399,12 @@ async function main() {
     ? options.resources.map((identifier) => {
       // Generated matrix views, runtime snapshots, per-execution Java launch files, Sparkle baseline
       // and AutoBuild staging (including per-tag baselines and local/downloaded publication checkpoints), per-launch
-      // Codex relays and isolated plugin packages take this rejection route, never a content-hash validator.
+      // CI Rust compilation state, Codex relays and plugin packages take this rejection route, never a download validator.
       // Identical bytes do not establish transferable execution ownership.
       // SwiftPM scratch-local compiler stamps only invalidate local products;
       // swiftpm-build-state is not a sealed download cache and has no copy stage.
-      // Includes application-log-state: logs, confirmation snapshots and export ZIP
+      // Includes application-log-state: v2 sessions, plugin files (0700/no-follow),
+      // confirmation snapshots and export ZIP
       // staging belong to one runtime session; no validator or copy stage applies.
       // Includes test-jfr-recordings: worker-owned profiling output has no transferable build identity.
       // Localized logging probes also reject their temporary SwiftPM UI hosts;
@@ -411,6 +423,8 @@ async function main() {
       // Includes mcp-registry-metadata: responses have no copy stage; featured.json
       // and McpIcons follow Git source, never a downloaded/generated resource validator.
       // Includes plugin-web-state: per-window/workspace user JSON has no build identity or copy stage.
+      // Includes build-native-configuration-state: Windows private prepare tokens
+      // and document-module temporary siblings are operation-owned, never reusable.
       // Includes remote-server-artifacts: packaging rebuilds lithe-remote's
       // server-only binary from this worktree; no validator or copy stage applies.
       // Includes remote-connection-state: SSH settings, keychain secrets and placeholder roots are user-owned.
@@ -430,6 +444,16 @@ async function main() {
       // loopback capabilities; they stay on this exclusion route, never a copy stage.
       // Agent edit-and-paste state is user-owned runtime data, without a copy stage.
       // editor-theme-assets rebuild palettes and license notices together; no build stamp permits reuse.
+      // official-plugin-packages also excludes Windows Build Provider workspace
+      // and Registry stdio debug-adapter state under platform app-data.
+      // Workspace hashes never admit a copy stage; shared language-server state
+      // is owned by the server, never copied or deleted by a Debug session.
+      // Operation-owned toolchain backends keep mutable workspace state beneath
+      // the same plugin owner; neither their state nor query facts may be reused.
+      // consumer-tool-preferences are user-owned Run data, including symbolic
+      // inheritance. No validator or copy phase can turn them into build input.
+      // editor-theme-assets rebuild palettes, bundled Make/CMake/Groovy grammars and notices together.
+      // Git-owned grammar inputs and memory-only tokenizer workers never enter a copy validator.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         // Per-launch relays also own their provider admission route; they stay
         // excluded even when their embedded source matches another worktree.

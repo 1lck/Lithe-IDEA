@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import CryptoKit
 import Foundation
 import LitheCoreContracts
@@ -155,6 +156,7 @@ struct ConnectionWatchingTransport: RemoteWorkspaceTransport {
 /// Project tree and plain file access: remote roots are listed on the host,
 /// all other roots go to the local operations unchanged.
 struct RemoteRoutingWorkspaceOperations: WorkspaceOperations {
+    var logSink: (any LogSink)? = nil
     let local: any WorkspaceOperations
     let registry: RemoteWorkspaceRegistry
     let transport: any RemoteWorkspaceTransport
@@ -178,13 +180,11 @@ struct RemoteRoutingWorkspaceOperations: WorkspaceOperations {
     }
 
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) throws -> WorkspaceSnapshot? {
-        guard let binding = registry.binding(forRoot: rootURL) else {
+        guard registry.binding(forRoot: rootURL) != nil else {
             return try local.snapshot(at: rootURL, visibilityRules: visibilityRules)
         }
-        let root = binding.root
-        guard let children = try? rows(of: root, at: root, binding: binding, rules: visibilityRules) else {
-            return nil
-        }
+        let root = rootURL
+        guard let children = local.rootRows(at: root, visibilityRules: visibilityRules) else { return nil }
         return WorkspaceSnapshot(
             root: FileNode(url: root, isDirectory: true, children: children),
             files: children.filter { !$0.isDirectory }.map(\.url)
@@ -192,18 +192,11 @@ struct RemoteRoutingWorkspaceOperations: WorkspaceOperations {
     }
 
     func childRows(of rows: [FileNode], at rootURL: URL, visibilityRules: FileVisibilityRules) -> [String: [FileNode]]? {
-        guard let binding = registry.binding(forRoot: rootURL) else {
-            return local.childRows(of: rows, at: rootURL, visibilityRules: visibilityRules)
-        }
-        var listed: [String: [FileNode]] = [:]
-        for row in rows where row.isDirectory {
-            // A folder that disappeared on the host is left out, like a
-            // local one.
-            if let children = try? self.rows(of: row.url, at: binding.root, binding: binding, rules: visibilityRules) {
-                listed[row.url.standardizedFileURL.path] = children
-            }
-        }
-        return listed
+        local.childRows(of: rows, at: rootURL, visibilityRules: visibilityRules)
+    }
+
+    func rootRows(at rootURL: URL, visibilityRules: FileVisibilityRules) -> [FileNode]? {
+        local.rootRows(at: rootURL, visibilityRules: visibilityRules)
     }
 
     func warmSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules) {
@@ -239,26 +232,11 @@ struct RemoteRoutingWorkspaceOperations: WorkspaceOperations {
             if case .saved = try transport.writeFile(Data(text.utf8), to: path, expected: expected, session: binding.sessionID) {
                 return true
             }
-        } catch { return false }
+        } catch {
+            logSink?.emit(RemoteWorkspaceWriteFailed(error: (error as? RemoteProbeFailure).map { LogFailure(domain: "RemoteWorkspace", code: $0.code) as any Error } ?? error))
+            return false
+        }
         return false
-    }
-
-    /// One level of a remote directory as tree rows: folders unloaded until
-    /// expanded, hidden names filtered with the workspace's own rules.
-    private func rows(
-        of directory: URL, at root: URL, binding: RemoteWorkspaceBinding, rules: FileVisibilityRules
-    ) throws -> [FileNode] {
-        guard let (_, path) = registry.resolve(directory) else { return [] }
-        return try transport.listDirectory(path, session: binding.sessionID)
-            .map { entry in
-                let url = directory.appendingPathComponent(entry.name, isDirectory: entry.isDirectory)
-                return FileNode(url: url, isDirectory: entry.isDirectory, children: nil)
-            }
-            .filter { !rules.isHidden($0.url, relativeTo: root, isDirectory: $0.isDirectory) }
-            .sorted { left, right in
-                if left.isDirectory != right.isDirectory { return left.isDirectory }
-                return left.url.lastPathComponent.localizedStandardCompare(right.url.lastPathComponent) == .orderedAscending
-            }
     }
 }
 

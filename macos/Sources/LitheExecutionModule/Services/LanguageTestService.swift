@@ -17,11 +17,11 @@ package final class LanguageTestService: ObservableObject {
     @Published package private(set) var itemsByProviderID: [String: [LanguageTestItem]] = [:]
     @Published package private(set) var state: LanguageTestRunState = .idle
     @Published package private(set) var activePlan: LanguageTestPlan?
-    @Published package private(set) var results: MavenTestResults?
-    /// Latest outcome of every Maven test method run in this workspace. A run
-    /// replaces the outcomes of the classes it produced and keeps the rest,
-    /// so editor Run markers survive unrelated runs.
-    @Published package private(set) var testOutcomes: [MavenTestCaseOutcome] = []
+    @Published package private(set) var results: BuildTestResults?
+    /// Backend coverage replaces only completed scopes; unrelated editor markers survive.
+    @Published package private(set) var testOutcomesByProviderID: [String: [BuildTestResults.TestCase]] = [:]
+    package private(set) var resultReferences: [BuildTestCaseKey: BuildTestReference] = [:]
+    private var resultsWorkspaceURL: URL?
     @Published package private(set) var output = ""
     @Published package private(set) var errorMessage: String?
     @Published package private(set) var runID: UUID?
@@ -32,40 +32,38 @@ package final class LanguageTestService: ObservableObject {
     private let executableResolver: any RunExecutableResolving
     private let processFactory: () -> any StreamingProcess
     private let extensionRequiredLanguageIDs: Set<String>
-    private let resultParser: (@Sendable (String, URL, MavenTestReportRequest?) -> MavenTestResults?)?
-    private let now: () -> Date
-    private var activeReportRequest: MavenTestReportRequest?
     private var process: (any StreamingProcess)?
     private var extensionSession: (any LanguageExecutionSession)?
     private var languageTestExtensions: [String: RegisteredLanguageTestExtension] = [:]
     private var activeOperationID: String?
     private var timedOutOperationID: String?
     private var activeWorkspaceURL: URL?
-    private var outputCapture: LanguageTestOutputCapture?
+    private var backendTask: Task<Void, Never>?
+    private var lastBackendRun: (@MainActor () -> Void)?
     private var lastRun: LastRun?
     private let maximumOutputCharacters = 400_000
-    private static let mavenTestTimeoutMilliseconds = 120_000
+    private static let javaTestTimeoutMilliseconds = 120_000
 
     package init(
         catalog: LanguageProviderCatalog = .compatibilityFallback,
         registry: LanguageTestProviderRegistry? = nil,
         executableResolver: any RunExecutableResolving,
         processFactory: @escaping () -> any StreamingProcess,
-        extensionRequiredLanguageIDs: Set<String> = [],
-        resultParser: (@Sendable (String, URL, MavenTestReportRequest?) -> MavenTestResults?)? = nil,
-        now: @escaping () -> Date = Date.init
+        extensionRequiredLanguageIDs: Set<String> = []
     ) {
         self.catalog = catalog
         self.registry = registry ?? .standard(catalog: catalog)
         self.executableResolver = executableResolver
         self.processFactory = processFactory
         self.extensionRequiredLanguageIDs = extensionRequiredLanguageIDs
-        self.resultParser = resultParser
-        self.now = now
+    }
+
+    package func testOutcomes(for providerID: String) -> [BuildTestResults.TestCase] {
+        testOutcomesByProviderID[providerID] ?? []
     }
 
     package var isRunning: Bool { state == .running }
-    package var canRerun: Bool { lastRun != nil && !isRunning }
+    package var canRerun: Bool { (lastRun != nil || lastBackendRun != nil) && !isRunning }
 
     package func hasRun(providerID: String, scope: LanguageTestScope) -> Bool {
         lastRun?.providerID == providerID && lastRun?.scope == scope
@@ -146,9 +144,12 @@ package final class LanguageTestService: ObservableObject {
         options: RunOptions = RunOptions()
     ) -> Bool {
         stop(markCancelled: false)
+        lastBackendRun = nil
         runID = nil
         output = ""
         results = nil
+        resultReferences = [:]
+        resultsWorkspaceURL = nil
         errorMessage = nil
         let root = workspaceURL.standardizedFileURL
         do {
@@ -197,8 +198,6 @@ package final class LanguageTestService: ObservableObject {
             let operationID = id.uuidString
             activeOperationID = operationID
             activeWorkspaceURL = root
-            let outputCapture = LanguageTestOutputCapture(maximumCharacters: maximumOutputCharacters)
-            self.outputCapture = outputCapture
             let timeoutMarker = LanguageTestTimeoutMarker()
             lastRun = LastRun(
                 providerID: providerID,
@@ -208,9 +207,6 @@ package final class LanguageTestService: ObservableObject {
                 options: options
             )
             activePlan = plan
-            activeReportRequest = plan.frameworkID == "maven"
-                ? Self.mavenReportRequest(scope: scope, workspaceURL: root, startedAt: now())
-                : nil
             state = .running
             timedOutOperationID = nil
             append("$ \(resolved.executableURL.lastPathComponent) \(plan.launchPlan.arguments.joined(separator: " "))\n\n")
@@ -220,7 +216,6 @@ package final class LanguageTestService: ObservableObject {
                 configureExtensionSession(
                     session,
                     operationID: operationID,
-                    outputCapture: outputCapture,
                     timeoutMarker: timeoutMarker
                 )
                 extensionSession = session
@@ -237,7 +232,6 @@ package final class LanguageTestService: ObservableObject {
                 configureProcess(
                     process,
                     operationID: operationID,
-                    outputCapture: outputCapture,
                     timeoutMarker: timeoutMarker
                 )
                 self.process = process
@@ -259,7 +253,6 @@ package final class LanguageTestService: ObservableObject {
             activeOperationID = nil
             processID = nil
             timedOutOperationID = nil
-            outputCapture = nil
             activePlan = nil
             state = .failed(exitCode: -1)
             errorMessage = error.localizedDescription
@@ -268,12 +261,81 @@ package final class LanguageTestService: ObservableObject {
         }
     }
 
+    /// Uses an operation-owning backend while preserving the native test UI,
+    /// rerun and cancellation lifecycle. The closure resolves fresh facts on rerun.
+    package func runUsingBackend(providerID: String, scope: LanguageTestScope, workspaceURL: URL,
+                                 label: String,
+                                 execute: @escaping @MainActor (@escaping @MainActor (String) -> Void, @escaping @MainActor (Int32?) -> Void) async throws -> LanguageTestBackendResult) {
+        stop(markCancelled: false)
+        let id = UUID()
+        runID = id
+        activeOperationID = id.uuidString
+        activeWorkspaceURL = workspaceURL.standardizedFileURL
+        output = ""; results = nil; resultReferences = [:]; resultsWorkspaceURL = nil; errorMessage = nil
+        activePlan = LanguageTestPlan(providerID: providerID, label: label, frameworkID: "build.provider",
+            launchPlan: SharedLaunchPlan(executable: .command("build-provider"), arguments: [], workingDirectory: "."))
+        lastRun = LastRun(providerID: providerID, scope: scope, workspaceURL: workspaceURL, projectFiles: [], options: RunOptions())
+        lastBackendRun = { [weak self] in
+            self?.runUsingBackend(providerID: providerID, scope: scope, workspaceURL: workspaceURL, label: label, execute: execute)
+        }
+        state = .running
+        backendTask = Task { [weak self] in
+            guard let self else { return }
+            defer { if activeOperationID == id.uuidString { activeOperationID = nil; backendTask = nil; processID = nil; activeWorkspaceURL = nil } }
+            do {
+                let result = try await execute({ [weak self] text in
+                    guard let self, activeOperationID == id.uuidString else { return }
+                    output = String(text.suffix(maximumOutputCharacters))
+                }, { [weak self] pid in
+                    guard let self, activeOperationID == id.uuidString else { return }
+                    let next = pid.flatMap { $0 > 0 ? $0 : nil }
+                    if processID != next { processID = next }
+                })
+                try Task.checkCancellation()
+                guard activeOperationID == id.uuidString else { return }
+                let report = BuildTestResults.combining(result.reports)
+                results = report
+                resultReferences = result.references
+                resultsWorkspaceURL = workspaceURL.standardizedFileURL
+                // Only the backend can say that a whole suite/project completed.
+                // Legacy reports without coverage replace their exact returned cases.
+                let keys = Set(result.reports.flatMap(\.tests).map(BuildTestCaseKey.init))
+                let coverage = result.reports.flatMap { $0.coverage ?? [] }
+                var outcomes = testOutcomesByProviderID[providerID] ?? []
+                outcomes.removeAll { outcome in
+                    keys.contains(BuildTestCaseKey(outcome))
+                    || coverage.contains { scope in
+                        scope.project == outcome.project
+                        && (scope.suite == nil || scope.suite == outcome.suite)
+                        && (scope.testCase == nil || scope.testCase == outcome.name)
+                    }
+                }
+                testOutcomesByProviderID[providerID] = outcomes + report.tests
+                state = result.exitCode == 0 ? .passed : .failed(exitCode: result.exitCode)
+            } catch is CancellationError {
+                if activeOperationID == id.uuidString { state = .cancelled }
+            } catch {
+                guard activeOperationID == id.uuidString else { return }
+                errorMessage = error.localizedDescription
+                append(error.localizedDescription + "\n")
+                state = .failed(exitCode: -1)
+            }
+        }
+    }
+
+    package func sourceURL(for test: BuildTestResults.TestCase) -> URL? {
+        guard let root = resultsWorkspaceURL, let path = test.path,
+              !path.hasPrefix("/"), !path.contains("\\"),
+              !path.split(separator: "/").contains("..") else { return nil }
+        return root.appendingPathComponent(path).standardizedFileURL
+    }
+
     package func stop() { stop(markCancelled: true) }
 
     package func reset() {
         closeRun()
         itemsByProviderID = [:]
-        testOutcomes = []
+        testOutcomesByProviderID = [:]
     }
 
     /// Dispose the retained run without discarding discovery or editor test markers.
@@ -282,9 +344,11 @@ package final class LanguageTestService: ObservableObject {
         activePlan = nil
         activeWorkspaceURL = nil
         lastRun = nil
+        lastBackendRun = nil
         runID = nil
         results = nil
-        activeReportRequest = nil
+        resultReferences = [:]
+        resultsWorkspaceURL = nil
         output = ""
         errorMessage = nil
         state = .idle
@@ -293,10 +357,13 @@ package final class LanguageTestService: ObservableObject {
     package func clearOutput() {
         output = ""
         results = nil
+        resultReferences = [:]
+        resultsWorkspaceURL = nil
     }
 
     @discardableResult
     package func rerun() -> Bool {
+        if let lastBackendRun { lastBackendRun(); return true }
         guard let lastRun else { return false }
         return run(
             providerID: lastRun.providerID,
@@ -310,10 +377,10 @@ package final class LanguageTestService: ObservableObject {
     private func stop(markCancelled: Bool) {
         let wasRunning = state == .running
         activeOperationID = nil
+        backendTask?.cancel(); backendTask = nil
         processID = nil
         timedOutOperationID = nil
         activeWorkspaceURL = nil
-        outputCapture = nil
         process?.stop()
         process = nil
         extensionSession?.stop()
@@ -350,11 +417,9 @@ package final class LanguageTestService: ObservableObject {
     private func configureProcess(
         _ process: any StreamingProcess,
         operationID: String,
-        outputCapture: LanguageTestOutputCapture,
         timeoutMarker: LanguageTestTimeoutMarker
     ) {
-        process.onOutput = { [weak self, outputCapture] chunk in
-            outputCapture.append(chunk)
+        process.onOutput = { [weak self] chunk in
             Task { @MainActor [weak self] in
                 guard self?.activeOperationID == operationID else { return }
                 self?.append(chunk)
@@ -387,11 +452,9 @@ package final class LanguageTestService: ObservableObject {
     private func configureExtensionSession(
         _ session: any LanguageExecutionSession,
         operationID: String,
-        outputCapture: LanguageTestOutputCapture,
         timeoutMarker: LanguageTestTimeoutMarker
     ) {
-        session.onOutput = { [weak self, outputCapture] chunk in
-            outputCapture.append(chunk)
+        session.onOutput = { [weak self] chunk in
             Task { @MainActor [weak self] in
                 guard self?.activeOperationID == operationID else { return }
                 self?.append(chunk)
@@ -448,125 +511,24 @@ package final class LanguageTestService: ObservableObject {
             errorMessage = message
             append(message + "\n")
         }
-        let capturedOutput = outputCapture?.snapshot() ?? output
-        let parsedResults: MavenTestResults?
-        let parsingWorkspaceURL = activeWorkspaceURL
-        let reportRequest = activeReportRequest
-        let requestedMethod = lastRun.flatMap { Self.mavenTestMethod(in: $0.scope) }
-        if activePlan?.frameworkID == "maven",
-           let resultParser,
-           let parsingWorkspaceURL {
-            parsedResults = await Task.detached(priority: .utility) {
-                resultParser(capturedOutput, parsingWorkspaceURL, reportRequest)
-            }.value
-        } else {
-            parsedResults = nil
-        }
-        // Parsing may outlive Stop, reset, or a replacement run. Only the
-        // operation and workspace that produced the output may publish it.
-        guard activeOperationID == operationID,
-              activeWorkspaceURL == parsingWorkspaceURL else { return }
-        results = parsedResults
-        if let reportRequest, let testCases = parsedResults?.testCases {
-            testOutcomes = Self.mergedOutcomes(
-                testOutcomes,
-                requestedClasses: reportRequest.classes,
-                requestedMethod: requestedMethod,
-                recorded: testCases
-            )
-        }
-        activeReportRequest = nil
         state = timedOut ? .timedOut : (exitCode == 0 ? .passed : .failed(exitCode: exitCode))
         activeOperationID = nil
         processID = nil
         timedOutOperationID = nil
         activeWorkspaceURL = nil
-        outputCapture = nil
         process = nil
         extensionSession = nil
     }
 
     private func testTimeoutMessage() -> String {
-        let framework = activePlan?.frameworkID == "junit" ? "JUnit" : "Maven"
-        return "\(framework) test run timed out after \(Self.mavenTestTimeoutMilliseconds / 1000) seconds."
+        L10n.string("The build tool timed out.")
     }
 
     private static func testTimeoutMilliseconds(for frameworkID: String?) -> Int? {
         switch frameworkID {
-        case "maven", "junit": return mavenTestTimeoutMilliseconds
+        case "junit": return javaTestTimeoutMilliseconds
         default: return nil
         }
-    }
-
-    /// Names the reports a Maven run will write. Maven runs from the reactor
-    /// root, so Core locates the module from the test file; a test-case
-    /// identifier (`demo.OrderTest#creates()`) also names the class, while a
-    /// whole-file run lets the run's start time select its reports.
-    nonisolated static func mavenReportRequest(
-        scope: LanguageTestScope,
-        workspaceURL: URL,
-        startedAt: Date
-    ) -> MavenTestReportRequest {
-        let fileURL: URL?
-        var classes: [String] = []
-        switch scope {
-        case .workspace:
-            fileURL = nil
-        case .file(let url):
-            fileURL = url
-        case .testCase(let identifier, let url):
-            fileURL = url
-            let className = identifier.split(separator: "#", maxSplits: 1).first.map(String.init) ?? ""
-            if !className.isEmpty, !className.contains("(") { classes = [className] }
-        }
-        let rootPath = workspaceURL.standardizedFileURL.path
-        let sourcePath = fileURL.map(\.standardizedFileURL.path).flatMap { path -> String? in
-            guard path.hasPrefix(rootPath + "/") else { return nil }
-            return String(path.dropFirst(rootPath.count + 1))
-        }
-        return MavenTestReportRequest(
-            sourcePath: sourcePath,
-            classes: classes,
-            notBeforeMillis: UInt64(max(0, startedAt.timeIntervalSince1970 * 1000))
-        )
-    }
-
-    /// A method selector narrows the outcome replacement to that method;
-    /// a class or file run may replace the complete class report.
-    nonisolated static func mavenTestMethod(in scope: LanguageTestScope) -> String? {
-        guard case .testCase(let identifier, _) = scope,
-              let separator = identifier.firstIndex(of: "#") else { return nil }
-        let method = identifier[identifier.index(after: separator)...]
-            .split(separator: "(", maxSplits: 1).first.map(String.init)
-        return method?.isEmpty == false ? method : nil
-    }
-
-    /// Replaces only the selected method for a method run, or the classes
-    /// a class/file run covered, including nested classes. Without a requested
-    /// class list, only the classes present in the report are covered.
-    nonisolated static func mergedOutcomes(
-        _ previous: [MavenTestCaseOutcome],
-        requestedClasses: [String],
-        requestedMethod: String? = nil,
-        recorded: [MavenTestCaseOutcome]
-    ) -> [MavenTestCaseOutcome] {
-        let covered = requestedClasses.isEmpty
-            ? Array(Set(recorded.map(\.className)))
-            : requestedClasses
-        let isCovered: (String) -> Bool = { className in
-            covered.contains { className == $0 || className.hasPrefix($0 + "$") }
-        }
-        let retained = previous.filter { outcome in
-            if let requestedMethod {
-                return !covered.contains(outcome.className) || outcome.method != requestedMethod
-            }
-            return !isCovered(outcome.className)
-        }
-        let selected = recorded.filter { outcome in
-            guard let requestedMethod else { return true }
-            return covered.contains(outcome.className) && outcome.method == requestedMethod
-        }
-        return retained + selected
     }
 
     private func relativeProjectPaths(_ files: [URL], workspaceURL: URL) -> [String] {
@@ -611,6 +573,7 @@ package final class LanguageTestService: ObservableObject {
         _ scope: LanguageTestScope,
         workspaceURL: URL
     ) throws -> LanguageTestExtensionScope {
+        guard scope.buildReference == nil else { throw LanguageTestPlanError.unsupportedProvider("Build Provider") }
         switch scope {
         case .workspace:
             return .workspace
@@ -619,7 +582,7 @@ package final class LanguageTestService: ObservableObject {
                 throw LanguageTestPlanError.fileOutsideWorkspace(fileURL)
             }
             return .file(relativePath: path)
-        case .testCase(let identifier, let fileURL):
+        case .testCase(let identifier, let fileURL, _):
             let path: String?
             if let fileURL {
                 guard let relative = relativePath(fileURL, workspaceURL: workspaceURL) else {
@@ -657,31 +620,6 @@ private struct LastRun {
     let workspaceURL: URL
     let projectFiles: [URL]
     let options: RunOptions
-}
-
-private final class LanguageTestOutputCapture: @unchecked Sendable {
-    private let lock = NSLock()
-    private let maximumCharacters: Int
-    private var value = ""
-
-    init(maximumCharacters: Int) {
-        self.maximumCharacters = maximumCharacters
-    }
-
-    func append(_ chunk: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        value += chunk
-        if value.count > maximumCharacters {
-            value.removeFirst(value.count - maximumCharacters)
-        }
-    }
-
-    func snapshot() -> String {
-        lock.lock()
-        defer { lock.unlock() }
-        return value
-    }
 }
 
 private final class LanguageTestTimeoutMarker: @unchecked Sendable {

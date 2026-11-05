@@ -1,6 +1,6 @@
 //! Executes the existing Git engine's invocations on its request-scoped host.
 
-use super::{execution_events, execution_policy, GitProcessOutput};
+use super::{command_trace, execution_events, execution_policy, GitProcessOutput};
 use crate::protocol::{CoreError, ErrorCode};
 use crate::remote::{workspace, workspace_host};
 use lithe_remote::protocol::methods::{self, EnvironmentSource, OutputStream, SpawnParams};
@@ -18,6 +18,7 @@ pub(super) fn capture(
     disable_optional_locks: bool,
     environment: &[(String, String)],
     visible: bool,
+    trace: &mut command_trace::Trace,
 ) -> Option<Result<GitProcessOutput, CoreError>> {
     workspace::current().map(|host| {
         let session = &host.connection.session;
@@ -92,6 +93,7 @@ pub(super) fn capture(
             .ok()
             .and_then(|value| value["exitCode"].as_i64())
             .and_then(|code| i32::try_from(code).ok());
+        trace.observe(exit, &stderr);
         if let Some(invocation) = invocation {
             let expected = !visible
                 && exit == Some(1)

@@ -1,5 +1,6 @@
 import Foundation
 import LitheGitModule
+import LitheModuleAPI
 
 /// Typed Git operations exposed by Rust Core.
 ///
@@ -142,6 +143,56 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: change.repositoryRoot, operation: "discardAll", paths: change.pathspecs)
     }
 
+    func prepareRollback(at root: URL, changes: [GitChange], deleteAddedFiles: Bool) -> Result<GitRollbackPlan, GitRollbackFailure> {
+        struct Change: Encodable {
+            let path: String
+            let originalPath: String?
+            let status: String
+        }
+        struct Request: Encodable {
+            let root: String
+            let changes: [Change]
+            let deleteAddedFiles: Bool
+        }
+        let request = Request(root: root.standardizedFileURL.path, changes: changes.map {
+            Change(path: $0.path, originalPath: $0.originalPath, status: String($0.indexStatus) + String($0.workTreeStatus))
+        }, deleteAddedFiles: deleteAddedFiles)
+        let result: Result<GitRollbackPlan, RustCoreBridge.CoreCallError> = core.executeResult(command: "git.rollbackPrepare", payload: request)
+        return result.mapError { GitRollbackFailure($0.userMessage) }
+    }
+
+    func executeRollbackStep(at root: URL, step: GitRollbackPlan.Step) -> GitProcessResult? {
+        write(at: root, operation: step.operation.rawValue, paths: step.paths)
+    }
+
+    func changelistProjection(_ request: GitChangelistCoreRequest) -> GitChangelistCoreProjection? {
+        let result: Result<GitChangelistCoreProjection, RustCoreBridge.CoreCallError> = core.executeResult(command: "git.changelists", payload: request)
+        return try? result.get()
+    }
+
+    func reconcileDeletedSelection(at root: URL, changes: [GitChange]) -> GitProcessResult? {
+        struct Change: Encodable { let path: String; let status: String }
+        struct Request: Encodable { let root: String; let changes: [Change] }
+        struct Response: Decodable { let unstaged: [String] }
+        let request = Request(root: root.standardizedFileURL.path, changes: changes.map {
+            Change(path: $0.path, status: String($0.indexStatus) + String($0.workTreeStatus))
+        })
+        let result: Result<Response, RustCoreBridge.CoreCallError> = core.executeResult(command: "git.reconcileDeletedSelection", payload: request)
+        switch result {
+        case .success: return GitProcessResult(output: "", exitCode: 0)
+        case .failure(let error): return GitProcessResult(output: error.userMessage, exitCode: 1)
+        }
+    }
+
+    func prepareCommitSelection(_ request: GitCommitSelectionRequest) -> GitProcessResult? {
+        struct Response: Decodable { let prepared: Bool }
+        let result: Result<Response, RustCoreBridge.CoreCallError> = core.executeResult(command: "git.prepareCommitSelection", payload: request)
+        switch result {
+        case .success(let response): return GitProcessResult(output: "", exitCode: response.prepared ? 0 : 1)
+        case .failure(let error): return GitProcessResult(output: error.userMessage, exitCode: 1)
+        }
+    }
+
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
         let result: Result<GitWorkspaceCommitPreparation, RustCoreBridge.CoreCallError> = core.executeResult(
             command: "git.workspaceCommitPrepare", payload: request)
@@ -171,6 +222,11 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: rootURL, operation: "reset", revision: hash, mode: mode)
     }
 
+    func historyActionCapabilities(at rootURL: URL, revisions: [String], operationID: String) -> Result<GitHistoryActionCapabilities, GitHistoryActionFailure> {
+        core.gitHistoryActionCapabilities(at: rootURL, revisions: revisions, operationID: operationID)
+            .mapError { _ in GitHistoryActionFailure() }
+    }
+
     func historyRewritePreview(at rootURL: URL, operation: GitHistoryRewriteOperation, revisions: [String]) -> GitHistoryRewritePreview? {
         switch core.gitHistoryRewritePreview(at: rootURL, operation: operation, revisions: revisions) {
         case .success(let preview): return preview
@@ -189,13 +245,28 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: rootURL, operation: "createBranch", reference: reference, name: name, checkout: false)
     }
 
-    func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure> {
-        core.gitPatchExport(at: rootURL, source: source, paths: paths, base: base, target: target, metadataOnly: metadataOnly)
-            .mapError { GitPatchFailure($0.userMessage) }
+    func shelfCapture(at rootURL: URL) -> Result<GitShelfSnapshot, GitPatchFailure> {
+        core.gitShelfCapture(at: rootURL).mapError { GitPatchFailure($0.userMessage) }
+    }
+    func shelfPlan(at rootURL: URL, phase: GitShelfPhase) -> Result<GitShelfPlan, GitPatchFailure> {
+        core.gitShelfPlan(at: rootURL, phase: phase).mapError { GitPatchFailure($0.userMessage) }
+    }
+    func shelfStep(at rootURL: URL, phase: GitShelfPhase, layer: GitShelfLayer, snapshot: GitShelfSnapshot) -> GitProcessResult? {
+        switch core.gitShelfStep(at: rootURL, phase: phase, layer: layer, snapshot: snapshot) {
+        case .success: return GitProcessResult(output: "", exitCode: 0)
+        case .failure(let error): return GitProcessResult(output: error.userMessage, exitCode: 1)
+        }
     }
 
-    func inspectSavedPatch(at rootURL: URL, patch: String) -> Result<GitPatchPreview, GitPatchFailure> {
-        core.gitPatchPreview(at: rootURL, patch: patch, target: .worktree, metadataOnly: true)
+    func captureCommitMessageContext(_ repositories: [GitCommitMessageRepository]) -> Result<GitCommitMessageCoreCapture, GitPatchFailure> {
+        core.gitCommitMessageCapture(repositories).mapError { GitPatchFailure($0.message) }
+    }
+    func checkCommitMessageContext(_ context: GitCommitMessageContext) -> Bool {
+        (try? core.gitCommitMessageCheck(context).get()) == true
+    }
+
+    func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure> {
+        core.gitPatchExport(at: rootURL, source: source, paths: paths, base: base, target: target, metadataOnly: metadataOnly)
             .mapError { GitPatchFailure($0.userMessage) }
     }
 
@@ -499,6 +570,18 @@ struct RustGitOperations: GitOperations, Sendable {
             .changes.map { $0.makeChange(repositoryRoot: root) }
     }
 
+    func repositoryColorAssignments(_ request: GitRepositoryColorPageRequest) -> GitRepositoryColorPage? {
+        let result: Result<GitRepositoryColorPage?, RustCoreBridge.CoreCallError> = core.executeNullableResult(
+            command: "git.repositoryColorAssignments", payload: request)
+        switch result {
+        case .success(let page):
+            return page
+        case .failure(let error):
+            core.coreLogSink?.emit(AppCoreFallbackSelected(error: LogFailure(domain: "RustCore", code: error.code), stage: "git.repositoryColorAssignments"))
+            return nil
+        }
+    }
+
     func repositories(in workspaceURL: URL) -> [URL] {
         core.workspaceRepositories(at: workspaceURL)?.repositories.map {
             URL(fileURLWithPath: $0.path).standardizedFileURL
@@ -511,6 +594,39 @@ struct RustGitOperations: GitOperations, Sendable {
 
     func worktrees(at rootURL: URL) -> [GitWorktree]? {
         core.gitWorktrees(at: rootURL)?.worktrees.map { $0.makeModel() }
+    }
+
+    func savedStashFiles(at rootURL: URL, reference: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure> {
+        savedFiles(core.gitSavedStashDiff(at: rootURL, reference: reference), version: "Stash", base: base)
+    }
+
+    func savedShelfFiles(at rootURL: URL, patch: String, version: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure> {
+        savedFiles(core.gitParseSavedPatch(at: rootURL, patch: patch), version: version, base: base)
+    }
+
+    private func savedFiles(_ result: Result<RustCoreBridge.GitDiffPayload, RustCoreBridge.CoreCallError>, version: String, base: String) -> Result<[GitSavedPatchFile], GitPatchFailure> {
+        switch result {
+        case .failure(let error):
+            let message: String
+            switch error.message {
+            case "Saved patch exceeds 32 MiB":
+                message = L10n.string("Patches must be at most 32 MiB.")
+            case "Saved patch must contain valid UTF-8":
+                message = L10n.string("Saved changes contain text that is not UTF-8. Inspect the stash with Git.")
+            default:
+                let summary = L10n.string("Could not load saved changes")
+                message = error.details.map { summary + ": " + $0 } ?? summary
+            }
+            return .failure(GitPatchFailure(message))
+        case .success(let response):
+            guard let files = response.files else {
+                return .failure(GitPatchFailure(L10n.string("Could not load saved changes")))
+            }
+            return .success(files.map { file in
+                GitSavedPatchFile(file: GitCommitFile(status: file.status, path: file.path),
+                    version: version, base: base, patch: file.patch, document: file.makeDocument())
+            })
+        }
     }
 
     func diffPatch(
@@ -608,6 +724,10 @@ struct RustGitOperations: GitOperations, Sendable {
         }
     }
 
+    func historyDateMatches(_ query: GitHistoryDateQuery) -> [String]? {
+        core.gitHistoryDateQuery(query)?.matchingIds
+    }
+
     func history(
         at rootURL: URL,
         reference: GitReference?,
@@ -622,6 +742,20 @@ struct RustGitOperations: GitOperations, Sendable {
 
     func references(at rootURL: URL, operationID: String) -> GitReferenceSnapshot? {
         core.gitReferences(at: rootURL, operationID: operationID)?.makeSnapshot()
+    }
+
+    func branchNamePreview(
+        rawName: String,
+        requireName: Bool,
+        references: [GitReference],
+        reference: GitReference?
+    ) -> GitBranchNamePreview? {
+        core.gitBranchNamePreview(
+            rawName: rawName,
+            requireName: requireName,
+            references: references,
+            reference: reference
+        )?.makeModel()
     }
 
     func historyPage(
@@ -639,6 +773,29 @@ struct RustGitOperations: GitOperations, Sendable {
             order: "date",
             operationID: operationID
         )?.makePage()
+    }
+
+    func historyLocate(
+        at rootURL: URL,
+        reference: GitReference?,
+        target: String,
+        cursor: String?,
+        limit: Int,
+        maxPages: Int,
+        operationID: String
+    ) -> GitHistoryLocateResult? {
+        core.gitHistoryLocate(
+            at: rootURL,
+            reference: reference?.fullName,
+            // A cursor is bound to the traversal order that produced it, and
+            // macOS pages visible history in IDEA's date order.
+            order: "date",
+            target: target,
+            cursor: cursor,
+            limit: limit,
+            maxPages: maxPages,
+            operationID: operationID
+        )?.makeResult()
     }
 
     func closeHistoryCursor(at rootURL: URL, cursor: String) -> Bool {
@@ -663,13 +820,13 @@ struct RustGitOperations: GitOperations, Sendable {
         for reference: GitReference,
         at rootURL: URL
     ) -> GitBranchComparison? {
-        guard let payload = core.gitComparison(at: rootURL, gitReference: reference) else {
+        guard let payload = core.gitComparison(at: rootURL, gitReference: reference, includeUntracked: true) else {
             return nil
         }
         return GitBranchComparison(
             reference: reference,
             files: payload.files.map { file in
-                GitBranchComparisonFile(status: file.status, path: file.path)
+                GitBranchComparisonFile(status: file.status, path: file.path, isUntracked: file.isUntracked ?? false)
             }
         )
     }
@@ -702,6 +859,14 @@ struct RustGitOperations: GitOperations, Sendable {
                 date: stash.date
             )
         }
+    }
+
+    func workspaceStatusPlan(roots: [String], previousRoots: [String], outcomes: [GitWorkspaceStatusOutcome]) -> GitWorkspaceStatusPlan? {
+        core.gitWorkspaceStatusPlan(roots: roots, previousRoots: previousRoots, outcomes: outcomes)
+    }
+
+    func resolveFileContext(fileURL: URL, relativeTo rootURL: URL) -> GitFileContext? {
+        core.gitFileContext(fileURL: fileURL, relativeTo: rootURL)
     }
 
     func blame(at rootURL: URL, relativePath: String) -> [GitBlameLine]? {

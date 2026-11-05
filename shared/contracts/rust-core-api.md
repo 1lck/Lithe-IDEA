@@ -1,5 +1,135 @@
 # Rust Core API
 
+## Normalized shortcut import validation
+
+`keymap.decodeImport` accepts `{commandIDs: string[], reply: {bindings:
+[{commandID: string, keys: [{key: string, modifiers: string[]}]}]}}` and
+returns `{bindings: [...]}`. The caller supplies its current action catalog;
+unknown or duplicate actions, duplicate keys or modifiers, unknown fields,
+unsupported keys and unmodified printable keys fail with `invalid_request` and
+no partial result. Modifiers are `control`, `alt`, `shift` and `meta`, in
+that canonical order. Keys are lowercase single ASCII graphic characters,
+`f1` through `f24`, or `up`, `down`, `left`, `right`, `return`, `tab`,
+`space`, `backspace`, `delete`, `escape`, `pageup`, `pagedown`, `home`, `end`
+and `insert`. This is the portable vocabulary; each host must still reject keys
+its native input and shortcut model cannot represent. A printable character or `space` requires `control`, `alt` or
+`meta`. Empty key lists represent an explicit unbinding. Actions are returned
+in ID order; each action's key order is retained because the first is its
+primary binding. A shortcut used by different actions is retained for the
+host's final conflict check. Requests are limited to 1 MiB, 4096 catalog IDs,
+4096 actions, eight keys per action and 128 UTF-8 bytes per ID. The shared
+[fixtures](../fixtures/keymap/import-provider-v1.json) cover this contract.
+
+This validates normalized results only. It neither parses an IDE's private
+format nor discovers or starts a provider; an unimplemented provider API must
+not be inferred from the existence of this Core command. Conditional rules and
+multi-stroke keys cannot be represented and must not be silently made global.
+
+`debug.startOrContinue` accepts `{active, paused, requestPending}` booleans and returns
+`{action: "start" | "continue" | "none"}`. An in-flight request or an active,
+non-paused session returns `none`; an inactive session starts, and an active
+paused session continues. The platform executes the result against its current
+session and must still guard against state changes.
+
+`keymap.planImportBindings` accepts `{current: [{commandID, customized, keys}],
+incoming: {bindings}}` and returns `{displaced, conflicts}`. Current entries
+are the host's complete action catalog and effective key-press bindings;
+non-key-press bindings remain in the host and are never displaced. Incoming
+bindings use the same validation as `keymap.decodeImport`. Each displacement
+names an unchanged default action and only the keys to remove. A customized
+owner or two imported actions claiming the same key produces a conflict naming
+`commandID`, `ownerID` and `key`; a conflict clears all displacements so a
+caller cannot apply a partial plan. Actions included in the import replace
+their old bindings, permitting swaps. Results are deterministic. Requests are
+bounded to 1 MiB, 4096 actions, eight keys per action, 4096 conflicts and
+131072 ownership comparisons. Hosts must recheck the source and settings
+revisions at apply time. See [plan fixtures](../fixtures/keymap/import-plan-v1.json).
+
+`keymap.planImportSources` accepts `{manifest, providerID}` and returns
+`{inputs, recognition, limits}` for exactly that declared provider after validating the entire
+manifest; an unknown provider or invalid manifest returns `invalid_request`.
+The payload is bounded to 1 MiB. It performs no filesystem I/O and does not
+establish package trust: callers must supply the enabled, previously accepted
+plugin manifest. Selectors and native read limits are defined by the
+[plugin contract](plugins/v1/README.md#shortcut-import-providers-core-foundation).
+The returned limits bound selectors, recognition probes, files, bytes per file and per snapshot,
+bytes per chunk, directory entries scanned and matching entries per directory;
+native adapters apply these values to their I/O.
+See [source plan fixtures](../fixtures/keymap/source-plans-v1.json).
+
+For the provider foundation, `lsp.startServer` optionally accepts
+`keymapImportProviders`, an array of at most eight declared plugin-local IDs.
+Only a plugin-owned session with valid IDs offers
+`experimental.litheKeymapImport: {versions: [1], providers}`. A backend may
+select a non-empty, duplicate-free subset using `{version: 1, providers}`;
+Core emits `keymapImportProviders` with `result: {providers}` only for a valid
+selection. Invalid IDs, unknown selections and unsupported versions enable no
+providers. This negotiation alone does not implement the product workflow. See the
+[negotiation fixtures](../fixtures/keymap/provider-negotiation-v1.json).
+
+`lsp.keymapImportRequest` accepts `{sessionId, operationId?, providerID,
+snapshotID, timeoutMilliseconds?}` and returns `{operationId}`. The requested
+provider must have been selected in that exact session. `snapshotID` is an
+opaque 1–128 byte ASCII alphanumeric, hyphen or underscore token, never a
+filesystem path; the native snapshot service must separately enforce ownership,
+expiry and read permissions before supplying any source data. The method sends
+`lithe/keymap/import` with only `{providerID, snapshotID}` and caps the request
+deadline at 60 seconds. Completion returns the untrusted JSON-RPC reply as
+`result.value: {id, response}`; callers must validate successful reply data via
+`keymap.decodeImport` before applying it. Replies larger than 1 MiB fail with
+`plugin.keymapImport.replyTooLarge`; no partial result is returned. Normal
+session cancellation and teardown apply. Backend attempts to call
+`lithe/keymap/*` are refused as recursive domain calls. The macOS host has a
+scoped snapshot service, but native provider discovery and a product consumer
+are not implemented yet.
+
+## Shortcut context compilation
+
+`keymap.parseContext` accepts `{expression: string}` and returns
+`{parsed: {keys: string[], values: boolean[]} | null, error: {code: string, byteOffset: number} | null}`.
+Exactly one of `parsed` and `error` is non-null. Diagnostics use zero-based UTF-8
+byte offsets in the original expression, not editor UTF-16 positions.
+
+The grammar supports boolean context identifiers (`[A-Za-z0-9_.]+`, with
+`true`/`false` reserved), quoted strings, parentheses, unary `!`, strict typed
+`==`/`!=`, `&&`, and `||`, in that descending precedence order (unary precedes
+equality, which precedes AND and OR). Comparisons are not chainable; use explicit
+boolean operators. Strings support escaped quotes, backslash, `n`, `r`, and `t`.
+Missing context keys are false; non-empty strings are truthy. Whitespace-only
+source is an unconditional match. This is Lithe's boolean context grammar,
+not the full VS Code context-key language.
+
+Source is limited to 4096 UTF-8 bytes, 128 tokens, 32 nested parentheses/unary
+operations, and 12 distinct context identifiers. Full consumption is required.
+Syntax diagnostic codes are `invalid_character`, `invalid_escape`,
+`unclosed_string`, `expected_operand`, `expected_closing_paren`,
+`trailing_token`, `too_long`, and `too_complex`. Syntax diagnostics are
+successful protocol responses with no partial plan; malformed request shapes
+use the existing `invalid_request` envelope.
+
+Core computes the entire truth table. `keys` are sorted by ASCII order and
+`values` has exactly `2 ** keys.length` entries; key zero supplies the least
+significant bit of the index. A native boolean snapshot can synchronously
+project its key values to that index and look up the Core-produced result.
+Hosts must not tokenize source, interpret an AST, or recompute expression
+semantics. This preserves synchronous keyboard default prevention without
+an IPC round trip per key event. The maximum table has 4096 outcomes.
+
+`keymap.evaluateContext` accepts `{parsed, context: {[key: string]: boolean}}`
+and returns `{matches: boolean}`. It evaluates the same precompiled table,
+rejecting oversized, noncanonical, duplicate-key or incorrectly sized plans
+with `invalid_request`; it never reparses source. Parsed tables are portable
+data, not authorization tokens. Neither command retains global state.
+
+Windows validates imports before changing the preset/store and validates
+additions/updates before persistence. Hydrated/default/extension bindings stay
+inactive until their Core table is ready; invalid conditions stay inactive.
+Compilation is refreshed on binding/preset changes, and the keyboard owner
+releases preparations on teardown. Expression caching is limited to 256 entries
+and native compilation to 16 outstanding requests. Cache limits, teardown and
+stale-store guards belong to the window adapter. macOS has no free-form
+`when` parser and is unchanged. See `shared/fixtures/keymap/context-v1.json`.
+
 The Rust core is the shared application runtime for macOS SwiftUI and Windows
 React/Tauri. macOS calls the stable C ABI while the Tauri host links the Rust
 crate directly. The C ABI remains:
@@ -12,6 +142,8 @@ int32_t lithe_core_git_askpass(const char *prompt);
 char *lithe_core_lsp_provider_catalog_json(const char *workspace_root);
 int32_t lithe_core_cancel(const char *operation_id);
 void lithe_core_free_string(char *value);
+void lithe_core_install_log_waker(void (*callback)(void *), void *context);
+int32_t lithe_core_remove_log_waker(void *context);
 void *lithe_agent_open_json(const char *configuration, void (*callback)(const char *, void *), void *context);
 int32_t lithe_agent_send_json(void *handle, const char *command);
 void lithe_agent_close(void *handle);
@@ -29,6 +161,10 @@ without a Windows-only setting. The planner requires a Java executable and a
 known JDK feature version of at least 9, obtained through
 `java_feature_version_from_release`; other launches remain unchanged. It stops
 at the application target (class, JAR, or module), preserving all program arguments.
+JSON hosts may instead supply `javaReleaseContents`, an array of host-read
+release files ordered nearest first. Core reads the first `JAVA_VERSION` entry;
+an unrecognized version remains unknown rather than falling back to an ancestor.
+An explicit `javaFeatureVersion` takes precedence over the supplied contents.
 Core owns the Unicode argument-file text and quoting. The Windows host encodes
 that text losslessly using the launcher's actual system code page, independently
 of the JDK feature version: JEP 400 does not make native launcher arguments UTF-8.
@@ -52,6 +188,23 @@ argument limit (`ARG_MAX`) is far above the Windows cap, so a direct JDK 8
 launch already succeeds there.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
+
+Rust native adapters may call `execution::java_version_from_release` to read the
+full JDK version from bounded host-read `release` metadata, then reuse Core's
+runtime candidate ordering. Passive Build discovery never falls back to running
+Java when that metadata is missing or invalid; explicit tool execution owns probes.
+### Localized action search
+
+`search.actions` accepts `{query, candidates: [{texts: [string]}]}` and returns
+`{indices: [integer]}`. Native hosts supply the original title, subtitle and group
+alongside their current interface translations. Plugin-owned titles stay verbatim.
+Core performs case-insensitive, NFC-normalized Unicode subsequence matching after removing query
+whitespace, preserving input order and returning zero-based candidate offsets.
+It retains no catalog, performs no workspace I/O, and never executes actions.
+The request is limited to 4096 candidates, 16 fields per candidate, 2 MiB of text
+and a 4096-byte query; excess input returns `invalid_request`.
+[Action search fixtures](../fixtures/search/actions-v1.json) cover both languages,
+English aliases, ordered results, Unicode and literal plugin titles.
 
 ### Remote workspace path identity
 
@@ -609,9 +762,10 @@ context must remain valid until close returns. This API is owned by
 ## Envelope
 
 The typed `lithe_core::ai` API provides credential-free commit request planning,
-configuration parsing, and response decoding. Its [AI commit contract](ai-commit.md)
-documents the Windows adapter and current macOS migration boundary. It does not
-add a JSON command or change the C ABI.
+configuration parsing, and response decoding. macOS uses `ai.commitInputBudget`,
+`ai.planCommit`, and `ai.decodeCommitMessage` over the existing JSON C ABI; Windows
+uses the typed API. The [AI commit contract](ai-commit.md) defines the bounded diff
+prefixes, payloads, errors and platform-owned I/O.
 
 Every request has this shape:
 
@@ -620,6 +774,7 @@ Every request has this shape:
   "id": "request-id",
   "operationId": "operation-id",
   "timeoutMilliseconds": 30000,
+  "origin": { "source": "user", "trigger": "find-in-files", "operation": "op-7f3a" },
   "command": "workspace.search",
   "payload": {}
 }
@@ -631,6 +786,15 @@ cooperative deadline. `lithe_core_cancel` is thread-safe and returns `1` when
 the operation is active. Cancellation and deadlines are checked at command
 boundaries, workspace traversal points, and Git process waits. They return
 `cancelled` or `timed_out` in the standard error envelope.
+
+`origin` is optional diagnostics provenance:
+`{ source?: "user" | "background" | "unknown", trigger?: string, operation?: string }`.
+It never changes command behavior. `trigger` is the stable identifier of the UI
+action that caused the request, and `operation` is the correlation identifier
+shared by that action and every request it caused. A `trigger` must be 1–64
+bytes of ASCII letters, digits and `._:/-$`, and an `operation` 1–128 bytes of
+ASCII letters, digits and `._:/@+-`. A value outside its shape is omitted from
+the trace instead of failing the request. See [Execution traces](#execution-traces).
 
 Successful responses contain `ok: true` and `data`. Failed responses contain a
 stable error code and a user-facing message:
@@ -986,6 +1150,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `community.discourse.categories` | List normalized visible categories |
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
+| `editor.parseNavigationInput` | Parse a bounded line or line:column input into zero-based editor coordinates |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
 | `workspace.releaseIndexing` | Retire a policy and clear index/cache data at project close; accepts `root`, optional `ownerId`, and that owner's last observed `revision`, returns `released`; an old close must not retire a new generation |
 | `workspace.refreshIndexing` | Refresh external Git decisions for a live `root`, `ownerId`, `revision` lease without changing preferences or release tokens; returns lazy `IndexingStatus` |
@@ -998,6 +1163,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
 | `workspace.replacePreview` | Return deterministic replacement lines and complete replacement text |
+| `workspace.replaceText` | Plan replacement against a host-captured text snapshot without writing |
+| `workspace.searchTextBatch` | Search provider-captured text snapshots using workspace matching rules |
 | `file.read` | Read a UTF-8 file using a workspace-relative path |
 | `file.write` | Write a UTF-8 file using a workspace-relative path |
 | `document.lifecycle` | Reduce a shared document save, external-change, or conflict event without reading text or disk |
@@ -1013,6 +1180,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
 | `execution.resolveEnvironment` | Merge native `inherited` string values, selected `javaHome`/`mavenJavaHome` for the current `toolchain`, and `overrides` into `{ environment }`. `caseInsensitive: true` canonicalizes Windows keys to uppercase. Maven uses Maven JDK with project-JDK fallback; Java uses project JDK. String overrides win; structured `{ toolchain, property: "home" }` bindings use the current step's home for JAVA_HOME, and the named toolchain for other variables. Unknown bindings are omitted. |
+| `execution.resolveSearchPath` | Preserve existing path precedence, sort platform candidates by priority and identity, and deduplicate using the requested case policy. |
 | `execution.planLaunchCommand` | Move oversized Java path-list options into a JDK argument file |
 | `processLifecycle.resolve` | Decide how each process or resource of one Lithe instance ends |
 | `processLifecycle.inventory` | Group a process snapshot of one Lithe instance into terminals, Agent tasks and background services |
@@ -1049,10 +1217,11 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.builtinCompletions` | Return lightweight current-file identifier completions |
 | `lsp.builtinHover` | Return lightweight current-symbol hover text |
 | `lsp.builtinNavigation` | Return lightweight current-file definition/reference locations |
+| `lsp.documentUri` | Convert a native absolute path into a canonical file URI |
 | `lsp.startServer` | Start one Rust-owned process/session and begin initialization |
 | `lsp.jdtWorkspaceKey` | Derive the deterministic JDT LS workspace-state directory key |
 | `java.workspacePolicy` | Decide Java workspace activation and classify changed paths |
-| `java.runMarkers` | Project JDT main/test discovery and Maven test outcomes into editor Run markers |
+| `java.runMarkers` | Project JDT main/test discovery and canonical build test outcomes into editor Run markers |
 | `java.jdtWorkspaceFingerprint` | Reduce platform build-file observations to the portable JDT LS workspace fingerprint |
 | `java.jdtCacheRetention` | Select expired inactive JDT LS workspace-state keys from platform metadata |
 | `lsp.stopServer` | Gracefully shut down a session, with a bounded force-stop fallback |
@@ -1067,7 +1236,11 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.functionRequest` | Invoke one registered plugin function on a session its plugin started |
 | `lsp.hostResponse` | Answer one host-service request a plugin backend sent |
 | `lsp.hostNotify` | Send one host notification to a plugin backend that negotiated it |
+| `lsp.pluginServerRequest` | Send one request of a plugin backend to the plugin's own language server, under the plugin's declared session policy |
+| `lsp.pluginServerNotify` | Send one notification of a plugin backend to the plugin's own language server |
+| `lsp.configureFunctionRelay` | Replace the enabled plugins and live workspace contexts Core's plugin-to-plugin function relay checks calls against |
 | `lsp.toolchainRequest` | Send one `toolchains/query` to a plugin backend that negotiated the provider |
+| `lsp.keymapImportRequest` | Send one shortcut import request to a negotiated plugin provider |
 | `lsp.vcsRequest` | Send one VCS operation, planned by Core, to a session that negotiated the VCS-provider protocol |
 | `java.prepareLaunch` | Prepare a saved Java source through shared entry selection, serialized build and runtime path resolution |
 | `java.navigationMarkers` | Resolve versioned Java gutter markers from bounded JDT LS semantic requests |
@@ -1087,9 +1260,13 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `mybatis.index` | Build a deterministic MyBatis mapper-interface and XML statement index |
 | `runConfig.selectJava` | Select a project-compatible automatic JDK from platform-probed candidates |
 | `runConfig.inspect` | Inspect `.lithe` run documents, versions, and staleness without writing files |
+| `runConfig.projectToolchain` | Read saved project tool paths for one Provider root, with the nearest path override |
 | `runConfig.generate` | Generate deterministic Java/Maven configurations and toolchain requirements |
 | `runConfig.resolve` | Merge generated, project, and local layers and return diagnostics |
+| `runConfig.selectContextConfiguration` | Choose a matching effective configuration for a provider-supplied source and entry identity |
 | `runConfig.updateOptions` | Apply typed option edits and return an updated project or local document |
+| `runConfig.updateToolPreferences` | Replace only generic preferences in a captured local Run document, preserving legacy defaults and unrelated metadata |
+| `runConfig.argumentText` | Format a batch of exact argument vectors as reversible editor text |
 | `runConfig.saveEditorChanges` | Prepare the local and optional project documents for one editor save |
 | `runConfig.createUserConfiguration` | Validate a typed user configuration and return an updated document |
 | `runConfig.createLaunchPlan` | Project one effective configuration into a platform-neutral Run or Debug plan |
@@ -1097,13 +1274,24 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.initialize` | Initialize a directory outside existing repositories without staging or committing |
 | `git.configureIdentity` | Save or clear one local/global `user.name` or `user.email` override |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
+| `git.workspaceStatusMerge` | Plan publication of fresh, retained, and unavailable repository snapshots |
+| `git.rollbackPlan` | Plan whole-file rollback from explicit Git status identities without reading or changing a repository |
+| `git.rollbackPrepare` | Recheck selected identities against the repository and return rollback steps |
+| `git.prepareCommitSelection` | Prepare and verify the real indexes for explicitly selected changes |
+| `git.reconcileDeletedSelection` | Clear missing selected staged additions after filesystem deletion |
+| `git.changelists` | Reduce local ChangeList metadata and project membership and commit scope |
+| `git.commitMessageContext` | Capture bounded AI commit evidence and recheck its Git state |
 | `git.untrackedDirectory` | List one level of a summarized untracked directory: its files and subdirectory summaries |
 | `git.commitState` | Read exact HEAD, symbolic branch and index preconditions for a workspace commit |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
+| `git.classifyMetadataChanges` | Classify a bounded page of coalesced watcher paths without filesystem access |
 | `git.worktrees` | Return deterministic registered-worktree metadata without scanning each checkout |
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
+| `git.pullRequestCheckoutPreview` | Inspect and review a non-destructive PR checkout plan |
+| `git.pullRequestCheckout` | Recheck and execute a reviewed PR checkout without resetting an existing branch |
 | `git.command` | Execute one argument-based Git operation and return its arguments, streams, exit code, and ordered subprocess invocations |
 | `git.repositoryRoot` | Resolve the repository root containing a workspace path without acquiring repository write coordination |
+| `git.resolveFileContext` | Resolve a file to its owning Git checkout and relative path |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
 | `git.fetchPlan` | Validate Fetch choices; optionally inspect a repository to expand enabled per-remote commands |
 | `git.consolePresentation` | Pure IDEA-style configuration/progress folds, empty-output notices and search ranges over retained diagnostic snapshots |
@@ -1118,16 +1306,26 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `remote.disconnect` | Close an open connection and its OpenSSH process tree |
 | `remote.closeAll` | Close every open connection; the host calls it at application exit |
 | `git.historyRewritePreview` | Review undo, message edit, squash, or drop with complete messages, eligibility, and an immutable checkout expectation |
+| `git.historyActionCapabilities` | Read history menu hints from actual HEAD and the bounded first-parent chain |
 | `git.rebasePreview` | Resolve the complete local linear range strictly after a selected unchanged base |
 | `git.rebaseStart` | Start a reviewed native interactive rebase with persisted messages and recovery identity |
 | `git.rebaseSession` | Read the latest owned rebase session and distinguish edit/conflict pauses from completion |
 | `git.rebaseControl` | Continue, skip, or abort an identified session, optionally amending an edit pause |
-| `git.diff` | Produce a structured working-tree, index, reference, or commit patch |
+| `git.diff` | Produce a structured working-tree, index, reference, commit, or stash patch |
+| `git.parsePatch` | Parse a complete saved patch into Core-owned per-file documents |
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
 | `git.history` | Return the legacy combined reference snapshot and first bounded commit page |
 | `git.references` | Return deterministic refs, recent local branches, ahead/behind state, and effective Git identity without scanning commit history |
-| `git.historyPage` | Return one bounded commit page, parent hashes, decorations, author dates with their UTC offset (`dateUtcOffsetMinutes`, east positive, `null` when unknown), and an opaque continuation cursor |
+| `git.remotes` | Return configured fetch remote names and URLs |
+| `git.tags` | Return tag names, tag object IDs, target IDs, dates, and annotations |
+| `git.parseCheckoutMetadata` | Interpret bounded HEAD text without filesystem access |
+| `git.parseGitdirPointer` | Interpret a bounded gitdir pointer without filesystem access |
+| `git.historyPage` | Return one bounded commit page, author date, UTC offset, optional Unix timestamp, and an opaque continuation cursor |
+| `git.historyQuery` | Compare bounded commit date identities with explicit absolute time bounds |
 | `git.historyCursorClose` | Release an unfinished incremental history cursor and its Git process |
+| `git.historyLocate` | Append bounded history pages until one commit is found and report the budget, window cursor, and exhaustion |
+| `git.branchNamePreview` | Clean and validate a new branch name against already loaded references without running Git |
+| `git.repositoryColorAssignments` | Assign color slots to a bounded page of ordered repository identities |
 | `git.pushPreview` | Resolve a local branch push destination and the bounded commits not present on that remote base |
 | `git.commit` | Return one structured commit by revision with its full message body |
 | `git.commitFiles` | Return files changed by one commit |
@@ -1143,8 +1341,21 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `github.parseRemote` | Parse a canonical GitHub HTTPS or SSH remote into owner/name |
 | `github.requestPlan` | Validate one GitHub operation and produce a trusted platform HTTP request plan |
 | `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
+| `github.deviceAuthorizationTransition` | Plan the next device-authorization action, polling interval, and deadline-bounded wait |
+| `github.pullRequestCheckoutPlan` | Plan a PR's safe local branch and report an existing-ref conflict |
 | `diagnostics.prepareLogEvent` | Normalize a bounded application event and recursively redact structured fields |
 | `diagnostics.queryLogs` | Merge and filter bounded host-collected module log tails |
+| `diagnostics.encodeLogBatch` | Encode independent structured v2 log events with per-item errors |
+| `diagnostics.parseLogFilter` | Parse bounded filter expressions and UTF-16 diagnostic ranges |
+| `diagnostics.composeLogFilter` | Compose a filter predicate preserving unrelated terms |
+| `diagnostics.formatLogRecords` | Validate and format canonical redacted records for copying |
+| `diagnostics.queryLogsV2` | Query structured v2 and legacy v1 native log tails |
+| `diagnostics.planLogCollection` | Plan bounded native log-tail reads from raw file metadata |
+| `diagnostics.planLogRetention` | Plan log cleanup from host-owned file inventories |
+| `diagnostics.resolveEngineLogSubject` | Resolve the same routing segment and channel used by engine startup, without I/O |
+| `diagnostics.resolveLogChannel` | Validate channels and resolve safe session-relative destinations |
+| `diagnostics.drainCoreEvents` | Atomically take process-owned Core log facts and their dropped count |
+| `diagnostics.configureCoreEvents` | Set the DEBUG admission gate for Core log facts from host detailed-diagnostics state |
 | `diagnostics.redactText` | Redact credentials, tokens, and home-directory paths from diagnostic-bundle text |
 | `diagnostics.buildManifest` | Shape a deterministic diagnostic bundle manifest from host-gathered environment and file facts |
 | `plugins.declarative.validate` | Validate and normalize a declarative plugin manifest (plugin contract v1) |
@@ -1152,32 +1363,49 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
 | `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server, build-provider, VCS-provider, backend, or debug-adapter launch with host directories and architecture |
+| `plugins.languageServers.decodeLaunch` | Bound the answer of a plugin backend that resolved a language server's launch and return the plan the host starts |
+| `plugins.languageServers.stateRetention` | Choose which inactive per-workspace state directories of a plugin language server the host deletes |
+| `plugins.contentProviders.decode` | Bound the answer of a plugin content provider function and return the document text |
 | `debug.adapters.startArguments` | Check one debug start against a plugin's `debugAdapters[]` entry and return its DAP launch arguments |
 | `debug.adapters.executablePlan` | Say where to look for the program a launch debugs: the user's setting and the adapter's candidate paths |
 | `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
 | `plugins.declarative.workspaceConfiguration` | Expand a language server's `workspaceConfiguration` with the merged setting values |
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
-| `toolchains.registry` | Revalidate complete enabled plugin manifests and host-verified official origin into a deterministic tool-definition/provider registry; no native host capability claim |
+| `toolchains.registry` | Revalidate complete enabled plugin manifests, `{plugins:[{manifest}]}`, into a deterministic tool-definition/provider registry; the host supplies no origin evidence. A short tool ID defined by several enabled plugins belongs to none of them: none of those definitions is registered, the rest register as usual, and `conflicts: [{tool, pluginIDs}]` (sorted by tool, `pluginIDs` sorted) reports each contested tool. A repeated plugin ID rejects the batch. No native host capability claim |
 | `toolchains.decodeReply` | Validate an inert toolchain query/reply pair against bound provider identity, generation, declared tools and host-native filesystem evidence; no transport or native I/O |
 | `toolchains.failureReply` | Build the JSON-RPC error reply for a query that missed its deadline or found no backend, so the host passes it to `toolchains.decodeReply` like a provider's own error; cancellation has none |
 | `toolchains.resolvePins` | Validate a captured local document and find the nearest ancestor directory pin, retaining dormant and legacy entries without probing or writing |
+| `toolchains.resolveConsumerPreferences` | Validate an inert consumer preference document and resolve one tool's explicit Run, consumer, directory or workspace choice while keeping workspace/consumer inheritance symbolic; no native files or launch authority |
+| `toolchains.editConsumerPreferences` | Edit or reset one exact consumer/directory tool preference; return the document and effective input without native writes |
 | `toolchains.resolve` | Resolve the fixed/project/global/automatic layers from one generation-bound snapshot, retaining unmet requirements, unavailable providers with their cause, conflicts and terminal fixed-value failures |
 | `toolchains.checkVersion` | Match captured output with an enabled plugin definition's version expression and compare generic numeric components with an optional minimum; never starts a probe |
+| `toolchains.instantiateLaunch` | Expand an enabled tool definition's `launch` template for a selected executable, entry, runtime arguments and arguments; a part the template cannot carry is `plugin.toolchain.launchMismatch`; performs no I/O |
 | `toolchains.discoveryPlan` | Return platform-filtered definition-owned scan declarations, layouts, probes, PATH entries, login-shell home variables and budgets; never scans native directories |
 | `toolchains.candidates` | List one tool's login-shell homes and host-scanned installations with checked executables, versions or skip reasons, and the automatic-layer choice; never starts a probe |
 | `plugins.declarative.decodeGrammar` | Validate independent static editor resources (`languages` 2) |
-| `plugins.editorActions.decode` | Validate independent action registration or collection results |
+| `plugins.editorActions.decode` | Validate independent action registration, collection or click results |
+| `plugins.editorProviders.decode` | Validate editor provider registrations and provider function results |
+| `run.decodeStart` | Validate a plugin backend's `lithe/host/run/start` params against its manifest and the workspace, and return the normalized start with temporary-file paths substituted |
+| `debug.decodeBackendConfiguration` | Validate a plugin backend's `lithe/host/debug/start` params against its manifest and return the qualified adapter, request, label and configuration |
+| `outputLinks.match` | Find the links plugin `outputLinkMatchers` declare in Run or Test console lines, as UTF-16 ranges with candidate paths or a backend function to resolve them |
+| `outputLinks.decodeResolution` | Check a matcher's `resolve` function reply and return the 1-based file location to open, or `null` |
 | `build.detect` | Find every build-system instance the enabled plugins declare in a workspace, with models that need no process |
+| `build.resolveStoredOptions` | `{ document, local: { version: 1, document, emptySelections?: { <systemID>: { <root>: [optionID] } } } }`, without a manifest | `storage: { document, local, emptySelections }`: checked team/local merge; local values override matching keys, unrelated systems/roots/choices stay intact. No filesystem I/O. Local documents are machine/workspace preferences, not team files or plugin-native configuration. Their storage syntax is [build-local-options-v1.schema.json](build-local-options-v1.schema.json), with additional cross-field membership and byte limits checked by Core. |
+| `build.editStoredOption` | `{ document, local, root, optionID, value, modelValues? }` in the standard manifest/build-system envelope | `edit: { local, options }`: changes one declared local preference. `null` removes the local override and restores team/declaration inheritance. Invalid or partially accepted edits reject before persistence. Workspace multi-selections preserve sibling-only values; explicit per-root empty markers apply only to workspace multi-select declarations. Platforms compare both native source revisions, atomically write only the local document and read back. |
 | `build.invocationPlan` | List a build system's executable candidates, runtime dependencies, and version probe for one platform |
 | `build.checkToolVersion` | Decide whether a build tool's or runtime's version output meets the declared minimum |
 | `build.resolveModelInputs` | Validate enabled producer facts and project a bounded public model snapshot for a declared consumer |
 | `build.resolveOptions` | Check stored build options against the declaration and return effective values, choices, and the fingerprint |
+| `build.configurationPlan` | Plan a read of the provider's non-sensitive native configuration (v7) |
+| `build.decodeConfiguration` | Validate native source identities, raw/effective values and XML bindings |
+| `build.configurationEditPlan` | Plans format-independent provider editing into private host staging |
+| `build.decodeConfigurationEdit` | Validates the receipt without native document bytes |
 | `build.modelPlan` | Expand the command that prints a command-sourced build model, or the request a build provider answers |
 | `build.taskPlan` | Expand one declared or model task for a workspace, project, or target |
 | `build.testPlan` | Plan a test run for a scope, suite, or case and say where its reports will be |
 | `build.testDiscoveryPlan` | Plan opt-in Provider test discovery for an instance |
 | `build.decodeTestDiscovery` | Validate, deduplicate and order Provider test selectors |
-| `build.prepareRunPlan` | Plan Provider-owned application preparation from a model target |
+| `build.prepareRunPlan` | Plan Provider-owned application/service/task preparation from a model target |
 | `build.decodeRunPreparation` | Validate portable launch data before the native Run host starts a process |
 | `build.prepareDebugPlan` | Plan same-plugin native debug preparation (Provider v5) |
 | `build.decodeDebugPreparation` | Validate an existing instance-contained native debug program and bounded process facts |
@@ -1418,9 +1646,31 @@ validation or probe fails after at least one subprocess was recorded, the
 response retains the invocation trace and includes the failure as
 `operationError`.
 
+`git.workspaceStatusMerge` accepts ordered `roots`, `previousRoots`, and one
+`{ root, success }` outcome per root. It returns ordered entries with source
+`current`, `previous`, or `missing`, plus `confirmedRoots` and `failedRoots`.
+A failure is never a clean snapshot; a previous snapshot is retained only for a
+still-discovered root. Duplicate, foreign, or incomplete outcomes are rejected.
+Hosts keep the actual snapshots and publish the plan only if its request version
+and workspace identity remain current. Failed roots must not confirm pending Git
+mutations or erase their open diff; their displayed data is marked as potentially
+stale. No status data or credentials are persisted by the planner.
+
 `git.repositoryRoot` accepts `{ "root": string }` and returns the normalized
 absolute repository root or `null` when the path is not inside a repository. It
 is read-only and does not acquire the repository write lease.
+
+`git.resolveFileContext` accepts `{ "root": string, "path": string }` and returns
+`{ "root": string, "path": string, "ownership": "git" }` or `null` for a
+file outside Git. A relative path is anchored at the existing root; an absolute
+file may belong to a different checkout. Core discovers the deepest actual Git
+checkout, including nested repositories and linked worktrees. Missing parent
+directories are resolved from the nearest existing directory, while symlinked
+parents are resolved on the owning host and the final filename is not followed.
+Parent traversal components and unsupported Windows path identities are rejected.
+Errors are not treated as a reason to use the active repository. The command is
+read-only, observes the remote workspace IO boundary, and does not cache ownership.
+Windows `remote://` and `wsl://` URI adapters retain their existing host routing.
 
 `git.command` and typed Git writers share the repository's write lease, including
 linked worktrees. A competing request fails with `invalid_request` while a writer
@@ -1473,7 +1723,7 @@ it is not console output. See `shared/fixtures/git/remote-url-v1.json`.
 
 `git.executionInspect` takes `{ root, scope?: "local" | "global" }`, default local.
 It returns `{ executable, version, scope, entries, fields, temporaryConfig,
-fetchOptions, fetchError, fetchSources, credentialHelperEnabled,
+fetchOptions, fetchError, fetchSources, resolvedFetchBehavior, credentialHelperEnabled,
 interactiveAuthentication }`. Entries are `{ key, value, scope, origin, effective }`
 in Git precedence order, limited to relevant configuration and redacted. Effective
 `fetch.prunetags` and `remote.<name>.prunetags` entry values use Git's boolean
@@ -1484,6 +1734,17 @@ the selected file without expanding includes. `configuredValues` retain the raw
 values for optimistic edit checks, even when an effective entry is normalized.
 Fetch source values are `{ scope, origin }` per preference; application sources have null origins. Invalid repository
 preferences return null `fetchOptions` and a structured `fetchError`.
+`resolvedFetchBehavior.tags` is `{ value, source, basis, reasonCode }`, or the
+whole `resolvedFetchBehavior` is null when Fetch options cannot be resolved.
+The value is `reachable`, `all`, `none`, `prune`, `custom`, `remoteDependent`,
+or `unavailable`. `source` is an optional `{ scope, origin }`, `basis` is `git`
+`lithe`, or `multiple` when no single source explains all remotes; `reasonCode` distinguishes `noRemotes` from
+`invalidConfiguration`. Repeated `remote.<name>.fetch` entries remain additive.
+Git's explicit tag refspec and `pruneTags` may fetch tags even with `--no-tags`;
+partial or negative tag refspecs are reported as `custom` rather than guessed.
+All occurrences of relevant boolean settings are checked with Git's parser so
+an invalid shadowed value is not silently interpreted as valid. Inputs and
+outputs are illustrated by `shared/fixtures/git/fetch-behavior-v1.json`.
 
 `git.executionConfigure` adds `{ key, value: string | null, expectedValues:
 string[] }` to the same request. It permits `fetch.prune`, `fetch.prunetags`,
@@ -1576,6 +1837,52 @@ invocation. Limits produce an omission record without suppressing completion.
 Raw parser capture has an independent 32 MiB per-stream bound and fails on
 overflow. See `shared/fixtures/git/execution-events-v1.json`.
 
+`git.rollbackPlan` accepts `changes` (up to 10,000 entries, each containing a
+repository-relative `path`, optional `originalPath`, and the two-character Git
+`status`) and optional `deleteAddedFiles` (default false). It returns ordered
+`steps` containing `operation` and literal `paths`. Added and copied destinations
+are unstaged while their disk contents remain by default; renames restore both
+paths. Adjacent compatible operations are batched. Unsafe, overlapping or
+ambiguous identities are rejected. `git.rollbackPrepare` also accepts `root`,
+checks selected identities using bounded literal-path Git status queries, and
+fails with `GIT_ROLLBACK_STALE_SELECTION` if any selected identity changed.
+Untracked directories are expanded to the untracked files observed at prepare
+time; a file created later is not included in the resulting deletion steps.
+The 10,000-entry limit applies to the input selection, not the number of files
+inside a selected directory. Callers should prepare after confirmation and
+execute steps in order, stopping on failure and refreshing after any attempted
+write. This status check cannot detect content changes that preserve the same
+status or lock out external Git clients between preparation and writes; it is
+not a content snapshot or an atomic transaction.
+
+`git.reconcileDeletedSelection` accepts a repository `root` and the selected
+pre-delete `changes` (`path`, two-character `status`). Under the repository
+write lease, Core re-reads the selected literal paths and unstages only staged
+additions or copy destinations that are now missing. Retained paths, tracked
+deletions, unselected paths, and copy sources are not unstaged. Filesystem
+operations may partially fail and external Git clients do not share this lease;
+hosts must refresh after success or failure, and concurrent external modifications
+are not an atomic snapshot. Up to 10,000 selected identities are accepted.
+
+`git.prepareCommitSelection` accepts `repositories`, a nonempty list of up to
+128 distinct repository roots and each root's selected identities (`path`,
+optional `originalPath`, and two-character Git `status`). At least one selected
+identity is required across all roots and the selection is limited to 10,000
+identities. Hosts supply every repository whose index should be prepared,
+including those with an empty selection, and check their own ChangeList ownership
+before and after the call. Core checks every repository and selected identity
+before writing, rechecks HEAD and index under the existing repository lease,
+unstages other paths, stages selected paths only when not already staged, and
+verifies the exact staged path set and previously staged selected object IDs
+afterward. Selected untracked directories are expanded into observed files;
+untracked embedded repositories and overlapping directory selections are
+rejected, while tracked submodule gitlinks remain selectable. Paths are literal, including for ordinary `git.write`
+staging. The call prepares indexes; it does not create a commit or replace the
+subsequent workspace commit review. On cancellation or failure earlier writes
+may already have succeeded, so hosts must refresh affected repositories. Git
+clients outside Lithe do not share the lease; content changes that preserve the
+same status and races after the last check are not an atomic snapshot guarantee.
+
 `git.write` accepts a typed mutation request. Its required `operation` values are
 `stage`, `unstage`, `discard`, `discardAll`, `stageAll`, `commit`, `ignore`, `exclude`, `cherryPick`, `revert`,
 `reset`, `undoCommit`, `editCommitMessage`, `deleteCommit`, `squashCommits`, `createBranch`, `publishBranch`,
@@ -1584,7 +1891,7 @@ overflow. See `shared/fixtures/git/execution-events-v1.json`.
 `fetch`, `pull`, `push`, `checkout`, `checkoutAndRebase`, `checkoutRevision`, `clone`, `stashPush`,
 `stashApply`, `stashPop`, `stashDrop`, `deleteRemoteBranch`, `operationContinue`,
 `operationAbort`, `operationSkip`, `createTag`, and `deleteTag`. Optional fields are `paths`, `reference`, `referenceKind`,
-`gitReference`, `revision`, `revisions`, `name`, `message`, `remote`, `destination`, `mode`,
+`gitReference`, `revision`, `revisions`, `name`, `message`, `lightweight`, `signed`, `remote`, `destination`, `mode`,
 `includeUntracked`, `checkout`, `amend`, `force`, `pushTags`, `expectedPush`, `autoStash`,
 `worktreeMode`, `noCheckout`, `expectedBranch`, and `expectedState`. The four history actions require the reviewed `expectedState`
 described below; earlier unreviewed history-write callers must migrate.
@@ -1793,6 +2100,19 @@ Native interactive rebases use the dedicated preview/start/session/control
 contract in [git-rebase-session.md](git-rebase-session.md). The base selected
 for “Rebase from Here” remains unchanged; only its successors are rewritten.
 
+`git.historyActionCapabilities` accepts `{root, revisions}` with at most 1,000
+full SHA-1 or SHA-256 commit identities and returns `head`, `canCherryPick`,
+`canUndo`, and `canSquash`. It resolves actual checkout HEAD rather than a
+visible or paginated row. Undo requires a checked-out branch and a HEAD with
+exactly one parent; squash requires a distinct contiguous selection on that
+branch's first-parent history within the latest 1,000 commits. Cherry-pick is
+only offered for a different existing commit. These are structural menu hints,
+not permission to mutate: `git.historyRewritePreview` still checks worktree,
+operation state, unsupported commits, published history, and the reviewed
+snapshot. Clients cancel and discard stale results when the menu closes,
+selection or repository changes, or the history is refreshed. See
+`shared/fixtures/git/history-action-capabilities-v1.json`.
+
 `git.historyRewritePreview` accepts `{ "root": string, "operation": string,
 "revisions": string[] }` for those four operations. It returns `operation`,
 `allowed`, `blockers` (`{ "code": string, "message": string }[]`), nullable
@@ -1853,7 +2173,16 @@ empty value), it creates an annotated tag (`git tag -a`); an absent field
 creates a lightweight tag. UI callers trim new user-entered messages. Core
 passes the supplied annotation with verbatim cleanup so restore preserves
 CRLF and trailing blank lines, and an explicit empty value preserves an empty
-annotated tag. Tag names must satisfy the `git check-ref-format` refname rules and must not
+annotated tag. Two optional typed fields refine that legacy choice:
+`lightweight: true` forces a lightweight tag with `--no-sign`, overriding
+`tag.gpgSign`, and rejects a non-blank `message` or `signed: true` with
+`invalid_request` and the stable message
+`Lightweight tags cannot include a message or signature` before any
+subprocess; `signed: true` adds `-s`, which creates a signed annotated tag
+when a message is present. Omitting both fields preserves the existing
+behavior, so callers that predate the fields are unaffected. The argument
+matrix is pinned by `shared/fixtures/git/tag-write-v1.json`.
+Tag names must satisfy the `git check-ref-format` refname rules and must not
 begin with a dash; `shared/fixtures/git/tag-names.json` pins the boundary cases
 for Core and host-side validation. Before invoking Git, `createTag` probes the
 repository so a duplicate tag (`A tag named '<name>' already exists`) and an unresolvable
@@ -1942,7 +2271,12 @@ range comparisons.
 
 `git.comparison` accepts `root` plus the same `reference` or `gitReference` /
 `targetGitReference` forms and returns the deterministically ordered changed
-files. Platforms must not construct a two-ref range themselves.
+files. `includeUntracked: true` adds untracked worktree files with status `A`
+and `isUntracked: true`, deduplicated by path; omitted or false keeps the
+previous response. The flag is invalid for a two-reference range. If status
+cannot be read, the request fails rather than returning an incomplete result.
+See `shared/fixtures/git/comparison-untracked-v1.json`. Platforms must not
+construct a two-ref range themselves.
 `git.apply` accepts `root`, `patch`, and `mode`; supported modes are `stage`,
 `unstage`, `discard`, `restoreIndex`, `worktree`, `restoreIndexCheck`, and
 `worktreeCheck`. The two `*Check` modes only test whether the reverse patch
@@ -1951,6 +2285,28 @@ It returns the normal Git process result. `restoreIndex` applies a saved
 index patch to both the index and worktree; `worktree` applies only to the
 worktree. Pathspecs must be workspace-relative and must not contain absolute
 paths or `..` components.
+
+`git.remotes` returns `{remotes: [{name, url}]}` for fetch entries. `git.tags`
+returns `{tags: [{name, objectId, targetId, message, date, isAnnotated}]}`;
+names come from full `refs/tags/` identities even when a branch has the same
+name, and `targetId` is the dereferenced object when Git reports one. These
+commands own Git output parsing and return errors for malformed output.
+`git.classifyMetadataChanges` accepts `{context, paths}` with at most 256 paths
+per call. The context contains `repositoryRoot`, `gitDirectory`,
+`gitCommonDirectory`, optional `workspaceRoot`, and optional `ruleDirectories`.
+Each non-empty path is at most 131,068 bytes. Paths use the host's native
+semantics and must already have the same resolved identity as the watch roots;
+Core performs no IO. The ordered `events` array returns `kind` (`context`,
+`ignoreRule`, `metadata`, `ignored`, or `other`) and `indexOnly`. Hosts retain
+ownership of native loss flags, watch lifetimes, and workspace visibility; on
+classification failure they must conservatively rescan. Native Rust callers can
+use the same typed classifier without JSON. The shared fixture is
+`shared/fixtures/git/metadata-classification-v1.json`.
+
+`git.parseCheckoutMetadata` and `git.parseGitdirPointer` each accept `{text}`
+of at most 4096 UTF-8 bytes and return `{branch}` or `{path}`, respectively;
+the host reads files and resolves relative paths. Examples live in
+`shared/fixtures/git/remote-tag-catalog-v1.json` and `checkout-metadata-v1.json`.
 
 `git.history` accepts `root`, an optional full `reference`, and `limit` (the
 core clamps it to `1...5000`). It remains the compatibility command that
@@ -1997,6 +2353,63 @@ For compatibility, a request that explicitly contains the deprecated numeric
 `nextOffset`; it honors the same optional `order`. New clients must omit
 `offset`; repository size does not select
 between the two protocols.
+
+`git.historyLocate` accepts `root`, nullable `reference`, nullable opaque
+`cursor`, optional `order` (`"topo"` or `"date"`), a complete 40-character
+`target` commit hash, `limit` (`1..=500`, default `300`), and `maxPages`
+(`1..=100`, default `20`). It reads pages from the platform's current window
+cursor until `target` is found, the page budget is spent, or the history ends,
+and returns `{ "found": boolean, "commits": GitCommitResponse[], "nextCursor":
+string?, "hasMore": boolean, "pagesLoaded": number }`. `commits` lists every
+commit read in reading order, including the complete page that contains
+`target`, so hosts append them after hash deduplication without leaving a gap
+before the returned cursor. A hit stops reading and returns that page's
+`nextCursor` and `hasMore`. Exhausted history returns `found: false`, a null
+cursor, and `hasMore: false`; a spent budget returns `found: false`, the last
+page's cursor, and `hasMore: true` so the host can continue later. A `limit`,
+`maxPages`, or `target` outside the contract fails with `invalid_request`
+before any Git process starts. Git read failures keep their stable error codes
+instead of becoming "not found". Core owns the intermediate stream and only
+returns a cursor the host can continue; a failed read releases it. Requests
+without a cursor start at the first page and continuations must repeat the same
+`root`, `reference`, and `order`. Portable request and response examples are in
+`shared/fixtures/git/history-locate-v1.json`.
+
+`git.repositoryColorAssignments` accepts `{ offset, totalCount, repositoryIds }`.
+IDs are the host's already normalized, unique repository identities in the full
+ordered workspace list, before worktree visibility filtering. Each request carries
+at most 128 IDs and their global offset; IDs are nonempty and at most 4,096 bytes.
+Core rejects duplicates within a page and out-of-range offsets with
+`invalid_request`. The response contains ordered `{ id, slot }` assignments,
+`fallbackSlot` for unknown IDs, and `showColors` for multi-repository views.
+Callers must keep pages from the same list generation together, cancel or discard
+stale results, and never recompute the slots per row. Color palettes remain native
+presentation. See `shared/fixtures/git/repository-colors-v1.json`.
+
+`git.branchNamePreview` is pure: it never starts Git and only reads the
+reference facts the host already loaded. It accepts `rawName` (at most 1,024
+characters; longer input is `invalid_request`), `requireName` (`true` on submit,
+where an empty name is an error, and `false` while typing), `references`
+(loaded `{ "kind": "local" | "remote" | "tag", "shortName": string }` facts),
+and an optional `reference` describing the base reference. The response is
+`{ "typingCleanedName": string, "cleanedName": string, "initialName": string,
+"error": null | { "code": string, "name"?: string, "branch"?: string } }`.
+`typingCleanedName` mirrors IDEA's `GitRefNameValidator` typing cleanup: it
+drops characters that cannot appear in a branch refname, drops a leading `.`,
+`-`, or `/`, drops one slash of a doubled slash, keeps only the last dot of a
+dot run, drops dots next to slashes and `@{` sequences, and replaces space runs
+and ASCII control characters with `-`. `cleanedName` is the submit-time form:
+the same cleanup plus removal of one trailing `.`, `/`, or `.lock`, trimmed at
+the edges. `initialName` is the loaded base reference's short name, or that name
+without its first remote segment when the reference is remote; it is empty
+without a reference. `error.code` is one of `empty`, `head`,
+`clashesWithRemote`, `clashesWithDirectory`, `alreadyExists`, or
+`clashesWithBranchPrefix`, checked in IDEA's order; `empty` appears only when
+`requireName` is true. The conflict codes carry the candidate `name`, and
+`clashesWithBranchPrefix` also carries the existing local `branch` that occupies
+one of the candidate's slash prefixes. Refname validity itself stays with
+`git check-ref-format` when the branch is created. Portable examples are in
+`shared/fixtures/git/branch-name-preview-v1.json`.
 
 `git.commit` accepts `root` and a revision, returning one `commit` object with
 the same fields as a history page entry and a `body` string. `body` is the
@@ -2092,6 +2505,12 @@ Name/symbol continuation scans the existing index to select the next ranked page
 text pages follow path/line order and stop after the lookahead match. Pages observe
 the live index: edits inserting a match before the cursor require a fresh query.
 Requests without pageSize retain the legacy capped response and schema.
+Optional `includePathPatterns`, `excludePathPatterns`, and `pathFilterPrefix`
+filter paths before the page limit. Patterns are case-insensitive glob fragments:
+`*` excludes separators, `**` crosses them, and `?` matches one non-separator.
+When `includeContentRanges` is true, content matches also return the original
+`sourceLine` and `contentMatchRanges` in UTF-16 units; existing callers keep the
+trimmed `preview` and do not pay for those fields.
 
 Observed `workspace.searchEverywhere` calls may emit
 `{ "type": "searchResults", "operationId": "…", "results": { "matches": […] } }`
@@ -2169,16 +2588,48 @@ where each file contains replacement matches and the complete
 `replacementText` to write. The command never writes files; callers can record
 history before using `file.write` for the selected files.
 
+`workspace.replaceText` accepts a host-captured `text`, `query`, `replacement`,
+the same case, whole-word and regex options, and an optional one-based `{line,
+column}` UTF-16 `from` position. It returns `{text, count}` after replacing all
+matches or the first match at or after that position. Matching is per line, and
+the command never writes. The host must verify the captured workspace and buffer
+or disk identity before publishing a result. `workspace.searchTextBatch` applies
+the same matcher to at most 32 host-read `{path, text}` snapshots (at most 2 MiB
+per file and 16 MiB in total) and returns
+unmodified paths, matching lines, UTF-16 ranges and requested surrounding lines.
+The host owns provider I/O and controls continuation between batches.
+Examples for these commands and filtered content pages live in
+`shared/fixtures/search/text-snapshot-v1.json`.
+
 `lsp.applyTextEdits` accepts `{ "text": string, "edits": [] }`, where each edit
 has an LSP range with zero-based `line` and UTF-16 `utf16Column` fields plus
 `newText`. Ranges are validated and overlapping edits return
 `invalid_request` with details `overlappingEdits`; invalid positions return
 details `invalidRange`. Successful responses return `{ "text": string }`.
 
+Windows workspace edits and formatting use this command instead of calculating
+text offsets locally. The cross-platform cases in
+`shared/fixtures/lsp/text-edits-v1.json` use LSP wire `character` fields; the
+Windows adapter maps those fields to Core `utf16Column` without changing their
+zero-based values. Core retains its existing normalization: columns beyond a
+line clamp before its line ending, and positions inside a UTF-16 surrogate pair
+resolve to the character start. Missing/negative lines, negative columns,
+reversed ranges and overlapping replacements are rejected.
+
 `lsp.plainSnippet` accepts `{ "value": string }` and returns `{ "text": string }`
 after removing LSP tab stops and replacing simple placeholder defaults such as
 `${1:name}` with `name`.
 
+
+`editor.parseNavigationInput` accepts `{ text }` and returns `{ target }`.
+`target` is null for invalid input, otherwise `{ line, column, selectsWholeLine }`
+contains zero-based line and UTF-16 column. One-based positive decimal line and
+optional column may have surrounding horizontal whitespace; line terminators,
+extra characters, zero, negatives and values above JavaScript's maximum safe
+integer are invalid. Text over 128 UTF-8 bytes is invalid. A line-only input
+selects its content without the terminator; an explicit column places the caret.
+Hosts clamp against the current document, not an old snapshot. See
+`shared/fixtures/editor/navigation-input-v1.json`.
 
 `editor.lineEdit` applies one deterministic line-level transform. All offsets
 are UTF-16 code units so both hosts can feed the result straight into their
@@ -2621,7 +3072,11 @@ directory, initialization options, optional runtime executable,
 optional `pluginId` of the plugin that owns the process, its optional
 `workspaceConfiguration` (an object, plugin-owned sessions only), its
 optional `hostServices` (the launch plan's `backend.hostServices`;
-plugin-owned sessions only; legacy service grants or full public host-method names Core defines), plus
+plugin-owned sessions only; legacy service grants or full public host-method names Core defines),
+its optional `hostOptions` (plugin-owned sessions only; `editor:{actionIcons,
+actionSourceBytes, providerTypes}` declares the icons, collector source bound and
+provider types the host implements, reported through `lithe/host/getCapabilities`
+to sessions granted the matching editor methods), plus
 initialize, post-initialize readiness, request, Java project build
 (`javaBuildTimeoutMilliseconds`), and shutdown deadlines.
 Java callers may also provide the versioned `mavenContext` accepted by
@@ -2737,6 +3192,14 @@ session's child process, stdin/stdout/stderr, framing buffer, JSON-RPC request
 IDs, document versions, pending deadlines, capabilities, diagnostics, and
 graceful/forced termination.
 
+If ordinary `lsp.startServer` fails after process creation, Core retains any
+incomplete disposal in an internal cleanup backlog, since no session identity
+was returned to the caller. A subsequent explicit startup attempt retries at
+most one bounded disposal and refuses to launch another process while cleanup
+remains incomplete. The original startup error is preserved. Native owners
+using the in-process registration callback retain their registered identity
+even when startup returns an error and retry `lsp.destroyServer` themselves.
+
 JDT LS remains `initializing` until `language/status: ServiceReady`. During this
 phase Rust reduces changed `$/progress` notifications into throttled JSON log
 details containing the current phase, percentage, project, observed project
@@ -2807,7 +3270,9 @@ workspaces or older structural states.
 `java.runMarkers` accepts `{ mainMethods, testItems, testCases }`: the
 `methods` of one file's `javaMainMethods` answer, the `items` of its
 `javaTestItems` answer (empty when the platform cannot run tests for the file),
-and recorded `maven.testResults` `testCases`. It returns `{ markers }` ordered by
+and canonical build-provider report cases (`suite`, `case`, `status`). The older
+`className`/`method` field names remain accepted for Windows compatibility.
+It returns `{ markers }` ordered by
 zero-based `line`, then `kind` (`main`, `testClass`, `testMethod`). `endLine`
 is the last line of the declaration as reported upstream: the end of the body for
 test classes and methods, and the name line for `main`. Each marker
@@ -2844,6 +3309,24 @@ returns deterministically sorted `expiredWorkspaceKeys` older than the fixed
 enumeration, revalidation, deletion, and error logging; Core performs no cache
 filesystem I/O. See `shared/fixtures/lsp/jdt-cache-retention-v1.json`.
 
+`lsp.documentUri` accepts `{ path, platform }` and returns `{ uri }`. `platform`
+is `posix`, `windows`, or `auto`; `auto` recognizes drive and UNC paths and
+otherwise treats an absolute path as POSIX. Paths must be absolute, contain no
+NUL and fit within 131,068 UTF-8 bytes. Windows extended drive and UNC prefixes
+are accepted. Core resolves lexical dot segments, preserves a trailing directory
+separator, and percent-encodes reserved characters and UTF-8. Invalid paths
+return `invalid_request`. See `shared/fixtures/lsp/document-uri-v1.json`.
+
+The `rootUri` of `lsp.startServer` and the `uri` fields of `lsp.syncDocument`,
+`lsp.saveDocument`, `lsp.closeDocument`, `lsp.request`, `java.navigationMarkers`,
+`java.resolveNavigation`, and each `lsp.workspaceFilesChanged` change accept
+either an existing URI string or `{ path, platform }`. The related diagnostic
+location URIs in `lsp.request` accept the same shape. Core converts path inputs
+inside the existing request; virtual URI strings and opaque server data are not
+rewritten. This does not add an IPC request for each document edit. When
+matching published diagnostics, Core normalizes escape spelling and Windows
+drive letters without treating an encoded `#`, `?`, or `/` as a URI separator.
+
 `lsp.syncDocument` accepts `{ sessionId, uri, languageId, text?, contentChanges? }`.
 The first sync emits `didOpen` at version 1. Later syncs emit `didChange` with
 increasing versions. `contentChanges` follow LSP `didChange` semantics: they
@@ -2858,7 +3341,8 @@ incremental `textDocumentSync`, a successful replay is sent as range-based edits
 otherwise the replayed text is sent whole. Ranged edits without `text` fail with
 `InvalidRequest` when they cannot be replayed, and with details
 `documentNotSynchronized` when Core has never received the document; the host
-then resends the full text. The response is `{ documentVersion, changed }`;
+then resends the full text. The response is `{ documentVersion, changed, uri }`;
+`uri` is the exact resolved document identity used by the session.
 submitting identical full text returns `changed: false`, preserves the version,
 and emits no LSP notification.
 
@@ -2911,6 +3395,11 @@ provider-sourced `build.taskPlan`/`build.testPlan`, `build.testDiscoveryPlan`, o
 execution lifecycle and `lithe/build/discoverTests` with the raw result lifecycle.
 Version 4 adds `lithe/build/prepareRun`, with execution progress but a raw launch
 plan passed to `build.decodeRunPreparation` before native process startup. Version 5 adds `lithe/build/prepareDebug`: raw native executable facts pass through `build.decodeDebugPreparation` and the existing DebugAdapter Registry, not private functions or a second DAP engine.
+Version 10 adds typed `launchOptions` for this run method and host-owned service/task
+preparation. These options require explicit version-10 negotiation before a
+request is written. The decoder accepts a workspace cwd outside the instance
+only when it matches the same host-validated explicit option. Native debug
+preparation retains its existing application contract.
 Other methods are `invalid_request`; tasks on version 1
 and tests on versions 1/2 or run preparation on versions 1/2/3 are `not_supported`.
 Every session offers
@@ -3034,6 +3523,79 @@ ungranted service, malformed or oversized params, a session that is not
 plugin-owned, or one that is not ready is `invalid_request` with the
 `plugin.host.*` code in `details`.
 
+`lsp.pluginServerRequest` accepts `{ sessionId, operationId?, pluginId,
+serverID, method, params?, timeoutMilliseconds? }` and returns `{ operationId }`;
+`params` defaults to `{}` and the deadline to 60000 milliseconds (at most
+300000). The host resolves `{context, serverID}` of a backend's
+`lithe/host/languageServer/request` to the session and calls this command; Core
+checks that the session belongs to `pluginId` and `serverID` and enforces the
+server's declared session policy: the `requestMethods` whitelist, the
+`commands` of `workspace/executeCommand`, `serializedCommands` (a request for a
+command already running joins it), and `gates` (a request waits, in order, until
+every gate has seen its notification; at most 128 wait, then the request fails
+as `plugin.host.busy`). The answer arrives as a `requestCompleted` event whose
+`result.value` is the server's result. A failure carries its `plugin.host.*`
+code as the event's `error.code` and its details as `error.details`; the host
+returns both to the backend unchanged. The codes are
+`plugin.host.languageServerUnavailable` (-32022: the session is not ready or
+has stopped), `plugin.host.languageServerError` (-32023: the server answered
+with an error, in `details.code` and `details.message`),
+`plugin.host.methodNotDeclared` (-32024), `plugin.host.foreignContribution`
+(-32026), `plugin.host.timeout`, `plugin.host.cancelled`, `plugin.host.busy`,
+and `plugin.host.limitExceeded`. The
+[plugin contract](plugins/v1/README.md#language-server-host-methods) owns their
+meaning.
+
+`lsp.pluginServerNotify` accepts `{ sessionId, pluginId, serverID, method,
+params? }` and returns `{ delivered }`. It sends `workspace/didChangeConfiguration`
+and every declared `requestMethods` entry except `workspace/executeCommand`; a
+notification is never held behind a gate. `delivered: false` means the server
+was not initialized yet and receives the stored configuration with its
+`initialized` notification instead. A notification the server sends and
+`forwardNotifications` lists is queued as a `pluginServerNotification` event
+with `result: { serverID, method, params? }` for the host to relay as
+`lithe/host/languageServer/didReceiveNotification`.
+
+`lsp.startServer` for a plugin-owned server whose manifest declares
+`remote: "unsupported"` fails with `not_supported` when the workspace is
+remote, before any process is started.
+
+A session that negotiated `litheFunctions` version 4 and holds the `functions`
+grant may call another plugin's exported function through the
+[plugin-to-plugin relay](plugins/v1/README.md#cross-plugin-calls-protocol-version-4).
+Core runs the whole relay: it checks the declarations, keeps the call chain,
+writes the forwarded request, and answers the caller. `lsp.configureFunctionRelay`
+accepts the host's complete view and returns `{}`; every call replaces the
+previous view, and a call in flight that the new view forbids ends with an
+explicit `plugin.function.*` error.
+
+```json
+{
+  "plugins": [
+    {
+      "pluginID": "dev.example.formatter",
+      "exports": [{ "id": "document.format", "version": 1, "context": "workspace" }],
+      "calls": []
+    }
+  ],
+  "contexts": [{ "contextID": "w-1", "generation": 1, "authority": "local" }]
+}
+```
+
+- `plugins` lists the enabled plugins that declare `pluginFunctions`, and each
+  `exports` and `calls` is the normalized manifest's own list. The host
+  copies them and does not interpret them. A plugin that is disabled,
+  replaced, or removed is left out, which ends its calls.
+- `contexts` lists the live workspace contexts; `authority` is `local` or
+  `remote`, and a call in a remote workspace is refused.
+- A malformed snapshot (an unknown field, a bad plugin or function ID, a
+  duplicate plugin, more than 4096 plugins) is `invalid_request`.
+- Core publishes the runtime event `functionProviderStartRequired` with
+  `result: { pluginID }` on the calling plugin's session when a call waits for
+  a callee whose backend is not running. The host starts that backend as plain
+  I/O; Core ends the call with `plugin.function.providerUnavailable` if the
+  callee does not register the function within 30 seconds.
+
 `lsp.request` accepts a semantic `operation` plus
 the operation-specific URI, position, range, diagnostics, item, action, or
 command fields, and returns `{ operationId }`. Supported operations include
@@ -3041,10 +3603,30 @@ completion and resolve, hover, definition/declaration/type-definition, reference
 implementation, rename, formatting, code actions and resolve, execute command,
 inlay hints, full-document semantic tokens, folding ranges, code lens, provider
 virtual documents, `javaEntrypoints`, `javaTestItems`, and `javaMainMethods`.
+For code actions, `diagnostics` contains the original `LspClientDiagnostic`
+objects returned by Core: nullable integer `severity`, `tags`, and
+`relatedInformation` remain intact, and every range uses zero-based `line` /
+`utf16Column` positions. A platform's display severity or marker projection is
+not a diagnostic request model. Non-LSP markers may request actions with a range
+and an empty diagnostic context. The round-trip fixture is
+`shared/fixtures/lsp/diagnostic-code-actions-v1.json`.
 `javaEntrypoints` invokes Java Debug Server's
 `vscode.java.resolveMainClass` for the session workspace and returns schema
 version 1 with deterministic workspace-relative `{ sourcePath, mainClass,
 projectName? }` entries plus diagnostics for unusable upstream records.
+Discovery queries all entries in the owned JDT session, then filters source
+paths against the opened workspace and its resolved location. This includes
+plain folders represented by invisible projects in JDT's writable cache;
+unrelated workspace sources remain excluded. Discovery
+waits behind pending Maven profile updates and JDT project-configuration jobs,
+using the same configuration barrier as the following Java build. Up to 128
+waiting discovery operations are allowed per session. Their deadlines include
+configuration waiting and the eventual upstream query, bounded by the session's
+Java build timeout. Cancellation before dispatch completes that operation without
+writing a JSON-RPC discovery request or cancellation; shutdown/failure settles
+every waiter. A completed profile update must precede discovery of source roots
+introduced by that profile.
+
 `javaTestItems` requires a file URI, invokes Java Test's
 `vscode.java.test.findTestTypesAndMethods`, and returns schema version 1 with a
 typed class/method tree. Each item carries the upstream identity, label, fully
@@ -3322,6 +3904,27 @@ Windows `run_resolve_toolchains` includes an optional `warning` on resolved
 JDKs, including inherited Maven JDKs. This warning remains visible even when no
 run configuration exists to carry a scoped `toolchainVersionMismatch` diagnostic.
 
+`runConfig.projectToolchain` reads `{root,path,localDocument?,configurationId?}` and returns
+`{toolchain:{javaHomePath,mavenExecutablePath,mavenJavaHomePath,runtimeExecutablePaths}}`, even without
+generated Run configurations. `path` is the current Provider's normalized,
+workspace-relative project/reactor root (`.` for the workspace). The nearest
+`toolchain.pathOverrides` entry owns all three fields; its empty/missing fields
+inherit workspace defaults, not another ancestor override. Matching uses path
+segments, so `app` never owns `app2`. Malformed stored paths/documents fail
+without changing source bytes. The command does not discover, probe or run any
+tool, inspect project descriptors, or write files. `runtimeExecutablePaths`
+comes from the existing `.lithe/toolchains/local.json`; platforms resolve the selected
+paths through their existing toolchain adapters. Shared examples are in
+`shared/fixtures/run-configuration/project-toolchain-selection.json`.
+When `configurationId` is supplied, explicit Java/Maven paths from that current
+Run configuration override the canonical project/reactor selection. Core reuses
+the existing team/local configuration merge without projecting global defaults
+as explicit configuration choices. Empty configuration fields inherit the
+canonical selection; missing, disabled, mismatched-root or malformed choices fail
+instead of falling back. No generated layer is required for an explicitly saved
+Provider reference. Shared cases are in
+`shared/fixtures/run-configuration/configuration-toolchain-selection.json`.
+
 `runConfig.inspect` also returns the local document-level `toolchain`, including
 when no generated configuration exists (`status: "missing"`). Settings,
 toolchain-only callers, and initial run-panel presentation may send
@@ -3365,8 +3968,67 @@ toolchain payload with an empty `configurationId`; service overrides are untouch
 The `runConfig.*` commands implement the versioned project protocol described
 by the JSON Schemas in this directory. `runConfig.inspect` accepts `root` and
 never writes files. `runConfig.generate` accepts `root`, relative Java `paths`,
-relative `modulePaths`, and optional schema-versioned `javaEntrypoints` from the
-current `lsp.request` result. When Java tooling is still preparing, omission
+relative `modulePaths`, optional schema-versioned `javaEntrypoints` from the
+current `lsp.request` result, and optional `projectOwnership`. The latter is a
+host projection of current enabled Provider projects: `{ path,
+name?, build?: { pluginID, buildSystemID, root, projectID }, minimumJavaVersion?, contentRoots: [{ path, kind }] }`, using workspace-relative
+paths and the model's `source`/`testSource`/generated-source roles. Core validates
+project/root containment, unique project paths, roles and bounds (2,000 projects,
+10,000 content roots). When supplied, including `[]`, these facts own Java
+project membership and source sets: `modulePaths` and ancestor POM inference
+do not supplement them. `build` is an exact current model identity, not a build
+semantic tag. Generated Java entries store it under `extensions.java.build`,
+with Java-owned `module` and `mainClass`; they contain no Maven extension or
+Maven tool binding. Its root stays independent of editable cwd and document
+layers cannot replace generated build ownership. An omitted snapshot retains the current
+Windows generator's legacy ownership path. A supplied ownership snapshot disables
+legacy Maven framework detection. Framework selection is not an ownership field;
+run discovery uses the independent generic snapshot described below.
+`minimumJavaVersion` is an optional normalized Java feature version (1–999),
+owned by the upstream compiler model, including before entrypoint discovery
+returns any sources. When the snapshot is supplied, Core uses
+the highest known project floor and never parses POM compiler properties; a
+platform Java version file can raise but cannot lower that floor. Missing means
+unknown, not permission to infer. Build-tool versions and wrapper paths are not
+ownership fields. With provider ownership Core emits no Maven requirement and
+never reads wrapper properties or scripts to supplement it. Installed tool
+definitions/providers own these choices. Native Java preparation routes by the
+exact enabled package, declaration, instance and project identity. Legacy
+consumers that omit provider ownership retain their old Maven launch path until
+they migrate; those fields are not accepted in the new ownership projection. See `fixtures/run-configuration/provider-project-ownership.json`.
+The generated document records optional `generator.providerFingerprint`, a
+SHA-256 identity of the validated projection, with projects and roots sorted.
+It covers project labels, ownership, source roles and requirement
+facts, but never environment values or native configuration secrets.
+`runConfig.inspect` accepts the same optional `projectOwnership` and emits
+`staleProviderModel` when current facts differ or a legacy generated document
+has no provider identity. `checkFingerprint: false` skips file hashing only;
+this model comparison remains active. Explicit `[]` represents disabled/missing
+providers, while omission preserves existing Windows callers. A return to the
+same semantic facts matches again; asynchronous host publication still needs
+its independent monotonic operation revision to reject ABA replies.
+
+`runConfig.generate` and `runConfig.inspect` also accept optional `providerRuns`:
+a complete list of `{projectPath,name,reference}`. The native host matches current
+model targets against enabled public run declarations; `reference` has exactly the
+`extensions.build` selector shape below, with empty model `userArguments`. This
+snapshot is independent of Java entrypoints and language imports. Core validates
+at most 10,000 unique selectors, provider-root/project containment and bounded labels,
+then creates `build.provider` entries without interpreting target IDs, tool names,
+frameworks, commands or debug adapters. An explicit `[]` withdraws generated runs;
+omission preserves older callers. It also disables the legacy framework detector.
+IDs hash plugin/build/root/run/project/target identity, so changed labels or execution
+kind retain user overrides. Current declarations still validate the execution kind
+before preparation. `generator.providerRunFingerprint` hashes the complete sorted
+snapshot; changed or missing metadata yields `staleProviderModel`, including when
+file fingerprinting is disabled. Withdrawn entries cannot be restored from cached
+configurations; unmatched overrides stay in their user-owned layer and are diagnosed.
+See `fixtures/run-configuration/provider-project-ownership.json`. macOS supplies this
+snapshot; Windows retains its existing generator until its Provider host is migrated.
+
+Java configurations with the same class and module name in independent reactors
+remain distinct; a common reactor retains its existing configuration IDs.
+ When Java tooling is still preparing, omission
 retains the previous generated entrypoint facts instead of running a local
 scanner or replacing them with an empty list. Those previous facts come from
 this process's last generation, else from the optional `cacheDirectory` (an
@@ -3378,8 +4040,10 @@ layer for `inspect`, `resolve`, and `selectJava`; nothing is written into the
 workspace. `inspect` returns `requiresGeneration: true` while this process has
 no detected layer. Hosts identify the workspace when this flag is true or the
 status is `missing`; a saved provider task can make `status` be `ready` before
-detection, and must not suppress discovery of the remaining entries. Maven root
+detection, and must not suppress discovery of the remaining entries. Without
+`projectOwnership`, legacy Maven root
 discovery checks `pom.xml` along each supplied path's ancestor chain, so a
+
 reactor nested below the opened workspace does not depend on the platform
 including build descriptors in `paths`. Maven ownership is resolved per Java
 entry: standalone sources keep the JDK launch path, while entries from
@@ -3388,14 +4052,28 @@ module selector. Generated fingerprints include both project inputs and the
 detector revision; either changing marks the detected layer stale and requires
 regeneration.
 
+`runConfig.selectContextConfiguration` accepts a provider-supplied `sourcePath`
+and opaque `symbol`, a `preferredId`, platform path-comparison policy, and an
+ordered list of effective candidate IDs, identities, disabled state, and
+generated state. It returns `{configurationId}` (null when none match).
+Disabled or differently identified entries never match; an existing preferred
+match wins, followed by an edited configuration, with input order breaking ties.
+Windows compares paths case-insensitively and treats both separators alike;
+case-sensitive hosts compare the supplied path exactly. Discovery remains with
+the provider, and clients must reject results made stale by workspace changes.
+
 `runConfig.resolve` accepts `root`, optional local `toolchainCandidates`, and
-optional `localDocument`. When `localDocument` is present, Core uses that JSON
-object as the local layer instead of reading `.lithe/run/local.json`. It merges
+optional `localDocument` / `teamDocument`. A supplied document replaces that layer
+for this read-only resolution; omitted layers come from `.lithe/run/local.json` /
+`.lithe/run/configurations.json`. Hosts can preflight a complete two-file transaction
+against the current detected layer without publishing either file. Core never writes
+these documents; hosts still own source-identity checks, cancellation, conditional
+publication and readback. It merges
 configurations by stable ID using this precedence:
 `local.json > configurations.json > detected layer`. Scalars and arrays are
 replaced by the higher layer, while toolchain maps merge by key. It returns
 effective configurations, their source, the default (the team default from
-`.lithe/project.json`, else the first detected framework service, else the first
+`.lithe/project.json`, else the first detected service, else the first
 detected entry other than Current File), structured
 diagnostics for stale, orphaned, missing, disabled, and toolchain mismatch
 states, the effective global `toolchain`, and the machine-local
@@ -3460,18 +4138,77 @@ per-configuration toolchain path overrides the corresponding project default.
 
 Provider applications can be explicitly saved with `runConfig.createUserConfiguration`
 using `{root,scope:"local",name,type:"buildProvider",build:{pluginID,buildSystemID,
-root,run,projectID,targetID,userArguments?}}`. Core upserts the existing local
-reference by selector identity and retains its `user:` ID, unrelated configurations
+root,run,projectID,targetID,userArguments?,execution?}}`. Core upserts the existing local
+reference by selector identity and retains its existing ID (new references use `user:` IDs), unrelated configurations
 and project toolchain defaults. `extensions.build` in Run v2 holds the typed
-reference; process commands, top-level args/environment/toolchains/debug are
-refused for `build.provider`. Current model membership is revalidated by the
+reference; optional execution is application/service/task and must match the current
+declaration before preparing (omitted older references mean application). The saved
+configuration retains that execution kind when reopened. Process commands, toolchain
+bindings and cached debug adapters are refused for `build.provider`. Generic args,
+environment and cwd overrides are user choices forwarded through typed launch options;
+explicit args replace older reference userArguments, including an empty array.
+An implicit selector-root cwd remains omitted from launch options for v4 compatibility. Current model membership is revalidated by the
 native build workflow before every preparation. No generated document is needed:
-`runConfig.inspect` recognizes explicit saved local references and `runConfig.resolve`
+`runConfig.inspect` recognizes explicit saved team/local references and `runConfig.resolve`
 merges them against an empty generated layer. A workspace without generated data
 or an explicit saved Provider reference retains the existing missing state.
+Complete saved `build.provider` entries (name, provider, selector and matching execution)
+can retain any existing Run ID, including IDs imported from older formats; a prefix
+does not grant launch authority. Sparse unknown-ID patches remain orphaned. Such an
+entry also makes a team-only workspace runnable before generation, while still returning
+`requiresGeneration: true`. Current declaration/target validation remains mandatory.
+When generation contains that selector, resolution suppresses its duplicate automatic
+entry, retains all explicitly saved configurations, and resolves defaults through the
+same effective selector. Local selector patches update the effective claim, so an
+older team target does not accidentally hide a different auto entry. Detection
+fingerprints and the detected document remain unchanged by user-layer resolution.
+See `fixtures/run-configuration/build-provider-stable-identities.json`.
+
 The platform guards the source snapshot, atomically writes only the local layer,
 then re-reads the result. `shared/fixtures/run-configuration/build-provider.json`
 is the canonical persistence example.
+
+`extensions.build-run` stores portable user choices separately from the selector:
+`{runtimeArguments?: string[], entrypoint?: string, options?: object, tools?: object}`. Runtime arguments
+retain exact argv boundaries (at most 1,024 elements, each at most 65,536 UTF-8 bytes).
+The opaque entrypoint is at most 4,096 bytes; an empty string explicitly clears an
+inherited entrypoint. `options` holds at most 64 declared Build option values, within
+64 KiB of UTF-8 JSON; keys are bounded portable identifiers. Core does not interpret
+the values. The native Build service validates every value against the current
+selected declaration/model before preparation, including explicit `false` and `[]`.
+`tools` maps at most 64 definition IDs to `{home:absolutePath}` or
+`{executable:absolutePath}`, or null. Its total UTF-8 JSON is bounded to 64 KiB;
+paths are at most 4,096 bytes, with the toolchain lexical path checks. Entries merge
+by tool ID across team/local layers. Null clears an inherited Run choice and resumes
+directory policy; omission or an empty map preserves existing tool entries. The
+native host resolves each active choice against an enabled, referenced definition,
+current filesystem facts and version probes. It never changes a directory pin.
+Commands, cached executable evidence and debug adapters are not fields in this namespace.
+
+`runConfig.updateOptions` and `runConfig.saveEditorChanges` accept optional
+`providerRunOptions` in this shape for a `build.provider` configuration. Omission
+preserves that namespace for older callers; explicit null is rejected. A supplied
+snapshot replaces each of its fields in the selected layer, normalizing omitted fields
+to `runtimeArguments:[]`, `entrypoint:""`, `options:{}` so reset can clear inherited
+choices. `tools` instead uses the per-entry inheritance and null-clearing rules above.
+Other extension namespaces and the selector remain intact. Re-saving the
+same selector preserves its working-directory override and portable choices.
+The production macOS store, Windows editor and preference copies carry the typed snapshot unchanged.
+See `fixtures/run-configuration/build-provider-options.json`; no new Provider RPC or
+SDK protocol version is needed, because preparation reuses accepted v10 launch options. Editor argument text uses quoting/escaping without expansion or execution; empty quoted tokens remain empty argv items. `fixtures/run-configuration/argument-text.json` is shared by Core and both editors.
+
+`runConfig.providerLaunchInputs` takes `{root,configurationId,providerRoot,localDocument?}`
+and requires a complete `build.provider` selector. Unmigrated tool-specific records are rejected; only an isolated host import may translate their retired format. It resolves the same document layers for one preparation. It returns bounded typed
+`launchOptions`, explicit build-option overrides and project identity without planning
+a tool command. For `build.provider`, `extensions.build-run.runtimeArguments` and its
+non-empty entrypoint populate launch options, and its `options` populate optionOverrides.
+Active fixed choices are returned separately in `tools`, and in `definedTools` by
+`runConfig.projectToolchain` for the matching configuration/provider root. They are
+host-only resolution inputs and are never forwarded as Provider launch options.
+Saved selectors additionally return the exact typed `reference`; the native Build service revalidates its plugin, instance, run, project,
+target and execution against the current enabled model. Parameters must be read again
+before process launch, and an invalidated configuration or operation rejects late replies.
+
 
 `runConfig.updateOptions` and `runConfig.createUserConfiguration` are pure
 document transformations. They validate scope, paths, supported types, stable
@@ -3494,6 +4231,31 @@ When `updateOptions` carries a `toolchain` object (`javaHomePath`,
 `mavenExecutablePath`, `mavenJavaHomePath`), it writes the document-level
 global toolchain into the local layer instead of patching a configuration;
 project scope rejects this payload because toolchain paths are machine-local.
+
+The project toolchain may also carry `pathOverrides`, a map of normalized
+workspace-relative subproject roots to `{ javaHomePath?, mavenExecutablePath?,
+mavenJavaHomePath? }`. The map has at most 256 entries; roots reject absolute,
+parent, dot, empty-segment, drive, backslash and control-character forms. Empty
+fields inherit project defaults. This map lives only in `.lithe/run/local.json`
+and is returned by inspection/resolution; hosts preserve it when saving a run
+configuration or project defaults. An absent map identifies a document predating
+subproject migration; a saved empty map is an explicit choice. Old platform
+preferences are copied and read back before cleanup, with already saved choices
+remaining authoritative. See `shared/fixtures/run-configuration/subproject-toolchains.json`.
+
+
+`execution.resolveSearchPath` accepts already-split `existing` directories and
+`candidates` carrying `priority`, opaque `id`, and `path`; lower priority sorts
+first, then ID and path. The result appends candidates after existing directories,
+omits empty entries, and deduplicates exactly or with ASCII case folding when
+`caseInsensitive` is true. The host owns path splitting, joining, discovery, and
+filesystem trust. See `shared/fixtures/execution/search-path-v1.json`.
+
+`runConfig.argumentText` accepts `{ "argumentLists": [["--name", "Alice Smith"], []] }`
+and returns one editor string per input vector in the same order. Quoting and escaping
+are reversible by the existing run-configuration option parser; there is no shell
+expansion or execution. Empty arguments remain explicit. The shared cases are in
+`shared/fixtures/run-configuration/argument-text.json`.
 
 `runConfig.saveEditorChanges` accepts the normal option-edit payload plus the
 required `toolchain` object. In addition to Java and Maven paths, that object
@@ -3545,7 +4307,13 @@ framework arguments, including `-am` for selected reactor modules. A
 project-owned `java.main` caller, or a `spring-boot.maven` caller whose generated
 configuration records a Java entry source, instead supplies `javaLaunch` with
 the exact JDT LS-selected `mainClass` plus structured `classPaths` and
-`modulePaths`. Core then produces a direct `project-jdk` launch; it never
+`modulePaths`. An optional `javaLaunch.buildPrepared: true` is a host receipt
+that the current build provider resource task completed before JDT launch
+resolution. Core then omits its legacy Maven resource pre-launch step and does
+not inspect POMs for that step. The host must recheck workspace/configuration
+generation and cancellation before handing off the launch; it cannot reuse a
+receipt from another operation. Missing/false retains compatibility for current
+Windows callers. See `fixtures/run-configuration/provider-prepared-java.json`. Core then produces a direct `project-jdk` launch; it never
 projects those Java entry points into a reactor-wide Maven launch goal. A Spring
 Boot configuration without a resolved Java entry source retains its Maven-goal
 compatibility path. It
@@ -3718,6 +4486,326 @@ collection truncation and Core query truncation, including files omitted by the 
 Time comparisons use parsed RFC3339 instants, so fractional precision and equivalent
 UTC offsets do not change ordering or inclusive boundaries. Missing filters include all.
 
+Structured logging v2 adds pure opt-in commands. The v1 APIs and commands above
+retain their behavior and public Rust signatures. Native adapters own writable
+log roots, I/O, clocks, queues, and file lifecycle operations. Core never resolves
+logs under installed application resources. Executable cases and numeric errors
+are in [`logging-v2.json`](../fixtures/diagnostics/logging-v2.json).
+
+All commands use the existing `{id?,command,payload}` Core request/response
+envelope. Malformed payload shapes return outer `invalid_request` without raw
+input. Channel, query, and retention domain results are the union
+`data:{result:...}` or `data:{error:{code,reason}}`; callers inspect that union even
+when outer `ok` is true. Batch encoding returns
+`data:{results:[{line}|{error:{code,reason}}]}` in input order. Reasons are safe
+parser diagnostics; hosts localize codes for presentation.
+
+- `diagnostics.resolveEngineLogSubject` accepts
+  `{role,providerId,pluginId?,logSubject?}` and returns direct
+  `data:{channel,segment}` (no nested domain result). `role` is required and is
+  `language_server|vcs|build|toolchain|backend`; `providerId` is a required string.
+  It calls the same `SessionLogIdentity::new` as engine startup, including the
+  stable `invalid-<first 32 lowercase SHA-256 hex digits>` fallback for unsafe or
+  absent routing identities. This pure command does no I/O and can run before
+  startup. Malformed shapes and unknown roles use outer `invalid_request`, with
+  no new numeric or domain code. macOS caches its result by provider ID for
+  host-owned stages, cache cleanup, degradation and issue facts; a resolution
+  failure skips only that structured host fact and preserves startup/v1 behavior.
+- `diagnostics.resolveLogChannel` accepts
+  `{channel,rotationIndex?:0,existingChannels?:[]}` and returns
+  `{result:{relativePath,category,pluginFilesPath?}}` or `{error}`. The category maps app/update/remote/agent
+  and overflow to application, editor/lsp to language, vcs to git, perf to performance,
+  run/debug/terminal to run, and plugins to plugins. The optional plugin files
+  path is returned only for `plugins/<id>/host` using `plugin_files_path`. Roots are `app`, `editor`, `perf`,
+  `lsp`, `vcs`, `run`, `debug`, `terminal`, `remote`, `agent`, `update`, `plugins`.
+  Channels are `root`, non-plugin `root/segment`, or `plugins/<id>/host`. Segments match
+  `[a-z0-9][a-z0-9._-]{0,63}`, excluding trailing dots and Windows device
+  basenames (`con`, `prn`, `aux`, `nul`, `com1`–`com9`, `lpt1`–`lpt9`,
+  including those followed by an extension). Paths are `app.log`, `vcs/git.log`, or
+  `plugins/<id>/host.log`; positive rotation indices produce `git~1.log` siblings. The `~` delimiter
+  cannot occur in a channel, so rotations never alias dotted channel IDs.
+  After 128 admitted channels a new identity maps to `_overflow.log`; existing
+  channels retain their paths. The overflow sink rotates as `_overflow~1.log`
+  and its header uses the channel `_overflow`. Rust `plugin_files_path` returns
+  `plugins/<id>/files/`. `session_directory_name`,
+  `parse_session_directory_name`, and `session_relative_path` convert explicit
+  RFC3339 start time/full UUID to `sessions/YYYY-MM-DDTHH-MM-SS_<8 lowercase
+  hex>`. Native adapters join these relative paths only to platform-owned
+  writable storage, never a bundle or installation directory.
+- `diagnostics.encodeLogBatch` accepts `{validateCatalog?:false,deduplicate?:false,previousEvent?:event,headers?:[],events:[{ts,level,seq,event,op?,msg,
+  fields?:{key:scalar}}]}`. `level` is `DEBUG|INFO|WARN|ERROR`, `seq` is `u64`,
+  and `ts` is RFC3339 normalized to UTC milliseconds. Scalars become text;
+  arrays and objects fail per item. Malformed event shapes also fail per item.
+  Disk order is timestamp, level, `seq`, `event`, optional `op`, `msg`, then
+  lexical context keys (the truncation marker is last). Keys match
+  `[a-z][a-z0-9_]{0,63}` and cannot repeat or reuse reserved keys
+  (`ts`, `level`, `seq`, `event`, `op`, `msg`). Event/op
+  identities are nonempty bare tokens. Shared redaction runs before escaping,
+  including prefixed credential-key fields such as `client_secret` and
+  `auth_token`; the same structured-field redactor runs on queried v1/v2
+  evidence. Bare values match `[A-Za-z0-9._:/@+-]+`;
+  other values use double quotes, escaping quote, backslash, newline, carriage
+  return, tab, and other controls as `\u{XX}`. Each result excludes a newline
+  and reserves one byte for it within 8192 bytes. Oversized lines shorten the
+  longest non-reserved context values first and append `truncated=1`.
+  If needed, the message is shortened next; mandatory identity/key overhead
+  that still cannot fit returns `-32046`. No context keys are silently dropped.
+  Rust `encode_header`/`decode_line` support
+  `#lithe-log v2 session=<uuid> pid=<u32> app=<bare version> channel=<channel> started=<UTC milliseconds>`.
+  `decode_line` returns a typed header or record and rejects invalid lines with
+  reasons. `repeated_event` and `dropped_event` create ordinary `log.repeated`
+  records with `count,first,last,of`, and `log.dropped` records with `count`.
+  With `deduplicate:true`, adjacent facts with equal event ID, fields, channel,
+  level, message and op merge within a batch into `log.repeated`; structural hashing
+  is followed by equality comparison. Results then correspond to retained records,
+  and the repeated record uses the last omitted event sequence. `previousEvent`
+  carries the prior batch’s last input for bounded cross-batch comparison; it is
+  validated again and never emitted by itself.
+  With `validateCatalog:true`, every ordinary event must exist in `catalog::EVENTS`;
+  required/unknown/invalid fields and a mismatched level fail before encoding.
+  Messages and channels are derived from the catalog, never trusted from input.
+  Before strict field validation, Core redacts declared error/text messages, removes
+  control characters, and truncates to at most 1024 bytes at a UTF-8 boundary.
+  `catalog::validate_fields` still rejects unnormalized strings, invalid types, unknown
+  keys, incomplete error components, and invalid code/domain tokens.
+  Path fields are redacted before template interpolation; unrecognized absolute
+  paths become `<PATH>`. Item results additionally contain `channel` on success.
+  Codes: `-32053` unknown event, `-32054` missing field, `-32055` invalid field,
+  `-32056` unknown field, `-32057` catalog level mismatch.
+  Catalog validation rejects `event:legacy` as an unknown event. macOS collects only v2
+  session files; its v1 files participate solely in age retention. The public v1
+  APIs, old commands and shared v1 query compatibility remain available to Windows.
+  `log.dropped` and `log.repeated` accept only their documented field shapes and
+  an optional validated `channel`. No other identity bypasses catalog validation.
+  Optional `headers:[{session,pid,app,channel,started}]` returns ordered `headers`
+  results and `sessionPath`, using the same Core header/session grammar. These
+  fields are additive; the default generic PR1 batch remains compatible.
+  Overflow rotation paths are `_overflow~1.log` and `_overflow~2.log`.
+- `diagnostics.queryLogsV2` accepts `{sources:[{relativePath,text,
+  startsMidLine?:false,firstLineNumber?:1}],channelPrefixes?:[],minimumLevel?,levels?:[],
+  since?,until?,search?,fields?:{key:value},op?,limit?,expression?,histogramBuckets?}`. The adapter marks a
+  tail beginning inside a line with `startsMidLine:true`; Core discards its
+  first fragment without counting it as invalid. Complete first lines stay.
+  Paths are session-relative v2 paths, `sessions/<name>/<path>`, or legacy
+  `<category>/lithe.*.log`. Channel prefixes match slash boundaries; severity
+  and parsed RFC3339 time bounds are inclusive; `levels` is an exact severity set
+  (intersected with `minimumLevel`; an empty array matches nothing); search is case-insensitive;
+  field/op filters match exactly, including reserved `ts` and `level` fields. Returns `{result:{records:[{channel,
+  relativePath,lineNumber,ts,level,seq,event,op?,msg,fields}],channelCounts:
+  {channel:{warn,error}},truncated,skippedInvalidLines}}` or `{error}`.
+  Counts reflect all filtered matches before the newest 1–10000 limit (default
+  2000). Records sort ascending by parsed timestamp, seq, file, line, then
+  source order. The aggregate native-tail byte budget is 10 MiB. Omitted bytes,
+  partial first lines, or output limits set `truncated`. Invalid physical lines
+  are skipped and counted. V1 records use `event:legacy`, preserve available
+  sequence/op/context, and map application→app, language→lsp, git→vcs,
+  performance→perf, run→run, plugins→plugins. Queries redact decoded evidence.
+  Each returned record also includes `line`, the canonical, redacted v2 line for
+  presentation and frozen export (without a newline).
+- `diagnostics.planLogCollection` accepts `{files:[{relativePath,sizeBytes,modifiedAt}],
+  currentSession,session,category?,recentSessions?,since?}`. Inventory is raw log-root-relative native
+  metadata; no contents are read before planning. `session` is `all|current|previous`,
+  and category is one of the existing six product categories. Returns
+  `{result:{reads:[{relativePath,offset,maxBytes}],truncated,estimatedBytes,sessions}}` or `{error}`.
+  Only validated v2 session log files are selected; plugin-owned `files/` and legacy
+  files remain retention inputs. Filters run before budgets. Order is newest session,
+  active before rotation 1 before rotation 2, descending native modification instant,
+  then lexical path. Session ties use descending basename. Previous means the newest
+  session other than current. Reads are capped at 200 files, 2 MiB per file and 10 MiB
+  aggregate. Any omitted eligible bytes/files set truncated. Duplicate paths or invalid
+  selections return -32058; invalid selected timestamps return -32035. Exact native
+  offsets and read sizes belong to Core; adapters validate containment and report I/O errors.
+- `diagnostics.planLogRetention` accepts `{sessions:[{name,files:[{
+  relativePath,sizeBytes,modifiedAt}]}],legacyFiles?:[same file shape],
+  currentSession,now,limits?:{maxAgeMs,totalBytes,perfBytes,pluginFilesBytes},
+  startupCleanup?:false}`. Timestamps are explicit RFC3339. Defaults are 30
+  days, 100 MiB combined, 20 MiB perf, 20 MiB per plugin files directory per
+  session. Returns `{result:{deletions:[{relativePath,directory,reason}],
+  warnings:[{session,pluginId,relativePath,sizeBytes,limitBytes}]}}` or `{error}`.
+  Paths are relative to the writable log root and sorted lexically. Whole
+  sessions expire first, combined pressure removes oldest whole sessions,
+  then perf files are removed from oldest surviving sessions and startup
+  cleanup removes oldest plugin files. Whole-session removal supersedes child
+  deletion. Reasons are `expired|totalBudget|perfBudget|pluginFilesBudget`.
+  The current session and all its files are always protected, even if budgets
+  cannot be satisfied. Runtime plugin overages emit warnings; startup may also
+  delete files in inactive sessions. Legacy files count toward the total but
+  only age can delete them. `should_rotate(size)` is true above 10 MiB;
+  `rotation_indices_to_delete` returns existing indices >=2 to remove before
+  shifting active→1 and 1→2, retaining three segments including active;
+  `rotation_paths_to_delete` resolves those indices to session-relative paths.
+  Unsafe paths, duplicate inventories, and negative age limits are rejected.
+
+#### Log-window pure APIs (PR4 stage A)
+
+These additions do not change any v1 public item or the bytes of v1
+`level/message/detail` evidence. All new request fields are optional. Standard
+Core envelopes remain `{ok:true,data:...}`; domain failures of compose, format,
+query and collection are `data:{error:{code,message}}`, and their successes are
+`data:{result:...}`. Parse succeeds directly as `data:{terms,errors}` because an
+incomplete draft is an expected editing state. Malformed JSON payload shapes use
+the existing outer InvalidRequest failure.
+
+`diagnostics.parseLogFilter` accepts `{expression}` (at most 1024 UTF-8 bytes).
+Returns `{terms:[{kind,key?,value,negate,start,end}],errors:[{start,end,code,message}]}`.
+Ranges are half-open **UTF-16 code-unit offsets**, including negation and quotes,
+for native text highlighting. For an over-budget expression, the sole
+`expressionTooLong` diagnostic has `[0,0)` to avoid scanning unbounded input.
+Kinds: `level_at_least|level|op|event|channel|regex|field|text`.
+All terms intersect; a leading `-` negates a term, while `-` alone is text.
+Whitespace separates terms except inside quotes or `/regex/`. Quoted values
+support `\\` and `\"` escapes; other quoted escapes fail. A quoted bare token
+always means text, including a leading hyphen or reserved-looking syntax.
+
+- `level>=debug|info|warn|error` is inclusive; `level:<value>` is exact.
+  Aliases `dbg/inf/wrn/err` and operator names are case-insensitive. Parsed level
+  values normalize to the full lowercase label. Unknown levels are errors.
+- `op:`, `event:`, `channel:` perform case-insensitive string prefix matching.
+  Expression channel prefixes intentionally do not require a slash boundary;
+  the existing `channelPrefixes` argument retains its boundary semantics.
+- `/pattern/` matches the message case-insensitively using the existing Rust regex
+  engine: at most 256 Unicode characters, 1 MiB compiled size and DFA cache limits.
+  Whitespace inside regex delimiters is allowed; escaped slashes remain regex text.
+- `key:value` / `key=value`, for `[A-Za-z0-9_.]+` keys other than reserved
+  operators above, match case-insensitive substrings in the field's string form.
+  Reserved record fields `ts/seq/msg` and context fields `server/plugin` are supported.
+  Keys compare case-insensitively. Reserved operators require `:`, not `=`.
+- Other bare words use the existing search scope: channel/event/op/message/context.
+  Empty values, malformed quotes, unsupported escapes and invalid regexes are errors.
+
+Diagnostic codes: `expressionTooLong`, `regexTooLong`, `invalidRegex`,
+`invalidLevel`, `emptyValue`, `unterminatedRegex`, `unterminatedQuote`,
+`invalidEscape`, `invalidOperator`, `invalidQuote`. Messages are fixed technical
+English; hosts localize by code. `queryLogsV2` rejects any erroneous expression
+with **-32060, "Invalid log filter expression"**; hosts retain the prior results
+and use parse diagnostics for the draft.
+
+`diagnostics.composeLogFilter` accepts `{expression,term:{kind,key?,value,negate?:false}}`
+and returns `{expression}` in `result`. Positive predicates replace all existing
+positive predicates of the same kind (field predicates additionally require the
+same key), placing the new token at the first replaced position. Negative
+predicates append unless an identical negative predicate exists. Non-regex values
+compare case-insensitively for deduplication; regex patterns compare exactly because
+inline flags can affect semantics. Other source tokens, whitespace and order remain
+unchanged. Values are quoted/escaped as needed; text is always quoted. Invalid drafts,
+invalid terms or a composed expression over 1024 bytes return -32060.
+
+`queryLogsV2` adds these fields in `result`:
+
+```json
+{
+  "records": [{"line":"...", "channel":"app", "relativePath":"app.log", "lineNumber":1,
+    "ts":"2026-11-03T00:00:00.000Z", "level":"WARN", "seq":1,
+    "event":"app.failed", "op":"one", "msg":"failed", "fields":{},
+    "foldKey":"c4d60ef213ff7102", "epochMs":1793664000000, "opOffsetMs":0}],
+  "foldMinimumRun":3,
+  "channels":{"app":{"total":1,"warn":1,"error":0}},
+  "channelCounts":{"app":{"warn":1,"error":0}},
+  "histogram":{"startEpochMs":1793664000000,"endEpochMs":1793664000001,
+    "bucketMs":1,"buckets":[{"debug":0,"info":0,"warn":1,"error":0}]},
+  "opSummary":{"op":"one","count":1,"firstEpochMs":1793664000000,
+    "lastEpochMs":1793664000000,"durationMs":0},
+  "truncated":false,"skippedInvalidLines":0
+}
+```
+
+`queryLogsV2` additionally accepts optional `filterSince` / `filterUntil` RFC3339
+bounds, intersected with `since` / `until`. Each pair must be ordered (-32052 otherwise);
+a disjoint intersection succeeds with zero records. This lets an export range and a
+window time selection share Core's exact instant comparison.
+
+Optional `afterSequences:{sessionBasename:u64}` excludes records at or below the
+specified session's sequence. Keys use the session directory grammar; the empty key
+represents session-relative sources without a `sessions/<name>/` prefix. Sequences
+from different sessions are never compared. The response's `sessionSequences` maps
+each supplied session to its highest decoded sequence, before filters and limits.
+Native live sources should carry their current session prefix so historical and
+live queries use the same identity. Missing fields preserve existing queries.
+
+`foldKey` is lowercase 16-digit FNV-1a 64 hex over channel, canonical uppercase
+level, event, message in that order; each UTF-8 value is preceded by its byte length
+as a little-endian u64. This encoding is stable across versions/architectures.
+Hosts group adjacent equal keys and collapse only runs of at least 3.
+`epochMs` parses the record timestamp; submillisecond ordering still uses the full
+instant. `channels` counts all decoded records before filters, within supplied input
+and its byte budget. Existing `channelCounts` retains filtered-before-limit semantics.
+
+`histogramBuckets` must be 1..240 (else -32061). Histogram uses every predicate
+**except since/until**, before output limiting. `histogram` is null when absent or
+empty. Exactly the requested number of buckets is returned, including empty trailing
+buckets; width is `ceil((maxEpochMs-minEpochMs+1)/count)`, at least 1 ms, and end is
+exclusive `start + width*count`. The maximum event is always included.
+`opSummary` and per-record `opOffsetMs` appear only with the existing explicit `op`
+argument. Summary includes all matches of all query predicates before limit;
+offset is relative to its earliest instant. An empty op result has count/instants/
+duration zero. Filtering op through expression alone does not add these fields.
+
+`diagnostics.formatLogRecords` accepts
+`{lines:[String],format:"json"|"markdown",environment?:{appVersion,osVersion,architecture,plugins:[String]}}`
+and returns `{text}` in `result`. Limits: 10000 lines and 4 MiB including one separator
+byte per line; environment strings total at most 64 KiB and at most 1000 plugin IDs.
+Budget violations use -32062. Each line is decoded again: decoder failures keep their
+precise codes, headers/noncanonical/nonredacted lines use -32063. JSON without an
+environment is one pretty object for one line, otherwise an array (including empty).
+With environment it is `{environment:{...},records:[...]}`. Markdown is
+`**Lithe**` plus optional version/OS/architecture JSON strings separated by ` · `,
+optional `Plugins: [JSON strings]`, a blank line and an `ndjson` fenced block of
+unchanged canonical lines followed by a newline. The fence grows if evidence contains
+backticks. The evidence grammar remains canonical v2 even though the technical fence
+label is `ndjson`. Keys/headings are fixed English report syntax, not UI copy.
+
+Collection inventory is bounded to 10000 entries. `recentSessions` must be 1..10,
+otherwise -32058. It includes current (even with no eligible files or a skewed clock), then selects
+the newest remaining sessions to fill N slots, **before** intersecting `session:all|current|previous`, category
+and since. `since` is
+inclusive RFC3339 (-32035 if invalid): a file qualifies if its session directory start
+**or** its modification instant reaches the cutoff. Previous still means the newest
+inventory session other than current, independent of category/time. Budgets apply last.
+`sessions` lists eligible session names before read budgets, newest first, excluding
+sessions with no eligible files; `estimatedBytes` sums selected `maxBytes` (already
+bounded by each file size), before compression. Crash collection remains host-owned
+and passes through `diagnostics.redactText`.
+
+Each v2 numeric domain code has one meaning. Existing outer Core string codes
+are unchanged:
+
+| Code | Meaning |
+| --- | --- |
+| -32031 | Unknown channel root |
+| -32032 | Unsupported channel shape |
+| -32033 | Invalid channel/plugin segment |
+| -32034 | Invalid full session UUID |
+| -32035 | Invalid timestamp |
+| -32036 | Invalid session directory basename |
+| -32037 | Invalid context field key |
+| -32038 | Reserved key reused as context |
+| -32039 | Duplicate context key |
+| -32040 | Invalid file header |
+| -32041 | Invalid line grammar |
+| -32042 | Invalid value escape |
+| -32043 | Missing or misordered reserved fields |
+| -32044 | Invalid unpadded u64 sequence |
+| -32045 | Invalid log level |
+| -32046 | Line cannot fit the byte budget |
+| -32047 | Non-scalar context value |
+| -32048 | Invalid event or operation identity |
+| -32049 | Invalid retention inventory or limits |
+| -32050 | Invalid query source path or line origin |
+| -32051 | Invalid structured event JSON shape |
+| -32052 | Reversed query time range |
+| -32053 | Unknown catalog event |
+| -32054 | Missing catalog field |
+| -32055 | Invalid catalog field |
+| -32056 | Unknown catalog field |
+| -32057 | Catalog level mismatch |
+| -32058 | Invalid collection inventory or selection |
+| -32059 | Core event owner mismatch |
+| -32060 | Invalid log filter expression |
+| -32061 | Invalid histogram bucket count |
+| -32062 | Log copy input exceeds budget |
+| -32063 | Expected canonical redacted log record |
+| -32064 | Invalid host plugin operation |
+
 Diagnostic previews freeze the selected redacted bytes before confirmation.
 Windows returns a `snapshotId` from `preview_diagnostic_bundle`; export consumes
 that exact ID once. Discard releases it on cancel; at most four previews remain
@@ -3745,7 +4833,9 @@ health, rather than inferring them from the currently selected view filter.
 `files` sorted by `relativePath` so the listing shown to the user before they
 confirm a diagnostic export — and the zip's contents — are deterministic
 across runs and across platforms. Hosts gather the environment and file facts
-natively; this command only shapes and sorts them.
+natively; this command only shapes and sorts them. The additive top-level
+`redaction:"core-v2"` identifies the shared redaction boundary; schemaVersion remains 1.
+Windows consumes the original fields and may ignore this marker.
 
 ### Declarative plugins
 
@@ -3799,6 +4889,51 @@ architecture or an empty directory is refused with
 `plugin.launch.invalidRequest`; a language without a server, an undeclared
 build system, and a build system without a provider with
 `plugin.launch.unavailable`.
+
+A language server declared with `launch.kind: "backend"` (`serverProcess` 3) has
+no command line in its manifest; the plugin's backend chooses it. The plan this
+command returns is then only the first step: `launch` is `{ kind: "backend",
+function, timeoutMilliseconds }` (30000 when absent) and `resolveParams` is the
+params the host sends to that backend function, `{ serverID, platform: { os,
+arch }, stateDirectory, workspaceStateDirectory, logDirectory,
+temporaryDirectory, settings }`; the host adds `context` and, when the plugin
+declares tool definitions, `tools`. The request must carry all four of
+`stateDirectory`, `workspaceStateDirectory`, `logDirectory`, and
+`temporaryDirectory`, and the plan lists them in `requiredDirectories`. A server
+below `languageServers` 3 has no `sessionPolicy`; a version 3 plan carries it
+(`serverID`, `requestMethods`, `commands`, `serializedCommands`,
+`forwardNotifications`, `remote`, `gates`, `state`) for the engine to enforce.
+
+`plugins.languageServers.decodeLaunch` is the second step. It accepts
+`{ manifest, languageID, request, result }`, where `request` is the first
+step's request and `result` is what the backend function returned, and answers
+`{ status: "ok", plan }` with the plan the host starts like any other (launch
+`packaged` or `tool`, `arguments`, `environment`, `writablePaths`,
+`requiredDirectories`, `initializationOptions?`, `workspaceConfiguration?`, and
+`sessionPolicy` with the answer's `gates`) or `{ status: "rejected", error }`.
+Refusals are `plugin.launch.unavailable` (no such server),
+`plugin.launch.notBackend` (the server is not launched by a backend),
+`plugin.launch.invalidRequest` (a missing directory), and
+`plugin.launch.invalidResult`, `plugin.launch.outsidePackage`,
+`plugin.launch.undeclaredTool`, and `plugin.launch.unwritablePath` for the
+answer. The golden cases are
+`shared/contracts/plugins/v1/fixtures/languages/language-server-launch-resolution.json`.
+
+`plugins.languageServers.stateRetention` accepts `{ retention: { maxEntries,
+maxAgeDays }, nowUnixSeconds, entries: [{ name, lastModifiedUnixSeconds }],
+activeNames }` and returns `{ expiredNames }`: the inactive per-workspace state
+directories the host deletes. Directories used by a running session
+(`activeNames`) are never listed and count against `maxEntries`; of the others,
+those older than `maxAgeDays` and those beyond the newest that fit are listed.
+The host lists and deletes only directories under its own state storage, never
+inside an app bundle or installation directory.
+
+`plugins.contentProviders.decode` accepts `{ result }`, the value a plugin
+function returned for a document of its content scheme, and returns
+`{ content }`. `result` is a string, or an object whose only member is
+`content: string`; anything else is `invalid_request`, and so is text of more
+than 1 MiB (1,048,576 UTF-8 bytes). The host opens `content` as a read-only
+document and never interprets it.
 
 A `debugAdapterID` selects a `debugAdapters[]` entry with a `serverProcess`
 or a `tcpLanguageServer` transport (naming it together with another selector is
@@ -3891,9 +5026,66 @@ languages return `grammar:null` and require no file read. Core reads no files.
 `plugins.editorActions.decode` accepts `{kind:"registration",value}` or
 `{kind:"actions",value,text}` and returns `{registration}` or `{actions}`.
 Core validates literal selectors, one-based UTF-16 ranges and bounded opaque
-function bindings. Hosts enforce permission, live document versions and session
-ownership; HTTP/SQL business semantics stay with plugins. See the plugin
-contract's independent editor actions section.
+function bindings. Version 1 (the default) admits the icons `run` and
+`run-all` and a 128 KiB source. `version: 2` with the host's `icons` and
+`sourceBytes` also admits `alternatives` and `{kind:"invokeResult",value}`,
+which returns `{}` or `{reveal:{locations}}` for a clicked action. Hosts enforce
+permission, live document versions and session ownership; HTTP/SQL business
+semantics stay with plugins. See the plugin contract's independent editor
+actions section.
+
+`plugins.editorProviders.decode` accepts `{kind:"registration",value,types}`
+(the provider types the host routes) and returns `{registration}` with
+lowercased literal selectors and Core's per-type `budgetMs`; a type outside
+`types` is `not_supported` with details `providers.<type>`. It also accepts
+`{kind:"result",type,value,legend?}` (one provider function's LSP 3.17 shaped
+result; semantic tokens need the registered legend) and returns `{result}`
+normalized to `{locations}`, `{contents,range?}`, `{isIncomplete,items}`,
+`{lenses}`, `{ranges}`, `{data}` or `{links}`. Hosts own calls, budgets,
+stale-version drops and the merge after language-server answers; see the
+plugin contract's editor language-feature providers section. The definition
+merge is Core's too: `{kind:"mergeDefinitions",value:{documentUri,position,server,plugin}}`
+takes the language server's and the plugins' validated `Location[]` and returns
+the indices each side keeps as `{server,plugin}`. The server's answer comes
+first; a plugin location equal to one already kept is dropped, and a server
+location that covers the requested position itself (the caret already sits on
+the declaration) yields when a plugin answered.
+
+`toolchains.instantiateLaunch` accepts `{ registry, tool, executable, home?,
+entry?, runtimeArguments, arguments }` and returns `{ status: "ok", launch:
+{ executable, arguments, versionArguments } }`. See
+[Launching a tool definition](plugins/v1/toolchains/README.md#launching-a-tool-definition).
+
+`run.decodeStart` accepts `{ manifest, workspaceRoot, temporaryDirectory?,
+params }`, where `params` are those of `lithe/host/run/start` as the backend sent
+them. It returns `{ status: "ok", start }` with `start` being `{ label,
+executable: { kind: "toolchain" | "packaged", value }, arguments,
+workingDirectory, environment, temporaryFiles: [{ path, contents }], debug?,
+rerun? }`. The tool must be listed in the manifest's `requiresTools`, and the
+working directory must be a relative path of an existing directory inside
+`workspaceRoot`, which Core checks read-only the way it does for run preparation.
+`${temporaryFile:<name>}` in arguments and environment becomes a file path under
+`temporaryDirectory`, which the host supplies when the start has temporary files;
+Core writes nothing, the host writes `temporaryFiles`. A start Core refuses is
+`{ status: "rejected", error }` with `plugin.run.invalidStart` and the failing
+`field`. See the plugin contract's
+[run and debug sessions](plugins/v1/README.md#run-and-debug-sessions-protocol-version-3).
+
+`debug.decodeBackendConfiguration` accepts `{ manifest, params }` with the
+params of `lithe/host/debug/start` and returns `{ status: "ok", start }` with
+`start` being `{ adapterID, request, label, configuration }`, `adapterID` the
+qualified ID. A start Core refuses is `{ status: "rejected", error }` with
+`plugin.debug.invalidStart`, `plugin.debug.unknownAdapter`,
+`plugin.debug.foreignAdapter`, or `plugin.debug.limitExceeded`.
+
+`outputLinks.match` accepts `{ scope, platform, caseSensitive?, workspaceRoots,
+sources: [{ pluginID, matchers }], lines }` and returns `{ links }`;
+`outputLinks.decodeResolution` accepts `{ reply }` and returns the location
+`{ path, line?, column? }` or `null`. Neither takes a manifest: the host passes
+the matchers of each enabled plugin as `plugins.declarative.validate` returned
+them. A request Core cannot accept is `invalid_request`, not a policy outcome.
+See the plugin contract's
+[output link matchers](plugins/v1/README.md#output-link-matchers-outputlinkmatchers-1).
 
 
 The `plugins.marketplace.*` commands are equally pure: hosts fetch indexes and
@@ -3925,7 +5117,7 @@ a host advertises each only after implementing its lifecycle and requests.
 macOS advertises all six and routes provider tasks, tests and run preparation through
 the existing workspace session. Prepared applications use the existing native Run host. Windows does not yet advertise Provider lifecycle support.
 
-Except `build.detect`, every command accepts
+Except `build.detect`, `build.projectOptions` and `build.resolveStoredOptions`, every command accepts
 `{ manifest, buildSystemID, request }`, revalidates the manifest, and answers
 `plugin.build.unavailable` for an undeclared build system or operation.
 Results use the `plugins.declarative.*` envelope under the key named below;
@@ -3957,18 +5149,23 @@ and the directories are absolute host paths used only as substitution text.
 
 | Command | Request | Result |
 | --- | --- | --- |
-| `build.detect` | `{ workspaceRoot, plugins: [{ manifest }], options?: { <buildSystemID>: { <optionID>: value } } }` | `detection`: `{ instances, rejected: [{ index, error }], shadowed: [{ pluginID, buildSystemID, by }] }`; each instance is `{ id, pluginID, buildSystemID, displayName, root, markers, modelSource, optionFingerprint }` plus `model` or `modelError` for `static` and `hostIntegration` sources; a `provider` source has neither |
+| `build.detect` | `{ workspaceRoot, plugins: [{ manifest }], options?: { <buildSystemID>: { <optionID>: value } }, instanceOptions?: { <buildSystemID>: { <root>: { <optionID>: value } } }, instanceDefaults?: { <buildSystemID>: { <optionID>: value } }, emptySelections?: { <buildSystemID>: { <root>: [optionID] } } }` | `detection`: `{ instances, rejected: [{ index, error }], shadowed: [{ pluginID, buildSystemID, by }] }`; each instance is `{ id, pluginID, buildSystemID, displayName, root, markers, modelSource, optionFingerprint, options, droppedOptions }` plus `model` or `modelError` for `static` and `hostIntegration` sources; a `provider` source has neither. `options` contains accepted stored values after Core scope/root merging, including explicit empty selections; `droppedOptions` names rejected stored values without rewriting the source document. |
+| `build.projectOptions` | `{ document }`, host-read persisted v1 Build options, without a manifest | `document`: validated storage with version 1 and systems; options, instance defaults, root values, explicit empty selections and saved custom choices are retained. Missing system fields normalize to empty maps; malformed, unsupported or oversized documents reject with `plugin.build.invalidOptionsDocument`. This pure operation never reads or writes a file and does not replace declared option resolution. |
 | `build.invocationPlan` | `{ root, platform: "macos" \| "linux" \| "windows" }` | `invocation`: `{ buildSystemID, root, executables, environmentInputs, runtimeDependencies, version, minimumVersion }` with project-file paths joined to `root`; every runtime dependency with a known probe, host-managed ones included, carries `version: { arguments }` |
 | `build.checkToolVersion` | `{ runtime?, output }` | `version`: `{ satisfied, version? }`; `runtime` checks that runtime dependency instead of the tool |
 | `build.resolveModelInputs` | `{revision, sources: [{manifest, instances: [{buildSystemID, root, state, model?, options?}]}]}` from installed enabled current-workspace sources | `modelInputs`: version 1 public snapshot with exact optional producer slots, state, normalized projects/targets/content roots, configuration fingerprint and explicitly shared options; no tasks/run/settings/private functions; see the [plugin contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/plugins/v1/README.md#optional-read-only-model-inputs-buildmodelinputs-1) |
-| `build.resolveOptions` | `{ options, modelValues? }` | `options`: `{ options: [{ id, displayName, kind, value, source, choices, allowCustom }], dropped, fingerprint }` |
+| `build.resolveOptions` | `{ options, modelValues? }` | `options`: `{ options: [{ id, displayName, kind, scope?, value, source, choices, allowCustom }], dropped, fingerprint }` |
+| `build.configurationPlan` | plan fields and optional host-selected `tool` | `plan.provider` for `lithe/build/configuration` (v7); no mutation, project or output-file parameters |
+| `build.decodeConfiguration` | `{ result }` | `configuration`: bounded `litheBuildConfiguration` v1 native sources/fields; see the plugin contract |
+| `build.configurationEditPlan` | `{ root, options?, workspaceStateDirectory, outputFile, snapshot, edits: { sourceID, revision, values }, tool? }` | Provider request `lithe/build/editConfiguration`; existing private staging only, no document bytes |
+| `build.decodeConfigurationEdit` | `{ snapshot, edits, result }` | `edit: { sourceID, revision, changed }`; validates bounded receipt and exact draft/source identity; native adapter verifies staged hash and publishes atomically |
 | `build.modelPlan`, `build.dependencyPlan` | plan fields plus `project?` (dependencies), `outputFile?`, and for provider sources `refresh?` (boolean) and `tool?: { executable }` (absolute path) | `plan`: `{ buildSystemID, root, arguments, environment, workingDirectory, execution, optionFingerprint, output, decoder, executesProjectCode, mayUseNetwork }`; for a `provider` source `{ buildSystemID, root, provider: { method, params }, decoder, executesProjectCode, mayUseNetwork, optionFingerprint }`, where `method` is `lithe/build/model` or `lithe/build/dependencies` and `params` is `{ buildSystemID, root, options, optionArguments, environment, project?, refresh?, tool? }`; `refresh` appears only when `true` and `tool` only when the host sent it |
 | `build.taskPlan` | plan fields plus `task`, `project?`, `target?`, `modelTask?`, `userArguments?` | command `plan` with `arguments`, `environment`, `workingDirectory`, `execution`, and `optionFingerprint`; a provider task instead returns `provider: {method: "lithe/build/execute", params}` with effective options, selected task/entities, user arguments and effect metadata |
 | `build.testPlan` | plan fields plus `project?`, `target?`, `suite?`, `case?`, `userArguments?`, `projects?` (the model's project directories) | command plan or `provider: {method: "lithe/build/test", params}` (buildProviders 3), plus `results`: `null`, `{ decoder, reports }` with workspace-relative globs (for the selected project, or for the root and every listed project when none is selected), or command-only `{ decoder: "hostIntegration" }`. Command filters that templates cannot place, such as a case without its suite when the tool only addresses `Suite#case`, are `plugin.build.invalidSelection`; Provider filters remain separate typed values and must be declared supported |
 | `build.testDiscoveryPlan` | common plan fields plus `refresh?`, `tool?`; no project/output file | `plan.provider` for `lithe/build/discoverTests`, only with `test.discovery: true` (Provider v3), using the same effective options and effect metadata |
 | `build.decodeTestDiscovery` | common plan fields plus canonical `result` | `discovery.tests` with validated `{id, suite, case, project?, target?}` selectors; bounded at 10,000 items/32 MiB, deterministic and exactly runnable; malformed replies reject in full |
-| `build.prepareRunPlan` | common plan fields, `run`, required `project`/`target`, `userArguments?`; no output file | `plan.provider` for `lithe/build/prepareRun` (Provider v4), selected declaration/tags/paths/options validated |
-| `build.decodeRunPreparation` | `workspaceRoot`, instance `root`, raw `result` | `launch` with portable `{executable:{kind,value},arguments,workingDirectory,environment}`; bounded strings and workspace directory containment, `plugin.build.invalidOutput` on invalid result |
+| `build.prepareRunPlan` | common plan fields, `run`, required `project`/`target`, `userArguments?`, `launchOptions?`, `workspaceRoot?` (required for an explicit launch cwd); no output file | `plan.provider` for `lithe/build/prepareRun` (Provider v4), selected declaration/tags/paths/options validated; typed launch options and service/task execution require v10 |
+| `build.decodeRunPreparation` | `workspaceRoot`, instance `root`, raw `result`, same optional `launchOptions` | `launch` with portable `{executable:{kind,value},arguments,workingDirectory,environment}`; bounded strings and workspace directory containment, `plugin.build.invalidOutput` on invalid result |
 | `build.prepareDebugPlan` | same selected fields as `build.prepareRunPlan`; run declares same-plugin `debug.adapter` | `plan.provider` for `lithe/build/prepareDebug` (v5); no cross-package reference |
 | `build.decodeDebugPreparation` | `workspaceRoot`, instance `root`, selected `run`, raw `result` | `preparation` with declaration-owned `adapter`, normalized `root`, `program`, `arguments`, `workingDirectory`, `environment`; program is an existing regular file contained in the instance after canonicalization |
 | `build.decodeModel` | `{ workspaceRoot, root, output?, outputFile?, result?, options? }`; `result` is the provider's JSON answer | `model`: `{ projects, targets, tasks, contentRoots, optionValues, run }`; `run` entries carry `buildSystem: { id, root, projectID, targetID?, optionFingerprint }` |
@@ -3978,13 +5175,23 @@ and the directories are absolute host paths used only as substitution text.
 | `build.syncFingerprint` | `{ workspaceRoot, root, projects, options? }` | `sync`: `{ fingerprint, watch }` |
 | `build.languageImport` | `{ workspaceRoot, root, options?, executablePath? }` | `languageImport`: `null` without a `languageImport` declaration; `{ kind: "maven", mavenContext: { version, reactorPath, profiles, settingsPath?, localRepositoryPath?, mavenExecutablePath? } }` for `lsp.startServer.mavenContext` and `lsp.updateMavenConfiguration`; or `{ kind: "gradle", javaGradle: { wrapperPresent, offline, userHome? } }` for `lsp.startServer.javaGradle`, where `wrapperPresent` reports `gradle/wrapper/gradle-wrapper.properties` under `root` |
 
+`executableResolution: 2` adds `{ kind: "toolchain", toolchainID, root }` invocation
+candidates. Hosts resolve them through the same canonical project/subproject
+selection used by Run, preserving terminal failure and project-code identity.
+The optional plan hint `tool.environment` is a bounded string map (64 entries,
+valid environment names, 32768 bytes per value, no NUL). It merges into Provider
+`environment` before option contributions, for models, dependencies and native
+configuration; task/test hosts apply the same selected environment. Only selected
+lookup/runtime inputs cross this boundary, never the full process environment.
+
+
 `outputFile` is an absolute host-allocated path the host creates fresh for
 each run and removes afterwards; a command whose declaration writes to a
 file refuses a plan without it. Unlike the `plugins.declarative.*` commands,
 `build.detect`, `build.decodeModel`, `build.decodeTestResults`,
 `build.decodeDependencies`, and `build.syncFingerprint` read bounded files
 inside `workspaceRoot` (and the given `outputFile`); none of the commands
-writes anything or starts a process. `shared/contracts/plugins/v1/fixtures/build-plans.json`
+writes anything or starts a process. `shared/contracts/plugins/v1/fixtures/build-systems/build-plans.json`
 holds the golden plans and decoded outputs.
 
 ### VCS providers
@@ -4011,10 +5218,17 @@ detection cases, decoded snapshots, and reply validation cases.
 The `project.*` commands back the New Project window. Payloads, results, and
 problem codes are specified in the plugin contract's
 [Project generators](plugins/v1/README.md#project-generators) section, and
-`shared/contracts/plugins/v1/fixtures/project-plans.json` holds the golden
+`shared/contracts/plugins/v1/fixtures/project-generators/project-plans.json` holds the golden
 answers. Results use the `plugins.declarative.*` envelope: `catalog`, `form`,
 `plan`, `name`, and `extracted`. Commands that take a manifest revalidate it
 and answer `plugin.project.unavailable` for an undeclared generator.
+
+A `projectGenerators` 2 generator picks tool installations with `tool` fields.
+The host lists the installations of each field's tool and sends them as the
+form's `tools`; Core chooses among them, checks `minimumVersion`, expands
+`${field.<id>.executable}`, and returns `toolPins` in the plan. Core lists no
+installations itself, so the commands touch neither the file system nor a
+process for tools.
 
 `project.generationPlan` reads template files below `packagePath` (bounded,
 no symbolic links). `project.extractArchive` is the only command that writes:
@@ -4300,17 +5514,35 @@ separately, answers are stored in `plan.pushTargets`, and a retry restores and
 re-validates them from `previous` without the client forwarding them. Routine
 pushes (`tracking` or `publish` destinations) never produce a question.
 
-An optional `pathScope: { include, paths: { <repository-id>: [<relative-path>] } }`
-restricts local changelist commits. With `include: true`, only the listed literal
-paths are allowed; with `include: false`, the listed paths are excluded. Missing
-repository entries mean an empty set, not unrestricted access in inclusion mode.
-This is an exact-path guard, not a Git pathspec and not a second staging index.
-Core rejects any staged file or automatic parent-reference update outside the
-scope before executing mutations. It never silently unstages other lists. Scope
-changes invalidate a reviewed plan; retries inherit the original scope and may
-not replace it. Continuations retain the scope and validate it before writes,
-alongside the existing exact HEAD/index checks. Omitted scopes preserve existing
-clients' behavior. Shared examples: `shared/fixtures/git/local-changelist-scope-v1.json`.
+`git.changelists` is a pure reducer: the host owns persistence and supplies
+`state` (`lists`, `activeId`, and `assignments` grouped by repository root),
+`files` (root, path, optional original path, and `isCopy`), optional repository
+bindings, and an optional action (`create`, `rename`, `remove`, `activate`,
+`move`, or `rememberRenames`). The response contains the validated state, one
+membership per input file in order, and a commit `scope`. Deletion leaves an
+explicit Default assignment so a file under an assigned directory returns to
+Default. A rename inherits its source's membership, including directory or
+implicit Default membership; copies never inherit or modify their source.
+Ambiguous overlapping renames with different memberships fail closed. Inputs
+and assignment counts are bounded. Hosts must reject stale asynchronous results
+and protect persistence against concurrent windows. The shared fixture is
+`shared/fixtures/git/changelists-reducer-v1.json`.
+
+An optional `pathScope: { include, paths, membership? }` restricts local
+changelist commits. Legacy scopes use literal `paths` grouped by repository ID:
+`include: true` allows only listed paths, while `false` excludes listed paths.
+Core-generated scopes additionally include `membership: { activeId,
+assignments }`, where assignments are grouped by repository ID and may include
+explicit file or trailing-slash directory rules. Exact paths override the
+nearest assigned directory; missing paths belong to Default. Core uses these
+rules against the real staged paths and automatic parent-reference updates,
+including paths staged after the UI snapshot. They are literal identities, not
+Git pathspecs or a second staging index. Omitted `membership` retains legacy
+exact-path behavior. Scope changes invalidate a reviewed plan; retries inherit
+the original scope and may not replace it. Continuations retain the entire
+scope and validate it before writes, alongside exact HEAD/index checks.
+Omitted scopes preserve existing clients' behavior. Legacy examples:
+`shared/fixtures/git/local-changelist-scope-v1.json`.
 
 `git.workspaceCommitStep` accepts `{ session }` and returns the next session,
 executing at most one commit or push. Session fields are `plan`, last observed
@@ -4477,6 +5709,10 @@ Fixtures live in `shared/fixtures/process-lifecycle/settle-v1.json`.
 `lithe-ide-host` adapter. This local host command is not remotely exposed. See
 [IDE API v1](ide-api/v1.md) for the allowlisted plugin/MCP capabilities, connection
 ownership, authorization, output cursors and shutdown semantics.
+Native `open` accepts a `toolExposure` selection of canonical tools and optional
+argument names; a host that omits it serves the whole catalog. A selection is stored
+with the connection and enforced before requests enter its queue. It can only narrow known schemas; it cannot define tool
+types or permissions. Both MCP discovery and native plugin validation use it.
 Native Rust hosts can attach an owner-checked, connection-lifetime callback using
 `attach_ide_request_dispatcher`; this is separate from the request-scoped Git/Agent
 progress callback. It forwards notification IDs only. `ideHost.control` action
@@ -4508,6 +5744,24 @@ HotSwap. Attach to independently launched JVMs does not change their options.
 The Windows host maps `redefineClasses` to this operation and `cancelOperation`
 to `debug.cancelOperation` with a `timedOut` reason for its bounded result wait.
 
+### Commit dates and history date queries
+
+`git.history`, `git.historyPage`, and `git.commit` return author `date` in Git's
+wall-clock form and `dateUtcOffsetMinutes` (east positive). When both describe a
+valid instant, `dateUnixSeconds` supplies the absolute Unix time. An unknown or
+invalid offset omits the timestamp; older clients can still display the original
+date. Hosts should use the timestamp for presentation and cache identity.
+
+`git.historyQuery` accepts up to 4,096 `entries` with unique, nonempty `id`
+(up to 256 UTF-8 bytes), `date` (up to 128 bytes), optional `utcOffsetMinutes`,
+and optional `fallbackUnixSeconds` for legacy dates without an offset. `afterUnixSeconds` is inclusive and `beforeUnixSeconds` is exclusive; an
+unresolvable date is excluded. The result's `matchingIds` preserves input order.
+Clients handling larger histories must batch requests and abandon stale results.
+Local calendar boundaries (including daylight-saving transitions) come from the
+host's system calendar, are converted to absolute seconds, and are passed to Core;
+Core does not infer an OS timezone or assume every calendar day is 24 hours. See
+`shared/fixtures/git/history-date-query-v1.json`.
+
 ### Saved changes: directional patches and immutable stashes
 
 `git.patchPreview` and `git.patchApply` accept optional `reverse` (default `false`).
@@ -4523,8 +5777,35 @@ See `shared/fixtures/git/patch-exchange-v1.json`.
 files. Stash write operations also accept the full object identity in `reference`;
 Core resolves its current stash position under the existing writer lease and rejects
 an identity that is no longer present. Legacy positional references remain accepted.
-See `shared/fixtures/git/saved-stash-v1.json`. Native Shelf persistence is platform-owned;
-raw patch bytes are kept separately for index and working-tree versions.
+With `includeFileSections: true`, `git.diff` returns `files` in Git order for
+working-tree, index, reference, commit, snapshot and stash reads. Stash reads
+still require the whole-repository pathspec `["."]`. Each file provides a
+validated `path`, optional `originalPath`, `status`, `isBinary`, additions and
+deletions, UTF-8 `patch`, unified `lines`, aligned `rows`, and complete per-hunk
+`hunks`. The flat `patch`, `rows`, and `hunks` are empty in this mode to avoid
+a second full-document transfer. `omitFilePatch: true` additionally omits each
+whole-file patch after validation while retaining exact per-hunk patches; hosts
+that need a complete saved patch must leave it false. The `hasLossyLineEndings` flag records whether
+display normalization omits CR or a missing-final-newline marker. Git's NUL
+statistics and patch are captured by the same invocation; standard prefixes,
+no color, and no text conversion are forced. Unsupported paths, mismatched
+sections and patches exceeding 32 MiB are rejected. Regular diff reads replace
+invalid UTF-8 for display and set `hasDecodingLoss`; their patches and hunks
+must never be used as write material. Rename hunks additionally provide a
+`contentPatch` against the destination path, so a partial stage or unstage does
+not itself apply or reverse the rename. If absent, such a hunk is not writable.
+Stash reads reject invalid UTF-8.
+Without the flag, `git.diff` retains its flat response shape.
+
+`git.parsePatch` accepts `{root, patch}` and returns the same per-file shape
+for a complete saved UTF-8 patch. Git validates file identity in one batch,
+with a reverse inspection when rename/copy identities require it. Empty patches
+return no files; invalid, unsafe or oversized inputs are rejected. Shelf retains
+separate staged and working-tree patches and parses each layer once. Hosts may
+render the unified and split rows, but must use only byte-faithful hunks for
+writes and honor the decoding-loss flag. See
+`shared/fixtures/git/saved-stash-v1.json` and
+`shared/fixtures/git/parsed-diff-v1.json`.
 
 ### Native plugin UI data
 
@@ -4592,6 +5873,29 @@ The macOS settings surface offers search, refresh, file details, native open and
 reveal, creation and import. It keeps native loading separate from management
 and rejects stale results after project changes. Windows can use the same Core
 operations; the settings UI and Windows runtime validation remain pending.
+
+
+Team Build options use `shared/contracts/build-project-options-v1.schema.json`
+at `.lithe/build/options.json`. `options` holds workspace-scoped values;
+`instanceDefaults` applies to every detected root's instance-scoped options;
+`instances` overrides those defaults by normalized root. Platform-local values
+then override that root. Storage writes local differences only; passive detection
+never rewrites the shared document. Explicit local reset reveals the shared value.
+Malformed, unsupported, or inaccessible documents fail instead of becoming empty
+options. Source documents stay read-only during resolution; the host only writes
+one through guarded publication for an explicit edit or activation migration.
+`build.detect.instanceDefaults` receives this same team default snapshot before
+static model/run generation; hosts use the same merge in every subsequent plan.
+
+`savedChoices` preserves unselected custom choices. Hosts display them only when
+the resolved option permits custom values; they never change selection or upstream
+model facts. Storage validates bounded documents and preserves invalid originals.
+
+`build.decodeTestResults.request.result` accepts a canonical inline report only
+for `test.results.decoder=provider` (buildProviders 8). Provider replies carry
+`testResults` with the same execution. Core validates bounded case fields and
+workspace-relative paths and aggregates by optional project/suite/case identity;
+the host does not read tool-specific report directories for this decoder.
 
 ### Project JDK supplied to JDT LS
 
@@ -4691,3 +5995,459 @@ indexing policies or retired roots. Hosts discard in-flight results when their
 workspace root set changes. Removing a nested root restores parent scanning.
 An unavailable non-current root does not fail a scoped request for an accessible
 root; a missing descendant retains its ownership boundary until removed by the host.
+
+### Consumer tool preferences (development)
+
+`toolchains.resolveConsumerPreferences` accepts `{document, directory, consumer?, tool, fixed?}`.
+The document follows `toolchain-consumer-preferences-v1.schema.json`; `directory` is workspace-relative
+and `consumer` is an inert `pluginID/contributionID` identity. A non-null explicit Run `fixed` value
+wins. Otherwise the nearest consumer choice precedes general directory/workspace choices.
+`inherit: workspace` reads the workspace tool afresh; `inherit: consumer` in a directory reads that
+consumer's workspace preference and then the workspace tool. A consumer's `inherit: tool` reads
+the general tool at the original requested directory, including its nearest general override;
+following a workspace consumer reference preserves that original directory. General tool entries
+cannot refer back to consumers or to themselves, so the reference graph cannot form cycles.
+An absent general choice returns `fixed: null`,
+which means the normal toolchain resolver still owns automatic/project/global selection.
+
+The response is `{status: ok, preferences: {fixed, source, inheritance, stored}}`, or the standard rejected
+`plugin.toolchain.invalidParams` / `plugin.toolchain.limitExceeded` envelope. Fixed values remain
+inert inputs to the existing resolver; this command cannot register a tool, prove package trust,
+resolve a version, write preferences or grant permission to run a program. Native consumers must
+recheck their source bytes and active definitions after discovery. The shared fixture is
+`shared/fixtures/toolchains/consumer-preferences.json`. The machine-local Run document stores it at `toolchain.preferences`. Run editor updates omit to
+preserve, or pass an empty v1 document to reset. `runConfig.projectToolchain` returns the inert
+`toolPreferences` alongside existing fields. The native host supplies the current
+installed plugin/build-system contribution identity; both native Build consumers read these preferences
+before the existing proof pipeline and recheck their bytes afterwards. `stored` is the value at exactly
+the requested scope, or null when that scope inherits. It is separate from the resolved `fixed` input.
+
+`toolchains.editConsumerPreferences` accepts `{document, directory, consumer?, tool, value}`.
+`value` is required: null removes only that scope's override; otherwise it is a fixed selection or
+an allowed symbolic inheritance reference. The command validates both the original and edited
+documents, preserves siblings, prunes empty containers along the edited path, and returns
+`{status: ok, edit: {document, preferences}}`. Resetting an absent value is a no-op.
+
+`runConfig.updateToolPreferences` accepts `{localDocument, preferences}` and returns
+`{document}` containing the replacement local Run JSON. It replaces only `toolchain.preferences`;
+it does not materialize legacy language/build defaults, migrate v1 Run entries or modify other fields.
+The captured `localDocument` is required; this command performs no native I/O. Unknown document
+versions are rejected without numeric narrowing. The native adapter owns bounded reads, cancellation,
+read-only package boundaries, optimistic comparison, metadata-preserving atomic replacement and
+read-back. No editor command discovers or executes tools. Global defaults and complete one-time
+legacy migration remain incomplete; these APIs alone do not complete Stage D.
+
+### Windows source-breakpoint relocation
+
+Windows forwards the editor's exact source-preserving edits to
+`debug.relocateBreakpoints` and converts its zero-based store lines to/from Core's
+one-based lines. The context-expanded patches used to synchronize the editor's
+source mirror must not be used as anchor edits: unchanged neighboring code must
+not be treated as deleted. The existing cases in
+`shared/fixtures/debug/breakpoint-relocation-v1.json` cover both platforms.
+
+Each native multi-cursor event is sent as one batch of original-source edits;
+Core applies the edits before projecting anchors. Rapid events serialize or share
+one ordered request, split views share a mutation identity, and launch reads the
+current owner after all pending relocations complete.
+
+## Markdown rendering
+
+`markdown.render` accepts `{ "source": "<Markdown text>" }` and returns
+`{ "html": "<sanitized HTML fragment>" }`. The existing Comrak dialect and
+Ammonia sanitizer are shared by macOS and Windows; platforms must not parse
+Markdown again or fall back to another dialect. Closed leading `---` front
+matter is omitted, not rendered as a platform-specific property card.
+Code fences preserve whitespace and language classes, and rendered elements
+can contain `data-sourcepos` attributes. Platform syntax coloring must preserve
+these attributes and the original decoded code text.
+
+Raw formatting HTML can survive, but scripts, executable attributes, embeds,
+arbitrary inline styles and unsafe URL schemes are removed in Core before
+embedding. Windows asynchronously requests this existing command via its
+central dispatcher, discards obsolete responses and falls back to the sanitized
+fragment if syntax coloring fails. Render failures are shown as localized text;
+there is no frontend Markdown parser fallback. This does not promise Windows
+math or diagram rendering parity.
+
+Shared examples: `shared/fixtures/editor/markdown-render-v1.json`,
+`markdown-html-v1.json` and `markdown-rich-content-v1.json`.
+
+### Structured logging of recoverable LSP maintenance warnings
+
+`lsp.pollEvents` log observations may carry the existing `error` object even at
+WARN severity. Its code and stage describe a recoverable diagnostic; `type:log`
+does not transition session state. Codes have one meaning:
+
+| code | stage | meaning |
+| --- | --- | --- |
+| `mavenSettingsUnchanged` | `mavenSettings` | Maven settings could not be normalized and were forwarded unchanged |
+| `configurationCleanupFailed` | `configurationCleanup` | Unused language-server configuration areas could not be removed |
+| `mavenProfileStartFailed` | `mavenProfileStart` | The pending Maven profile update could not start |
+
+The existing Core log sources additionally classify `upstreamStderr` (stderr
+observation), `stderrReadFailed` (stderr I/O), `navigationLimited` (batch cap),
+`navigationMarkerFailed` (marker verification), `workspaceImportStalled`
+(no import progress), `mavenProfileUpdateFailed` (project update failure),
+`shutdownTimeout` (forced termination after shutdown deadline), and
+`mavenProfileTimeout` (profile application deadline). Each code names exactly
+that observation; arbitrary upstream messages retain `upstreamDiagnostic`.
+
+Hosts persist these controlled identities, never the raw detail, URL, output or argv.
+
+### Batched breakpoint relocation snapshots
+
+`debug.relocateBreakpoints` retains the single `edit` input and also accepts `edits`, an array of non-overlapping original-source UTF-16 replacements. Character anchors are retained until the complete batch finishes; only then are positions projected and duplicates merged. LF, CRLF and lone CR are line boundaries.
+
+Optional `editBatches` contains up to 127 additional editor mutations in order,
+with up to 4096 edits and 64 MiB of replacement text across those additional
+batches. Each batch uses UTF-16
+offsets in the text produced by the preceding mutation. Core projects and
+deduplicates breakpoints after each mutation, exactly as for separate calls, and
+keeps `originalIndices` relative to the request's original breakpoint list.
+
+The response's `originalIndices` array identifies the zero-based input breakpoint
+that survived for each entry in `breakpoints`, in the same order. It allows a host
+to preserve breakpoint identity after relocation and collision resolution.
+
+Optional `document: {id, version}` enables bounded process-local source reuse. Version 1 supplies `source`; each subsequent version increments by one and omits source. Missing or stale snapshots fail closed. The cache holds four sources of at most 16 MiB each, evicts least-recently-used entries, and never writes runtime resources. Hosts reset with a new identity when the exact source chain changes.
+
+### Engine logging v2 handoff (PR3)
+
+`lsp.startServer` adds optional `role` (`language_server`, `vcs`, `build`,
+`toolchain`, `backend`; default `language_server`) and optional `logSubject`.
+The host supplies the registered VCS ID as `logSubject` for `role:vcs`.
+The start response additionally returns `channel`, derived by Core from these
+identities, so hosts can register trace I/O without rebuilding routing rules.
+Core does not parse prefixes or colons in `providerId`. Routing is:
+
+| Role | Catalog channel | Identity field |
+| --- | --- | --- |
+| `language_server` | `lsp/{server}` | `providerId` |
+| `vcs` | `vcs/{provider}` | `logSubject` |
+| `build`, `toolchain`, `backend` | `plugins/{plugin}/host` | `pluginId` |
+
+Every dynamic segment passes `validate_segment`. Invalid or missing identities
+use `invalid-` followed by the first 32 lowercase SHA-256 hexadecimal digits of
+that identity (the opaque provider ID when the selected identity is absent).
+This deterministic fallback preserves evidence and startup compatibility for
+language IDs such as `c++`; it never exposes the original invalid text as a path.
+`pluginId` in the event remains the original ownership identity, independently
+of the validated catalog routing field. Hosts must use `fields` and `channel`
+from Core, never rebuild the route from `providerId` or `pluginId`.
+
+Log runtime events retain `type:"log"`, sequence, providerId, sessionId,
+level, message, detail, error, and Maven state fields. They add `channel`,
+`pluginId?`, `role`, `event` (catalog ID), `catalogLevel` (canonical uppercase v2 level), and `fields` (normalized scalar disk
+fields). `type` is the actual JSON discriminator; there is no `kind` wire key.
+Catalog metadata determines canonical v2 severity; the old `level` remains a v1
+compatibility value, including its historical `warning` spelling. To pass one
+fact to `diagnostics.encodeLogBatch`, the host supplies a timestamp and its own
+session sequence and uses `catalogLevel`, the catalog's uppercase severity. It sets
+`validateCatalog:true`; catalog-derived channel and message are authoritative.
+The special system event `log.dropped` uses the validated session channel.
+
+```json
+{"type":"log","sequence":17,"providerId":"opaque:git:provider","sessionId":"lsp-1","level":"info","message":"window/logMessage","detail":"{\"type\":2,\"message\":\"upstream warning\"}","channel":"vcs/git","pluginId":"io.example.git","role":"vcs","event":"vcs.message.logged","catalogLevel":"INFO","fields":{"provider":"git","diagnostic":"upstream warning","severity":"warning"}}
+```
+
+`window/logMessage` and `window/showMessage` produce `*.message.logged` and
+`*.message.shown`. The `severity` token is `error|warning|info|log|debug`.
+Upstream diagnostics pass through the shared text normalization/redaction
+boundary. Other notifications record only their method, never the payload.
+Existing v1 `detail`, `message`, and `level` remain byte-for-byte compatible,
+including `projectCount=N`, navigation format strings, and original notification
+JSON. V2 source inputs travel independently of detail; Core never parses v1
+detail to construct catalog fields. The one stderr framing change is explicit:
+v1 detail is now each complete line (without LF/trailing CR), including its
+spaces, rather than a trimmed arbitrary read chunk. The existing reader bounds
+and overflow rules below apply. New dropped facts use `count=N`, not JSON detail.
+Legacy detail is not a v2 persistence input. Trace catalog level is DEBUG while
+its historical v1 level remains info.
+Core lifecycle transitions attach `*.session.updated`, `channel`, `pluginId`,
+`role`, `fields:{server|provider|plugin,state}`, and `catalogLevel:DEBUG` to the
+existing `type:"stateChanged"` event. They pass through the same
+`prepare_catalog_event` boundary as log facts. They never add a v1 `type:"log"`
+row, and existing type/state/sequence/message/error fields remain unchanged.
+Hosts decode and forward optional structured identity independently of the event
+kind, once before event-specific handling; this also covers VCS, build, toolchain
+and backend sessions. Core owns these session lifecycle states and protocol
+initialization. macOS owns only `lsp.session.stage_changed` (DEBUG; closed
+requested|resolving|registered|stopping|cancelled) and `lsp.cache.cleaned` (DEBUG;
+removed entry count), emitted at the source rather than inferred from v1 text.
+Host ready/terminated callbacks retain v1 buffer lines without duplicate v2 facts.
+Stderr is framed by LF, removes a trailing CR, ignores empty lines, flushes the
+last partial line at EOF, and keeps at most 4096 bytes per line while discarding
+the remainder through LF. `truncated:true` marks the reader limit. Catalog text
+normalization then redacts and caps the diagnostic at 1024 UTF-8 bytes.
+The reader accepts at most 200 nonempty lines in each monotonic elapsed-second
+window. Suppressed counts produce `log.dropped` on the next reader observation
+in a later window or on reader completion, including read failure. No idle
+background timer is installed.
+
+`lsp.setDetailedDiagnostics` accepts `{sessionId,enabled}` and returns `{}`.
+It sends `$/setTrace` with `{"value":"verbose"}` when enabled and
+`{"value":"off"}` when disabled. Sessions start disabled; only enabled
+sessions emit `*.trace.received` (DEBUG). Only the summary `message` enters v2,
+limited to 1024 UTF-8 bytes before shared text redaction and control removal.
+The `verbose` field is excluded because it can contain raw RPC bodies and source
+text; the legacy in-memory detail remains compatible. The gate changes only
+after a successful ordered write. Before the initialize handshake completes, the command
+only stores the latest desired value; an enabled value is sent after `initialized`
+in the ordered handshake batch. Disabling it before that batch cancels the pending
+enable without sending any trace notification. Invalid payloads or terminal
+sessions fail through the existing Core error envelope; transport errors keep the existing session
+failure/cleanup behavior. This does not change showMessage handling.
+
+```json
+{"version":1,"command":"lsp.setDetailedDiagnostics","payload":{"sessionId":"lsp-1","enabled":true}}
+```
+
+```json
+{"id":null,"ok":true,"data":{}}
+```
+
+`diagnostics.drainCoreEvents` accepts `{}` and atomically returns
+`{events:[{ts,level,event,channel,op?,fields}],dropped}` in the ordinary Core
+success envelope. It drains a process-owned queue shared across workspaces,
+with at most 256 normalized entries. Overflow and exact duplicate pending
+facts increment a saturating `dropped` counter; draining resets the counter.
+The host converts `dropped` to `log.dropped` on its application channel.
+`record` accepts only catalog events whose owner is `lithe-core`: logging error
+`-32059` means Core event owner mismatch, exclusively; existing `-32053` through
+`-32058` retain their catalog and collection meanings.
+
+`lithe_core_install_log_waker(callback, context)` registers the host's single
+log writer for a pending-fact signal; a later install replaces the earlier one
+and a null callback is ignored. Core invokes the callback at most once per drain
+cycle: when the first fact or drop is queued after a drain, and immediately at
+install when facts are already pending. It runs synchronously on the recording
+or installing thread, must not unwind or call back into Core, and only schedules
+the writer's existing drain. `lithe_core_remove_log_waker(context)` returns 1 when
+`context` owned the registration and 0 otherwise; after it returns, Core never
+invokes the callback with `context`. The waker belongs to the existing queue:
+there is no second writer, file handle, background task, or poller. The queue
+observes UTC at the Core event boundary; host
+session sequences are assigned at drain ingestion. Project skips retain only
+workspace-relative paths and stable error categories; cleanup facts retain
+only categories, excluding remote addresses, output, and scratch names.
+
+```json
+{"version":1,"command":"diagnostics.drainCoreEvents","payload":{}}
+```
+
+```json
+{"id":null,"ok":true,"data":{"events":[{"ts":"2026-11-03T08:00:00.000Z","level":"WARN","event":"app.workspace.directory_skipped","channel":"app","fields":{"path":"src/inaccessible","error":"Directory traversal failed","error_code":"permission_denied","error_domain":"core"}}],"dropped":0}}
+```
+
+`diagnostics.configureCoreEvents` accepts `{debug:bool,roots?:[string]}` and
+returns `{}`. Unknown fields fail with `invalid_request`. It sets the process-wide
+admission gate for DEBUG Core facts: `debug:false` rejects every DEBUG fact,
+`debug:true` without `roots` admits DEBUG on every channel root, and
+`debug:true` with `roots` admits DEBUG only on the listed roots. The default is
+disabled. Rejected DEBUG facts return success to their producer, are never
+queued and never count as dropped, so background traces cannot fill the
+256-entry queue and displace later WARN or ERROR facts. INFO, WARN and ERROR
+are always admitted. Producers that build expensive fields check the gate first.
+
+```json
+{"version":1,"command":"diagnostics.configureCoreEvents","payload":{"debug":true,"roots":["app","vcs"]}}
+```
+
+```json
+{"id":null,"ok":true,"data":{}}
+```
+
+`diagnostics.recordPluginOperation` records one terminal result of a declarative
+plugin contribution: work a plugin declares in its manifest that the host or a
+Core engine executes, so no plugin process can report it through `lithe/log`. It
+accepts `{pluginId,operation,outcome,stage?,durationMs,operationId?}` with no other
+keys and returns `data:{result:{}}` once the fact is queued, or
+`data:{error:{code:-32064,reason}}`. `outcome` is `finished|failed`; `stage` is
+required for `failed` and forbidden for `finished`. `durationMs` is monotonic
+milliseconds up to 2^53-1. `operationId` follows the SDK `operationId` grammar
+(1-128 bytes of ASCII letters, digits and `._:/-$`). The fact becomes
+`plugins.operation.finished` or `plugins.operation.failed` on
+`plugins/{plugin}/host`, the same events and channel an SDK-backed plugin writes,
+with fields `plugin`, `operation`, `duration_ms` and, for failures, `code`.
+Cancellation is never recorded. No plugin output, path or error text is accepted.
+
+Each accepted `operation` is one row of Core's contribution table. The row's
+lifecycle decides which stages exist and which `host.*` code each stage means, so
+a code has one meaning across every contribution with that lifecycle:
+
+| `operation` | Contribution | Lifecycle |
+| --- | --- | --- |
+| `languageServer/start` | `languageServers[]` | process start |
+| `debugAdapter/start` | `debugAdapters[]` | process start |
+| `lithe/build/model` | `buildSystems[].model` command source | command run |
+| `lithe/build/dependencies` | `buildSystems[].dependencies` command source | command run |
+
+| `stage` | Process start | Command run |
+| --- | --- | --- |
+| `plan` | rejected | `host.planFailed` |
+| `resolve` | `host.executableUnavailable` | `host.executableUnavailable` |
+| `launch` | `host.launchFailed` | `host.launchFailed` |
+| `initialize` | `host.initializeFailed` | rejected |
+| `timeout` | `host.timedOut` | `host.timedOut` |
+| `exit` | `host.exitedEarly` | `host.commandFailed` |
+| `decode` | rejected | `host.outputInvalid` |
+
+An unknown operation, a stage the lifecycle cannot reach, an unknown key, an
+explicit `null` for an optional key, an invalid operation ID or an out-of-range
+duration all return -32064. Whoever executes the attempt records it. The host
+records debug adapter starts and build commands itself. A debug adapter start
+uses the debug session ID as `operationId`, so it correlates with that session's
+own debug records. It stays at `launch` until the adapter is reachable: a stdio
+process once it runs, a language server hosted adapter once its socket connects.
+A failure before then is `launch`, or `timeout` when the hosted adapter's
+discovery deadline fires. `exit` applies only to an adapter that was reached.
+Core refusing the debug session is a host outcome and is not recorded.
+
+A declarative language server is resolved by the host and supervised by Core.
+The host records failures before launch, including plugin API 1 servers that
+launch as host-owned processes. Otherwise it passes
+`startupOperation:{pluginId,operationId,elapsedMs}` on `lsp.startServer`. Core
+accepts the handoff only for the language server role, and only when the
+request's `pluginId` is absent or equals the handoff's `pluginId`; it ignores the
+handoff otherwise. Core then records exactly one result:
+
+- `launch` when `lsp.startServer` fails for any reason other than cancellation,
+  including a failure to write the `initialize` request to the started process;
+- `exit` when the process exits before `initialize` succeeds;
+- `initialize` for any other terminal failure before then;
+- `timeout` at the initialize deadline;
+- `finished` when the `initialize` result succeeds.
+
+A start that a newer indexing policy retires is cancelled and records nothing,
+even after its process started. `durationMs` adds the host's `elapsedMs` to Core's own monotonic
+time. Stopping before a result records nothing. A fact the engine cannot queue
+increments the `dropped` counter.
+
+```json
+{"version":1,"command":"diagnostics.recordPluginOperation","payload":{"pluginId":"io.example.go","operation":"debugAdapter/start","outcome":"failed","stage":"resolve","durationMs":12,"operationId":"7c0d1f0e-3f6b-4a52-9d5e-0b7c2b0b9a11"}}
+```
+
+```json
+{"id":null,"ok":true,"data":{"result":{}}}
+```
+
+`plugins.declarative.languageServerLaunchPlan.request.logDirectory` is an
+optional absolute host-owned current-session plugin files directory for
+`${logDir}`. Language servers and plugin backends use the same expansion.
+Missing, unusable, or relative values fail with `plugin.launch.invalidRequest`
+when needed; `requiredDirectories` adds `log` when used. The host creates the
+provided writable directory before launch, outside all bundles and installation
+resources. Validation probes cannot reference `${logDir}`. See the synchronized
+[plugin contract](plugins/v1/README.md). Existing API 1 literal arguments remain
+literal. Wire examples are exercised by
+`shared/fixtures/diagnostics/engine-logging-v2.json` and Core tests.
+
+Plugin-owned sessions offer `litheLogging` 1 independently of other protocols.
+The negotiated `lithe/log` notification is validated in Core and enters the
+same bounded `diagnostics.drainCoreEvents` queue, with the installed plugin
+identity selecting `plugins/<id>/host`. It never copies notification JSON into
+legacy runtime detail. The four facts map to catalog INFO/ERROR/WARN/WARN,
+and a live wire request ID resolves to its original host `op`; no user content
+or backend-selected channel/level/message is accepted. See the
+[plugin logging contract](plugins/v1/README.md#structured-plugin-diagnostics-logging-protocol-1)
+and `plugins/v1/fixtures/backend/plugin-logging.json`. Explicit upstream LSP message
+types retain their severity through separate catalog events; unclassified
+stderr is DEBUG and actual lifecycle failure is ERROR.
+
+macOS PR3 passes `CoreLogRecord` directly to the injected `LogSink`. Every
+MacLogStore drain, flush and finish calls `diagnostics.drainCoreEvents` once,
+retaining source `ts`/`op` and allocating session `seq`. Only the application
+writer installs the Core log waker; its callback schedules the same 100 ms
+one-shot drain that host events use, so Core and plugin facts recorded without
+host activity reach disk and live subscribers without an idle poller or second
+writer. Finishing the session removes the waker before the final drain.
+MacLogStore sends `diagnostics.configureCoreEvents` only when the
+detailed-diagnostics state or its channel roots change. `channelCategory` maps
+lsp to language, vcs to git and plugin-host processes to plugins. The selected diagnostic category drives
+`lsp.setDetailedDiagnostics` for active sessions, newly registered sessions and
+a one-shot 15-minute expiry. A failed desired state, including a failed
+`configureCoreEvents`, is reported once with
+`app.logging.diagnostics_failed`; changing desired state permits another attempt.
+Language-server evidence has no in-memory v1 buffer on macOS; the log window reads
+only v2 session files.
+
+`diagnostics.resolveLogChannel` additionally returns optional `pluginFilesPath`
+for a `plugins/<id>/host` channel using Core's `plugin_files_path` rule. macOS
+creates that directory under its current session with mode 0700 and descriptor
+relative no-follow traversal, and supplies `request.logDirectory` before local
+language/provider/backend launch. Missing log storage omits it; Core rejects a
+launch that actually uses `${logDir}`. Remote processes cannot write the macOS
+log directory, so remote requests omit it and reject `${logDir}` rather than
+writing into remote package/state directories. Package installation validation
+uses an uncreated placeholder only to validate expansion, never to launch.
+
+Core directory traversal and scratch cleanup reuse PR1's
+`app.search.directory_skipped`, `app.workspace.directory_skipped` and
+`app.workspace.scratch_cleanup_failed`. Error message/domain are fixed; code is a
+stable category without absolute paths, scratch names or remote addresses.
+Remote process/upload cleanup uses ClientError categories timeout, closed,
+transport, spawn, protocol, or remote_<protocol_code>; peer prose is excluded.
+
+### Execution traces
+
+Core records one terminal fact for each dispatched request and one for each Git
+process, and hands both to the host through `diagnostics.drainCoreEvents`. Event
+identities and field shapes are declared in `shared/logging/events/app.json` and
+`shared/logging/events/vcs.json`; this section defines when each is emitted.
+
+Request traces use channel `app/core`: `app.core.request.finished` (INFO),
+`app.core.request.traced` (DEBUG) and `app.core.request.failed` (WARN). The
+dispatcher resolves the trace `op` from the first of `origin.operation`,
+`operationId` and `id` that has the `operation` shape, and the source from `origin.source` unless it is absent or `unknown`, then
+`gitExecution.source`, then `unknown`. It installs `{op, source}` as thread-local context for the request's
+duration, so every Git process the request starts inherits both. An error
+response other than `cancelled` is `failed` and carries `error` with domain
+`core`. Any other response is `finished` when the source is `user` and `traced`
+otherwise; a cancelled response adds `cancelled:true`. Fields are `method`,
+`source`, `duration_ms`, the optional payload `operation` selector, `trigger`,
+the first absolute path among `root`, `workspaceRoot`, `repositoryRoot`, `projectRoot`,
+`rootPath`, `directory` and `path` in the payload, recorded as `path`, and `remote` for
+remote workspaces. No other payload content is recorded. `core.ping`, every
+`diagnostics.*` command and the per-keystroke, per-frame, polling and watcher
+methods listed in `request_trace::is_hot` record nothing.
+
+Git process traces use channel `vcs/git`: `vcs.git.command.finished` (INFO),
+`vcs.git.command.traced` (DEBUG) and `vcs.git.command.failed` (WARN). They are
+emitted at the single execution point shared by local and remote workspaces.
+A visible command runs through `execute_git` and is returned to the host as an
+invocation; an internal read runs through `capture_git` and Core parses its
+output. Outcomes are classified in this order:
+
+1. A `cancelled` runner error is a cancellation; any other runner error is a failure.
+2. Exit status 0 is a success.
+3. An exit status that the command documents as an answer (for example 1 from
+   `git diff --quiet` or `git config --get`) is a success.
+4. A nonzero exit of an internal read whose source is not `user` is a success at
+   this layer; the caller decides its meaning, and an error response it returns
+   is recorded by the request trace.
+5. Every other exit is a failure.
+
+A failure is `failed`. A success or cancellation is `finished` for a visible
+command whose source is `user` and `traced` otherwise. Fields are `command`,
+`arguments`, `source`, `duration_ms`, and optionally `repository`, `remote`,
+`exit_code` and `cancelled`. `arguments` is produced only by `format_arguments`:
+commit message values become `<message>`, values of `-c` keys that name
+credentials or personal identity become `<redacted>`, URL user information and
+the shared redaction patterns are rewritten, arguments are quoted where needed,
+and text beyond 1024 bytes is cut with a trailing `…`. A failure, a cancellation
+or a nonzero exit adds `stderr`: the last 8 nonempty lines of the final 16 KiB of standard
+error, each redacted and joined with ` | `, keeping the newest 1024 bytes with a
+leading `…`. A failure caused by a runner error adds `error`, `error_code` and
+`error_domain:"core"`;
+the process `exit_code` is never merged into `error_code`. Standard output,
+standard input and environment values are never recorded.
+
+Trace failures are always WARN because Core cannot know whether the host will
+retry, degrade or give up. A host that notifies the user about a failure whose
+facts are all in a same-`op` trace references that record instead of logging
+the failure again.
+
+```json
+{"ts":"2026-11-03T08:00:01.123Z","level":"WARN","event":"vcs.git.command.failed","channel":"vcs/git","op":"op-7f3a","fields":{"command":"fetch","arguments":"fetch --prune origin","repository":"<HOME>/src/app","source":"user","duration_ms":311,"exit_code":128,"stderr":"fatal: could not read from remote repository."}}
+```

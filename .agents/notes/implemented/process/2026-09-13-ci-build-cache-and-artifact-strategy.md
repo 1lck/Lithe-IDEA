@@ -20,6 +20,38 @@ Rust Core、数据库辅助 crate 和前端构建的耗时来源不同；如果�
 
 ## 决策
 
+2026-11-03 的最近 50 次运行样本显示，Swift 编译步骤中位数约 14 分钟、单元测试
+约 3.7 分钟；macOS 打包 job 最长排队 1,237 秒。Windows Rust 原 job 最长 1,735 秒，
+其中 Core 测试与 host 测试串行，real-JDT 又执行了一遍普通 Core 测试。以下调整保留
+所有测试与平台专属验证：
+
+- 必需的 `macOS CI gate` 不做 workflow 级路径过滤。文档提交只执行轻量分类和 gate，
+  其他原生 CI 用文档路径过滤；代码提交的工具测试放到并行 Ubuntu job，gate 检查其结果。
+  Windows 分类 job 不再重复执行同一份下载校验、工作树复用和 relay 测试。
+  分类在 draft 延迟原生任务前记下 tooling 选择，不能让 draft 绕过工具验证。
+- Windows Rust 使用两个 Core 分片、共享 host/MCP job 和独立 Windows host job。
+  首轮分片一仍串行编译三个共享 host，耗时 16 分 16 秒，而分片二只要 10 分 20 秒；
+  因此共享 host 与 MCP 改为独立任务，避免把这段准备成本加到 Core 分片的关键路径上。测试名称的稳定哈希决定分片，
+  单测试看门狗、suite deadline 和报告不变。gate 下载两个 Core 报告，核对相同清单、
+  不重不漏与成功状态；矩阵 `fail-fast: false` 保留其他分片的诊断。
+- real-JDT 只选择 `lsp::interface::engine::real_jdt_tests::`，专用环境与 600 秒预算不变。
+  普通 Core 测试由上述分片负责，前缀拼错或没有测试必须失败。
+- Rust 注释、布局、格式检查和纯 Node 日志生成/校验放 Ubuntu；native Rust lane
+  只跳过已经由 tooling gate 强制校验的静态阶段，本地默认入口仍运行两阶段。i18n 的 macOS 打包会生成二进制 plist，仍保留
+  原来的三系统验证，不把这一真实平台需求当作重复测试删除。
+- Swift bridge 的 Git execution 驱动直接使用同次 Cargo 构建产生的 dylib，避免重新
+  向另一个 target 目录编译 Core。静态库、Swift app、C 驱动仍执行全部验证。
+- Rust 测试使用 `Swatinem/rust-cache` 缓存裁剪后的依赖编译输出；Swift/plugin 共用
+  同一次 Swift 编译与同一个 Rust target cache 身份，Windows Core 两分片只有一个写者，host 使用独立身份。
+  `shared-key` 优先于 `key`，因此工作区身份和额外脚本哈希必须直接放进 `shared-key`，
+  不能同时传两个输入后误以为 action 会把它们拼接。首轮 Windows 日志已经复现这种碰撞。
+  real-JDT 只读同一 Core 缓存；其 workspace 列表也必须与 Core 分片一致，否则 action
+  会因为清单集合不同生成不同的环境哈希，看似相同的 shared-key 仍无法命中。禁止缓存整个 incremental 目录、最终安装包或 SwiftPM
+  可变构建状态。PR 的 macOS 下载缓存只读，避免每个 PR 复制相同下载物挤占 10 GB。
+- setup-node 的工作流只运行无外部依赖的 Node 脚本，没有 npm 安装；不为了打开 `cache`
+  而引入不存在的 npm lockfile。产品使用 Bun，保留其真实依赖缓存。
+
+
 macOS CI 与发布工作流统一使用 Xcode 26.6，编译器
 固定为 `.swift-version` 中的 Swift 6.3.3。共用的 `setup-macos-toolchain` action
 选择 Xcode 后校验实际编译器版本；不一致就立即失败，不能悄悄使用 runner 的
@@ -27,17 +59,16 @@ macOS CI 与发布工作流统一使用 Xcode 26.6，编译器
 某台开发机升级了 Xcode 27 而改变，否则仍在 macOS 15 上工作的开发者会被迫
 升级开发环境。
 
-日常 CI 的 Swift 测试、Rust Core 测试、应用打包验证和插件测试都运行在 GitHub 托管的
+日常 CI 的 Swift/插件共用测试、Rust Core 原生测试和应用打包验证都运行在 GitHub 托管的
 `macos-26` 上，包括 fork 提交到本仓库的 PR；发布流程（正式版、AutoBuild、官方插件
 发布）需要签名证书和发布密钥，同样使用托管 Runner。2026-10-16 至 10-18 曾试用自建
 Mac mini Runner，因为离线时没有回退、fork 代码跑在长期存活的机器上而撤销，经过见
 [已否决的 Note](../../rejected/process/2026-10-18-self-hosted-mac-mini-ci-runners.md)。
 
-同一个 PR 的后续 push 按 lane 复用之前的结果。观察到的问题是：作者补一个很小的
+同一个 PR 的后续 push 按 lane 复用之前已完成的成功结果。观察到的问题是：作者补一个很小的
 提交，或者为了同步 `preview` 更新分支，所有 lane 都会重新完整运行，而结果大概率
 不变。`scripts/ci/common/plan-ci-lane-reuse.mjs` 在 macOS CI、插件 CI 和 Windows CI 的分类 job
-中逐个 lane 判断：找到这个 PR 之前真正执行过该 lane 的最近一次运行，job 已通过或
-已经在 GitHub 托管 Runner 上排队或运行，并且 PR 自己在此之后的改动（按现有分类规则）不影响这个 lane，就复用
+中逐个 lane 判断：找到这个 PR 之前真正执行过该 lane 的最近一次运行，job 已完成且通过，并且 PR 自己在此之后的改动（按现有分类规则）不影响这个 lane，就复用
 那次结果。只看 PR 自己的改动：用“每个文件的 PR 版本”比较两个修订，从 base 同步
 进来的改动不算；但只要 base 在两次运行之间带来了**本 workflow 会读取的** CI 基础设施
 改动（workflow、action、分类和 runner 脚本、测试基础设施、`Package.swift`/`Package.resolved`、
@@ -72,27 +103,23 @@ Mac mini Runner，因为离线时没有回退、fork 代码跑在长期存活的
 分隔的原始形式读取，分类脚本同样如此，否则 Git 会给中文等路径加引号转义，导致
 路径匹配失败、把真实改动当成没有变化。这里同时检查作者合入的 base 改动和 GitHub 合并
 提交在 base 前进后自动带上的改动（用 API 取得之前那次运行开始时的 base 头）。
-失败或被取消的结果从不复用。请求自建 Runner 的排队任务及其运行中未完成的任务
-也不复用：GitHub 在创建 job 时固定 Runner 标签，移除自建 Runner 不会让旧任务
-自动转移到托管机器。正确做法是让本轮重新创建托管 job，并取消无人复用的旧运行；
-不要让新 gate 继续等待已撤销的机器。已经通过的旧结果仍可按改动范围复用。官方
-托管的排队任务继续复用，避免同一旧运行因其他 lane 被保留时又创建重复构建。
+失败、被取消或仍在排队/运行的结果从不复用。PR 后续推送通过 workflow 的
+`cancel-in-progress` 立即取消旧运行，不能再让新 gate 等待会被取消的旧任务。
+Windows Rust 已拆成矩阵，不用单个 job 的成功冒充整组成功；该 lane 每次都完整执行。
 
 真实 JDT 集成 lane 在 Windows 上验证共享 Java 引擎，按共享 Rust Java/JDT、JDK/JDT
 资源、准备脚本和 Windows Java 消费方选择。macOS 的 Swift Java 适配器及测试由
 Swift lane 编译验证，不因路径中含有 `Java` 就申请 Windows runner。共享 Core 或
 契约改动仍按各自规则选择跨平台验证；不能用“没有修改 `windows/`”跳过这些检查。
 
-GitHub 只能取消整个 workflow 运行，不能取消单个 job，所以 PR 运行不再按分支自动
-互相取消：规划步骤取消没有任何 lane 复用的旧运行，被复用、仍在运行的旧运行保留
-到结束。只考虑运行序号小于本轮的旧运行：连续 push 时旧修订的规划步骤可能晚于新
-运行才执行，如果不按序号限定，就会把新运行当成旧运行取消。gate 确认被复用的 job 已经通过（仍在运行时最多等 90 分钟），并检查每个被
-选中的 lane 要么本轮运行、要么有复用结果，避免计划缺失时空跑通过。规划出错一律
-回退为全部运行；push 和手动运行不复用。被否方案：把每个 lane 拆成独立 workflow
-（必需检查和分支规则都要改，触发次数翻倍）；只按“这次 push 新增的提交”分类
-（同步 `preview` 时会把别人的改动算进来，正是要避免的全量重跑）。接受的风险：
-复用的结果没有测过“PR + 新的 base”这个组合，由合并后的 universal 打包
-兜底。
+同一个 PR 的运行共享 concurrency group，旧运行取消后只保留最新一次。规划器
+只有只读权限，不再通过 API 取消运行，也不再保留被引用的在途任务。已经成功且
+不受后续改动影响的单个 lane 仍可复用；gate 再读取该 job，确认它确实成功。
+规划失败仍回退为运行全部选中的 lane。
+
+`main` 的 CI push 使用 run ID 作为独立 concurrency group，并设置
+`cancel-in-progress: false`。只关闭取消但共用一个 group 仍会替换 pending 运行，
+所以不能这样做。`main` 每个提交走完整分类，不使用 preview 的 post-merge 缩减。
 
 关闭或合并 PR 时，清理工作流按来源仓库、来源分支和关闭时间查找所有历史运行，
 不能只查最后一次提交：后续 gate 可能仍在复用更早提交的 job，且关闭后 GitHub 的
@@ -111,12 +138,12 @@ shell 中把取消结果转换为成功，否则真正失败会消失。
 上完成；合并后的 push 只在改动涉及打包内容时构建 universal 包。这是 x86_64
 唯一一次编译和链接，也会编译“各自通过的 PR 合在一起”的组合，PR 自己的 CI
 覆盖不到这两点。`preview` → `main` 的 PR 不跑任何 lane，只核对同一提交在
-`preview` 的 push 上已经通过 macOS CI；push 到 `main` 不触发 CI。分类脚本用
+`preview` 的 push 上已经通过 macOS CI；push 到 `main` 会再次执行完整 CI，且每个提交都保留。分类脚本用
 `LITHE_CI_SCOPE`（`pull_request`、`post_merge`、`release_promotion`）区分这些
-场景。被否方案：合并后完全不跑 CI（Intel 编译和 PR 组合问题会一直留到 AutoBuild
-或发布时才暴露）；要求 PR 与 `preview` 保持最新后再合并（并行 PR 多时每次合并
-都要重跑完整 CI，总用量反而更高）。Windows CI 因此不再在 `preview` push 上运行，
-代价是 Windows 的 GitHub 缓存只由 PR 刷新，`Cargo.lock` 变化后的几个 PR 会从
+场景。被否方案：合并后完全不跑 CI（PR 组合问题会一直留到 AutoBuild 才暴露；
+AutoBuild 只构建 Apple Silicon，Intel 编译问题会一直留到正式发布）；要求 PR 与 `preview` 保持最新后再合并（并行 PR 多时每次合并
+都要重跑完整 CI，总用量反而更高）。Windows CI 不在 `preview` push 上运行，但运行每个 `main` push；
+Windows 的 GitHub 缓存由 PR 与 main 刷新，`Cargo.lock` 变化后的几个 PR 会从
 较旧的前缀命中开始编译。
 
 `DesktopIsolationTests` 里读取 WindowServer 透明度的那条检查，在系统窗口列表不可用时
@@ -205,9 +232,14 @@ macOS runner（GitHub 托管的 Mac 构建机）按组织共享，Free 计划同
   Linux 上运行。Linux runner 能执行服务的 Linux 适配器，同时交叉检查 macOS 目标，
   所以不需要为它申请 macOS runner；这些 crate 暂未被产品链接，改动它们也不会触发
   macOS 或 Windows lane。
-- 插件测试保留在独立的 macOS Plugin CI，只有分类器选中插件 lane 时才申请
-  macOS runner。多数 PR 不改插件，独立 job 时整条 lane 直接跳过；合进共用
-  job 则需要为少数插件 PR 额外拉长主 Swift job，收益更小。
+- 插件测试与官方插件包校验按 `plugins` 分类结果接入主 Swift job，复用同一次测试
+  编译。只有插件改动时也会选择该 job，但不跑无关的普通 Swift 测试。独立 macOS
+  Plugin CI 保留手动诊断入口，不再自动触发。2026-11-03 首轮优化实测中，插件 job
+  正在冷编译整套 Swift 测试时主 Swift job 仍排队；这种重复构建不值得多占一个槽位。
+  必需 macOS gate 同时覆盖插件专项测试与包校验，不能把单独 workflow 停掉却漏迁测试。
+  编译成功后，插件专项与包校验用 `!cancelled()` 保持独立：普通 Swift 用例失败仍要
+  收集插件结果，但构建失败或运行取消时不能继续。首轮合并通道的原生箭头点击失败
+  暴露了默认 `success()` 会把后续插件检查一起跳过，回归测试覆盖这个失败分支。
 - `shared/platform-feature-matrix/` 是规划数据，产品代码不读取，由 Verify
   Platform Feature Matrix 工作流单独校验。几乎每个功能 PR 都要更新它；过去它
   落入 `shared/*` 规则，只改 macOS 界面的 PR 也会触发 Windows CI 和 macOS 上
@@ -224,8 +256,8 @@ macOS runner（GitHub 托管的 Mac 构建机）按组织共享，Free 计划同
   Rust Core 从 18 次降到 3 次，Windows Rust 与真实 JDT 降到 3 次。
 - 分类脚本读取 `LITHE_CI_DRAFT_PULL_REQUEST`。Draft PR 关闭所有 macOS 和
   Windows lane，只保留 Linux 上的分类、diff、Rust 数据库、注释和元数据检查；
-  PR 标记为 ready for review 时，macOS CI、Windows CI 和 macOS Plugin CI 重新
-  触发完整分类。
+  PR 标记为 ready for review 时，macOS CI 与 Windows CI 重新触发完整分类，
+  插件专项测试由 macOS CI 的共用 Swift job 承担。
 - 独立共享 i18n 校验同样遵循 Draft 限制：Draft 只展开 Linux 生成器检查，
   ready PR、preview 推送和手动运行展开三系统矩阵。工作流监听
   `ready_for_review`，并取消同一 PR 的旧 i18n 校验，避免重复占用 runner。
@@ -275,13 +307,14 @@ CI 缓存 Cargo fingerprints、build script outputs 和依赖 outputs，不缓�
 构建步骤，确保产物来自当前验证过的源代码。
 
 Cargo 编译缓存只在准备阶段恢复，保存由
-`.github/actions/save-macos-cargo-build-cache` 以 `if: always()` 单独执行。
+`.github/actions/save-macos-cargo-build-cache` 单独执行。macOS CI 的调用条件是
+`!cancelled()`：普通失败仍保存部分结果，取消时优先释放 runner。
 `actions/cache` 的 post 步骤在失败或取消时会被跳过：2026-10-13 一次依赖改动
 让 universal 精确键失效，旧 universal 条目又因仓库缓存超过 10 GB 被淘汰，
 冷构建约 45 分钟，超过 40 分钟上限被取消后什么也没保存，随后每次 preview
 推送都从冷启动开始并继续超时。现在的做法：
 
-- 成功的 job 保存精确键；失败、超时或被新推送取消的 job 保存
+- 成功的 job 保存精确键；未被 workflow 取消的失败或超时 job 保存
   `<精确键>-partial-<run_id>-<attempt>`，下一次通过精确键的前缀匹配续用，
   精确键留给第一次完整成功的构建。Cargo 只在单元编译成功后写 fingerprint，
   被中断的产物会重新编译，不会被当作有效结果。
@@ -345,8 +378,9 @@ macOS 并发上限冲突，也会和 PR、Swift 测试互相排队，因此不�
 ### 对 preview 推送关闭 cancel-in-progress
 
 能让每次推送都跑完并保存缓存，但连续合并时 runner 分钟数成倍增加，
-后续推送要排队等待前一次完成。always() 保存部分缓存已经让被取消的运行
-留下进度，因此保留取消旧运行。
+后续推送要排队等待前一次完成，因此保留取消旧运行。此前用 `always()` 在取消
+后保存部分缓存，但实测会拖延新运行；当前只在未取消的失败任务中保存部分缓存，
+已完成的缓存仍可复用。
 
 ### 只缓存下载依赖
 
@@ -367,11 +401,13 @@ macOS 并发上限冲突，也会和 PR、Swift 测试互相排队，因此不�
 覆盖 x86_64。代价是 Intel 专属的问题要在合并后才暴露，需要由 `preview` 上的
 macOS CI 失败来修复。
 
-### 把插件测试也并入共用 Swift job
+### 继续让插件任务单独编译整套 Swift 测试
 
-可以再省一次插件 PR 的编译，但插件 lane 只在少数 PR 中被选中。并入后会把
-插件过滤测试和官方插件打包验证串进主 Swift job，延长包含插件改动的 PR 的
-主反馈路径，因此插件 CI 保持独立并依赖分类器跳过。
+此前为了避免插件包校验拉长主 Swift job 而保留独立任务。2026-11-03 运行
+`41601214368` / `41601214530` 显示，两条任务编译相同目标，但主 Swift job
+还会被正在编译的插件 job 挤出五个 macOS 槽位。插件专项在本地只运行约十秒，
+先前成功的 CI 插件任务约 19 分钟主要用于编译；因此改为共用编译更合适。
+代价是涉及插件时，包校验串在主 Swift job 中；原有专项时限、断言和报告仍保留。
 
 ### 用 workflow 的 `paths` 过滤跳过插件 CI
 
@@ -402,6 +438,17 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 其他测试的时间门禁。因此修正采样范围与位图坐标，继续使用原有上限；完整
 图的正确性检查不减少，批量绘制不能替代可见区域的帧成本测量。
 
+### 只依赖 workflow concurrency 的取消配置
+
+2026-11-03 实测 `41606589663` 在新提交触发取消后仍执行打包约五分钟，
+后继 `41611588243` 因此等待到强制取消才开始。GitHub 取消时会重新计算 job
+条件；只检查分类输出的条件仍然成立。因此被选中的 job 显式要求
+`!cancelled()`，同时保留分类成功条件，防止状态函数覆盖隐含 `success()` 后
+错误启动分类失败的 lane。报告和缓存保存步骤也不使用取消后仍成立的
+`always()`；正常失败仍保留报告，取消优先释放 runner。
+依据：[GitHub workflow cancellation](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-cancellation)。
+回归测试分别验证选中、未选中、取消和分类失败四种状态。
+
 ## 后果
 
 - 普通 macOS Swift PR 更快得到必需检查结果；被选中的打包改动在 PR 中获得
@@ -419,6 +466,17 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - 构建工作流调整时必须同步检查缓存键、包架构、gate 依赖和 artifact 保留期。
 
 ## 验证
+
+2026-11-03 的完整验证还修复两处既有测试夹具问题，不能靠跳过测试或放宽预算
+取得耗时收益。箭头测试的 1× 事件上下文复现与恢复边界见
+[Git 图谱决策](../feature/2026-09-13-macos-git-graph-intellij-layout.md)。本地历史
+容量测试原先直接比较 `Int64?` 与 `500 * 1024 * 1024`，Swift Testing 宏会在该
+形态下错误选择类型擦除比较，出现两边打印同值仍失败；单独复测稳定复现，
+显式 `Int64` 的普通比较和断言均通过。当前先 `#require` 返回值，再用显式
+`Int64` 请求值比较容量，保留 500 MiB 的原有要求。上游依据是
+[Swift #91221](https://github.com/swiftlang/swift/issues/91221)；这些修正均不改变
+产品实现、测试时限或失败门禁。
+
 
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml .github/workflows/ci-plugins.yml .github/workflows/ci-remote.yml`
 - `./scripts/ci/common/test-classify-ci-changes.sh`：包含 Draft PR 关闭 runner lane、保留 Linux lane，以及 macOS Java 不触发 real-JDT、共享引擎和 Windows Java 仍触发的正反例。

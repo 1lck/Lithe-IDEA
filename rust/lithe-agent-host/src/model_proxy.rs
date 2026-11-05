@@ -121,6 +121,7 @@ impl CallsInFlight {
     /// the Agent keeps open past its prompt response cannot delay the turn
     /// beyond this bound; its call is then reported for the session only.
     pub(crate) async fn settle(&self, session: &str, limit: Duration) {
+        // log-exempt: 用户取消：prompt 调用方只等待本轮宽限期，超时后不再等待，尚未结束的模型调用仍由会话报告。
         let _ = tokio::time::timeout(limit, async {
             loop {
                 // Registered before the check so a concurrent `end` is not missed.
@@ -275,10 +276,14 @@ pub(crate) async fn start(
             let state = state.clone();
             let service = hyper::service::service_fn(move |request| handle(request, state.clone()));
             let connection = async move {
-                let _ = hyper::server::conn::http1::Builder::new()
-                    .serve_connection(hyper_util::rt::TokioIo::new(stream), service)
-                    .with_upgrades()
-                    .await;
+                crate::failure_log::connection(
+                    "agent.host.operation_failed",
+                    "proxy_connection",
+                    hyper::server::conn::http1::Builder::new()
+                        .serve_connection(hyper_util::rt::TokioIo::new(stream), service)
+                        .with_upgrades()
+                        .await,
+                );
             };
             if let Ok(mut connections) = accepted.lock() {
                 // Reap finished exchanges so a long session does not accumulate handles.

@@ -10,6 +10,11 @@ Project/Dependencies 标题与 Terminal shell/动作入口同样使用 `LitheMen
 不能退回读取 currentEvent 的鼠标位置或硬编码窗口偏移，否则键盘和点击按钮不同位置
 会产生不同弹出位置。命令列表与空终端禁用状态保持原语义。
 
+项目文件的“打开方式”从 2026-11-03 起有一处明确例外：用户需要 Finder 的系统菜单外观，
+共享呈现器将带该动作的整个文件右键菜单交给 AppKit。其余产品菜单继续沿用本文基准，
+业务代码不能自行构建系统菜单或选择另一组尺寸。原因、公开系统 API 的范围和验收要求见
+[macOS 文件打开方式](../feature/2026-11-03-macos-open-with.md)。
+
 ## 问题
 
 `LitheContextMenuPresenter` 原先通过 `settingsStyle` 在两套背景、边框、行高和文字尺寸之间切换。Git Log 设置按钮虽然接入了共享组件，实际使用的仍是另一套样式，因此看起来与 Project 不一致。
@@ -24,6 +29,7 @@ Project/Dependencies 标题与 Terminal shell/动作入口同样使用 `LitheMen
 - Git Log 筛选按钮的名称与选中值保持不同前景色，但必须由同一段单行文字完成布局和尾部截断。Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的 `platform/vcs-log/impl/src/com/intellij/util/ui/FilterComponent.java` 是名称、值、3pt 箭头间距及 4pt 内缩的来源；SwiftUI 不能照搬为两个可独立压缩的 `Text`，否则窄工具栏中的名称和长用户名会挤压重叠（#1342）。不要用固定用户名宽度或整体禁止压缩来修复，这会把溢出转移到相邻筛选按钮和清除按钮。
 - Branch、User、Date、Paths 都按触发按钮左下角定位。Date 原先按点击坐标弹出，造成同一按钮点击不同位置时菜单偏移；现在也使用同一个原生锚点，并保留操作菜单的键盘导航、选中勾与关闭回调。右键菜单仍以点击位置定位。
 - 产品下拉框直接显示透明面板，`animationBehavior = .none`，不使用 SwiftUI `Menu`、菜单式 `Picker` 或系统 `NSPopover` 的弹跳展开，也不添加缩放或弹簧过渡。新增或修改产品下拉框时必须走共享组件；AI 的强制入口规则位于 `develop-lithe` Skill。
+- 对需要异步检查资格的动作菜单，在同一菜单会话中只更新既有条目的启用状态；保持窗口、条目身份、焦点和布局不变，旧会话的迟到结果不得影响新菜单，关闭时取消查询。
 - 调用方只提交条目、动作、可用条件和定位信息。例如 Git Log 设置调用 `show(items:at:appearance:locale:)`；不要重新增加样式布尔值或局部绘制另一套菜单。
 
 ### 操作菜单保留所属窗口的激活外观
@@ -865,7 +871,7 @@ Git Log 保留原输入底色。打开菜单不强制搜索框获得焦点；点
 
 ## AI 开发约束的范围
 
-强制规则集中在 `develop-lithe` 的 `macOS shared frontend controls`，这篇 Note
+强制规则集中在 `develop-lithe` 的参考页 `.agents/skills/develop-lithe/references/macos-ui.md`，这篇 Note
 只记录原因和范围。规则覆盖已有产品下拉/右键菜单、菜单定位与宽度、搜索输入、
 工具栏图标按钮、树行和字体；每类都指明真实组件路径，修改样式要先检查共享所有者
 和调用方，再对照对应 Community 控件/动作/主题源码。不能根据截图猜一个新样式，

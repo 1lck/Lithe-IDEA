@@ -201,6 +201,11 @@ public enum BuiltInPluginCatalog {
 /// of its language and process declarations. Retired official plugins stay
 /// listed so installed copies keep that pinned trust policy.
 public enum OfficialPluginCatalog {
+    /// Host-pinned trust for an official package, including non-language plugins.
+    public struct TrustPolicy: Equatable, Sendable {
+        public let signatureRequirement: PluginSignatureRequirement
+        public let bundledSignatureRequirement: PluginSignatureRequirement?
+    }
     public enum Distribution: Equatable, Sendable {
         /// Shipped inside the application bundle and sealed by its signature.
         case bundled
@@ -274,6 +279,14 @@ public enum OfficialPluginCatalog {
 
     public static func entry(for id: PluginID) -> Entry? {
         entries.first { $0.id == id }
+    }
+
+    /// The host trusts a package as official only when `entries` lists its ID.
+    /// Every other package, bundled or installed, is a community package.
+    public static func trustPolicy(for id: PluginID) -> TrustPolicy? {
+        guard let entry = entry(for: id) else { return nil }
+        return TrustPolicy(signatureRequirement: entry.signatureRequirement,
+                           bundledSignatureRequirement: entry.bundledSignatureRequirement)
     }
 
     /// Entries still published as official plugins, which the host may
@@ -382,6 +395,23 @@ public enum LanguageExtensionModuleManifests {
     ) -> ModuleManifest {
         ModuleManifest(
             id: .grammarsExtension(pluginID),
+            displayName: displayName,
+            scope: .workspace,
+            defaultState: enabledByDefault ? .enabled : .disabled,
+            activationPolicy: .onDemand,
+            dependencies: [.module(.workspace)]
+        )
+    }
+
+    /// The console link matchers of a plugin; owns no process: while it is
+    /// enabled the Run and Test consoles apply the matchers to their text.
+    public static func outputLinks(
+        pluginID: String,
+        displayName: String,
+        enabledByDefault: Bool = false
+    ) -> ModuleManifest {
+        ModuleManifest(
+            id: .outputLinksExtension(pluginID),
             displayName: displayName,
             scope: .workspace,
             defaultState: enabledByDefault ? .enabled : .disabled,

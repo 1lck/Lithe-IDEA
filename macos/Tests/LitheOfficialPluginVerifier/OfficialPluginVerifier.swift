@@ -6,12 +6,22 @@ import LitheModuleAPI
 /// Checks a built official declarative plugin package before release. Rust
 /// Core tests validate the declaration semantics; this verifier checks what
 /// only the assembled package can prove: the host trust policy matches, every
-/// packaged executable exists, native code appears only inside a runtime the
-/// plugin declares, and the synthesized modules join the built-in graph.
+/// packaged executable exists, native code is declared by the plugin, and
+/// the synthesized modules join the built-in graph.
 @main
 struct OfficialPluginVerifier {
     @MainActor
-    static func main() async throws {
+    static func main() async {
+        do {
+            try await verify()
+        } catch {
+            FileHandle.standardError.write(Data("\(error)\n".utf8))
+            exit(EXIT_FAILURE)
+        }
+    }
+
+    @MainActor
+    private static func verify() async throws {
         guard CommandLine.arguments.count == 2 else {
             throw VerificationError.usage
         }
@@ -19,13 +29,12 @@ struct OfficialPluginVerifier {
             fileURLWithPath: CommandLine.arguments[1],
             isDirectory: true
         ).standardizedFileURL.resolvingSymlinksInPath()
-        let descriptor = try DeclarativePluginDescriptor(
-            normalizedManifest: Data(contentsOf: packageURL.appendingPathComponent("plugin.json"))
-        )
+        let manifestData = try Data(contentsOf: packageURL.appendingPathComponent("plugin.json"))
+        let descriptor = try DeclarativePluginDescriptor(normalizedManifest: manifestData)
         let manifest = descriptor.pluginManifest
-        guard let entry = OfficialPluginCatalog.entry(for: manifest.id),
-              entry.signatureRequirement == manifest.vendor.signatureRequirement,
-              entry.bundledSignatureRequirement == manifest.vendor.bundledSignatureRequirement,
+        guard let policy = OfficialPluginCatalog.trustPolicy(for: manifest.id),
+              policy.signatureRequirement == manifest.vendor.signatureRequirement,
+              policy.bundledSignatureRequirement == manifest.vendor.bundledSignatureRequirement,
               packageURL.lastPathComponent == manifest.id.rawValue else {
             throw VerificationError.trustPolicyMismatch(manifest.id.rawValue)
         }
@@ -50,12 +59,23 @@ struct OfficialPluginVerifier {
                 if let directory = packagedRuntime.split(separator: "/").first {
                     runtimeDirectories.append(String(directory))
                 }
-            case .systemCommand:
+            case .systemCommand, .backend:
+                // The backend chooses the command when the server starts, so
+                // there is no file to check in the package yet.
                 continue
             }
         }
         try rejectSymbolicLinks(in: packageURL)
-        try rejectNativeCode(in: packageURL, exceptIn: runtimeDirectories)
+        var backendExecutables: Set<String> = []
+        let artifact = try JSONDecoder().decode(BackendArtifact.self, from: manifestData)
+        if let launch = artifact.backend?.launch, launch.kind == "packaged" {
+            guard let path = launch.path, isSafeRelativePath(path) else {
+                throw VerificationError.missingLaunch("backend")
+            }
+            try requireFile(path, in: packageURL, executable: true)
+            backendExecutables.insert(path)
+        }
+        try rejectNativeCode(in: packageURL, exceptIn: runtimeDirectories, exceptFiles: backendExecutables)
 
         _ = try ValidatedPluginCatalog(
             manifests: BuiltInPluginCatalog.manifests + [manifest],
@@ -75,6 +95,21 @@ struct OfficialPluginVerifier {
         print("Verified \(manifest.id) as a declarative package")
     }
 
+    /// The verifier checks packaged artifacts only; Core owns launch planning.
+    private struct BackendArtifact: Decodable {
+        struct Backend: Decodable {
+            struct Launch: Decodable { let kind: String; let path: String? }
+            let launch: Launch
+        }
+        let backend: Backend?
+    }
+
+    private static func isSafeRelativePath(_ path: String) -> Bool {
+        !path.isEmpty && !path.contains("\\") && !path.contains("\0")
+            && path.split(separator: "/", omittingEmptySubsequences: false)
+                .allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
+    }
+
     private static func requireFile(_ relativePath: String, in packageURL: URL, executable: Bool) throws {
         let url = packageURL.appendingPathComponent(relativePath)
         let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
@@ -85,39 +120,43 @@ struct OfficialPluginVerifier {
         }
     }
 
+    /// Paths inside the package, relative to its root. Resolving the root drops
+    /// a leading `/private` (for example under `TMPDIR`), while a URL
+    /// enumerator reports the `/private` form, so trimming the root from
+    /// enumerated URLs would not yield a relative path. The path enumerator
+    /// returns relative paths directly.
+    private static func relativePaths(in packageURL: URL) throws -> [String] {
+        guard let enumerator = FileManager.default.enumerator(atPath: packageURL.path) else {
+            throw VerificationError.unreadablePackage
+        }
+        return enumerator.compactMap { $0 as? String }
+    }
+
     /// The contract forbids symbolic links anywhere in a package.
     private static func rejectSymbolicLinks(in packageURL: URL) throws {
-        guard let enumerator = FileManager.default.enumerator(
-            at: packageURL,
-            includingPropertiesForKeys: [.isSymbolicLinkKey]
-        ) else { throw VerificationError.unreadablePackage }
-        for case let fileURL as URL in enumerator
-        where (try? fileURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
-            throw VerificationError.symbolicLink(
-                fileURL.path.replacingOccurrences(of: packageURL.path + "/", with: "")
-            )
+        for relativePath in try relativePaths(in: packageURL)
+        where (try? packageURL.appendingPathComponent(relativePath)
+            .resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+            throw VerificationError.symbolicLink(relativePath)
         }
     }
 
-    /// The host never loads plugin code, so Mach-O files are allowed only in
-    /// the top-level directory of a runtime the plugin declares with
-    /// `packagedRuntime`. Bundled builds use the application's seal; independently
-    /// installed builds require a publisher signature over the final runtime.
-    private static func rejectNativeCode(in packageURL: URL, exceptIn runtimeDirectories: [String]) throws {
+    /// Permit only a declared backend executable or a declared packaged runtime.
+    /// Bundled builds use the application's seal; independent packages require
+    /// a publisher signature over the final artifacts.
+    private static func rejectNativeCode(in packageURL: URL, exceptIn runtimeDirectories: [String],
+                                         exceptFiles: Set<String>) throws {
         let machOMagics: Set<UInt32> = [0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe, 0xbebafeca]
-        guard let enumerator = FileManager.default.enumerator(
-            at: packageURL,
-            includingPropertiesForKeys: [.isRegularFileKey]
-        ) else { throw VerificationError.unreadablePackage }
-        for case let fileURL as URL in enumerator {
+        for relativePath in try relativePaths(in: packageURL) {
+            let fileURL = packageURL.appendingPathComponent(relativePath)
             guard (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
                   let handle = try? FileHandle(forReadingFrom: fileURL) else { continue }
             defer { try? handle.close() }
             guard let header = try handle.read(upToCount: 4), header.count == 4 else { continue }
             let magic = header.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
             if machOMagics.contains(magic) || machOMagics.contains(magic.byteSwapped) {
-                let relativePath = fileURL.path.replacingOccurrences(of: packageURL.path + "/", with: "")
-                if runtimeDirectories.contains(where: { relativePath.hasPrefix($0 + "/") }) { continue }
+                if exceptFiles.contains(relativePath)
+                    || runtimeDirectories.contains(where: { relativePath.hasPrefix($0 + "/") }) { continue }
                 throw VerificationError.nativeCode(relativePath)
             }
         }
@@ -138,7 +177,7 @@ private enum VerificationError: Error, CustomStringConvertible {
         case .usage: "Usage: LitheOfficialPluginVerifier <package-directory>"
         case .trustPolicyMismatch(let id): "\(id) does not match the host's official plugin trust policy."
         case .missingLaunch(let path): "A declared launch file is missing or not executable: \(path)"
-        case .nativeCode(let path): "Native code is only allowed inside a declared packaged runtime: \(path)"
+        case .nativeCode(let path): "Native code is only allowed in a declared backend or packaged runtime: \(path)"
         case .symbolicLink(let path): "Plugin packages must not contain symbolic links: \(path)"
         case .unreadablePackage: "The plugin package could not be read."
         case .factoryMustNotBeInvoked: "A module factory was invoked during static validation."

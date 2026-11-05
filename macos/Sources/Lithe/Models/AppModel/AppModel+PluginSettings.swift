@@ -35,7 +35,7 @@ extension AppModel {
         do {
             try manager.setSetting(value, id: settingID, for: pluginID, layer: layer)
         } catch {
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "plugin_settings"))
             return nil
         }
         objectWillChange.send()
@@ -67,7 +67,7 @@ extension AppModel {
                     case .applied, .superseded:
                         continue
                     case .failed:
-                        self?.showNotification(L10n.string("The language server could not apply this setting. Restart it to use the new value."))
+                        self?.showNotification(L10n.string("The language server could not apply this setting. Restart it to use the new value."), logReference: self?.notificationRejection(operation: "plugin_settings", reason: "apply_failed"))
                         return
                     }
                 }
@@ -98,10 +98,11 @@ extension AppModel {
         loadBuildSystems(access)
         do {
             _ = try await feature.prepareLanguageImport(workspaceURL: workspaceURL)
+        // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
         } catch is CancellationError {
             return
         } catch {
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "plugin_settings"))
             return
         }
         guard self.workspaceURL?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
@@ -120,10 +121,11 @@ extension AppModel {
                 entry.id, functionID: action.functionID, params: .object([:]), timeout: .seconds(600)
             ) { _ in }
             showNotification(settings.language.localizedFormat("native.inline.arg1Finished", String(describing: action.title)))
+        // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
         } catch is CancellationError {
             return
         } catch {
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "plugin_settings"))
         }
     }
 }

@@ -7,9 +7,10 @@ use crate::community::{
 };
 use crate::diagnostics::{BuildManifestRequest, RedactTextRequest};
 use crate::git::{
-    self, GitApplyRequest, GitBlameRequest, GitCheckoutPreflightRequest, GitCommandRequest,
-    GitCommitFilesRequest, GitCommitRequest, GitComparisonRequest, GitConflictMarkerRequest,
-    GitDiffRequest, GitHistoryCursorCloseRequest, GitHistoryPageRequest, GitHistoryRequest,
+    self, GitApplyRequest, GitBlameRequest, GitBranchNamePreviewRequest,
+    GitCheckoutPreflightRequest, GitCommandRequest, GitCommitFilesRequest, GitCommitRequest,
+    GitComparisonRequest, GitConflictMarkerRequest, GitDiffRequest, GitHistoryCursorCloseRequest,
+    GitHistoryLocateRequest, GitHistoryPageRequest, GitHistoryRequest,
     GitHistoryRewritePreviewRequest, GitIntegrationPreflightRequest, GitLineHistoryRequest,
     GitOperationStateRequest, GitPullPreflightRequest, GitPullRequestContextRequest,
     GitPushPreviewRequest, GitRebaseControlRequest, GitRebasePreviewRequest,
@@ -43,6 +44,7 @@ use crate::protocol::{CoreError, ErrorCode};
 use serde_json::json;
 
 pub fn execute_json(request: &str) -> String {
+    crate::diagnostics::helper_failures::install();
     let response = execute(request);
     serde_json::to_string(&response).unwrap_or_else(|_| {
         serde_json::to_string(&CoreResponse::failure(
@@ -87,6 +89,24 @@ fn agent_response<T: serde::de::DeserializeOwned>(
     }
 }
 
+/// Host detailed-diagnostics state; `roots: None` enables DEBUG for every root.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CoreEventConfiguration {
+    debug: bool,
+    roots: Option<Vec<String>>,
+}
+
+// Domain failures retain their unique numeric logging codes inside the existing Core envelope.
+fn log_v2_result<T: serde::Serialize>(
+    result: Result<T, crate::diagnostics::channel::LogError>,
+) -> serde_json::Value {
+    match result {
+        Ok(value) => serde_json::json!({"result": value}),
+        Err(error) => serde_json::json!({"error": error}),
+    }
+}
+
 fn execute(request: &str) -> CoreResponse {
     let parsed: CoreRequest = match serde_json::from_str(request) {
         Ok(request) => request,
@@ -98,6 +118,14 @@ fn execute(request: &str) -> CoreResponse {
             );
         }
     };
+    // The trace spans every scope below and records once, after the final response.
+    let trace = crate::diagnostics::request_trace::Request::begin(&parsed);
+    let response = execute_parsed(parsed);
+    trace.finish(&response);
+    response
+}
+
+fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
     let id = parsed.id.clone();
     let response_id = id.clone();
     let operation_id = parsed.operation_id.clone().or_else(|| id.clone());
@@ -125,6 +153,10 @@ fn execute(request: &str) -> CoreResponse {
                 .with_details(parsed.command),
         );
     };
+
+    if let Err(error) = crate::lsp::resolve_request_paths(&parsed.command, &mut parsed.payload) {
+        return CoreResponse::failure(id, error);
+    }
 
     let preserve_workspace_outcome = matches!(command, CoreCommand::GitWorkspaceCommitStep);
     let response = match command {
@@ -156,6 +188,15 @@ fn execute(request: &str) -> CoreResponse {
         }
         CoreCommand::AgentSkills => agent_response(id, parsed.payload, crate::agent::skills),
         CoreCommand::AgentHooks => agent_response(id, parsed.payload, crate::agent::hooks::execute),
+        CoreCommand::AiCommitInputBudget => {
+            plugin_response(id, parsed.payload, crate::ai::commit_input_budget_command)
+        }
+        CoreCommand::AiPlanCommit => {
+            plugin_response(id, parsed.payload, crate::ai::plan_commit_command)
+        }
+        CoreCommand::AiDecodeCommitMessage => {
+            plugin_response(id, parsed.payload, crate::ai::decode_commit_command)
+        }
         CoreCommand::AgentParseProviderConfiguration => {
             match crate::ai::parse_provider_configuration(parsed.payload) {
                 Ok(data) => CoreResponse::success(id, data),
@@ -219,6 +260,21 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::plugins::declarative::language_server_launch_plan_command,
         ),
+        CoreCommand::PluginsLanguageServersDecodeLaunch => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::decode_language_server_launch_command,
+        ),
+        CoreCommand::PluginsLanguageServersStateRetention => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::language_server_sessions::state_retention_command,
+        ),
+        CoreCommand::PluginsContentProvidersDecode => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::content_providers::decode_content_command,
+        ),
         CoreCommand::DebugValidateAdapterEndpoint => {
             match crate::debug::validate_adapter_endpoint(parsed.payload) {
                 Ok(data) => CoreResponse::success(id, data),
@@ -276,6 +332,32 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::plugins::editor_actions::decode_command,
         ),
+        CoreCommand::PluginsEditorProvidersDecode => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::editor_providers::decode_command,
+        ),
+        CoreCommand::KeymapDecodeImport => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::keymap_import::decode_command,
+        ),
+        CoreCommand::KeymapPlanImportSources => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::keymap_import::plan_sources_command,
+        ),
+        CoreCommand::KeymapPlanImportBindings => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::keymap_import::plan_bindings_command,
+        ),
+        CoreCommand::DebugStartOrContinue => {
+            match crate::debug::start_or_continue(parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::ToolchainsRegistry => {
             plugin_response(id, parsed.payload, crate::toolchain::registry_command)
         }
@@ -288,6 +370,16 @@ fn execute(request: &str) -> CoreResponse {
         CoreCommand::ToolchainsResolvePins => {
             plugin_response(id, parsed.payload, crate::toolchain::resolve_pins_command)
         }
+        CoreCommand::ToolchainsResolveConsumerPreferences => plugin_response(
+            id,
+            parsed.payload,
+            crate::toolchain::resolve_consumer_preferences_command,
+        ),
+        CoreCommand::ToolchainsEditConsumerPreferences => plugin_response(
+            id,
+            parsed.payload,
+            crate::toolchain::edit_consumer_preferences_command,
+        ),
         CoreCommand::ToolchainsResolve => {
             plugin_response(id, parsed.payload, crate::toolchain::resolve_command)
         }
@@ -300,9 +392,45 @@ fn execute(request: &str) -> CoreResponse {
         CoreCommand::ToolchainsCandidates => {
             plugin_response(id, parsed.payload, crate::toolchain::candidates_command)
         }
+        CoreCommand::ToolchainsInstantiateLaunch => plugin_response(
+            id,
+            parsed.payload,
+            crate::toolchain::instantiate_launch_command,
+        ),
+        CoreCommand::RunDecodeStart => {
+            plugin_response(id, parsed.payload, crate::build::run_decode_start_command)
+        }
+        CoreCommand::DebugDecodeBackendConfiguration => plugin_response(
+            id,
+            parsed.payload,
+            crate::debug::decode_backend_configuration_command,
+        ),
+        CoreCommand::OutputLinksMatch => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::output_links::match_lines,
+        ),
+        CoreCommand::OutputLinksDecodeResolution => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::output_links::decode_resolution,
+        ),
         CoreCommand::BuildDetect => {
             plugin_response(id, parsed.payload, crate::build::build_detect_command)
         }
+        CoreCommand::BuildProjectOptions => {
+            plugin_response(id, parsed.payload, crate::build::project_options_command)
+        }
+        CoreCommand::BuildResolveStoredOptions => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::resolve_stored_options_command,
+        ),
+        CoreCommand::BuildEditStoredOption => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_edit_stored_option_command,
+        ),
         CoreCommand::BuildInvocationPlan => plugin_response(
             id,
             parsed.payload,
@@ -338,6 +466,26 @@ fn execute(request: &str) -> CoreResponse {
             id,
             parsed.payload,
             crate::build::build_resolve_model_inputs_command,
+        ),
+        CoreCommand::BuildConfigurationEditPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_configuration_edit_plan_command,
+        ),
+        CoreCommand::BuildDecodeConfigurationEdit => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_configuration_edit_command,
+        ),
+        CoreCommand::BuildConfigurationPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_configuration_plan_command,
+        ),
+        CoreCommand::BuildDecodeConfiguration => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_configuration_command,
         ),
         CoreCommand::BuildPrepareRunPlan => plugin_response(
             id,
@@ -732,6 +880,13 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::SearchActions => agent_response(
+            id,
+            parsed.payload,
+            |request: crate::action_search::Request| {
+                crate::action_search::search(request).map(|indices| json!({"indices": indices}))
+            },
+        ),
         CoreCommand::WorkspaceSearch => {
             match serde_json::from_value::<SearchRequest>(parsed.payload)
                 .map_err(|error| {
@@ -780,6 +935,33 @@ fn execute(request: &str) -> CoreResponse {
                     id,
                     serde_json::to_value(data).expect("replacement preview should encode"),
                 ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceReplaceText => {
+            match serde_json::from_value::<project::ReplacementTextRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid text replacement request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(project::replace_text)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceSearchTextBatch => {
+            match serde_json::from_value::<project::SearchTextBatchRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid text search request")
+                        .with_details(error.to_string())
+                })
+                .and_then(project::search_text_batch)
+            {
+                Ok(data) => CoreResponse::success(id, data),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
@@ -1008,6 +1190,19 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::ExecutionResolveSearchPath => {
+            match serde_json::from_value::<crate::execution::SearchPathRequest>(parsed.payload) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::json!(crate::execution::resolve_search_path(request)),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid search path request")
+                        .with_details(error.to_string()),
+                ),
+            }
+        }
         CoreCommand::ExecutionResolveEnvironment => {
             match serde_json::from_value::<crate::execution::LaunchEnvironmentRequest>(
                 parsed.payload,
@@ -1170,6 +1365,37 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Maven test results should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::KeymapParseContext => {
+            match serde_json::from_value::<crate::keymap::ParseContextRequest>(parsed.payload) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::keymap::parse_context(request))
+                        .expect("context plan should encode"),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid keymap parse request"),
+                ),
+            }
+        }
+        CoreCommand::KeymapEvaluateContext => {
+            let result =
+                serde_json::from_value::<crate::keymap::EvaluateContextRequest>(parsed.payload)
+                    .map_err(|_| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Invalid keymap evaluation request",
+                        )
+                    })
+                    .and_then(crate::keymap::evaluate_context);
+            match result {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("context result should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
@@ -1569,6 +1795,11 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::EditorParseNavigationInput => plugin_response(
+            id,
+            parsed.payload,
+            crate::editor::navigation_input::parse_command,
+        ),
         CoreCommand::EditorLineEdit => {
             match serde_json::from_value::<crate::editor::LineEditRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1882,7 +2113,15 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspDocumentUri => {
+            plugin_response(id, parsed.payload, crate::lsp::document_uri_command)
+        }
         CoreCommand::LspSyncDocument => {
+            let uri = parsed
+                .payload
+                .get("uri")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned);
             match serde_json::from_value::<crate::lsp::SyncDocumentRequest>(parsed.payload)
                 .map_err(|error| {
                     CoreError::new(
@@ -1893,10 +2132,12 @@ fn execute(request: &str) -> CoreResponse {
                 })
                 .and_then(crate::lsp::sync_document)
             {
-                Ok(data) => CoreResponse::success(
-                    id,
-                    serde_json::to_value(data).expect("LSP sync-document response should encode"),
-                ),
+                Ok(data) => {
+                    let mut encoded = serde_json::to_value(data)
+                        .expect("LSP sync-document response should encode");
+                    encoded["uri"] = json!(uri);
+                    CoreResponse::success(id, encoded)
+                }
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
@@ -1985,6 +2226,21 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspKeymapImportRequest => {
+            match serde_json::from_value::<crate::lsp::KeymapImportProviderRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid shortcut import request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::keymap_import_provider_request)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Shortcut import response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspVcsRequest => {
             match serde_json::from_value::<crate::lsp::VcsProviderRequest>(parsed.payload)
                 .map_err(|error| {
@@ -2034,13 +2290,18 @@ fn execute(request: &str) -> CoreResponse {
             }
         }
         CoreCommand::JavaNavigationMarkers => {
-            match serde_json::from_value::<crate::lsp::JavaNavigationMarkersRequest>(parsed.payload)
-                .map_err(|error| {
-                    CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "Invalid Java navigation-markers request",
+            match crate::lsp::resolve_uri_field(&mut parsed.payload, "uri")
+                .and_then(|_| {
+                    serde_json::from_value::<crate::lsp::JavaNavigationMarkersRequest>(
+                        parsed.payload,
                     )
-                    .with_details(error.to_string())
+                    .map_err(|error| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Invalid Java navigation-markers request",
+                        )
+                        .with_details(error.to_string())
+                    })
                 })
                 .and_then(crate::lsp::java_navigation_markers)
             {
@@ -2053,13 +2314,18 @@ fn execute(request: &str) -> CoreResponse {
             }
         }
         CoreCommand::JavaResolveNavigation => {
-            match serde_json::from_value::<crate::lsp::JavaResolveNavigationRequest>(parsed.payload)
-                .map_err(|error| {
-                    CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "Invalid Java resolve-navigation request",
+            match crate::lsp::resolve_uri_field(&mut parsed.payload, "uri")
+                .and_then(|_| {
+                    serde_json::from_value::<crate::lsp::JavaResolveNavigationRequest>(
+                        parsed.payload,
                     )
-                    .with_details(error.to_string())
+                    .map_err(|error| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Invalid Java resolve-navigation request",
+                        )
+                        .with_details(error.to_string())
+                    })
                 })
                 .and_then(crate::lsp::java_resolve_navigation)
             {
@@ -2068,6 +2334,18 @@ fn execute(request: &str) -> CoreResponse {
                     serde_json::to_value(data)
                         .expect("Java navigation resolution operation should encode"),
                 ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspConfigureFunctionRelay => {
+            match serde_json::from_value::<crate::lsp::RelaySnapshot>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid function relay snapshot")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::configure_function_relay)
+            {
+                Ok(()) => CoreResponse::success(id, json!({})),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
@@ -2094,6 +2372,44 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Host notification response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspPluginServerRequest => {
+            match serde_json::from_value::<crate::lsp::PluginServerRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid plugin language-server request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::plugin_server_request)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Plugin language-server response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspPluginServerNotify => {
+            match serde_json::from_value::<crate::lsp::PluginServerNotify>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid plugin language-server notification",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::plugin_server_notify)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Plugin language-server notification response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
@@ -2128,6 +2444,22 @@ fn execute(request: &str) -> CoreResponse {
                     id,
                     serde_json::to_value(data).expect("LSP poll-events response should encode"),
                 ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspSetDetailedDiagnostics => {
+            match serde_json::from_value::<crate::lsp::SetDetailedDiagnosticsRequest>(
+                parsed.payload,
+            )
+            .map_err(|_| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid detailed diagnostics request",
+                )
+            })
+            .and_then(crate::lsp::set_detailed_diagnostics)
+            {
+                Ok(()) => CoreResponse::success(id, json!({})),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
@@ -2194,6 +2526,23 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::RunConfigProjectToolchain => {
+            match serde_json::from_value::<crate::execution::ProjectToolchainRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid project toolchain request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::execution::project_toolchain)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::RunConfigGenerate => {
             match serde_json::from_value::<crate::execution::GenerateRequest>(parsed.payload)
                 .map_err(|error| {
@@ -2207,6 +2556,19 @@ fn execute(request: &str) -> CoreResponse {
             {
                 Ok(data) => CoreResponse::success(id, data),
                 Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RunConfigArgumentText => {
+            match serde_json::from_value::<crate::execution::ArgumentTextRequest>(parsed.payload) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::json!(crate::execution::format_argument_text(request)),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid argument text request")
+                        .with_details(error.to_string()),
+                ),
             }
         }
         CoreCommand::RunConfigResolve => {
@@ -2224,6 +2586,24 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::RunConfigSelectContextConfiguration => {
+            match serde_json::from_value::<crate::execution::ContextSelectionRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::json!({"configurationId": crate::execution::select_context_configuration(request)}),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid context configuration request",
+                    )
+                    .with_details(error.to_string()),
+                ),
+            }
+        }
         CoreCommand::RunConfigUpdateOptions => {
             match serde_json::from_value::<crate::execution::UpdateOptionsRequest>(parsed.payload)
                 .map_err(|error| {
@@ -2231,6 +2611,23 @@ fn execute(request: &str) -> CoreResponse {
                         .with_details(error.to_string())
                 })
                 .and_then(crate::execution::update_options)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RunConfigUpdateToolPreferences => {
+            match serde_json::from_value::<crate::execution::UpdateToolPreferencesRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid tool preferences request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::execution::update_tool_preferences)
             {
                 Ok(data) => CoreResponse::success(id, data),
                 Err(error) => CoreResponse::failure(id, error),
@@ -2263,6 +2660,23 @@ fn execute(request: &str) -> CoreResponse {
                 .with_details(error.to_string())
             })
             .and_then(crate::execution::create_user_configuration)
+            {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RunConfigProviderLaunchInputs => {
+            match serde_json::from_value::<crate::execution::ProviderLaunchInputsRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid provider launch input request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::execution::provider_launch_inputs)
             {
                 Ok(data) => CoreResponse::success(id, data),
                 Err(error) => CoreResponse::failure(id, error),
@@ -2478,6 +2892,9 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::GitClassifyMetadataChanges => {
+            plugin_response(id, parsed.payload, git::metadata_classification_command)
+        }
         CoreCommand::GitWatchContext => {
             match serde_json::from_value::<GitWatchContextRequest>(parsed.payload)
                 .map_err(|error| {
@@ -2562,6 +2979,58 @@ fn execute(request: &str) -> CoreResponse {
                     id,
                     serde_json::to_value(data).expect("Git repository root response should encode"),
                 ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitWorkspaceStatusMerge => {
+            match serde_json::from_value::<git::workspace_status::Request>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid workspace Git status request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::workspace_status::plan)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git workspace status plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitResolveFileContext => {
+            match serde_json::from_value::<git::file_context::Request>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git file context request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::file_context::resolve)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git file context should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitRemotes
+        | CoreCommand::GitTags
+        | CoreCommand::GitParseCheckoutMetadata
+        | CoreCommand::GitParseGitdirPointer => {
+            let operation = match command {
+                CoreCommand::GitRemotes => "remotes",
+                CoreCommand::GitTags => "tags",
+                CoreCommand::GitParseCheckoutMetadata => "checkout",
+                CoreCommand::GitParseGitdirPointer => "gitdir",
+                _ => unreachable!(),
+            };
+            match git::catalog::command(operation, parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
@@ -2732,6 +3201,47 @@ fn execute(request: &str) -> CoreResponse {
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
+        }
+        CoreCommand::GitHistoryActionCapabilities => plugin_response(
+            id,
+            parsed.payload,
+            crate::git::history_action_capabilities_command,
+        ),
+        CoreCommand::GitRepositoryColorAssignments => plugin_response(
+            id,
+            parsed.payload,
+            crate::git::repository_color_assignments_command,
+        ),
+        CoreCommand::GitPrepareCommitSelection => plugin_response(
+            id,
+            parsed.payload,
+            crate::git::prepare_commit_selection_command,
+        ),
+        CoreCommand::GitShelf => plugin_response(id, parsed.payload, crate::git::shelf_command),
+        CoreCommand::GitCommitMessageContext => plugin_response(
+            id,
+            parsed.payload,
+            crate::git::commit_message_context_command,
+        ),
+        CoreCommand::GitChangelists => {
+            plugin_response(id, parsed.payload, crate::git::changelists_command)
+        }
+        CoreCommand::GitReconcileDeletedSelection => plugin_response(
+            id,
+            parsed.payload,
+            crate::git::reconcile_deleted_selection_command,
+        ),
+        CoreCommand::GitRollbackPrepare => {
+            plugin_response(id, parsed.payload, crate::git::rollback_prepare_command)
+        }
+        CoreCommand::GitParsePatch => {
+            plugin_response(id, parsed.payload, crate::git::parse_patch_command)
+        }
+        CoreCommand::GitHistoryQuery => {
+            plugin_response(id, parsed.payload, crate::git::history_query_command)
+        }
+        CoreCommand::GitRollbackPlan => {
+            plugin_response(id, parsed.payload, crate::git::rollback_plan_command)
         }
         CoreCommand::GitWrite => {
             match serde_json::from_value::<GitWriteRequest>(parsed.payload)
@@ -3088,6 +3598,43 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::GitHistoryLocate => {
+            match serde_json::from_value::<GitHistoryLocateRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git history locate request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::history_locate)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git history locate response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitBranchNamePreview => {
+            match serde_json::from_value::<GitBranchNamePreviewRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git branch name preview request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::branch_name_preview)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Git branch name preview response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitPushPreview => {
             match serde_json::from_value::<GitPushPreviewRequest>(parsed.payload)
                 .map_err(|error| {
@@ -3320,6 +3867,80 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::GitPullRequestCheckoutPreview => {
+            match serde_json::from_value::<git::PullRequestCheckoutPreviewRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid pull-request checkout preview",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::checkout_pull_request_preview)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Pull-request checkout preview should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitPullRequestCheckout => {
+            match serde_json::from_value::<git::PullRequestCheckoutRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid pull-request checkout")
+                        .with_details(error.to_string())
+                })
+                .and_then(git::checkout_pull_request)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Pull-request checkout should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitHubPullRequestCheckoutPlan => {
+            match serde_json::from_value::<crate::github::PullRequestCheckoutPlanRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid pull-request checkout plan",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::github::pull_request_checkout_plan)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Pull-request checkout plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitHubDeviceAuthorizationTransition => {
+            match serde_json::from_value::<crate::github::DeviceAuthorizationTransitionRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid GitHub device transition",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::github::device_authorization_transition)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Device transition should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitHubNormalizeResponse => {
             match serde_json::from_value::<NormalizeResponseRequest>(parsed.payload)
                 .map_err(|error| {
@@ -3359,6 +3980,177 @@ fn execute(request: &str) -> CoreResponse {
                 Err(_) => CoreResponse::failure(
                     id,
                     CoreError::new(ErrorCode::InvalidRequest, "Invalid log query request"),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsRecordPluginOperation => CoreResponse::success(
+            id,
+            log_v2_result(crate::diagnostics::plugin_operations::record_request(
+                parsed.payload,
+            )),
+        ),
+        CoreCommand::DiagnosticsDrainCoreEvents => CoreResponse::success(
+            id,
+            serde_json::to_value(crate::diagnostics::core_events::drain())
+                .expect("Core logs encode"),
+        ),
+        CoreCommand::DiagnosticsConfigureCoreEvents => {
+            match serde_json::from_value::<CoreEventConfiguration>(parsed.payload) {
+                Ok(configuration) => {
+                    crate::diagnostics::core_events::configure(
+                        configuration.debug,
+                        configuration.roots,
+                    );
+                    CoreResponse::success(id, json!({}))
+                }
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Core event configuration",
+                    )
+                    .with_details(error.to_string()),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsEncodeLogBatch => {
+            match serde_json::from_value::<crate::diagnostics::record::EncodeLogBatchRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::diagnostics::record::encode_log_batch(request))
+                        .expect("Log batch should encode"),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid log batch request"),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsParseLogFilter => {
+            match serde_json::from_value::<crate::diagnostics::filter::ParseLogFilterRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::diagnostics::filter::parse_log_filter(request))
+                        .expect("Filter response serializes"),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid log parse_log_filter request",
+                    ),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsComposeLogFilter => {
+            match serde_json::from_value::<crate::diagnostics::filter::ComposeLogFilterRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    log_v2_result(crate::diagnostics::filter::compose_log_filter(request)),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid log compose_log_filter request",
+                    ),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsFormatLogRecords => {
+            match serde_json::from_value::<crate::diagnostics::format::FormatLogRecordsRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    log_v2_result(crate::diagnostics::format::format_log_records(request)),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid log format_log_records request",
+                    ),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsPlanLogCollection => {
+            match serde_json::from_value::<crate::diagnostics::collection::PlanLogCollectionRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    log_v2_result(crate::diagnostics::collection::plan_log_collection(request)),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid log collection request"),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsQueryLogsV2 => {
+            match serde_json::from_value::<crate::diagnostics::query_v2::LogQueryV2Request>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    log_v2_result(crate::diagnostics::query_v2::query_logs_v2(request)),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid structured log query"),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsPlanLogRetention => {
+            match serde_json::from_value::<crate::diagnostics::retention::PlanLogRetentionRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    log_v2_result(crate::diagnostics::retention::plan_log_retention(request)),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid log retention request"),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsResolveEngineLogSubject => {
+            match serde_json::from_value::<crate::lsp::ResolveEngineLogSubjectRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::lsp::resolve_engine_log_subject(request))
+                        .expect("Engine log subject should encode"),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid engine log subject request",
+                    ),
+                ),
+            }
+        }
+        CoreCommand::DiagnosticsResolveLogChannel => {
+            match serde_json::from_value::<crate::diagnostics::channel::ResolveLogChannelRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    log_v2_result(crate::diagnostics::channel::resolve_log_channel(request)),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid log channel request"),
                 ),
             }
         }
@@ -3411,6 +4203,32 @@ fn execute(request: &str) -> CoreResponse {
 mod tests {
     use super::execute_json;
     use serde_json::{json, Value};
+
+    #[test]
+    fn configure_core_events_sets_the_debug_gate_and_rejects_unknown_fields() {
+        use crate::diagnostics::core_events::{accepts, configure};
+        use crate::diagnostics::record::LogLevel;
+        let send = |payload: Value| -> Value {
+            serde_json::from_str(&execute_json(
+                &json!({"command": "diagnostics.configureCoreEvents", "payload": payload})
+                    .to_string(),
+            ))
+            .unwrap()
+        };
+        assert_eq!(send(json!({"debug": true, "roots": ["vcs"]}))["ok"], true);
+        let scoped = (
+            accepts(LogLevel::Debug, "vcs"),
+            accepts(LogLevel::Debug, "app"),
+        );
+        let rejected = send(json!({"debug": true, "level": "debug"}));
+        // Restore the process default before asserting so a failure cannot leak DEBUG.
+        configure(false, None);
+        assert_eq!(scoped, (true, false));
+        assert_eq!(rejected["ok"], false);
+        assert_eq!(rejected["error"]["code"], "invalid_request");
+        assert!(!accepts(LogLevel::Debug, "vcs"));
+        assert!(accepts(LogLevel::Warn, "vcs"));
+    }
 
     #[test]
     fn routes_semantic_lsp_runtime_commands() {

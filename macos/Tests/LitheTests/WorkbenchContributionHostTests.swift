@@ -13,7 +13,7 @@ import LitheCoreContracts
 struct WorkbenchContributionHostTests {
     private func descriptor() throws -> DeclarativePluginDescriptor {
         let data = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/hello-lithe.plugin.json"))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/manifest/hello-lithe.plugin.json"))
         return try DeclarativePluginTestSupport.operations.validate(manifest: data)
     }
 
@@ -130,7 +130,7 @@ struct WorkbenchContributionHostTests {
             #expect(model.workbenchUIRegistry.state(forActionID: "debug", model: model).isEnabled == false)
             #expect(LitheActionRegistry.actions(for: model).first { $0.id == "run" }?.isEnabled == false)
             #expect(!model.canPerformShortcutCommand(id: "run"))
-            model.workbenchUIRegistry.perform(run, model: model)
+            model.workbenchUIRegistry.perform(run, model: model, surface: nil)
             #expect(model.runFeatureIfActive == nil)
             #expect(container.services.moduleRuntime.snapshots()
                 .filter { [.execution, .debug].contains($0.manifest.id) }.allSatisfy { !$0.isInstantiated })
@@ -168,8 +168,132 @@ struct WorkbenchContributionHostTests {
             model.showContributionEntry(command)
             #expect(model.registeredContributions(at: placement).contains(command))
             #expect(invocations == 0)
-            model.workbenchUIRegistry.perform(command, model: model)
+            model.workbenchUIRegistry.perform(command, model: model, surface: nil)
             #expect(invocations == 1)
+        }
+    }
+
+    @Test func toolWindowsMenuRestoresHiddenTerminalAtItsSavedDockWithoutToggling() async throws {
+        let suite = "lithe-tool-windows-menu-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MacUserDefaultsStore(defaults: defaults), settings = AppSettings(store: store)
+        settings.selectKeyboardShortcutPreset(.ideaClassic)
+        let container = MacServiceContainer(store: store, settings: settings)
+        defer { container.moduleLifecycleCoordinator.stop() }
+        let model = AppModel(settings: settings, services: container.services)
+        try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { scope in
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-menu-terminal-" + UUID().uuidString)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            model.workspaceSessionCoordinator.beginWorkspace(at: root)
+            let terminal = try #require(model.workbenchContributions.first { $0.id == "terminal.sessions" })
+            #expect(!WorkbenchToolWindowsMenu.items(for: model).contains { $0.title == terminal.title })
+            let position = DockPosition(anchor: .right, group: .secondary)
+            model.workbenchFeature.move(.terminal, to: position)
+            model.workbenchFeature.customizeContribution(terminal.id, isHidden: true)
+            let hiddenItem = try #require(WorkbenchToolWindowsMenu.items(for: model).first { $0.title == terminal.title })
+            guard case .submenu(let children) = hiddenItem.kind else {
+                Issue.record("Hidden tool windows must expose Show in a submenu")
+                return
+            }
+            #expect(children.count == 1)
+            #expect(hiddenItem.icon != nil)
+            let show = try #require(children.first)
+            #expect(show.title == L10n.string("Show"))
+            #expect(show.isEnabled && !show.isChecked)
+            #expect(show.shortcut == model.keyboardShortcutFeature.displayText(for: "toggle-terminal"))
+            #expect(!model.workbenchFeature.isVisible(.terminal))
+            #expect(model.terminalFeature == nil)
+            #expect(model.contributionActivationTasks[terminal.id] == nil)
+            #expect(model.workbenchFeature.state(for: .terminal).position == position)
+            #expect(!model.rightSidebarContributions.contains(terminal))
+            show.action()
+            try await scope.run("restore terminal from tool windows menu") {
+                await model.contributionActivationTasks[terminal.id]?.value
+            }
+            let feature = try #require(model.terminalFeature)
+            let session = try #require(model.activeToolTerminalSession)
+            #expect(model.workbenchFeature.activeTool(in: position) == .terminal)
+            #expect(model.rightSidebarContributions.contains(terminal))
+            #expect(model.workbenchFeature.contributionPreferences[terminal.id]?.isHidden == false)
+            #expect(!WorkbenchToolWindowsMenu.items(for: model).contains { $0.title == terminal.title })
+            show.action()
+            try await scope.run("show an already open terminal") {
+                await model.contributionActivationTasks[terminal.id]?.value
+            }
+            #expect(model.workbenchFeature.isVisible(.terminal))
+            #expect(model.terminalFeature === feature)
+            #expect(model.activeToolTerminalSession === session)
+            #expect(model.toolTerminalSessions.count == 1)
+            try await scope.run("disable terminal module") {
+                try await container.services.moduleRuntime.setEnabled(false, for: .terminal)
+            }
+            #expect(!WorkbenchToolWindowsMenu.items(for: model).contains { $0.title == terminal.title })
+            show.action()
+            #expect(model.contributionActivationTasks[terminal.id] == nil)
+            #expect(!model.workbenchFeature.isVisible(.terminal))
+        }
+    }
+
+    @Test func hiddenPluginWindowTitlesRemainLiteralWhenTheyMatchHostTranslationKeys() async throws {
+        let suite = "lithe-hidden-plugin-title-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MacUserDefaultsStore(defaults: defaults), settings = AppSettings(store: store)
+        let container = MacServiceContainer(store: store, settings: settings)
+        defer { container.moduleLifecycleCoordinator.stop() }
+        let entry = ModuleContribution(id: "org.example.literal.window", kind: .toolWindow, title: "Terminal",
+            placement: .rightSidebar, actionID: "org.example.literal.show", rendererID: "org.example.literal.window", text: "Plugin content")
+        let declaration = PluginModuleDeclaration(manifest: .init(id: .init("org.example.literal"), displayName: "Literal", scope: .workspace),
+            contributions: [entry])
+        try container.services.moduleRuntime.register(ModuleFactory(manifest: declaration.manifest, contributions: [entry]) {
+            DeclarativeWorkbenchModule(declaration: declaration)
+        })
+        let model = AppModel(settings: settings, services: container.services)
+        try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { _ in
+            model.workspaceSessionCoordinator.beginWorkspace(at: URL(fileURLWithPath: "/fixture/literal-window"))
+            model.workbenchUIRegistry = try WorkbenchModuleUIRegistry(registrations: WorkbenchModuleUIComposition.registrations + [
+                WorkbenchModuleUIRegistry.declarativeRegistration(declaration)])
+            model.workbenchFeature.customizeContribution(entry.id, isHidden: true)
+            let item = try #require(WorkbenchToolWindowsMenu.items(for: model).first { $0.title == entry.title })
+            #expect(!item.localizesTitle, "A plugin's Terminal title must not become the host's Chinese 终端")
+        }
+    }
+
+    @Test func chineseActionSearchFindsAndRestoresHiddenTerminal() async throws {
+        let suite = "lithe-localized-action-search-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MacUserDefaultsStore(defaults: defaults), settings = AppSettings(store: store)
+        let container = MacServiceContainer(store: store, settings: settings)
+        defer { container.moduleLifecycleCoordinator.stop() }
+        let model = AppModel(settings: settings, services: container.services)
+        try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { scope in
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-action-search-" + UUID().uuidString)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            model.workspaceSessionCoordinator.beginWorkspace(at: root)
+            // SwiftPM's test executable does not own the app's lproj resources.
+            let resources = try #require(Bundle(url: DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("macos/Resources")))
+            @MainActor func matches(_ query: String) -> [LitheAction] {
+                model.searchEverywhereActionMatches(query: query, localize: { settings.language.localizedString($0, bundle: resources) })
+            }
+            settings.language = .simplifiedChinese
+            model.workbenchFeature.customizeContribution("terminal.sessions", isHidden: true)
+            let action = try #require(matches("切换终端").first { $0.id == "toggle-terminal" })
+            #expect(matches("Toggle Terminal").contains { $0.id == action.id })
+            #expect(matches("显示或隐藏终端").contains { $0.id == action.id })
+            action.perform()
+            // Native terminal activation keeps its own lifecycle; only wait for its owner.
+            try await scope.run("activate terminal through localized search") {
+                _ = await model.activateTerminalModule()
+            }
+            #expect(model.workbenchFeature.isVisible(.terminal))
+            #expect(model.workbenchFeature.contributionPreferences["terminal.sessions"]?.isHidden == false)
+            settings.language = .english
+            #expect(!matches("切换终端").contains { $0.id == action.id })
+            #expect(matches("terminal").contains { $0.id == action.id })
         }
     }
 
@@ -413,14 +537,20 @@ struct WorkbenchContributionHostTests {
         let model = AppModel(settings: settings, services: container.services)
         try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { scope in
             defer { release.open() }
+            var displayCompletions = 0
+            let registration = WorkbenchModuleUIRegistry.declarativeRegistration(declaration)
+            let actions = registration.actions.map { action in
+                WorkbenchModuleUIRegistry.Action(id: action.id, perform: action.perform, activateOwner: action.activateOwner,
+                    didShow: { _ in displayCompletions += 1 }, state: action.state)
+            }
             model.workbenchUIRegistry = try WorkbenchModuleUIRegistry(registrations: WorkbenchModuleUIComposition.registrations + [
-                WorkbenchModuleUIRegistry.declarativeRegistration(declaration)])
+                .init(contributions: registration.contributions, actions: actions, renderers: registration.renderers, localizesTitles: false)])
             model.workspaceSessionCoordinator.beginWorkspace(at: URL(fileURLWithPath: "/fixture/restore-race"))
             let window = WorkbenchFeatureModel.ToolWindow(rawValue: declaration.contributions[0].id)
             if !sameGroup { model.workbenchFeature.move(.project, to: .init(anchor: .left, group: .secondary)) }
             let contribution = declaration.contributions[0]
             if useShow { model.showContributionEntry(contribution) }
-            else { model.workbenchUIRegistry.perform(contribution, model: model) }
+            else { model.workbenchUIRegistry.perform(contribution, model: model, surface: nil) }
             let pending = model.contributionActivationTasks[window.rawValue]
             defer { pending?.cancel() }
             #expect(await started.waitUntilOpen(), "Restored window never started its module")
@@ -429,6 +559,7 @@ struct WorkbenchContributionHostTests {
             try await scope.run("window activation") { await pending?.value }
             #expect(model.workbenchFeature.isVisible(window) == !sameGroup)
             #expect(model.workbenchFeature.isVisible(.project))
+            #expect(displayCompletions == (sameGroup ? 0 : 1))
             #expect(model.contributionActivationTasks.isEmpty)
         }
     }
@@ -480,7 +611,7 @@ struct WorkbenchContributionHostTests {
             let first = commands[0], second = commands[3]
             let staleAction = LitheActionRegistry.actions(for: model).first { $0.id == first.actionID }
             #expect(staleAction != nil)
-            model.workbenchUIRegistry.perform(first, model: model)
+            model.workbenchUIRegistry.perform(first, model: model, surface: nil)
             let firstTask = model.contributionActivationTasks[windows[0].id]
             defer { firstTask?.cancel() }
             #expect(await started.waitUntilOpen(), "First module activation did not reach the gate")
@@ -490,10 +621,11 @@ struct WorkbenchContributionHostTests {
             }
             #expect(LitheActionRegistry.actions(for: model).first { $0.id == first.actionID }?.isEnabled == false)
             #expect(model.workbenchUIRegistry.state(for: windows[0], model: model).isEnabled)
+            #expect(!WorkbenchToolWindowsMenu.items(for: model).contains { $0.title == windows[0].title })
             model.searchSessionFeature.isSearchEverywhereVisible = true
             if let staleAction { model.performSearchEverywhereAction(staleAction) }
             #expect(model.isSearchEverywhereVisible)
-            model.workbenchUIRegistry.perform(second, model: model)
+            model.workbenchUIRegistry.perform(second, model: model, surface: nil)
             let secondTask = model.contributionActivationTasks[windows[1].id]
             defer { secondTask?.cancel() }
             #expect(await joined.waitUntilOpen(), "Second window did not join the first module activation")
@@ -505,7 +637,7 @@ struct WorkbenchContributionHostTests {
             } else {
                 // Cancelling one UI request must leave the shared construction owned
                 // by the runtime available to the second window.
-                model.workbenchUIRegistry.perform(windows[0], model: model)
+                model.workbenchUIRegistry.perform(windows[0], model: model, surface: nil)
                 release.open()
             }
             try await scope.run("window activation") { await firstTask?.value }
@@ -519,13 +651,13 @@ struct WorkbenchContributionHostTests {
                 #expect(container.services.moduleRuntime.contributions()[owner] == nil)
                 #expect(!model.registeredContributions(at: .menu).contains { $0.actionID == first.actionID })
                 staleAction?.perform()
-                model.workbenchUIRegistry.performAction(id: first.actionID!, model: model)
+                model.workbenchUIRegistry.performAction(id: first.actionID!, model: model, surface: nil)
                 #expect(model.contributionActivationTasks.isEmpty)
                 try await scope.run("module enablement") {
                     try await container.services.moduleRuntime.setEnabled(true, for: owner)
                 }
                 release.open()
-                model.workbenchUIRegistry.perform(first, model: model)
+                model.workbenchUIRegistry.perform(first, model: model, surface: nil)
                 try await scope.run("window activation") { await model.contributionActivationTasks[windows[0].id]?.value }
                 #expect(constructions == 2)
             } else {
@@ -578,7 +710,7 @@ struct WorkbenchContributionHostTests {
         let package = root.appendingPathComponent("source")
         try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
         let source = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/hello-lithe.plugin.json"))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/manifest/hello-lithe.plugin.json"))
         try source.write(to: package.appendingPathComponent("plugin.json"))
         let store = MacPluginPackageStore(
             rootURL: root.appendingPathComponent("installed"), validator: DeclarativePluginTestSupport.operations,
@@ -614,7 +746,7 @@ struct WorkbenchContributionHostTests {
             let command = try #require(model.registeredContributions(at: .toolbar).first { $0.id.hasPrefix(installed.manifest.id.rawValue) })
             let window = try #require(declaration.contributions.first { $0.kind == .toolWindow })
             #expect(container.services.moduleRuntime.snapshots().first { $0.manifest.id == declaration.manifest.id }?.isInstantiated == false)
-            model.workbenchUIRegistry.perform(command, model: model)
+            model.workbenchUIRegistry.perform(command, model: model, surface: nil)
             try await scope.run("window activation") { await model.contributionActivationTasks[window.id]?.value }
             #expect(model.workbenchFeature.activeRightToolWindow?.rawValue == window.id)
             #expect(model.registeredContributions(at: .menu).contains { $0.actionID == command.actionID })
@@ -625,12 +757,25 @@ struct WorkbenchContributionHostTests {
             #expect(model.workbenchFeature.activeToolWindow == nil)
             #expect(model.workbenchFeature.activeLeftToolWindow?.rawValue == window.id)
             #expect(model.leftSidebarContributions.contains { $0.id == window.id })
+            model.workbenchFeature.customizeContribution(window.id, isHidden: true)
+            let menuItem = try #require(WorkbenchToolWindowsMenu.items(for: model).first { $0.title == window.title })
+            guard case .submenu(let children) = menuItem.kind else {
+                Issue.record("Hidden plugin windows must expose Show in a submenu")
+                return
+            }
+            let show = try #require(children.first)
+            show.action()
+            try await scope.run("restore installed plugin from tool windows menu") {
+                await model.contributionActivationTasks[window.id]?.value
+            }
+            #expect(model.workbenchFeature.activeLeftToolWindow?.rawValue == window.id)
+            #expect(model.leftSidebarContributions.contains(window))
             try await scope.run("module enablement") {
                 try await container.services.moduleRuntime.setEnabled(false, for: declaration.manifest.id)
             }
             #expect(model.workbenchFeature.activeLeftToolWindow == nil)
             #expect(!model.registeredContributions(at: .toolbar).contains { $0.actionID == command.actionID })
-            model.workbenchUIRegistry.perform(command, model: model)
+            model.workbenchUIRegistry.perform(command, model: model, surface: nil)
             #expect(model.contributionActivationTasks.isEmpty)
             try await scope.run("module enablement") {
                 try await container.services.moduleRuntime.setEnabled(true, for: declaration.manifest.id)

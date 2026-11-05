@@ -7,6 +7,229 @@ use std::process::Command;
 use std::time::{Duration, UNIX_EPOCH};
 
 #[test]
+fn repository_color_assignments_match_shared_pages() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/repository-colors-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({"command":"git.repositoryColorAssignments", "payload":case["request"]})
+                .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+        assert_eq!(response["data"], case["expected"], "{}", case["name"]);
+    }
+}
+
+#[test]
+fn repository_color_assignments_reject_invalid_pages() {
+    for payload in [
+        serde_json::json!({"offset": 1, "totalCount": 0, "repositoryIds": []}),
+        serde_json::json!({"offset": 1, "totalCount": 1, "repositoryIds": ["/a"]}),
+        serde_json::json!({"offset": 0, "totalCount": 2, "repositoryIds": ["/a", "/a"]}),
+        serde_json::json!({"offset": 0, "totalCount": 1, "repositoryIds": [""]}),
+        serde_json::json!({"offset": 0, "totalCount": 129, "repositoryIds": vec!["/a"; 129]}),
+    ] {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({"command":"git.repositoryColorAssignments", "payload":payload})
+                .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], false, "{response}");
+        assert_eq!(response["error"]["code"], "invalid_request", "{response}");
+    }
+}
+
+#[test]
+fn git_checkout_metadata_and_gitdir_pointer_match_shared_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/checkout-metadata-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "metadata", "command": case["command"], "payload": {"text": case["text"]}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["data"], case["expected"]);
+    }
+}
+
+#[test]
+fn git_remote_and_tag_catalog_returns_unambiguous_typed_data() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = temporary_root("remote-tag-catalog");
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(&root).unwrap();
+    let run = |arguments: &[&str]| {
+        let output = Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{arguments:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    };
+    run(&["init", "--template=", "-q"]);
+    run(&["config", "user.name", "Lithe Test"]);
+    run(&["config", "user.email", "test@example.com"]);
+    run(&[
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--allow-empty",
+        "-qm",
+        "initial",
+    ]);
+    run(&["branch", "shared"]);
+    run(&[
+        "-c",
+        "tag.gpgSign=false",
+        "tag",
+        "-a",
+        "shared",
+        "-m",
+        "annotated subject",
+    ]);
+    run(&[
+        "-c",
+        "tag.gpgSign=false",
+        "tag",
+        "-a",
+        "nested",
+        "refs/tags/shared",
+        "-m",
+        "nested subject",
+    ]);
+    let inner = run(&["rev-parse", "refs/tags/shared"]);
+    assert!(run(&["cat-file", "-p", "refs/tags/nested"]).starts_with(&format!("object {inner}\n")));
+    run(&["tag", "v-light"]);
+    run(&[
+        "remote",
+        "add",
+        "origin",
+        "https://example.invalid/team path",
+    ]);
+    let commit = run(&["rev-parse", "HEAD"]);
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/remote-tag-catalog-v1.json"
+    ))
+    .unwrap();
+    let call = |command: &str| -> Value {
+        serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "catalog", "command": command, "payload": {"root": root}
+            })
+            .to_string(),
+        ))
+        .unwrap()
+    };
+    let remotes = call("git.remotes");
+    assert_eq!(remotes["ok"], true, "{remotes}");
+    assert_eq!(remotes["data"]["remotes"], fixture["expected"]["remotes"]);
+    let tags = call("git.tags");
+    assert_eq!(tags["ok"], true, "{tags}");
+    let tags = tags["data"]["tags"].as_array().unwrap();
+    for expected in fixture["expected"]["tags"].as_array().unwrap() {
+        let tag = tags
+            .iter()
+            .find(|tag| tag["name"] == expected["name"])
+            .unwrap();
+        assert_eq!(tag["isAnnotated"], expected["isAnnotated"]);
+        assert_eq!(tag["targetId"], commit);
+        assert!(tag["objectId"].as_str().is_some_and(|oid| !oid.is_empty()));
+        if expected.get("message").is_some() {
+            assert_eq!(tag["message"], expected["message"]);
+        }
+    }
+}
+
+#[test]
+fn git_comparison_can_include_untracked_worktree_files() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = temporary_root("comparison-untracked");
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(&root).unwrap();
+    let run = |arguments: &[&str]| {
+        let result = Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{:?}: {}",
+            arguments,
+            String::from_utf8_lossy(&result.stderr)
+        );
+    };
+    run(&["init", "--template=", "-q"]);
+    run(&["config", "core.autocrlf", "false"]);
+    run(&["config", "user.name", "Lithe Test"]);
+    run(&["config", "user.email", "test@example.com"]);
+    fs::write(root.join("tracked.txt"), "before\n").unwrap();
+    run(&["add", "tracked.txt"]);
+    run(&["-c", "commit.gpgsign=false", "commit", "-qm", "initial"]);
+    fs::write(root.join("tracked.txt"), "after\n").unwrap();
+    fs::write(root.join("a-untracked.txt"), "new\n").unwrap();
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/comparison-untracked-v1.json"
+    ))
+    .unwrap();
+    let mut payload = fixture["request"].clone();
+    payload["root"] = serde_json::json!(root);
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "comparison-untracked", "command": "git.comparison", "payload": payload
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(response["data"]["files"], fixture["expected"]);
+    let default_response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({"id": "comparison-default", "command": "git.comparison",
+            "payload": {"root": root, "reference": "HEAD"}})
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(
+        default_response["data"]["files"],
+        serde_json::json!([
+            {"status": "M", "path": "tracked.txt"}
+        ])
+    );
+    let range_response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({"id": "comparison-range", "command": "git.comparison",
+            "payload": {"root": root, "reference": "HEAD..HEAD", "includeUntracked": true}})
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(range_response["ok"], false);
+    assert_eq!(range_response["error"]["code"], "invalid_request");
+}
+
+#[test]
 fn git_status_returns_contract_shape() {
     let root = temporary_root("git");
     fs::create_dir_all(&root).expect("temporary repository should be creatable");
@@ -5948,4 +6171,1098 @@ fn git_line_history_merge_rename_edit_keeps_previous_path_and_ranges() {
     assert_eq!(ranges[0]["newStart"], 4, "{response:?}");
 
     fs::remove_dir_all(&root).expect("line-history repository should be removable");
+}
+
+#[test]
+fn rollback_plan_matches_shared_fixture_and_rejects_unsafe_paths() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/rollback-plan-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": case["name"], "command":"git.rollbackPlan",
+                "payload":{"changes":case["changes"], "deleteAddedFiles":case["deleteAddedFiles"]}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+        assert_eq!(response["data"]["steps"], case["steps"], "{}", case["name"]);
+    }
+    let changes = (0..1000)
+        .map(|index| {
+            serde_json::json!({
+                "path":format!("added-{index}.txt"), "status":"A "
+            })
+        })
+        .collect::<Vec<_>>();
+    let batch: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "command":"git.rollbackPlan", "payload":{"changes":changes}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(batch["data"]["steps"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        batch["data"]["steps"][0]["paths"].as_array().unwrap().len(),
+        1000
+    );
+    for change in [
+        serde_json::json!({"path":"new.txt", "originalPath":"old.txt", "status":"RC"}),
+        serde_json::json!({"path":"../escape", "status":"A "}),
+        serde_json::json!({"path":"a\u{0000}b", "status":"A "}),
+        serde_json::json!({"path":"new.txt", "status":"R "}),
+    ] {
+        let response: Value = serde_json::from_str(&execute_json(&serde_json::json!({
+            "command":"git.rollbackPlan", "payload":{"changes":[change], "deleteAddedFiles":false}
+        }).to_string())).unwrap();
+        assert_eq!(response["ok"], false, "{response}");
+    }
+}
+
+#[test]
+fn unstage_and_discard_treat_selected_file_names_as_literal_paths() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = git_write_repository("unstage-literal-path");
+    let _cleanup = Cleanup(root.clone());
+    fs::write(root.join("base.txt"), "base\n").unwrap();
+    assert!(history_git(&root, &["add", "--all"]).status.success());
+    assert!(history_git(&root, &["commit", "-qm", "base"])
+        .status
+        .success());
+    fs::write(root.join("file[1].txt"), "selected\n").unwrap();
+    fs::write(root.join("file1.txt"), "unrelated\n").unwrap();
+    assert!(history_git(&root, &["add", "--all"]).status.success());
+    let result = git_write_request(
+        &root,
+        "unstage",
+        serde_json::json!({"paths":["file[1].txt"]}),
+    );
+    assert_eq!(result["data"]["exitCode"], 0, "{result}");
+    let output = history_git(&root, &["diff", "--cached", "--name-only", "-z"]);
+    assert_eq!(output.stdout, b"file1.txt\0");
+    assert!(root.join("file[1].txt").is_file());
+    let removed = git_write_request(
+        &root,
+        "discard",
+        serde_json::json!({"paths":["file[1].txt"]}),
+    );
+    assert_eq!(removed["data"]["exitCode"], 0, "{removed}");
+    assert!(!root.join("file[1].txt").exists());
+    assert_eq!(
+        fs::read_to_string(root.join("file1.txt")).unwrap(),
+        "unrelated\n"
+    );
+    let cached = history_git(&root, &["diff", "--cached", "--name-only", "-z"]);
+    assert_eq!(cached.stdout, b"file1.txt\0");
+}
+
+#[test]
+fn prepared_rollback_preserves_added_files_and_rejects_stale_renames() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = git_write_repository("rollback-prepare");
+    let _cleanup = Cleanup(root.clone());
+    fs::write(root.join("old.txt"), "before\n").unwrap();
+    assert!(history_git(&root, &["add", "--all"]).status.success());
+    assert!(history_git(&root, &["commit", "-qm", "base"])
+        .status
+        .success());
+    assert!(history_git(&root, &["mv", "old.txt", "new.txt"])
+        .status
+        .success());
+    fs::write(root.join("file[1].txt"), "selected\n").unwrap();
+    fs::write(root.join("file1.txt"), "unrelated\n").unwrap();
+    assert!(history_git(&root, &["add", "--all"]).status.success());
+    let changes = serde_json::json!([
+        {"path":"new.txt", "originalPath":"old.txt", "status":"R "},
+        {"path":"file[1].txt", "status":"A "}
+    ]);
+    let prepare = || -> Value {
+        serde_json::from_str(&execute_json(&serde_json::json!({
+        "command":"git.rollbackPrepare", "payload":{"root":root, "changes":changes, "deleteAddedFiles":false}
+    }).to_string())).unwrap()
+    };
+    let plan = prepare();
+    assert_eq!(plan["ok"], true, "{plan}");
+    for step in plan["data"]["steps"].as_array().unwrap() {
+        let result = git_write_request(
+            &root,
+            step["operation"].as_str().unwrap(),
+            serde_json::json!({"paths":step["paths"]}),
+        );
+        assert_eq!(result["data"]["exitCode"], 0, "{result}");
+    }
+    assert_eq!(
+        fs::read_to_string(root.join("old.txt")).unwrap(),
+        "before\n"
+    );
+    assert!(!root.join("new.txt").exists());
+    assert_eq!(
+        fs::read_to_string(root.join("file[1].txt")).unwrap(),
+        "selected\n"
+    );
+    let cached = history_git(&root, &["diff", "--cached", "--name-only", "-z"]);
+    assert_eq!(cached.stdout, b"file1.txt\0");
+    let stale = prepare();
+    assert_eq!(stale["ok"], false, "{stale}");
+    assert_eq!(stale["error"]["message"], "GIT_ROLLBACK_STALE_SELECTION");
+    assert_eq!(
+        fs::read_to_string(root.join("old.txt")).unwrap(),
+        "before\n"
+    );
+    assert!(root.join("file[1].txt").is_file());
+}
+
+#[test]
+fn prepared_rollback_checks_untracked_files_and_expands_directories() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = git_write_repository("rollback-untracked-prepare");
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(root.join("new-dir")).unwrap();
+    fs::write(root.join("new-dir/a[1].txt"), "one").unwrap();
+    fs::write(root.join("new-dir/b.txt"), "two").unwrap();
+    fs::write(root.join("loose.txt"), "loose").unwrap();
+    let prepare = |changes: Value, delete: bool| -> Value {
+        serde_json::from_str(&execute_json(&serde_json::json!({
+            "command":"git.rollbackPrepare", "payload":{"root":root, "changes":changes, "deleteAddedFiles":delete}
+        }).to_string())).unwrap()
+    };
+    let changes = serde_json::json!([{"path":"new-dir/", "status":"??"}, {"path":"loose.txt", "status":"??"}]);
+    assert_eq!(
+        prepare(changes.clone(), false)["data"]["steps"],
+        serde_json::json!([])
+    );
+    let plan = prepare(changes.clone(), true);
+    assert_eq!(plan["ok"], true, "{plan}");
+    assert_eq!(
+        plan["data"]["steps"],
+        serde_json::json!([{"operation":"discardAll", "paths":["new-dir/a[1].txt", "new-dir/b.txt", "loose.txt"]}])
+    );
+    assert!(history_git(&root, &["add", "loose.txt"]).status.success());
+    let stale = prepare(changes, true);
+    assert_eq!(
+        stale["error"]["message"], "GIT_ROLLBACK_STALE_SELECTION",
+        "{stale}"
+    );
+    assert!(root.join("loose.txt").exists());
+    assert!(history_git(&root, &["add", "new-dir/a[1].txt"])
+        .status
+        .success());
+    let stale_directory = prepare(
+        serde_json::json!([{"path":"new-dir/", "status":"??"}]),
+        true,
+    );
+    assert_eq!(
+        stale_directory["error"]["message"], "GIT_ROLLBACK_STALE_SELECTION",
+        "{stale_directory}"
+    );
+
+    fs::create_dir_all(root.join("reviewed-dir")).unwrap();
+    fs::write(root.join("reviewed-dir/reviewed.txt"), "reviewed").unwrap();
+    let reviewed = prepare(
+        serde_json::json!([{"path":"reviewed-dir/", "status":"??"}]),
+        true,
+    );
+    assert_eq!(reviewed["ok"], true, "{reviewed}");
+    fs::write(root.join("reviewed-dir/later.txt"), "created later").unwrap();
+    for step in reviewed["data"]["steps"].as_array().unwrap() {
+        let result = git_write_request(
+            &root,
+            step["operation"].as_str().unwrap(),
+            serde_json::json!({"paths":step["paths"]}),
+        );
+        assert_eq!(result["data"]["exitCode"], 0, "{result}");
+    }
+    assert!(!root.join("reviewed-dir/reviewed.txt").exists());
+    assert!(root.join("reviewed-dir/later.txt").exists());
+}
+
+#[test]
+fn prepare_commit_selection_preserves_partial_index_and_excludes_other_paths() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = git_write_repository("prepare-commit-selected");
+    let _cleanup = Cleanup(root.clone());
+    fs::write(root.join("selected.txt"), "base\n").unwrap();
+    fs::write(root.join("excluded.txt"), "base\n").unwrap();
+    assert!(history_git(&root, &["add", "--all"]).status.success());
+    assert!(history_git(&root, &["commit", "-qm", "base"])
+        .status
+        .success());
+    fs::write(root.join("selected.txt"), "staged\n").unwrap();
+    fs::write(root.join("excluded.txt"), "excluded\n").unwrap();
+    assert!(history_git(&root, &["add", "--all"]).status.success());
+    fs::write(root.join("selected.txt"), "unstaged\n").unwrap();
+    let request = serde_json::json!({"command":"git.prepareCommitSelection", "payload":{
+        "repositories":[{"root":root,"selected":[{"path":"selected.txt","status":"MM"}]}]
+    }});
+    let result: Value = serde_json::from_str(&execute_json(&request.to_string())).unwrap();
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(
+        history_git(&root, &["diff", "--cached", "--name-only"]).stdout,
+        b"selected.txt\n"
+    );
+    assert_eq!(
+        history_git(&root, &["show", ":selected.txt"]).stdout,
+        b"staged\n"
+    );
+    assert_eq!(fs::read(root.join("selected.txt")).unwrap(), b"unstaged\n");
+    assert_eq!(fs::read(root.join("excluded.txt")).unwrap(), b"excluded\n");
+}
+
+#[test]
+fn prepare_commit_selection_stages_only_the_literal_selected_path() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = git_write_repository("prepare-commit-literal");
+    let _cleanup = Cleanup(root.clone());
+    fs::write(root.join("file[1].txt"), "selected\n").unwrap();
+    fs::write(root.join("file1.txt"), "other\n").unwrap();
+    let request = serde_json::json!({"command":"git.prepareCommitSelection", "payload":{
+        "repositories":[{"root":root,"selected":[{"path":"file[1].txt","status":"??"}]}]
+    }});
+    let result: Value = serde_json::from_str(&execute_json(&request.to_string())).unwrap();
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(
+        history_git(&root, &["diff", "--cached", "--name-only"]).stdout,
+        b"file[1].txt\n"
+    );
+    assert_eq!(fs::read(root.join("file1.txt")).unwrap(), b"other\n");
+}
+
+#[test]
+fn prepare_commit_selection_handles_expanded_untracked_directory_and_rejects_stale() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = git_write_repository("prepare-commit-directory");
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir(root.join("folder")).unwrap();
+    for n in 0..110 {
+        fs::write(root.join(format!("folder/file-{n}.txt")), "content").unwrap();
+    }
+    let request = |path: &str| {
+        serde_json::json!({"command":"git.prepareCommitSelection", "payload":{
+            "repositories":[{"root":root,"selected":[{"path":path,"status":"??"}]}]
+        }})
+    };
+    let missing: Value =
+        serde_json::from_str(&execute_json(&request("folder/missing.txt").to_string())).unwrap();
+    assert_eq!(missing["ok"], false, "{missing}");
+    let result: Value =
+        serde_json::from_str(&execute_json(&request("folder/file-0.txt").to_string())).unwrap();
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(
+        history_git(&root, &["diff", "--cached", "--name-only"]).stdout,
+        b"folder/file-0.txt\n"
+    );
+    assert!(root.join("folder/file-1.txt").exists());
+}
+
+#[test]
+fn prepare_commit_selection_checks_all_repositories_before_any_write() {
+    struct Cleanup(Vec<std::path::PathBuf>);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            for root in &self.0 {
+                let _ = std::fs::remove_dir_all(root);
+            }
+        }
+    }
+    let first = git_write_repository("prepare-multi-first");
+    let second = git_write_repository("prepare-multi-second");
+    let _cleanup = Cleanup(vec![first.clone(), second.clone()]);
+    fs::write(first.join("target.txt"), "one").unwrap();
+    fs::write(second.join("target.txt"), "two").unwrap();
+    let request = serde_json::json!({"command":"git.prepareCommitSelection", "payload":{"repositories":[
+        {"root":first,"selected":[{"path":"target.txt","status":"??"}]},
+        {"root":second,"selected":[{"path":"missing.txt","status":"??"}]}
+    ]}});
+    let result: Value = serde_json::from_str(&execute_json(&request.to_string())).unwrap();
+    assert_eq!(result["ok"], false, "{result}");
+    assert!(history_git(&first, &["diff", "--cached", "--name-only"])
+        .stdout
+        .is_empty());
+    assert_eq!(fs::read(first.join("target.txt")).unwrap(), b"one");
+}
+
+#[test]
+fn prepare_commit_selection_excludes_other_repository_without_touching_partial_selection() {
+    struct Cleanup(Vec<std::path::PathBuf>);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            for root in &self.0 {
+                let _ = std::fs::remove_dir_all(root);
+            }
+        }
+    }
+    let first = git_write_repository("prepare-multi-exclude");
+    let second = git_write_repository("prepare-multi-keep");
+    let _cleanup = Cleanup(vec![first.clone(), second.clone()]);
+    for root in [&first, &second] {
+        fs::write(root.join("tracked.txt"), "base\n").unwrap();
+        assert!(history_git(root, &["add", "--all"]).status.success());
+        assert!(history_git(root, &["commit", "-qm", "base"])
+            .status
+            .success());
+        fs::write(root.join("tracked.txt"), "staged\n").unwrap();
+        assert!(history_git(root, &["add", "--all"]).status.success());
+    }
+    fs::write(second.join("tracked.txt"), "unstaged\n").unwrap();
+    let request = serde_json::json!({"command":"git.prepareCommitSelection", "payload":{"repositories":[
+        {"root":first,"selected":[]}, {"root":second,"selected":[{"path":"tracked.txt","status":"MM"}]}
+    ]}});
+    let result: Value = serde_json::from_str(&execute_json(&request.to_string())).unwrap();
+    assert_eq!(result["ok"], true, "{result}");
+    assert!(history_git(&first, &["diff", "--cached", "--name-only"])
+        .stdout
+        .is_empty());
+    assert_eq!(
+        history_git(&second, &["show", ":tracked.txt"]).stdout,
+        b"staged\n"
+    );
+    assert_eq!(fs::read(second.join("tracked.txt")).unwrap(), b"unstaged\n");
+}
+
+#[test]
+fn prepare_commit_selection_rejects_an_untracked_nested_repository() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = git_write_repository("prepare-nested");
+    let _cleanup = Cleanup(root.clone());
+    let nested = root.join("nested");
+    fs::create_dir(&nested).unwrap();
+    assert!(history_git(&nested, &["init", "-q"]).status.success());
+    fs::write(nested.join("nested.txt"), "keep").unwrap();
+    let request = serde_json::json!({"command":"git.prepareCommitSelection", "payload":{"repositories":[
+        {"root":root,"selected":[{"path":"nested/","status":"??"}]}
+    ]}});
+    let result: Value = serde_json::from_str(&execute_json(&request.to_string())).unwrap();
+    assert_eq!(result["ok"], false, "{result}");
+    assert!(history_git(&root, &["diff", "--cached", "--name-only"])
+        .stdout
+        .is_empty());
+    assert!(nested.join("nested.txt").exists());
+}
+
+#[test]
+fn prepare_commit_selection_accepts_both_index_sides_of_a_selected_rename() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = git_write_repository("prepare-selected-rename");
+    let _cleanup = Cleanup(root.clone());
+    fs::write(root.join("old.txt"), "base\n").unwrap();
+    assert!(history_git(&root, &["add", "--all"]).status.success());
+    assert!(history_git(&root, &["commit", "-qm", "base"])
+        .status
+        .success());
+    assert!(history_git(&root, &["mv", "old.txt", "new.txt"])
+        .status
+        .success());
+    let request = serde_json::json!({"command":"git.prepareCommitSelection", "payload":{"repositories":[
+        {"root":root,"selected":[{"path":"new.txt","originalPath":"old.txt","status":"R "}]}
+    ]}});
+    let result: Value = serde_json::from_str(&execute_json(&request.to_string())).unwrap();
+    assert_eq!(result["ok"], true, "{result}");
+    let staged = history_git(&root, &["diff", "--cached", "--no-renames", "--name-only"]);
+    assert_eq!(staged.stdout, b"new.txt\nold.txt\n");
+}
+
+#[test]
+fn prepare_commit_selection_allows_a_tracked_submodule_reference() {
+    struct Cleanup(Vec<std::path::PathBuf>);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            for root in &self.0 {
+                let _ = std::fs::remove_dir_all(root);
+            }
+        }
+    }
+    let parent = git_write_repository("prepare-parent-gitlink");
+    let upstream = git_write_repository("prepare-child-source");
+    let _cleanup = Cleanup(vec![parent.clone(), upstream.clone()]);
+    fs::write(upstream.join("child.txt"), "base\n").unwrap();
+    assert!(history_git(&upstream, &["add", "--all"]).status.success());
+    assert!(history_git(&upstream, &["commit", "-qm", "base"])
+        .status
+        .success());
+    assert!(history_git(
+        &parent,
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            upstream.to_str().unwrap(),
+            "child"
+        ]
+    )
+    .status
+    .success());
+    assert!(history_git(&parent, &["commit", "-qam", "add child"])
+        .status
+        .success());
+    let child = parent.join("child");
+    assert!(history_git(&child, &["config", "user.name", "Lithe Test"])
+        .status
+        .success());
+    assert!(
+        history_git(&child, &["config", "user.email", "test@example.com"])
+            .status
+            .success()
+    );
+    fs::write(child.join("child.txt"), "next\n").unwrap();
+    assert!(history_git(&child, &["commit", "-qam", "next"])
+        .status
+        .success());
+    let request = serde_json::json!({"command":"git.prepareCommitSelection", "payload":{"repositories":[
+        {"root":parent,"selected":[{"path":"child","status":" M"}]}, {"root":child,"selected":[]}
+    ]}});
+    let result: Value = serde_json::from_str(&execute_json(&request.to_string())).unwrap();
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(
+        history_git(&parent, &["diff", "--cached", "--name-only"]).stdout,
+        b"child\n"
+    );
+    assert!(history_git(&child, &["diff", "--cached", "--name-only"])
+        .stdout
+        .is_empty());
+}
+
+#[test]
+fn git_history_query_compares_absolute_instants_with_half_open_bounds() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/history-date-query-v1.json"
+    ))
+    .unwrap();
+    let result: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "command":"git.historyQuery", "payload":fixture["request"]
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(result["data"], fixture["response"]);
+}
+
+#[test]
+fn git_history_query_respects_dst_day_bounds_and_repeated_local_hours() {
+    let request = serde_json::json!({
+        "entries": [
+            {"id":"first", "date":"2026/11/01 01:30", "utcOffsetMinutes":-420},
+            {"id":"second", "date":"2026/11/01 01:30", "utcOffsetMinutes":-480},
+            {"id":"nextDay", "date":"2026/11/02 00:00", "utcOffsetMinutes":-480}
+        ],
+        "afterUnixSeconds":1793516400,
+        "beforeUnixSeconds":1793606400
+    });
+    let result: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "command":"git.historyQuery", "payload":request
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(
+        result["data"]["matchingIds"],
+        serde_json::json!(["first", "second"])
+    );
+}
+
+#[test]
+fn git_history_query_rejects_unbounded_or_ambiguous_entries() {
+    let entry = serde_json::json!({"id":"same", "date":"2026/09/10 00:30", "utcOffsetMinutes":480});
+    for entries in [
+        vec![entry.clone(), entry.clone()],
+        vec![entry.clone(); 4097],
+        vec![serde_json::json!({"id":"x".repeat(257), "date":"2026/09/10 00:30"})],
+        vec![serde_json::json!({"id":"x", "date":"x".repeat(129)})],
+    ] {
+        let result: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "command":"git.historyQuery", "payload":{"entries":entries}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(result["ok"], false, "{result}");
+        assert_eq!(result["error"]["code"], "invalid_request");
+    }
+}
+
+#[test]
+fn reconcile_deleted_selection_only_unstages_missing_selected_additions() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = git_write_repository("reconcile-deleted-selection");
+    let _cleanup = Cleanup(root.clone());
+    fs::write(root.join("tracked.txt"), "base\n").unwrap();
+    assert!(history_git(&root, &["add", "tracked.txt"]).status.success());
+    assert!(history_git(&root, &["commit", "-qm", "base"])
+        .status
+        .success());
+    for path in ["file[1].txt", "file1.txt", "retained.txt", "unselected.txt"] {
+        fs::write(root.join(path), path).unwrap();
+    }
+    assert!(history_git(&root, &["add", "--all"]).status.success());
+    fs::remove_file(root.join("file[1].txt")).unwrap();
+    fs::remove_file(root.join("unselected.txt")).unwrap();
+    fs::remove_file(root.join("tracked.txt")).unwrap();
+    let request = serde_json::json!({"command":"git.reconcileDeletedSelection", "payload":{
+        "root":root,"changes":[
+            {"path":"file[1].txt","status":"A "},
+            {"path":"retained.txt","status":"A "},
+            {"path":"tracked.txt","status":" M"},
+            {"path":"absent.txt","status":"??"}
+        ]
+    }});
+    let response: Value = serde_json::from_str(&execute_json(&request.to_string())).unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["unstaged"],
+        serde_json::json!(["file[1].txt"])
+    );
+    assert_eq!(
+        history_git(&root, &["diff", "--cached", "--name-only"]).stdout,
+        b"file1.txt\nretained.txt\nunselected.txt\n"
+    );
+    assert!(!root.join("tracked.txt").exists());
+}
+
+#[test]
+fn reconcile_deleted_selection_preserves_the_source_of_a_staged_copy() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = git_write_repository("reconcile-deleted-copy");
+    let _cleanup = Cleanup(root.clone());
+    fs::write(root.join("source.txt"), "base\n").unwrap();
+    assert!(history_git(&root, &["add", "."]).status.success());
+    assert!(history_git(&root, &["commit", "-qm", "base"])
+        .status
+        .success());
+    assert!(history_git(&root, &["config", "status.renames", "copies"])
+        .status
+        .success());
+    fs::write(root.join("copy.txt"), "base\n").unwrap();
+    fs::write(root.join("source.txt"), "staged\n").unwrap();
+    assert!(history_git(&root, &["add", "."]).status.success());
+    fs::remove_file(root.join("copy.txt")).unwrap();
+    let request = serde_json::json!({"command":"git.reconcileDeletedSelection", "payload":{
+        "root":root,"changes":[{"path":"copy.txt","originalPath":"source.txt","status":"C "}]
+    }});
+    let response: Value = serde_json::from_str(&execute_json(&request.to_string())).unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["unstaged"],
+        serde_json::json!(["copy.txt"])
+    );
+    assert_eq!(
+        history_git(&root, &["show", ":source.txt"]).stdout,
+        b"staged\n"
+    );
+}
+
+#[test]
+fn reconcile_deleted_selection_works_before_the_first_commit() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = git_write_repository("reconcile-deleted-unborn");
+    let _cleanup = Cleanup(root.clone());
+    fs::write(root.join("new.txt"), "new").unwrap();
+    fs::write(root.join("keep.txt"), "keep").unwrap();
+    assert!(history_git(&root, &["add", "."]).status.success());
+    fs::remove_file(root.join("new.txt")).unwrap();
+    let request = serde_json::json!({"command":"git.reconcileDeletedSelection", "payload":{
+        "root": root, "changes": [{"path":"new.txt","status":"A "}]
+    }});
+    let response: Value = serde_json::from_str(&execute_json(&request.to_string())).unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(response["data"]["unstaged"], serde_json::json!(["new.txt"]));
+    assert_eq!(history_git(&root, &["ls-files"]).stdout, b"keep.txt\n");
+}
+
+// ---------------------------------------------------------------------------
+// git.branchNamePreview
+// ---------------------------------------------------------------------------
+
+#[test]
+fn git_branch_name_preview_matches_the_shared_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../shared/fixtures/git/branch-name-preview-v1.json"
+    )))
+    .expect("branch name preview fixture should be valid JSON");
+    for case in fixture["cases"].as_array().expect("fixture cases") {
+        let request = serde_json::json!({
+            "id": case["name"],
+            "command": "git.branchNamePreview",
+            "payload": case["request"],
+        });
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("preview request should encode"),
+        ))
+        .expect("preview response should be JSON");
+        assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+        assert_eq!(response["data"], case["response"], "{}", case["name"]);
+    }
+
+    // The dialog limit applies before any cleanup work.
+    let oversized = serde_json::json!({
+        "id": "oversized",
+        "command": "git.branchNamePreview",
+        "payload": {"rawName": "a".repeat(1025)},
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&oversized).expect("oversized request should encode"),
+    ))
+    .expect("preview response should be JSON");
+    assert_eq!(response["ok"], false, "{response}");
+    assert_eq!(response["error"]["code"], "invalid_request");
+    assert_eq!(
+        response["error"]["message"],
+        "Git branch name input is too long"
+    );
+
+    // Reference facts are typed: an unknown namespace is a request error, not a
+    // silently ignored conflict source.
+    let unknown_kind = serde_json::json!({
+        "id": "unknown-kind",
+        "command": "git.branchNamePreview",
+        "payload": {
+            "rawName": "topic",
+            "references": [{"kind": "stash", "shortName": "topic"}],
+        },
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&unknown_kind).expect("unknown kind request should encode"),
+    ))
+    .expect("preview response should be JSON");
+    assert_eq!(response["ok"], false, "{response}");
+    assert_eq!(response["error"]["code"], "invalid_request");
+}
+
+// ---------------------------------------------------------------------------
+// git.historyLocate
+// ---------------------------------------------------------------------------
+
+#[test]
+fn git_history_locate_appends_bounded_pages_and_reports_budget() {
+    struct LocateFixture {
+        root: std::path::PathBuf,
+        cursors: Vec<String>,
+    }
+
+    impl Drop for LocateFixture {
+        fn drop(&mut self) {
+            for cursor in &self.cursors {
+                let request = serde_json::json!({
+                    "command": "git.historyCursorClose",
+                    "payload": {"root": self.root, "cursor": cursor},
+                });
+                let _ = execute_json(&request.to_string());
+            }
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    let root = temporary_root("git-history-locate");
+    let mut fixture = LocateFixture {
+        root: root.clone(),
+        cursors: Vec::new(),
+    };
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    git_text(&root, &["init", "-q"]);
+    git_text(&root, &["config", "user.email", "test@example.invalid"]);
+    git_text(&root, &["config", "user.name", "Lithe Test"]);
+    for index in 0..12 {
+        git_text(
+            &root,
+            &[
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                &format!("commit {index}"),
+            ],
+        );
+    }
+    git_text(&root, &["branch", "-M", "main"]);
+    let newest_first = git_text(&root, &["rev-list", "HEAD"])
+        .lines()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    assert_eq!(newest_first.len(), 12);
+
+    let locate = |payload: Value| -> Value {
+        let request = serde_json::json!({
+            "id": "history-locate",
+            "command": "git.historyLocate",
+            "timeoutMilliseconds": 10_000,
+            "payload": payload,
+        });
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("locate request should encode"),
+        ))
+        .expect("locate response should be JSON")
+    };
+    let hashes = |response: &Value| -> Vec<String> {
+        response["data"]["commits"]
+            .as_array()
+            .expect("locate commits")
+            .iter()
+            .map(|commit| commit["hash"].as_str().expect("commit hash").to_string())
+            .collect()
+    };
+
+    // Three pages reach the eighth-newest commit. Whole pages are returned so
+    // the continuation cursor and the platform window stay aligned.
+    let first = locate(serde_json::json!({
+        "root": root,
+        "reference": "refs/heads/main",
+        "target": newest_first[7],
+        "limit": 3,
+        "maxPages": 5,
+    }));
+    assert_eq!(first["ok"], true, "{first}");
+    assert_eq!(first["data"]["found"], true);
+    assert_eq!(first["data"]["pagesLoaded"], 3);
+    assert_eq!(hashes(&first), newest_first[..9].to_vec());
+    assert_eq!(first["data"]["hasMore"], true);
+    let cursor = first["data"]["nextCursor"]
+        .as_str()
+        .expect("locate should return a continuation cursor")
+        .to_string();
+    fixture.cursors.push(cursor.clone());
+
+    // Continuing from that cursor appends the rest of the window and reports
+    // the end of history with a null cursor.
+    let second = locate(serde_json::json!({
+        "root": root,
+        "reference": "refs/heads/main",
+        "target": newest_first[9],
+        "cursor": cursor,
+        "limit": 3,
+        "maxPages": 5,
+    }));
+    assert_eq!(second["ok"], true, "{second}");
+    assert_eq!(second["data"]["found"], true);
+    assert_eq!(second["data"]["pagesLoaded"], 1);
+    assert_eq!(hashes(&second), newest_first[9..].to_vec());
+    assert_eq!(second["data"]["hasMore"], false);
+    assert_eq!(second["data"]["nextCursor"], Value::Null);
+
+    // A spent budget returns the cursor of the last page, and that cursor is
+    // still consumable by the next locate call.
+    let budgeted = locate(serde_json::json!({
+        "root": root,
+        "reference": "refs/heads/main",
+        "target": newest_first[5],
+        "limit": 2,
+        "maxPages": 1,
+    }));
+    assert_eq!(budgeted["ok"], true, "{budgeted}");
+    assert_eq!(budgeted["data"]["found"], false);
+    assert_eq!(budgeted["data"]["pagesLoaded"], 1);
+    assert_eq!(hashes(&budgeted), newest_first[..2].to_vec());
+    assert_eq!(budgeted["data"]["hasMore"], true);
+    let budget_cursor = budgeted["data"]["nextCursor"]
+        .as_str()
+        .expect("a spent budget should return its last cursor")
+        .to_string();
+    fixture.cursors.push(budget_cursor.clone());
+    let resumed = locate(serde_json::json!({
+        "root": root,
+        "reference": "refs/heads/main",
+        "target": newest_first[5],
+        "cursor": budget_cursor,
+        "limit": 2,
+        "maxPages": 10,
+    }));
+    assert_eq!(resumed["ok"], true, "{resumed}");
+    assert_eq!(resumed["data"]["found"], true);
+    assert_eq!(resumed["data"]["pagesLoaded"], 2);
+    assert_eq!(hashes(&resumed), newest_first[2..6].to_vec());
+
+    // A full history read without a hit ends cleanly and returns no cursor.
+    let exhausted = locate(serde_json::json!({
+        "root": root,
+        "reference": "refs/heads/main",
+        "target": "0123456789abcdef0123456789abcdef01234567",
+        "limit": 5,
+        "maxPages": 10,
+    }));
+    assert_eq!(exhausted["ok"], true, "{exhausted}");
+    assert_eq!(exhausted["data"]["found"], false);
+    assert_eq!(exhausted["data"]["pagesLoaded"], 3);
+    assert_eq!(hashes(&exhausted), newest_first);
+    assert_eq!(exhausted["data"]["hasMore"], false);
+    assert_eq!(exhausted["data"]["nextCursor"], Value::Null);
+
+    // Hosts may forward the selected hash verbatim from a case-preserving UI.
+    let uppercase = locate(serde_json::json!({
+        "root": root,
+        "reference": "refs/heads/main",
+        "target": newest_first[0].to_uppercase(),
+        "limit": 5,
+        "maxPages": 5,
+    }));
+    assert_eq!(uppercase["ok"], true, "{uppercase}");
+    assert_eq!(uppercase["data"]["found"], true);
+    assert_eq!(uppercase["data"]["pagesLoaded"], 1);
+
+    // Request validation happens before any Git read.
+    for payload in [
+        serde_json::json!({"target": newest_first[0], "limit": 0}),
+        serde_json::json!({"target": newest_first[0], "limit": 501}),
+        serde_json::json!({"target": newest_first[0], "maxPages": 0}),
+        serde_json::json!({"target": newest_first[0], "maxPages": 101}),
+        serde_json::json!({"target": "abc1234"}),
+        serde_json::json!({"target": format!("z{}", &newest_first[0][1..])}),
+    ] {
+        let mut payload = payload;
+        payload["root"] = serde_json::json!(root);
+        payload["reference"] = serde_json::json!("refs/heads/main");
+        let rejected = locate(payload);
+        assert_eq!(rejected["ok"], false, "{rejected}");
+        assert_eq!(rejected["error"]["code"], "invalid_request", "{rejected}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// git.write / createTag typed form
+// ---------------------------------------------------------------------------
+
+#[test]
+fn git_create_tag_applies_the_explicit_lightweight_form() {
+    struct Cleanup(std::path::PathBuf);
+
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    let root = temporary_root("git-create-tag-lightweight");
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    git_text(&root, &["init", "-q"]);
+    git_text(&root, &["config", "core.autocrlf", "false"]);
+    git_text(&root, &["config", "user.email", "test@example.invalid"]);
+    git_text(&root, &["config", "user.name", "Lithe Test"]);
+    fs::write(root.join("example.txt"), "initial\n").expect("file should be writable");
+    git_text(&root, &["add", "example.txt"]);
+    git_text(&root, &["commit", "-q", "-m", "initial"]);
+    let head = git_text(&root, &["rev-parse", "HEAD"]);
+
+    let write = |operation: &str, payload: Value| -> Value {
+        let request = serde_json::json!({
+            "id": operation,
+            "command": "git.write",
+            "payload": payload,
+        });
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("write request should encode"),
+        ))
+        .expect("write response should be JSON")
+    };
+    let create_tag_payload = |extra: Value| -> Value {
+        let mut payload = serde_json::json!({
+            "root": root,
+            "operation": "createTag",
+            "revision": head,
+        });
+        if let Value::Object(extra) = extra {
+            for (key, value) in extra {
+                payload[key.as_str()] = value;
+            }
+        }
+        payload
+    };
+
+    // The legacy restore path still creates an annotated tag from a message
+    // alone. It runs before tag.gpgSign is enabled, because signing policy
+    // intentionally applies to annotated tags.
+    let annotated = write(
+        "createTag",
+        create_tag_payload(serde_json::json!({"name": "legacy/annotated", "message": "release"})),
+    );
+    assert_eq!(annotated["ok"], true, "{annotated}");
+    assert_eq!(
+        git_text(&root, &["cat-file", "-t", "refs/tags/legacy/annotated"]),
+        "tag"
+    );
+
+    // An explicit lightweight tag overrides tag.gpgSign without running a
+    // signer or an editor, which the fake gpg program and signing policy prove.
+    git_text(&root, &["config", "tag.gpgSign", "true"]);
+    git_text(&root, &["config", "gpg.program", "lithe-gpg-must-not-run"]);
+    let lightweight = write(
+        "createTag",
+        create_tag_payload(serde_json::json!({
+            "name": "review/lightweight",
+            "lightweight": true,
+            "signed": false,
+        })),
+    );
+    assert_eq!(lightweight["ok"], true, "{lightweight}");
+    assert_eq!(lightweight["data"]["exitCode"], 0, "{lightweight}");
+    assert_eq!(
+        lightweight["data"]["arguments"],
+        serde_json::json!(["tag", "--no-sign", "review/lightweight", head])
+    );
+    assert_eq!(
+        git_text(&root, &["cat-file", "-t", "refs/tags/review/lightweight"]),
+        "commit"
+    );
+    assert_eq!(
+        git_text(&root, &["rev-parse", "refs/tags/review/lightweight"]),
+        head
+    );
+    assert_eq!(git_text(&root, &["config", "tag.gpgSign"]), "true");
+
+    // A lightweight tag cannot carry an annotation or a signature. The request
+    // fails before any subprocess, so nothing is left in the repository.
+    for (name, extra) in [
+        (
+            "review/annotated-lightweight",
+            serde_json::json!({"lightweight": true, "message": "release"}),
+        ),
+        (
+            "review/signed-lightweight",
+            serde_json::json!({"lightweight": true, "signed": true}),
+        ),
+    ] {
+        let mut payload = extra;
+        payload["name"] = serde_json::json!(name);
+        let rejected = write("createTag", create_tag_payload(payload));
+        assert_eq!(rejected["ok"], false, "{rejected}");
+        assert_eq!(rejected["error"]["code"], "invalid_request");
+        assert_eq!(
+            rejected["error"]["message"],
+            "Lightweight tags cannot include a message or signature"
+        );
+        assert_ne!(
+            history_git(
+                &root,
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    &format!("refs/tags/{name}")
+                ]
+            )
+            .status
+            .code(),
+            Some(0)
+        );
+    }
+}
+#[test]
+fn git_metadata_classification_matches_shared_fixture() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/metadata-classification-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let context = &fixture["contexts"][case["context"].as_str().unwrap()];
+        let response: serde_json::Value = serde_json::from_str(&crate::execute_json(
+            &serde_json::json!({"command":"git.classifyMetadataChanges", "payload":{
+                "context":context, "paths":[case["path"]]
+            }})
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+        assert_eq!(
+            response["data"]["events"][0]["kind"], case["kind"],
+            "{}",
+            case["name"]
+        );
+        assert_eq!(
+            response["data"]["events"][0]["indexOnly"], case["indexOnly"],
+            "{}",
+            case["name"]
+        );
+    }
+}
+
+#[test]
+fn git_metadata_classification_rejects_invalid_or_unbounded_pages() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/metadata-classification-v1.json"
+    ))
+    .unwrap();
+    let context = &fixture["contexts"]["main"];
+    for (test_context, paths) in [
+        (
+            context.clone(),
+            serde_json::json!(vec!["workspace/main/.git/index"; 257]),
+        ),
+        (context.clone(), serde_json::json!([""])),
+        (
+            serde_json::json!({"repositoryRoot":"", "gitDirectory":"g", "gitCommonDirectory":"g"}),
+            serde_json::json!([]),
+        ),
+    ] {
+        let response: serde_json::Value = serde_json::from_str(&crate::execute_json(
+            &serde_json::json!({"command":"git.classifyMetadataChanges", "payload":{
+                "context":test_context, "paths":paths
+            }})
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], false, "{response}");
+        assert_eq!(response["error"]["code"], "invalid_request");
+    }
 }

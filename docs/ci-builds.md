@@ -33,9 +33,9 @@ normally GitHub's test merge commit. Check **macOS CI gate** or **Windows CI
 gate** for the combined test result. The macOS **Swift tests** job builds the
 Swift tests once and runs the suites selected by the classifier;
 **Remote Workspace CI gate** checks the Linux remote workspace lane (`scripts/remote/verify-remote-workspace.sh`),
-which draft pull requests keep because it uses no macOS runner. **macOS Plugin CI**
-stays separate: it only reserves a macOS runner when the classifier selects the
-plugin lane, and otherwise **Plugin CI gate** passes on Linux in seconds.
+which draft pull requests keep because it uses no macOS runner. Selected plugin
+tests and package verification reuse the same Swift build. **macOS Plugin CI**
+remains available only through manual dispatch for focused diagnosis.
 A failed architecture still fails the macOS gate; `fail-fast: false` lets the
 other architecture finish and upload its package. To request a Windows installer
 for a branch, manually run **Release AutoBuild** and provide that branch as
@@ -45,12 +45,12 @@ for that caller.
 ### Reusing lane results within a pull request
 
 A new push to a pull request does not rerun every lane. In **macOS CI**,
-**macOS Plugin CI** and **Windows CI**, the classify job runs
+**Windows CI** (and the manually dispatched **macOS Plugin CI**), the classify job runs
 `scripts/ci/common/plan-ci-lane-reuse.mjs`, which decides per lane (Swift tests, Rust Core
 tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
 
 - It finds the latest earlier run of the same pull request that actually ran
-  the lane. If that job passed or is still running, and none of the pull
+  the lane. If that job completed successfully, and none of the pull
   request's **own** changes since then affect the lane (by the same classifier
   rules), the lane is reused instead of run. Changes that only arrived from the
   base branch, whether merged in or picked up by GitHub's merge commit, do not
@@ -73,14 +73,11 @@ tests, packaging, plugin tests, Windows frontend, Windows Rust, real JDT):
   raw (NUL-separated), so Chinese and other escaped file names are compared
   and classified correctly.
 - A failed or cancelled earlier result is never reused.
-- Pull request runs are no longer cancelled per branch. The planner cancels the
-  earlier runs that no lane reuses; an earlier run with a reused lane still in
-  progress keeps running, because GitHub cannot cancel a single job. Only runs
-  with a smaller run number than the current one are considered, so a planner
-  that starts late never cancels or reuses a run for a newer push.
-- The gate accepts a reused lane only after confirming that the earlier job
-  passed, waiting up to 90 minutes for one still running. It also fails if a
-  selected lane neither ran nor has a reused result.
+- New pushes cancel earlier PR runs immediately through `cancel-in-progress`.
+  Only completed successful jobs may be reused; the planner has read-only API
+  permissions. Windows Rust is a matrix and always reruns its selected shards.
+- The gate rereads every reused job and rejects failures, cancellation or missing
+  coverage. It never relies on a source job remaining active after a newer push.
 - Any planner error runs every selected lane. Pushes and manual runs never
   reuse results.
 
@@ -99,6 +96,22 @@ consumers. Swift Java adapters and tests are covered by the Swift lane; a
 macOS path containing `Java` alone does not select Windows real-JDT. Shared Core
 and contract changes still select the relevant cross-platform checks.
 
+Windows Core tests run on two machines with stable name-based sharding; Windows
+host tests and shared Git/Agent/IDE host adapters run independently. The gate verifies that the Core reports contain
+the same discovered inventory and execute every case exactly once. Real-JDT
+runs only its native integration prefix, keeping its JDKs and deadlines. The
+ordinary Core suite is covered by the shards instead of repeated in that job.
+
+Plugin-focused Swift tests and official plugin package verification share the
+main Swift compilation, selected independently by `plugins`. Plugin-only changes
+still require that lane. The standalone plugin workflow remains manually
+available but no longer competes for an additional runner on each PR.
+
+The required `macOS CI gate` still appears for documentation-only PRs. Its
+classifier skips native lanes and the independent Ubuntu tooling tests. Other
+native workflows filter documentation paths. Structured logging checks run on
+Ubuntu; i18n retains macOS's binary-plist packaging test and the other platforms.
+
 ### What runs after a pull request merges
 
 A pull request into `preview` carries the full verification, and merging it
@@ -110,17 +123,17 @@ not observe:
 | Pull request into `preview` | Every lane the classifier selects |
 | Push to `preview` (the merge) | **macOS CI** builds the universal package when the merge touched anything packaged; nothing else. The universal build is the only Intel (`x86_64`) compile and link, and it also compiles the merged combination of pull requests that each passed on their own. Light Linux checks (platform feature matrix, Agent Notes board deployment) still run. |
 | Pull request from `preview` into `main` | No lane. **macOS CI** checks that the same commit already passed **macOS CI** as a `preview` push; re-run the job once that push run has succeeded. |
-| Push to `main` | Nothing. |
+| Push to `main` | Full macOS, Windows, plugin and remote CI. Every run has a unique concurrency group, so neither running nor pending commits are replaced. |
 
 The classifier implements this through `LITHE_CI_SCOPE` (`pull_request`,
 `post_merge`, or `release_promotion`). Windows CI no longer runs on `preview`
-pushes, so its GitHub cache entries are refreshed only by pull requests; a
+pushes, so its GitHub cache entries are refreshed by pull requests and main pushes; a
 `Cargo.lock` change makes the next pull requests restore an older prefix match.
 
 ### macOS runners
 
-Every macOS lane (**Swift tests**, **Rust Core tests**, **Release package
-verification**, and **Plugin tests and package verification**) runs on the
+Every automatic macOS lane (**Swift tests**, including selected plugin tests,
+**Rust Core tests**, and **Release package verification**) runs on the
 GitHub-hosted `macos-26` runner, including pull requests from forks. Release
 workflows also use GitHub-hosted runners because they hold signing material.
 
@@ -166,20 +179,22 @@ The GitHub CLI can also download a particular run's packages:
 gh run download <run-id> --repo 1lck/Lithe-IDEA --pattern 'Lithe-macos-*'
 ```
 
-After the combined publication succeeds, download the latest Apple Silicon DMG,
-Intel DMG or Windows x64 installer from the fixed
+After the combined publication succeeds, download the latest Apple Silicon DMG
+or Windows x64 installer from the fixed
 [AutoBuild release page](https://github.com/1lck/Lithe-IDEA/releases/tag/AutoBuild).
+AutoBuild does not build Intel (`x86_64`) macOS packages; Intel Macs use stable
+releases, which still publish `x86_64` DMGs and appcasts.
 
 The release tag is exactly **AutoBuild**; its title and body display
 **AutoBuild — 构建自 YYYY-MM-DD HH:mm:ss UTC**. Prepare reads the package version
 from `windows/tauri/src-tauri/tauri.conf.json` at the pinned source revision and
-passes it to all three platform builds. Installer filenames contain that source
+passes it to the Apple Silicon and Windows builds. Installer filenames contain that source
 version; the workflow does not maintain a separate preview version. AutoBuild
 identity and update ordering use the build timestamp.
-The release keeps only the latest two macOS DMGs and Windows x64 installer with
-checksums, current Sparkle full ZIPs and deltas targeting the current build,
-appcasts, and the latest downloadable version of each registered official plugin
-with SHA-256 sidecars. No previous installer, plugin version or update history is
+The release keeps only the latest Apple Silicon DMG and Windows x64 installer
+with checksums, the current Apple Silicon Sparkle full ZIP and deltas targeting the
+current build, `appcast-preview-arm64.xml`, and the publication checkpoint. Plugins
+are not published here. No previous installer, Intel asset or update history is
 retained. macOS jobs expose artifact links before the combined release publishes.
 
 ⚠️ 风险提示：AutoBuild 未经过稳定版验证，可能包含缺陷或导致数据丢失；普通用户建议使用 Stable 稳定版。
@@ -195,8 +210,9 @@ retained. macOS jobs expose artifact links before the combined release publishes
 保留 `release-preview-macos.yml` 文件；prepare 只采样一次 UTC，从同一秒导出
 `YYYYMMDD.HHMMSS` build（例如 `20261015.124354`）及标准 ISO 时间，并固定源码 SHA
 和版本。顺序来自构建时间，旧 `58.1` 仅兼容作为历史基线。
-两个 macOS 架构与可复用 Windows 工作流并行使用该身份；Windows 没有独立定时任务
-或发布权限。publish 必须等待三个平台全部成功，并检出 `github.workflow_sha`
+Apple Silicon（`arm64`）macOS 构建与可复用 Windows 工作流并行使用该身份；AutoBuild
+不构建 Intel（`x86_64`），Intel 只随正式版发布。Windows 没有独立定时任务
+或发布权限。publish 必须等待 macOS 与 Windows 全部成功，并检出 `github.workflow_sha`
 执行发布脚本，不能从 `preview` 检出不存在或未经本次工作流审查的 helper。
 工作流与源码的选择方式及插件签名边界见
 [应用内更新的签名与发布策略](../.agents/notes/implemented/process/2026-09-13-macos-update-signing-and-release-strategy.md)。
@@ -210,24 +226,26 @@ gh workflow run release-preview-macos.yml \
   -f source_branch=preview
 ```
 
-不要直接重跑旧的失败任务，它仍然使用旧工作流。确认两个 macOS 架构、Windows
-和 publish job 均成功，再检查安装包和 `appcast-preview-*.xml` 的更新时间。
+不要直接重跑旧的失败任务，它仍然使用旧工作流。确认 arm64 macOS、Windows
+和 publish job 均成功，再检查安装包和 `appcast-preview-arm64.xml` 的更新时间。
 macOS 的稳定版与 AutoBuild 共用 75 分钟 job、35 分钟打包、30 分钟 Sparkle
 生成的有界预算；原 30 分钟总上限可能在 Intel 打包成功后取消更新包生成。
+AutoBuild 的 Intel 冷编译曾在 35 分钟打包上限内超时（run 41826256404），因此
+AutoBuild 改为只构建 arm64，没有为它放宽期限。
 这些期限分别定义在两个工作流中，由同一组离线测试检查，不会随源码分支自动同步。
 公开渠道使用 `autobuild`，基础设施兼容内部 `preview` 开关与既有 appcast 文件名。
 固定 tag 为 `AutoBuild`，标题与正文显示本次 UTC 构建时间。滚动 Release 的最初发布日期
 不代表本次构建日期；以标题、appcast 与安装包中的共享时间为准。
 
-发布器验证三个平台的源码、版本、build、ISO 时间完全一致，且 build 精确对应 ISO 秒。
-任何远端写入前下载双架构已有 appcast，要求新时间严格晚于每份基线且 build 数值递增；
-只要旧 `preview-0.3.0` release 仍存在，就同时校验其双架构 appcast；即使 AutoBuild 已创建
+发布器验证 arm64 macOS 与 Windows 的源码、版本、build、ISO 时间完全一致，且 build 精确对应 ISO 秒。
+任何远端写入前下载已有 arm64 appcast，要求新时间严格晚于基线且 build 数值递增；
+只要旧 `preview-0.3.0` release 仍存在，就同时校验其 arm64 appcast；即使 AutoBuild 已创建
 但为空或只留下未完成的检查点，也不能跳过旧入口的时间顺序。
 新发布同秒或时钟倒退直接拒绝，不补造计数。没有历史入口才允许首次发布；已有 ZIP
 却缺失 feed、损坏 feed 或时间身份不一致均拒绝发布。同一次发布的恢复由下述检查点约束，
 不能仅凭相同时间或 tag 源码放行。
 
-发布器在全部输入与双架构基线验证后，先上传 `autobuild-publication.json`：包含仓库、
+发布器在全部输入与 arm64 基线验证后，先上传 `autobuild-publication.json`：包含仓库、
 源码 SHA、版本、build、ISO 时间及按名称排序的全部目标文件大小与 SHA-256。
 重跑只有在本地生成的检查点与远端逐字节一致时，才允许继续同一次发布；当前 feed
 必须与本地逐字节一致，否则仍走严格递增校验。该恢复允许补齐被中断替换删除的 feed
@@ -240,10 +258,11 @@ macOS 的稳定版与 AutoBuild 共用 75 分钟 job、35 分钟打包、30 分�
 插件继续由各自的发布流程和市场管理；独立发布及客户端安装的签名、哈希和兼容性校验不变。
 这不是把未经验证的插件上传到 AutoBuild，而是将插件从应用发布目标清单中移除。
 
-发布器验证全部本地输入与基线后，先持久化检查点，再上传所有数据，最后替换两个 XML；通过 GitHub asset
+发布器验证全部本地输入与基线后，先持久化检查点，再上传所有数据，最后替换 arm64 appcast；通过 GitHub asset
 SHA-256 digest（缺失时重新下载校验）验证所有目标资源后，显式 force PATCH
 `git/refs/tags/AutoBuild` 到源码 SHA，更新并复查 release 元数据，最后按完整目标
-清单删除所有过期资产，包括旧版本 DMG、Windows 安装包和插件。任何下载、哈希、
+清单删除所有过期资产，包括旧版本 DMG、Windows 安装包、插件，以及停止构建前留下的
+Intel DMG、ZIP、delta 和 `appcast-preview-x86_64.xml`。任何下载、哈希、
 上传或完整性验证失败均不会触发过期资产清理。GitHub 固定 tag 的多文件替换不是
 原子操作，失败可能留下部分新文件；保留相同构建 artifacts 重跑 publish 可恢复，
 不需要给原字节另造时间。检查点本身也参与最终完整性验证并保留到下次发布。
@@ -353,7 +372,7 @@ LITHE_RUN_GIT_COMPOSITOR_TESTS=1 \
 Swift 文本文件策略直接调用 Rust Core，因此 `scripts/macos/test/test-macos.sh` 会先构建并链接
 当前工作树的 Core 静态库。它复用现有 `rust/target/macos` 构建路径；这是可变编译状态，
 不允许跨工作树复制或共享，也没有新增可复用资源目录。依赖下载仍按下文清单复用。
-Swift 单元和插件 CI 通道复用已有 Cargo 下载缓存。先通过
+Swift 单元和插件 CI 通道通过 Swatinem/rust-cache 复用裁剪后的 Rust 依赖编译输出。先通过
 `./scripts/macos/test/test-macos.sh list` 构建并发现测试，独立步骤上限为 40 分钟；随后计时工具
 传入 `--skip-build`，测试阶段保留 960 秒总时限及 17 分钟外层步骤时限，给超时清理
 与报告留出一分钟。构建失败时不生成合并报告，避免同一失败被重复计为“未生成测试
@@ -361,6 +380,42 @@ Swift 单元和插件 CI 通道复用已有 Cargo 下载缓存。先通过
 输出看门狗保持不变。
 
 ### 独立工作树的本地编译
+
+通用工具使用方偏好保存在工作区现有 `.lithe/run/local.json` 的 `toolchain.preferences`，
+生命周期随该工作区本机配置，显式重置或移除后结束；没有增加并行缓存。目录/消费者引用
+每次运行重新解析，运行前 native adapter 读取文档并在探测后核对原始内容，不写应用或
+插件资源，不影响代码签名/Sparkle delta。它没有可靠构建 identity stamp，资源清单
+`consumer-tool-preferences` 和复用脚本在所有校验/复制阶段拒绝共享，包括相邻原子替换文件。
+macOS Build 偏好编辑复用同一文档，只在明确 Save/Reset 后条件原子替换并保留元数据；
+打开、取消和空重置不创建资源，外部冲突保留原始草稿。工作区关闭等待原生保存回执。
+设置目录快照与文件观察只持有内存，读取同一文档并在加载结束核对版本；仅偏好目录
+也可重开。持续修改最多重试一次，关闭释放观察，不新增下载、持久缓存或可复用资源。
+
+
+Windows 注册表 stdio 调试器状态位于
+`<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/debug-adapters/<adapter-id>/<workspace-digest>/`。
+由当前插件/适配器/工作区拥有；停止会话关闭进程，卸载插件清理其状态。语言服务器托管适配器
+继续使用原语言服务器状态，关闭 Debug 不删除或停止共享服务器。两类可变状态均没有构建
+identity stamp，不在任何复制阶段跨 worktree 复用；清单 `official-plugin-packages` 和复用脚本
+保持拒绝路由。入口/资源只读，写入只经平台 app-data owner，不改变签名或 Sparkle delta。
+
+
+Windows Build 本机选项位于平台 app-data 的 `build-options/<canonical-workspace-digest>.json`，
+由应用用户配置拥有，保留到用户显式重置/移除配置；团队层仍是工作区的
+`.lithe/build/options.json`。该文档、显式空选择标记及文档 adapter 的相邻临时替换均是
+可变状态，没有版本/平台/架构/工具链构建 identity stamp，归入 `build-project-preferences`
+拒绝路由。任何校验或复制阶段均不得跨 worktree 复用，不从安装目录推导写入目标；
+本机保存检查两层原始版本并回读，不改变插件包、代码签名或 Sparkle delta 基线。
+
+CI 的 `Swatinem/rust-cache` 只复用 Cargo 依赖编译输出，按 OS、架构、rustc、
+Cargo 清单/锁文件、编译环境和 target 布局区分；Swift/plugin 共享一份 macOS Rust
+缓存，Windows Core 分片只有一个写者，host 另用一份，JDT 只读 Core 缓存。
+这是 GitHub CI 专用缓存，不是本地跨工作树复用的身份凭证。注册表
+`ci-rust-compilation-state` 明确禁止复制 `rust/target/`、`rust/target/macos/`
+与 `windows/tauri/src-tauri/target/`；复用脚本在任何复制前拒绝它们。
+本地只复制经验证的 Cargo 下载归档，目标工作树自行生成编译状态。生命周期由
+工作树/Cargo 管理，不写入已安装包，不影响代码签名和 Sparkle delta。
+
 
 SwiftPM 的 `.build/`、资源 bundle 和 `.lithe-swift-toolchain` 标记登记为
 `swiftpm-build-state`，所有工作树复用阶段均拒绝复制。编译器标记只用于本工作树
@@ -377,6 +432,11 @@ SwiftPM 的 `.build/`、资源 bundle 和 `.lithe-swift-toolchain` 标记登记�
 `.artifacts/windows-perf/`，登记为 `windows-perf-state`，所有复用阶段均拒绝复制。这些内容
 跟随所在工作树的源码和机器，没有 identity stamp；工具在本工作树重新构建，不写 app bundle、
 安装目录或 Sparkle delta 基线。
+
+结构化日志目录位于 `shared/logging/`，Swift/Rust 生成源码随 Git 获取。在每个工作树运行
+`node scripts/logging/generate-log-events.mjs --check`；修改目录后本地重新生成再编译。
+`shared-logging` 登记为不可复用资源：没有封存的版本、平台、架构、工具链 identity stamp，
+校验和复制阶段均拒绝跨工作树搬运；没有下载物或缓存，也没有运行时写入，签名和 Sparkle delta 不受影响。
 
 共享翻译源文件位于 `shared/i18n/`。每个工作树通过 Git 获取源文件和已提交的
 macOS 字符串表、`AppLanguage.generated.swift`、Windows `shared.generated.ts`，
@@ -496,6 +556,7 @@ macOS 的 Application Support 临时快照 `.lithe-dev-profile-import-<transacti
 同一发行身份的多个源码工作树仍会使用同一用户域；本地测试应注入临时目录与独立偏好域。
 
 模块日志和诊断包暂存目录登记为 `application-log-state`，不允许跨工作树复用。
+PR3 macOS 的 `sessions/<session>/plugins/<id>/files/` 也属于该项：由当前日志会话通过 Core 路径规则创建，权限 0700，以描述符相对 no-follow 操作防符号链接越界，按日志保留规则结束生命周期；不属于下载或构建资源，没有任何可跨版本、平台、架构或工具链复用的身份，也没有允许复制的时机。v2 的 `sessions/<session>/` 通道文件和旧版
 日志根目录下的 `application`、`language`、`run`、`git`、`plugins`、`performance`
 子目录、旧版 `lithe.log`、macOS 缓存中的 `Lithe/diagnostics-export/<snapshot>/`
 以及导出目标旁的临时 ZIP（macOS 的 `.lithe-diagnostics-<snapshot>.zip`
@@ -624,7 +685,7 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   `<RUNNER_TEMP>/lithe-autobuild-<invocation>/{baselines,verification}/`。
   源码 SHA、应用 release/tag/asset、当前 build/ISO 时间与本次发布共同决定输入；
   根目录生成 `autobuild-publication.json`，`baselines/AutoBuild/` 保存当前入口的检查点与
-  双架构 appcast；旧入口仍存在时，`baselines/preview-0.3.0/` 另存其双架构 appcast。
+  arm64 appcast；旧入口仍存在时，`baselines/preview-0.3.0/` 另存其 arm64 appcast。
   两组基线用于本次严格时间排序，只有 AutoBuild 接受匹配检查点的精确恢复。
   检查点绑定全部目标字节，不是可跨工作树复制的构建缓存；远端发布资产仅供本次调用下载验证。
   应用产物的平台/架构由共享构建身份及 appcast 约束，保留现有签名，不在发布阶段重新构建。
@@ -733,6 +794,7 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   版本绑定，没有可靠构建身份 stamp；各工作树构建时一起生成 JS 并复制许可证，不在任何阶段
   跨树复制。运行时只读，不改变签名和 Sparkle delta。官方插件等尚未写入构建身份 stamp 的
   生成资源同样不得复用；
+- 内置 Make/CMake/Groovy 语法为 `frontend/editor/vendor/` 中 Git 固定输入，上游提交和许可证见 `NOTICE.txt`；Monaco 0.55.1、TextMate 9.3.2、Oniguruma 1.7.0 及当前 Bun 参与构建身份。macOS 构建复制语法/WASM/worker/许可证，Windows Vite 生成本地资源与许可证，两端签名前完成。没有下载入口、解压目录或可靠构建 stamp，不允许任何阶段跨 worktree 复用；`editor-theme-assets` 排除路由拒绝复制，运行时 worker/token 只在内存，不影响签名和 Sparkle delta。
 - 插件高亮沿用本工作树生成的 `textmate-worker.js`，不新增下载入口；解码语法、worker/token 状态和编辑器动作租约仅在进程内，属于 `editor-theme-assets` 排除路由，无 identity stamp，任何阶段不得跨工作树复制。源插件包只读，运行时不写安装目录或改变 Sparkle 基线。
 - `.build` 中的 SwiftPM 构建状态；
 - `rust/target/` 中与当前源码、编译器或构建参数绑定的构建输出；
@@ -750,8 +812,52 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   identity stamp，任何复制阶段都禁止共享。资源清单 `jdt-maven-settings` 显式排除，
   复用脚本直接拒绝该资源，不进入下载或生成物校验路由。
 
+Build Provider 原生配置探针的 `configuration-*/configuration.json`、模型读取时的
+`run-*/configuration.json` 及 Maven v2 模型缓存中的实际来源 URI/哈希，均属于当前
+插件/构建系统/工作区的可变状态。只读配置探针在 Maven 的完整执行请求发布后，记录上游生效事实，再把探针自己的仓库管理器改到
+`configuration-*/repository`，随后在读取工程前退出，不能因此创建实际选择的用户仓库目录。
+探针与模型读取的临时目录在调用结束后删除；模型缓存
+由 Provider 管理，并在原生来源变化时失效。源哈希不是构建 identity stamp，不能跨工作树
+复制。宿主发布原生配置时在目标旁准备的 `.<filename>.lithe-<uuid>` 可能含凭据，
+只归该条件替换操作所有；成功后清理，无法安全恢复时明确报告保留路径。资源清单
+`build-native-configuration-state` 和复用脚本的排除路由拒绝这些目录与临时副本，不进入
+任何下载验证或复制阶段。它们不写 app/plugin 安装资源，不影响签名与 Sparkle delta。原生配置控件的隔离截图保存在
+`.artifacts/test-stability/native-configuration-ui/*.png`，身份取决于源码、夹具、主题和视口，
+同样由排除路由拒绝跨工作树复制，按测试报告保留策略清理。
+
+原生配置编辑也复用各平台已有的工作区 `outputs/<operation-id>.json` 生命周期：宿主创建私有
+暂存文件，提供者用自己的格式读写器准备内容，只返回来源/哈希回执；宿主校验后以
+冲突保护原子替换原配置。此文件可能含秘密，绝不进入 RPC、日志、UI 或复用复制阶段。
+提供者禁止 CREATE，取消后不能重新生成已经删除的文件。成功、失败、工作区/窗口关闭
+和插件撤销均清理该文件；没有版本/平台/架构/工具链可复用身份，不允许跨工作树共享。
+
+Windows 原生配置写回复用文档模块的 `.lithe-document-<pid>-<sequence>.tmp` 相邻临时文件，
+只在明确提交时创建，保留原文件元数据并在成功/失败后删除。准备阶段的原始文档留在
+原生宿主内存中，按窗口与操作 ID 持有；提供者只写已有输出文件，回执通过哈希检查才可提交。最多 8 项、每项 2 MiB 输入及替换文本，60 秒后
+禁止提交；取消、窗口关闭或插件变更时释放。内存令牌和临时文件均没有版本/架构/工具链
+identity stamp，不允许任何阶段复用；沿用 `build-native-configuration-state` 的拒绝路由。
+它们不会写入应用或插件安装目录，因而不改变代码签名及 Sparkle delta 基线。
+
 可下载的官方插件包是声明式插件包（只含 `plugin.json` 和它声明的资源，不含宿主加载的代码，与架构无关；自带运行时的 Java Support 见下文），在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立组装，`--triple` 只决定输出目录和签名工具的构建布局；组装后通过 `LitheOfficialPluginVerifier` 验证声明、打包的可执行文件和“Mach-O 原生代码只出现在清单声明的运行时目录内”；发布配置还要求 repository secret `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`，由 `LithePluginPackageSigner` 对完整包生成 `lithe-plugin-signature.json`，客户端按宿主内置官方插件策略和 publisher 公钥验证后才允许安装。该 secret 的值是与客户端内置公钥匹配的 base64 编码 32 字节 Ed25519 私钥，可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 配置；私钥文件和 shell 历史都不得进入仓库或日志。没有该 key 时，普通 debug 全量构建会跳过 publisher 签名包，指定其中一个包 ID 的构建会失败，不会留下缺少签名文档的目录。本地调试插件时可以显式传入 `--development-unsigned`（仅 debug 配置可用），生成不含签名文档的开发包，只能由 debug 构建的 Lithe 从磁盘安装；这类开发包同样不跨工作树复用。无可靠 identity stamp，不跨工作树复制。插件安装后打包的语言服务器位于
 `<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/language-server`，由插件版本目录拥有，运行时只读，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。Go Support 和 PHP Support 已迁移为 Lithe Store 社区插件（`Lithe-IDEA/lithe-plugin-go`、`Lithe-IDEA/lithe-plugin-php`），不再由本仓库构建。PHPUnit 测试夹具的 `shared/fixtures/phpunit-project/vendor` 也由当前工作树独立安装。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
+
+Maven 模型与依赖快照继续位于现有
+`<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/`。
+Windows Build Provider 的对应位置为
+`<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/build-systems/<build-system-id>/<workspace-digest>/`，
+由原生存储 adapter 分配，和语言服务器状态分开。会话拥有其缓存、日志和临时输出，
+模型失效可重建，插件卸载随所属状态清理；工作区摘要只是归属键，不是构建身份。
+它属于具体插件、构建系统和工作区的可变上游状态，没有版本/平台/架构/工具链 identity stamp，
+复用清单 `official-plugin-packages` 和脚本的排除路由拒绝任何复制阶段共享。
+Windows 工具查询后端使用同一平台 adapter 下独立的
+`<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/toolchain-queries/<operation-id>/<workspace-digest>/`。
+一个 Build 准备操作可以复用同插件的后端；并发操作使用独占创建的不同目录，结束前停止
+全部进程并删除自身状态。失败保留仍受进程使用的目录，插件卸载清理遗留状态。它没有版本/平台/架构/工具链构建印记，任何阶段均不得跨工作树
+复制。查询参数、文件证据和执行许可只存在于当前操作的内存中；安装包和插件资源只读。
+#1495 阶段 D 已删除 macOS 旧 Maven 依赖树临时文件 adapter；不再创建该专属目录，
+也不能把旧树文本当作新的 Provider 缓存或从其坐标推导 JAR 路径。
+Provider 状态经平台 adapter 写 Application Support；插件安装目录和发行 bundle 只读，
+不改变代码签名或 Sparkle delta 的源基线。
 
 ### Java Support 独立下载安装与迁移
 
@@ -864,3 +970,25 @@ CI 在 Windows frontend lane 构建并上传独立包，同时运行包、Worker
 原生 UI 截图位于 `.artifacts/test-stability/hooks-ui/`，绑定本次源码、主题、
 语言和窗口尺寸，不作为可复用资源。运行 `node --test scripts/resources/test-reuse-worktree-resources.mjs`
 验证 `agent-hook-library-state` 被复用入口拒绝。
+
+
+共享 Build 调用偏好 `.lithe/build/options.json` 是用户维护的工作区文件，本机差异位于
+平台偏好的 `BuildSystems.Options.*` / `.Instances` / `.InstanceDefaults`。
+`.InstanceDefaults` 保留此工作区的本机默认值，供当前与之后出现的 reactor 继承，
+不把本机 settings/仓库路径写入团队文档；逐根保存的值优先于这些默认值。这些内容没有构建产物 identity stamp，
+不能作为资源从其他工作树复制、链接或发布；共享值随普通源文件流转，本机路径不转移。
+资源清单 `build-project-preferences` 与复用脚本直接拒绝它们。只有明确编辑或带原字节
+检查的一次性激活迁移可以写共享文件，普通检测和设置页读取不创建文件；不写 app 或插件
+安装目录，不改变签名与 Sparkle 增量基线。
+
+Maven 配置切换使用本机偏好的 `BuildSystems.Migrations.Maven.<workspace-digest>` 及 `.Runtime` 保存待迁移
+源文件的指纹。它只服务当前工作区的一次性恢复：目标全部读回、旧源按原字节移除后清理，
+部分写入后旧源被外部修改则停止自动删除。这个标记不保存原生 settings 文档，不可跨
+worktree 复用；由 `build-project-preferences` 排除项覆盖，不得作为下载缓存增加校验路由。
+
+Maven Provider 随每次任务收集的报告快照在宿主提供的 `workspaceStateDir/execution-*`，
+没有状态目录时在系统临时目录 `lithe-maven-execution-*`。已配置的 Surefire/Failsafe
+实例提供报告位置，私有目录只保留本次新报告、索引和字节哈希；操作返回、失败或取消
+完成后删除，崩溃残留沿用插件工作区状态清理。它不具备构建缓存 identity stamp，
+`maven-operation-report-snapshots` 排除项与脚本拒绝跨 worktree 复制、硬链接和符号链接。
+原始报告仍是上游写入工作区的输出，不可用于替代另一次运行；插件安装包始终只读。

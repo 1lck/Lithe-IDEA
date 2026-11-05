@@ -67,13 +67,33 @@ struct PluginLiveActivationTests {
     }
 
     @Test(arguments: [
-        "language-packaged-server", "language-system-command", "build-provider",
-        "vcs-provider", "hello-lithe", "project-generator"
+        "languages/language-packaged-server", "languages/language-system-command",
+        "build-providers/build-provider", "vcs/vcs-provider", "manifest/hello-lithe"
     ])
     func pluginsWithOtherContributionsStillNeedARestart(_ fixture: String) throws {
-        let url = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/\(fixture).plugin.json")
-        let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: Data(contentsOf: url))
+        let descriptor = try Self.fixtureDescriptor(fixture)
+        #expect(!descriptor.canActivateWithoutRestart)
+    }
+
+    /// Generators are listed when the New Project window loads, and tool
+    /// definitions are read each time a tool is resolved, so neither needs the
+    /// module graph built at launch.
+    @Test(arguments: [
+        "project-generators/project-generator", "project-generators/project-generator-tool-field",
+        "toolchains/tool-definition"
+    ])
+    func generatorsAndToolDefinitionsActivateWithoutARestart(_ fixture: String) throws {
+        let descriptor = try Self.fixtureDescriptor(fixture)
+        #expect(!descriptor.declaresBackend)
+        #expect(descriptor.canActivateWithoutRestart)
+    }
+
+    /// A toolchain provider is a backend process, which only starts with the
+    /// module graph.
+    @Test
+    func aToolchainProviderStillNeedsARestart() throws {
+        let descriptor = try Self.fixtureDescriptor("toolchains/toolchain-provider")
+        #expect(descriptor.declaresBackend)
         #expect(!descriptor.canActivateWithoutRestart)
     }
 
@@ -397,6 +417,39 @@ struct PluginLiveActivationTests {
     }
 
     @Test
+    func installingAGeneratorPluginActivatesItAtOnce() async throws {
+        let fixture = try LiveFixture(acceptance: .startupLoader)
+        defer { fixture.cleanUp() }
+        let manager = fixture.makeManager()
+        let source = try fixture.writeSource(Self.generatorManifest(), name: "generator")
+
+        let arrived = try await fixture.awaitChange { try manager.installPackage(at: source) }
+
+        #expect(arrived)
+        // The New Project window lists it from this registry, with no restart.
+        let entry = try #require(fixture.registry.snapshot.entries[Self.generatorPluginID])
+        #expect(entry.isEnabled)
+        let snapshot = try #require(manager.snapshots.first { $0.id == Self.generatorPluginID })
+        #expect(snapshot.installationStatus == .installed)
+        #expect(!snapshot.requiresRestart)
+        #expect(!snapshot.hasChangesPendingRestart)
+    }
+
+    @Test
+    func uninstallingAGeneratorPluginRemovesItFromTheRegistryAtOnce() async throws {
+        let fixture = try LiveFixture(acceptance: .startupLoader)
+        defer { fixture.cleanUp() }
+        let manager = fixture.makeManager()
+        let source = try fixture.writeSource(Self.generatorManifest(), name: "generator")
+        _ = try await fixture.awaitChange { try manager.installPackage(at: source) }
+
+        let removed = try await fixture.awaitChange { try await manager.uninstall(Self.generatorPluginID) }
+
+        #expect(removed)
+        #expect(fixture.registry.snapshot.entries[Self.generatorPluginID] == nil)
+    }
+
+    @Test
     func installingAnyOtherPluginStillWaitsForARestart() throws {
         let fixture = try LiveFixture(acceptance: .startupLoader)
         defer { fixture.cleanUp() }
@@ -491,6 +544,47 @@ struct PluginLiveActivationTests {
     }
 
     // MARK: - Fixtures
+
+    private static let generatorPluginID = PluginID("dev.example.generator")
+
+    private static func fixtureDescriptor(_ name: String) throws -> DeclarativePluginDescriptor {
+        let url = DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/\(name).plugin.json")
+        return try DeclarativePluginTestSupport.operations.validate(manifest: Data(contentsOf: url))
+    }
+
+    /// A generator-only plugin: one command step, no templates to ship.
+    private static func generatorManifest() -> [String: Any] {
+        [
+            "schemaVersion": 2,
+            "id": generatorPluginID.rawValue,
+            "displayName": "Example Generator",
+            "version": "0.1.0",
+            "pluginAPIVersion": 3,
+            "requires": ["projectGenerators": 2],
+            "vendor": [
+                "id": "dev.example",
+                "displayName": "Example",
+                "signatureRequirement": PluginSignatureRequirement.publisherPackage.rawValue
+            ],
+            "permissions": ["project.generate"],
+            "activationEvents": [],
+            "projectGenerators": [[
+                "id": "app",
+                "displayName": "App",
+                "section": "generator",
+                "fields": [
+                    ["id": "sdk", "type": "tool", "title": "SDK", "tool": "dev.example.generator:sdk", "pinAs": "project"]
+                ],
+                "steps": [[
+                    "kind": "command",
+                    "command": "example-init",
+                    "arguments": ["--sdk", "${field.sdk.executable}"],
+                    "mayUseNetwork": false
+                ]]
+            ]]
+        ]
+    }
 
     private static func debugManifest(
         id: String = pluginID.rawValue,

@@ -54,6 +54,8 @@ import {
   addPathsToGitignore,
   addPathsToLocalGitExclude,
   rollbackFilesChanges,
+  prepareCommitSelection,
+  reconcileDeletedSelection,
   setFilesStaged,
 } from "../../api/git-status-api";
 import type { GitFile } from "../../types/git.types";
@@ -70,11 +72,13 @@ import {
   countGitChangedFiles,
   isBelowUntrackedDirectory,
   isUntrackedDirectorySummary,
+  withoutListedUntrackedContents,
 } from "../../utils/git-untracked-directories";
 import { setUntrackedDirectoryExpanded } from "../../services/git-untracked-directory-expansions";
 import {
   buildGitIgnorePaths,
   getGitFileRepositoryPath,
+  getGitFileOriginalRepositoryRelativePath,
   getGitFileRepositoryRelativePath,
   resolveGitFileMutationPaths,
   resolveGitFilesForStagedState,
@@ -86,7 +90,7 @@ import { GitFileItem } from "./git-status-file-item";
 import { IDEA_CHECKBOX_CLASS_NAME } from "../../utils/idea-control-styles";
 import { useGitStatusExpandableHint } from "./use-git-status-expandable-hint";
 import { useTreeContentWidth } from "../../hooks/use-tree-content-width";
-import { buildGitRepositoryColorMap } from "../../utils/git-repository-colors";
+import { useRepositoryColors } from "../../utils/git-repository-colors";
 import { showGitPatchDialog } from "../../services/git-patch-dialog-service";
 import { installTreeGuideVisibility } from "@/features/file-explorer/lib/tree-guide-visibility";
 
@@ -95,7 +99,21 @@ interface GitStatusPanelProps {
   toolbarLeading?: React.ReactNode;
   toolbarTrailing?: React.ReactNode;
   changelists?: LocalChangelists;
+  commitChangelists?: LocalChangelists;
+  commitSelectionDisabled?: boolean;
+  commitWorkspaceKey?: string;
+  onActivateCommitChangelist?: (
+    id: string,
+    files: GitFile[],
+    roots: string[],
+  ) => boolean | Promise<boolean>;
+  isCommitChangelistCurrent?: (
+    id: string,
+    files: GitFile[],
+    roots: string[],
+  ) => boolean | Promise<boolean>;
   onMoveToChangelist?: (files: GitFile[], id: string) => void;
+  onValidateStagingMembership?: (files: GitFile[], expected: string[]) => Promise<boolean>;
   changelistsDisabled?: boolean;
   /** Settings `showGitChangelists`: renders each ChangeList as a group node, or omits the nodes. */
   showChangelistGroups?: boolean;
@@ -252,7 +270,13 @@ const GitStatusPanel = ({
   toolbarLeading,
   toolbarTrailing,
   changelists,
+  commitChangelists,
+  commitSelectionDisabled = false,
+  commitWorkspaceKey,
+  onActivateCommitChangelist,
+  isCommitChangelistCurrent,
   onMoveToChangelist,
+  onValidateStagingMembership,
   changelistsDisabled = false,
   showChangelistGroups = true,
   stagingDisabled = false,
@@ -285,6 +309,17 @@ const GitStatusPanel = ({
   const contextMenu = useDropdownMenu<ContextMenuState>();
   const statusViewportRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isPreparingCommit, setIsPreparingCommit] = useState(false);
+  const commitSelectionAbort = useRef<AbortController | null>(null);
+  const liveWorkspaceKey = useRef(commitWorkspaceKey);
+  liveWorkspaceKey.current = commitWorkspaceKey;
+  useEffect(() => {
+    setIsPreparingCommit(false);
+    return () => {
+      commitSelectionAbort.current?.abort();
+      commitSelectionAbort.current = null;
+    };
+  }, [repoPath, commitWorkspaceKey]);
   const [isViewOptionsOpen, setIsViewOptionsOpen] = useState(false);
   const viewOptionsAnchorRef = useRef<HTMLDivElement>(null);
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
@@ -292,9 +327,9 @@ const GitStatusPanel = ({
   const stagingOperationsRef = useRef(new Map<string, Set<symbol>>());
   const [stagePendingPaths, setStagePendingPaths] = useState<Set<string>>(new Set());
   useEffect(() => {
-    onStagingPendingChange?.(stagePendingPaths.size > 0);
+    onStagingPendingChange?.(stagePendingPaths.size > 0 || isPreparingCommit);
     return () => onStagingPendingChange?.(false);
-  }, [stagePendingPaths, onStagingPendingChange]);
+  }, [stagePendingPaths, isPreparingCommit, onStagingPendingChange]);
   const selectionAnchor = useRef<string | null>(null);
   const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
   useEffect(() => {
@@ -356,10 +391,7 @@ const GitStatusPanel = ({
     visibleFiles,
     displayFileByPath,
   } = useMemo(() => buildGitStatusPresentation(displayFiles), [displayFiles]);
-  const repositoryColorByKey = useMemo(
-    () => buildGitRepositoryColorMap(repositoryPaths ?? []),
-    [repositoryPaths],
-  );
+  const repositoryColors = useRepositoryColors(repositoryPaths);
   const repositoryGroups = useMemo(
     () => groupGitFilesByRepository(visibleFiles, repoPath),
     [visibleFiles, repoPath],
@@ -662,7 +694,7 @@ const GitStatusPanel = ({
     filesToStage: GitFile[],
     staged: boolean,
   ): Promise<boolean> => {
-    if (stagingDisabled) return false;
+    if (stagingDisabled || commitSelectionAbort.current) return false;
     filesToStage = filesToStage.filter((file) => file.canToggleStaging !== false);
     const repositoryGroups = groupGitFilesByRepository(filesToStage, repoPath);
     if (repositoryGroups.length === 0) return false;
@@ -673,9 +705,22 @@ const GitStatusPanel = ({
       operations.add(operation);
       stagingOperationsRef.current.set(path, operations);
     }
-    setOptimisticStage(displayFilePaths, staged);
+    const workspaceKey = commitWorkspaceKey;
+    const expected = filesToStage.map((file) =>
+      commitChangelists ? fileChangelist(commitChangelists, file, repoPath) : DEFAULT_CHANGELIST,
+    );
     setStagePendingPaths(new Set(stagingOperationsRef.current.keys()));
     try {
+      if (
+        onValidateStagingMembership &&
+        !(await onValidateStagingMembership(filesToStage, expected))
+      ) {
+        if (liveWorkspaceKey.current === workspaceKey)
+          toast.error(t("vcs.commitFiles.stagingChanged"));
+        return false;
+      }
+      if (liveWorkspaceKey.current !== workspaceKey) return false;
+      setOptimisticStage(displayFilePaths, staged);
       // All groups must settle: a failed repository must not release another's pending UI.
       const results = await Promise.allSettled(
         repositoryGroups.map(({ repoPath: fileRepoPath, files: repositoryFiles }) =>
@@ -738,17 +783,106 @@ const GitStatusPanel = ({
   ];
 
   const handleCommitEntries = async (entries: GitStatusSelectionEntry[]) => {
-    const filePaths = [
-      ...new Set(entries.flatMap((entry) => entry.files.map((file) => file.path))),
-    ];
-    if (filePaths.length === 0) return;
     if (
-      await handleSetFilesStaged(
-        entries.flatMap((entry) => entry.files),
-        true,
-      )
+      stagingDisabled ||
+      commitSelectionDisabled ||
+      isLoading ||
+      isPreparingCommit ||
+      stagePendingPaths.size > 0
     )
-      onCommitSelection?.(filePaths);
+      return;
+    const selected = withoutListedUntrackedContents(entries.flatMap((entry) => entry.files));
+    if (
+      selected.length === 0 ||
+      selected.some((file) => file.canToggleStaging === false || !file.rawStatus)
+    )
+      return;
+    const listIds = new Set(
+      selected.map((file) =>
+        commitChangelists ? fileChangelist(commitChangelists, file, repoPath) : DEFAULT_CHANGELIST,
+      ),
+    );
+    if (listIds.size !== 1) return;
+    const list = [...listIds][0]!;
+    const groups = groupGitFilesByRepository(selected, repoPath);
+    const roots = [
+      ...new Set([...(repositoryPaths ?? []), ...groups.map((group) => group.repoPath)]),
+    ];
+    const controller = new AbortController();
+    commitSelectionAbort.current = controller;
+    setIsPreparingCommit(true);
+    try {
+      if (
+        onActivateCommitChangelist &&
+        !(await onActivateCommitChangelist(list, selected, roots))
+      ) {
+        if (!controller.signal.aborted) toast.error(t("vcs.commitFiles.stagingChanged"));
+        return;
+      }
+      if (controller.signal.aborted) return;
+      const repositories = roots.map((root) => ({
+        root,
+        selected: [] as Array<{ path: string; originalPath?: string; status: string }>,
+      }));
+      for (const group of groups) {
+        const target = repositories.find((repository) => repository.root === group.repoPath)!;
+        const identities = new Map<
+          string,
+          { path: string; originalPath?: string; status: string }
+        >();
+        for (const file of group.files) {
+          const path = getGitFileRepositoryRelativePath(file);
+          const status = file.rawStatus!;
+          const existing = identities.get(path);
+          // A staged deletion and retained untracked copy can share a path.
+          if (!existing || (existing.status === "??" && status !== "??")) {
+            identities.set(path, {
+              path,
+              originalPath: getGitFileOriginalRepositoryRelativePath(file),
+              status,
+            });
+          }
+        }
+        target.selected = [...identities.values()];
+      }
+      let failure: unknown;
+      try {
+        await prepareCommitSelection(repositories, crypto.randomUUID(), controller.signal);
+      } catch (error) {
+        failure = error;
+      }
+      if (controller.signal.aborted) return;
+      try {
+        await onStagingRefresh();
+      } catch (error) {
+        failure ??= error;
+      }
+      if (controller.signal.aborted) return;
+      if (failure) {
+        const message = failure instanceof Error ? failure.message : String(failure);
+        toast.error(
+          message.includes("GIT_COMMIT_SELECTION_STALE")
+            ? t("vcs.commitFiles.stagingChanged")
+            : t("git.operationError", { error: message }),
+        );
+        return;
+      }
+      const current =
+        !isCommitChangelistCurrent || (await isCommitChangelistCurrent(list, selected, roots));
+      if (controller.signal.aborted) return;
+      if (!current) toast.error(t("vcs.commitFiles.stagingChanged"));
+      else onCommitSelection?.([...new Set(selected.map((file) => file.path))]);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        const message = error instanceof Error ? error.message : String(error);
+        toast.error(t("git.operationError", { error: message }));
+      }
+    } finally {
+      if (commitSelectionAbort.current === controller) {
+        commitSelectionAbort.current = null;
+        setIsPreparingCommit(false);
+      }
+    }
   };
 
   const handleRollbackEntries = async (entries: GitStatusSelectionEntry[]) => {
@@ -774,16 +908,42 @@ const GitStatusPanel = ({
 
     setIsLoading(true);
     try {
-      await Promise.all(
+      const results = await Promise.allSettled(
         groupGitFilesByRepository(trackedFilesToRollback, repoPath).map(
           ({ repoPath: fileRepoPath, files: repositoryFiles }) =>
-            rollbackFilesChanges(fileRepoPath, getRepoRelativePaths(repositoryFiles)),
+            rollbackFilesChanges(
+              fileRepoPath,
+              repositoryFiles.map((file) => ({
+                path: getGitFileRepositoryRelativePath(file),
+                originalPath: getGitFileOriginalRepositoryRelativePath(file),
+                status: file.rawStatus ?? "",
+              })),
+            ),
         ),
       );
       await onRefresh?.();
+      const failure = results.find(
+        (result): result is PromiseRejectedResult => result.status === "rejected",
+      );
+      if (failure) throw failure.reason;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      toast.error(t("git.operationError", { error: message }));
+      void submitFrontendLog({
+        level: "error",
+        scope: "git.rollback",
+        message: "Git rollback failed",
+        payload: {
+          category: message.includes("GIT_ROLLBACK_STALE_SELECTION")
+            ? "stale_selection"
+            : "operation_failed",
+          fileCount: displayTrackedFilePaths.length,
+        },
+      });
+      toast.error(
+        message.includes("GIT_ROLLBACK_STALE_SELECTION")
+          ? t("git.rollbackSelectionChanged")
+          : t("git.operationError", { error: message }),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -826,7 +986,27 @@ const GitStatusPanel = ({
           return deleteFile(joinPath(fileRepoPath, relativePath));
         },
         async () => onRefresh?.(),
+        async () => {
+          const selectedPaths = new Set(filePaths);
+          const selected = withoutListedUntrackedContents(
+            entries.flatMap((entry) => entry.files),
+          ).filter((file) => selectedPaths.has(file.path));
+          for (const group of groupGitFilesByRepository(selected, repoPath)) {
+            await reconcileDeletedSelection(
+              group.repoPath,
+              group.files.map((file) => ({
+                path: getGitFileRepositoryRelativePath(file),
+                status: file.rawStatus ?? "",
+              })),
+            );
+          }
+        },
       );
+      if (result.reconciliationError) {
+        const error = result.reconciliationError;
+        const message = error instanceof Error ? error.message : String(error);
+        toast.error(t("git.operationError", { error: message }));
+      }
       for (const failure of result.failures) {
         console.error(`Failed to delete source-control file ${failure.path}:`, failure.error);
       }
@@ -1322,7 +1502,7 @@ const GitStatusPanel = ({
           leading={
             <FolderOpen
               className="file-tree-node-icon text-subtle-foreground"
-              style={{ color: repositoryColorByKey.get(normalizeRepositoryPath(row.repoPath)) }}
+              style={{ color: repositoryColors?.colors.get(normalizeRepositoryPath(row.repoPath)) ?? repositoryColors?.fallback }}
             />
           }
           className="h-full py-0.5"
@@ -1848,7 +2028,22 @@ const GitStatusPanel = ({
                   label: t("git.commit"),
                   icon: <GitCommit />,
                   disabled:
-                    contextMenuEntries.length === 0 || isLoading || stagePendingPaths.size > 0,
+                    contextMenuEntries.length === 0 ||
+                    isLoading ||
+                    isPreparingCommit ||
+                    stagingDisabled ||
+                    commitSelectionDisabled ||
+                    stagePendingPaths.size > 0 ||
+                    new Set(
+                      contextMenuFiles.map((file) =>
+                        commitChangelists
+                          ? fileChangelist(commitChangelists, file, repoPath)
+                          : DEFAULT_CHANGELIST,
+                      ),
+                    ).size !== 1 ||
+                    contextMenuFiles.some(
+                      (file) => file.canToggleStaging === false || !file.rawStatus,
+                    ),
                   onClick: () => void handleCommitEntries(contextMenuEntries),
                 },
                 {

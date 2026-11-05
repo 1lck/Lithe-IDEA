@@ -1,6 +1,17 @@
+import LitheModuleAPI
 import AppKit
 import os
 import SwiftUI
+
+private struct ApplicationLogSinkKey: EnvironmentKey {
+    static let defaultValue: (any LogSink)? = nil
+}
+extension EnvironmentValues {
+    var applicationLogSink: (any LogSink)? {
+        get { self[ApplicationLogSinkKey.self] }
+        set { self[ApplicationLogSinkKey.self] = newValue }
+    }
+}
 
 enum LitheSplitAxis {
     case horizontal
@@ -60,6 +71,7 @@ final class SplitHandleHitTestRegistry {
 }
 
 struct SplitHandleView: View {
+    @Environment(\.applicationLogSink) private var logSink
     // Keep the hit target wider than the visible divider so resizing does not
     // depend on landing on a single pixel row or column.
     static let thickness: CGFloat = 5
@@ -121,7 +133,7 @@ struct SplitHandleView: View {
                 axis: axis,
                 isHitTestEnabled: isHitTestEnabled,
                 onDragStarted: {
-                    dragSignpost = LitheSignpost.begin("split.drag")
+                    dragSignpost = LitheSignpost.begin("split.drag", logSink: logSink)
                     onDragStarted()
                 },
                 onDragChanged: { currentTranslation in

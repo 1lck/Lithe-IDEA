@@ -90,9 +90,6 @@ type DirectReferenceAction = Extract<
   | "pullMergeIntoCurrent"
 >;
 
-/** Upper bound on extra pages a reveal walks before giving up. */
-const MAX_REVEAL_PAGE_ATTEMPTS = 20;
-
 export function GitLogToolWindow() {
   const { t } = useTranslation();
   const workspaceId = useActiveWorkspaceId();
@@ -134,6 +131,7 @@ export function GitLogToolWindow() {
     forgetReference,
     refresh,
     loadMore,
+    locateCommit,
   } = useGitLogController(repoPath, preferredReference);
   const { referencesByRepository, errorsByRepository, ensureRepository, retryRepository } =
     useGitWorkspaceReferences(availableRepoPaths, repoPath);
@@ -276,52 +274,68 @@ export function GitLogToolWindow() {
     setGraphNavigationRequest((request) => request + 1);
   }, [history.commits, selectedReference, setFilterQuery]);
   // A blame click hands over one commit hash; the log owns finding it in the
-  // paginated history and selecting it. The attempt cap keeps a commit that is
-  // beyond the loaded window from walking the whole history.
+  // paginated history and selecting it. Core's bounded `git.historyLocate` walks
+  // the remaining pages and appends what it read, so the tool window no longer
+  // pages the history itself.
   const pendingReveal = useGitLogRevealStore((state) => state.pending);
   const clearReveal = useGitLogRevealStore((state) => state.clear);
-  const revealAttemptsRef = useRef(0);
+  const revealMountedRef = useRef(true);
+  const revealRequestRef = useRef(0);
+  const revealInFlightRef = useRef<string | null>(null);
+  useEffect(() => {
+    revealMountedRef.current = true;
+    return () => {
+      revealMountedRef.current = false;
+      revealRequestRef.current += 1;
+    };
+  }, []);
+  const selectRevealedCommit = useCallback(
+    (commit: GitCommit) => {
+      setFilterQuery("");
+      setSelectedCommitHashes(new Set([commit.hash]));
+      selectionAnchorRef.current = commit.hash;
+      setSelectedCommit(commit);
+      setGraphNavigationRequest((request) => request + 1);
+    },
+    [setFilterQuery],
+  );
   useEffect(() => {
     if (!pendingReveal || !repoPath || pendingReveal.repoPath !== repoPath) return;
     if (loadState !== "ready") return;
     const commit = commitByHash.get(pendingReveal.commitHash);
-    if (!commit) {
-      if (
-        history.hasMore &&
-        !isLoadingMore &&
-        revealAttemptsRef.current < MAX_REVEAL_PAGE_ATTEMPTS
-      ) {
-        revealAttemptsRef.current += 1;
-        // A page that adds nothing (failed or empty) ends the search: without
-        // this the pending request would idle until a later refresh moved it.
-        void loadMore().then((progressed) => {
-          if (progressed) return;
-          revealAttemptsRef.current = 0;
-          clearReveal();
-        });
-      } else {
-        revealAttemptsRef.current = 0;
-        clearReveal();
-      }
+    if (commit) {
+      revealRequestRef.current += 1;
+      selectRevealedCommit(commit);
+      clearReveal();
       return;
     }
-    revealAttemptsRef.current = 0;
-    setFilterQuery("");
-    setSelectedCommitHashes(new Set([commit.hash]));
-    selectionAnchorRef.current = commit.hash;
-    setSelectedCommit(commit);
-    setGraphNavigationRequest((request) => request + 1);
-    clearReveal();
+    // Wait for the page already in flight: it either adds the commit or finishes
+    // the visible history, and locating always starts from a settled cursor.
+    if (isLoadingMore) return;
+    // A locate for this hash is already running; its result owns the selection.
+    if (revealInFlightRef.current === pendingReveal.commitHash) return;
+    const target = pendingReveal.commitHash;
+    revealInFlightRef.current = target;
+    const request = ++revealRequestRef.current;
+    void locateCommit(target).then((located) => {
+      if (revealInFlightRef.current === target) revealInFlightRef.current = null;
+      if (!revealMountedRef.current || request !== revealRequestRef.current) return;
+      if (latestRepoPathRef.current !== repoPath) return;
+      const pending = useGitLogRevealStore.getState().pending;
+      if (pending?.repoPath !== repoPath || pending.commitHash !== target) return;
+      if (located) selectRevealedCommit(located);
+      // No hit ends the pending reveal without changing the current selection.
+      clearReveal();
+    });
   }, [
     clearReveal,
     commitByHash,
-    history.hasMore,
     isLoadingMore,
-    loadMore,
     loadState,
+    locateCommit,
     pendingReveal,
     repoPath,
-    setFilterQuery,
+    selectRevealedCommit,
   ]);
   const emptyWorkingTreeEntries = useMemo<Record<WorkingTreeDiffScope, WorkingTreeDiffEntry[]>>(
     () => ({
@@ -926,6 +940,7 @@ export function GitLogToolWindow() {
           <ResizableHandle />
           <ResizablePanel id="commits" defaultSize="57" minSize={320}>
             <GitCommitTable
+              repoPath={repoPath}
               emptyState={<GitRepositoryEmptyState root={repoPath} onRefresh={refresh} onShowConsole={() => setPanel("console")} />}
               commits={history.commits}
               repositoryCommits={repositoryCommits}

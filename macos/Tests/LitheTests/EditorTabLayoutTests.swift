@@ -25,15 +25,12 @@ struct EditorTabLayoutTests {
 
     @MainActor
     @Test
-    func testTabScopeUsesImportedRootsIncludingHelpersAndCustomDirectories() {
+    func testTabScopeUsesImportedRolesBeforeSemanticFallback() {
         let root = URL(fileURLWithPath: "/workspace")
-        let project = MavenProject(rootURL: root, pomURL: root.appendingPathComponent("pom.xml"),
-            groupID: nil, artifactID: "example", version: nil, packaging: "jar", modules: [], profiles: [], hasWrapper: false,
-            sourceRoots: [.init(path: "checks/java", kind: .testJava), .init(path: "src/main/java", kind: .mainJava)])
-        #expect(EditorDocument.isTestSourceFile(root.appendingPathComponent("checks/java/Helper.java"), project: project, hasTests: false))
-        #expect(!EditorDocument.isTestSourceFile(root.appendingPathComponent("checks/java-copy/Helper.java"), project: project, hasTests: false))
-        #expect(!EditorDocument.isTestSourceFile(root.appendingPathComponent("src/main/java/SomeTest.java"), project: project, hasTests: true))
-        #expect(EditorDocument.isTestSourceFile(root.appendingPathComponent("Single.java"), project: nil, hasTests: true))
+        #expect(EditorDocument.isTestSourceFile(root.appendingPathComponent("checks/java/Helper.java"), importedSourceRootKind: "testSource", hasTests: false))
+        #expect(EditorDocument.isTestSourceFile(root.appendingPathComponent("fixtures/input.json"), importedSourceRootKind: "testResource", hasTests: false))
+        #expect(!EditorDocument.isTestSourceFile(root.appendingPathComponent("src/main/java/SomeTest.java"), importedSourceRootKind: "source", hasTests: true))
+        #expect(EditorDocument.isTestSourceFile(root.appendingPathComponent("Single.java"), importedSourceRootKind: nil, hasTests: true))
     }
 
     @Test

@@ -118,6 +118,10 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         }
     }
 
+    func processID(for target: BuildProviderTarget) -> Int32? {
+        running[target]?.session?.processIdentifier
+    }
+
     func execute(
         _ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
         progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void
@@ -321,7 +325,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
             core: owner?.core ?? core,
             processRegistry: processRegistry,
             moduleID: .buildSystemsExtension(target.pluginID),
-            pluginID: target.pluginID
+            pluginID: target.pluginID, role: .build
         )
         let endBackendProcesses = endBackendProcesses
         session.stuckSendGrace = stuckSendGrace

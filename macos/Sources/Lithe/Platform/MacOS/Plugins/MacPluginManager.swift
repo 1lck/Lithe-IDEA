@@ -172,10 +172,12 @@ final class MacPluginManager: PluginManaging {
         switch server.launch {
         case .packaged, .systemCommand:
             executableNames = server.executableNames
-        case .runtime:
-            // A runtime such as java/node is not the server's name. Reuse the
-            // descriptive launch metadata already associated with this language;
-            // it supplies a name only after the enabled plugin supplies the row.
+        case .runtime, .backend:
+            // A runtime such as java/node is not the server's name, and a
+            // backend names its executable only when the server starts. Reuse
+            // the descriptive launch metadata already associated with this
+            // language; it supplies a name only after the enabled plugin
+            // supplies the row.
             executableNames = catalog.descriptors.first { $0.id == server.languageID }?
                 .languageServerLaunch?.executableNames ?? []
         }
@@ -308,7 +310,7 @@ final class MacPluginManager: PluginManaging {
                 throw PluginManagerError.unknownPlugin(pluginID)
             }
             beforePackageReplacement(pluginID)
-            if OfficialPluginCatalog.entry(for: pluginID)?.bundledSignatureRequirement == .sameTeamAsHost {
+            if OfficialPluginCatalog.trustPolicy(for: pluginID)?.bundledSignatureRequirement == .sameTeamAsHost {
                 try packageStore.setBundledPluginRemoved(pluginID, removed: true)
             }
             try packageStore.stageInvalidPackageUninstall(pluginID)
@@ -593,7 +595,7 @@ final class MacPluginManager: PluginManaging {
         PluginSettingsContributions(
             languages: descriptor.languages,
             languageServerIDs: descriptor.languageServers.map(\.languageID),
-            buildSystems: descriptor.buildSystems.map { .init(id: $0.id, displayName: $0.displayName) },
+            buildSystems: descriptor.buildSystems.map { .init(id: $0.id, displayName: $0.displayName, nativeConfiguration: $0.nativeConfiguration) },
             actions: descriptor.settingActions
         )
     }

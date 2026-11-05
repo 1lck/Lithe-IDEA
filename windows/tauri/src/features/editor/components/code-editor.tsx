@@ -23,7 +23,7 @@ import { useEditorStateStore } from "@/features/editor/stores/state.store";
 import { useEditorViewStore } from "@/features/editor/stores/view.store";
 import { areBufferPathsEqual, getBufferById } from "@/features/editor/utils/buffer-index";
 import { calculateLineHeight, splitLines } from "@/features/editor/utils/lines";
-import { resolveGoToLineTarget } from "@/features/editor/utils/go-to-line";
+import { createGoToLineRetry, goToLineSelection, resolveGoToLineTarget } from "@/features/editor/utils/go-to-line";
 import type { EditorModelPositionResolver } from "@/features/editor/view-model/view-layout";
 import { hasTextContent } from "@/features/panes/types/pane-content.types";
 import { PaneResizeHandle } from "@/features/panes/components/pane-resize-handle";
@@ -114,6 +114,7 @@ interface GoToLineEventDetail {
   line?: number;
   column?: number;
   path?: string;
+  selectsWholeLine?: boolean;
 }
 
 const PYTHON_SCRIPT_CELL_COMMAND = "lithe.runPythonScriptCell";
@@ -587,7 +588,7 @@ const CodeEditor = ({
   // Handle go-to-line events (from search results, diagnostics, vim, etc.)
   useEffect(() => {
     if (!isActiveSurface) return;
-    const goToLine = (lineNumber: number, columnNumber?: number) => {
+    const goToLine = (lineNumber: number, columnNumber?: number, selectsWholeLine = false) => {
       if (!editorRef.current) return false;
 
       const currentContent = valueRef.current;
@@ -606,10 +607,14 @@ const CodeEditor = ({
         column: target.column,
         offset: target.offset,
       });
+      const selection = goToLineSelection(target, selectsWholeLine);
+      if (selection) editorAPI.setSelection(selection);
 
       return true;
     };
 
+    const retry = createGoToLineRetry((target: { line: number; column?: number; selectsWholeLine?: boolean }) =>
+      goToLine(target.line, target.column, target.selectsWholeLine));
     const handleGoToLine = (event: CustomEvent<GoToLineEventDetail>) => {
       const lineNumber = event.detail?.line;
       const columnNumber = event.detail?.column;
@@ -617,19 +622,14 @@ const CodeEditor = ({
       if (targetPath && !areBufferPathsEqual(targetPath, filePath)) return;
       if (!lineNumber) return;
 
-      // Newly opened buffers mount their editor asynchronously (slower still in
-      // debug builds), so keep retrying until the editor accepts the position.
-      let attempts = 0;
-      const tryGoToLine = () => {
-        if (goToLine(lineNumber, columnNumber)) return;
-        attempts += 1;
-        if (attempts < 10) setTimeout(tryGoToLine, 150);
-      };
-      tryGoToLine();
+      // Newly opened buffers mount asynchronously. A new target or unmount
+      // cancels the owned retry so an old jump cannot override a later one.
+      retry.start({ line: lineNumber, column: columnNumber, selectsWholeLine: event.detail?.selectsWholeLine });
     };
 
     window.addEventListener("menu-go-to-line", handleGoToLine as EventListener);
     return () => {
+      retry.dispose();
       window.removeEventListener("menu-go-to-line", handleGoToLine as EventListener);
     };
   }, [filePath, isActiveSurface]);

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 import LitheExecutionModule
 
@@ -19,8 +20,8 @@ struct LanguageTestsView: View {
     @AppStorage("lithe.tests.detailsWidth") private var detailsWidth = 300.0
     @State private var wrapsLines = false
     @State private var consolePresentation = ConsoleFoldPresentation()
-    @State private var resultStatuses: [String: String] = [:]
-    @State private var testDurations: [String: String] = [:]
+    @State private var resultStatuses: [ResultKey: String] = [:]
+    @State private var testDurations: [ResultKey: String] = [:]
     @State private var collapsedTestIDs: Set<String> = []
 
     private var localization: LanguageTestLocalization {
@@ -153,10 +154,10 @@ struct LanguageTestsView: View {
 
     private var testToolbar: some View {
         HStack(spacing: 4) {
-            Button {
+            Button(action: UserActionTrace.action("tests.run", surface: .toolbar) {
                 guard let item = selectedItem else { return }
                 model.runTest(providerID: item.providerID, scope: scope(for: item))
-            } label: {
+            }) {
                 LitheIDEAIcon(resourcePath: selectedItemWasRun ? "debugger/rerun.svg" : "expui/run/run.svg", size: 16,
                               fallbackSystemImage: "play", preservesOriginalColors: true, usesIDEADisabledAppearance: true)
             }
@@ -165,7 +166,7 @@ struct LanguageTestsView: View {
             .accessibilityLabel(selectedItemWasRun ? "Rerun selected test" : "Run selected test")
             .disabled(service.isRunning || selectedItem == nil || model.workspaceURL == nil)
 
-            Button(action: model.stopTests) {
+            Button(action: UserActionTrace.action("tests.stop", surface: .toolbar, model.stopTests)) {
                 LitheIDEAIcon(resourcePath: "expui/run/stop.svg", size: 16,
                               fallbackSystemImage: "stop.fill", preservesOriginalColors: true, usesIDEADisabledAppearance: true)
             }
@@ -174,9 +175,9 @@ struct LanguageTestsView: View {
             .disabled(!service.isRunning)
 
             if let item = selectedItem, item.providerID == "java", item.kind != .workspace {
-                Button {
+                Button(action: UserActionTrace.action("tests.debug", surface: .toolbar) {
                     model.debugTest(providerID: item.providerID, scope: scope(for: item))
-                } label: {
+                }) {
                     LitheIDEAIcon(resourcePath: "expui/run/debug.svg", size: 16,
                                   fallbackSystemImage: "ladybug", preservesOriginalColors: true, usesIDEADisabledAppearance: true)
                 }
@@ -185,7 +186,7 @@ struct LanguageTestsView: View {
                 .disabled(service.isRunning || item.fileURL == nil)
             }
 
-            Button(action: model.refreshTests) {
+            Button(action: UserActionTrace.action("tests.refresh", surface: .toolbar, model.refreshTests)) {
                 LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: 16,
                               fallbackSystemImage: "arrow.clockwise", preservesOriginalColors: true, usesIDEADisabledAppearance: true)
             }
@@ -293,17 +294,26 @@ struct LanguageTestsView: View {
     }
 
     private func presentedItems(for providerID: String) -> [LanguageTestItem] {
-        Self.presentedItems(discovered: service.itemsByProviderID[providerID] ?? [],
-            results: service.results, resultProviderID: service.activePlan?.providerID, providerID: providerID)
+        let discovered = (service.itemsByProviderID[providerID] ?? []).map { item in
+            var item = item
+            item.projectPath = item.fileURL.flatMap { model.buildSystemsFeatureIfActive?.projectPath(containing: $0) }
+            return item
+        }
+        return Self.presentedItems(discovered: discovered,
+            results: service.results, references: service.resultReferences, resultProviderID: service.activePlan?.providerID, providerID: providerID)
     }
 
     /// Selection and rendering consume the same nodes, including report-only results.
-    static func presentedItems(discovered: [LanguageTestItem], results: MavenTestResults?, resultProviderID: String?, providerID: String) -> [LanguageTestItem] {
-        guard resultProviderID == providerID, let outcomes = results?.testCases else { return discovered }
-        let statuses = resultStatuses(outcomes)
-        let reported = discovered.filter { $0.kind == .testCase && statuses[resultKey($0)] != nil }
-        if !reported.isEmpty { return reported }
-        return outcomes.isEmpty ? discovered : synthesizeResultItems(from: outcomes, providerID: providerID)
+    static func presentedItems(discovered: [LanguageTestItem], results: BuildTestResults?, references: [BuildTestCaseKey: BuildTestReference] = [:], resultProviderID: String?, providerID: String) -> [LanguageTestItem] {
+        guard resultProviderID == providerID, let outcomes = results?.tests else { return discovered }
+        guard !outcomes.isEmpty else { return discovered }
+        let semantic = Dictionary(grouping: discovered.filter { $0.kind == .testCase }, by: resultKey)
+        return synthesizeResultItems(from: outcomes, references: references, providerID: providerID).map { row in
+            guard let matches = semantic[resultKey(row)], matches.count == 1, let source = matches.first else { return row }
+            return LanguageTestItem(id: source.id, providerID: row.providerID, label: row.label, kind: row.kind,
+                fileURL: source.fileURL, testIdentifier: source.testIdentifier, depth: row.depth,
+                projectPath: row.projectPath, buildReference: row.buildReference, reportIdentity: row.reportIdentity)
+        }
     }
 
     private func testItemContent(_ item: LanguageTestItem, hasChildren: Bool) -> some View {
@@ -338,40 +348,12 @@ struct LanguageTestsView: View {
             Text(status == "Ignored" ? localization.text("Skipped") : status.map(localization.text) ?? ""))
     }
 
-    static func parseDurations(
-        from output: String,
-        outcomes: [MavenTestCaseOutcome] = []
-    ) -> [String: String] {
-        var durations: [String: String] = [:]
-
-        // Class duration line: Time elapsed: 0.582 s -- in demo.CalculatorTest
-        if let classRegex = try? NSRegularExpression(
-            pattern: #"Time elapsed:\s*([0-9]+(?:\.[0-9]+)?)\s*s\s*--?\s*in\s+([A-Za-z0-9_$.]+)"#
-        ) {
-            let matches = classRegex.matches(in: output, range: NSRange(output.startIndex..., in: output))
-            for match in matches {
-                if let timeRange = Range(match.range(at: 1), in: output),
-                   let classRange = Range(match.range(at: 2), in: output) {
-                    let timeStr = String(output[timeRange])
-                    let fullClassName = String(output[classRange])
-                    if let sec = Double(timeStr) {
-                        let formatted = formatDuration(seconds: sec)
-                        if durations[fullClassName] == nil {
-                            durations[fullClassName] = formatted
-                            let shortName = fullClassName.split(separator: ".").last.map(String.init) ?? fullClassName
-                            durations[shortName] = formatted
-                        }
-                    }
-                }
-            }
+    static func reportDurations(_ tests: [BuildTestResults.TestCase]) -> [ResultKey: String] {
+        var durations: [ResultKey: String] = [:]
+        for test in tests {
+            guard let milliseconds = test.durationMillis, milliseconds >= 0 else { continue }
+            durations[ResultKey(project: test.project, suite: test.suite, name: test.name)] = formatDuration(seconds: Double(milliseconds) / 1000)
         }
-
-        for outcome in outcomes {
-            guard let milliseconds = outcome.durationMillis, milliseconds >= 0 else { continue }
-            let method = outcome.method.split(separator: "(", maxSplits: 1).first.map(String.init) ?? outcome.method
-            durations[outcome.className + "#" + method] = formatDuration(seconds: Double(milliseconds) / 1000)
-        }
-
         return durations
     }
 
@@ -390,44 +372,47 @@ struct LanguageTestsView: View {
     }
 
     static func synthesizeResultItems(
-        from outcomes: [MavenTestCaseOutcome],
+        from outcomes: [BuildTestResults.TestCase],
+        references: [BuildTestCaseKey: BuildTestReference] = [:],
         providerID: String
     ) -> [LanguageTestItem] {
-        var classOrder: [String] = []
-        var classGroups: [String: [MavenTestCaseOutcome]] = [:]
+        var classOrder: [ResultKey] = []
+        var classGroups: [ResultKey: [BuildTestResults.TestCase]] = [:]
         for outcome in outcomes {
-            if classGroups[outcome.className] == nil {
-                classOrder.append(outcome.className)
-            }
-            classGroups[outcome.className, default: []].append(outcome)
+            let key = ResultKey(project: outcome.project, suite: outcome.suite, name: nil)
+            if classGroups[key] == nil { classOrder.append(key) }
+            classGroups[key, default: []].append(outcome)
         }
 
         var items: [LanguageTestItem] = []
-        for fullClassName in classOrder {
-            let shortClassName = fullClassName.split(separator: ".").last.map(String.init) ?? fullClassName
-            let methods = classGroups[fullClassName] ?? []
+        for key in classOrder {
+            let methods = classGroups[key] ?? []
+            guard let first = methods.first else { continue }
+            let fullClassName = first.suite
             let classNode = LanguageTestItem(
-                id: "testCase:\(providerID):\(fullClassName)",
+                id: "testCase:\(providerID):\(key.id)",
                 providerID: providerID,
-                label: shortClassName,
+                label: first.project.map { $0 + " / " + fullClassName } ?? fullClassName,
                 kind: .testCase,
                 fileURL: nil,
                 testIdentifier: fullClassName,
-                depth: 1
+                depth: 1, projectPath: first.project, buildReference: references[BuildTestCaseKey(first)]?.suiteReference,
+                reportIdentity: .init(suite: first.suite)
             )
             items.append(classNode)
 
             for outcome in methods {
-                let methodName = outcome.method.split(separator: "(", maxSplits: 1).first.map(String.init) ?? outcome.method
+                let methodName = outcome.name
                 let methodID = "\(fullClassName)#\(methodName)"
                 let methodNode = LanguageTestItem(
-                    id: "testCase:\(providerID):\(methodID)",
+                    id: "testCase:\(providerID):\(ResultKey(project: outcome.project, suite: outcome.suite, name: outcome.name).id)",
                     providerID: providerID,
                     label: methodName,
                     kind: .testCase,
                     fileURL: nil,
                     testIdentifier: methodID,
-                    depth: 2
+                    depth: 2, projectPath: outcome.project, buildReference: references[BuildTestCaseKey(outcome)],
+                    reportIdentity: .init(suite: outcome.suite, name: outcome.name)
                 )
                 items.append(methodNode)
             }
@@ -435,22 +420,32 @@ struct LanguageTestsView: View {
         return items
     }
 
-    static func resultKey(_ item: LanguageTestItem) -> String {
-        (item.testIdentifier ?? item.id).split(separator: "(", maxSplits: 1).first.map(String.init) ?? item.id
+    struct ResultKey: Hashable {
+        let project: String?
+        let suite: String
+        let name: String?
+        var id: String {
+            [project, suite, name].map { $0.map { "\($0.utf8.count):" + $0 } ?? "-" }.joined()
+        }
     }
 
-    static func resultStatuses(_ outcomes: [MavenTestCaseOutcome]) -> [String: String] {
-        var grouped: [String: [String]] = [:]
+    static func resultKey(_ item: LanguageTestItem) -> ResultKey {
+        let identity = item.reportIdentity ?? .init(suite: item.testIdentifier ?? item.id)
+        return ResultKey(project: item.projectPath, suite: identity.suite, name: identity.name)
+    }
+
+    static func resultStatuses(_ outcomes: [BuildTestResults.TestCase]) -> [ResultKey: String] {
+        var grouped: [ResultKey: [BuildTestResults.TestCase.Status]] = [:]
         for outcome in outcomes {
-            let method = outcome.method.split(separator: "(", maxSplits: 1).first.map(String.init) ?? outcome.method
-            grouped[outcome.className, default: []].append(outcome.status)
-            grouped[outcome.className + "#" + method, default: []].append(outcome.status)
+            let method = outcome.name
+            grouped[ResultKey(project: outcome.project, suite: outcome.suite, name: nil), default: []].append(outcome.status)
+            grouped[ResultKey(project: outcome.project, suite: outcome.suite, name: method), default: []].append(outcome.status)
         }
         return grouped.compactMapValues { statuses in
-            if statuses.contains("error") { return "Error" }
-            if statuses.contains("failed") { return "Failed" }
-            if statuses.allSatisfy({ $0 == "skipped" }) { return "Ignored" }
-            if statuses.allSatisfy({ $0 == "passed" || $0 == "skipped" }) { return "Passed" }
+            if statuses.contains(.error) { return "Error" }
+            if statuses.contains(.failed) { return "Failed" }
+            if statuses.allSatisfy({ $0 == .skipped }) { return "Ignored" }
+            if statuses.allSatisfy({ $0 == .passed || $0 == .skipped }) { return "Passed" }
             return nil
         }
     }
@@ -507,9 +502,9 @@ struct LanguageTestsView: View {
     }
 
     private func updateResultsAndDurations() {
-        let outcomes = service.results?.testCases ?? []
+        let outcomes = service.results?.tests ?? []
         resultStatuses = Self.resultStatuses(outcomes)
-        testDurations = Self.parseDurations(from: service.output, outcomes: outcomes)
+        testDurations = Self.reportDurations(outcomes)
     }
 
     private func syncPerformance() {
@@ -581,6 +576,7 @@ struct LanguageTestsView: View {
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
+                .pluginLinks(in: model, scope: .test, searchRoots: [workspaceURL])
             }
         }
     }
@@ -591,13 +587,13 @@ struct LanguageTestsView: View {
                 HStack(spacing: LitheTheme.TestResult.summaryIconTextGap) {
                     LitheIDEAIcon(resourcePath: Self.summaryIcon(for: results, state: service.state), size: 16,
                                   preservesOriginalColors: true)
-                    if Self.runFailed(service.state), results.failures + results.errors == 0 {
+                    if Self.runFailed(service.state), results.summary.failed + results.summary.errors == 0 {
                         Text(LocalizedStringKey(Self.summaryText(for: service.state)))
                             .foregroundStyle(LitheTheme.TestResult.failedText)
                     }
                     summaryCounts(results)
                 }
-                Text(localization.number(results.testsRun == 1 ? "%lld test total" : "%lld tests total", results.testsRun))
+                Text(localization.number(results.summary.total == 1 ? "%lld test total" : "%lld tests total", results.summary.total))
                     .foregroundStyle(LitheTheme.TestResult.descriptionText)
             } else {
                 Text(LocalizedStringKey(Self.summaryText(for: service.state)))
@@ -638,8 +634,8 @@ struct LanguageTestsView: View {
         if Self.runFailed(service.state) { return LitheTheme.TestResult.failed }
         if service.state == .cancelled { return nil }
         if let results = service.results {
-            if results.failures + results.errors > 0 { return LitheTheme.TestResult.failed }
-            return results.passed > 0 ? LitheTheme.TestResult.passed : nil
+            if results.summary.failed + results.summary.errors > 0 { return LitheTheme.TestResult.failed }
+            return results.summary.passed > 0 ? LitheTheme.TestResult.passed : nil
         }
         switch service.state {
         case .passed: return LitheTheme.TestResult.passed
@@ -662,9 +658,8 @@ struct LanguageTestsView: View {
             }
 
             if let results = service.results {
-                if !results.failureDetails.isEmpty {
-                    testFailureList(results.failureDetails)
-                }
+                let failures = results.tests.filter { $0.status == .failed || $0.status == .error }
+                if !failures.isEmpty { testFailureList(failures) }
             }
 
             if let plan = service.activePlan,
@@ -687,24 +682,24 @@ struct LanguageTestsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func summaryCounts(_ results: MavenTestResults) -> Text {
-        let failed = results.failures + results.errors
+    private func summaryCounts(_ results: BuildTestResults) -> Text {
+        let failed = results.summary.failed + results.summary.errors
         let separator = localization.text(", ")
         var fragments: [Text] = []
         if failed > 0 {
             let format = failed == 1 ? "%lld test failed" : "%lld tests failed"
-            fragments.append(Text(localization.number(format, failed) + (results.passed + results.skipped > 0 ? separator : ""))
+            fragments.append(Text(localization.number(format, failed) + (results.summary.passed + results.summary.skipped > 0 ? separator : ""))
                 .foregroundColor(LitheTheme.TestResult.failedText))
         }
-        if results.passed > 0 {
-            let format = failed + results.skipped == 0
-                ? (results.passed == 1 ? "%lld test passed" : "%lld tests passed") : "%lld passed"
-            fragments.append(Text(localization.number(format, results.passed) + (results.skipped > 0 ? separator : "")))
+        if results.summary.passed > 0 {
+            let format = failed + results.summary.skipped == 0
+                ? (results.summary.passed == 1 ? "%lld test passed" : "%lld tests passed") : "%lld passed"
+            fragments.append(Text(localization.number(format, results.summary.passed) + (results.summary.skipped > 0 ? separator : "")))
         }
-        if results.skipped > 0 {
-            let format = failed + results.passed == 0
-                ? (results.skipped == 1 ? "%lld test ignored" : "%lld tests ignored") : "%lld ignored"
-            fragments.append(Text(localization.number(format, results.skipped))
+        if results.summary.skipped > 0 {
+            let format = failed + results.summary.passed == 0
+                ? (results.summary.skipped == 1 ? "%lld test ignored" : "%lld tests ignored") : "%lld ignored"
+            fragments.append(Text(localization.number(format, results.summary.skipped))
                 .foregroundColor(LitheTheme.TestResult.ignoredText))
         }
         return fragments.reduce(Text(""), +).font(LitheTheme.TestResult.summaryFont)
@@ -717,34 +712,34 @@ struct LanguageTestsView: View {
         }
     }
 
-    static func summaryIcon(for results: MavenTestResults, state: LanguageTestRunState = .idle) -> String {
+    static func summaryIcon(for results: BuildTestResults, state: LanguageTestRunState = .idle) -> String {
         let status: String
-        if results.failures > 0 { status = "Failed" }
-        else if results.errors > 0 || runFailed(state) { status = "Error" }
-        else if results.passed > 0 { status = results.skipped > 0 ? "PassedIgnored" : "Passed" }
-        else { status = results.skipped > 0 ? "Ignored" : "NotRunYet" }
+        if results.summary.failed > 0 { status = "Failed" }
+        else if results.summary.errors > 0 || runFailed(state) { status = "Error" }
+        else if results.summary.passed > 0 { status = results.summary.skipped > 0 ? "PassedIgnored" : "Passed" }
+        else { status = results.summary.skipped > 0 ? "Ignored" : "NotRunYet" }
         return "expui/run/test\(status).svg"
     }
 
-    private func testFailureList(_ failures: [LanguageTestFailureDetail]) -> some View {
+    private func testFailureList(_ failures: [BuildTestResults.TestCase]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(localization.text("Failures"))
                 .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                 .foregroundStyle(LitheTheme.secondaryText)
             ForEach(failures) { failure in
                 Button {
-                    guard let fileURL = failure.fileURL else { return }
+                    guard let fileURL = service.sourceURL(for: failure) else { return }
                     model.openSourceLocation(
                         url: fileURL,
                         line: failure.line ?? 1,
-                        column: failure.column
+                        column: nil
                     )
                 } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Image(systemName: failure.kind == "error" ? "exclamationmark.triangle.fill" : "xmark.circle.fill")
-                            .foregroundStyle(failure.kind == "error" ? LitheTheme.warning : LitheTheme.error)
+                        Image(systemName: failure.status == .error ? "exclamationmark.triangle.fill" : "xmark.circle.fill")
+                            .foregroundStyle(failure.status == .error ? LitheTheme.warning : LitheTheme.error)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(failure.name)
+                            Text(failure.suite + "#" + failure.name)
                                 .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                                 .lineLimit(1)
                             if let message = failure.message, !message.isEmpty {
@@ -755,7 +750,7 @@ struct LanguageTestsView: View {
                             }
                         }
                         Spacer(minLength: 0)
-                        if let fileURL = failure.fileURL {
+                        if let fileURL = service.sourceURL(for: failure) {
                             Text(fileURL.lastPathComponent + (failure.line.map { ":\($0)" } ?? ""))
                                 .font(LitheTheme.uiFont(size: 10, design: .monospaced))
                                 .foregroundStyle(LitheTheme.secondaryText)
@@ -766,7 +761,7 @@ struct LanguageTestsView: View {
                     .padding(.vertical, 3)
                 }
                 .buttonStyle(.litheNoPress)
-                .disabled(failure.fileURL == nil)
+                .disabled(service.sourceURL(for: failure) == nil)
             }
         }
     }
@@ -780,7 +775,7 @@ struct LanguageTestsView: View {
         case .testCase:
             return .testCase(
                 identifier: item.testIdentifier ?? item.label,
-                fileURL: item.fileURL
+                fileURL: item.fileURL, buildReference: item.buildReference
             )
         }
     }

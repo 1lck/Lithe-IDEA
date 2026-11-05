@@ -106,6 +106,24 @@ pub struct LspDocumentContentChange {
     pub text: String,
 }
 
+/// Options a host declares for the services it serves one plugin session,
+/// from `lsp.startServer.hostOptions`. Core reports them to the backend
+/// through `lithe/host/getCapabilities`, only for granted methods.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HostOptions {
+    /// Icons, source bound and provider types of the editor service.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editor: Option<crate::plugins::editor_actions::EditorHostOptions>,
+}
+
+impl HostOptions {
+    /// Whether the host declared no options.
+    pub fn is_empty(&self) -> bool {
+        self.editor.is_none()
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Pure client protocol state carried between JSON command invocations.
@@ -151,6 +169,10 @@ pub struct LspClientState {
     /// `lsp.startServer.hostServices`. Empty for host-owned sessions.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub host_services: BTreeSet<String>,
+    /// Options the host declared for its granted services, from
+    /// `lsp.startServer.hostOptions`.
+    #[serde(default, skip_serializing_if = "HostOptions::is_empty")]
+    pub host_options: HostOptions,
     /// The VCS and capabilities a plugin process answered under
     /// `litheVcs`; `None` when the protocol was not negotiated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -162,6 +184,12 @@ pub struct LspClientState {
     /// The offered providers the backend selected; empty until negotiated.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub toolchain_providers: Vec<String>,
+    /// Manifest providers offered under `litheKeymapImport` for this session.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub offered_keymap_import_providers: BTreeSet<String>,
+    /// The shortcut import providers selected by the backend.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keymap_import_providers: Vec<String>,
 }
 
 impl Default for LspClientState {
@@ -182,9 +210,12 @@ impl Default for LspClientState {
             plugin_functions: BTreeSet::new(),
             plugin_function_version: None,
             host_services: BTreeSet::new(),
+            host_options: HostOptions::default(),
             vcs_provider: None,
             offered_toolchain_providers: BTreeSet::new(),
             toolchain_providers: Vec::new(),
+            offered_keymap_import_providers: BTreeSet::new(),
+            keymap_import_providers: Vec::new(),
         }
     }
 }

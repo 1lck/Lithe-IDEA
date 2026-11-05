@@ -28,7 +28,6 @@ import type {
   CompletionList,
   CompletionContext,
   Hover,
-  PublishDiagnosticsParams,
 } from "vscode-languageserver-protocol";
 import {
   convertLSPDiagnostic,
@@ -614,7 +613,7 @@ export class LspClient {
         logger.error("LSPClient", "No uri in diagnostics payload:", publication);
         continue;
       }
-      const diagnostics = (publication.diagnostics ?? []) as PublishDiagnosticsParams["diagnostics"];
+      const diagnostics = publication.diagnostics ?? [];
       const publishedFilePath = filePathFromUri(uri);
       const filePath = resolvePublishedDiagnosticsFilePath(
         publishedFilePath,
@@ -1828,7 +1827,7 @@ export class LspClient {
         lspDocumentRequestArgs(target),
       );
       if (!edits.length) return content;
-      return applyTextEditsToContent(content, edits);
+      return await applyTextEditsToContent(content, edits);
     } catch (error) {
       logger.debug("LSPClient", "LSP document formatting unavailable:", error);
       return null;
@@ -1853,7 +1852,7 @@ export class LspClient {
         endCharacter: range.end.character,
       });
       if (!edits.length) return content;
-      return applyTextEditsToContent(content, edits);
+      return await applyTextEditsToContent(content, edits);
     } catch (error) {
       logger.debug("LSPClient", "LSP range formatting unavailable:", error);
       return null;
@@ -1954,16 +1953,11 @@ export class LspClient {
     try {
       return await invoke<DiagnosticCodeAction[]>("lsp_get_code_actions", {
         ...lspDocumentRequestArgs(target),
-        diagnostic: {
-          line: diagnostic.line,
-          column: diagnostic.column,
-          endLine: diagnostic.endLine,
-          endColumn: diagnostic.endColumn,
-          message: diagnostic.message,
-          source: diagnostic.source,
-          code: diagnostic.code,
-          severity: diagnostic.severity,
+        range: diagnostic.lspDiagnostic?.range ?? {
+          start: { line: diagnostic.line, utf16Column: diagnostic.column },
+          end: { line: diagnostic.endLine, utf16Column: diagnostic.endColumn },
         },
+        diagnostics: diagnostic.lspDiagnostic ? [diagnostic.lspDiagnostic] : [],
       });
     } catch (error) {
       logger.warn("LSPClient", "LSP code action request failed:", error);
@@ -2032,7 +2026,7 @@ export class LspClient {
       try {
         logger.debug("LSPClient", `Opening document: ${filePath}`);
         const languageId = languageIdForEditorFile(filePath);
-        await invoke<void>("lsp_document_open", {
+        const sync = await invoke<{ documentVersion: number; changed: boolean }>("lsp_document_open", {
           filePath,
           content,
           languageId,
@@ -2042,7 +2036,7 @@ export class LspClient {
         this.documents.set(attachmentKey, {
           filePath,
           attachmentId: ownerAttachmentId,
-          version: 1,
+          version: sync.documentVersion,
           content,
           phase: "open",
         });
@@ -2063,7 +2057,6 @@ export class LspClient {
   private async notifyDocumentChange(
     filePath: string,
     content: string,
-    version: number,
     contentChanges?: EditorTextChange[],
   ): Promise<void> {
     const attachmentKey = trackedFileKey(filePath);
@@ -2081,16 +2074,15 @@ export class LspClient {
       ? contentChanges
       : undefined;
     try {
-      const sendFullText = () => invoke<void>("lsp_document_change", { filePath, content, version, attachmentId });
-      if (ranges) {
-        await invoke<void>("lsp_document_change", { filePath, version, contentChanges: ranges, attachmentId })
-          .catch(sendFullText);
-      } else {
-        await sendFullText();
-      }
+      type SyncResult = { documentVersion: number; changed: boolean };
+      const sendFullText = () => invoke<SyncResult>("lsp_document_change", { filePath, content, attachmentId });
+      const sync = ranges
+        ? await invoke<SyncResult>("lsp_document_change", { filePath, contentChanges: ranges, attachmentId })
+            .catch(sendFullText)
+        : await sendFullText();
       const current = this.documents.get(attachmentKey);
       if (current?.phase === "open" && current.attachmentId === attachmentId) {
-        this.documents.set(attachmentKey, { ...current, version, content });
+        this.documents.set(attachmentKey, { ...current, version: sync.documentVersion, content });
       }
     } catch (error) {
       logger.error("LSPClient", "LSP document change error:", error);
@@ -2130,7 +2122,6 @@ export class LspClient {
       await this.notifyDocumentChange(
         filePath,
         content,
-        document.version + 1,
         contentChanges,
       );
     });

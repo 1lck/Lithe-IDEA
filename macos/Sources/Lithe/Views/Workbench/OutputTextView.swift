@@ -61,7 +61,9 @@ struct OutputTextView: View {
     var consolePresentation: ConsoleFoldPresentation? = nil
     var standardInputSessionID: UUID? = nil
     var onSubmitStandardInput: ((String) -> Bool)? = nil
-    var decorateOutput: ((NSMutableAttributedString, Bool) -> Void)?
+    var decorateOutput: (@MainActor (NSMutableAttributedString, Bool) -> Void)?
+    /// Opens a link a plugin's matcher made, whose location the plugin's backend decides.
+    var onOpenPluginLink: (@MainActor (URL) -> Void)?
     /// Adds a soft-wrap toggle to the context menu. Callers that do not own a
     /// wrap preference leave it nil and keep the plain text menu.
     var onToggleWrapsLines: (() -> Void)?
@@ -104,6 +106,7 @@ struct OutputTextView: View {
                 return rendered
             },
             onOpenLocation: onOpenLocation,
+            onOpenPluginLink: onOpenPluginLink,
             onBottomStateChange: { isAtBottom = $0 }
         )
             .litheWorkbenchSurface(LitheTheme.editor, hasBackgroundImage: hasBackgroundImage)
@@ -367,7 +370,7 @@ struct OutputTextView: View {
 
     // MARK: - 链接编码
 
-    private static func locationURL(path: String, line: Int, column: Int?) -> URL {
+    static func locationURL(path: String, line: Int, column: Int?) -> URL {
         var components = URLComponents()
         components.scheme = "lithe-open"
         components.host = "file"
@@ -725,6 +728,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
     let onConsoleOccurrencesChange: (Bool) -> Void
     let render: (String, [URL], @escaping (URL) -> Bool, Bool, AppColorTheme, CGFloat) -> NSAttributedString
     let onOpenLocation: (URL, Int, Int?) -> Void
+    let onOpenPluginLink: (@MainActor (URL) -> Void)?
     let onBottomStateChange: @MainActor (Bool) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(folds: consolePresentation ?? ConsoleFoldPresentation()) }
@@ -788,6 +792,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
             context.coordinator.textView?.insertionPointColor = LitheConsoleStyle.foreground(dark: colorScheme == .dark)
         }
         context.coordinator.onOpenLocation = onOpenLocation
+        context.coordinator.onOpenPluginLink = onOpenPluginLink
         context.coordinator.onBottomStateChange = onBottomStateChange
         context.coordinator.bottomThreshold = bottomThreshold
         context.coordinator.onToggleWrapsLines = onToggleWrapsLines
@@ -831,6 +836,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
         weak var scrollView: NSScrollView?
         weak var textView: NSTextView?
         var onOpenLocation: ((URL, Int, Int?) -> Void)?
+        var onOpenPluginLink: (@MainActor (URL) -> Void)?
         var onBottomStateChange: (@MainActor (Bool) -> Void)?
         var bottomThreshold: CGFloat = 80
         var scrollToLatestRequest = 0
@@ -1207,6 +1213,10 @@ private struct OutputTextStorageView: NSViewRepresentable {
             guard let url = link as? URL else { return false }
             if usesIDEAConsoleStyle, url.scheme == "lithe-console-fold" {
                 toggleFold(url.lastPathComponent)
+                return true
+            }
+            if url.scheme == PluginOutputLinkService.linkScheme {
+                onOpenPluginLink?(url)
                 return true
             }
             guard let location = OutputTextView.location(from: url) else { return false }

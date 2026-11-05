@@ -56,241 +56,11 @@ struct MavenRuntimeTests {
         let macCases = fixture.storageIdentityCases.filter { $0.platform == "macos" }
         #expect(macCases.count == 1)
         for item in macCases {
-            #expect(MacMavenConfigurationStore.storageIdentity(
+            #expect(MacLegacyMavenConfigurationMigration.storageIdentity(
                 workspacePath: item.workspacePath,
                 reactorPath: item.reactorPath
             ) == item.expectedIdentity)
         }
-    }
-
-    @Test
-    func mavenScanPayloadDecodesRustCamelCaseIdentifiers() throws {
-        let json = #"""
-        {
-            "relativePath": "services/api",
-            "groupId": "com.example",
-            "artifactId": "root",
-            "version": "1.0",
-            "packaging": "pom",
-            "sourceRoots": [{"path": "src/main/java", "kind": "mainJava"}],
-            "modules": [{
-                "relativePath": "module-a",
-                "groupId": "com.example",
-                "artifactId": "child",
-                "version": "1.0",
-                "packaging": "jar",
-                "sourceRoots": [{"path": "src/test/java", "kind": "testJava"}],
-                "modules": []
-            }],
-            "profiles": [{"id": "dev", "isActiveByDefault": true}],
-            "hasWrapper": true
-        }
-        """#
-        let payload = try JSONDecoder().decode(
-            RustCoreBridge.MavenScanPayload.self,
-            from: Data(json.utf8)
-        )
-
-        let workspaceRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-maven-payload", isDirectory: true)
-        let project = payload.makeProject(workspaceRootURL: workspaceRoot)
-        let expectedRoot = URL(
-            fileURLWithPath: workspaceRoot.path + "/services/api",
-            isDirectory: true
-        )
-        #expect(project.rootURL == expectedRoot)
-        #expect(!project.rootURL.absoluteString.contains("%2F"))
-        #expect(project.pomURL == expectedRoot.appendingPathComponent("pom.xml"))
-        #expect(project.groupID == "com.example")
-        #expect(project.artifactID == "root")
-        #expect(project.sourceRoots == [
-            MavenSourceRoot(path: "src/main/java", kind: .mainJava)
-        ])
-        #expect(project.modules.count == 1)
-        #expect(project.modules[0].groupID == "com.example")
-        #expect(project.modules[0].artifactID == "child")
-        #expect(project.modules[0].sourceRoots == [
-            MavenSourceRoot(path: "src/test/java", kind: .testJava)
-        ])
-        #expect(project.modules[0].url == expectedRoot.appendingPathComponent("module-a"))
-        #expect(project.profiles == [MavenProfile(id: "dev", isActiveByDefault: true)])
-        #expect(project.hasWrapper)
-    }
-
-    @Test
-    func nestedMavenRunConfigurationsUseWorkspaceRelativeModulePaths() {
-        let workspaceRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-nested-maven-run-\(UUID().uuidString)", isDirectory: true)
-        let mavenRoot = URL(
-            fileURLWithPath: workspaceRoot.path + "/projects/demo",
-            isDirectory: true
-        )
-        let moduleRoot = mavenRoot.appendingPathComponent("service", isDirectory: true)
-        let module = MavenModule(
-            relativePath: "service",
-            url: moduleRoot,
-            groupID: "com.example",
-            artifactID: "service-api",
-            version: "1.0",
-            packaging: "jar",
-            modules: []
-        )
-        let project = MavenProject(
-            rootURL: mavenRoot,
-            pomURL: mavenRoot.appendingPathComponent("pom.xml"),
-            groupID: "com.example",
-            artifactID: "demo",
-            version: "1.0",
-            packaging: "pom",
-            modules: [module],
-            profiles: [],
-            hasWrapper: false
-        )
-
-        let modules = RustJavaMavenOperations(core: RustCoreBridge()).workspaceMavenModules(
-            in: project,
-            relativeTo: workspaceRoot
-        )
-        #expect(modules.map { $0.path } == ["projects/demo/service"])
-        #expect(modules.map { $0.module.relativePath } == ["service"])
-    }
-
-    @Test
-    func mavenLaunchPlanPayloadDecodesSharedCoreResponse() throws {
-        let json = #"""
-        {
-            "version": 1,
-            "executable": { "toolchain": "project-maven" },
-            "arguments": ["-B", "-ntp", "verify"],
-            "workingDirectory": "projects/demo",
-            "configurationFingerprint": "sha256:fixture"
-        }
-        """#
-
-        let payload = try JSONDecoder().decode(
-            RustCoreBridge.MavenLaunchPlanPayload.self,
-            from: Data(json.utf8)
-        )
-        let plan = payload.makeModel()
-
-        #expect(plan.version == 1)
-        #expect(plan.toolchain == "project-maven")
-        #expect(plan.arguments == ["-B", "-ntp", "verify"])
-        #expect(plan.workingDirectory == "projects/demo")
-        #expect(plan.configurationFingerprint == "sha256:fixture")
-    }
-
-    @Test
-    func mavenDependencyPayloadDecodesTheSharedFixture() throws {
-        let fixture = try Self.dependencyTreeFixture()
-        let tree = try fixture.expected.makeModel()
-
-        #expect(fixture.version == 2)
-        #expect(tree.modulePath == fixture.modulePath)
-        #expect(fixture.treeFile.contains("omitted for conflict with 2.0"))
-        #expect(tree.dependencies.map(\.artifactID) == [
-            "compile-lib", "managed-lib", "provided-lib", "runtime-lib", "test-lib"
-        ])
-        let compileDependency = try #require(tree.dependencies.first)
-        let conflict = try #require(compileDependency.children.first)
-        #expect(conflict.resolution == .omittedConflict)
-        #expect(conflict.selectedVersion == "2.0")
-        #expect(conflict.premanagedVersion == "1.1")
-        let managed = try #require(tree.dependencies.first { $0.artifactID == "managed-lib" })
-        #expect(managed.premanagedVersion == "0.9.0")
-        #expect(managed.ignoredScope == "compile")
-        let provided = try #require(tree.dependencies.first { $0.artifactID == "provided-lib" })
-        #expect(provided.premanagedScope == "compile")
-        let runtime = try #require(tree.dependencies.first { $0.artifactID == "runtime-lib" })
-        #expect(runtime.children.first?.originalScope == "test")
-        let testDependency = try #require(tree.dependencies.last)
-        #expect(testDependency.classifier == "tests")
-        #expect(testDependency.scope == "test")
-    }
-
-    @Test
-    func dependencyOutputStoreKeepsFilesPerProcessAndRemovesAbandonedOnes() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-maven-outputs-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let running = root.appendingPathComponent("200", isDirectory: true)
-        let exited = root.appendingPathComponent("300", isDirectory: true)
-        let unrelated = root.appendingPathComponent("notes", isDirectory: true)
-        for directory in [running, exited, unrelated] {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        }
-
-        let store = MacMavenDependencyOutputStore(
-            rootURL: root,
-            processIdentifier: 100,
-            isProcessRunning: { $0 == 200 }
-        )
-
-        // Another running Lithe keeps its files; an exited one's are removed.
-        #expect(FileManager.default.fileExists(atPath: running.path))
-        #expect(!FileManager.default.fileExists(atPath: exited.path))
-        #expect(FileManager.default.fileExists(atPath: unrelated.path))
-
-        let operationID = UUID().uuidString
-        let file = try store.makeDependencyOutputFile(operationID: operationID)
-        #expect(file.deletingLastPathComponent().lastPathComponent == "100")
-        try Data("stale".utf8).write(to: file)
-        #expect(try store.makeDependencyOutputFile(operationID: operationID) == file)
-        #expect(!FileManager.default.fileExists(atPath: file.path))
-
-        try Data("tree".utf8).write(to: file)
-        store.removeDependencyOutputFile(file)
-        #expect(!FileManager.default.fileExists(atPath: file.path))
-        store.removeDependencyOutputFile(file)
-
-        for operationID in ["", "../escape", "a/b", "a b"] {
-            #expect(throws: MavenOperationError.self) {
-                try store.makeDependencyOutputFile(operationID: operationID)
-            }
-        }
-    }
-
-    @Test
-    func mavenConfigurationSeparatesPortableAndLocalPaths() throws {
-        let testRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-maven-store-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: testRoot) }
-        let workspace = testRoot.appendingPathComponent("workspace", isDirectory: true)
-        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
-        let storage = MavenTestFileStorage(root: testRoot)
-        let store = MacMavenConfigurationStore(storage: storage)
-        let configuration = MavenStoredConfiguration(
-            portable: MavenPortableConfiguration(
-                selectedProfiles: ["dev", "qa"],
-                customProfiles: ["qa"],
-                skipTests: true
-            ),
-            local: MavenLocalConfiguration(
-                settingsPath: "/private/settings.xml",
-                mavenExecutablePath: "/private/apache-maven",
-                javaHomePath: "/private/jdk"
-            )
-        )
-
-        try store.saveMavenConfiguration(
-            configuration,
-            workspaceURL: workspace,
-            reactorPath: "."
-        )
-
-        let portableURL = workspace.appendingPathComponent(".lithe/maven/config.json")
-        let portableText = String(decoding: try Data(contentsOf: portableURL), as: UTF8.self)
-        #expect(portableText.contains("\"selectedProfiles\""))
-        #expect(!portableText.contains("/private/"))
-        #expect(try store.loadMavenConfiguration(
-            workspaceURL: workspace,
-            reactorPath: "."
-        ) == configuration)
-        let localFiles = try FileManager.default.contentsOfDirectory(
-            at: storage.applicationSupportDirectory().appendingPathComponent("Lithe/Maven"),
-            includingPropertiesForKeys: nil
-        )
-        #expect(localFiles.count == 1)
     }
 
     @Test
@@ -431,41 +201,28 @@ struct MavenRuntimeTests {
 
     @Test
     @MainActor
-    func savedRunDefaultsReplaceMirroredRuntimeSettings() {
-        // `.lithe/run/local.json` owns the project defaults. Settings mirrored from an
-        // older editor must follow it, while unrelated Maven settings stay untouched.
+    func runtimeSelectionsReadCurrentCanonicalDefaults() throws {
+        let store = InMemoryProjectRuntimeSettingsStore()
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
         let service = ProjectRuntimeService(
-            runtimeLocator: MavenOverrideRuntimeLocator(resolutions: [:]),
-            store: EmptyKeyValueStore()
+            runtimeLocator: MavenOverrideRuntimeLocator(resolutions: [:]), settingsStore: store
         )
-        service.openProject(at: URL(fileURLWithPath: "/workspace", isDirectory: true))
-        var legacy = service.settings
-        legacy.javaHomePath = "/fixture/legacy-jdk"
-        legacy.mavenHomeSelection = .custom
-        legacy.mavenHomePath = "/fixture/legacy-maven"
-        legacy.mavenJavaHomePath = "/fixture/legacy-maven-jdk"
-        legacy.mavenSettingsPath = "/fixture/settings.xml"
-        service.updateSettings(legacy)
-
-        service.adoptProjectToolchain(ProjectToolchainSelection(
-            javaHomePath: "/fixture/run-jdk",
-            mavenExecutablePath: "./mvnw",
-            mavenJavaHomePath: ""
-        ))
+        service.openProject(at: root)
+        let original = try store.load(at: root, migrateLegacy: false)
+        var current = original.settings
+        current.javaHomePath = "/fixture/run-jdk"
+        current.mavenHomeSelection = .wrapper
+        _ = try store.save(current, at: root, expecting: original)
+        service.reloadSettings()
         #expect(service.settings.javaHomePath == "/fixture/run-jdk")
         #expect(service.settings.mavenHomeSelection == .wrapper)
-        #expect(service.settings.mavenJavaHomePath.isEmpty)
-        #expect(service.settings.mavenSettingsPath == "/fixture/settings.xml")
-
-        service.adoptProjectToolchain(ProjectToolchainSelection(mavenExecutablePath: "/fixture/other-maven"))
-        #expect(service.settings.mavenHomeSelection == .custom)
-        #expect(service.settings.mavenHomePath == "/fixture/other-maven")
-
-        // Explicitly automatic defaults clear the choice but keep the remembered path.
-        service.adoptProjectToolchain(ProjectToolchainSelection())
-        #expect(service.settings.mavenHomeSelection == .automatic)
-        #expect(service.settings.mavenHomePath == "/fixture/other-maven")
+        let saved = try store.load(at: root, migrateLegacy: false)
+        _ = try store.save(ProjectRuntimeSettings(), at: root, expecting: saved)
+        service.reloadSettings()
         #expect(service.settings.projectToolchainSelection() == ProjectToolchainSelection())
+        store.failure = CocoaError(.fileReadCorruptFile)
+        #expect(service.javaHomeURL() == nil)
+        #expect(service.settingsError != nil)
     }
 
     @Test
@@ -587,9 +344,7 @@ struct MavenRuntimeTests {
         )
     }
 
-    private static func dependencyTreeFixture() throws -> MavenDependencyTreeFixture {
-        try MavenDependencyTreeFixture.load()
-    }
+
 }
 
 private struct MavenPlatformContractFixture: Decodable {
@@ -602,29 +357,6 @@ private struct MavenPlatformContractFixture: Decodable {
 
     let lifecyclePhases: [String]
     let storageIdentityCases: [StorageIdentityCase]
-}
-
-/// The shared `maven.dependencies` compatibility fixture.
-struct MavenDependencyTreeFixture: Decodable {
-    let version: Int
-    let modulePath: String
-    let treeFile: String
-    let expected: RustCoreBridge.MavenDependenciesPayload
-
-    static func load() throws -> MavenDependencyTreeFixture {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let url = repositoryRoot.appendingPathComponent(
-            "shared/fixtures/maven/dependency-tree-v2.json"
-        )
-        return try JSONDecoder().decode(
-            MavenDependencyTreeFixture.self,
-            from: Data(contentsOf: url)
-        )
-    }
 }
 
 private struct MavenTestFileStorage: FileStorage {

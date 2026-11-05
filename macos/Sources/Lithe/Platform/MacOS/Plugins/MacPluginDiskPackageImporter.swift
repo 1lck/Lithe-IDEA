@@ -40,15 +40,18 @@ final class MacPluginDiskPackageImporter: MacPluginDiskPackageImporting {
     private static let chunkBytes = 256 * 1024
     /// Bounds recursive frames and simultaneously open source descriptors.
     private static let maximumDirectoryDepth = 64
+    private let logSink: (any LogSink)?
     private let temporaryDirectory: URL
     private let fileManager: FileManager
     private let limits: MacPluginPackageDownloader.Limits
 
     init(
+        logSink: (any LogSink)? = nil,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         fileManager: FileManager = .default,
         limits: MacPluginPackageDownloader.Limits = .standard
     ) {
+        self.logSink = logSink
         self.temporaryDirectory = temporaryDirectory
         self.fileManager = fileManager
         self.limits = limits
@@ -96,9 +99,9 @@ final class MacPluginDiskPackageImporter: MacPluginDiskPackageImporting {
                 var budget = CopyBudget()
                 try copyFile(source, metadata: metadata, to: archive, budget: &budget, archive: true)
                 try Task.checkCancellation()
-                archiveSHA256 = try MacPluginPackageDownloader.sha256(of: archive)
+                archiveSHA256 = try MacPluginPackageDownloader.sha256(of: archive, logSink: logSink)
                 try fileManager.createDirectory(at: packageRoot, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-                try MacPluginPackageDownloader(fileManager: fileManager, limits: limits)
+                try MacPluginPackageDownloader(logSink: logSink, fileManager: fileManager, limits: limits)
                     .extractArchive(archive, into: packageRoot)
             }
             try Task.checkCancellation()
@@ -109,7 +112,9 @@ final class MacPluginDiskPackageImporter: MacPluginDiskPackageImporting {
                 fileName: url.lastPathComponent, archiveSHA256: archiveSHA256
             )
         } catch {
-            try? fileManager.removeItem(at: owned)
+            do { try fileManager.removeItem(at: owned) }
+            catch let error as CocoaError where error.code == .fileNoSuchFile { /* Owned resource is already absent. */ }
+            catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "remove")) }
             throw error
         }
     }

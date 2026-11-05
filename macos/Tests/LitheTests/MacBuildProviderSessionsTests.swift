@@ -9,6 +9,29 @@ import Testing
 /// process a request reuses, and when the host stops or restarts it.
 @MainActor
 struct MacBuildProviderSessionsTests {
+    @Test func runtimeWarningsAndFailuresKeepSourceClassificationAndNumbers() async throws {
+        let core = ScriptedProviderCore()
+        let session = LanguageServerRuntimeSession(providerID: "fixture",
+            executableURL: URL(fileURLWithPath: "/tools/server"), arguments: [], environment: [:], core: core)
+        let observed = TestGate()
+        var issues: [(Bool, String, String, Int?)] = []
+        session.onLogIssue = { warning, stage, code, exit, _ in
+            issues.append((warning, stage, code, exit))
+            if issues.count == 3 { observed.open() }
+        }
+        defer { session.stop() }
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        core.enqueueLogIssues()
+        #expect(await observed.waitUntilOpen())
+        #expect(issues.map { $0.2 } == ["mavenSettingsUnchanged", "configurationCleanupFailed", "initializeTimeout"])
+        #expect(issues.first?.0 == true)
+        #expect(issues.last?.0 == false)
+        #expect(issues.last?.1 == "initialize")
+        #expect(issues.last?.3 == 17)
+        session.stop()
+        #expect(await core.destroyed.waitUntilOpen())
+    }
+
     @Test func stopAndWaitIncludesTerminalEventAndAsynchronousResourceRelease() async throws {
         let core = ScriptedProviderCore(readyAfterStop: true)
         let session = LanguageServerRuntimeSession(providerID: "fixture",
@@ -208,10 +231,141 @@ struct MacBuildProviderSessionsTests {
                     core: core, release: { released.open() })
             }, core: core
         )
+        var issues: [(String, String)] = []
+        session.onLogIssue = { _, stage, code, _, _ in issues.append((stage, code)) }
         defer { session.stop() }
         try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
         #expect(await released.waitUntilOpen())
         #expect(!session.isRunning)
+        #expect(issues.contains { $0.0 == "processStart" && $0.1 == "processFailed" })
+    }
+
+    // MARK: Declarative start attempt
+
+    /// Once a launch is requested Core owns the plugin's start result, failed
+    /// or not; the host hands the attempt over and records nothing itself.
+    /// A plugin API 1 server starts as a host-owned process, so the handoff,
+    /// not the session, names the plugin.
+    @Test(arguments: [false, true], [false, true])
+    func aLaunchHandsTheDeclarativeStartToCore(failsToStart: Bool, pluginOwnsTheProcess: Bool) async throws {
+        let core = ScriptedProviderCore(failStart: failsToStart)
+        let operations = RecordedPluginOperations()
+        let session = LanguageServerRuntimeSession(
+            providerID: "fixture", executableURL: URL(fileURLWithPath: "/host/bin/server"),
+            arguments: [], environment: [:], core: core,
+            pluginID: pluginOwnsTheProcess ? "dev.example.fixture" : nil
+        )
+        defer { session.stop() }
+        let settled = TestGate()
+        session.onStateChange = { state in
+            switch state {
+            case .ready, .failed: settled.open()
+            default: break
+            }
+        }
+        session.observePluginStartup(operations.reporter.begin(
+            pluginID: "dev.example.fixture", operation: .languageServerStart, at: .resolve, operationID: "lsp-start"
+        ))
+
+        try? session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try #require(await settled.waitUntilOpen())
+
+        #expect(core.startupHandoffs.map(\.pluginId) == ["dev.example.fixture"])
+        #expect(core.startupHandoffs.map(\.operationId) == ["lsp-start"])
+        #expect(core.startupHandoffs.map(\.elapsedMs) == [RecordedPluginOperations.tick])
+        #expect(operations.observations.isEmpty)
+    }
+
+    /// A prepared launch starts on the core preparation returned, so that core
+    /// receives the attempt.
+    @Test
+    func aPreparedLaunchHandsTheDeclarativeStartToThePreparedCore() async throws {
+        let prepared = ScriptedProviderCore()
+        let unused = ScriptedProviderCore()
+        let released = TestGate()
+        let operations = RecordedPluginOperations()
+        let session = LanguageServerRuntimeSession(
+            providerID: "fixture", executableURL: URL(fileURLWithPath: "/unused"), arguments: [], environment: [:],
+            prepareProcess: { _ in
+                PreparedLanguageServerProcess(executableURL: URL(fileURLWithPath: "/host/bin/server"),
+                    environment: [:], launch: .init(arguments: [], initializationOptions: nil),
+                    core: prepared, release: { released.open() })
+            }, core: unused, pluginID: "dev.example.fixture"
+        )
+        defer { session.stop() }
+        session.observePluginStartup(operations.reporter.begin(
+            pluginID: "dev.example.fixture", operation: .languageServerStart, at: .resolve, operationID: "lsp-start"
+        ))
+
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try #require(await prepared.started.waitUntilOpen())
+
+        #expect(prepared.startupHandoffs.map(\.operationId) == ["lsp-start"])
+        #expect(unused.startupHandoffs.isEmpty)
+        #expect(operations.observations.isEmpty)
+        session.stop()
+        #expect(await released.waitUntilOpen())
+    }
+
+    @Test
+    func aFailedPreparationRecordsTheDeclarativeStartAtResolve() async throws {
+        struct PreparationFailure: Error {}
+        let core = ScriptedProviderCore()
+        let operations = RecordedPluginOperations()
+        let session = LanguageServerRuntimeSession(
+            providerID: "fixture", executableURL: URL(fileURLWithPath: "/unused"), arguments: [], environment: [:],
+            prepareProcess: { _ in throw PreparationFailure() }, core: core, pluginID: "dev.example.fixture"
+        )
+        defer { session.stop() }
+        let failed = TestGate()
+        session.onStateChange = { state in if case .failed = state { failed.open() } }
+        session.observePluginStartup(operations.reporter.begin(
+            pluginID: "dev.example.fixture", operation: .languageServerStart, at: .resolve, operationID: "lsp-start"
+        ))
+
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try #require(await failed.waitUntilOpen())
+
+        #expect(operations.observations == [RecordedPluginOperations.languageServerStart(
+            pluginID: "dev.example.fixture", failure: .resolve, operationID: "lsp-start"
+        )])
+        #expect(core.startupHandoffs.isEmpty)
+    }
+
+    /// Stopping during preparation cancels the start: a late package is released
+    /// unused, and neither the host nor Core records anything.
+    @Test
+    func stoppingDuringPreparationRecordsNoDeclarativeStart() async throws {
+        let core = ScriptedProviderCore()
+        let preparing = TestGate()
+        let resume = TestGate()
+        let released = TestGate()
+        let lateReply = Task { @MainActor in await resume.waitUntilOpen() }
+        let operations = RecordedPluginOperations()
+        let session = LanguageServerRuntimeSession(
+            providerID: "fixture", executableURL: URL(fileURLWithPath: "/unused"), arguments: [], environment: [:],
+            prepareProcess: { _ in
+                preparing.open()
+                guard await lateReply.value else { throw CancellationError() }
+                return PreparedLanguageServerProcess(executableURL: URL(fileURLWithPath: "/host/bin/server"),
+                    environment: [:], launch: .init(arguments: [], initializationOptions: nil),
+                    core: core, release: { released.open() })
+            }, core: core, pluginID: "dev.example.fixture"
+        )
+        defer { resume.open(); lateReply.cancel(); session.stop() }
+        session.observePluginStartup(operations.reporter.begin(
+            pluginID: "dev.example.fixture", operation: .languageServerStart, at: .resolve, operationID: "lsp-start"
+        ))
+
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try #require(await preparing.waitUntilOpen())
+        session.stop()
+        resume.open()
+        #expect(await released.waitUntilOpen())
+
+        #expect(operations.observations.isEmpty)
+        #expect(core.startupHandoffs.isEmpty)
+        #expect(core.startCalls.isEmpty)
     }
 
     @Test
@@ -390,6 +544,31 @@ struct MacBuildProviderSessionsTests {
         try #require(await core.destroyed.waitUntilOpen(), "The language session did not release its resources")
     }
 
+    @Test
+    func cancellingAwaitedJavaEntrypointsRevokesTheExactCoreOperationWithoutStoppingTheSession() async throws {
+        let core = ScriptedProviderCore()
+        let session = LanguageServerRuntimeSession(providerID: "java", executableURL: URL(fileURLWithPath: "/tools/jdtls"),
+            arguments: [], environment: [:], core: core)
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace/java-profile"), workspaceFingerprint: nil)
+        let finished = TestGate()
+        let task = Task { @MainActor () -> Result<JavaEntrypoints, Error> in
+            defer { finished.open() }
+            do { return .success(try await session.javaEntrypoints()) }
+            catch { return .failure(error) }
+        }
+        defer { task.cancel(); session.stop() }
+        try #require(await core.commandStarted.waitUntilOpen())
+        task.cancel()
+        try #require(await core.functionCancelled.waitUntilOpen())
+        try #require(await finished.waitUntilOpen())
+        if case .failure(let error) = await task.value { #expect(error is CancellationError) }
+        else { Issue.record("Cancelled launch discovery must not succeed") }
+        #expect(session.isRunning)
+        #expect(core.stopCalls.isEmpty)
+        session.stop()
+        try #require(await core.destroyed.waitUntilOpen())
+    }
+
     /// A second request reuses the process; stopping the plugin's providers,
     /// which the plugin manager does before replacing its package, ends it
     /// and the next request starts a new one.
@@ -525,6 +704,8 @@ struct MacBuildProviderSessionsTests {
 
         #expect(try await fixture.sessions.pluginFunctions(of: fixture.target) == ["snapshot.read", "workspace.build"])
         #expect(fixture.core.startCalls.map(\.pluginID) == [ProviderFixture.pluginID])
+        #expect(fixture.core.loggingOwners.first?.0 == .build)
+        #expect(fixture.core.loggingOwners.first?.2 == ProviderFixture.pluginID)
 
         let reports = ProgressReports()
         let value = try await fixture.invoke("workspace.build") { reports.items.append($0) }
@@ -755,7 +936,7 @@ private struct ProviderFixture {
         try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
 
         let fixtureURL = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-provider.plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-providers/build-provider.plugin.json")
         var object = try #require(
             try JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any]
         )
@@ -858,6 +1039,20 @@ private struct ProviderFixture {
 
 /// Answers requests immediately and exposes gates for lifecycle ordering.
 private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked Sendable {
+    private var logOwners: [(LanguageServerLogRole, String?, String?)] = []
+    var loggingOwners: [(LanguageServerLogRole, String?, String?)] { lock.withLock { logOwners } }
+    private var _startupHandoffs: [PluginOperationHandoff] = []
+    /// Declarative start attempts handed to this core with a start request.
+    var startupHandoffs: [PluginOperationHandoff] { lock.withLock { _startupHandoffs } }
+    func observingPluginStartup(_ handoff: PluginOperationHandoff) -> any LanguageServerRuntimeCore {
+        lock.withLock { _startupHandoffs.append(handoff) }
+        return self
+    }
+    func loggingRuntime(role: LanguageServerLogRole, logSubject: String?, pluginID: String?) -> any LanguageServerRuntimeCore {
+        lock.withLock { logOwners.append((role, logSubject, pluginID)) }
+        return self
+    }
+
     struct StartCall { let arguments: [String]; let pluginID: String?; var environment: [String: String] = [:] }
     struct FunctionCall: Equatable { let pluginID: String; let functionID: String }
 
@@ -1013,6 +1208,20 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
         }
         started.open()
         return .success(result)
+    }
+
+    func enqueueLogIssues() {
+        lock.withLock {
+            events["provider-\(nextSession)", default: []] += [
+                LanguageServerRuntimeEvent(type: "log", error: LanguageServerRuntimeError(code: "mavenSettingsUnchanged", stage: "mavenSettings", message: "settings warning", underlyingMessage: nil, processExitCode: nil), level: "warn",
+                    message: "Maven settings were passed to the Java language service unchanged", detail: "private upstream detail"),
+                LanguageServerRuntimeEvent(type: "log", error: LanguageServerRuntimeError(code: "configurationCleanupFailed", stage: "configurationCleanup", message: "cleanup warning", underlyingMessage: nil, processExitCode: nil), level: "warn",
+                    message: "Unused Java language-server configuration areas could not be removed", detail: "private command output"),
+                LanguageServerRuntimeEvent(type: "stateChanged", state: "failed", error:
+                    LanguageServerRuntimeError(code: "initializeTimeout", stage: "initialize", message: "private URL",
+                        underlyingMessage: nil, processExitCode: 17))
+            ]
+        }
     }
 
     func becomeReady() {
@@ -1172,6 +1381,10 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
         diagnostics _: [LanguageServerDiagnostic], completionContext: LanguageServerCompletionContext?, completionItem _: LanguageServerCompletionItem?,
         codeAction _: LanguageServerCodeAction?, command: LanguageServerCommand?
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        if operation == .javaEntrypoints {
+            commandStarted.open()
+            return .success(LanguageServerRuntimeOperation(operationID: "java-entrypoints"))
+        }
         if operation == .executeCommand, command?.command == "example.startDebugSession" {
             commandStarted.open()
             return .success(LanguageServerRuntimeOperation(operationID: "debug-start"))

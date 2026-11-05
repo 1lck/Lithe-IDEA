@@ -5,10 +5,13 @@ import type { JavaMainMethods } from "@/platform/lsp-core-adapter";
 import { discoverJavaRunSources } from "./java-run-markers";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 import { ensureRunProcessListeners } from "../hooks/use-run-process-events";
 import { useRunStore } from "../stores/run.store";
 import type { RunConfiguration } from "../types/run.types";
 import { workspaceRelativePath } from "../utils/run-configuration";
+import { selectContextConfiguration } from "../api/run-core-api";
 
 /**
  * The configuration that launches `mainClass` from `sourcePath`.
@@ -18,23 +21,27 @@ import { workspaceRelativePath } from "../utils/run-configuration";
  * copy of the same entry wins, and the selected configuration wins among
  * equals, matching IDEA's reuse of an existing context configuration.
  */
-export function javaMainConfiguration(
+export async function javaMainConfiguration(
   configurations: readonly RunConfiguration[],
   selectedConfigurationId: string | null,
   sourcePath: string,
   mainClass: string,
-): RunConfiguration | null {
-  const matches = configurations.filter(
-    (configuration) =>
-      !configuration.disabled &&
-      configuration.mainClass === mainClass &&
-      configuration.sourcePath?.replace(/\\/g, "/").toLowerCase() ===
-        sourcePath.replace(/\\/g, "/").toLowerCase(),
-  );
-  const rank = (configuration: RunConfiguration) =>
-    (configuration.id === selectedConfigurationId ? 0 : 2) +
-    (configuration.source === "generated" ? 1 : 0);
-  return [...matches].sort((left, right) => rank(left) - rank(right))[0] ?? null;
+  select = selectContextConfiguration,
+): Promise<RunConfiguration | null> {
+  const id = await select({
+    sourcePath,
+    symbol: mainClass,
+    preferredId: selectedConfigurationId,
+    caseInsensitivePaths: true,
+    candidates: configurations.map((configuration) => ({
+      id: configuration.id,
+      sourcePath: configuration.sourcePath,
+      symbol: configuration.mainClass,
+      generated: configuration.source === "generated",
+      disabled: configuration.disabled,
+    })),
+  });
+  return configurations.find((configuration) => configuration.id === id) ?? null;
 }
 
 export class JavaMainLaunchError extends Error {
@@ -67,6 +74,7 @@ export async function resolveMainConfiguration(
       const sources = await discoverJavaRunSources({ workspaceId, root }, filePath, content, false);
       return { schemaVersion: 1, methods: sources.mainMethods, diagnostics: [] };
     },
+    selectConfiguration: selectContextConfiguration,
   },
 ): Promise<RunConfiguration> {
   const store = dependencies.runStore(workspaceId);
@@ -77,16 +85,27 @@ export async function resolveMainConfiguration(
     throw new JavaMainLaunchError("noWorkspace", "Open the workspace that contains this file.");
   }
   if (store.getState().root !== root) await store.getState().actions.loadProject(root);
-  const find = () => {
+  const find = async () => {
     const state = store.getState();
-    return javaMainConfiguration(
+    const selected = await javaMainConfiguration(
       state.configurations,
       state.selectedConfigurationId,
       sourcePath,
       mainClass,
+      dependencies.selectConfiguration,
     );
+    if (
+      store.getState().configurations !== state.configurations ||
+      store.getState().selectedConfigurationId !== state.selectedConfigurationId
+    ) {
+      throw new Error(createTranslator(useSettingsStore.getState().settings.displayLanguage)("run.invalidTitle"));
+    }
+    return selected;
   };
-  const existing = find();
+  const existing = await find();
+  if (store.getState().root !== root) {
+    throw new JavaMainLaunchError("noWorkspace", "The workspace changed while preparing this run.");
+  }
   if (existing) return existing;
   // Save before asking JDT again: an editor marker may describe unsaved code.
   await dependencies.save(workspaceId);
@@ -121,7 +140,10 @@ export async function resolveMainConfiguration(
       "The workspace changed while generating this run.",
     );
   }
-  const generated = find();
+  const generated = await find();
+  if (store.getState().root !== root) {
+    throw new JavaMainLaunchError("noWorkspace", "The workspace changed while generating this run.");
+  }
   if (generated) return generated;
   throw new JavaMainLaunchError(
     "noConfiguration",

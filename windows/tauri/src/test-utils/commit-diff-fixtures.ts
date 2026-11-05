@@ -1,6 +1,6 @@
 import { createTwoFilesPatch } from "diff";
 import type { GitDiff } from "../features/git/types/git.types";
-import { parseRawDiffContent } from "../features/git/utils/git-diff-parser";
+import { parseRawDiffContent } from "@/test-utils/git-diff-fixture-parser";
 
 export function fullDiff(before: string[], after: string[]): GitDiff {
   if (before.join("\n") === after.join("\n")) return {

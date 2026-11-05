@@ -89,8 +89,13 @@ struct BuildSystemToolWindowView: View {
         .sheet(item: $argumentsPrompt) { prompt in
             BuildArgumentsSheet(prompt: prompt) { arguments in
                 argumentsPrompt = nil
-                run(.task(prompt.request.withUserArguments(arguments), title: prompt.title, needsArguments: false),
-                    entryID: prompt.entryID)
+                switch prompt.request {
+                case .task(let request):
+                    run(.task(request.withUserArguments(arguments), title: prompt.title, needsArguments: false), entryID: prompt.entryID)
+                case .run(var request):
+                    request.userArguments = arguments
+                    run(.application(request, title: prompt.title), entryID: prompt.entryID)
+                }
             } onCancel: {
                 argumentsPrompt = nil
             }
@@ -133,7 +138,9 @@ struct BuildSystemToolWindowView: View {
                     isEnabled: feature.isRunning || selection != nil
                 ) {
                     if feature.isRunning {
-                        feature.stopRun()
+                        UserActionTrace.run("build.task.stop", surface: .toolbar, sink: UserActionTrace.applicationSink) {
+                            feature.stopRun()
+                        }
                     } else if let selection {
                         run(selection.runnable, entryID: selection.entryID)
                     }
@@ -152,15 +159,17 @@ struct BuildSystemToolWindowView: View {
                 }
 
                 toolbarButton(help: String(format: L10n.string("Reload %@ projects"), title),
-                              isEnabled: !feature.isDetecting, action: refresh) {
+                              isEnabled: !feature.isDetecting,
+                              action: UserActionTrace.action("build.projects.reload", surface: .toolbar, refresh)) {
                     treeIcon("expui/general/refresh.svg")
                 }
 
                 ForEach(toolbarOptions, id: \.resolved.id) { option in
                     let isOn = option.resolved.value == .bool(true)
-                    toolbarButton(help: option.resolved.displayName, isEnabled: true, isSelected: isOn) {
-                        setOption(option.resolved.id, value: .bool(!isOn))
-                    } label: {
+                    toolbarButton(help: option.resolved.displayName, isEnabled: true, isSelected: isOn,
+                        action: UserActionTrace.action("build.option.toggle", surface: .toolbar) {
+                            setOption(option.resolved.id, value: .bool(!isOn))
+                        }) {
                         if let asset = icons.option(option.declared) {
                             WorkbenchContributionIcon(asset: asset, role: .action)
                         } else {
@@ -196,7 +205,7 @@ struct BuildSystemToolWindowView: View {
         help: String,
         isEnabled: Bool,
         isSelected: Bool = false,
-        action: @escaping () -> Void,
+        action: @escaping @MainActor () -> Void,
         @ViewBuilder label: () -> Label
     ) -> some View {
         Button(action: action, label: label)
@@ -278,12 +287,14 @@ struct BuildSystemToolWindowView: View {
         if case .failed(let message) = entry.modelState {
             LitheBanner(status: .error, layout: .editor) {
                 Text(verbatim: message).lineLimit(3).textSelection(.enabled)
-                Button("Retry") { reloadModel(entry) }
+                Button("Retry", action: UserActionTrace.action("build.projects.reload") { reloadModel(entry) })
             }
         } else if entry.isReloadRequired {
             LitheBanner(status: .warning, layout: .editor) {
                 Text(String(format: L10n.string("%@ build files changed"), entry.instance.displayName))
-                Button("Reload") { feature.loadModel(entry.id, reason: .refresh) }
+                Button("Reload", action: UserActionTrace.action("build.projects.reload") {
+                    feature.loadModel(entry.id, reason: .refresh)
+                })
                     .disabled(entry.modelState == .loading)
             }
         }
@@ -687,7 +698,7 @@ struct BuildSystemToolWindowView: View {
 
     private func promptArguments(_ task: DeclarativeBuildSystem.Task, entry: BuildSystemEntry, request: BuildTaskRequest) {
         let scope = request.target?.name ?? request.project?.name ?? entry.instance.displayName
-        argumentsPrompt = ArgumentsPrompt(entryID: entry.id, title: Self.title(task.displayName, scope: scope), request: request)
+        argumentsPrompt = ArgumentsPrompt(entryID: entry.id, title: Self.title(task.displayName, scope: scope), request: .task(request))
     }
 
     private func testRunnable(_ entry: BuildSystemEntry, project: BuildModel.Project?, isRoot: Bool) -> Runnable? {
@@ -793,7 +804,9 @@ struct BuildSystemToolWindowView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Label(message, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(LitheTheme.error).lineLimit(3).textSelection(.enabled)
-                        Button("Retry") { feature.loadDependencies(entry.id, project: project, reason: .refresh) }
+                        Button("Retry", action: UserActionTrace.action("build.dependencies.reload") {
+                            feature.loadDependencies(entry.id, project: project, reason: .refresh)
+                        })
                             .buttonStyle(.litheNoPress)
                     }
                     .padding(.vertical, 3)
@@ -965,11 +978,30 @@ struct BuildSystemToolWindowView: View {
         argumentsPrompt = nil
     }
 
+    /// Toolbar, tree activation, context menu and the arguments sheet all run here;
+    /// an outer menu trace keeps its own id.
     private func run(_ runnable: Runnable, entryID: String) {
         guard !feature.isRunning else { return }
+        UserActionTrace.run(Self.actionID(runnable), surface: .button, sink: UserActionTrace.applicationSink) {
+            start(runnable, entryID: entryID)
+        }
+    }
+
+    private static func actionID(_ runnable: Runnable) -> String {
+        switch runnable {
+        case .task(_, _, true): "build.task.arguments"
+        case .task: "build.task.run"
+        case .tests: "build.tests.run"
+        case .discoveredTest: "build.test.run"
+        case .application: "build.application.run"
+        case .debugApplication: "build.application.debug"
+        }
+    }
+
+    private func start(_ runnable: Runnable, entryID: String) {
         switch runnable {
         case .task(let request, let title, true):
-            argumentsPrompt = ArgumentsPrompt(entryID: entryID, title: title, request: request)
+            argumentsPrompt = ArgumentsPrompt(entryID: entryID, title: title, request: .task(request))
             return
         case .task(let request, let title, false):
             feature.runTask(entryID, request: request, title: title)
@@ -978,6 +1010,11 @@ struct BuildSystemToolWindowView: View {
         case .debugApplication(let request, let title):
             model.debugBuildProviderApplication(entryID: entryID, request: request, title: title)
         case .application(let request, let title):
+            if request.userArguments.isEmpty,
+               feature.entries.first(where: { $0.id == entryID })?.declaration.providerRuns.first(where: { $0.id == request.run })?.execution == .task {
+                argumentsPrompt = ArgumentsPrompt(entryID: entryID, title: title, request: .run(request))
+                return
+            }
             model.runBuildProviderApplication(entryID: entryID, request: request, title: title)
         case .discoveredTest(let testID, let title):
             feature.runDiscoveredTest(entryID, testID: testID, title: title)
@@ -1035,7 +1072,11 @@ private struct ArgumentsPrompt: Identifiable {
     let id = UUID()
     let entryID: String
     let title: String
-    let request: BuildTaskRequest
+    enum Request {
+        case task(BuildTaskRequest)
+        case run(BuildRunRequest)
+    }
+    let request: Request
 }
 
 private extension BuildTaskRequest {

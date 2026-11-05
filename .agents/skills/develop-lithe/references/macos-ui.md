@@ -55,6 +55,11 @@ Project/Dependencies 下拉。顶部项目切换器只是消费者，不是其�
 - macOS 适配器在固定的 Monaco 0.55.1 完成上游菜单解析后挂钩渲染器；修改挂钩或升级 Monaco 时验证真实 WebKit probe。
 - SwiftUI 原生 `Picker` 只允许显式 `.segmented`、没有下拉的控件；`ContextMenuCoverageTests` 检查产品入口。
   系统对话框、macOS 应用菜单、编辑器补全/光标弹层和悬停文档属于独立交互，不被产品菜单规则替换。
+- 项目文件的“打开方式”是明确的系统集成例外：用户要求与 Finder 一致的原生菜单时，仍从
+  `litheContextMenu` / `LitheContextMenuPresenter` 进入，由共享 `LitheSystemContextMenu` 一次呈现
+  整个文件右键菜单。只有该共享组件可以构建 AppKit 菜单，业务调用方不指定尺寸、字体或颜色。
+  应用列表、默认项及图标来自系统；见
+  `.agents/notes/implemented/feature/2026-11-03-macos-open-with.md`。
 
 ## 搜索与输入
 

@@ -437,6 +437,106 @@ fn file_uri_paths_decode_spaces_and_utf8_characters() {
 }
 
 #[test]
+fn document_uri_matches_shared_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/lsp/document-uri-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let response: Value = serde_json::from_str(&crate::execute_json(
+            &json!({"command":"lsp.documentUri", "payload":{
+                "path":case["path"], "platform":case["platform"]
+            }})
+            .to_string(),
+        ))
+        .unwrap();
+        if case["uri"].is_null() {
+            assert_eq!(response["ok"], false, "{}: {response}", case["name"]);
+        } else {
+            assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+            assert_eq!(response["data"]["uri"], case["uri"], "{}", case["name"]);
+        }
+    }
+}
+
+#[test]
+fn document_paths_resolve_inside_lsp_requests_without_changing_virtual_uris() {
+    let mut request = json!({"uri":{"path":"C:\\work\\A#B.txt","platform":"auto"},
+        "virtualUri":"untitled://contents/A#B", "text":"unchanged",
+        "diagnostics":[{"relatedInformation":[{"location":{"uri":{"path":"/work/A#B.txt","platform":"posix"}}},
+            {"location":{"uri":"untitled://contents/A#B"}}]}]});
+    resolve_request_paths("lsp.request", &mut request).unwrap();
+    assert_eq!(request["uri"], "file:///C:/work/A%23B.txt");
+    assert_eq!(request["virtualUri"], "untitled://contents/A#B");
+    assert_eq!(
+        request["diagnostics"][0]["relatedInformation"][0]["location"]["uri"],
+        "file:///work/A%23B.txt"
+    );
+    assert_eq!(
+        request["diagnostics"][0]["relatedInformation"][1]["location"]["uri"],
+        "untitled://contents/A#B"
+    );
+    let mut changes = json!({"changes":[
+        {"uri":{"path":"/work/A?.txt","platform":"posix"},"kind":"changed"},
+        {"uri":"file:///already%20encoded","kind":"deleted"}
+    ]});
+    resolve_request_paths("lsp.workspaceFilesChanged", &mut changes).unwrap();
+    assert_eq!(changes["changes"][0]["uri"], "file:///work/A%3F.txt");
+    assert_eq!(changes["changes"][1]["uri"], "file:///already%20encoded");
+    let mut invalid = json!({"uri":{"path":"relative","platform":"posix"}});
+    assert!(resolve_request_paths("lsp.syncDocument", &mut invalid).is_err());
+}
+
+#[test]
+fn document_uri_accepts_non_ascii_windows_extended_length_paths() {
+    let path = format!("C:\\{}\\Main.txt", vec!["目".repeat(100); 120].join("\\"));
+    assert!(path.len() > 32_768);
+    assert!(path.encode_utf16().count() < 32_767);
+    let response: Value = serde_json::from_str(&crate::execute_json(
+        &json!({"command":"lsp.documentUri", "payload":{"path":path,"platform":"windows"}})
+            .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(response["ok"], true);
+    assert!(response["data"]["uri"]
+        .as_str()
+        .unwrap()
+        .starts_with("file:///C:/"));
+}
+
+#[test]
+fn document_uri_identity_keeps_reserved_characters_distinct() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/lsp/document-uri-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["identityCases"].as_array().unwrap() {
+        let opened_uri = case["opened"].as_str().unwrap();
+        let published_uri = case["published"].as_str().unwrap();
+        let opened = client_open_document(ClientOpenDocumentRequest {
+            state: LspClientState::default(),
+            uri: opened_uri.to_string(),
+            language_id: "fixture".into(),
+            text: "test".into(),
+        })
+        .unwrap();
+        let result = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: opened.state,
+            message: json!({"jsonrpc":"2.0", "method":"textDocument/publishDiagnostics",
+                "params":{"uri":published_uri,"version":1,"diagnostics":[]}})
+            .to_string(),
+        })
+        .unwrap();
+        assert_eq!(
+            result.state.diagnostics.contains_key(opened_uri),
+            case["same"].as_bool().unwrap(),
+            "{}",
+            case["name"]
+        );
+    }
+}
+
+#[test]
 fn client_core_initializes_and_applies_server_capabilities() {
     let initialized = client_initialize(ClientInitializeRequest {
         state: LspClientState::default(),
@@ -2396,6 +2496,63 @@ fn client_core_rejects_unknown_server_requests_with_method_not_found() {
 }
 
 #[test]
+fn client_diagnostic_code_action_fixture_preserves_core_fields() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/lsp/diagnostic-code-actions-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["severityCases"].as_array().unwrap() {
+        let mut diagnostic = fixture["diagnostic"].clone();
+        diagnostic["severity"] = case["severity"].clone();
+        // Exercise the exact JSON boundary used by Windows, including nullable
+        // severity, unknown tags and UTF-16 related locations.
+        let semantic: SemanticRequest = serde_json::from_value(json!({
+            "sessionId": "fixture-session", "operation": "codeActions",
+            "uri": fixture["uri"], "range": diagnostic["range"],
+            "diagnostics": [diagnostic]
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&semantic.diagnostics[0]).unwrap(),
+            diagnostic
+        );
+        let opened = client_open_document(ClientOpenDocumentRequest {
+            state: LspClientState::default(),
+            uri: fixture["uri"].as_str().unwrap().to_string(),
+            language_id: "java".to_string(),
+            text: "class Main {}".to_string(),
+        })
+        .unwrap();
+        let response = client_feature_request(
+            serde_json::from_value(json!({
+                "state": opened.state,
+                "uri": fixture["uri"], "method": "textDocument/codeAction",
+                "range": diagnostic["range"], "diagnostics": [diagnostic]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let message: Value = serde_json::from_str(&response.messages[0]).unwrap();
+        let returned = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: response.state,
+            message: json!({
+                "jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
+                "params": { "uri": fixture["uri"], "diagnostics": message["params"]["context"]["diagnostics"] }
+            })
+            .to_string(),
+        })
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&returned.state.diagnostics[fixture["uri"].as_str().unwrap()][0])
+                .unwrap(),
+            diagnostic,
+            "{}",
+            case["name"]
+        );
+    }
+}
+
+#[test]
 fn client_completion_preserves_refresh_context_and_incomplete_lists() {
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../../shared/fixtures/lsp/completion-refresh-v1.json"
@@ -2458,5 +2615,39 @@ fn client_completion_rejects_invalid_trigger_context() {
             error.message.as_str(),
             "Invalid completion trigger kind" | "Completion trigger character is required"
         ));
+    }
+}
+
+#[test]
+fn text_edits_follow_shared_windows_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/lsp/text-edits-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let edits: Vec<Value> = case["edits"].as_array().unwrap().iter().map(|edit| serde_json::json!({
+            "range": { "start": { "line": edit["range"]["start"]["line"], "utf16Column": edit["range"]["start"]["character"] },
+                       "end": { "line": edit["range"]["end"]["line"], "utf16Column": edit["range"]["end"]["character"] } },
+            "newText": edit["newText"]
+        })).collect();
+        let result = apply_text_edits(
+            serde_json::from_value(serde_json::json!({ "text": case["text"], "edits": edits }))
+                .unwrap(),
+        );
+        if let Some(expected) = case.get("expectedError") {
+            assert_eq!(
+                result.unwrap_err().details.as_deref(),
+                expected.as_str(),
+                "{}",
+                case["name"]
+            );
+        } else {
+            assert_eq!(
+                result.unwrap().text,
+                case["expectedText"].as_str().unwrap(),
+                "{}",
+                case["name"]
+            );
+        }
     }
 }

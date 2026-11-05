@@ -15,6 +15,7 @@ import "monaco-editor/esm/vs/editor/editor.all.js";
 import { language as javaLanguage } from "monaco-editor/esm/vs/basic-languages/java/java.js";
 import { ensureMonacoLanguageTokenizer } from "./language-contributions";
 import { toMonacoLanguageId } from "./language";
+import { basicLanguageForFilename } from "./basic-file-associations";
 import { SourceText } from "./source-text";
 import { toMonacoModelValue } from "./line-endings";
 import { acquireMonacoModel } from "./model-lifecycle";
@@ -28,6 +29,7 @@ import { IContextMenuService } from "monaco-editor/esm/vs/platform/contextview/b
 import { Action, Separator, type IAction } from "monaco-editor/esm/vs/base/common/actions.js";
 import { normalizeRunMarkers, runMarkerForLine, runMarkerIcon, type RunMarker, type RunMarkerIcon } from "./run-markers";
 import { attachPluginEditorActions } from "./plugin-editor-actions";
+import { attachPluginEditorProviders } from "./plugin-editor-providers";
 import { installPluginGrammar, inheritPluginTokenizer } from "./plugin-grammar-tokenizer";
 import { setPluginLanguages, hasPluginLanguage, pluginLanguageForFilename, type PluginLanguage } from "./plugin-languages";
 
@@ -49,8 +51,12 @@ export interface WorkbenchHost {
   /** IDEA test-state SVGs for Java Run markers. */
   javaRunIcons?: Record<RunMarkerIcon, string>;
   javaRunIconsDark?: Partial<Record<RunMarkerIcon, string>>;
+  /** Gutter SVGs for plugin editor actions, keyed by the icon names the host offers plugins (API-27). */
+  editorActionIcons?: Record<string, string>;
+  editorActionIconsDark?: Record<string, string>;
   /** Native IDEA order: line numbers, then action decorations. */
   lineNumbersFirst?: boolean;
+  reportIndentation?: boolean;
   /** Opt in only when the host handles setBlameVisibility for repository files. */
   gitBlameMenu?: boolean;
   foldingIcons?: Record<"expanded" | "collapsed", { light: string; dark: string }>;
@@ -63,6 +69,8 @@ function languageForFilename(filename: string | undefined): string {
   if (!filename) return "plaintext";
   const plugin = pluginLanguageForFilename(filename);
   if (plugin) return plugin;
+  const basic = basicLanguageForFilename(filename);
+  if (basic) return basic;
   const name = filename.toLowerCase();
   const registered = monaco.languages.getLanguages();
   const exact = registered.find(language => language.filenames?.some(file => file.toLowerCase() === name));
@@ -224,7 +232,11 @@ export function mountWorkbench(host: WorkbenchHost) {
     entries: () => entries, editors: allEditors, request: languageRequest,
     current: (id, entry) => documentCheckpoint(id, entry),
     lineNumbersFirst: host.lineNumbersFirst === true,
+    // The left lane widens the gutter; let every view showing the entry recompute it.
+    changed: () => { for (const view of allEditors()) navigationContexts.get(view)?.(); },
   });
+  // Registered with Monaco once it is set up (see `main`), next to the language server's own providers.
+  let pluginProviders: ReturnType<typeof attachPluginEditorProviders<Entry>> | undefined;
   // Java Run markers: the host answers which `main` methods and tests exist and
   // their last outcomes; the editor only draws them and routes actions back.
   type RunMarkerState = { generation: number; version: number; revision: number; markers: RunMarker[];
@@ -336,6 +348,16 @@ export function mountWorkbench(host: WorkbenchHost) {
     fail(event.reason);
   });
 
+  // Reuse Monaco's detection; never rewrite text or reset the model/undo stack.
+  function applyIndentation(model: monaco.editor.ITextModel) {
+    const size = displayOptions.tabSize;
+    if (typeof size !== "number" || !Number.isInteger(size) || size < 1 || size > 16) return;
+    const spaces = displayOptions.insertSpaces !== false;
+    if (displayOptions.detectIndentation !== false) model.detectIndentation(spaces, size);
+    else model.updateOptions({ tabSize: size, insertSpaces: spaces });
+    model.updateOptions({ indentSize: "tabSize" });
+  }
+
   async function prepareEntry(payload: any): Promise<Entry> {
     let entry = entries.get(payload.id);
     const languageID = payload.language || (entry && (payload.filename === undefined || payload.filename === entry.filename)
@@ -351,10 +373,19 @@ export function mountWorkbench(host: WorkbenchHost) {
     if (!entry) {
       const acquired = acquireMonacoModel(payload.text, language, monaco.Uri.parse(`lithe://document/${payload.id}`));
       const model = acquired.model;
+      applyIndentation(model);
       // Monaco owns normalized editing coordinates; the source mirror preserves disk newlines.
       model.setEOL(monaco.editor.EndOfLineSequence.LF);
       entry = { languageID, source: new SourceText(payload.text, model.getAlternativeVersionId()), model, release: acquired.release, revision: payload.revision, chain: Promise.resolve(), readonly: payload.readonly, frozen: false, pendingEdits: 0, state: null, filename: payload.filename, locationRevision: payload.locationRevision ?? 0, contextGeneration: 0 };
       entries.set(payload.id, entry);
+      const reportIndentation = () => {
+        const { tabSize, insertSpaces } = model.getOptions();
+        void send({ type: "indentation", id: payload.id, tabSize, insertSpaces }).catch(fail);
+      };
+      if (host.reportIndentation) {
+        model.onDidChangeOptions(reportIndentation);
+        reportIndentation();
+      }
       const owned = entry;
       model.onDidChangeContent(event => {
         scheduleNavigation(payload.id, owned);
@@ -807,7 +838,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       // before FoldingController interprets it as a click on the folding arrow.
       const actionMouseUp = (event: MouseEvent) => {
         const element = event.target as Element | null;
-        if (element?.closest(".lithe-java-run,.lithe-java-navigation") && view.getDomNode()?.contains(element)) {
+        if (element?.closest(".lithe-java-run,.lithe-java-navigation,.lithe-editor-action") && view.getDomNode()?.contains(element)) {
           event.stopPropagation();
         }
       };
@@ -892,7 +923,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     const refresh = () => {
       if (host.lineNumbersFirst) {
         const entry = [...entries.values()].find(entry => entry.model === view.getModel());
-        const needsLane = !!(entry && navigationStates.get(entry)?.markers.length);
+        const needsLane = !!(entry && (navigationStates.get(entry)?.markers.length || pluginActions.hasNavigation(entry)));
         const width = nativeFoldingOffset + (needsLane ? nativeGutter.icon : 0);
         const className = `lithe-line-numbers-first${needsLane ? " lithe-gutter-navigation" : ""}`;
         const options = view.getRawOptions();
@@ -988,7 +1019,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       // Edit Breakpoint action may open the native editor sheet.
       if (host.gitBlameMenu && host.lineNumbersFirst && (event.event.rightButton || isMacintosh && event.event.ctrlKey) &&
           event.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) return;
-      if (event.target.element?.closest(".lithe-java-navigation, .lithe-java-run, .lithe-blame") ||
+      if (event.target.element?.closest(".lithe-java-navigation, .lithe-java-run, .lithe-editor-action, .lithe-blame") ||
           host.lineNumbersFirst && typeof view.getRawOptions().lineNumbers === "function" &&
           view.getRawOptions().lineNumbers !== hiddenLineNumbers) return;
       if ((event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
@@ -1067,9 +1098,12 @@ export function mountWorkbench(host: WorkbenchHost) {
         for (const [id, entry] of entries) {
           if (entry.filename === undefined || entry.model.isDisposed()) continue;
           const languageID = languageForFilename(entry.filename), language = editorLanguageID(languageID);
-          if (language === entry.model.getLanguageId() && languageID === entry.languageID || !(pluginIDs.has(language) || pluginIDs.has(entry.model.getLanguageId()))) continue;
+          if (!(pluginIDs.has(language) || pluginIDs.has(entry.model.getLanguageId()))) continue;
+          // A same-ID grammar can disappear before its builtin ever loaded.
+          // Restore the provider even when no model language transition is needed.
           await ensureMonacoLanguageTokenizer(language);
           if (entries.get(id) !== entry || entry.model.isDisposed()) continue;
+          if (language === entry.model.getLanguageId() && languageID === entry.languageID) continue;
           entry.contextGeneration++;
           entry.languageID = languageID;
           monaco.editor.setModelLanguage(entry.model, language);
@@ -1087,6 +1121,11 @@ export function mountWorkbench(host: WorkbenchHost) {
       // Acknowledge scheduling, not plugin completion: optional collectors
       // must never hold the native save/edit bridge until its fatal deadline.
       void pluginActions.refresh().catch(console.error);
+    },
+    async refreshPluginEditorProviders() {
+      await activation;
+      // Same rule as the actions: Monaco asks again on its own schedule.
+      pluginProviders?.refresh();
     },
     async refreshJavaRunMarkers() {
       await activation;
@@ -1335,12 +1374,19 @@ export function mountWorkbench(host: WorkbenchHost) {
       } finally { updating = false; }
     },
     configure(payload: any) {
-      const theme = payload.theme as WorkbenchThemeInput | undefined;
+      const theme = payload.theme ? { ...payload.theme } as WorkbenchThemeInput : undefined;
+      // Native settings validate and bound this canonical JSON before it crosses the bridge.
+      if (theme && payload.appearance?.customTheme) {
+        try { theme.custom = JSON.parse(payload.appearance.customTheme); } catch { /* Keep the existing native palette. */ }
+      }
       const name = theme ? defineWorkbenchTheme(theme, host.palette)
         : payload.dark ? "lithe-dark" : "lithe-light";
       javaKeywordNavigationFilter = payload.javaKeywordNavigationFilter !== false;
+      const indentationChanged = ["tabSize", "insertSpaces", "detectIndentation"].some(key =>
+        payload.appearance?.[key] !== undefined && payload.appearance[key] !== displayOptions[key]);
       Object.assign(displayOptions, {
         ...payload.appearance,
+        ...(theme?.syntaxScheme ? { bracketPairColorization: { enabled: theme.syntaxScheme !== "idea" } } : {}),
         // Standalone updateOptions and newly created split editors both apply
         // this construction theme globally, so it must track the host theme.
         theme: name,
@@ -1355,6 +1401,7 @@ export function mountWorkbench(host: WorkbenchHost) {
         navigationContexts.get(view)?.();
         gitContextUpdates.get(view)?.();
       }
+      if (indentationChanged) for (const entry of entries.values()) applyIndentation(entry.model);
       monaco.editor.setTheme(name);
     },
     async debugState(id: string, state: { breakpoints: { line: number; enabled: boolean; verified: boolean; logpoint: boolean; conditional?: boolean; message?: string }[]; muted: boolean; canToggleBreakpoints?: boolean; sessionActive?: boolean; paused?: boolean; canRunToCursor?: boolean; executionLine?: number; revision?: number; variables?: { name: string; value: string }[] }) {
@@ -1569,6 +1616,10 @@ export function mountWorkbench(host: WorkbenchHost) {
       `.monaco-editor .lithe-java-run-${icon}{background-image:url("data:image/svg+xml,${encodeURIComponent(svg)}")}`).join("\n");
     const darkRunIconStyles = Object.entries(host.javaRunIconsDark ?? {}).map(([icon, svg]) =>
       `.monaco-editor.vs-dark .lithe-java-run-${icon}{background-image:url("data:image/svg+xml,${encodeURIComponent(svg)}")}`).join("\n");
+    const actionIconStyles = Object.entries(host.editorActionIcons ?? {}).map(([icon, svg]) =>
+      `.monaco-editor .lithe-editor-action-${icon}{background-image:url("data:image/svg+xml,${encodeURIComponent(svg)}")}`).join("\n");
+    const darkActionIconStyles = Object.entries(host.editorActionIconsDark ?? {}).map(([icon, svg]) =>
+      `.monaco-editor.vs-dark .lithe-editor-action-${icon}{background-image:url("data:image/svg+xml,${encodeURIComponent(svg)}")}`).join("\n");
     const foldingIconStyles = Object.entries(host.foldingIcons ?? {}).flatMap(([state, icons]) =>
       (["light", "dark"] as const).map(appearance => {
         const theme = (appearance === "dark" ? ".vs-dark" : "") + ".lithe-line-numbers-first";
@@ -1582,17 +1633,19 @@ export function mountWorkbench(host: WorkbenchHost) {
       .monaco-editor .lithe-java-navigation-down:after,.monaco-editor .lithe-java-navigation-both:after{content:'↓'}
       .monaco-editor .lithe-java-navigation-both:before,.monaco-editor .lithe-java-navigation-both:after{width:50%;max-width:12px}
       ${navigationIconStyles}
-      .monaco-editor .lithe-java-run,.monaco-editor .lithe-plugin-editor-action{cursor:pointer;background-size:14px 14px;background-repeat:no-repeat;background-position:center;opacity:.9}
-      .monaco-editor .lithe-java-run:hover{opacity:1}
+      .monaco-editor .lithe-java-run,.monaco-editor .lithe-editor-action{cursor:pointer;background-size:14px 14px;background-repeat:no-repeat;background-position:center;opacity:.9}
+      .monaco-editor .lithe-java-run:hover,.monaco-editor .lithe-editor-action:hover{opacity:1}
       ${runIconStyles}
       ${darkRunIconStyles}
+      ${actionIconStyles}
+      ${darkActionIconStyles}
       ${host.lineNumbersFirst ? `
       .monaco-editor.lithe-line-numbers-first .line-numbers.lithe-breakpoint{font-size:0;color:var(--vscode-debugIcon-breakpointForeground,#e51400)}
       .monaco-editor.lithe-line-numbers-first .line-numbers.lithe-breakpoint:before{font-size:16px}
-      .monaco-editor.lithe-line-numbers-first .cldr.lithe-java-run,.monaco-editor.lithe-line-numbers-first .cldr.lithe-plugin-editor-action{width:${nativeGutter.icon}px!important;margin-left:${nativeGutter.gap}px;opacity:1}
-      .monaco-editor.lithe-line-numbers-first .lithe-java-run-run,.monaco-editor.lithe-line-numbers-first .lithe-java-run-run-all{background-size:16px 16px}
-      .monaco-editor.lithe-line-numbers-first .lithe-java-run-passed,.monaco-editor.lithe-line-numbers-first .lithe-java-run-failed{background-size:14px 14px}
-      .monaco-editor.lithe-line-numbers-first .cldr.lithe-java-navigation{width:${nativeGutter.icon}px!important;margin-left:${nativeGutter.gap + nativeGutter.icon}px}
+      .monaco-editor.lithe-line-numbers-first .cldr.lithe-java-run,.monaco-editor.lithe-line-numbers-first .cldr.lithe-editor-action{width:${nativeGutter.icon}px!important;margin-left:${nativeGutter.gap}px;opacity:1}
+      .monaco-editor.lithe-line-numbers-first .lithe-java-run-run,.monaco-editor.lithe-line-numbers-first .lithe-java-run-run-all,.monaco-editor.lithe-line-numbers-first .lithe-editor-action-run,.monaco-editor.lithe-line-numbers-first .lithe-editor-action-run-all,.monaco-editor.lithe-line-numbers-first .lithe-editor-action-debug,.monaco-editor.lithe-line-numbers-first .lithe-editor-action-test{background-size:16px 16px}
+      .monaco-editor.lithe-line-numbers-first .lithe-java-run-passed,.monaco-editor.lithe-line-numbers-first .lithe-java-run-failed,.monaco-editor.lithe-line-numbers-first .lithe-editor-action-test-passed,.monaco-editor.lithe-line-numbers-first .lithe-editor-action-test-failed,.monaco-editor.lithe-line-numbers-first .lithe-editor-action-test-skipped{background-size:14px 14px}
+      .monaco-editor.lithe-line-numbers-first .cldr.lithe-java-navigation,.monaco-editor.lithe-line-numbers-first .cldr.lithe-editor-action-lane-left{width:${nativeGutter.icon}px!important;margin-left:${nativeGutter.gap + nativeGutter.icon}px}
       .monaco-editor.lithe-line-numbers-first .margin-view-overlays .cldr[class*="codicon-folding-"]{width:${nativeGutter.icon}px!important;margin-left:${nativeFoldingOffset}px}
       .monaco-editor.lithe-line-numbers-first.lithe-gutter-navigation .cldr[class*="codicon-folding-"]{margin-left:${nativeFoldingOffset + nativeGutter.icon}px}
       .monaco-editor.lithe-line-numbers-first .cldr[class*="codicon-folding-"]:before{content:"";width:${nativeGutter.fold}px;height:${nativeGutter.fold}px;background-repeat:no-repeat;background-position:center;background-size:${nativeGutter.fold}px ${nativeGutter.fold}px}
@@ -1610,6 +1663,13 @@ export function mountWorkbench(host: WorkbenchHost) {
       .monaco-editor .lithe-debug-value{color:var(--vscode-editor-inlineValuesForeground,#888);background:var(--vscode-editor-inlineValuesBackground,transparent);font-style:italic}`;
     document.head.append(debugStyle);
     textmate = await installJavaTextMate();
+    // The language server answers first; plugin providers only add to what it
+    // gave. Monaco puts the later of two equally matching providers first, so
+    // these register before the host's own hover and completion providers.
+    pluginProviders = attachPluginEditorProviders({
+      entries: () => entries, request: languageRequest,
+      current: (id, entry) => documentCheckpoint(id, entry),
+    });
     if (host.foldJavaImportsByDefault) monaco.languages.registerFoldingRangeProvider("java", {
       async provideFoldingRanges(model, _context, token) {
         const pair = [...entries].find(([, entry]) => entry.model === model);
@@ -1878,6 +1938,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     });
     addEventListener("pagehide", () => {
       clearTimeout(markdownScrollTimer);
+      pluginProviders?.dispose();
       codeActionCommand.dispose();
       codeVisionCommand.dispose(); codeVisionProvider.dispose(); codeVisionChanges.dispose();
       debugStyle.remove();

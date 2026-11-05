@@ -1,5 +1,3 @@
-import type { GitPatchTarget } from "../types/git-patch.types";
-
 export interface ShelfSnapshot {
   stagedPatch: string;
   workingPatch: string;
@@ -11,32 +9,29 @@ export interface GitShelf extends ShelfSnapshot {
   message: string;
   createdAt: number;
 }
+export type ShelfPhase = "clean" | "restore";
+export type ShelfLayer = "staged" | "working";
 export interface ShelfDependencies {
   snapshot: () => Promise<ShelfSnapshot>;
+  plan: (phase: ShelfPhase) => Promise<ShelfLayer[]>;
+  step: (phase: ShelfPhase, layer: ShelfLayer, snapshot: ShelfSnapshot) => Promise<void>;
   save: (entry: GitShelf) => Promise<void>;
   remove: (id: string) => Promise<void>;
-  apply: (patch: string, target: GitPatchTarget, reverse: boolean) => Promise<void>;
-  isApplied: (patch: string, target: GitPatchTarget) => Promise<boolean>;
   guard: () => void;
   identity: () => string;
   now: () => number;
 }
 
-/** Capture durably before cleaning; partial failures retain the complete recovery record. */
+/** Storage and session lifetime stay native; Core owns the layer plan and safety checks. */
 export function createShelfWorkflow(deps: ShelfDependencies) {
-  const same = (left: ShelfSnapshot, right: ShelfSnapshot) =>
-    left.stagedPatch === right.stagedPatch && left.workingPatch === right.workingPatch;
-  const restorePatch = async (patch: string, target: GitPatchTarget) => {
+  const run = async (phase: ShelfPhase, snapshot: ShelfSnapshot) => {
     deps.guard();
-    try {
-      await deps.apply(patch, target, false);
-    } catch (failure) {
+    const layers = await deps.plan(phase);
+    for (const layer of layers) {
       deps.guard();
-      // A previous attempt may have completed this layer before failing on the next one.
-      const alreadyApplied = await deps.isApplied(patch, target);
-      deps.guard();
-      if (!alreadyApplied) throw failure;
+      await deps.step(phase, layer, snapshot);
     }
+    deps.guard();
   };
   return {
     async capture(message: string): Promise<GitShelf> {
@@ -50,25 +45,13 @@ export function createShelfWorkflow(deps: ShelfDependencies) {
         message: message.trim() || "WIP",
         createdAt: deps.now(),
       };
+      deps.guard();
       await deps.save(entry);
-      deps.guard();
-      if (!same(snapshot, await deps.snapshot())) throw new Error("git.saved.changed");
-      deps.guard();
-      if (entry.workingPatch) await deps.apply(entry.workingPatch, "worktree", true);
-      if (entry.stagedPatch) {
-        deps.guard();
-        if ((await deps.snapshot()).stagedPatch !== entry.stagedPatch)
-          throw new Error("git.saved.changed");
-        await deps.apply(entry.stagedPatch, "indexAndWorktree", true);
-      }
+      await run("clean", snapshot);
       return entry;
     },
     async restore(entry: GitShelf) {
-      deps.guard();
-      if (entry.stagedPatch) await restorePatch(entry.stagedPatch, "indexAndWorktree");
-      deps.guard();
-      if (entry.workingPatch) await restorePatch(entry.workingPatch, "worktree");
-      deps.guard();
+      await run("restore", entry);
       await deps.remove(entry.id);
     },
   };

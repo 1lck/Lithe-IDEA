@@ -4,6 +4,10 @@ use super::client::{
     client_apply_server_message_for_plugin, client_initialize_for_plugin, json_rpc_error_with_code,
     json_rpc_error_with_data, json_rpc_notification, json_rpc_result,
 };
+use super::engine_logging::{
+    EngineLog, EngineLogInput, SessionLogIdentity, SessionRole, StderrFact, StderrLines,
+};
+use super::plugin_server::{self, Admission, Arrival, PluginServerState};
 use super::process::{LspProcessHandle, LspProcessLauncher, LspProcessSpec, SystemProcessLauncher};
 use super::{
     client_change_document, client_close_document, client_feature_request_canonical,
@@ -12,6 +16,10 @@ use super::{
     ClientFeatureRequest, ClientInitializeRequest, ClientOpenDocumentRequest,
     ClientShutdownRequest, FrameMessageRequest, LspClientDiagnostic, LspClientDocument,
     LspClientState, LspDocumentContentChange, LspPosition, LspRange, ParseServerMessagesRequest,
+};
+use crate::diagnostics::plugin_operations::{
+    self as plugin_operations, Attempt, AttemptHandoff, AttemptSlot, Stage as AttemptStage,
+    LANGUAGE_SERVER_START,
 };
 use crate::lsp::languages::java_entrypoints::{
     java_entrypoints_command, normalize_java_entrypoints,
@@ -43,6 +51,10 @@ use crate::lsp::languages::jdt_build::{JavaBuildMarkerScope, JavaBuildRecovery};
 use crate::lsp::languages::jdt_navigation::{JavaNavigationMarkerBatch, MAX_JAVA_NAVIGATION_TASKS};
 use crate::lsp::languages::jdt_progress::JavaPreparationDiagnostics;
 use crate::lsp::languages::{prepare_jdt_configuration_area, prepare_jdt_workspace};
+use crate::plugins::language_server_sessions::{
+    RemoteSupport, DEFAULT_REQUEST_TIMEOUT_MILLISECONDS, DID_CHANGE_CONFIGURATION,
+    MAX_REQUEST_TIMEOUT_MILLISECONDS,
+};
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -70,11 +82,19 @@ const MAX_BUILD_PROVIDER_TIMEOUT_MS: u64 = 60 * 60_000;
 const MAX_VCS_PROVIDER_TIMEOUT_MS: u64 = 60 * 60_000;
 /// Longest toolchain query a host may ask for; queries only read manager state.
 const MAX_TOOLCHAIN_QUERY_TIMEOUT_MS: u64 = 60_000;
+/// Bounds one provider request; the host can cancel sooner when a snapshot expires.
+const MAX_KEYMAP_IMPORT_TIMEOUT_MS: u64 = 60_000;
 const MONITOR_INTERVAL_MS: u64 = 10;
+/// Shared plugin diagnostic budget per process session and monotonic minute.
+const MAX_PLUGIN_DIAGNOSTICS_PER_MINUTE: u16 = 600;
 /// JSON-RPC method carrying Java Debug Server build commands.
 const JAVA_BUILD_METHOD: &str = "workspace/executeCommand";
 
 static ENGINE: OnceLock<LspEngine> = OnceLock::new();
+
+#[path = "engine_function_relay.rs"]
+mod relay_hub;
+use relay_hub::RelayHub;
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -101,21 +121,44 @@ pub enum LspLifecycleState {
 /// Validated process, workspace, initialization, and timeout settings for a server.
 pub struct StartServerRequest {
     pub provider_id: String,
+    /// Process role supplied by the host; old hosts retain language-server routing.
+    #[serde(default)]
+    pub role: SessionRole,
+    /// Stable VCS identity supplied explicitly by the provider catalog, never parsed from providerID.
+    #[serde(default)]
+    pub log_subject: Option<String>,
     /// Plugin that owns the process, for plugin-provided servers and build
     /// providers. Only such a session can serve that plugin's functions;
     /// host-owned servers leave it out.
     #[serde(default)]
     pub plugin_id: Option<String>,
+    /// Declarative `languageServer/start` attempt the host began; Core records its
+    /// result. Absent for v1 hosts and SDK-owned backend processes.
+    #[serde(default)]
+    pub startup_operation: Option<AttemptHandoff>,
     /// Host services the plugin's permissions grant the session, as the
     /// launch plan lists them (`backend.hostServices`). Only a plugin-owned
     /// session may name any; Core forwards only these `lithe/host/*`
     /// requests to the host.
     #[serde(default)]
     pub host_services: Vec<String>,
+    /// Options of the granted host services, such as the icons the host
+    /// draws for editor actions. Only a plugin-owned session may name any.
+    #[serde(default)]
+    pub host_options: super::HostOptions,
     /// Provider IDs of the plugin's verified manifest. Only a plugin-owned
     /// session with some is offered `litheToolchains`.
     #[serde(default)]
     pub toolchain_providers: Vec<String>,
+    /// Shortcut import providers declared by this plugin's verified manifest.
+    #[serde(default)]
+    pub keymap_import_providers: Vec<String>,
+    /// What the plugin backend may do with this plugin-owned language server
+    /// (plan API-25): the requests it may send, the gates they wait for, and
+    /// the notifications it receives. Only a plugin-owned session has one;
+    /// without it the backend cannot reach the server through the host.
+    #[serde(default)]
+    pub session_policy: Option<super::plugin_server::SessionPolicy>,
     pub executable_path: String,
     #[serde(default)]
     pub arguments: Vec<String>,
@@ -215,6 +258,8 @@ pub struct JavaRuntimeCandidate {
 #[serde(rename_all = "camelCase")]
 /// Identity and initial lifecycle state of a newly created session.
 pub struct StartServerResponse {
+    /// Catalog-derived channel for host diagnostic I/O; never derived from provider ID by hosts.
+    pub channel: String,
     pub session_id: String,
     pub state: LspLifecycleState,
     pub process_id: Option<u32>,
@@ -460,6 +505,26 @@ pub struct ToolchainProviderRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One shortcut import operation against an opaque, host-owned snapshot.
+pub struct KeymapImportProviderRequest {
+    /// Plugin-owned session which negotiated the provider.
+    pub session_id: String,
+    /// Optional correlation identity for cancellation and completion events.
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    /// Plugin-local identity of the selected provider.
+    #[serde(rename = "providerID")]
+    pub provider_id: String,
+    /// Host-owned snapshot reference, scoped to this import operation.
+    #[serde(rename = "snapshotID")]
+    pub snapshot_id: String,
+    /// Requested deadline in milliseconds, bounded by the runtime.
+    #[serde(default)]
+    pub timeout_milliseconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 /// One VCS-provider request. Core plans the method and params from the
 /// operation and its arguments, so the host never writes a raw method. The
 /// result arrives as a `requestCompleted` event whose `result.value` is the
@@ -574,6 +639,54 @@ fn empty_object() -> Value {
     json!({})
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One request a plugin backend sent to its own language server through the
+/// host (plan API-25). The reply arrives as a `requestCompleted` event whose
+/// `result.value` is the server's result; failures carry a `plugin.host.*`
+/// code as `error.code`.
+pub struct PluginServerRequest {
+    /// The plugin-owned language-server session the host resolved.
+    pub session_id: String,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    /// The plugin and server the backend named. Core checks that the
+    /// session really is that contribution, so a stale or mistaken
+    /// resolution can never reach another plugin's server.
+    pub plugin_id: String,
+    #[serde(rename = "serverID")]
+    pub server_id: String,
+    /// An LSP request method the plugin declared in `requestMethods`.
+    pub method: String,
+    #[serde(default = "empty_object")]
+    pub params: Value,
+    /// Deadline in milliseconds, 60000 when absent and at most 300000.
+    #[serde(default)]
+    pub timeout_milliseconds: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One notification a plugin backend sent to its own language server.
+pub struct PluginServerNotify {
+    pub session_id: String,
+    pub plugin_id: String,
+    #[serde(rename = "serverID")]
+    pub server_id: String,
+    pub method: String,
+    #[serde(default = "empty_object")]
+    pub params: Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Whether the notification reached the server. `false` means the server
+/// was not initialized yet and will receive the stored configuration with
+/// its `initialized` notification instead.
+pub struct PluginServerNotifyResponse {
+    pub delivered: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Correlation identifier used to receive or cancel an asynchronous result.
@@ -619,6 +732,24 @@ pub struct LspRuntimeEvent {
     /// Event discriminator such as `stateChanged`, `requestCompleted`, or `diagnostics`.
     #[serde(rename = "type")]
     pub kind: String,
+    /// Core-derived catalog channel, present for structured log facts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    /// Plugin that owns this process; omitted for host-owned sessions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plugin_id: Option<String>,
+    /// Explicit process role, independent of the provider's opaque ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<SessionRole>,
+    /// Stable catalog identity; existing v1 fields remain available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event: Option<String>,
+    /// Catalog disk fields, validated and redacted by Core.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fields: Option<BTreeMap<String, Value>>,
+    /// Canonical catalog severity for v2; independent of the preserved v1 level.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub catalog_level: Option<crate::diagnostics::record::LogLevel>,
     pub sequence: u64,
     pub provider_id: String,
     pub session_id: String,
@@ -690,6 +821,11 @@ pub struct LspRuntimeError {
     /// passed through for the plugin's own UI; Lithe never branches on it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plugin_error_code: Option<String>,
+    /// Structured facts of a failed plugin-server request, such as the
+    /// server's own error `code` and `message`, passed to the backend as the
+    /// failure's details. Only `lsp.pluginServerRequest` sets it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
 }
 
 #[cfg(test)]
@@ -735,6 +871,9 @@ enum PendingKind {
     /// Java Debug Server workspace build shared by the callers that
     /// `JavaBuildCoordinator` tracks; it carries no operation ID of its own.
     JavaBuild,
+    /// Request a plugin backend sent to its own language server through
+    /// `lsp.pluginServerRequest`; the answer reaches the backend verbatim.
+    PluginServer,
     /// Shutdown handshake after which the engine sends `exit`.
     Shutdown,
 }
@@ -747,6 +886,14 @@ struct PendingRequest {
     document_uri: Option<String>,
     /// Document version observed when a presentation request was allocated.
     document_version: Option<i64>,
+    created_at: Instant,
+    deadline: Instant,
+}
+
+/// Launch discovery delayed until the same project-configuration gate as builds.
+/// No JSON-RPC request exists until dispatch, so cancellation writes nothing.
+struct JavaEntrypointWaiter {
+    operation_id: String,
     created_at: Instant,
     deadline: Instant,
 }
@@ -813,6 +960,7 @@ struct SessionState {
     maven_profile_request_generations: BTreeMap<String, u64>,
     /// Serialized, configuration-gated `vscode.java.buildWorkspace` calls.
     java_builds: JavaBuildCoordinator,
+    java_entrypoint_waiters: VecDeque<JavaEntrypointWaiter>,
     /// Launch attempts share their operation ID across discovery, build and classpath.
     java_launches: BTreeMap<String, JavaLaunchPreparation>,
     /// Already allocated classpath requests; the bounded writer sends only live ones.
@@ -822,17 +970,35 @@ struct SessionState {
     deadline_cancellations: Vec<String>,
     /// Bounds an outbound maintenance write independently of caller deadlines.
     maintenance_write_deadline: Option<Instant>,
+    /// Policy and waiting requests of a plugin-owned language server; `None`
+    /// for every other session.
+    plugin_server: Option<PluginServerState>,
+    /// Bounds one write the function relay's lane makes to this session, so a
+    /// backend that stops reading its stdin cannot hold the lane forever.
+    relay_write_deadline: Option<Instant>,
     /// Backend requests for a host service awaiting `lsp.hostResponse`, by
     /// the opaque ID the host sees, with the backend's own JSON-RPC ID.
     host_requests: BTreeMap<String, Value>,
     next_host_request_id: u64,
+    /// Trace is opt-in and serialized with protocol writes through outbound_order.
+    detailed_diagnostics: bool,
+    /// Desired trace setting retained until the initialize handshake permits notifications.
+    requested_diagnostics: bool,
+    /// Malformed plugin diagnostics are summarized once per process session.
+    rejected_plugin_diagnostics: bool,
+    /// Sender-side ingress budget uses the existing process clock, never a timer.
+    plugin_diagnostics_window: Instant,
+    plugin_diagnostics_count: u16,
 }
 
 struct RuntimeSession {
+    /// Declarative plugin start attempt shared with `start_server`.
+    startup_attempt: AttemptSlot,
     id: String,
     provider_id: String,
     /// Plugin that owns the process, if any; see `StartServerRequest::plugin_id`.
     plugin_id: Option<String>,
+    log_identity: SessionLogIdentity,
     /// Fixed workspace host, inherited by protocol workers; never a global selection.
     workspace_host: Option<crate::remote::workspace::Host>,
     /// Maven import settings JDT LS currently holds. Replaced as a whole when
@@ -875,6 +1041,8 @@ struct RuntimeSession {
     event_signal: Condvar,
     process: Arc<dyn LspProcessHandle>,
     active: AtomicBool,
+    /// The engine's cross-plugin function relay; see `engine_function_relay`.
+    relay: Arc<RelayHub>,
 }
 
 /// The engine is a process-owning singleton in production, but it holds no
@@ -883,7 +1051,13 @@ struct RuntimeSession {
 pub(super) struct LspEngine {
     next_session_id: AtomicU64,
     next_operation_id: AtomicU64,
-    sessions: Mutex<BTreeMap<String, Arc<RuntimeSession>>>,
+    /// Shared with the relay's worker, which reaches sessions by ID.
+    sessions: Arc<Mutex<BTreeMap<String, Arc<RuntimeSession>>>>,
+    /// Cross-plugin function calls; every session of this engine uses it.
+    relay: Arc<RelayHub>,
+    /// Failed wire starts have no returned identity. Retain their cleanup
+    /// responsibility here and retry disposal before another process starts.
+    failed_starts: Mutex<BTreeSet<String>>,
     launcher: Arc<dyn LspProcessLauncher>,
 }
 
@@ -1106,6 +1280,14 @@ fn apply_indexing_to_sessions(
 /// Starts a managed language-server process and begins LSP initialization.
 pub fn start_server(request: StartServerRequest) -> Result<StartServerResponse, CoreError> {
     engine().start_server(request)
+}
+
+/// Native host ownership hook; it does not add an application command.
+pub fn start_server_owned(
+    request: StartServerRequest,
+    registered: impl FnOnce(&str),
+) -> Result<StartServerResponse, CoreError> {
+    engine().start_server_owned(request, registered)
 }
 
 /// Performs a bounded graceful shutdown while retaining the session record.
@@ -1345,8 +1527,11 @@ impl RuntimeSession {
         drop(outbound_order);
 
         for detail in warnings {
-            self.log(
+            self.log_issue(
                 "warn",
+                "mavenSettings",
+                "mavenSettingsUnchanged",
+                EngineLog::MavenSettingsForwarded,
                 "Maven settings were passed to the Java language service unchanged",
                 Some(detail),
             );
@@ -1358,6 +1543,7 @@ impl RuntimeSession {
         };
         self.log(
             "info",
+            EngineLog::MavenConfigurationUpdated.with_fields(json!(response)),
             "Java language service received the updated Maven configuration",
             Some(json!(response).to_string()),
         );
@@ -1573,6 +1759,20 @@ pub fn toolchain_provider_request(
     Ok(OperationResponse { operation_id })
 }
 
+/// Sends a shortcut import request only to a negotiated plugin provider.
+pub fn keymap_import_provider_request(
+    request: KeymapImportProviderRequest,
+) -> Result<OperationResponse, CoreError> {
+    let operation_id = request
+        .operation_id
+        .clone()
+        .unwrap_or_else(|| engine().next_operation_id());
+    engine()
+        .session(&request.session_id)?
+        .keymap_import_request(request, operation_id.clone())?;
+    Ok(OperationResponse { operation_id })
+}
+
 /// Sends one VCS-provider request to a session that negotiated the protocol.
 pub fn vcs_provider_request(request: VcsProviderRequest) -> Result<OperationResponse, CoreError> {
     let operation_id = request
@@ -1613,8 +1813,39 @@ pub fn plugin_function_request(
         .unwrap_or_else(|| engine().next_operation_id());
     engine()
         .session(&request.session_id)?
-        .function_request(request, operation_id.clone())?;
+        .function_request(request, operation_id.clone(), None)?;
     Ok(OperationResponse { operation_id })
+}
+
+/// Sends one request of a plugin backend to the plugin's own language server.
+pub fn plugin_server_request(request: PluginServerRequest) -> Result<OperationResponse, CoreError> {
+    let operation_id = request
+        .operation_id
+        .clone()
+        .unwrap_or_else(|| engine().next_operation_id());
+    engine()
+        .session(&request.session_id)?
+        .plugin_server_request(request, operation_id.clone())?;
+    Ok(OperationResponse { operation_id })
+}
+
+/// Sends one notification of a plugin backend to the plugin's own language server.
+pub fn plugin_server_notify(
+    request: PluginServerNotify,
+) -> Result<PluginServerNotifyResponse, CoreError> {
+    let delivered = engine()
+        .session(&request.session_id)?
+        .plugin_server_notify(request)?;
+    Ok(PluginServerNotifyResponse { delivered })
+}
+
+/// Replaces the host's view of the enabled plugins and live workspace
+/// contexts that the cross-plugin function relay checks calls against. Calls
+/// in flight that the new view forbids end with an error.
+pub fn configure_function_relay(
+    snapshot: super::function_relay::RelaySnapshot,
+) -> Result<(), CoreError> {
+    engine().relay.configure(snapshot)
 }
 
 /// Cancels a pending semantic request in both client state and the server.
@@ -1622,6 +1853,23 @@ pub fn cancel_operation(request: CancelOperationRequest) -> Result<(), CoreError
     engine()
         .session(&request.session_id)?
         .cancel_operation(&request.operation_id)
+}
+
+/// Host-owned toggle for one session's upstream trace diagnostics.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SetDetailedDiagnosticsRequest {
+    /// Opaque session returned by startServer.
+    pub session_id: String,
+    /// True sends verbose tracing, false sends off; default sessions start disabled.
+    pub enabled: bool,
+}
+
+/// Updates the trace gate only after the corresponding ordered write succeeds.
+pub fn set_detailed_diagnostics(request: SetDetailedDiagnosticsRequest) -> Result<(), CoreError> {
+    engine()
+        .session(&request.session_id)?
+        .set_detailed_diagnostics(request.enabled)
 }
 
 /// Drains all currently queued events in deterministic sequence order.
@@ -1733,10 +1981,13 @@ impl LspEngine {
     }
 
     fn with_launcher(launcher: Arc<dyn LspProcessLauncher>) -> Self {
+        let sessions = Arc::new(Mutex::new(BTreeMap::new()));
         Self {
             next_session_id: AtomicU64::new(1),
             next_operation_id: AtomicU64::new(1),
-            sessions: Mutex::new(BTreeMap::new()),
+            relay: RelayHub::start(&sessions),
+            sessions,
+            failed_starts: Mutex::new(BTreeSet::new()),
             launcher,
         }
     }
@@ -1749,12 +2000,95 @@ impl LspEngine {
     }
 
     fn start_server(&self, request: StartServerRequest) -> Result<StartServerResponse, CoreError> {
+        let mut registered = None;
+        let result = self.start_server_owned(request, |id| registered = Some(id.to_owned()));
+        if result.is_err() {
+            if let Some(id) = registered {
+                if self.lock_sessions()?.contains_key(&id) {
+                    self.lock_failed_starts()?.insert(id);
+                    // Preserve the original startup error. Incomplete cleanup
+                    // stays owned; an explicit startup retry reaps it before
+                    // any replacement process can be launched.
+                    // log-exempt: Same failure already recorded: this cleanup follows the startup failure returned below and traced by this request's Core failure; residue stays in failed_starts and the next start reports ProcessFailed.
+                    let _ = self.cleanup_failed_start();
+                }
+            }
+        }
+        result
+    }
+
+    fn lock_failed_starts(&self) -> Result<MutexGuard<'_, BTreeSet<String>>, CoreError> {
+        self.failed_starts.lock().map_err(|_| {
+            CoreError::new(
+                ErrorCode::Unknown,
+                "Failed startup cleanup lock was poisoned.",
+            )
+        })
+    }
+
+    fn cleanup_failed_start(&self) -> Result<(), CoreError> {
+        // Serialize cleanup attempts, but never hold the session registry or
+        // protocol-state lock across process disposal. Each retry owns at most
+        // one two-second disposal; a backlog must not make one call unbounded.
+        let mut failed = self.lock_failed_starts()?;
+        if let Some(id) = failed.first().cloned() {
+            if self.lock_sessions()?.contains_key(&id) {
+                self.destroy(&id)?;
+            }
+            failed.remove(&id);
+        }
+        if !failed.is_empty() {
+            return Err(CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Previous language-server startup cleanup is still pending. Retry startup to continue cleanup.",
+            ));
+        }
+        Ok(())
+    }
+
+    fn start_server_owned(
+        &self,
+        request: StartServerRequest,
+        registered: impl FnOnce(&str),
+    ) -> Result<StartServerResponse, CoreError> {
+        let attempt = startup_attempt(&request);
+        let result = self.start_server_attempt(request, &attempt, registered);
+        // A session that already reached a terminal result took the attempt;
+        // otherwise the process never started. Cancellation is not a result.
+        match &result {
+            Err(error) if !matches!(error.code, ErrorCode::Cancelled) => {
+                plugin_operations::finish(&attempt, Some(AttemptStage::Launch));
+            }
+            Err(_) => plugin_operations::abandon(&attempt),
+            Ok(_) => {}
+        }
+        result
+    }
+
+    fn start_server_attempt(
+        &self,
+        request: StartServerRequest,
+        attempt: &AttemptSlot,
+        registered: impl FnOnce(&str),
+    ) -> Result<StartServerResponse, CoreError> {
         validate_start_request(&request)?;
+        self.cleanup_failed_start()?;
         if crate::remote::workspace::is_remote() && request.provider_id.eq_ignore_ascii_case("java")
         {
             return Err(CoreError::new(
                 ErrorCode::NotSupported,
                 "Remote Java language servers require a host-compatible plugin launch plan",
+            ));
+        }
+        if crate::remote::workspace::is_remote()
+            && request
+                .session_policy
+                .as_ref()
+                .is_some_and(|policy| policy.remote == RemoteSupport::Unsupported)
+        {
+            return Err(CoreError::new(
+                ErrorCode::NotSupported,
+                "The plugin's language server does not support remote workspaces",
             ));
         }
         // Initial provider settings must include native Git decisions even when
@@ -1896,16 +2230,6 @@ impl LspEngine {
             _ => None,
         };
 
-        let process = self.launcher.launch(LspProcessSpec {
-            executable: adaptation
-                .executable
-                .unwrap_or_else(|| PathBuf::from(&request.executable_path)),
-            arguments: adaptation.arguments,
-            working_directory: workspace_root,
-            environment: request.environment,
-        })?;
-        let process_start_elapsed = startup_started_at.elapsed();
-
         let initialize_timeout = Duration::from_millis(request.initialize_timeout_milliseconds);
         let service_ready_idle_timeout =
             Duration::from_millis(request.service_ready_idle_timeout_milliseconds);
@@ -1937,6 +2261,11 @@ impl LspEngine {
                     } else {
                         Default::default()
                     },
+                    offered_keymap_import_providers: if request.plugin_id.is_some() {
+                        request.keymap_import_providers.iter().cloned().collect()
+                    } else {
+                        Default::default()
+                    },
                     ..LspClientState::default()
                 },
                 root_uri: request.root_uri.clone(),
@@ -1958,6 +2287,16 @@ impl LspEngine {
             },
             request.plugin_id.is_some(),
         )?;
+        let process = self.launcher.launch(LspProcessSpec {
+            executable: adaptation
+                .executable
+                .unwrap_or_else(|| PathBuf::from(&request.executable_path)),
+            arguments: adaptation.arguments,
+            working_directory: workspace_root,
+            environment: request.environment,
+        })?;
+        let process_start_elapsed = startup_started_at.elapsed();
+
         let request_id = (initialize.state.next_request_id - 1).to_string();
         let now = Instant::now();
         let process_id = process.handle.process_id();
@@ -1972,8 +2311,16 @@ impl LspEngine {
         let java_startup_detail = java_preparation
             .as_ref()
             .map(JavaPreparationDiagnostics::startup_detail);
+        let plugin_server = request.session_policy.map(PluginServerState::new);
         let session = Arc::new(RuntimeSession {
+            startup_attempt: Arc::clone(attempt),
             id: session_id.clone(),
+            log_identity: SessionLogIdentity::new(
+                request.role,
+                &request.provider_id,
+                request.plugin_id.as_deref(),
+                request.log_subject.as_deref(),
+            ),
             provider_id: request.provider_id,
             plugin_id: request.plugin_id,
             workspace_host: crate::remote::workspace::current(),
@@ -1993,6 +2340,7 @@ impl LspEngine {
                 lifecycle: LspLifecycleState::Created,
                 client: LspClientState {
                     host_services: request.host_services.into_iter().collect(),
+                    host_options: request.host_options,
                     ..initialize.state
                 },
                 pending: BTreeMap::from([(
@@ -2035,26 +2383,36 @@ impl LspEngine {
                 maven_profile_generation: 0,
                 maven_profile_request_generations: BTreeMap::new(),
                 java_builds: JavaBuildCoordinator::default(),
+                java_entrypoint_waiters: VecDeque::new(),
                 java_launches: BTreeMap::new(),
                 java_launch_messages: Vec::new(),
                 java_build_timeout,
                 deadline_cancellations: Vec::new(),
                 maintenance_write_deadline: None,
+                plugin_server,
+                relay_write_deadline: None,
                 host_requests: BTreeMap::new(),
                 next_host_request_id: 1,
+                detailed_diagnostics: false,
+                requested_diagnostics: false,
+                rejected_plugin_diagnostics: false,
+                plugin_diagnostics_window: Instant::now(),
+                plugin_diagnostics_count: 0,
             }),
             event_signal: Condvar::new(),
             process: process.handle,
             active: AtomicBool::new(true),
+            relay: Arc::clone(&self.relay),
         });
         session.transition(LspLifecycleState::Created, None)?;
         session.transition(LspLifecycleState::ProcessStarting, None)?;
         session.transition(LspLifecycleState::Initializing, None)?;
-        if let Some(detail) = java_startup_detail {
+        {
             session.log(
                 "info",
+                EngineLog::ProcessStarted,
                 "Java language service process started",
-                Some(detail),
+                java_startup_detail,
             );
         }
         if let Some(cleanup) = legacy_metadata_cleanup {
@@ -2062,6 +2420,7 @@ impl LspEngine {
             // ones and why the following import starts from scratch.
             session.log(
                 "info",
+                EngineLog::LegacyRemoved.with_fields(json!({"removedFiles": cleanup.removed_files, "stateReset": cleanup.state_reset})),
                 "Removed Java project files that earlier versions left in the workspace",
                 Some(
                     json!({
@@ -2073,8 +2432,11 @@ impl LspEngine {
             );
         }
         for detail in maven_settings_warnings {
-            session.log(
+            session.log_issue(
                 "warn",
+                "mavenSettings",
+                "mavenSettingsUnchanged",
+                EngineLog::MavenSettingsForwarded,
                 "Maven settings were passed to the Java language service unchanged",
                 Some(detail),
             );
@@ -2083,13 +2445,18 @@ impl LspEngine {
             if !area.removed_keys.is_empty() {
                 session.log(
                     "info",
+                    EngineLog::ConfigurationCleaned
+                        .with_fields(json!({"removedKeys": area.removed_keys})),
                     "Removed unused Java language-server configuration areas",
                     Some(json!({ "removedKeys": area.removed_keys }).to_string()),
                 );
             }
             if let Some(failure) = area.cleanup_failure {
-                session.log(
+                session.log_issue(
                     "warn",
+                    "configurationCleanup",
+                    "configurationCleanupFailed",
+                    EngineLog::ConfigurationCleanupFailed,
                     "Unused Java language-server configuration areas could not be removed",
                     Some(failure),
                 );
@@ -2101,16 +2468,37 @@ impl LspEngine {
         self.lock_sessions()?
             .insert(session_id.clone(), session.clone());
         if let Err(error) = check_indexing() {
-            self.lock_sessions()?.remove(&session_id);
+            // A retired start is cancelled, not a handshake failure. Abandon
+            // the attempt before `fail` or the process exit can record it.
+            plugin_operations::abandon(attempt);
+            session.fail(
+                "indexingChanged",
+                "initialize",
+                "Indexing policy changed during language-server startup.",
+                Some(core_error_detail(&error)),
+                None,
+            );
             session.active.store(false, Ordering::Release);
             session.kill_process();
+            // No native identity has been published yet. Forget the session
+            // only after disposal proves that its process tree has exited.
+            if session.process.dispose(Duration::from_secs(2)).is_ok() {
+                self.lock_sessions()?.remove(&session_id);
+            } else {
+                registered(&session_id);
+            }
             return Err(error);
         }
+        // Native owners learn the identity before initialize writes can fail.
+        // They keep their package barrier until destroy verifies disposal.
+        registered(&session_id);
         session.spawn_readers(process.output, process.errors);
         session.spawn_monitor();
         session.spawn_outbound_maintenance();
         let outbound_order = session.lock_outbound_order()?;
         if let Err(error) = session.send_messages(&outbound_order, initialize.messages) {
+            // startServer fails here, so the attempt failed to launch.
+            plugin_operations::finish(attempt, Some(AttemptStage::Launch));
             session.fail(
                 "transportFailed",
                 "initialize",
@@ -2123,13 +2511,25 @@ impl LspEngine {
         }
 
         if let Err(error) = check_indexing() {
-            self.lock_sessions()?.remove(&session_id);
+            // The readers already run; abandon before `fail` and the kill so
+            // neither the failure nor the observed exit records the cancel.
+            plugin_operations::abandon(attempt);
+            session.fail(
+                "indexingChanged",
+                "initialize",
+                "Indexing policy changed during language-server startup.",
+                Some(core_error_detail(&error)),
+                None,
+            );
             session.active.store(false, Ordering::Release);
             session.kill_process();
+            // The native owner already holds this identity. Keep it until
+            // destroy verifies disposal and returns a positive receipt.
             return Err(error);
         }
 
         Ok(StartServerResponse {
+            channel: session.log_identity.channel(),
             session_id,
             state: LspLifecycleState::Initializing,
             process_id,
@@ -2155,6 +2555,7 @@ impl LspEngine {
                 "A running language-server session cannot be destroyed.",
             ));
         }
+        session.process.dispose(Duration::from_secs(2))?;
         self.lock_sessions()?.remove(session_id);
         Ok(())
     }
@@ -2429,6 +2830,7 @@ impl RuntimeSession {
             self,
             &mut state,
             "debug",
+            EngineLog::NavigationCacheHit.with_fields(json!({"operationId": operation_id, "document": uri, "document_version": document_version, "markers": markers.len()})),
             "Java navigation markers served from cache",
             Some(format!(
                 "operationId={operation_id}, uri={uri}, documentVersion={document_version}, markers={}",
@@ -2481,16 +2883,40 @@ impl RuntimeSession {
             }
             if state.request_by_operation.contains_key(&operation_id)
                 || state.java_builds.contains(&operation_id)
+                || state.java_launches.contains_key(&operation_id)
+                || state
+                    .java_entrypoint_waiters
+                    .iter()
+                    .any(|waiter| waiter.operation_id == operation_id)
             {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
                     "The language-server operation ID is already pending.",
                 ));
             }
+            let now = Instant::now();
+            if java_configuration_running(&mut state, now) {
+                if state.java_entrypoint_waiters.len() >= 128 {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Java entry-point discovery queue is full.",
+                    ));
+                }
+                let deadline = now + state.java_build_timeout;
+                state
+                    .java_entrypoint_waiters
+                    .push_back(JavaEntrypointWaiter {
+                        operation_id: operation_id.clone(),
+                        created_at: now,
+                        deadline,
+                    });
+                state.java_launches.insert(operation_id, preparation);
+                return Ok(());
+            }
             let response = allocate_raw_request(
                 state.client.clone(),
                 "workspace/executeCommand",
-                java_entrypoints_command(&java_entrypoint_scope_uri(&self.root_uri)),
+                java_entrypoints_command(),
             )?;
             let request_id = (response.state.next_request_id - 1).to_string();
             let now = Instant::now();
@@ -2563,6 +2989,10 @@ impl RuntimeSession {
             }
             if state.request_by_operation.contains_key(&operation_id)
                 || state.java_builds.contains(&operation_id)
+                || state
+                    .java_entrypoint_waiters
+                    .iter()
+                    .any(|waiter| waiter.operation_id == operation_id)
             {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
@@ -2606,6 +3036,99 @@ impl RuntimeSession {
                 return Err(CoreError::new(
                     ErrorCode::NotSupported,
                     "The provider did not negotiate test execution.",
+                )
+                .with_details("plugin.build.unavailable"));
+            }
+            if request.params.pointer("/launchOptions/debug").is_some()
+                && !state
+                    .client
+                    .server_capabilities
+                    .iter()
+                    .any(|feature| feature == super::build_provider::RUNTIME_DEBUG_FEATURE)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::NotSupported,
+                    "The provider did not negotiate runtime debug options.",
+                )
+                .with_details("plugin.build.unavailable"));
+            }
+            if request.params.get("launchOptions").is_some() {
+                if request.method != super::build_provider::PREPARE_RUN_METHOD {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Launch options apply only to run preparation.",
+                    ));
+                }
+                if !state
+                    .client
+                    .server_capabilities
+                    .iter()
+                    .any(|feature| feature == super::build_provider::RUN_OPTIONS_FEATURE)
+                {
+                    return Err(CoreError::new(
+                        ErrorCode::NotSupported,
+                        "The provider did not negotiate typed run options.",
+                    )
+                    .with_details("plugin.build.unavailable"));
+                }
+            }
+            if request.params.get("selectorKind").is_some()
+                || request.params.get("selectors").is_some()
+            {
+                if request.method != super::build_provider::TEST_METHOD {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Opaque selectors require a provider test request.",
+                    ));
+                }
+                if !state
+                    .client
+                    .server_capabilities
+                    .iter()
+                    .any(|feature| feature == super::build_provider::TEST_SELECTORS_FEATURE)
+                {
+                    return Err(CoreError::new(
+                        ErrorCode::NotSupported,
+                        "The provider did not negotiate opaque test selectors.",
+                    )
+                    .with_details("plugin.build.unavailable"));
+                }
+            }
+            if request.params.get("testResults").is_some() {
+                if request.method != super::build_provider::TEST_METHOD
+                    || request.params["testResults"] != json!(true)
+                {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Inline test reports require a provider test request.",
+                    ));
+                }
+                if !state
+                    .client
+                    .server_capabilities
+                    .iter()
+                    .any(|feature| feature == super::build_provider::TEST_REPORTS_FEATURE)
+                {
+                    return Err(CoreError::new(
+                        ErrorCode::NotSupported,
+                        "The provider did not negotiate inline test reports.",
+                    )
+                    .with_details("plugin.build.unavailable"));
+                }
+            }
+            if matches!(
+                request.method.as_str(),
+                super::build_provider::CONFIGURATION_METHOD
+                    | super::build_provider::EDIT_CONFIGURATION_METHOD
+            ) && !state
+                .client
+                .server_capabilities
+                .iter()
+                .any(|feature| feature == super::build_provider::CONFIGURATION_FEATURE)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::NotSupported,
+                    "The provider did not negotiate native configuration.",
                 )
                 .with_details("plugin.build.unavailable"));
             }
@@ -2677,6 +3200,91 @@ impl RuntimeSession {
                     kind: PendingKind::Feature,
                     operation_id: Some(operation_id.clone()),
                     method: request.method,
+                    document_uri: None,
+                    document_version: None,
+                    created_at: now,
+                    deadline: now + timeout,
+                },
+            );
+            state
+                .request_by_operation
+                .insert(operation_id, request_id.clone());
+            (response.messages, request_id)
+        };
+        self.send_request_or_fail(&outbound_order, messages, &request_id)
+    }
+
+    fn keymap_import_request(
+        &self,
+        request: KeymapImportProviderRequest,
+        operation_id: String,
+    ) -> Result<(), CoreError> {
+        // A snapshot reference is an opaque token, never a filesystem path.
+        // The future host service must separately enforce its session ownership.
+        if request.snapshot_id.is_empty()
+            || request.snapshot_id.len() > 128
+            || !request
+                .snapshot_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Invalid import snapshot reference.",
+            ));
+        }
+        let outbound_order = self.lock_outbound_order()?;
+        let (messages, request_id) = {
+            let mut state = self.lock_state()?;
+            if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Plugin backend is not ready.",
+                ));
+            }
+            if state.request_by_operation.contains_key(&operation_id)
+                || state.java_builds.contains(&operation_id)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The operation ID is already pending.",
+                ));
+            }
+            if !state
+                .client
+                .keymap_import_providers
+                .contains(&request.provider_id)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::NotSupported,
+                    "The plugin did not negotiate this import provider.",
+                )
+                .with_details("plugin.keymapImport.providerUnavailable"));
+            }
+            let timeout = request
+                .timeout_milliseconds
+                .map(|milliseconds| {
+                    Duration::from_millis(milliseconds.clamp(1, MAX_KEYMAP_IMPORT_TIMEOUT_MS))
+                })
+                .unwrap_or(
+                    state
+                        .request_timeout
+                        .min(Duration::from_millis(MAX_KEYMAP_IMPORT_TIMEOUT_MS)),
+                );
+            let response = allocate_raw_request(
+                state.client.clone(),
+                super::keymap_provider::IMPORT_METHOD,
+                json!({"providerID": request.provider_id, "snapshotID": request.snapshot_id}),
+            )?;
+            let request_id = (response.state.next_request_id - 1).to_string();
+            let now = Instant::now();
+            state.client = response.state;
+            state.pending.insert(
+                request_id.clone(),
+                PendingRequest {
+                    kind: PendingKind::Feature,
+                    operation_id: Some(operation_id.clone()),
+                    method: super::keymap_provider::IMPORT_METHOD.to_string(),
                     document_uri: None,
                     document_version: None,
                     created_at: now,
@@ -2782,6 +3390,10 @@ impl RuntimeSession {
             }
             if state.request_by_operation.contains_key(&operation_id)
                 || state.java_builds.contains(&operation_id)
+                || state
+                    .java_entrypoint_waiters
+                    .iter()
+                    .any(|waiter| waiter.operation_id == operation_id)
             {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
@@ -2841,11 +3453,22 @@ impl RuntimeSession {
     /// Writes a `lithe/function/invoke` request. The plan comes from
     /// `plugin_function::plan_invocation`, so plugin identity, negotiation,
     /// and registration are checked before anything reaches the process.
+    ///
+    /// `caller` is the plugin whose call the relay forwards, and `None` for a
+    /// call the host starts. Only the relay passes `Some`, so a host cannot
+    /// name a plugin as the caller and a plugin cannot choose its own name.
     fn function_request(
         &self,
         request: PluginFunctionRequest,
         operation_id: String,
+        caller: Option<&str>,
     ) -> Result<(), CoreError> {
+        if caller.is_none() && relay_hub::is_relay_operation_id(&operation_id) {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "This language-server operation ID is reserved for relayed plugin calls.",
+            ));
+        }
         let outbound_order = self.lock_outbound_order()?;
         let (messages, request_id) = {
             let mut state = self.lock_state()?;
@@ -2857,6 +3480,10 @@ impl RuntimeSession {
             }
             if state.request_by_operation.contains_key(&operation_id)
                 || state.java_builds.contains(&operation_id)
+                || state
+                    .java_entrypoint_waiters
+                    .iter()
+                    .any(|waiter| waiter.operation_id == operation_id)
             {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
@@ -2881,11 +3508,9 @@ impl RuntimeSession {
                 &request.params,
             )?;
             let mut params = params;
-            super::plugin_function::attach_context(
-                &mut params,
-                state.client.plugin_function_version.unwrap_or(0),
-                request.context.as_ref(),
-            )?;
+            let version = state.client.plugin_function_version.unwrap_or(0);
+            super::plugin_function::attach_context(&mut params, version, request.context.as_ref())?;
+            super::plugin_function::attach_caller(&mut params, version, caller);
             let timeout = request
                 .timeout_milliseconds
                 .map(|milliseconds| {
@@ -3024,6 +3649,94 @@ impl RuntimeSession {
         Ok(true)
     }
 
+    /// Admits a backend's request to its language server: it is sent now,
+    /// held behind a gate, or joined to a command that already runs.
+    fn plugin_server_request(
+        &self,
+        request: PluginServerRequest,
+        operation_id: String,
+    ) -> Result<(), CoreError> {
+        let outbound_order = self.lock_outbound_order()?;
+        let (messages, request_id) = {
+            let mut state = self.lock_state()?;
+            if state.request_by_operation.contains_key(&operation_id) {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The language-server operation ID is already pending.",
+                ));
+            }
+            let server = plugin_server_target(
+                &mut state,
+                self.plugin_id.as_deref(),
+                &request.plugin_id,
+                &request.server_id,
+            )?;
+            let now = Instant::now();
+            let deadline = now + plugin_server_timeout(request.timeout_milliseconds);
+            let admission = server.admit_request(Arrival {
+                operation_id: &operation_id,
+                method: &request.method,
+                params: &request.params,
+                now,
+                deadline,
+            })?;
+            if admission != Admission::Send {
+                // Held and joined requests are written later, or never.
+                return Ok(());
+            }
+            match register_plugin_server_request(
+                &mut state,
+                &operation_id,
+                &request.method,
+                request.params,
+                now,
+                deadline,
+            ) {
+                Ok(registered) => registered,
+                Err(error) => {
+                    if let Some(server) = state.plugin_server.as_mut() {
+                        server.finish(&operation_id);
+                    }
+                    return Err(error);
+                }
+            }
+        };
+        self.send_request_or_fail(&outbound_order, messages, &request_id)
+    }
+
+    /// Sends a backend's notification to its language server. Returns whether
+    /// it was sent now.
+    fn plugin_server_notify(&self, request: PluginServerNotify) -> Result<bool, CoreError> {
+        {
+            let mut state = self.lock_state()?;
+            let server = plugin_server_target(
+                &mut state,
+                self.plugin_id.as_deref(),
+                &request.plugin_id,
+                &request.server_id,
+            )?;
+            server.admit_notification(&request.method, &request.params)?;
+        }
+        if request.method == DID_CHANGE_CONFIGURATION {
+            // The settings also answer the server's own `workspace/configuration`
+            // requests, so they go through the plugin configuration.
+            let settings = request
+                .params
+                .get("settings")
+                .filter(|settings| settings.is_object())
+                .cloned()
+                .ok_or_else(|| {
+                    CoreError::new(ErrorCode::InvalidRequest, "settings must be an object.")
+                        .with_details(super::plugin_function::codes::HOST_INVALID_PARAMS)
+                })?;
+            return Ok(self.update_plugin_configuration(settings)?.sent);
+        }
+        let message = json_rpc_notification(&request.method, request.params)?;
+        let outbound_order = self.lock_outbound_order()?;
+        self.send_messages_or_fail(&outbound_order, vec![message], "pluginServerNotify")?;
+        Ok(true)
+    }
+
     fn request_with_kind(
         &self,
         request: SemanticRequest,
@@ -3042,6 +3755,10 @@ impl RuntimeSession {
             }
             if state.request_by_operation.contains_key(&operation_id)
                 || state.java_builds.contains(&operation_id)
+                || state
+                    .java_entrypoint_waiters
+                    .iter()
+                    .any(|waiter| waiter.operation_id == operation_id)
             {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
@@ -3109,6 +3826,31 @@ impl RuntimeSession {
                 }
             }
 
+            // Profile updates return before m2e has changed the Java projects.
+            // Discovering first and only gating the later build can select an
+            // old entry point or miss a source root introduced by the profile.
+            if self.provider_id == "java"
+                && request.operation == LspSemanticOperation::JavaEntrypoints
+                && java_configuration_running(&mut state, Instant::now())
+            {
+                if state.java_entrypoint_waiters.len() >= 128 {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Too many Java entry-point requests are waiting for project configuration.",
+                    ));
+                }
+                let now = Instant::now();
+                let timeout = state.java_build_timeout;
+                state
+                    .java_entrypoint_waiters
+                    .push_back(JavaEntrypointWaiter {
+                        operation_id,
+                        created_at: now,
+                        deadline: now + timeout,
+                    });
+                return Ok(());
+            }
+
             let pending_kind = requested_kind;
             let response = match request.operation {
                 LspSemanticOperation::JavaSuperImplementation => {
@@ -3155,11 +3897,7 @@ impl RuntimeSession {
                             "Java entry-point discovery requires the Java language service.",
                         ));
                     }
-                    allocate_raw_request(
-                        state.client.clone(),
-                        method,
-                        java_entrypoints_command(&java_entrypoint_scope_uri(&self.root_uri)),
-                    )?
+                    allocate_raw_request(state.client.clone(), method, java_entrypoints_command())?
                 }
                 LspSemanticOperation::JavaTestItems => {
                     if self.provider_id != "java" {
@@ -3321,6 +4059,32 @@ impl RuntimeSession {
         let outbound_order = self.lock_outbound_order()?;
         let request_id = {
             let mut state = self.lock_state()?;
+            if let Some(index) = state
+                .java_entrypoint_waiters
+                .iter()
+                .position(|waiter| waiter.operation_id == operation_id)
+            {
+                state.java_entrypoint_waiters.remove(index);
+                let error = runtime_error(
+                    self,
+                    "requestCancelled",
+                    "request",
+                    Some(JAVA_BUILD_METHOD),
+                    None,
+                    "Language-server request was cancelled.",
+                    None,
+                    None,
+                );
+                push_request_event(
+                    self,
+                    &mut state,
+                    operation_id,
+                    JAVA_BUILD_METHOD,
+                    None,
+                    Some(error),
+                );
+                return Ok(());
+            }
             if let Some(departure) = state.java_builds.cancel(operation_id) {
                 let error = runtime_error(
                     self,
@@ -3346,6 +4110,14 @@ impl RuntimeSession {
                     java_build_cancellation(departure),
                     "requestCancel",
                 );
+            }
+            if state
+                .plugin_server
+                .as_ref()
+                .is_some_and(|server| server.is_unsent(operation_id))
+            {
+                cancel_unsent_plugin_server_request(self, &mut state, operation_id);
+                return Ok(());
             }
             let request_id = state
                 .request_by_operation
@@ -3442,6 +4214,7 @@ impl RuntimeSession {
                     self,
                     &mut state,
                     "info",
+                    EngineLog::MavenCancelled,
                     "Maven profile application cancelled with the session",
                     None,
                 );
@@ -3457,6 +4230,7 @@ impl RuntimeSession {
             clear_function_registry(self, &mut state);
             clear_runtime_diagnostics(self, &mut state);
             transition_locked(self, &mut state, LspLifecycleState::Stopping, None);
+            plugin_operations::abandon(&self.startup_attempt);
             state.initialize_deadline = None;
             state.shutdown_deadline = Some(Instant::now() + state.shutdown_timeout);
             if state.client.initialized {
@@ -3630,18 +4404,39 @@ impl RuntimeSession {
 
         let error_session = self.clone();
         thread::spawn(move || {
-            let mut chunk = vec![0_u8; 4 * 1024];
+            let mut chunk = [0_u8; 4096];
+            let mut lines = StderrLines::default();
+            let started = Instant::now();
+            let emit = |fact| match fact {
+                StderrFact::Line {
+                    diagnostic,
+                    truncated,
+                } => error_session.log(
+                    "debug",
+                    EngineLog::StderrReceived
+                        .with_fields(json!({"diagnostic": diagnostic, "truncated": truncated})),
+                    "Language-server stderr",
+                    Some(diagnostic),
+                ),
+                StderrFact::Dropped(count) => error_session.log(
+                    "warning",
+                    EngineLog::Dropped.with_fields(json!({"count": count})),
+                    "Engine stderr lines dropped",
+                    Some(format!("count={count}")),
+                ),
+            };
             while error_session.active.load(Ordering::Acquire) {
                 match stderr.read(&mut chunk) {
                     Ok(0) => break,
-                    Ok(count) => error_session.log(
-                        "warning",
-                        "Language-server stderr",
-                        Some(String::from_utf8_lossy(&chunk[..count]).trim().to_string()),
-                    ),
+                    Ok(count) => {
+                        lines.feed(&chunk[..count], started.elapsed().as_millis() as u64, emit)
+                    }
                     Err(error) => {
-                        error_session.log(
+                        error_session.log_issue(
                             "warning",
+                            "stderr",
+                            "stderrReadFailed",
+                            EngineLog::StderrReadFailed,
                             "Could not read language-server stderr",
                             Some(error.to_string()),
                         );
@@ -3649,6 +4444,7 @@ impl RuntimeSession {
                     }
                 }
             }
+            lines.finish(started.elapsed().as_millis() as u64, emit);
         });
     }
 
@@ -3706,6 +4502,7 @@ impl RuntimeSession {
         if response_id.is_some() && !known_pending {
             self.log(
                 "info",
+                EngineLog::ResponseSkipped.with_fields(json!(response_id)),
                 "Ignored a late language-server response",
                 response_id,
             );
@@ -3807,6 +4604,7 @@ impl RuntimeSession {
                             server_error,
                         ));
                     } else {
+                        plugin_operations::finish(&self.startup_attempt, None);
                         state.initialize_deadline = None;
                         if waits_for_service_ready(&self.provider_id) {
                             let now = Instant::now();
@@ -3827,6 +4625,7 @@ impl RuntimeSession {
                                     self,
                                     &mut state,
                                     "info",
+                                    EngineLog::ProtocolInitialized,
                                     "Java language service protocol initialized",
                                     Some(detail),
                                 );
@@ -3867,23 +4666,27 @@ impl RuntimeSession {
                 {
                     if let Some(pending) = pending_before.as_ref() {
                         if let Some(operation_id) = &pending.operation_id {
-                            let (result, error) =
-                                match super::build_provider::execution_outcome(&value) {
-                                    Ok(result) => (Some(result), None),
-                                    Err((code, message)) => (
+                            let (result, error) = match super::build_provider::execution_outcome(
+                                &value,
+                                state.client.server_capabilities.iter().any(|feature| {
+                                    feature == super::build_provider::TEST_REPORTS_FEATURE
+                                }),
+                            ) {
+                                Ok(result) => (Some(result), None),
+                                Err((code, message)) => (
+                                    None,
+                                    Some(runtime_error(
+                                        self,
+                                        code,
+                                        "request",
+                                        Some(&pending.method),
                                         None,
-                                        Some(runtime_error(
-                                            self,
-                                            code,
-                                            "request",
-                                            Some(&pending.method),
-                                            None,
-                                            &message,
-                                            None,
-                                            None,
-                                        )),
-                                    ),
-                                };
+                                        &message,
+                                        None,
+                                        None,
+                                    )),
+                                ),
+                            };
                             push_request_event(
                                 self,
                                 &mut state,
@@ -3917,6 +4720,48 @@ impl RuntimeSession {
                                         None,
                                     )),
                                 ),
+                            };
+                            push_request_event(
+                                self,
+                                &mut state,
+                                operation_id,
+                                &pending.method,
+                                result,
+                                error,
+                            );
+                        }
+                    }
+                }
+                Some(PendingKind::Feature)
+                    if pending_before.as_ref().is_some_and(|pending| {
+                        pending.method == super::keymap_provider::IMPORT_METHOD
+                    }) =>
+                {
+                    if let Some(pending) = pending_before.as_ref() {
+                        if let Some(operation_id) = &pending.operation_id {
+                            let (result, error) = if value.to_string().len()
+                                > super::keymap_provider::MAX_REPLY_BYTES
+                            {
+                                (
+                                    None,
+                                    Some(runtime_error(
+                                        self,
+                                        "plugin.keymapImport.replyTooLarge",
+                                        "request",
+                                        Some(&pending.method),
+                                        None,
+                                        "The shortcut import provider reply is too large.",
+                                        None,
+                                        None,
+                                    )),
+                                )
+                            } else {
+                                (
+                                    Some(
+                                        json!({"value": {"id": value.get("id"), "response": value}}),
+                                    ),
+                                    None,
+                                )
                             };
                             push_request_event(
                                 self,
@@ -3968,10 +4813,30 @@ impl RuntimeSession {
                                         None,
                                     )
                                 });
-                            let result = normalize_provider_navigation_result(
-                                &self.provider_id,
-                                event.and_then(|event| event.result.clone()),
+                            let result = event.and_then(|event| event.result.clone());
+                            // A plugin-owned server has no provider-specific
+                            // rule; it only marks locations that are not files.
+                            let result = if state.plugin_server.is_some() {
+                                plugin_server::normalize_navigation_result(result)
+                            } else {
+                                normalize_provider_navigation_result(&self.provider_id, result)
+                            };
+                            push_request_event(
+                                self,
+                                &mut state,
+                                operation_id,
+                                &pending.method,
+                                result,
+                                error,
                             );
+                        }
+                    }
+                }
+                Some(PendingKind::PluginServer) => {
+                    if let Some(pending) = pending_before.as_ref() {
+                        if let Some(operation_id) = &pending.operation_id {
+                            let (result, error) =
+                                plugin_server_answer(self, &pending.method, &value);
                             push_request_event(
                                 self,
                                 &mut state,
@@ -4035,10 +4900,13 @@ impl RuntimeSession {
                                     .java_navigation_marker_batches
                                     .insert(operation_id.clone(), batch);
                                 if total_tasks > MAX_JAVA_NAVIGATION_TASKS {
-                                    push_log_event(
+                                    push_issue_log_event(
                                         self,
                                         &mut state,
                                         "warning",
+                                        "navigation",
+                                        "navigationLimited",
+                                        EngineLog::NavigationLimited.with_fields(json!({"operationId": operation_id, "document": pending.document_uri, "tasks": total_tasks, "limit": MAX_JAVA_NAVIGATION_TASKS})),
                                         "Java navigation marker batch was limited",
                                         Some(format!(
                                             "operationId={operation_id}, uri={}, documentVersion={}, tasks={total_tasks}, limit={MAX_JAVA_NAVIGATION_TASKS}",
@@ -4074,10 +4942,13 @@ impl RuntimeSession {
                                     batch.record_active_result(value.get("result"));
                                 }
                             } else {
-                                push_log_event(
+                                push_issue_log_event(
                                     self,
                                     &mut state,
                                     "warning",
+                                    "navigation",
+                                    "navigationMarkerFailed",
+                                    EngineLog::NavigationMarkerFailed.with_fields(json!({"operationId": operation_id, "document": pending.document_uri, "document_version": pending.document_version, "failureCode": "server_error"})),
                                     "JDT LS could not verify one Java navigation marker",
                                     Some(format!(
                                         "operationId={operation_id}, uri={}, documentVersion={}, error={}",
@@ -4178,18 +5049,32 @@ impl RuntimeSession {
                             "status": status,
                             "errorDetails": error_details,
                         }))
-                        .ok();
-                        push_log_event(
-                            self,
-                            &mut state,
-                            if status == MavenProfileTaskStatus::Failed {
-                                "error"
-                            } else {
-                                "info"
-                            },
-                            "Maven profile project update completed",
-                            detail,
-                        );
+                        .expect("JSON values serialize without fallible map keys");
+                        if status == MavenProfileTaskStatus::Failed {
+                            push_issue_log_event(
+                                self,
+                                &mut state,
+                                "error",
+                                "mavenProfile",
+                                "mavenProfileUpdateFailed",
+                                EngineLog::MavenProjectFinished.with_fields(
+                                    json!({"projectUri": project_uri, "status": status}),
+                                ),
+                                "Maven profile project update completed",
+                                Some(detail),
+                            );
+                        } else {
+                            push_log_event(
+                                self,
+                                &mut state,
+                                "info",
+                                EngineLog::MavenProjectFinished.with_fields(
+                                    json!({"projectUri": project_uri, "status": status}),
+                                ),
+                                "Maven profile project update completed",
+                                Some(detail),
+                            );
+                        }
                     }
                     if let Some(result) = completed_result {
                         push_maven_profile_project_event(self, &mut state, result);
@@ -4286,10 +5171,17 @@ impl RuntimeSession {
                             } else {
                                 "Java language service partially applied Maven profiles"
                             };
+                        let identity =
+                            if state.maven_profile_status == MavenProfileTaskStatus::Succeeded {
+                                EngineLog::MavenApplied
+                            } else {
+                                EngineLog::MavenPartiallyApplied
+                            };
                         push_log_event(
                             self,
                             &mut state,
                             profile_log_level,
+                            identity,
                             profile_log_message,
                             None,
                         );
@@ -4529,10 +5421,16 @@ impl RuntimeSession {
                         diagnostics.record_progress(progress, Instant::now())
                     });
                     if let Some(detail) = detail {
+                        let fields = state
+                            .java_preparation
+                            .as_ref()
+                            .map(|d| d.log_progress(Instant::now()))
+                            .unwrap_or(Value::Null);
                         push_log_event(
                             self,
                             &mut state,
                             "info",
+                            EngineLog::WorkspaceProgressReceived.with_fields(fields),
                             "Java workspace import progress",
                             Some(detail),
                         );
@@ -4554,6 +5452,14 @@ impl RuntimeSession {
             }
 
             for event in reduced.events {
+                if event.kind == "notification" {
+                    outbound.extend(observe_plugin_server_notification(
+                        self,
+                        &mut state,
+                        event.method.as_deref(),
+                        event.result.as_ref(),
+                    ));
+                }
                 if event.kind == "semanticTokensRefresh" {
                     push_semantic_tokens_refresh_event(self, &mut state);
                 } else if event.kind == "functionsChanged" {
@@ -4568,6 +5474,14 @@ impl RuntimeSession {
                         .collect();
                     outbound.extend(revoke_function_calls_locked(self, &mut state, &removed));
                     push_functions_event(self, &mut state, result);
+                    relay_hub::observe_functions_changed(self);
+                } else if event.kind == "functionRelayRequest" {
+                    outbound.extend(self.relay.answer_request(
+                        self,
+                        &state,
+                        event.method.as_deref().unwrap_or_default(),
+                        &event.result.unwrap_or_default(),
+                    )?);
                 } else if event.kind == "functionProgress" {
                     push_function_progress_locked(self, &mut state, event.result);
                 } else if event.kind == "buildProgress" {
@@ -4582,10 +5496,18 @@ impl RuntimeSession {
                 } else if event.kind == super::vcs_provider::NEGOTIATED_EVENT {
                     push_vcs_provider_event(self, &mut state, event.result.unwrap_or_default());
                 } else if event.kind == super::toolchain_provider::NEGOTIATED_EVENT {
-                    push_toolchain_provider_event(
+                    push_negotiated_provider_event(
                         self,
                         &mut state,
                         event.result.unwrap_or_default(),
+                        "toolchainProviders",
+                    );
+                } else if event.kind == super::keymap_provider::NEGOTIATED_EVENT {
+                    push_negotiated_provider_event(
+                        self,
+                        &mut state,
+                        event.result.unwrap_or_default(),
+                        "keymapImportProviders",
                     );
                 } else if event.kind == "diagnostics" {
                     if let Some(uri) = event.uri.as_deref() {
@@ -4597,6 +5519,10 @@ impl RuntimeSession {
                             event.diagnostics.unwrap_or_default(),
                         );
                     }
+                } else if event.kind == "notification"
+                    && event.method.as_deref() == Some(super::plugin_logging::METHOD)
+                {
+                    receive_plugin_diagnostic(self, &mut state, event.result.as_ref());
                 } else if event.kind == "notification"
                     && self.plugin_id.is_some()
                     && event.method.as_deref() == Some("$/cancelRequest")
@@ -4615,16 +5541,19 @@ impl RuntimeSession {
                             event.method.as_deref(),
                         ))
                 {
-                    push_log_event(
-                        self,
-                        &mut state,
-                        "info",
-                        event
-                            .method
-                            .as_deref()
-                            .unwrap_or("Language-server notification"),
-                        event.result.map(|value| value.to_string()),
-                    );
+                    let method = event.method.as_deref().unwrap_or("unknown");
+                    let params = event.result.as_ref().unwrap_or(&Value::Null);
+                    if method != "$/logTrace" || state.detailed_diagnostics {
+                        let (identity, fields) = EngineLog::notification(method, params);
+                        push_log_event(
+                            self,
+                            &mut state,
+                            "info",
+                            identity.with_fields(fields),
+                            method,
+                            event.result.map(|value| value.to_string()),
+                        );
+                    }
                 }
             }
             if state.client.server_capabilities != old_capabilities
@@ -4642,6 +5571,7 @@ impl RuntimeSession {
             // A build response, a finished project job, or finished Maven
             // profiles can each unblock the next queued build.
             outbound.extend(self.dispatch_java_build_locked(&mut state, now));
+            outbound.extend(self.dispatch_java_entrypoints_locked(&mut state, now));
         }
 
         if let Some((code, detail)) = fail_initialize {
@@ -4685,16 +5615,34 @@ impl RuntimeSession {
             if !waits_for_service_ready(&self.provider_id) {
                 outbound.extend(self.flush_queued_documents()?);
             }
+            let diagnostics_enabled = self.lock_state()?.requested_diagnostics;
+            if diagnostics_enabled {
+                // LSP forbids setTrace before the initialize response. This batch
+                // already starts with initialized, under the same outbound lock.
+                outbound.push(trace_notification(true));
+            }
             self.send_messages_or_fail(&outbound_order, outbound, "serverResponse")?;
             let mut state = self.lock_state()?;
+            state.detailed_diagnostics = diagnostics_enabled;
             if let Some(info) = ready_server_info {
                 push_server_info_event(self, &mut state, info);
+            }
+            if !waits_for_service_ready(&self.provider_id) {
+                push_log_event(
+                    self,
+                    &mut state,
+                    "info",
+                    EngineLog::ProtocolInitialized,
+                    "Language service protocol initialized",
+                    None,
+                );
             }
             if waits_for_service_ready(&self.provider_id) {
                 push_log_event(
                     self,
                     &mut state,
                     "info",
+                    EngineLog::WorkspaceWaiting,
                     "Waiting for the Java language service to finish project import",
                     None,
                 );
@@ -4734,6 +5682,7 @@ impl RuntimeSession {
                     self,
                     &mut state,
                     "info",
+                    EngineLog::MavenApplicationStarted,
                     "Java language service applying Maven profiles",
                     None,
                 );
@@ -4747,6 +5696,11 @@ impl RuntimeSession {
             self.send_messages_or_fail(&outbound_order, queued_messages, "serviceReady")?;
             {
                 let mut state = self.lock_state()?;
+                let ready_fields = state
+                    .java_preparation
+                    .as_ref()
+                    .map(|d| d.log_import(Instant::now()))
+                    .unwrap_or(Value::Null);
                 let ready_detail = state
                     .java_preparation
                     .as_mut()
@@ -4758,6 +5712,7 @@ impl RuntimeSession {
                     self,
                     &mut state,
                     "info",
+                    EngineLog::WorkspaceImportFinished.with_fields(ready_fields),
                     "Java language service finished project import",
                     ready_detail,
                 );
@@ -4926,6 +5881,7 @@ impl RuntimeSession {
             self,
             &mut state,
             "info",
+            EngineLog::MavenApplicationStarted.with_fields(json!({"projectCount": project_count})),
             "Applying Maven profiles to Java projects",
             Some(format!("projectCount={project_count}")),
         );
@@ -4967,6 +5923,91 @@ impl RuntimeSession {
         flush_queued_documents_locked(&mut state)
     }
 
+    /// Writes queued launch discovery only after m2e and JDT configuration settle.
+    fn dispatch_java_entrypoints_locked(
+        &self,
+        state: &mut SessionState,
+        now: Instant,
+    ) -> Vec<String> {
+        if state.lifecycle != LspLifecycleState::Ready
+            || !state.client.initialized
+            || java_configuration_running(state, now)
+        {
+            return Vec::new();
+        }
+        let mut messages = Vec::new();
+        for waiter in std::mem::take(&mut state.java_entrypoint_waiters) {
+            if now >= waiter.deadline {
+                let error = runtime_error(
+                    self,
+                    "requestTimeout",
+                    "javaProjectConfiguration",
+                    Some(JAVA_BUILD_METHOD),
+                    None,
+                    "Java entry-point discovery timed out waiting for project configuration.",
+                    None,
+                    None,
+                );
+                push_request_event(
+                    self,
+                    state,
+                    &waiter.operation_id,
+                    JAVA_BUILD_METHOD,
+                    None,
+                    Some(error),
+                );
+                continue;
+            }
+            let response = match allocate_raw_request(
+                state.client.clone(),
+                JAVA_BUILD_METHOD,
+                java_entrypoints_command(),
+            ) {
+                Ok(response) => response,
+                Err(error) => {
+                    let error = runtime_error(
+                        self,
+                        "invalidRequest",
+                        "javaProjectConfiguration",
+                        Some(JAVA_BUILD_METHOD),
+                        None,
+                        "Could not encode the Java entry-point request.",
+                        Some(&error.message),
+                        None,
+                    );
+                    push_request_event(
+                        self,
+                        state,
+                        &waiter.operation_id,
+                        JAVA_BUILD_METHOD,
+                        None,
+                        Some(error),
+                    );
+                    continue;
+                }
+            };
+            let request_id = (response.state.next_request_id - 1).to_string();
+            state.client = response.state;
+            state
+                .request_by_operation
+                .insert(waiter.operation_id.clone(), request_id.clone());
+            state.pending.insert(
+                request_id,
+                PendingRequest {
+                    kind: PendingKind::JavaEntrypoints,
+                    operation_id: Some(waiter.operation_id),
+                    method: JAVA_BUILD_METHOD.to_string(),
+                    document_uri: None,
+                    document_version: None,
+                    created_at: waiter.created_at,
+                    deadline: waiter.deadline,
+                },
+            );
+            messages.extend(response.messages);
+        }
+        messages
+    }
+
     /// Starts the next queued Java build when nothing blocks it. The caller
     /// holds `outbound_order` and must write the returned messages before
     /// releasing it, so request IDs reach the server in allocation order.
@@ -4974,7 +6015,8 @@ impl RuntimeSession {
         if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
             return Vec::new();
         }
-        let maven_profiles_running = state.maven_profile_status == MavenProfileTaskStatus::Running;
+        let maven_profiles_running = state.maven_profile_update_pending
+            || state.maven_profile_status == MavenProfileTaskStatus::Running;
         let mut allocated = None;
         let dispatch = state
             .java_builds
@@ -5021,6 +6063,7 @@ impl RuntimeSession {
                         self,
                         state,
                         "info",
+                        EngineLog::BuildWaiting.with_fields(json!({"reason": block.as_str()})),
                         "Java project build is waiting",
                         Some(json!({ "reason": block.as_str() }).to_string()),
                     );
@@ -5054,6 +6097,7 @@ impl RuntimeSession {
                     self,
                     state,
                     "info",
+                    EngineLog::BuildExecution.with_fields(json!({"waiterCount": waiter_count, "waitedMilliseconds": waited.as_millis() as u64})),
                     "Java project build started",
                     Some(
                         json!({
@@ -5130,6 +6174,7 @@ impl RuntimeSession {
             self,
             state,
             if error.is_none() { "info" } else { "warning" },
+            EngineLog::BuildExecution.with_fields(json!({"outcome": format!("{outcome:?}"), "errorCode": error.as_ref().map(|e| &e.code), "elapsedMilliseconds": completed.elapsed.as_millis() as u64, "waiterCount": completed.operation_ids.len(), "markerScope": report.marker_scope, "builderFailedEarlier": report.builder_failed_earlier, "recovery": report.recovery})),
             "Java project build finished",
             Some(
                 json!({
@@ -5171,6 +6216,7 @@ impl RuntimeSession {
     fn pump_outbound_maintenance(&self) {
         if !self.lock_state().is_ok_and(|state| {
             state.java_builds.has_queued()
+                || !state.java_entrypoint_waiters.is_empty()
                 || !state.java_launch_messages.is_empty()
                 || !state.deadline_cancellations.is_empty()
                 || (state.maven_profile_update_pending
@@ -5195,8 +6241,11 @@ impl RuntimeSession {
             match self.maven_profile_requests() {
                 Ok((messages, _)) => messages,
                 Err(error) => {
-                    self.log(
+                    self.log_issue(
                         "warn",
+                        "mavenProfileStart",
+                        "mavenProfileStartFailed",
+                        EngineLog::MavenStartFailed,
                         "Could not start the pending Maven profile update",
                         Some(error.message),
                     );
@@ -5224,12 +6273,14 @@ impl RuntimeSession {
             }
         }
         messages.extend(self.dispatch_java_build_locked(&mut state, Instant::now()));
+        messages.extend(self.dispatch_java_entrypoints_locked(&mut state, Instant::now()));
         if messages.is_empty() {
             return;
         }
         state.maintenance_write_deadline = Some(Instant::now() + state.request_timeout);
         drop(state);
         // Process termination by the monitor releases a blocked native stdin write.
+        // log-exempt: Same failure already recorded: send_messages_or_fail transitions the session and emits its transport failure.
         let _ = self.send_messages_or_fail(&outbound_order, messages, "outboundMaintenance");
         if let Ok(mut state) = self.lock_state() {
             state.maintenance_write_deadline = None;
@@ -5241,18 +6292,27 @@ impl RuntimeSession {
     }
 
     fn expire_deadlines_at(&self, now: Instant) {
+        // Relayed calls that no callee runs yet have no session deadline.
+        self.relay.expire(now);
         let mut cancellations = Vec::new();
         let mut initialize_timeout = false;
         let mut service_ready_timeout = None;
         let mut maven_context_timeout = false;
         let mut shutdown_timeout = false;
         let mut maintenance_write_timeout = false;
+        let mut relay_write_timeout = false;
         if let Ok(mut state) = self.lock_state() {
             maintenance_write_timeout = state
                 .maintenance_write_deadline
                 .is_some_and(|deadline| now >= deadline);
             if maintenance_write_timeout {
                 state.maintenance_write_deadline = None;
+            }
+            relay_write_timeout = state
+                .relay_write_deadline
+                .is_some_and(|deadline| now >= deadline);
+            if relay_write_timeout {
+                state.relay_write_deadline = None;
             }
             if state.lifecycle == LspLifecycleState::Initializing
                 && state
@@ -5261,6 +6321,9 @@ impl RuntimeSession {
             {
                 state.initialize_deadline = None;
                 initialize_timeout = true;
+                // Decided under the state lock, like the initialize response,
+                // so exactly one of the two records the attempt.
+                plugin_operations::finish(&self.startup_attempt, Some(AttemptStage::Timeout));
             }
             let applying_maven_context = state
                 .pending
@@ -5280,10 +6343,18 @@ impl RuntimeSession {
                         .as_mut()
                         .and_then(|diagnostics| diagnostics.take_idle_warning(now));
                     if let Some(detail) = warning {
-                        push_log_event(
+                        let fields = state
+                            .java_preparation
+                            .as_ref()
+                            .map(|d| d.log_progress(now))
+                            .unwrap_or(Value::Null);
+                        push_issue_log_event(
                             self,
                             &mut state,
                             "warning",
+                            "workspaceImport",
+                            "workspaceImportStalled",
+                            EngineLog::WorkspaceStalled.with_fields(fields),
                             "Java workspace import has not reported progress; still waiting for ServiceReady",
                             Some(detail),
                         );
@@ -5305,6 +6376,7 @@ impl RuntimeSession {
                             | PendingKind::JavaNavigationMarkers
                             | PendingKind::JavaNavigationMarkerResolve
                             | PendingKind::JavaResolveNavigation
+                            | PendingKind::PluginServer
                     ) && now >= pending.deadline
                 })
                 .map(|(id, _)| id.clone())
@@ -5341,9 +6413,63 @@ impl RuntimeSession {
                 }
                 cancellations.push(request_id);
             }
+            let held_expired = state
+                .plugin_server
+                .as_ref()
+                .map(|server| server.expired_held(now))
+                .unwrap_or_default();
+            for waiter in held_expired {
+                // Nothing was sent, so there is nothing to cancel on the wire.
+                let error = runtime_error(
+                    self,
+                    "requestTimeout",
+                    "request",
+                    Some(&waiter.method),
+                    None,
+                    "Language-server request timed out waiting for the server to become ready.",
+                    None,
+                    None,
+                );
+                push_request_event(
+                    self,
+                    &mut state,
+                    &waiter.operation_id,
+                    &waiter.method,
+                    None,
+                    Some(error),
+                );
+            }
             let maven_profiles_running =
                 state.maven_profile_status == MavenProfileTaskStatus::Running;
             let departure = state.java_builds.expire(maven_profiles_running, now);
+            let mut waiting = std::mem::take(&mut state.java_entrypoint_waiters);
+            while let Some(waiter) = waiting.pop_front() {
+                if now < waiter.deadline {
+                    state.java_entrypoint_waiters.push_back(waiter);
+                    continue;
+                }
+                let error = runtime_error(
+                    self,
+                    "requestTimeout",
+                    "javaProjectConfiguration",
+                    Some(JAVA_BUILD_METHOD),
+                    None,
+                    "Java entry-point discovery timed out waiting for project configuration.",
+                    Some(&format!(
+                        "elapsedMilliseconds={}",
+                        now.saturating_duration_since(waiter.created_at).as_millis()
+                    )),
+                    None,
+                );
+                push_request_event(
+                    self,
+                    &mut state,
+                    &waiter.operation_id,
+                    JAVA_BUILD_METHOD,
+                    None,
+                    Some(error),
+                );
+            }
             for waiter in &departure.expired {
                 let error = runtime_error(
                     self,
@@ -5404,13 +6530,16 @@ impl RuntimeSession {
                         "status": MavenProfileTaskStatus::TimedOut,
                         "errorDetails": error_details,
                     }))
-                    .ok();
-                    push_log_event(
+                    .expect("JSON values serialize without fallible map keys");
+                    push_issue_log_event(
                         self,
                         &mut state,
                         "error",
+                        "mavenProfile",
+                        "mavenProfileUpdateFailed",
+                        EngineLog::MavenProjectFinished.with_fields(json!({"projectUri": redacted_project_uri(&project_uri), "status": MavenProfileTaskStatus::TimedOut})),
                         "Maven profile project update completed",
-                        detail,
+                        Some(detail),
                     );
                     push_maven_profile_project_event(
                         self,
@@ -5455,10 +6584,13 @@ impl RuntimeSession {
             {
                 state.shutdown_deadline = None;
                 shutdown_timeout = true;
-                push_log_event(
+                push_issue_log_event(
                     self,
                     &mut state,
                     "warning",
+                    "shutdown",
+                    "shutdownTimeout",
+                    EngineLog::ShutdownTimedOut,
                     "Language-server shutdown timed out; forcing termination",
                     None,
                 );
@@ -5468,6 +6600,16 @@ impl RuntimeSession {
             self.fail(
                 "transportFailed",
                 "outboundMaintenance",
+                "Language-server stdin write timed out.",
+                None,
+                None,
+            );
+            self.kill_process();
+        } else if relay_write_timeout {
+            // Killing the process releases the relay lane's blocked stdin write.
+            self.fail(
+                "transportFailed",
+                "relayWrite",
                 "Language-server stdin write timed out.",
                 None,
                 None,
@@ -5495,10 +6637,13 @@ impl RuntimeSession {
             self.kill_process();
         } else if maven_context_timeout {
             if let Ok(mut state) = self.lock_state() {
-                push_log_event(
+                push_issue_log_event(
                     self,
                     &mut state,
                     "error",
+                    "mavenProfile",
+                    "mavenProfileTimeout",
+                    EngineLog::MavenTimedOut,
                     "JDT LS Maven profile application timed out; session remains available",
                     None,
                 );
@@ -5523,6 +6668,9 @@ impl RuntimeSession {
         self.process.close_input();
         if let Ok(mut state) = self.lock_state() {
             let was_stopping = state.lifecycle == LspLifecycleState::Stopping;
+            if !was_stopping {
+                plugin_operations::finish(&self.startup_attempt, Some(AttemptStage::Exit));
+            }
             if !state.terminal_event_emitted {
                 let error = (!was_stopping).then(|| {
                     runtime_error(
@@ -5613,6 +6761,9 @@ impl RuntimeSession {
             if state.terminal_event_emitted {
                 return;
             }
+            // Timeouts were already taken by their caller; every other terminal
+            // failure before `initialize` succeeded is a handshake failure.
+            plugin_operations::finish(&self.startup_attempt, Some(AttemptStage::Initialize));
             fail_feature_requests(self, &mut state, code, stage, message, exit_code);
             clear_runtime_state(self, &mut state);
             let error = runtime_error(
@@ -5640,9 +6791,56 @@ impl RuntimeSession {
         Ok(())
     }
 
-    fn log(&self, level: &str, message: &str, detail: Option<String>) {
+    fn set_detailed_diagnostics(&self, enabled: bool) -> Result<(), CoreError> {
+        let order = self.lock_outbound_order()?;
+        let mut state = self.lock_state()?;
+        let lifecycle = state.lifecycle;
+        if matches!(
+            lifecycle,
+            LspLifecycleState::Stopped | LspLifecycleState::Failed | LspLifecycleState::Stopping
+        ) {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "The session is no longer running.",
+            ));
+        }
+        if !state.client.initialized {
+            state.requested_diagnostics = enabled;
+            return Ok(());
+        }
+        drop(state);
+        self.send_messages_or_fail(&order, vec![trace_notification(enabled)], "setTrace")?;
+        let mut state = self.lock_state()?;
+        state.requested_diagnostics = enabled;
+        state.detailed_diagnostics = enabled;
+        Ok(())
+    }
+
+    fn log(
+        &self,
+        level: &str,
+        identity: impl Into<EngineLogInput>,
+        message: &str,
+        detail: Option<String>,
+    ) {
         if let Ok(mut state) = self.lock_state() {
-            push_log_event(self, &mut state, level, message, detail);
+            push_log_event(self, &mut state, level, identity, message, detail);
+        }
+    }
+
+    fn log_issue(
+        &self,
+        level: &str,
+        stage: &str,
+        code: &str,
+        identity: impl Into<EngineLogInput>,
+        message: &str,
+        detail: Option<String>,
+    ) {
+        if let Ok(mut state) = self.lock_state() {
+            push_issue_log_event(
+                self, &mut state, level, stage, code, identity, message, detail,
+            );
         }
     }
 
@@ -5687,6 +6885,31 @@ impl RuntimeSession {
 
     fn kill_process(&self) {
         self.process.terminate();
+        if let Some(error) = self.process.take_termination_failure() {
+            // The session owns process recovery; WARN reports cleanup degradation.
+            // Reuse the role routing and runtime envelope without adding a v1 log row.
+            if let Ok(mut state) = self.lock_state() {
+                let category = format!("{:?}", error.kind());
+                let error = runtime_error(
+                    self,
+                    "processCleanupFailed",
+                    "cleanup",
+                    None,
+                    None,
+                    "Engine process cleanup failed",
+                    None,
+                    None,
+                );
+                let input = EngineLog::ProcessCleanupFailed.with_fields(json!({}));
+                let (id, mut fields) =
+                    input
+                        .identity
+                        .fact(&self.log_identity, &input.fields, Some(&error));
+                fields.insert("error_code".into(), json!(category));
+                fields.insert("error_domain".into(), json!("io"));
+                push_cleanup_fact(self, &mut state, id, fields, error);
+            }
+        }
     }
 
     fn lock_outbound_order(&self) -> Result<MutexGuard<'_, ()>, CoreError> {
@@ -5714,6 +6937,10 @@ impl RuntimeSession {
     }
 }
 
+fn trace_notification(enabled: bool) -> String {
+    json!({"jsonrpc":"2.0", "method":"$/setTrace", "params":{"value": if enabled { "verbose" } else { "off" }}}).to_string()
+}
+
 fn validate_start_request(request: &StartServerRequest) -> Result<(), CoreError> {
     if request.provider_id.trim().is_empty() {
         return Err(invalid_field("providerId"));
@@ -5728,6 +6955,19 @@ fn validate_start_request(request: &StartServerRequest) -> Result<(), CoreError>
                 .any(|service| !super::plugin_function::is_host_grant(service)))
     {
         return Err(invalid_field("hostServices"));
+    }
+    if let Some(policy) = &request.session_policy {
+        policy.validate(request.plugin_id.as_deref())?;
+    }
+    if !request.host_options.is_empty()
+        && (request.plugin_id.is_none()
+            || request
+                .host_options
+                .editor
+                .as_ref()
+                .is_some_and(|editor| editor.validate().is_err()))
+    {
+        return Err(invalid_field("hostOptions"));
     }
     if request.executable_path.trim().is_empty()
         || request.executable_path.contains('\0')
@@ -5901,23 +7141,6 @@ fn diagnostics_addressed_to_open_document(
     Some(message)
 }
 
-/// The workspace URI that scopes Java entry-point discovery.
-///
-/// JDT imports a project at its canonical location, and Java Debug Server
-/// keeps only the classes whose project path starts with the scope path. A
-/// workspace opened through a symbolic link (`/tmp` or `/var` on macOS) would
-/// therefore match no project and silently yield an empty list, so the scope
-/// names the resolved directory. A root that cannot be resolved is sent as is.
-fn java_entrypoint_scope_uri(root_uri: &str) -> String {
-    url::Url::parse(root_uri)
-        .ok()
-        .and_then(|url| url.to_file_path().ok())
-        .and_then(|path| crate::remote::workspace_io::canonicalize(path).ok())
-        .and_then(|canonical| url::Url::from_directory_path(canonical).ok())
-        .map(|url| url.to_string())
-        .unwrap_or_else(|| root_uri.to_string())
-}
-
 /// The workspace directory with symbolic links resolved, when it exists.
 ///
 /// Resolving links touches the file system, so it happens here in the engine
@@ -6082,6 +7305,7 @@ fn finish_java_navigation_marker_batch(
         session,
         state,
         "debug",
+        EngineLog::NavigationResolved.with_fields(json!({"operationId": operation_id, "document": pending.document_uri, "document_version": pending.document_version, "duration_ms": elapsed.as_millis() as u64, "tasks": total_tasks, "code_lenses": resolved_lens_count, "markers": markers.len()})),
         "Java navigation markers resolved",
         Some(format!(
             "operationId={operation_id}, uri={}, documentVersion={}, durationMilliseconds={}, tasks={}, codeLenses={}, markers={}",
@@ -6158,14 +7382,68 @@ fn parse_server_info(message: &Value) -> Option<LspServerInfo> {
 fn enqueue_runtime_event(
     session: &RuntimeSession,
     state: &mut SessionState,
-    event: LspRuntimeEvent,
+    mut event: LspRuntimeEvent,
 ) {
+    if event.event.is_some()
+        || event.maven_profile_project.is_some()
+        || event.maven_profile_task.is_some()
+    {
+        let (id, fields) = if let Some(result) = &event.maven_profile_project {
+            EngineLog::maven_project_fact(&session.log_identity, result)
+        } else if let Some(status) = event.maven_profile_task {
+            let input = json!({"state": status});
+            EngineLog::MavenTaskUpdated.fact(&session.log_identity, &input, None)
+        } else {
+            (
+                event.event.take().expect("source catalog identity"),
+                event.fields.take().expect("source catalog fields"),
+            )
+        };
+        let level = if id == "log.dropped" {
+            Some(crate::diagnostics::record::LogLevel::Warn)
+        } else {
+            crate::diagnostics::catalog::event_by_id(&id).map(|entry| entry.level)
+        };
+        // In-memory v1 detail is retained for old hosts. The v2 fields always pass
+        // the same normalization and catalog routing boundary as persisted facts.
+        // A fact that fails that boundary keeps only its v1 fields; the runtime
+        // event itself is never dropped and Core never panics on source data.
+        if let Some(level) = level {
+            let mut fact = crate::diagnostics::record::StructuredLogEvent {
+                ts: String::new(),
+                level,
+                seq: 0,
+                event: id.clone(),
+                op: None,
+                msg: String::new(),
+                fields,
+            };
+            if let Ok(channel) = crate::diagnostics::record::prepare_catalog_event(
+                &mut fact,
+                &json!({"channel": session.log_identity.channel()}),
+            ) {
+                event.channel = Some(channel);
+                event.plugin_id = session.plugin_id.clone();
+                event.role = Some(session.log_identity.role);
+                event.event = Some(id);
+                event.fields = Some(fact.fields);
+                event.catalog_level = Some(fact.level);
+            }
+        }
+    }
     state.events.push_back(event);
     refresh_project_preparation(session, state);
     session.event_signal.notify_all();
 }
 
 // Reuse the build coordinator's gate; never infer readiness from a log message.
+/// The configuration barrier is shared by discovery and the following build.
+fn java_configuration_running(state: &mut SessionState, now: Instant) -> bool {
+    state.maven_profile_update_pending
+        || state.maven_profile_status == MavenProfileTaskStatus::Running
+        || state.java_builds.project_configuration_running(now)
+}
+
 fn refresh_project_preparation(session: &RuntimeSession, state: &mut SessionState) {
     if session.provider_id != "java" {
         return;
@@ -6187,6 +7465,12 @@ fn refresh_project_preparation(session: &RuntimeSession, state: &mut SessionStat
     let sequence = take_sequence(state);
     state.events.push_back(LspRuntimeEvent {
         kind: "projectPreparation".to_string(),
+        channel: None,
+        plugin_id: None,
+        role: None,
+        event: None,
+        fields: None,
+        catalog_level: None,
         sequence,
         provider_id: session.provider_id.clone(),
         session_id: session.id.clone(),
@@ -6209,6 +7493,69 @@ fn refresh_project_preparation(session: &RuntimeSession, state: &mut SessionStat
     session.event_signal.notify_all();
 }
 
+// Cleanup failure is a log row, never a state change: hosts take the latest
+// `stateChanged` as the session state, so a stateless one would erase `failed`.
+fn push_cleanup_fact(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    id: String,
+    fields: std::collections::BTreeMap<String, Value>,
+    error: LspRuntimeError,
+) {
+    let sequence = take_sequence(state);
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "log".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: Some(id),
+            fields: Some(fields),
+            catalog_level: None,
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: None,
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: None,
+            error: Some(error),
+            capabilities: None,
+            server_info: None,
+            level: Some("warning".to_string()),
+            message: Some("Engine process cleanup failed".to_string()),
+            detail: None,
+            maven_profile_project: None,
+            maven_profile_task: None,
+        },
+    );
+}
+
+// Only a declarative language server carries a host attempt. SDK backends report
+// their own operations through `lithe/log`, so a stray handoff on another role is
+// ignored rather than rejecting the start. The handoff names its plugin, since a
+// plugin API 1 server starts with no session plugin; a session another plugin
+// owns never takes the attempt, so no fact lands on a plugin that did not run.
+fn startup_attempt(request: &StartServerRequest) -> AttemptSlot {
+    match &request.startup_operation {
+        Some(handoff)
+            if request.role == SessionRole::LanguageServer
+                && request
+                    .plugin_id
+                    .as_ref()
+                    .is_none_or(|owner| *owner == handoff.plugin_id) =>
+        {
+            Attempt::slot(&LANGUAGE_SERVER_START, handoff.clone())
+        }
+        _ => Attempt::none(),
+    }
+}
+
 fn transition_locked(
     session: &RuntimeSession,
     state: &mut SessionState,
@@ -6216,12 +7563,24 @@ fn transition_locked(
     error: Option<LspRuntimeError>,
 ) {
     state.lifecycle = lifecycle;
+    relay_hub::observe_lifecycle(session, lifecycle);
+    let (id, fields) = EngineLog::SessionUpdated.fact(
+        &session.log_identity,
+        &json!({"state": lifecycle}),
+        error.as_ref(),
+    );
     let sequence = take_sequence(state);
     enqueue_runtime_event(
         session,
         state,
         LspRuntimeEvent {
             kind: "stateChanged".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: Some(id),
+            fields: Some(fields),
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -6252,6 +7611,24 @@ fn push_request_event(
     result: Option<Value>,
     error: Option<LspRuntimeError>,
 ) {
+    if state
+        .plugin_server
+        .as_ref()
+        .is_some_and(|server| server.owns(operation_id))
+    {
+        complete_plugin_server_request(session, state, operation_id, method, result, error);
+        return;
+    }
+    // No host operation waits for a relayed call: the relay answers the
+    // calling plugin, so the event never reaches the host.
+    if relay_hub::is_relayed_operation(operation_id, method) {
+        session.relay.callee_finished(
+            &session.id,
+            operation_id,
+            relay_hub::callee_outcome(result, error),
+        );
+        return;
+    }
     let (result, error) = if let Some(mut preparation) = state.java_launches.remove(operation_id) {
         match preparation.advance(result, error) {
             Ok(JavaLaunchAction::Build(command)) => {
@@ -6333,12 +7710,63 @@ fn push_request_event(
     } else {
         (result, error)
     };
+    enqueue_request_completed(session, state, operation_id, method, result, error);
+}
+
+/// Ends a request the backend sent to its plugin-owned language server. This
+/// is the only place where the session policy releases such an operation, so
+/// every way a request can end (answer, cancel, timeout, session failure)
+/// leaves the policy consistent. Requests that joined a running command
+/// finish with the same result or error.
+fn complete_plugin_server_request(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    operation_id: &str,
+    method: &str,
+    result: Option<Value>,
+    mut error: Option<LspRuntimeError>,
+) {
+    if let Some(error) = error.as_mut() {
+        error.code = plugin_server::host_error_code(&error.code).to_string();
+    }
+    let joined = state
+        .plugin_server
+        .as_mut()
+        .map(|server| server.finish(operation_id))
+        .unwrap_or_default();
+    for waiter in joined {
+        enqueue_request_completed(
+            session,
+            state,
+            &waiter.operation_id,
+            &waiter.method,
+            result.clone(),
+            error.clone(),
+        );
+    }
+    enqueue_request_completed(session, state, operation_id, method, result, error);
+}
+
+fn enqueue_request_completed(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    operation_id: &str,
+    method: &str,
+    result: Option<Value>,
+    error: Option<LspRuntimeError>,
+) {
     let sequence = take_sequence(state);
     enqueue_runtime_event(
         session,
         state,
         LspRuntimeEvent {
             kind: "requestCompleted".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -6466,6 +7894,12 @@ fn push_build_progress_locked(
         state,
         LspRuntimeEvent {
             kind: "requestProgress".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -6520,6 +7954,12 @@ fn push_function_progress_locked(
         state,
         LspRuntimeEvent {
             kind: "requestProgress".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -6551,6 +7991,12 @@ fn push_vcs_provider_event(session: &RuntimeSession, state: &mut SessionState, r
         state,
         LspRuntimeEvent {
             kind: "vcsProvider".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -6574,17 +8020,24 @@ fn push_vcs_provider_event(session: &RuntimeSession, state: &mut SessionState, r
 }
 
 /// Publishes the providers a backend selected, so the host queries only those.
-fn push_toolchain_provider_event(
+fn push_negotiated_provider_event(
     session: &RuntimeSession,
     state: &mut SessionState,
     result: Value,
+    kind: &str,
 ) {
     let sequence = take_sequence(state);
     enqueue_runtime_event(
         session,
         state,
         LspRuntimeEvent {
-            kind: "toolchainProviders".to_string(),
+            kind: kind.to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -6632,7 +8085,9 @@ fn cancel_host_request_locked(
         .find(|(_, pending)| *pending == backend_id)
         .map(|(host_request_id, _)| host_request_id.clone())
     else {
-        return Ok(false);
+        // Not a host request: it may name a call the backend relayed to
+        // another plugin.
+        return Ok(session.relay.cancel_from_caller(&session.id, backend_id));
     };
     let backend_id = state
         .host_requests
@@ -6650,6 +8105,12 @@ fn cancel_host_request_locked(
         state,
         LspRuntimeEvent {
             kind: "hostRequestCancelled".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -6709,6 +8170,12 @@ fn forward_host_request_locked(
         state,
         LspRuntimeEvent {
             kind: "hostRequest".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -6743,6 +8210,12 @@ fn push_functions_event(session: &RuntimeSession, state: &mut SessionState, resu
         state,
         LspRuntimeEvent {
             kind: "functionsChanged".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -6781,6 +8254,200 @@ fn function_runtime_error(
     );
     error.plugin_error_code = failure.plugin_error_code;
     error
+}
+
+/// The plugin-owned server a call targets, after checking that the session
+/// is that contribution and can take requests now.
+fn plugin_server_target<'a>(
+    state: &'a mut SessionState,
+    session_plugin_id: Option<&str>,
+    plugin_id: &str,
+    server_id: &str,
+) -> Result<&'a mut PluginServerState, CoreError> {
+    let ready = state.lifecycle == LspLifecycleState::Ready && state.client.initialized;
+    let server = state
+        .plugin_server
+        .as_mut()
+        .ok_or_else(plugin_server::foreign_contribution)?;
+    server.check_owner(session_plugin_id, plugin_id, server_id)?;
+    if !ready {
+        return Err(plugin_server::unavailable());
+    }
+    Ok(server)
+}
+
+fn plugin_server_timeout(requested: Option<u64>) -> Duration {
+    let milliseconds = requested
+        .unwrap_or(DEFAULT_REQUEST_TIMEOUT_MILLISECONDS)
+        .clamp(1, MAX_REQUEST_TIMEOUT_MILLISECONDS);
+    Duration::from_millis(milliseconds)
+}
+
+/// Allocates the JSON-RPC request of an admitted operation and records it as
+/// pending. Returns the messages to write and the request ID.
+fn register_plugin_server_request(
+    state: &mut SessionState,
+    operation_id: &str,
+    method: &str,
+    params: Value,
+    created_at: Instant,
+    deadline: Instant,
+) -> Result<(Vec<String>, String), CoreError> {
+    let response = allocate_raw_request(state.client.clone(), method, params)?;
+    let request_id = (response.state.next_request_id - 1).to_string();
+    state.client = response.state;
+    state.pending.insert(
+        request_id.clone(),
+        PendingRequest {
+            kind: PendingKind::PluginServer,
+            operation_id: Some(operation_id.to_string()),
+            method: method.to_string(),
+            document_uri: None,
+            document_version: None,
+            created_at,
+            deadline,
+        },
+    );
+    state
+        .request_by_operation
+        .insert(operation_id.to_string(), request_id.clone());
+    Ok((response.messages, request_id))
+}
+
+/// Applies a notification the server sent to a plugin-owned session: it may
+/// open gates, and the backend may have asked to receive it. Returns the
+/// messages of the requests that waited for those gates.
+fn observe_plugin_server_notification(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    method: Option<&str>,
+    params: Option<&Value>,
+) -> Vec<String> {
+    let (Some(method), Some(server)) = (method, state.plugin_server.as_mut()) else {
+        return Vec::new();
+    };
+    let observation = server.observe(method, params.unwrap_or(&Value::Null));
+    if let Some(forwarded) = observation.forward {
+        push_negotiated_provider_event(session, state, forwarded, "pluginServerNotification");
+    }
+    observation
+        .released
+        .into_iter()
+        .flat_map(|held| release_held_plugin_server_request(session, state, held))
+        .collect()
+}
+
+/// Sends a request whose gates opened. It keeps the deadline it was
+/// admitted with, so the time spent waiting counts against its timeout.
+fn release_held_plugin_server_request(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    held: plugin_server::HeldRequest,
+) -> Vec<String> {
+    let registered = register_plugin_server_request(
+        state,
+        &held.operation_id,
+        &held.method,
+        held.params,
+        held.created_at,
+        held.deadline,
+    );
+    match registered {
+        Ok((messages, _)) => messages,
+        Err(error) => {
+            let failure = runtime_error(
+                session,
+                "transportFailed",
+                "request",
+                Some(&held.method),
+                None,
+                "Could not encode the language-server request.",
+                Some(&error.message),
+                None,
+            );
+            push_request_event(
+                session,
+                state,
+                &held.operation_id,
+                &held.method,
+                None,
+                Some(failure),
+            );
+            Vec::new()
+        }
+    }
+}
+
+/// Cancels a plugin-server request that never reached the server, because it
+/// waits behind a gate or joined a running command. Nothing is written.
+fn cancel_unsent_plugin_server_request(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    operation_id: &str,
+) {
+    let method = state
+        .plugin_server
+        .as_ref()
+        .and_then(|server| server.method_of(operation_id))
+        .unwrap_or_default()
+        .to_string();
+    let error = runtime_error(
+        session,
+        "requestCancelled",
+        "request",
+        Some(&method),
+        None,
+        "Language-server request was cancelled.",
+        None,
+        None,
+    );
+    push_request_event(session, state, operation_id, &method, None, Some(error));
+}
+
+/// What the backend receives for a plugin-owned server's reply: the result
+/// untouched, so no Lithe normalizer reinterprets the server's own protocol,
+/// or the server's error code and message as details of
+/// `plugin.host.languageServerError`.
+fn plugin_server_answer(
+    session: &RuntimeSession,
+    method: &str,
+    reply: &Value,
+) -> (Option<Value>, Option<LspRuntimeError>) {
+    use super::plugin_function::{bounded_host_message, codes, MAX_RESULT_BYTES};
+    let failure = |code: &str, message: &str| {
+        runtime_error(
+            session,
+            code,
+            "request",
+            Some(method),
+            None,
+            message,
+            None,
+            None,
+        )
+    };
+    if let Some(upstream) = reply.get("error") {
+        let mut error = failure(
+            codes::HOST_LANGUAGE_SERVER_ERROR,
+            "The language server returned an error.",
+        );
+        let message = upstream
+            .get("message")
+            .and_then(Value::as_str)
+            .map(bounded_host_message);
+        error.details = Some(json!({ "code": upstream.get("code"), "message": message }));
+        return (None, Some(error));
+    }
+    let result = reply.get("result").cloned().unwrap_or(Value::Null);
+    let size = serde_json::to_vec(&result).map_or(usize::MAX, |bytes| bytes.len());
+    if size > MAX_RESULT_BYTES {
+        let error = failure(
+            codes::HOST_LIMIT_EXCEEDED,
+            "The language server's result is too large.",
+        );
+        return (None, Some(error));
+    }
+    (Some(json!({ "value": result })), None)
 }
 
 fn normalize_provider_navigation_result(
@@ -6911,6 +8578,12 @@ fn push_diagnostics_event(
         state,
         LspRuntimeEvent {
             kind: "diagnostics".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -6940,6 +8613,12 @@ fn push_semantic_tokens_refresh_event(session: &RuntimeSession, state: &mut Sess
         state,
         LspRuntimeEvent {
             kind: "semanticTokensRefresh".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -6973,6 +8652,12 @@ fn push_features_event(
         state,
         LspRuntimeEvent {
             kind: "featuresChanged".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -7002,6 +8687,12 @@ fn push_server_info_event(session: &RuntimeSession, state: &mut SessionState, in
         state,
         LspRuntimeEvent {
             kind: "serverInfoChanged".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -7024,19 +8715,135 @@ fn push_server_info_event(session: &RuntimeSession, state: &mut SessionState, in
     );
 }
 
+/// Accepts only negotiated scalar plugin facts. Persistence and overload accounting
+/// reuse the bounded Core handoff instead of copying protocol params into v1 detail.
+fn receive_plugin_diagnostic(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    params: Option<&Value>,
+) {
+    let Some(plugin) = session.plugin_id.as_deref() else {
+        return;
+    };
+    let plugin_identity = SessionLogIdentity::new(
+        SessionRole::Backend,
+        &session.provider_id,
+        Some(plugin),
+        None,
+    );
+    let plugin = plugin_identity.segment();
+    let valid = state
+        .client
+        .server_capabilities
+        .iter()
+        .any(|name| name == super::plugin_logging::FEATURE)
+        .then(|| {
+            super::plugin_logging::decode(
+                plugin,
+                &state.client.plugin_functions,
+                params.unwrap_or(&Value::Null),
+            )
+        })
+        .flatten();
+    let Some(fact) = valid else {
+        if !state.rejected_plugin_diagnostics {
+            state.rejected_plugin_diagnostics = true;
+            if crate::diagnostics::core_events::record(
+                "plugins.diagnostics.rejected",
+                BTreeMap::from([
+                    ("plugin".into(), json!(plugin)),
+                    ("code".into(), json!("invalid_diagnostic")),
+                ]),
+                None,
+            )
+            .is_err()
+            {
+                crate::diagnostics::core_events::note_dropped();
+            }
+        }
+        return;
+    };
+    if state.plugin_diagnostics_window.elapsed() >= Duration::from_secs(60) {
+        state.plugin_diagnostics_window = Instant::now();
+        state.plugin_diagnostics_count = 0;
+    }
+    if state.plugin_diagnostics_count >= MAX_PLUGIN_DIAGNOSTICS_PER_MINUTE {
+        crate::diagnostics::core_events::note_dropped();
+        return;
+    }
+    state.plugin_diagnostics_count += 1;
+    // SDK contexts carry wire request IDs, not reusable UI operation IDs. Only
+    // a live request owned by this session may extend the host's correlation.
+    let operation = fact.wire_operation.as_deref().and_then(|wire| {
+        state
+            .pending
+            .get(wire)
+            .and_then(|pending| pending.operation_id.clone())
+    });
+    if crate::diagnostics::core_events::record(fact.event, fact.fields, operation).is_err() {
+        crate::diagnostics::core_events::note_dropped();
+    }
+}
+
 fn push_log_event(
     session: &RuntimeSession,
     state: &mut SessionState,
     level: &str,
+    identity: impl Into<EngineLogInput>,
     message: &str,
     detail: Option<String>,
 ) {
+    push_classified_log_event(session, state, level, identity, message, detail, None);
+}
+
+fn push_issue_log_event(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    level: &str,
+    stage: &str,
+    code: &str,
+    identity: impl Into<EngineLogInput>,
+    message: &str,
+    detail: Option<String>,
+) {
+    let error = runtime_error(session, code, stage, None, None, message, None, None);
+    push_classified_log_event(
+        session,
+        state,
+        level,
+        identity,
+        message,
+        detail,
+        Some(error),
+    );
+}
+
+fn push_classified_log_event(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    level: &str,
+    identity: impl Into<EngineLogInput>,
+    message: &str,
+    detail: Option<String>,
+    error: Option<LspRuntimeError>,
+) {
+    let input = identity.into();
+    let (event_id, fields) =
+        input
+            .identity
+            .fact(&session.log_identity, &input.fields, error.as_ref());
     let sequence = take_sequence(state);
     enqueue_runtime_event(
         session,
         state,
         LspRuntimeEvent {
             kind: "log".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: Some(event_id),
+            fields: Some(fields),
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -7047,7 +8854,7 @@ fn push_log_event(
             version: None,
             diagnostics: None,
             result: None,
-            error: None,
+            error,
             capabilities: None,
             server_info: None,
             level: Some(level.to_string()),
@@ -7073,6 +8880,12 @@ fn push_maven_profile_project_event(
         state,
         LspRuntimeEvent {
             kind: "log".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -7122,6 +8935,12 @@ fn push_maven_profile_task_event(
         state,
         LspRuntimeEvent {
             kind: "log".to_string(),
+            channel: None,
+            plugin_id: None,
+            role: None,
+            event: None,
+            fields: None,
+            catalog_level: None,
             sequence,
             provider_id: session.provider_id.clone(),
             session_id: session.id.clone(),
@@ -7185,6 +9004,7 @@ fn runtime_error(
         process_exit_code,
         java_build_report: None,
         plugin_error_code: None,
+        details: None,
     }
 }
 
@@ -7196,6 +9016,26 @@ fn fail_feature_requests(
     message: &str,
     exit_code: Option<i32>,
 ) {
+    for waiter in std::mem::take(&mut state.java_entrypoint_waiters) {
+        let error = runtime_error(
+            session,
+            code,
+            stage,
+            Some(JAVA_BUILD_METHOD),
+            None,
+            message,
+            None,
+            exit_code,
+        );
+        push_request_event(
+            session,
+            state,
+            &waiter.operation_id,
+            JAVA_BUILD_METHOD,
+            None,
+            Some(error),
+        );
+    }
     let pending: Vec<_> = state
         .pending
         .iter()
@@ -7210,6 +9050,7 @@ fn fail_feature_requests(
                     | PendingKind::JavaNavigationMarkers
                     | PendingKind::JavaNavigationMarkerResolve
                     | PendingKind::JavaResolveNavigation
+                    | PendingKind::PluginServer
             )
         })
         .map(|(request_id, pending)| (request_id.clone(), pending.clone()))
@@ -7241,6 +9082,32 @@ fn fail_feature_requests(
                 Some(error),
             );
         }
+    }
+    // Requests held behind a gate have no pending entry, so they end here.
+    let held = state
+        .plugin_server
+        .as_ref()
+        .map(|server| server.all_held())
+        .unwrap_or_default();
+    for waiter in held {
+        let error = runtime_error(
+            session,
+            code,
+            stage,
+            Some(&waiter.method),
+            None,
+            message,
+            None,
+            exit_code,
+        );
+        push_request_event(
+            session,
+            state,
+            &waiter.operation_id,
+            &waiter.method,
+            None,
+            Some(error),
+        );
     }
     let (build_operation_ids, build_request_id) = state.java_builds.drain();
     if let Some(request_id) = build_request_id {
@@ -7322,14 +9189,17 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     clear_function_registry(session, state);
     state.client.vcs_provider = None;
     state.client.toolchain_providers.clear();
+    state.client.keymap_import_providers.clear();
     state.linked_document_paths = LinkedDocumentPaths::default();
     state.java_navigation_marker_batches.clear();
     state.java_navigation_marker_cache.clear();
     state.java_builds = JavaBuildCoordinator::default();
+    state.java_entrypoint_waiters.clear();
     state.java_launches.clear();
     state.java_launch_messages.clear();
     state.deadline_cancellations.clear();
     state.maintenance_write_deadline = None;
+    state.relay_write_deadline = None;
     state.pending_workspace_file_changes.clear();
     state.maven_profile_update_pending = false;
     state.maven_project_reload_pending = false;
@@ -7410,6 +9280,10 @@ fn workspace_file_changes_notification(
 }
 
 #[cfg(test)]
+#[path = "engine_function_relay_tests.rs"]
+mod function_relay_tests;
+
+#[cfg(test)]
 #[path = "engine_real_jdt_tests.rs"]
 mod real_jdt_tests;
 
@@ -7441,15 +9315,21 @@ mod tests {
         configuration
     }
 
-    fn start_request(server: &ScriptedServer) -> StartServerRequest {
+    pub(super) fn start_request(server: &ScriptedServer) -> StartServerRequest {
         let _ = server;
         StartServerRequest {
             // A non-Java provider keeps JDT argument adaptation out of the way;
             // `adapt_start` is covered by its own tests.
             provider_id: "gopls".to_string(),
+            role: SessionRole::LanguageServer,
+            log_subject: None,
             plugin_id: None,
+            startup_operation: None,
             host_services: Vec::new(),
+            host_options: Default::default(),
             toolchain_providers: Vec::new(),
+            keymap_import_providers: Vec::new(),
+            session_policy: None,
             executable_path: "/usr/bin/scripted-server".to_string(),
             arguments: vec!["--stdio".to_string()],
             environment: BTreeMap::new(),
@@ -7471,6 +9351,118 @@ mod tests {
             java_build_timeout_milliseconds: DEFAULT_JAVA_BUILD_TIMEOUT_MS,
             shutdown_timeout_milliseconds: 10_000,
         }
+    }
+
+    #[test]
+    fn native_owner_keeps_failed_initialize_identity_until_verified_disposal() {
+        let server = ScriptedServer::new();
+        server.break_input();
+        server.block_cleanup(true);
+        let engine = LspEngine::with_launcher(server.launcher());
+        let registered = Mutex::new(None);
+        let result = engine.start_server_owned(start_request(&server), |id| {
+            // Registration precedes the very first write, including its failure.
+            assert!(server.messages().is_empty());
+            *registered.lock().unwrap() = Some(id.to_string());
+        });
+        assert!(result.is_err());
+        let id = registered
+            .into_inner()
+            .unwrap()
+            .expect("native owner received the session");
+        assert!(engine.session(&id).is_ok());
+        assert!(engine.destroy(&id).is_err());
+        assert!(
+            engine.session(&id).is_ok(),
+            "failed disposal must retain the process owner"
+        );
+        server.block_cleanup(false);
+        engine
+            .destroy(&id)
+            .expect("verified cleanup allows destruction");
+        assert!(engine.session(&id).is_err());
+    }
+
+    #[test]
+    fn wire_owner_retries_failed_initialize_disposal_before_another_start() {
+        let server = ScriptedServer::new();
+        server.break_input();
+        server.block_cleanup(true);
+        let engine = LspEngine::with_launcher(server.launcher());
+        assert!(engine.start_server(start_request(&server)).is_err());
+        let id = engine
+            .lock_failed_starts()
+            .unwrap()
+            .first()
+            .cloned()
+            .unwrap();
+        let session = engine.session(&id).unwrap();
+        let events = session.poll_events().unwrap();
+        assert!(events.iter().any(|event| {
+            event
+                .error
+                .as_ref()
+                .is_some_and(|error| error.code == "transportFailed")
+        }));
+        let next_id = engine.next_session_id.load(Ordering::Relaxed);
+        let error = engine.start_server(start_request(&server)).unwrap_err();
+        assert!(matches!(error.code, ErrorCode::ProcessFailed));
+        let error = engine
+            .start_server_owned(start_request(&server), |_| {
+                panic!("cleanup must precede spawn")
+            })
+            .unwrap_err();
+        assert!(matches!(error.code, ErrorCode::ProcessFailed));
+        assert_eq!(engine.next_session_id.load(Ordering::Relaxed), next_id);
+        assert_eq!(engine.lock_sessions().unwrap().len(), 1);
+        assert!(Arc::ptr_eq(&session, &engine.session(&id).unwrap()));
+        server.block_cleanup(false);
+        // The original transport remains broken, but retry first reclaims the
+        // old owner and also disposes the replacement's failed initialization.
+        assert!(engine.start_server(start_request(&server)).is_err());
+        assert_eq!(engine.next_session_id.load(Ordering::Relaxed), next_id + 1);
+        assert!(engine.lock_failed_starts().unwrap().is_empty());
+        assert!(engine.lock_sessions().unwrap().is_empty());
+    }
+
+    #[test]
+    fn wire_owner_cleans_at_most_one_failed_start_before_rejecting_a_backlog() {
+        let server = ScriptedServer::new();
+        server.break_input();
+        let engine = LspEngine::with_launcher(server.launcher());
+        let mut ids = BTreeSet::new();
+        for _ in 0..2 {
+            let mut id = None;
+            assert!(engine
+                .start_server_owned(start_request(&server), |registered| {
+                    id = Some(registered.to_owned());
+                })
+                .is_err());
+            ids.insert(id.unwrap());
+        }
+        // Simulate two wire starts already in flight before either failure
+        // established the cleanup barrier.
+        assert_eq!(ids.len(), 2);
+        *engine.lock_failed_starts().unwrap() = ids;
+        let next_id = engine.next_session_id.load(Ordering::Relaxed);
+        let error = engine.start_server(start_request(&server)).unwrap_err();
+        assert!(matches!(error.code, ErrorCode::ProcessFailed));
+        assert_eq!(engine.next_session_id.load(Ordering::Relaxed), next_id);
+        assert_eq!(engine.lock_sessions().unwrap().len(), 1);
+        assert_eq!(engine.lock_failed_starts().unwrap().len(), 1);
+        engine.cleanup_failed_start().unwrap();
+        assert!(engine.lock_sessions().unwrap().is_empty());
+        assert!(engine.lock_failed_starts().unwrap().is_empty());
+    }
+
+    #[test]
+    fn invalid_initial_configuration_is_rejected_before_launch() {
+        let server = ScriptedServer::new();
+        let engine = LspEngine::with_launcher(server.launcher());
+        let mut request = start_request(&server);
+        request.workspace_configuration = Some(json!(["not an object"]));
+        assert!(engine.start_server(request).is_err());
+        assert!(server.launched_spec().is_none());
     }
 
     /// An engine with a scripted server behind it, plus the started session.
@@ -8086,6 +10078,28 @@ mod tests {
             "a duplicate readiness notification must not enqueue duplicate profile updates"
         );
         assert_eq!(harness.snapshot().state, LspLifecycleState::Ready);
+        let started_log = harness
+            .events
+            .iter()
+            .find(|event| {
+                event.message.as_deref() == Some("Applying Maven profiles to Java projects")
+            })
+            .unwrap();
+        assert_eq!(started_log.detail.as_deref(), Some("projectCount=3"));
+        assert_eq!(started_log.fields.as_ref().unwrap()["projects"], 3);
+        let completed_logs: Vec<_> = harness
+            .events
+            .iter()
+            .filter(|event| {
+                event.kind == "log"
+                    && event.maven_profile_project.is_none()
+                    && event.message.as_deref() == Some("Maven profile project update completed")
+            })
+            .collect();
+        assert_eq!(completed_logs.len(), 2);
+        assert!(completed_logs
+            .iter()
+            .all(|event| { event.level.as_deref() == Some("info") && event.error.is_none() }));
 
         harness.server.send(json!({
             "jsonrpc": "2.0",
@@ -8134,6 +10148,14 @@ mod tests {
             .map(|result| result.project_uri.as_str())
             .unwrap_or_default();
         assert!(!project_uri.contains("/Users/") && !project_uri.contains("\\Users\\"));
+        assert!(project_event.error.is_none());
+        assert!(harness.events.iter().any(|event| {
+            event.kind == "log"
+                && event.level.as_deref() == Some("error")
+                && event.error.as_ref().is_some_and(|error| {
+                    error.stage == "mavenProfile" && error.code == "mavenProfileUpdateFailed"
+                })
+        }));
         harness.await_state(LspLifecycleState::Ready);
         assert_eq!(harness.snapshot().state, LspLifecycleState::Ready);
     }
@@ -8544,6 +10566,448 @@ mod tests {
     }
 
     #[test]
+    fn structured_logging_warnings_keep_source_stage_and_code() {
+        let harness = Harness::ready();
+        let session = harness.session();
+        session.log_issue(
+            "warn",
+            "configurationCleanup",
+            "configurationCleanupFailed",
+            EngineLog::ConfigurationCleanupFailed,
+            "Cleanup failed",
+            None,
+        );
+        let event = session
+            .poll_events()
+            .unwrap()
+            .into_iter()
+            .find(|event| event.kind == "log")
+            .unwrap();
+        assert_eq!(event.level.as_deref(), Some("warn"));
+        let error = event.error.unwrap();
+        assert_eq!(error.code, "configurationCleanupFailed");
+        assert_eq!(error.stage, "configurationCleanup");
+        assert!(error.underlying_message.is_none());
+        for (stage, code) in [
+            ("stderr", "upstreamStderr"),
+            ("stderr", "stderrReadFailed"),
+            ("shutdown", "shutdownTimeout"),
+        ] {
+            session.log_issue(
+                "warning",
+                stage,
+                code,
+                if code == "upstreamStderr" {
+                    EngineLog::StderrReceived
+                } else if code == "stderrReadFailed" {
+                    EngineLog::StderrReadFailed
+                } else {
+                    EngineLog::ShutdownTimedOut
+                },
+                "Updated diagnostic wording",
+                None,
+            );
+            let event = session
+                .poll_events()
+                .unwrap()
+                .into_iter()
+                .find(|event| event.kind == "log")
+                .unwrap();
+            assert_eq!(event.level.as_deref(), Some("warning"));
+            let error = event.error.unwrap();
+            assert_eq!(error.stage, stage);
+            assert_eq!(error.code, code);
+        }
+        // Ordinary logs must remain unclassified even when their wording matches an issue.
+        session.log(
+            "warning",
+            EngineLog::StderrReceived,
+            "Language-server stderr",
+            None,
+        );
+        let event = session
+            .poll_events()
+            .unwrap()
+            .into_iter()
+            .find(|event| event.kind == "log")
+            .unwrap();
+        assert!(event.error.is_none());
+    }
+
+    #[test]
+    fn lifecycle_catalog_identity_preserves_v1_event_without_extra_log() {
+        for role in [
+            SessionRole::LanguageServer,
+            SessionRole::Vcs,
+            SessionRole::Build,
+            SessionRole::Toolchain,
+            SessionRole::Backend,
+        ] {
+            let harness = Harness::start(|request| {
+                request.role = role;
+                request.provider_id = "c++".into();
+                request.log_subject = Some("git".into());
+                request.plugin_id = Some("io.example.tools".into());
+            });
+            let session = harness.session();
+            session.active.store(false, Ordering::Release);
+            session.kill_process();
+            let mut state = session.state.lock().unwrap();
+            state.events.clear();
+            let sequence = state.next_sequence;
+            transition_locked(&session, &mut state, LspLifecycleState::Stopped, None);
+            assert!(!state.events.iter().any(|e| e.kind == "log"));
+            let event = state.events.front().unwrap();
+            let (id, fields) = EngineLog::SessionUpdated.fact(
+                &session.log_identity,
+                &json!({"state": "stopped"}),
+                None,
+            );
+            assert_eq!(event.event.as_deref(), Some(id.as_str()));
+            assert_eq!(event.fields.as_ref(), Some(&fields));
+            assert_eq!(
+                event.channel.as_deref(),
+                Some(session.log_identity.channel().as_str())
+            );
+            assert_eq!(event.role, Some(role));
+            assert_eq!(event.plugin_id.as_deref(), Some("io.example.tools"));
+            assert_eq!(
+                event.catalog_level,
+                Some(crate::diagnostics::record::LogLevel::Debug)
+            );
+            let mut legacy = serde_json::to_value(event).unwrap();
+            for key in [
+                "channel",
+                "pluginId",
+                "role",
+                "event",
+                "fields",
+                "catalogLevel",
+            ] {
+                legacy.as_object_mut().unwrap().remove(key);
+            }
+            assert_eq!(
+                legacy,
+                json!({"type": "stateChanged", "sequence": sequence,
+                "providerId": "c++", "sessionId": session.id, "state": "stopped"})
+            );
+            state.events.clear();
+            let error = runtime_error(
+                &session,
+                "processCleanupFailed",
+                "cleanup",
+                None,
+                None,
+                "Engine process cleanup failed",
+                None,
+                None,
+            );
+            let (id, fields) = EngineLog::ProcessCleanupFailed.fact(
+                &session.log_identity,
+                &Value::Null,
+                Some(&error),
+            );
+            push_cleanup_fact(&session, &mut state, id, fields, error);
+            let event = state.events.front().unwrap();
+            assert_eq!(
+                event.channel.as_deref(),
+                Some(session.log_identity.channel().as_str())
+            );
+            assert_eq!(
+                event.catalog_level,
+                Some(crate::diagnostics::record::LogLevel::Warn)
+            );
+            assert_eq!(event.kind, "log");
+            assert_eq!(event.level.as_deref(), Some("warning"));
+            assert_eq!(
+                event.message.as_deref(),
+                Some("Engine process cleanup failed")
+            );
+            assert!(event.detail.is_none() && event.state.is_none());
+            assert_eq!(
+                event.error.as_ref().map(|error| error.code.as_str()),
+                Some("processCleanupFailed")
+            );
+        }
+    }
+
+    #[test]
+    fn v1_detail_is_independent_of_catalog_fields() {
+        let harness = Harness::start(|_| {});
+        let session = harness.session();
+        struct Cleanup(Arc<RuntimeSession>);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                self.0.active.store(false, Ordering::Release);
+                self.0.kill_process();
+            }
+        }
+        let _cleanup = Cleanup(session.clone());
+        session.poll_events().unwrap();
+        let line = "  upstream diagnostic  ";
+        session.log_issue(
+            "warning",
+            "stderr",
+            "upstreamStderr",
+            EngineLog::StderrReceived.with_fields(json!({"diagnostic": line, "truncated": false})),
+            "Language-server stderr",
+            Some(line.into()),
+        );
+        let event = session
+            .poll_events()
+            .unwrap()
+            .into_iter()
+            .find(|e| e.event.as_deref() == Some("lsp.stderr.received"))
+            .unwrap();
+        assert_eq!(event.level.as_deref(), Some("warning"));
+        assert_eq!(event.message.as_deref(), Some("Language-server stderr"));
+        assert_eq!(event.detail.as_deref(), Some(line));
+        assert_eq!(event.fields.as_ref().unwrap()["diagnostic"], line);
+        assert_eq!(event.fields.as_ref().unwrap()["truncated"], false);
+        // A JSON-looking v1 detail cannot supply or overwrite a catalog fact.
+        session.log(
+            "info",
+            EngineLog::MavenApplicationStarted.with_fields(json!({"projectCount": 2})),
+            "Applying Maven profiles to Java projects",
+            Some("{\"projectCount\":999}".into()),
+        );
+        let event = session.poll_events().unwrap().into_iter().next().unwrap();
+        assert_eq!(event.fields.unwrap()["projects"], 2);
+    }
+
+    #[test]
+    fn engine_logging_wire_fixture_preserves_defaults_and_routes_new_commands() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../shared/fixtures/diagnostics/engine-logging-v2.json"
+        ))
+        .unwrap();
+        let request: StartServerRequest = serde_json::from_value(fixture["start"].clone()).unwrap();
+        assert_eq!(request.role, SessionRole::Vcs);
+        assert_eq!(
+            SessionLogIdentity::new(
+                request.role,
+                &request.provider_id,
+                request.plugin_id.as_deref(),
+                request.log_subject.as_deref()
+            )
+            .channel(),
+            "vcs/git"
+        );
+        let mut legacy = fixture["start"].clone();
+        legacy.as_object_mut().unwrap().remove("role");
+        legacy.as_object_mut().unwrap().remove("logSubject");
+        assert_eq!(
+            serde_json::from_value::<StartServerRequest>(legacy)
+                .unwrap()
+                .role,
+            SessionRole::LanguageServer
+        );
+        for name in ["trace", "drain", "resolveSubject"] {
+            assert!(crate::protocol::CoreCommand::parse(
+                fixture[name]["command"].as_str().unwrap()
+            )
+            .is_some());
+        }
+        let response: Value = serde_json::from_str(&crate::runtime::execute_json(
+            &fixture["resolveSubject"].to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["data"], fixture["resolveSubject"]["result"]);
+        let request: SetDetailedDiagnosticsRequest =
+            serde_json::from_value(fixture["trace"]["payload"].clone()).unwrap();
+        assert!(request.enabled);
+        let response: Value =
+            serde_json::from_str(&crate::runtime::execute_json(&fixture["drain"].to_string()))
+                .unwrap();
+        assert_eq!(response["ok"], true);
+        assert!(response["data"]["events"].is_array());
+        assert!(response["data"]["dropped"].as_u64().is_some());
+    }
+
+    #[test]
+    fn detailed_diagnostics_waits_for_initialized_and_keeps_the_latest_request() {
+        for enabled in [true, false] {
+            let harness = Harness::start(|_| {});
+            let session = harness.session();
+            struct Cleanup(Arc<RuntimeSession>);
+            impl Drop for Cleanup {
+                fn drop(&mut self) {
+                    self.0.active.store(false, Ordering::Release);
+                    self.0.kill_process();
+                }
+            }
+            let _cleanup = Cleanup(session.clone());
+            session.set_detailed_diagnostics(true).unwrap();
+            if !enabled {
+                session.set_detailed_diagnostics(false).unwrap();
+            }
+            assert!(!harness
+                .server
+                .messages()
+                .iter()
+                .any(|m| m["method"] == "$/setTrace"));
+            assert!(!session.lock_state().unwrap().detailed_diagnostics);
+
+            // Drive the real handshake handler synchronously; no reader timing
+            // or sleep is needed to establish the notification ordering.
+            let initialize = harness.server.await_request("initialize").unwrap();
+            session
+                .handle_server_message(
+                    json!({
+                        "jsonrpc":"2.0", "id":initialize,
+                        "result":{"capabilities":ready_capabilities()}
+                    })
+                    .to_string(),
+                )
+                .unwrap();
+            let methods: Vec<_> = harness
+                .server
+                .messages()
+                .into_iter()
+                .filter_map(|m| m["method"].as_str().map(str::to_owned))
+                .collect();
+            if enabled {
+                let initialized = methods.iter().position(|m| m == "initialized").unwrap();
+                let trace = methods.iter().position(|m| m == "$/setTrace").unwrap();
+                assert!(trace > initialized);
+            } else {
+                assert!(!methods.iter().any(|m| m == "$/setTrace"));
+            }
+            assert_eq!(session.lock_state().unwrap().detailed_diagnostics, enabled);
+            session.set_detailed_diagnostics(false).unwrap();
+            assert_eq!(
+                harness.server.messages().last().unwrap()["params"],
+                json!({"value":"off"})
+            );
+        }
+    }
+
+    #[test]
+    fn upstream_catalog_messages_trace_toggle_and_v1_fields_coexist() {
+        let harness = Harness::start(|request| {
+            request.role = SessionRole::Vcs;
+            request.log_subject = Some("git".into());
+            request.plugin_id = Some("io.example.git".into());
+            request.provider_id = "opaque:provider:git".into();
+        });
+        let session = harness.session();
+        struct Cleanup(Arc<RuntimeSession>);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                self.0.active.store(false, Ordering::Release);
+                self.0.kill_process();
+            }
+        }
+        let _cleanup = Cleanup(session.clone());
+        let initialize = harness.server.await_request("initialize").unwrap();
+        session
+            .handle_server_message(
+                json!({
+                    "jsonrpc":"2.0", "id":initialize, "result":{"capabilities":{}}
+                })
+                .to_string(),
+            )
+            .unwrap();
+        session.poll_events().unwrap();
+        session.log(
+            "warning",
+            EngineLog::Dropped.with_fields(json!({"count": 7})),
+            "Engine stderr lines dropped",
+            Some("count=7".into()),
+        );
+        let dropped = session
+            .poll_events()
+            .unwrap()
+            .into_iter()
+            .find(|event| event.event.as_deref() == Some("log.dropped"))
+            .unwrap();
+        assert_eq!(dropped.channel.as_deref(), Some("vcs/git"));
+        assert_eq!(dropped.fields.unwrap()["count"], 7);
+        for (method, expected) in [
+            ("window/logMessage", "vcs.message.warning.logged"),
+            ("window/showMessage", "vcs.message.warning.shown"),
+        ] {
+            session.handle_server_message(json!({"jsonrpc":"2.0", "method":method, "params":{"type":2,"message":"warning token=private-value"}}).to_string()).unwrap();
+            let events = session.poll_events().unwrap();
+            let event = events
+                .iter()
+                .find(|e| e.event.as_deref() == Some(expected))
+                .expect("upstream catalog event");
+            assert_eq!(event.channel.as_deref(), Some("vcs/git"));
+            assert_eq!(event.plugin_id.as_deref(), Some("io.example.git"));
+            assert_eq!(event.role, Some(SessionRole::Vcs));
+            assert_eq!(
+                event.catalog_level,
+                Some(crate::diagnostics::record::LogLevel::Warn)
+            );
+            assert_eq!(event.message.as_deref(), Some(method));
+            assert!(event.level.is_some() && event.detail.is_some());
+            let fields = event.fields.as_ref().unwrap();
+            assert_eq!(fields["severity"], "warning");
+            assert!(!fields["diagnostic"]
+                .as_str()
+                .unwrap()
+                .contains("private-value"));
+        }
+        let trace = json!({"jsonrpc":"2.0", "method":"$/logTrace", "params":{
+            "message":"trace token=fixture-secret", "verbose":json!({
+                "textDocument":{"text":"private_source_marker"}
+            }).to_string()
+        }})
+        .to_string();
+        session.handle_server_message(trace.clone()).unwrap();
+        assert!(!session
+            .poll_events()
+            .unwrap()
+            .iter()
+            .any(|e| e.event.as_deref() == Some("vcs.trace.received")));
+        session.set_detailed_diagnostics(true).unwrap();
+        assert_eq!(
+            harness.server.messages().last().unwrap()["params"],
+            json!({"value":"verbose"})
+        );
+        session.handle_server_message(trace.clone()).unwrap();
+        let event = session
+            .poll_events()
+            .unwrap()
+            .into_iter()
+            .find(|e| e.event.as_deref() == Some("vcs.trace.received"))
+            .unwrap();
+        assert_eq!(
+            event.catalog_level,
+            Some(crate::diagnostics::record::LogLevel::Debug)
+        );
+        assert_eq!(event.level.as_deref(), Some("info"));
+        let fields = event.fields.unwrap();
+        assert_eq!(fields["diagnostic"], "trace token=<redacted>");
+        let encoded = crate::diagnostics::record::encode_log_batch(
+            serde_json::from_value(json!({"validateCatalog":true,"events":[{
+                "ts":"2026-11-03T00:00:00.000Z", "seq":1, "level":"DEBUG",
+                "event":"vcs.trace.received", "msg":"", "fields":fields
+            }]}))
+            .unwrap(),
+        );
+        let line = encoded.results[0].line.as_ref().unwrap();
+        assert!(!line.contains("private_source_marker"));
+        assert!(!line.contains("fixture-secret"));
+        session.set_detailed_diagnostics(false).unwrap();
+        assert_eq!(
+            harness.server.messages().last().unwrap()["params"],
+            json!({"value":"off"})
+        );
+        session.handle_server_message(trace).unwrap();
+        assert!(!session
+            .poll_events()
+            .unwrap()
+            .iter()
+            .any(|e| e.event.as_deref() == Some("vcs.trace.received")));
+        assert!(
+            serde_json::from_value::<SetDetailedDiagnosticsRequest>(json!({"sessionId":"s"}))
+                .is_err()
+        );
+    }
+
+    #[test]
     fn maven_profile_log_redacts_absolute_project_paths() {
         let redacted = redacted_project_uri("file:///Users/alice/workspace/module-a/");
         assert!(redacted.starts_with("file:///module-a-"));
@@ -8600,6 +11064,7 @@ mod tests {
                 .unwrap();
             assert_eq!(event.level.as_deref(), Some(level));
             assert_eq!(event.message.as_deref(), Some(message));
+            assert!(event.error.is_none());
             assert_eq!(event.maven_profile_project.unwrap().status, status);
         }
     }
@@ -8728,18 +11193,23 @@ mod tests {
         // A quiet m2e batch is not a heartbeat failure. Advance only the deadline
         // clock so the test needs neither a real project nor a 46-second sleep.
         session.expire_deadlines_at(Instant::now() + Duration::from_secs(46));
-        harness.await_event(|event| {
-            event.message.as_deref() == Some(
-            "Java workspace import has not reported progress; still waiting for ServiceReady",
-        )
+        let warning = harness.await_event(|event| {
+            event.error.as_ref().is_some_and(|error| {
+                error.stage == "workspaceImport" && error.code == "workspaceImportStalled"
+            })
         });
+        assert_eq!(warning.kind, "log");
+        assert_eq!(warning.level.as_deref(), Some("warning"));
         assert_eq!(harness.snapshot().state, LspLifecycleState::Initializing);
         harness.server.send(json!({
             "jsonrpc": "2.0", "method": "language/status",
             "params": { "type": "ServiceReady" }
         }));
         harness.await_state(LspLifecycleState::Ready);
-        assert!(!harness.events.iter().any(|event| event.error.is_some()));
+        assert!(!harness
+            .events
+            .iter()
+            .any(|event| event.kind != "log" && event.error.is_some()));
     }
 
     #[test]
@@ -9051,6 +11521,31 @@ mod tests {
         assert_eq!(
             &*snapshot.open_documents[second_uri].text,
             "class Second { int value; }"
+        );
+    }
+
+    /// A path descriptor reaches the server with reserved characters escaped.
+    #[test]
+    fn native_path_emits_the_canonical_uri_on_the_lsp_wire() {
+        let harness = Harness::ready();
+        let mut payload = json!({"sessionId":harness.session_id, "languageId":"go", "text":"package main",
+            "uri":{"path":"/workspace/A#B.go","platform":"posix"}});
+        crate::lsp::resolve_request_paths("lsp.syncDocument", &mut payload).unwrap();
+        let request: SyncDocumentRequest = serde_json::from_value(payload).unwrap();
+        harness
+            .session()
+            .sync_document(request)
+            .expect("document should synchronize");
+        assert!(harness.server.await_notification("textDocument/didOpen"));
+        let opened = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "textDocument/didOpen")
+            .unwrap();
+        assert_eq!(
+            opened["params"]["textDocument"]["uri"],
+            "file:///workspace/A%23B.go"
         );
     }
 
@@ -9850,6 +12345,7 @@ mod tests {
 
     #[test]
     fn indexing_startup_cancels_when_policy_changes_during_process_launch() {
+        const CANCELLED_PLUGIN: &str = "io.example.indexing-cancel-launch";
         struct RetireOnLaunch {
             inner: Arc<dyn LspProcessLauncher>,
             root: PathBuf,
@@ -9889,7 +12385,16 @@ mod tests {
                 );
             }
         }
-        for initially_configured in [false, true] {
+        for (initially_configured, cleanup_blocked, native_owner) in [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (true, true, false),
+            (false, false, true),
+            (true, false, true),
+            (false, true, true),
+            (true, true, true),
+        ] {
             let workspace = TemporaryMavenWorkspace::recursive(&format!(
                 "indexing-startup-retired-{initially_configured}"
             ));
@@ -9907,6 +12412,7 @@ mod tests {
                 process: Arc::new(Mutex::new(None)),
             };
             let server = ScriptedServer::new();
+            server.block_cleanup(cleanup_blocked);
             let engine = LspEngine::with_launcher(Arc::new(RetireOnLaunch {
                 inner: server.launcher(),
                 root: root.clone(),
@@ -9917,16 +12423,97 @@ mod tests {
             request.provider_id = "python".into();
             request.root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
             request.working_directory = root.to_string_lossy().into_owned();
-            match engine.start_server(request) {
-                Err(error) => assert!(matches!(error.code, ErrorCode::Cancelled)),
-                Ok(_) => panic!("an obsolete startup must not publish a session"),
+            request.startup_operation = Some(AttemptHandoff {
+                plugin_id: CANCELLED_PLUGIN.to_string(),
+                operation_id: "indexing-cancel-before-registration".to_string(),
+                elapsed_ms: 5,
+            });
+            let mut registered = None;
+            let result = if native_owner {
+                engine.start_server_owned(request, |id| registered = Some(id.to_owned()))
+            } else {
+                engine.start_server(request)
+            };
+            assert!(matches!(result.unwrap_err().code, ErrorCode::Cancelled));
+            if cleanup_blocked {
+                let id = if native_owner {
+                    registered.expect("incomplete disposal must reach the native owner")
+                } else {
+                    engine
+                        .lock_failed_starts()
+                        .unwrap()
+                        .first()
+                        .cloned()
+                        .expect("incomplete wire disposal retains its internal owner")
+                };
+                assert!(engine.destroy(&id).is_err());
+                assert!(engine.session(&id).is_ok());
+                server.block_cleanup(false);
+                if native_owner {
+                    engine
+                        .destroy(&id)
+                        .expect("native owner can retry verified disposal");
+                } else {
+                    engine
+                        .cleanup_failed_start()
+                        .expect("wire retry confirms disposal");
+                    assert!(engine.lock_failed_starts().unwrap().is_empty());
+                }
+            } else {
+                assert!(
+                    registered.is_none(),
+                    "disposed startup needs no native barrier"
+                );
             }
             assert!(engine.lock_sessions().unwrap().is_empty());
             assert!(
                 server.input_was_closed(),
                 "the cancelled startup owns process termination"
             );
+            assert!(
+                plugin_operations::test_capture::take(CANCELLED_PLUGIN).is_empty(),
+                "a cancelled start records no plugin operation result"
+            );
         }
+    }
+
+    #[test]
+    fn native_owner_retains_indexing_cancellation_after_registration() {
+        const CANCELLED_PLUGIN: &str = "io.example.indexing-cancel-registered";
+        let workspace = TemporaryMavenWorkspace::recursive("indexing-owned-startup");
+        let root = workspace.root.canonicalize().unwrap();
+        let mut policy = IndexingPolicyFixture::new(root.clone());
+        let server = ScriptedServer::new();
+        server.block_cleanup(true);
+        let engine = LspEngine::with_launcher(server.launcher());
+        let mut request = start_request(&server);
+        request.provider_id = "python".into();
+        request.root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
+        request.working_directory = root.to_string_lossy().into_owned();
+        request.startup_operation = Some(AttemptHandoff {
+            plugin_id: CANCELLED_PLUGIN.to_string(),
+            operation_id: "indexing-cancel-after-registration".to_string(),
+            elapsed_ms: 5,
+        });
+        let mut registered = None;
+        let result = engine.start_server_owned(request, |id| {
+            registered = Some(id.to_owned());
+            // Revoke between the initial policy check and initialize write.
+            policy.exclude(&["reactor"]);
+        });
+        assert!(matches!(result.unwrap_err().code, ErrorCode::Cancelled));
+        let id = registered.expect("native owner received its session");
+        assert!(engine.destroy(&id).is_err());
+        assert!(engine.session(&id).is_ok());
+        server.block_cleanup(false);
+        engine
+            .destroy(&id)
+            .expect("native owner confirms process disposal");
+        assert!(engine.session(&id).is_err());
+        assert!(
+            plugin_operations::test_capture::take(CANCELLED_PLUGIN).is_empty(),
+            "a cancelled start records no plugin operation result"
+        );
     }
 
     #[test]
@@ -10029,8 +12616,14 @@ mod tests {
 
     #[test]
     fn indexing_watcher_rebuild_publishes_recomputed_git_exclusions_to_java() {
-        let workspace = TemporaryMavenWorkspace::recursive("indexing-watcher-provider");
-        let root = workspace.root.canonicalize().unwrap();
+        // This regression owns indexing notifications, not Maven reactor discovery.
+        // Keep unrelated recursive projects out of the real Git ignore inventory.
+        let workspace = ScratchDirectory(std::env::temp_dir().join(format!(
+            "lithe-indexing-watcher-provider-{}",
+            std::process::id()
+        )));
+        std::fs::create_dir_all(&workspace.0).unwrap();
+        let root = workspace.0.canonicalize().unwrap();
         std::fs::create_dir_all(root.join("ignored")).unwrap();
         std::fs::write(root.join("ignored/hidden.txt"), "hidden").unwrap();
         std::fs::write(root.join(".gitignore"), "ignored/\n").unwrap();
@@ -10041,7 +12634,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(git.exit_code, 0, "{}", git.stderr);
-        let mut harness = Harness::start(|request| workspace.configure(request));
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".into();
+            request.root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
+            request.working_directory = root.to_string_lossy().into_owned();
+            request.cache_directory = Some(root.join("cache").to_string_lossy().into_owned());
+        });
         harness
             .server
             .complete_java_initialize(ready_capabilities());
@@ -10261,6 +12859,116 @@ mod tests {
         );
     }
 
+    /// A declarative plugin start handed off by the host ends in exactly one Core
+    /// result: `initialize` success, an exit before it, or nothing for a user stop.
+    /// Later exits belong to the session, not the start. A plugin API 1 server
+    /// starts host-owned, so the handoff alone names the plugin; a session owned
+    /// by a different plugin records nothing.
+    #[test]
+    fn declarative_plugin_start_records_one_host_operation_per_attempt() {
+        const PLUGIN: &str = "io.example.declarative-start";
+        const OTHER: &str = "io.example.declarative-start-other";
+        let handoff = |operation_id: &'static str, owner: Option<&'static str>| {
+            move |request: &mut StartServerRequest| {
+                request.plugin_id = owner.map(str::to_string);
+                request.startup_operation = Some(AttemptHandoff {
+                    plugin_id: PLUGIN.to_string(),
+                    operation_id: operation_id.to_string(),
+                    elapsed_ms: 5,
+                });
+            }
+        };
+
+        let mut ready = Harness::start(handoff("declarative-ready", Some(PLUGIN)));
+        ready.server.complete_initialize(ready_capabilities());
+        ready.await_state(LspLifecycleState::Ready);
+        ready.server.exit(Some(1));
+        ready.await_state(LspLifecycleState::Failed);
+
+        let mut exited = Harness::start(handoff("declarative-exited", None));
+        exited.server.exit(Some(2));
+        exited.await_state(LspLifecycleState::Failed);
+
+        let mut stopped = Harness::start(handoff("declarative-stopped", Some(PLUGIN)));
+        stopped.session().stop().unwrap();
+        stopped.await_state(LspLifecycleState::Stopped);
+
+        let mut foreign = Harness::start(handoff("declarative-foreign", Some(OTHER)));
+        foreign.server.exit(Some(3));
+        foreign.await_state(LspLifecycleState::Failed);
+        assert!(plugin_operations::test_capture::take(OTHER).is_empty());
+
+        let facts = plugin_operations::test_capture::take(PLUGIN);
+        assert!(facts
+            .iter()
+            .all(|fact| std::ptr::eq(fact.contribution, &LANGUAGE_SERVER_START)));
+        let results: Vec<_> = facts
+            .into_iter()
+            .map(|fact| (fact.operation_id, fact.failure))
+            .collect();
+        assert_eq!(
+            results,
+            [
+                (Some("declarative-ready".to_string()), None),
+                (
+                    Some("declarative-exited".to_string()),
+                    Some(AttemptStage::Exit)
+                ),
+            ]
+        );
+    }
+
+    /// startServer failing after spawn is a `launch` failure, and an initialize
+    /// timeout decided under the state lock is the only result even when the
+    /// response arrives afterwards.
+    #[test]
+    fn declarative_plugin_start_attributes_write_failure_and_timeout() {
+        const PLUGIN: &str = "io.example.declarative-start-failures";
+        let handoff = |operation_id: &str, request: &mut StartServerRequest| {
+            request.plugin_id = Some(PLUGIN.to_string());
+            request.startup_operation = Some(AttemptHandoff {
+                plugin_id: PLUGIN.to_string(),
+                operation_id: operation_id.to_string(),
+                elapsed_ms: 5,
+            });
+        };
+
+        let broken = ScriptedServer::new();
+        broken.break_input();
+        let engine = LspEngine::with_launcher(broken.launcher());
+        let mut request = start_request(&broken);
+        handoff("declarative-write-failed", &mut request);
+        assert!(engine.start_server(request).is_err());
+
+        let mut timed_out = Harness::start(|request| {
+            handoff("declarative-timed-out", request);
+            request.initialize_timeout_milliseconds = 60_000;
+        });
+        timed_out
+            .session()
+            .expire_deadlines_at(Instant::now() + Duration::from_secs(61));
+        timed_out.await_state(LspLifecycleState::Failed);
+        timed_out.server.complete_initialize(ready_capabilities());
+
+        let results: Vec<_> = plugin_operations::test_capture::take(PLUGIN)
+            .into_iter()
+            .map(|fact| (fact.operation_id, fact.failure))
+            .collect();
+        assert_eq!(
+            results,
+            [
+                (
+                    Some("declarative-write-failed".to_string()),
+                    Some(AttemptStage::Launch)
+                ),
+                (
+                    Some("declarative-timed-out".to_string()),
+                    Some(AttemptStage::Timeout)
+                ),
+            ]
+        );
+    }
+
     /// Criterion 10: shutdown sends exit after the response, and a shutdown that
     /// is never answered force-terminates.
     #[test]
@@ -10303,10 +13011,9 @@ mod tests {
         silent.await_state(LspLifecycleState::Stopped);
         silent.await_event(|event| {
             event.kind == "log"
-                && event
-                    .message
-                    .as_deref()
-                    .is_some_and(|message| message.contains("shutdown timed out"))
+                && event.error.as_ref().is_some_and(|error| {
+                    error.stage == "shutdown" && error.code == "shutdownTimeout"
+                })
         });
     }
 
@@ -10931,6 +13638,117 @@ mod tests {
         harness
     }
 
+    fn queue_java_entrypoints(harness: &Harness, operation: &str) -> Result<(), CoreError> {
+        harness.session().request(
+            SemanticRequest {
+                session_id: harness.session_id.clone(),
+                operation_id: Some(operation.into()),
+                operation: LspSemanticOperation::JavaEntrypoints,
+                uri: None,
+                virtual_uri: None,
+                position: None,
+                new_name: None,
+                range: None,
+                diagnostics: Vec::new(),
+                completion_context: None,
+                completion_item: None,
+                code_action: None,
+                command: None,
+            },
+            operation.into(),
+        )
+    }
+
+    #[test]
+    fn java_entrypoints_wait_for_profiles_and_project_jobs_before_querying_the_server() {
+        let mut harness = java_entrypoints_harness();
+        let session = harness.session();
+        session.lock_state().unwrap().maven_profile_status = MavenProfileTaskStatus::Running;
+        queue_java_entrypoints(&harness, "launch-discovery").unwrap();
+        assert!(queue_java_entrypoints(&harness, "launch-discovery").is_err());
+        session.pump_outbound_maintenance();
+        assert!(!harness
+            .server
+            .messages()
+            .iter()
+            .any(|m| m["method"] == "workspace/executeCommand"));
+        {
+            let mut state = session.lock_state().unwrap();
+            state.java_builds.observe_progress(
+                crate::lsp::languages::jdt_build::ProjectJobProgress::Begin {
+                    token: "project-update".into(),
+                    label: "Update project app".into(),
+                },
+                Instant::now(),
+            );
+            state.maven_profile_status = MavenProfileTaskStatus::Succeeded;
+        }
+        session.pump_outbound_maintenance();
+        assert!(!harness
+            .server
+            .messages()
+            .iter()
+            .any(|m| m["method"] == "workspace/executeCommand"));
+        session.lock_state().unwrap().java_builds.observe_progress(
+            crate::lsp::languages::jdt_build::ProjectJobProgress::End {
+                token: "project-update".into(),
+            },
+            Instant::now(),
+        );
+        session.pump_outbound_maintenance();
+        let id = harness
+            .server
+            .await_request("workspace/executeCommand")
+            .unwrap();
+        harness
+            .server
+            .send(json!({"jsonrpc":"2.0","id":id,"result":[]}));
+        let event = harness.await_event(|e| {
+            e.operation_id.as_deref() == Some("launch-discovery") && e.kind == "requestCompleted"
+        });
+        assert!(event.error.is_none(), "{event:?}");
+        assert_eq!(event.result.as_ref().unwrap()["entries"], json!([]));
+    }
+
+    #[test]
+    fn java_entrypoints_waiters_cancel_timeout_and_stop_without_a_discovery_or_wire_cancellation() {
+        for mode in ["cancel", "timeout", "stop"] {
+            let mut harness = java_entrypoints_harness();
+            let session = harness.session();
+            session.lock_state().unwrap().maven_profile_status = MavenProfileTaskStatus::Running;
+            queue_java_entrypoints(&harness, mode).unwrap();
+            match mode {
+                "cancel" => session.cancel_operation(mode).unwrap(),
+                "timeout" => session.expire_deadlines_at(Instant::now() + Duration::from_secs(601)),
+                _ => session.stop().unwrap(),
+            }
+            let event = harness.await_event(|e| {
+                e.operation_id.as_deref() == Some(mode) && e.kind == "requestCompleted"
+            });
+            assert!(event.error.is_some());
+            assert!(session
+                .lock_state()
+                .unwrap()
+                .java_entrypoint_waiters
+                .is_empty());
+            assert!(!harness.server.messages().iter().any(|m| {
+                m["params"]["command"] == "vscode.java.resolveMainClass"
+                    || m["method"] == "$/cancelRequest"
+            }));
+        }
+    }
+
+    #[test]
+    fn java_entrypoints_configuration_wait_queue_is_bounded() {
+        let harness = java_entrypoints_harness();
+        harness.session().lock_state().unwrap().maven_profile_status =
+            MavenProfileTaskStatus::Running;
+        for index in 0..128 {
+            queue_java_entrypoints(&harness, &format!("queued-{index}")).unwrap();
+        }
+        assert!(queue_java_entrypoints(&harness, "overflow").is_err());
+    }
+
     fn begin_java_launch(harness: &Harness) -> (String, String) {
         let operation_id = harness.engine.next_operation_id();
         harness
@@ -10958,6 +13776,60 @@ mod tests {
             {"mainClass": "test.module/demo.TestMain", "projectName": "app", "filePath": "/workspace/app/src/TestMain.java"},
             {"mainClass": "demo.TestMain", "projectName": "lib", "filePath": "/workspace/lib/src/TestMain.java"}
         ]}));
+    }
+
+    /// The composed operation must wait for the same import barrier as discovery.
+    #[test]
+    fn java_launch_preparation_waits_for_configuration_and_reclaims_queued_attempts() {
+        for outcome in ["launch", "cancel", "timeout", "stop"] {
+            let mut harness = java_entrypoints_harness();
+            let session = harness.session();
+            session.lock_state().unwrap().maven_profile_status = MavenProfileTaskStatus::Running;
+            session
+                .prepare_java_launch(
+                    JavaPrepareLaunchRequest {
+                        session_id: harness.session_id.clone(),
+                        operation_id: Some(outcome.into()),
+                        source_path: "/workspace/app/src/TestMain.java".into(),
+                        main_class: Some("demo.TestMain".into()),
+                    },
+                    outcome.into(),
+                )
+                .unwrap();
+            session.pump_outbound_maintenance();
+            assert!(!harness
+                .server
+                .messages()
+                .iter()
+                .any(|message| message["method"] == "workspace/executeCommand"));
+            match outcome {
+                "launch" => {
+                    session.lock_state().unwrap().maven_profile_status =
+                        MavenProfileTaskStatus::Succeeded;
+                    session.pump_outbound_maintenance();
+                    let request = harness
+                        .server
+                        .await_request("workspace/executeCommand")
+                        .unwrap();
+                    answer_java_launch_entries(&harness, &request);
+                    harness
+                        .server
+                        .await_request_at("workspace/executeCommand", 1)
+                        .unwrap();
+                    session.cancel_operation(outcome).unwrap();
+                }
+                "cancel" => session.cancel_operation(outcome).unwrap(),
+                "timeout" => session.expire_deadlines_at(Instant::now() + Duration::from_secs(601)),
+                _ => session.stop().unwrap(),
+            }
+            let event = harness.await_event(|event| {
+                event.operation_id.as_deref() == Some(outcome) && event.kind == "requestCompleted"
+            });
+            assert!(event.error.is_some(), "{outcome}: {event:?}");
+            let state = session.lock_state().unwrap();
+            assert!(state.java_entrypoint_waiters.is_empty());
+            assert!(!state.java_launches.contains_key(outcome));
+        }
     }
 
     #[test]
@@ -11174,7 +14046,7 @@ mod tests {
             .find(|message| message["id"] == request_id)
             .expect("the discovery request should be recorded");
         assert_eq!(request["params"]["command"], "vscode.java.resolveMainClass");
-        assert_eq!(request["params"]["arguments"], json!(["file:///workspace"]));
+        assert_eq!(request["params"]["arguments"], json!([]));
 
         // Java 25 forms (no-argument, instance) arrive from JDT like any other
         // entry; Core must pass them through without judging the signature.
@@ -11213,40 +14085,6 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
-    }
-
-    // Regression: a workspace opened through a symbolic link, as `/tmp` and
-    // `/var` are on macOS, listed no entry points because JDT places the
-    // project at the resolved location and the scope named the link.
-    #[cfg(unix)]
-    #[test]
-    fn java_entrypoint_scope_names_the_workspace_a_symbolic_link_resolves_to() {
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should follow the Unix epoch")
-            .as_nanos();
-        let scratch = ScratchDirectory(std::env::temp_dir().join(format!(
-            "lithe-entrypoint-scope-{}-{stamp}",
-            std::process::id()
-        )));
-        let workspace = scratch.0.join("real workspace");
-        std::fs::create_dir_all(&workspace).expect("workspace should be creatable");
-        let link = scratch.0.join("link");
-        std::os::unix::fs::symlink(&workspace, &link).expect("link should be creatable");
-
-        let scope = java_entrypoint_scope_uri(
-            url::Url::from_directory_path(&link)
-                .expect("link converts to a URI")
-                .as_str(),
-        );
-        let resolved = workspace.canonicalize().expect("workspace canonicalizes");
-        assert_eq!(
-            url::Url::parse(&scope)
-                .expect("scope is a URI")
-                .to_file_path()
-                .expect("scope is a file URI"),
-            resolved
-        );
     }
 
     // Regression: JDT publishes diagnostics under the resolved path of a file
@@ -11367,13 +14205,6 @@ mod tests {
             &message(&uri_of("other.go")),
         );
         assert!(linked.examined.is_empty());
-    }
-
-    #[test]
-    fn java_entrypoint_scope_keeps_a_root_that_cannot_be_resolved() {
-        for root_uri in ["file:///lithe-missing-workspace/app", "untitled:workspace"] {
-            assert_eq!(java_entrypoint_scope_uri(root_uri), root_uri);
-        }
     }
 
     #[test]
@@ -11988,9 +14819,15 @@ public class Main {
         let started = engine
             .start_server(StartServerRequest {
                 provider_id: "java".to_string(),
+                role: SessionRole::LanguageServer,
+                log_subject: None,
                 plugin_id: None,
+                startup_operation: None,
                 host_services: Vec::new(),
+                host_options: Default::default(),
                 toolchain_providers: Vec::new(),
+                keymap_import_providers: Vec::new(),
+                session_policy: None,
                 executable_path,
                 arguments: Vec::new(),
                 environment: BTreeMap::from([(
@@ -12248,6 +15085,15 @@ public class Main {
             .session()
             .complete_cached_java_navigation_markers(&cached_operation_id, uri, Some(version))
             .expect("the completed marker result should be cached"));
+        let logs = harness.session().poll_events().unwrap();
+        let log = logs
+            .iter()
+            .find(|event| event.event.as_deref() == Some("lsp.navigation.cache_hit"))
+            .unwrap();
+        assert_eq!(log.detail.as_deref(), Some(format!("operationId={cached_operation_id}, uri={uri}, documentVersion={version}, markers=0").as_str()));
+        assert_eq!(log.fields.as_ref().unwrap()["document_version"], version);
+        assert_eq!(log.fields.as_ref().unwrap()["markers"], 0);
+        harness.events.extend(logs);
         let cached_event = harness.await_event(|event| {
             event.operation_id.as_deref() == Some(cached_operation_id.as_str())
                 && event.kind == "requestCompleted"
@@ -12555,6 +15401,12 @@ public class Main {
                 .map(Vec::len),
             Some(1)
         );
+        assert!(harness.events.iter().any(|event| {
+            event.kind == "log"
+                && event.error.as_ref().is_some_and(|error| {
+                    error.stage == "navigation" && error.code == "navigationMarkerFailed"
+                })
+        }));
     }
 
     #[test]
@@ -12643,7 +15495,9 @@ public class Main {
         );
         assert!(harness.events.iter().any(|event| {
             event.kind == "log"
-                && event.message.as_deref() == Some("Java navigation marker batch was limited")
+                && event.error.as_ref().is_some_and(|error| {
+                    error.stage == "navigation" && error.code == "navigationLimited"
+                })
         }));
     }
 
@@ -12731,9 +15585,15 @@ public class Main {
     fn start_contract_rejects_missing_runtime_identity() {
         let request = StartServerRequest {
             provider_id: String::new(),
+            role: SessionRole::LanguageServer,
+            log_subject: None,
             plugin_id: None,
+            startup_operation: None,
             host_services: Vec::new(),
+            host_options: Default::default(),
             toolchain_providers: Vec::new(),
+            keymap_import_providers: Vec::new(),
+            session_policy: None,
             executable_path: "/bin/server".to_string(),
             arguments: Vec::new(),
             environment: BTreeMap::new(),
@@ -13274,6 +16134,145 @@ public class Main {
     }
 
     #[test]
+    fn inline_test_reports_cannot_reach_a_provider_without_version_eight() {
+        for version in [7, 8] {
+            let mut harness = plugin_backend(json!({"litheBuild":{"version":version}}));
+            let result = build_request(
+                &harness,
+                "lithe/build/test",
+                json!({"testResults":true}),
+                None,
+            );
+            if version == 7 {
+                assert!(matches!(result.unwrap_err().code, ErrorCode::NotSupported));
+                assert!(harness
+                    .server
+                    .messages()
+                    .iter()
+                    .all(|message| message["method"] != "lithe/build/test"));
+            } else {
+                let operation = result.unwrap();
+                let id = harness.server.await_request("lithe/build/test").unwrap();
+                let value = json!({"exitCode":1,"output":"failure","testResults":{"format":"litheTestResults","version":1,"tests":[]}});
+                harness
+                    .server
+                    .send(json!({"jsonrpc":"2.0","id":id,"result":value}));
+                let event = harness.await_event(|event| {
+                    event.kind == "requestCompleted"
+                        && event.operation_id.as_deref() == Some(operation.as_str())
+                });
+                assert_eq!(event.result.as_ref().unwrap()["value"], value);
+            }
+        }
+    }
+
+    #[test]
+    fn provider_native_configuration_requires_version_seven_and_returns_only_the_projection() {
+        for version in 1..7 {
+            let harness = plugin_backend(json!({"litheBuild":{"version":version}}));
+            let error =
+                build_request(&harness, "lithe/build/configuration", json!({}), None).unwrap_err();
+            assert!(matches!(error.code, ErrorCode::NotSupported));
+            assert!(harness
+                .server
+                .messages()
+                .iter()
+                .all(|message| message["method"] != "lithe/build/configuration"));
+        }
+        let mut harness = plugin_backend(json!({"litheBuild":{"version":7}}));
+        let operation =
+            build_request(&harness, "lithe/build/configuration", json!({}), None).unwrap();
+        let id = harness
+            .server
+            .await_request("lithe/build/configuration")
+            .unwrap();
+        let result = json!({"format":"litheBuildConfiguration","version":1,"sources":[]});
+        harness
+            .server
+            .send(json!({"jsonrpc":"2.0","id":id,"result":result}));
+        let event = harness.await_event(|event| {
+            event.kind == "requestCompleted"
+                && event.operation_id.as_deref() == Some(operation.as_str())
+        });
+        assert_eq!(event.result.as_ref().unwrap()["value"], result);
+    }
+
+    /// User options must never be silently downgraded before a provider request.
+    #[test]
+    fn provider_run_options_require_version_ten_before_wire_send() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../shared/contracts/plugins/v1/fixtures/build-providers/build-run-options.json"
+        ))
+        .unwrap();
+        let params = json!({"launchOptions":fixture["launchOptions"]});
+        let old = plugin_backend(json!({"litheBuild":{"version":9}}));
+        let error =
+            build_request(&old, "lithe/build/prepareRun", params.clone(), None).unwrap_err();
+        assert!(matches!(error.code, ErrorCode::NotSupported));
+        assert!(old
+            .server
+            .messages()
+            .iter()
+            .all(|message| message["method"] != "lithe/build/prepareRun"));
+        let mut current = plugin_backend(json!({"litheBuild":{"version":10}}));
+        let error = build_request(&current, "lithe/build/model", params.clone(), None).unwrap_err();
+        assert!(matches!(error.code, ErrorCode::InvalidRequest));
+        let operation = build_request(&current, "lithe/build/prepareRun", params, None).unwrap();
+        let id = current
+            .server
+            .await_request("lithe/build/prepareRun")
+            .unwrap();
+        let message = current
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "lithe/build/prepareRun")
+            .unwrap();
+        assert_eq!(message["params"]["launchOptions"], fixture["launchOptions"]);
+        current
+            .server
+            .send(json!({"jsonrpc":"2.0","id":id,"result":fixture["result"]}));
+        let event = current.await_event(|event| {
+            event.kind == "requestCompleted"
+                && event.operation_id.as_deref() == Some(operation.as_str())
+        });
+        assert_eq!(event.result.as_ref().unwrap()["value"], fixture["result"]);
+    }
+
+    /// Port ownership cannot be silently discarded by a version-10 process.
+    #[test]
+    fn provider_runtime_debug_requires_version_eleven_before_wire_send() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../shared/contracts/plugins/v1/fixtures/build-providers/build-connection-debug-options.json"
+        ))
+        .unwrap();
+        let params = json!({"launchOptions":fixture["launchOptions"]});
+        let old = plugin_backend(json!({"litheBuild":{"version":10}}));
+        let error =
+            build_request(&old, "lithe/build/prepareRun", params.clone(), None).unwrap_err();
+        assert!(matches!(error.code, ErrorCode::NotSupported));
+        assert!(old
+            .server
+            .messages()
+            .iter()
+            .all(|message| message["method"] != "lithe/build/prepareRun"));
+        let mut current = plugin_backend(json!({"litheBuild":{"version":11}}));
+        let operation = build_request(&current, "lithe/build/prepareRun", params, None).unwrap();
+        let id = current
+            .server
+            .await_request("lithe/build/prepareRun")
+            .unwrap();
+        current
+            .server
+            .send(json!({"jsonrpc":"2.0","id":id,"result":fixture["result"]}));
+        let event = current.await_event(|event| {
+            event.kind == "requestCompleted"
+                && event.operation_id.as_deref() == Some(operation.as_str())
+        });
+        assert_eq!(event.result.as_ref().unwrap()["value"], fixture["result"]);
+    }
+
+    #[test]
     fn provider_run_preparation_requires_version_four_and_returns_raw_plan() {
         for version in [1, 2, 3] {
             let harness = plugin_backend(json!({"litheBuild":{"version":version}}));
@@ -13293,7 +16292,7 @@ public class Main {
             .await_request("lithe/build/prepareRun")
             .unwrap();
         let fixture: Value = serde_json::from_str(include_str!(
-            "../../../../../shared/contracts/plugins/v1/fixtures/build-run-preparation.json"
+            "../../../../../shared/contracts/plugins/v1/fixtures/build-providers/build-run-preparation.json"
         ))
         .unwrap();
         harness
@@ -13566,7 +16565,7 @@ public class Main {
             .expect("initialize should have been written");
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"]["litheBuild"],
-            json!({ "versions": [6, 5, 4, 3, 2, 1] })
+            json!({ "versions": [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1] })
         );
 
         let error = build_request(&harness, "lithe/build/model", json!({}), None)
@@ -13686,6 +16685,189 @@ public class Main {
             Some("requestTimeout")
         );
         assert!(harness.server.await_notification("$/cancelRequest"));
+    }
+
+    #[test]
+    fn keymap_import_negotiation_is_available_only_to_plugin_owned_sessions() {
+        for plugin_owned in [false, true] {
+            let mut harness = Harness::start(|request| {
+                request.keymap_import_providers = vec!["fixture".to_string()];
+                if plugin_owned {
+                    request.plugin_id = Some("dev.lithe.fixture.import".to_string());
+                }
+            });
+            harness.server.complete_initialize(json!({"experimental": {
+                "litheKeymapImport": {"version": 1, "providers": ["fixture"]}
+            }}));
+            harness.await_state(LspLifecycleState::Ready);
+            let initialize = harness
+                .server
+                .messages()
+                .into_iter()
+                .find(|message| message["method"] == "initialize")
+                .unwrap();
+            let offer =
+                initialize["params"]["capabilities"]["experimental"].get("litheKeymapImport");
+            assert_eq!(offer.is_some(), plugin_owned);
+            if plugin_owned {
+                assert_eq!(
+                    offer,
+                    Some(&json!({"versions": [1], "providers": ["fixture"]}))
+                );
+            }
+            let event = harness
+                .events
+                .iter()
+                .find(|event| event.kind == "keymapImportProviders");
+            assert_eq!(event.is_some(), plugin_owned);
+            if let Some(event) = event {
+                assert_eq!(event.result, Some(json!({"providers": ["fixture"]})));
+            }
+        }
+    }
+
+    #[test]
+    fn keymap_import_provider_cannot_select_an_undeclared_identity() {
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some("dev.lithe.fixture.import".to_string());
+            request.keymap_import_providers = vec!["fixture".to_string()];
+        });
+        harness.server.complete_initialize(json!({"experimental": {
+            "litheKeymapImport": {"version": 1, "providers": ["fixture", "other"]}
+        }}));
+        harness.await_state(LspLifecycleState::Ready);
+        assert!(harness
+            .events
+            .iter()
+            .all(|event| event.kind != "keymapImportProviders"));
+    }
+
+    #[test]
+    fn keymap_import_request_only_reaches_its_negotiated_provider() {
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some("dev.lithe.fixture.import".to_string());
+            request.keymap_import_providers = vec!["fixture".to_string()];
+        });
+        harness.server.complete_initialize(json!({"experimental": {
+            "litheKeymapImport": {"version": 1, "providers": ["fixture"]}
+        }}));
+        harness.await_state(LspLifecycleState::Ready);
+        let request = |provider: &str| KeymapImportProviderRequest {
+            session_id: harness.session_id.clone(),
+            operation_id: None,
+            provider_id: provider.to_string(),
+            snapshot_id: "snapshot-1".to_string(),
+            timeout_milliseconds: Some(1_000),
+        };
+        assert!(harness
+            .session()
+            .keymap_import_request(request("other"), "refused".to_string())
+            .is_err());
+        assert!(harness
+            .server
+            .messages()
+            .iter()
+            .all(|message| message["method"] != "lithe/keymap/import"));
+        harness
+            .session()
+            .keymap_import_request(request("fixture"), "import-1".to_string())
+            .unwrap();
+        let id = harness.server.await_request("lithe/keymap/import").unwrap();
+        let wire_id: u64 = id.parse().unwrap();
+        let sent = harness.written_request(&id);
+        assert_eq!(
+            sent["params"],
+            json!({"providerID": "fixture", "snapshotID": "snapshot-1"})
+        );
+        let response = json!({"jsonrpc": "2.0", "id": wire_id, "result": {"bindings": []}});
+        harness.server.send(response.clone());
+        let event = harness.await_event(|event| {
+            event.kind == "requestCompleted" && event.operation_id.as_deref() == Some("import-1")
+        });
+        assert_eq!(
+            event.result,
+            Some(json!({"value": {"id": wire_id, "response": response}}))
+        );
+    }
+
+    #[test]
+    fn keymap_import_request_rejects_paths_and_can_be_cancelled() {
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some("dev.lithe.fixture.import".to_string());
+            request.keymap_import_providers = vec!["fixture".to_string()];
+        });
+        harness.server.complete_initialize(json!({"experimental": {
+            "litheKeymapImport": {"version": 1, "providers": ["fixture"]}
+        }}));
+        harness.await_state(LspLifecycleState::Ready);
+        let mut request = KeymapImportProviderRequest {
+            session_id: harness.session_id.clone(),
+            operation_id: None,
+            provider_id: "fixture".to_string(),
+            snapshot_id: "../private".to_string(),
+            timeout_milliseconds: None,
+        };
+        assert!(harness
+            .session()
+            .keymap_import_request(request.clone(), "invalid".to_string())
+            .is_err());
+        assert!(harness
+            .server
+            .messages()
+            .iter()
+            .all(|message| message["method"] != "lithe/keymap/import"));
+        request.snapshot_id = "snapshot-1".to_string();
+        harness
+            .session()
+            .keymap_import_request(request, "import-2".to_string())
+            .unwrap();
+        harness.server.await_request("lithe/keymap/import").unwrap();
+        harness.session().cancel_operation("import-2").unwrap();
+        assert!(harness.server.await_notification("$/cancelRequest"));
+        let event = harness.await_event(|event| {
+            event.kind == "requestCompleted" && event.operation_id.as_deref() == Some("import-2")
+        });
+        assert_eq!(
+            event.error.as_ref().map(|error| error.code.as_str()),
+            Some("requestCancelled")
+        );
+        assert!(event.result.is_none());
+    }
+
+    #[test]
+    fn keymap_import_request_rejects_oversized_provider_replies() {
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some("dev.lithe.fixture.import".to_string());
+            request.keymap_import_providers = vec!["fixture".to_string()];
+        });
+        harness.server.complete_initialize(json!({"experimental": {
+            "litheKeymapImport": {"version": 1, "providers": ["fixture"]}
+        }}));
+        harness.await_state(LspLifecycleState::Ready);
+        let request = KeymapImportProviderRequest {
+            session_id: harness.session_id.clone(),
+            operation_id: None,
+            provider_id: "fixture".to_string(),
+            snapshot_id: "snapshot-1".to_string(),
+            timeout_milliseconds: Some(5_000),
+        };
+        harness
+            .session()
+            .keymap_import_request(request, "import-3".to_string())
+            .unwrap();
+        let id = harness.server.await_request("lithe/keymap/import").unwrap();
+        harness
+            .server
+            .send(json!({"jsonrpc": "2.0", "id": id.parse::<u64>().unwrap(),
+            "result": {"data": "x".repeat(super::super::keymap_provider::MAX_REPLY_BYTES)}}));
+        let event = harness.await_event(|event| {
+            event.kind == "requestCompleted" && event.operation_id.as_deref() == Some("import-3")
+        });
+        assert_eq!(
+            event.error.as_ref().map(|error| error.code.as_str()),
+            Some("plugin.keymapImport.replyTooLarge")
+        );
+        assert!(event.result.is_none());
     }
 
     // Toolchain providers against a scripted backend. Only a plugin-owned
@@ -14128,6 +17310,7 @@ public class Main {
                     context: None,
                 },
                 operation_id.clone(),
+                None,
             )
             .map(|()| operation_id)
     }
@@ -14230,8 +17413,9 @@ public class Main {
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"],
             json!({
-                "litheBuild": { "versions": [6, 5, 4, 3, 2, 1] },
-                "litheFunctions": { "versions": [1, 2, 3] },
+                "litheBuild": { "versions": [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1] },
+                "litheFunctions": { "versions": [1, 2, 3, 4] },
+                "litheLogging": { "versions": [1] },
                 "litheVcs": { "versions": [1] }
             })
         );
@@ -15145,6 +18329,79 @@ public class Main {
             .all(|event| event.kind != "hostRequest"));
     }
 
+    /// Editor options the host declared at start are reported with the
+    /// methods they belong to, and only when those methods are granted.
+    #[test]
+    fn capability_discovery_reports_granted_editor_options() {
+        use crate::plugins::editor_actions::{EditorHostOptions, REGISTER_PROVIDERS};
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some(FUNCTION_PLUGIN.to_string());
+            request.host_services = vec![REGISTER_PROVIDERS.to_string()];
+            request.host_options.editor = Some(EditorHostOptions {
+                action_icons: vec!["run".into(), "test-failed".into()],
+                action_source_bytes: 1024 * 1024,
+                provider_types: vec!["hover".into(), "codeLens".into()],
+            });
+        });
+        harness.server.complete_initialize(json!({
+            "experimental": { "litheFunctions": { "version": 3 } }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": "caps",
+            "method": "lithe/host/getCapabilities"
+        }));
+        let reply = await_reply(&harness, "caps");
+        let editor = &reply["result"]["services"]["editor"];
+        assert_eq!(editor["methods"], json!([REGISTER_PROVIDERS]));
+        assert_eq!(
+            editor["options"],
+            json!({ "providerTypes": ["hover", "codeLens"] })
+        );
+        assert!(reply["result"]["limits"]["editorActionSourceBytes"].is_null());
+        harness.poll();
+        assert!(harness
+            .events
+            .iter()
+            .all(|event| event.kind != "hostRequest"));
+    }
+
+    /// Host options belong to a plugin backend and must be ones Core can
+    /// enforce.
+    #[test]
+    fn start_contract_rejects_unenforceable_host_options() {
+        use crate::plugins::editor_actions::EditorHostOptions;
+        let server = ScriptedServer::new();
+        let mut request = start_request(&server);
+        let options = EditorHostOptions {
+            action_icons: vec!["run".into()],
+            action_source_bytes: 1024 * 1024,
+            provider_types: Vec::new(),
+        };
+        request.host_options.editor = Some(options.clone());
+        request.plugin_id = None;
+        assert!(validate_start_request(&request).is_err());
+        request.plugin_id = Some(FUNCTION_PLUGIN.to_string());
+        assert!(validate_start_request(&request).is_ok());
+        for invalid in [
+            EditorHostOptions {
+                action_source_bytes: 2 * 1024 * 1024,
+                ..options.clone()
+            },
+            EditorHostOptions {
+                action_icons: vec!["Run Fast".into()],
+                ..options.clone()
+            },
+            EditorHostOptions {
+                provider_types: vec!["diagnostics".into()],
+                ..options.clone()
+            },
+        ] {
+            request.host_options.editor = Some(invalid);
+            assert!(validate_start_request(&request).is_err());
+        }
+    }
+
     /// From version 3 a field a method does not define is answered as an
     /// unsupported option naming it, so a backend can retry without it; the
     /// host never sees the request.
@@ -15351,6 +18608,7 @@ public class Main {
                     context: Some(context),
                 },
                 operation_id,
+                None,
             )
         };
         let error = call(json!({ "contextID": "w/1", "generation": 1 }))
@@ -15368,5 +18626,550 @@ public class Main {
             harness.written_request(&request_id)["params"]["context"],
             json!({ "contextID": "w1", "generation": 2 })
         );
+    }
+
+    /// Requests and notifications of a plugin backend to its own language
+    /// server (plan API-25). The stub servers are Metals-like (a gate and a
+    /// command that runs one at a time) and rust-analyzer-like (neither), so
+    /// no case depends on one language.
+    mod plugin_owned_server {
+        use super::*;
+
+        const PLUGIN: &str = "dev.lithe.metals";
+        const SERVER: &str = "metals";
+        const STATUS: &str = "metals/status";
+
+        /// The policy of the Metals-like server. `gated` adds the gate that
+        /// holds requests until the server reports it is ready.
+        fn metals_policy(gated: bool) -> Value {
+            let mut policy = json!({
+                "serverID": SERVER,
+                "requestMethods": [
+                    "textDocument/definition",
+                    "workspace/executeCommand",
+                    "metals/slow",
+                    "metals/didFocus"
+                ],
+                "commands": ["build-import", "build-connect"],
+                "serializedCommands": ["build-import"],
+                "forwardNotifications": [STATUS],
+            });
+            if gated {
+                policy["gates"] = json!([{
+                    "id": "imported",
+                    "until": "notification",
+                    "method": STATUS,
+                    "match": { "text": "ready" }
+                }]);
+            }
+            policy
+        }
+
+        /// A rust-analyzer-like server: no gate, no serialized command.
+        fn rust_analyzer_policy() -> Value {
+            json!({
+                "serverID": SERVER,
+                "requestMethods": ["experimental/runnables"],
+            })
+        }
+
+        fn start(policy: Value) -> Harness {
+            let mut harness = Harness::start(move |request| {
+                request.plugin_id = Some(PLUGIN.to_string());
+                request.session_policy =
+                    Some(serde_json::from_value(policy).expect("the policy should decode"));
+            });
+            harness.server.complete_initialize(ready_capabilities());
+            harness.await_state(LspLifecycleState::Ready);
+            harness
+        }
+
+        /// The `lsp.pluginServerRequest` payload the host sends.
+        fn wire(harness: &Harness, operation_id: &str, method: &str, params: Value) -> Value {
+            json!({
+                "sessionId": harness.session_id,
+                "operationId": operation_id,
+                "pluginId": PLUGIN,
+                "serverID": SERVER,
+                "method": method,
+                "params": params,
+            })
+        }
+
+        fn send(harness: &Harness, wire: Value) -> Result<(), CoreError> {
+            let operation_id = wire["operationId"].as_str().unwrap().to_string();
+            let request: PluginServerRequest =
+                serde_json::from_value(wire).expect("documented wire shape");
+            harness
+                .session()
+                .plugin_server_request(request, operation_id)
+        }
+
+        fn call(
+            harness: &Harness,
+            operation_id: &str,
+            method: &str,
+            params: Value,
+        ) -> Result<(), CoreError> {
+            send(harness, wire(harness, operation_id, method, params))
+        }
+
+        fn run_command(
+            harness: &Harness,
+            operation_id: &str,
+            command: &str,
+        ) -> Result<(), CoreError> {
+            call(
+                harness,
+                operation_id,
+                "workspace/executeCommand",
+                json!({ "command": command, "arguments": [] }),
+            )
+        }
+
+        fn notify(harness: &Harness, method: &str, params: Value) -> Result<bool, CoreError> {
+            let request: PluginServerNotify = serde_json::from_value(json!({
+                "sessionId": harness.session_id,
+                "pluginId": PLUGIN,
+                "serverID": SERVER,
+                "method": method,
+                "params": params,
+            }))
+            .expect("documented wire shape");
+            harness.session().plugin_server_notify(request)
+        }
+
+        /// The server reports `text` through its status notification.
+        fn report_status(harness: &Harness, text: &str) {
+            harness.server.send(json!({
+                "jsonrpc": "2.0",
+                "method": STATUS,
+                "params": { "text": text }
+            }));
+        }
+
+        /// Waits until Core has applied the status notification of `text`. The
+        /// notification is forwarded to the backend, so the forwarded event
+        /// proves the engine already processed it.
+        fn await_status_seen(harness: &mut Harness, text: &str) {
+            harness.await_event(|event| {
+                event.kind == "pluginServerNotification"
+                    && event
+                        .result
+                        .as_ref()
+                        .is_some_and(|result| result["params"]["text"] == text)
+            });
+        }
+
+        fn reply(harness: &Harness, request_id: &str, result: Value) {
+            harness.server.send(json!({
+                "jsonrpc": "2.0", "id": request_id, "result": result
+            }));
+        }
+
+        fn completed(harness: &mut Harness, operation_id: &str) -> LspRuntimeEvent {
+            harness
+                .await_event(|event| {
+                    event.kind == "requestCompleted"
+                        && event.operation_id.as_deref() == Some(operation_id)
+                })
+                .clone()
+        }
+
+        fn error_code(event: &LspRuntimeEvent) -> &str {
+            &event.error.as_ref().expect("the request failed").code
+        }
+
+        fn written(harness: &Harness, method: &str) -> usize {
+            harness
+                .server
+                .messages()
+                .iter()
+                .filter(|message| message["method"] == method)
+                .count()
+        }
+
+        fn refusal_code(error: CoreError) -> String {
+            error.details.expect("a refusal names its plugin.host code")
+        }
+
+        /// The server's result reaches the backend untouched, even for a
+        /// method whose result Lithe normalizes for its own editor.
+        #[test]
+        fn a_declared_request_returns_the_servers_own_result() {
+            let mut harness = start(metals_policy(false));
+            call(
+                &harness,
+                "def-1",
+                "textDocument/definition",
+                json!({ "textDocument": { "uri": "file:///workspace/A.scala" } }),
+            )
+            .expect("a declared method is sent");
+            let request_id = harness
+                .server
+                .await_request("textDocument/definition")
+                .expect("the request should reach the server");
+            let location = json!({
+                "uri": "jar:file:///cache/lib.jar!/Lib.scala",
+                "range": {
+                    "start": { "line": 1, "character": 2 },
+                    "end": { "line": 1, "character": 5 }
+                }
+            });
+            reply(&harness, &request_id, json!([location]));
+
+            let event = completed(&mut harness, "def-1");
+            assert_eq!(event.result, Some(json!({ "value": [location] })));
+            assert!(event.error.is_none());
+        }
+
+        #[test]
+        fn a_server_without_gates_or_commands_sends_at_once() {
+            let mut harness = start(rust_analyzer_policy());
+            call(&harness, "run-1", "experimental/runnables", json!({}))
+                .expect("a declared method is sent");
+            let request_id = harness
+                .server
+                .await_request("experimental/runnables")
+                .expect("nothing holds the request");
+            reply(&harness, &request_id, json!([]));
+            assert_eq!(
+                completed(&mut harness, "run-1").result,
+                Some(json!({ "value": [] }))
+            );
+        }
+
+        #[test]
+        fn a_server_error_keeps_its_code_and_message_as_details() {
+            let mut harness = start(metals_policy(false));
+            call(&harness, "slow-1", "metals/slow", json!({})).unwrap();
+            let request_id = harness.server.await_request("metals/slow").unwrap();
+            harness.server.send(json!({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": { "code": -32001, "message": "Build server is not connected." }
+            }));
+
+            let event = completed(&mut harness, "slow-1");
+            assert_eq!(error_code(&event), "plugin.host.languageServerError");
+            assert_eq!(
+                event.error.unwrap().details,
+                Some(json!({ "code": -32001, "message": "Build server is not connected." }))
+            );
+        }
+
+        #[test]
+        fn a_method_the_plugin_did_not_declare_never_reaches_the_server() {
+            let harness = start(metals_policy(false));
+            let error = call(&harness, "bad-1", "textDocument/rename", json!({}))
+                .expect_err("an undeclared method is refused");
+            assert_eq!(refusal_code(error), "plugin.host.methodNotDeclared");
+
+            let error = run_command(&harness, "bad-2", "wipe-workspace")
+                .expect_err("an undeclared command is refused");
+            assert_eq!(refusal_code(error), "plugin.host.methodNotDeclared");
+            assert_eq!(written(&harness, "textDocument/rename"), 0);
+            assert_eq!(written(&harness, "workspace/executeCommand"), 0);
+        }
+
+        /// The host resolves the session, so a call that names another plugin
+        /// or server, or a session without a policy, is the host's mistake and
+        /// must not reach any server.
+        #[test]
+        fn a_session_of_another_contribution_is_refused() {
+            let harness = start(metals_policy(false));
+            for (plugin_id, server_id) in [("dev.lithe.other", SERVER), (PLUGIN, "other-server")] {
+                let mut foreign = wire(&harness, "foreign-1", "metals/slow", json!({}));
+                foreign["pluginId"] = json!(plugin_id);
+                foreign["serverID"] = json!(server_id);
+                let error = send(&harness, foreign).expect_err("a foreign contribution is refused");
+                assert_eq!(refusal_code(error), "plugin.host.foreignContribution");
+            }
+            assert_eq!(written(&harness, "metals/slow"), 0);
+
+            let plain = Harness::ready();
+            let error = call(&plain, "plain-1", "metals/slow", json!({}))
+                .expect_err("a session without a policy is no plugin server");
+            assert_eq!(refusal_code(error), "plugin.host.foreignContribution");
+        }
+
+        #[test]
+        fn requests_wait_for_the_gate_and_are_sent_in_order() {
+            let mut harness = start(metals_policy(true));
+            call(&harness, "first", "metals/slow", json!({ "n": 1 })).unwrap();
+            call(
+                &harness,
+                "second",
+                "textDocument/definition",
+                json!({ "n": 2 }),
+            )
+            .unwrap();
+            assert_eq!(written(&harness, "metals/slow"), 0);
+
+            // A status that does not match the gate leaves it closed.
+            report_status(&harness, "importing");
+            await_status_seen(&mut harness, "importing");
+            assert_eq!(written(&harness, "metals/slow"), 0);
+            assert_eq!(written(&harness, "textDocument/definition"), 0);
+
+            report_status(&harness, "ready");
+            let first = harness.server.await_request("metals/slow").unwrap();
+            let second = harness
+                .server
+                .await_request("textDocument/definition")
+                .unwrap();
+            let messages = harness.server.messages();
+            let position = |id: &str| messages.iter().position(|message| message["id"] == id);
+            assert!(
+                position(&first) < position(&second),
+                "arrival order is kept"
+            );
+
+            reply(&harness, &first, json!("one"));
+            assert_eq!(
+                completed(&mut harness, "first").result,
+                Some(json!({ "value": "one" }))
+            );
+        }
+
+        #[test]
+        fn a_held_request_can_be_cancelled_without_touching_the_server() {
+            let mut harness = start(metals_policy(true));
+            call(&harness, "held-1", "metals/slow", json!({})).unwrap();
+            harness
+                .session()
+                .cancel_operation("held-1")
+                .expect("a held request can be cancelled");
+
+            let event = completed(&mut harness, "held-1");
+            assert_eq!(error_code(&event), "plugin.host.cancelled");
+
+            // Opening the gate afterwards sends nothing: the request is gone.
+            report_status(&harness, "ready");
+            await_status_seen(&mut harness, "ready");
+            assert_eq!(written(&harness, "metals/slow"), 0);
+            assert_eq!(written(&harness, "$/cancelRequest"), 0);
+        }
+
+        #[test]
+        fn a_held_request_times_out_while_it_waits() {
+            let mut harness = start(metals_policy(true));
+            let mut held = wire(&harness, "held-1", "metals/slow", json!({}));
+            held["timeoutMilliseconds"] = json!(1);
+            send(&harness, held).unwrap();
+
+            let event = completed(&mut harness, "held-1");
+            assert_eq!(error_code(&event), "plugin.host.timeout");
+            assert_eq!(written(&harness, "metals/slow"), 0);
+        }
+
+        #[test]
+        fn a_sent_request_times_out_and_is_cancelled_on_the_server() {
+            let mut harness = start(metals_policy(false));
+            let mut slow = wire(&harness, "slow-1", "metals/slow", json!({}));
+            slow["timeoutMilliseconds"] = json!(1);
+            send(&harness, slow).unwrap();
+            let request_id = harness.server.await_request("metals/slow").unwrap();
+
+            let event = completed(&mut harness, "slow-1");
+            assert_eq!(error_code(&event), "plugin.host.timeout");
+            let cancel = harness
+                .server
+                .await_notification_at("$/cancelRequest", 0)
+                .expect("the server is told to stop");
+            assert_eq!(cancel["params"]["id"], json!(request_id));
+        }
+
+        /// A second request for a serialized command does not start a second
+        /// run; both finish with the answer of the one that runs.
+        #[test]
+        fn a_serialized_command_joins_the_one_that_runs() {
+            let mut harness = start(metals_policy(false));
+            run_command(&harness, "import-1", "build-import").unwrap();
+            let request_id = harness
+                .server
+                .await_request("workspace/executeCommand")
+                .unwrap();
+            run_command(&harness, "import-2", "build-import").unwrap();
+            // A command that is not serialized is independent of the first.
+            run_command(&harness, "connect-1", "build-connect").unwrap();
+            harness
+                .server
+                .await_request_at("workspace/executeCommand", 1)
+                .expect("an independent command is sent");
+            assert_eq!(written(&harness, "workspace/executeCommand"), 2);
+
+            reply(&harness, &request_id, json!({ "imported": 3 }));
+            for operation_id in ["import-1", "import-2"] {
+                let event = completed(&mut harness, operation_id);
+                assert_eq!(event.result, Some(json!({ "value": { "imported": 3 } })));
+            }
+            assert!(!harness
+                .events
+                .iter()
+                .any(|event| event.operation_id.as_deref() == Some("connect-1")));
+
+            // The command can run again once the first run is over.
+            run_command(&harness, "import-3", "build-import").unwrap();
+            harness
+                .server
+                .await_request_at("workspace/executeCommand", 2)
+                .expect("a finished command can run again");
+        }
+
+        #[test]
+        fn cancelling_a_joiner_leaves_the_running_command_alone() {
+            let mut harness = start(metals_policy(false));
+            run_command(&harness, "import-1", "build-import").unwrap();
+            let request_id = harness
+                .server
+                .await_request("workspace/executeCommand")
+                .unwrap();
+            run_command(&harness, "import-2", "build-import").unwrap();
+            harness.session().cancel_operation("import-2").unwrap();
+            assert_eq!(
+                error_code(&completed(&mut harness, "import-2")),
+                "plugin.host.cancelled"
+            );
+            assert_eq!(written(&harness, "$/cancelRequest"), 0);
+
+            reply(&harness, &request_id, json!(null));
+            assert_eq!(
+                completed(&mut harness, "import-1").result,
+                Some(json!({ "value": null }))
+            );
+        }
+
+        #[test]
+        fn only_declared_server_notifications_are_forwarded() {
+            let mut harness = start(metals_policy(false));
+            harness.server.send(json!({
+                "jsonrpc": "2.0",
+                "method": "metals/unlisted",
+                "params": { "text": "private" }
+            }));
+            report_status(&harness, "indexing");
+            await_status_seen(&mut harness, "indexing");
+
+            let forwarded: Vec<_> = harness
+                .events
+                .iter()
+                .filter(|event| event.kind == "pluginServerNotification")
+                .collect();
+            assert_eq!(forwarded.len(), 1);
+            assert_eq!(
+                forwarded[0].result,
+                Some(json!({
+                    "serverID": SERVER,
+                    "method": STATUS,
+                    "params": { "text": "indexing" }
+                }))
+            );
+        }
+
+        #[test]
+        fn a_declared_notification_is_sent_and_a_command_is_not_a_notification() {
+            let harness = start(metals_policy(false));
+            let sent = notify(
+                &harness,
+                "metals/didFocus",
+                json!({ "uri": "file:///A.scala" }),
+            );
+            assert!(sent.expect("a declared notification is sent"));
+            let message = harness
+                .server
+                .await_notification_at("metals/didFocus", 0)
+                .expect("the server receives it");
+            assert_eq!(message["params"], json!({ "uri": "file:///A.scala" }));
+
+            let error = notify(&harness, "workspace/executeCommand", json!({}))
+                .expect_err("commands run as requests only");
+            assert_eq!(refusal_code(error), "plugin.host.methodNotDeclared");
+            let error = notify(&harness, "metals/unlisted", json!({}))
+                .expect_err("an undeclared notification is refused");
+            assert_eq!(refusal_code(error), "plugin.host.methodNotDeclared");
+        }
+
+        /// New settings replace the stored configuration, so they also answer
+        /// the server's own `workspace/configuration` requests.
+        #[test]
+        fn changed_configuration_goes_through_the_plugin_configuration() {
+            let harness = start(metals_policy(false));
+            let settings = json!({ "metals": { "scalafmt": true } });
+            let sent = notify(
+                &harness,
+                "workspace/didChangeConfiguration",
+                json!({ "settings": settings }),
+            );
+            assert!(sent.expect("the change is accepted"));
+            let change = harness
+                .server
+                .await_notification_at("workspace/didChangeConfiguration", 0)
+                .expect("the server receives the change");
+            assert_eq!(change["params"]["settings"], settings);
+
+            let error = notify(
+                &harness,
+                "workspace/didChangeConfiguration",
+                json!({ "settings": 1 }),
+            )
+            .expect_err("settings must be an object");
+            assert_eq!(refusal_code(error), "plugin.host.invalidParams");
+        }
+
+        #[test]
+        fn a_stopped_server_fails_what_is_in_flight_and_refuses_new_calls() {
+            let mut harness = start(metals_policy(false));
+            call(&harness, "slow-1", "metals/slow", json!({})).unwrap();
+            call(&harness, "focus-1", "metals/didFocus", json!({})).unwrap();
+            harness.server.await_request("metals/slow").unwrap();
+            harness.server.await_request("metals/didFocus").unwrap();
+
+            harness.server.exit(Some(1));
+            harness.await_state(LspLifecycleState::Failed);
+            for operation_id in ["slow-1", "focus-1"] {
+                let event = completed(&mut harness, operation_id);
+                assert_eq!(error_code(&event), "plugin.host.languageServerUnavailable");
+            }
+
+            let error = call(&harness, "late-1", "metals/slow", json!({}))
+                .expect_err("a stopped server takes no requests");
+            assert_eq!(refusal_code(error), "plugin.host.languageServerUnavailable");
+        }
+
+        #[test]
+        fn a_gated_request_still_waiting_fails_when_the_server_stops() {
+            let mut harness = start(metals_policy(true));
+            call(&harness, "held-1", "metals/slow", json!({})).unwrap();
+
+            harness.server.exit(Some(1));
+            harness.await_state(LspLifecycleState::Failed);
+            let event = completed(&mut harness, "held-1");
+            assert_eq!(error_code(&event), "plugin.host.languageServerUnavailable");
+        }
+
+        #[test]
+        fn an_invalid_policy_is_refused_at_start() {
+            let refused = |plugin_id: Option<&str>, policy: Value| {
+                let server = ScriptedServer::new();
+                let engine = LspEngine::with_launcher(server.launcher());
+                let mut request = start_request(&server);
+                request.plugin_id = plugin_id.map(ToString::to_string);
+                request.session_policy = Some(serde_json::from_value(policy).unwrap());
+                match engine.start_server(request) {
+                    Err(error) => matches!(error.code, ErrorCode::InvalidRequest),
+                    Ok(_) => false,
+                }
+            };
+            // The server ID is no protocol name.
+            assert!(refused(Some(PLUGIN), json!({ "serverID": "" })));
+            // A serialized command must also be a declared command.
+            assert!(refused(
+                Some(PLUGIN),
+                json!({ "serverID": SERVER, "serializedCommands": ["build-import"] })
+            ));
+            // A host-owned server has no backend, so it cannot have a policy.
+            assert!(refused(None, metals_policy(false)));
+        }
     }
 }

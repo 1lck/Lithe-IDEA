@@ -1,6 +1,8 @@
 //! Local IDE capability broker. Native applications own every product action;
 //! this adapter owns authentication, bounded delivery, connection files and shutdown.
 
+pub mod failure_log;
+
 pub mod catalog;
 
 use axum::{
@@ -56,6 +58,7 @@ fn prune_pending(pending: &mut BTreeMap<String, Pending>) {
         .collect();
     for id in expired {
         if let Some(p) = pending.remove(&id) {
+            // log-exempt: 用户取消：IDE 调用方已结束超时请求，放弃等待超时应答。
             let _ = p.reply.send(failure(
                 "TIMEOUT",
                 "The IDE request expired. Inspect operations before retrying a mutation.",
@@ -68,6 +71,8 @@ struct Broker {
     enabled: AtomicBool,
     token: String,
     permissions: Permissions,
+    /// The host's declared tool selection; `None` serves the whole catalog.
+    tool_exposure: Option<Vec<catalog::ToolExposure>>,
     pending: Mutex<BTreeMap<String, Pending>>,
     last_poll: Mutex<Instant>,
     dispatcher: Mutex<Option<RequestDispatcher>>,
@@ -86,6 +91,7 @@ impl Drop for Host {
         self.task.abort();
         if let Ok(mut pending) = self.broker.pending.lock() {
             for (_, p) in std::mem::take(&mut *pending) {
+                // log-exempt: 用户取消：IDE 调用方随项目关闭而释放请求，放弃等待断连应答。
                 let _ = p.reply.send(failure(
                     "DISCONNECTED",
                     "IDE access was disabled or the project was closed",
@@ -93,8 +99,14 @@ impl Drop for Host {
             }
         }
         if let Err(error) = std::fs::remove_file(&self.connection) {
+            // log-exempt: 预期的缺失：连接文件可能已经被关闭流程删除。
             if error.kind() != std::io::ErrorKind::NotFound {
-                eprintln!("Could not remove IDE MCP connection: {error}");
+                failure_log::failed(
+                    "app.ide.connection_cleanup_failed",
+                    "connection_file",
+                    &format!("{:?}", error.kind()),
+                    "io",
+                );
             }
         }
     }
@@ -125,6 +137,9 @@ fn runtime() -> Result<&'static tokio::runtime::Runtime, String> {
 pub struct Connection {
     pub endpoint: String,
     pub token: String,
+    /// The tools the helper lists; absent when the host declared no selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_exposure: Option<Vec<catalog::ToolExposure>>,
 }
 
 fn private_file(path: &std::path::Path, truncate: bool) -> std::io::Result<File> {
@@ -149,6 +164,10 @@ struct Open {
     workspace_key: String,
     helper_path: PathBuf,
     permissions: Permissions,
+    /// Optional so a host that has not declared its native workflows keeps the
+    /// whole catalog; a declared selection is checked before anything opens.
+    #[serde(default)]
+    tool_exposure: Option<Vec<catalog::ToolExposure>>,
     #[serde(default)]
     owner_id: String,
 }
@@ -156,6 +175,7 @@ struct Open {
 fn open(args: Value) -> Result<Value, String> {
     use sha2::{Digest, Sha256};
     let args: Open = serde_json::from_value(args).map_err(|e| e.to_string())?;
+    catalog::served_tools(args.tool_exposure.as_deref())?;
     if !args.directory.is_absolute()
         || !args.helper_path.is_absolute()
         || args.workspace_key.is_empty()
@@ -189,11 +209,13 @@ fn open(args: Value) -> Result<Value, String> {
     let descriptor = Connection {
         endpoint,
         token: token.clone(),
+        tool_exposure: args.tool_exposure.clone(),
     };
     let broker = Arc::new(Broker {
         enabled: AtomicBool::new(true),
         token,
         permissions: args.permissions,
+        tool_exposure: args.tool_exposure,
         pending: Mutex::new(BTreeMap::new()),
         last_poll: Mutex::new(Instant::now()),
         dispatcher: Mutex::new(None),
@@ -212,7 +234,12 @@ fn open(args: Value) -> Result<Value, String> {
         .map_err(|e| e.to_string())?;
     let task = runtime.spawn(async move {
         if let Err(error) = axum::serve(listener, router).await {
-            eprintln!("IDE MCP broker stopped: {error}");
+            failure_log::failed(
+                "app.ide.broker_failed",
+                "serve",
+                &format!("{:?}", error.kind()),
+                "io",
+            );
         }
     });
     let id = Uuid::new_v4().to_string();
@@ -280,6 +307,7 @@ fn deliver(broker: &Broker, dispatcher: &RequestDispatcher, id: String) {
         if let Ok(mut pending) = broker.pending.lock() {
             if pending.get(&id).is_some_and(|p| !p.claimed) {
                 if let Some(request) = pending.remove(&id) {
+                    // log-exempt: 用户取消：IDE 调用方已结束该请求，放弃等待 dispatcher 失败应答。
                     let _ = request.reply.send(failure(
                         "DISPATCHER_UNAVAILABLE",
                         "The project could not receive this request. Retry after the IDE responds.",
@@ -335,7 +363,12 @@ async fn call(
             )),
         );
     }
-    if let Err(error) = catalog::validate(&request.name, &request.arguments, &broker.permissions) {
+    if let Err(error) = catalog::validate_served(
+        &request.name,
+        &request.arguments,
+        &broker.permissions,
+        broker.tool_exposure.as_deref(),
+    ) {
         return response(error);
     }
     let (dispatcher, receiver, id) = {
@@ -420,28 +453,45 @@ pub fn execute(action: &str, args: Value) -> Result<Value, String> {
         return open(args);
     }
     if action == "catalog" {
-        return Ok(json!({"version":1,"tools":catalog::tools()}));
+        let tools = if let Some(value) = args.get("toolExposure") {
+            let exposure: Vec<catalog::ToolExposure> =
+                serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
+            catalog::exposed_tools(&exposure)?
+        } else {
+            catalog::tools()
+        };
+        return Ok(json!({"version":1,"tools":tools}));
     }
     if action == "validate" {
         let permissions: Permissions =
             serde_json::from_value(args["permissions"].clone()).map_err(|e| e.to_string())?;
-        return Ok(
-            match catalog::validate(
+        let validation = if let Some(value) = args.get("toolExposure") {
+            let exposure: Vec<catalog::ToolExposure> =
+                serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
+            catalog::validate_exposed(
                 args["name"].as_str().unwrap_or(""),
                 &args["arguments"],
                 &permissions,
-            ) {
-                Ok(()) => {
-                    let name = args["name"].as_str().unwrap_or("");
-                    let mutation = name != "lithe_operation_stop"
-                        && catalog::tools().iter().any(|tool| {
-                            tool["name"] == name && tool["annotations"]["readOnlyHint"] == false
-                        });
-                    json!({"ok":true,"mutation":mutation})
-                }
-                Err(e) => e,
-            },
-        );
+                &exposure,
+            )
+        } else {
+            catalog::validate(
+                args["name"].as_str().unwrap_or(""),
+                &args["arguments"],
+                &permissions,
+            )
+        };
+        return Ok(match validation {
+            Ok(()) => {
+                let name = args["name"].as_str().unwrap_or("");
+                let mutation = name != "lithe_operation_stop"
+                    && catalog::tools().iter().any(|tool| {
+                        tool["name"] == name && tool["annotations"]["readOnlyHint"] == false
+                    });
+                json!({"ok":true,"mutation":mutation})
+            }
+            Err(e) => e,
+        });
     }
     let id = args["hostID"].as_str().ok_or("Missing hostID")?;
     let mut hosts = hosts().lock().map_err(|_| "IDE host unavailable")?;
@@ -518,7 +568,7 @@ mod tests {
             root: root.clone(),
             id: String::new(),
         };
-        let args = json!({"directory":root.join("app-data/mcp"),"workspaceKey":"fixture-project","helperPath":helper,"permissions":{"configure":false,"execute":false},"ownerId":format!("fixture-owner-{}", Uuid::new_v4())});
+        let args = json!({"directory":root.join("app-data/mcp"),"workspaceKey":"fixture-project","helperPath":helper,"toolExposure":catalog::tools().iter().map(|t| json!({"name": t["name"]})).collect::<Vec<_>>(),"permissions":{"configure":false,"execute":false},"ownerId":format!("fixture-owner-{}", Uuid::new_v4())});
         let owner = args["ownerId"].clone();
         let opened = open(args.clone()).unwrap();
         fixture.id = opened["hostID"].as_str().unwrap().into();
@@ -541,7 +591,7 @@ mod tests {
         let denied: Value = client
             .post(&connection.endpoint)
             .bearer_auth(&connection.token)
-            .json(&json!({"name":"lithe_maven_execute","arguments":{"goals":["verify"]}}))
+            .json(&json!({"name":"lithe_build_execute","arguments":{"instanceID":"maven@.","taskID":"verify"}}))
             .send()
             .await
             .unwrap()
@@ -605,6 +655,13 @@ mod tests {
         );
     }
     fn push_fixture() -> (SessionFixture, Arc<Broker>, HeaderMap) {
+        push_fixture_exposed(json!(catalog::tools()
+            .iter()
+            .map(|t| json!({"name": t["name"]}))
+            .collect::<Vec<_>>()))
+    }
+
+    fn push_fixture_exposed(exposure: Value) -> (SessionFixture, Arc<Broker>, HeaderMap) {
         let root = std::env::temp_dir().join(format!("lithe-ide-push-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let helper = root.join("helper");
@@ -614,7 +671,7 @@ mod tests {
             id: String::new(),
         };
         let opened = open(
-            json!({"directory":root.join("data"),"workspaceKey":"fixture", "helperPath":helper,
+            json!({"directory":root.join("data"),"workspaceKey":"fixture", "helperPath":helper,"toolExposure":exposure,
             "permissions":{"configure":true,"execute":true},"ownerId":"fixture-owner"}),
         )
         .unwrap();
@@ -626,6 +683,87 @@ mod tests {
             format!("Bearer {}", broker.token).parse().unwrap(),
         );
         (fixture, broker, headers)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_authenticated_client_cannot_dispatch_unadvertised_native_workflows_or_fields() {
+        let exposure: Value = serde_json::from_str(include_str!(
+            "../../../shared/fixtures/ide-api/host-tool-exposure.json"
+        ))
+        .unwrap();
+        let (_fixture, broker, headers) = push_fixture_exposed(exposure["macos"].clone());
+        for (name, arguments, code) in [
+            (
+                "lithe_maven_execute",
+                json!({"goals":["verify"]}),
+                "NOT_SUPPORTED",
+            ),
+            (
+                "lithe_environment_configure",
+                json!({"settingsPath":"/fixture/settings.xml"}),
+                "INVALID_ARGUMENTS",
+            ),
+        ] {
+            let (_, result) = tokio::time::timeout(
+                Duration::from_secs(2),
+                call(
+                    State(broker.clone()),
+                    headers.clone(),
+                    Json(Call {
+                        name: name.into(),
+                        arguments,
+                    }),
+                ),
+            )
+            .await
+            .expect("unsupported workflows must fail before queueing");
+            assert_eq!(result.0["error"]["code"], code);
+            assert!(broker.pending.lock().unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn a_host_without_a_declaration_opens_and_serves_the_whole_catalog() {
+        let root = std::env::temp_dir().join(format!("lithe-ide-undeclared-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let helper = root.join("helper");
+        std::fs::write(&helper, b"read-only").unwrap();
+        let mut fixture = SessionFixture {
+            root: root.clone(),
+            id: String::new(),
+        };
+        let opened = open(
+            json!({"directory":root.join("data"),"workspaceKey":"fixture",
+            "helperPath":helper,"permissions":{"configure":true,"execute":true},
+            "ownerId":"fixture-owner"}),
+        )
+        .expect("a host that declares no selection still opens");
+        fixture.id = opened["hostID"].as_str().unwrap().into();
+        let (broker, connection) = {
+            let hosts = hosts().lock().unwrap();
+            let host = &hosts[&fixture.id];
+            (host.broker.clone(), host.connection.clone())
+        };
+        assert!(broker.tool_exposure.is_none());
+        let descriptor: Value =
+            serde_json::from_slice(&std::fs::read(connection).unwrap()).unwrap();
+        assert!(descriptor.get("toolExposure").is_none());
+        let served: Connection = serde_json::from_value(descriptor).unwrap();
+        assert_eq!(
+            catalog::served_tools(served.tool_exposure.as_deref()).unwrap(),
+            catalog::tools()
+        );
+        let permissions = catalog::Permissions {
+            configure: true,
+            execute: true,
+        };
+        assert!(catalog::validate_served(
+            "lithe_maven_execute",
+            &json!({"goals":["verify"]}),
+            &permissions,
+            None
+        )
+        .is_ok());
     }
 
     async fn notification(rx: &mut tokio::sync::mpsc::UnboundedReceiver<String>) -> Option<String> {

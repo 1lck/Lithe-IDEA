@@ -6,8 +6,6 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Workbench/LanguageServerStatusView.swift",
-      "macos/Sources/Lithe/Views/Language/LanguageServerLogsView.swift",
-      "macos/Sources/Lithe/Application/Features/LanguageServerLogsModel.swift",
       "macos/Sources/Lithe/Application/Features/LanguageToolingFeatureModel.swift",
       "macos/Sources/Lithe/Application/Features/LSPControlCenterPresentation.swift",
       "macos/Sources/Lithe/Models/AppModel/AppModel+LanguageServerRuntime.swift",
@@ -17,7 +15,33 @@
       "macos/Tests/LitheTests/PluginManagerTests.swift",
       "macos/Sources/LitheLanguageIntelligenceModule/Runtime/LanguageServerSession.swift",
       "macos/Sources/LitheLanguageIntelligenceModule/Services/LanguageToolingSessionManager.swift",
-      "macos/Tests/LitheTests/MacBuildProviderSessionsTests.swift"
+      "macos/Tests/LitheTests/MacBuildProviderSessionsTests.swift",
+      "rust/lithe-core/src/lsp/interface/engine_logging.rs",
+      "rust/lithe-core/src/diagnostics/core_events.rs",
+      "shared/fixtures/diagnostics/engine-logging-v2.json",
+      "macos/Sources/LitheModuleAPI/Logging/CoreLogRecord.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Logging/MacLogStore.swift",
+      "macos/Tests/LitheTests/RustLanguageServerLaunchTests.swift",
+      "macos/Sources/Lithe/Views/Diagnostics/LogWindowView.swift",
+      "macos/Sources/Lithe/Views/Diagnostics/LogWindowTable.swift",
+      "macos/Sources/Lithe/Application/Features/LogWindowModel.swift",
+      "macos/Tests/LitheTests/LogWindowTests.swift",
+      "macos/Tests/LitheTests/DiagnosticsExportV2Tests.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Diagnostics/MacCrashReportCollector.swift",
+      "macos/Sources/Lithe/Application/Features/WorkbenchNotificationFeatureModel.swift",
+      "macos/Tests/LitheTests/PluginLanguageServerLaunchResolverTests.swift",
+      "macos/Sources/Lithe/Views/Diagnostics/LogWindowPalette.swift",
+      "macos/Sources/Lithe/Views/Diagnostics/LogWindowPresentation.swift",
+      "macos/Tests/LitheTests/DiagnosticsWorkflowTests.swift",
+      "scripts/macos/probe/probe-macos-logging-ui.sh",
+      "macos/Sources/Lithe/Application/Features/LanguageServerLogsModel.swift",
+      "macos/Sources/Lithe/Views/Language/LanguageServerLogsView.swift",
+      "macos/Sources/Lithe/Views/Editor/EditorAreaView.swift",
+      "macos/Tests/LitheTests/LogWindowReviewTests.swift",
+      "rust/lithe-core/src/lsp/interface/plugin_logging.rs",
+      "shared/contracts/plugins/v1/fixtures/backend/plugin-logging.json",
+      "macos/Sources/Lithe/Views/Language/LanguageServerLogText.swift",
+      "macos/Tests/LitheTests/LanguageServerLogTextTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -27,8 +51,8 @@
       "windows/tauri/src/features/editor/lsp"
     ],
     "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+    "verificationStatus": "pending"
   },
   "owner": "Language Tooling",
-  "verification": "在 macOS 打开至少两种已安装语言插件的源文件，检查右下角 LSP 状态及数量、绿色运行、蓝色启动、黄色停止和红色故障。入口在没有打开源文件、没有活跃会话和语言模块未激活时仍显示。菜单仅由当前启用且已注册的插件的 LSP 声明注入（内置可管理插件也需显式启用）；没有插件时列表为空，宿主内置语言目录不得出现。启用 Java 等插件后才显示对应服务器；名称取插件已声明的服务器 executableNames；runtime 启动取关联描述元数据现有的 languageServerLaunch.executableNames，不显示 java/node 运行时名。无该字段则直接显示插件 ID，不回退语言名、插件展示名或服务器自报名称；元数据不得单独贡献服务器行。不新增插件字段和版本。禁用、隔离、安全模式抑制或未注册插件不贡献行。显示真实运行、未启动、停止和工作区停用状态，不以当前文件类型过滤运行服务；空列表仍能查看日志和打开设置，重启/停止全部只处理已有会话。代码诊断错误不改变运行状态；菜单按名称及 ID 稳定排序。分别重启和停止单个及全部服务器，确认不写工作区启用偏好、停止阻止旧异步激活重新启动、下一次显式文档打开或编辑仍按需启动；无打开文档的预热服务器也能重启。查看日志打开普通编辑器中的 LSP 日志标签并选择对应服务器；重复查看复用同一标签，不创建底部工具窗口。关闭日志标签返回原文件且不丢失未保存内容，支持共享标签排序与分组。验证服务器切换、最低级别筛选、保留原文、复制、清空当前服务器视图、新日志继续出现和其他服务器不受影响。检查服务器停止后日志标签仍可见，在中英语言、明暗主题、窄窗口及标签拖动分组后正常显示。Trace 与 RPC 原始消息暂不采集，信息提示明确说明；不得把同一日志伪装成多个通道。真实产品流程结束后关闭本次实例，比较 app bundle 文件清单不变。Windows 暂无该状态项与专用日志视图，不宣称两端一致。 PR #1631 review：延迟旧服务 shutdown 与异步资源释放，确认重启期间保持 stopping、旧资源释放前不启动替代会话，等待超时不重启；等待时再次停止或换工作区不能复活服务。Java 与另一服务同时运行时重建 Java 索引，确认另一服务状态和所选日志保持，后续同状态日志不需要触发投影重建。"
+  "verification": "PR4 B1：查看日志通过 diagnostics.resolveEngineLogSubject 打开统一应用日志窗口并选择通道；已删除旧编辑器标签页和 100 条 v1 内存缓冲。验证同一窗口复用、记录引用定位、可重绑 ⌘⇧L、齿轮菜单顺序、Core 过滤与复制、调用链、虚拟表格滚动、实时批次、清空不删除文件。中英文、深浅主题和真实 Java / Git 整机验收保持 pending。导出对话框、设置页瘦身和 UI 探针属于 B2。状态栏继续显示已注册、已启用插件的真实状态；停止与重启保持会话身份和过期回调隔离。Windows 保持 v1，不宣称两端一致。 PR4 B2：macOS 导出使用 Core 范围规划和精确级别过滤，确认前冻结脱敏内容，附带可选环境与有界崩溃报告；macOS 设置已移除日志与诊断页，所有导出入口先打开独立日志窗口并在窗口中确认导出，通知保留原动作并提供目录事件引用跳转。运行 DiagnosticsExportV2Tests、DiagnosticsWorkflowTests、WorkbenchNotificationTests 和 probe-macos-logging-ui.sh，核对中英文 × 深浅色窗口及导出对话框。真实应用保存面板、访达、通知定位及崩溃后验收仍 pending；Windows 仍是 v1，未迁移。 PR3 审查回归：详细诊断先开启再启动慢初始化服务器，确认 initialized 之前没有 setTrace，初始化前关闭可撤销待启用状态；令日志根不可用，不使用 logDir 的插件仍能启动，依赖它的模板明确失败，恢复日志存储后可查看写入失败计数；trace verbose 中的文档源码和 RPC 正文不得进入 v2 日志。 PR4 视觉收尾：日志窗口按 HTML 原型使用独立明暗调色板、可换行工具栏、原生会话路径标题和当前快捷键徽标、212pt 分组通道栏、22pt 虚拟行、自绘选中状态、Core JSON 着色详情及调用链、24pt 状态栏和 560pt 导出对话框。logWindowMatchesMockup 使用真实 MacLogStore 与目录事件渲染 1340×786，中英文×明暗、调用链和单独导出截图由本地 probe 生成；截图实机比对与原生标题栏验收保持 pending。 PR4 收尾：macOS 独立日志窗口提供未开启时的详细诊断卡片及工具栏目录与清理菜单，确认当前实际目录只读呈现、选择后切换并保存、恢复默认仅在非默认目录可用、清理全会话后刷新占用；应用菜单导出在日志窗口中呈现。 修复验收：历史与实时批次均遵守时间框选；上一会话高序号不影响当前会话清空后的新日志；窗口查看 previous 时点击当前错误引用会切回 current；一次实时查询失败后暂停并通过重试或恢复跟随重建订阅、补读遗漏记录，关闭后无残留订阅。 LSP 日志标签页：状态菜单的“查看日志”打开或聚焦编辑器区唯一的“LSP 日志”标签页，不改写应用日志窗口的通道筛选；标签页读取同一份脱敏 v2 记录，按 Core 解析的通道一次只显示一个服务器，没有全部服务器选项，菜单底部入口打开第一个服务器；最低级别默认信息，清空视图按服务器分别记录清空点，切换服务器后互不影响。运行 LogWindowTests 与 LogWindowReviewTests 验证标签打开、复用与关闭、单服务器通道和按服务器清空；真实 Java 项目整机验收保持 pending。 官方插件日志接入：三SDK协商litheLogging 1，lithe/log由Core校验后进入统一队列，真实SDK/Core验证INFO成功、ERROR失败、WARN降级恢复、op与耗时、不含请求正文；高频成功可单次抑制。上游明确type对应ERROR/WARN/INFO/DEBUG，未分类stderr为DEBUG，进程实际失败为ERROR。检查日志窗口按插件与级别筛选；macOS整机窗口与Windows v2验收仍pending。 #1700 审查修复：表头拖动扩展列松手后按松手宽度反推并保存基准宽度，适配视口、缩窄再放大和重开窗口后列仍停在松手位置，反推低于最小列宽时按比例放大其余扩展列基准；LSP 日志标签页按记录身份缓存输出文本，实时批次只格式化新增记录并从开头截掉淘汰记录，记录不变的发布不格式化。运行 LogWindowTests 的 draggedColumnsKeepTheirReleasedWidth 与 LanguageServerLogTextTests 验证；整机拖动和长输出验收保持 pending。"
 }

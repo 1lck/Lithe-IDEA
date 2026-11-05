@@ -94,6 +94,10 @@ final class PluginWindowHostService: PluginHostServiceHandling {
             } else { object["appliedSelection"] = .null }
             if method == "openHTML" { object["usesLiveBuffer"] = .bool(true); object["presentation"] = .string(try args.string("presentation", default: "editorAndPreview")) }
             return .success(.object(object))
-        } catch { return .failure(PluginHostAPIValues.failure(error)) }
+        } catch {
+            var failure = PluginHostAPIValues.failure(error)
+            failure.logError = error
+            return .failure(failure)
+        }
     }
 }

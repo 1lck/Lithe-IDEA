@@ -56,9 +56,12 @@ struct ProjectSwitcherPopover: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 VStack(spacing: 0) {
-                    actionRow(icon: "expui/general/add.svg", title: "New Project…", action: onNewProject)
-                    actionRow(icon: "expui/general/open.svg", title: L10n.string("Open…"), action: onOpenProject)
+                    actionRow("workspace.project.new", icon: "expui/general/add.svg", title: "New Project…",
+                        action: onNewProject)
+                    actionRow("open-project", icon: "expui/general/open.svg", title: L10n.string("Open…"),
+                        action: onOpenProject)
                     actionRow(
+                        "workspace.clone.show",
                         icon: "expui/general/vcs.svg",
                         title: "Clone Repository…",
                         action: onCloneRepository
@@ -121,8 +124,9 @@ struct ProjectSwitcherPopover: View {
             .padding(.bottom, 5)
     }
 
-    private func actionRow(icon: String, title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+    private func actionRow(_ id: String, icon: String, title: String,
+        action: @escaping () -> Void) -> some View {
+        Button(action: UserActionTrace.action(id, action)) {
             HStack(spacing: 8) {
                 LitheIDEAIcon(resourcePath: icon, size: LitheDropdownMetrics.iconSize,
                               preservesOriginalColors: true)
@@ -136,10 +140,10 @@ struct ProjectSwitcherPopover: View {
     }
 
     private func openProjectRow(_ projectModel: AppModel) -> some View {
-        return Button {
+        return Button(action: UserActionTrace.action("workspace.project.switch") {
             isPresented = false
             projectSessions.activateSession(projectModel.id)
-        } label: {
+        }) {
             projectRowContent(
                 name: projectModel.projectName,
                 path: projectModel.workspaceURL?.path ?? "",
@@ -152,10 +156,10 @@ struct ProjectSwitcherPopover: View {
 
     private func recentProjectRow(_ project: RecentProject) -> some View {
         let exists = model.fileExists(at: project.url)
-        return Button {
+        return Button(action: UserActionTrace.action("workspace.project.open-recent") {
             guard exists else { return }
             onOpenRecentProject(project)
-        } label: {
+        }) {
             projectRowContent(
                 name: project.name,
                 path: project.path,

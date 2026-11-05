@@ -106,14 +106,14 @@ struct PluginSettingsTests {
 
         #expect(descriptor.settings.map(\.id) == ["heapMaxMB", "logLevel"])
         let heap = try #require(descriptor.settings.first { $0.id == "heapMaxMB" })
-        // The language server starts with a 2 GB heap and full logging. A smaller
-        // heap makes JDT LS import Maven modules in its constrained-memory mode,
-        // which fails the whole Java service for modules that share coordinates,
-        // so the plugin does not offer one.
+        // The language server starts with a 2 GB heap and logs warnings and
+        // errors only. A smaller heap makes JDT LS import Maven modules in its
+        // constrained-memory mode, which fails the whole Java service for modules
+        // that share coordinates, so the plugin does not offer one.
         #expect(heap.defaultValue == .integer(2048))
         #expect(heap.kind == .integer(minimum: 2048, maximum: 16384, unit: "MB"))
         let level = try #require(descriptor.settings.first { $0.id == "logLevel" })
-        #expect(level.defaultValue == .string("ALL"))
+        #expect(level.defaultValue == .string("WARNING"))
         #expect(level.accepts(.string("SEVERE")) && !level.accepts(.string("OFF")))
     }
 
@@ -135,7 +135,8 @@ struct PluginSettingsTests {
             stateDirectory: URL(fileURLWithPath: "/state"),
             workspaceStateDirectory: URL(fileURLWithPath: "/state/workspace"),
             architecture: MacPluginLanguageServerLaunchResolver.hostArchitecture,
-            settings: settings.values(forPlugin: descriptor.id.rawValue)
+            settings: settings.values(forPlugin: descriptor.id.rawValue),
+            logDirectory: URL(fileURLWithPath: "/logs")
         )
 
         let plan = try DeclarativePluginTestSupport.operations.languageServerLaunchPlan(
@@ -145,6 +146,8 @@ struct PluginSettingsTests {
         )
 
         #expect(plan.arguments.prefix(2) == ["-Xmx3072m", "-Dlog.level=WARNING"])
+        // JDT LS keeps its own log in Lithe's log directory, never in plugin state.
+        #expect(plan.arguments.contains("-Dosgi.logfile=/logs/jdt.log"))
     }
 
     // MARK: Settings v2: layers, pages, and buttons
@@ -324,6 +327,27 @@ struct PluginSettingsTests {
     }
 
     @Test
+    func nativeConfigurationRegistersItsBuildPageWithoutShadowPreferenceControls() async throws {
+        try await withV2Manager { manager in
+            try await manager.setEnabled(true, for: PluginID("dev.lithe.fixture.settings-v2"))
+            var snapshot = try #require(manager.snapshots.first { $0.id == PluginID("dev.lithe.fixture.settings-v2") })
+            snapshot.settings = []
+            snapshot.contributions.actions = []
+            snapshot.contributions.languageServerIDs = []
+            snapshot.contributions.buildSystems = [.init(id: "native-tool", displayName: "Native tool", nativeConfiguration: true)]
+            let pages = PluginSettingsRegistry.pages(from: [snapshot])
+            let page = try #require(pages.first)
+            #expect(pages.count == 1)
+            #expect(page.id == "buildSystem:native-tool")
+            #expect(page.group == .build)
+            #expect(page.contributions.first?.nativeBuildSystemIDs == ["native-tool"])
+            #expect(page.contributions.first?.settings.isEmpty == true)
+            snapshot.contributions.buildSystems[0].nativeConfiguration = false
+            #expect(PluginSettingsRegistry.pages(from: [snapshot]).isEmpty)
+        }
+    }
+
+    @Test
     func aDisabledPluginRegistersNoPages() async throws {
         try await withV2Manager { manager in
             try await manager.setEnabled(false, for: PluginID("dev.lithe.fixture.settings-v2"))
@@ -361,18 +385,18 @@ struct PluginSettingsTests {
         let package = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: package) }
         let manifest = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/settings-v2.plugin.json"))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/settings/settings-v2.plugin.json"))
         try manifest.write(to: package.appendingPathComponent("plugin.json"))
         try await body(makeManager(
             settings: MacPluginSettingsStore(store: SettingsKeyValueStore()),
-            fixture: "settings-v2.plugin.json",
+            fixture: "settings/settings-v2.plugin.json",
             packageURL: package
         ))
     }
 
     private func makeManager(
         settings: any PluginSettingsStoring,
-        fixture: String = "node-runtime.plugin.json",
+        fixture: String = "languages/node-runtime.plugin.json",
         packageURL: URL = FileManager.default.temporaryDirectory
     ) throws -> MacPluginManager {
         let descriptor = try DeclarativePluginTestSupport.operations.validate(

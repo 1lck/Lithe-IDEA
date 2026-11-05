@@ -1,5 +1,6 @@
 import Foundation
 import LitheCoreContracts
+import LitheModuleAPI
 import LitheWorkspaceModule
 
 /// Constructs the per-session feature models used by AppModel.
@@ -22,7 +23,6 @@ final class AppModelFeatureGraph {
     let languageTooling: LanguageToolingFeatureModel
     let workspace: WorkspaceFeatureModel
     let github: GitHubFeatureModel
-    let diagnostics: DiagnosticsFeatureModel
     let editorTabOrder: EditorTabOrderFeatureModel
     let media: MediaDocumentFeatureModel
     let terminalPlacement: TerminalPlacementFeatureModel
@@ -39,6 +39,8 @@ final class AppModelFeatureGraph {
     let debugLaunchPreparation: DebugLaunchPreparationCoordinator
     let debugSessionCleanup: DebugSessionCleanupCoordinator
     let javaTestDebugWorkflow: JavaTestDebugWorkflowCoordinator
+    /// Nil only when the application has no log store (some tests).
+    let languageServerLogs: LanguageServerLogsModel?
 
     init(settings: AppSettings, services: AppServices) {
         keyboardShortcut = KeyboardShortcutFeatureModel(settings: settings)
@@ -47,12 +49,17 @@ final class AppModelFeatureGraph {
         // Coordinators report user-facing failures through the notification
         // feature directly; the application shell forwards the same call.
         let notify: @MainActor (String) -> Void = { message in
-            notification.show(message)
+            var reference: LogRecordReference?
+            if let sink = services.logSink {
+                reference = LogScope(sink: sink).emitReferenced(AppNotificationOperationRejected(operation: "language_debug_workflow", reason: "request_failed"))
+            }
+            notification.show(message, logReference: reference)
         }
         workbench = WorkbenchFeatureModel(layoutStore: services.workbenchLayoutStore)
         commitDraft = CommitDraftFeatureModel()
         searchSession = SearchSessionFeatureModel()
         let workspace = WorkspaceFeatureModel(
+            logSink: services.logSink,
             operations: services.workspaceOperations,
             fileOperations: services.fileOperations,
             gitWatchContextProvider: services.gitWatchContextProvider,
@@ -88,7 +95,7 @@ final class AppModelFeatureGraph {
         runtime = RuntimeSettingsFeatureModel(service: services.projectRuntimeService)
         toolchainSettings = ToolchainSettingsFeatureModel(
             loader: services.toolchainSettingsLoader, loginShell: services.loginShellEnvironmentInspector,
-            inputWatcher: services.toolchainInputWatcher
+            inputWatcher: services.toolchainInputWatcher, preferences: services.toolchainPreferences
         )
         languageTooling = LanguageToolingFeatureModel(
             catalogSource: services.languageProviderCatalogSource,
@@ -97,11 +104,12 @@ final class AppModelFeatureGraph {
             sessionsProvider: { nil }
         )
         github = GitHubFeatureModel(service: services.githubService)
-        diagnostics = DiagnosticsFeatureModel(service: services.diagnosticsExportService)
+        notification.openLogs = { [weak services] in services?.logWindowCoordinator?.open($0) }
         editorTabOrder = EditorTabOrderFeatureModel()
         media = MediaDocumentFeatureModel()
         terminalPlacement = TerminalPlacementFeatureModel()
         document = DocumentFeatureModel(
+            logSink: services.logSink,
             operations: services.workspaceOperations,
             documentLifecycleDecider: services.documentLifecycleDecider,
             fileOperations: services.fileOperations,
@@ -120,11 +128,16 @@ final class AppModelFeatureGraph {
         debugLaunchPreparation = DebugLaunchPreparationCoordinator(notify: notify)
         debugSessionCleanup = DebugSessionCleanupCoordinator()
         javaTestDebugWorkflow = JavaTestDebugWorkflowCoordinator(notify: notify)
+        let languageServerLogs = services.logWindowLogging.map {
+            LanguageServerLogsModel(logging: $0, sink: services.logSink)
+        }
+        self.languageServerLogs = languageServerLogs
         editorSession = EditorSessionCoordinator(
             document: document,
             media: media,
             terminalPlacement: terminalPlacement,
-            tabOrder: editorTabOrder
+            tabOrder: editorTabOrder,
+            languageServerLogs: languageServerLogs
         )
     }
 }

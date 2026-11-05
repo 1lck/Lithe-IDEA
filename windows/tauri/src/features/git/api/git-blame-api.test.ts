@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const invoke = mock(async (command: string, _args?: unknown): Promise<unknown> => {
-  if (command === "git_discover_repo") return "C:/repo";
+  if (command === "git.resolveFileContext") return { root: "C:/repo", path: "src/main.ts", ownership: "git" };
   if (command === "git_blame_file") return { lines: [] };
   throw new Error(`Unexpected command: ${command}`);
 });
@@ -25,7 +25,7 @@ describe("getResolvedGitBlame", () => {
     await getResolvedGitBlame("C:/repo", "src/main.ts", "blame-1");
 
     expect(invoke.mock.calls).toEqual([
-      ["git_discover_repo", { path: "C:/repo/src" }],
+      ["git.resolveFileContext", { root: "C:/repo", path: "src/main.ts" }],
       [
         "git_blame_file",
         {

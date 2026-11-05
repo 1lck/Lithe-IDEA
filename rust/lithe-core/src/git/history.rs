@@ -9,9 +9,9 @@ use crate::protocol::{
     cancellation, CoreError, ErrorCode, GitCommitResponse, GitHistoryCursorCloseResponse,
     GitHistoryPageResponse, GitHistoryResponse, GitReferenceResponse, GitReferencesResponse,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Read};
-use std::process::{Child, ExitStatus, Stdio};
+use std::process::{Child, ChildStderr, ChildStdout, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::{Mutex, OnceLock};
@@ -28,6 +28,14 @@ const HISTORY_CURSOR_REAPER_INTERVAL: Duration = Duration::from_secs(1);
 const HISTORY_PAGE_DEADLINE: Duration = Duration::from_secs(30);
 const HISTORY_STREAM_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const MAX_HISTORY_SESSIONS: usize = 8;
+/// Largest page `git.historyLocate` accepts; keeps one locate response bounded.
+const MAX_LOCATE_LIMIT: usize = 500;
+/// Default number of pages one locate request may read before returning a cursor.
+const DEFAULT_LOCATE_MAX_PAGES: usize = 20;
+/// Hard budget that bounds a single locate call's subprocess work.
+const MAX_LOCATE_PAGES: usize = 100;
+/// Full Git object id length compared by `git.historyLocate`.
+const LOCATE_TARGET_LENGTH: usize = 40;
 
 static HISTORY_SESSIONS: OnceLock<Mutex<HistorySessionRegistry>> = OnceLock::new();
 static HISTORY_REAPER: OnceLock<()> = OnceLock::new();
@@ -99,8 +107,57 @@ pub struct GitHistoryCursorCloseRequest {
     pub cursor: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Request to locate one commit while appending bounded pages to a loaded window.
+pub struct GitHistoryLocateRequest {
+    pub root: String,
+    /// Full reference to traverse; omission means all references, like
+    /// [`GitHistoryPageRequest::reference`].
+    #[serde(default)]
+    pub reference: Option<String>,
+    /// Traversal order bound to the cursor; omission keeps topology order.
+    #[serde(default)]
+    pub order: HistoryOrder,
+    /// Complete object id of the commit to find.
+    pub target: String,
+    /// Continuation cursor the platform currently holds; `None` starts at the
+    /// first page of a new stream.
+    #[serde(default)]
+    pub cursor: Option<String>,
+    /// Commits read per page; bounded to `1..=500`.
+    #[serde(default = "default_history_limit")]
+    pub limit: usize,
+    /// Page budget for this call; bounded to `1..=100`.
+    #[serde(default = "default_locate_max_pages")]
+    pub max_pages: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Pages appended by one locate request plus the continuation state the
+/// platform must keep to continue the window.
+pub struct GitHistoryLocateResponse {
+    /// Whether `target` was among the commits read by this call.
+    pub found: bool,
+    /// Every commit read by this call in reading order, starting after the
+    /// request cursor. Whole pages are returned because the continuation cursor
+    /// must stay aligned with the commits the platform appends.
+    pub commits: Vec<GitCommitResponse>,
+    /// Cursor after the last page read; `null` once the history is exhausted.
+    pub next_cursor: Option<String>,
+    /// Whether more commits exist after the returned pages.
+    pub has_more: bool,
+    /// Number of pages actually read, which may be below `maxPages`.
+    pub pages_loaded: usize,
+}
+
 fn default_history_limit() -> usize {
     DEFAULT_HISTORY_LIMIT
+}
+
+fn default_locate_max_pages() -> usize {
+    DEFAULT_LOCATE_MAX_PAGES
 }
 
 /// Returns the legacy combined history snapshot while newer clients migrate to pages.
@@ -117,10 +174,17 @@ pub fn history(request: GitHistoryRequest) -> Result<GitHistoryResponse, CoreErr
         limit: request.limit,
     })?;
     if let Some(cursor) = page.next_cursor.as_deref() {
-        let _ = close_history_cursor(GitHistoryCursorCloseRequest {
+        if let Err(error) = close_history_cursor(GitHistoryCursorCloseRequest {
             root: request.root,
             cursor: cursor.to_string(),
-        });
+        }) {
+            // The legacy snapshot is complete; WARN reports cursor cleanup only.
+            crate::diagnostics::core_events::core_failed(
+                "vcs.history.cleanup_failed",
+                "cursor",
+                &error,
+            );
+        }
     }
     Ok(GitHistoryResponse {
         references: references.references,
@@ -342,6 +406,136 @@ pub fn history_page(request: GitHistoryPageRequest) -> Result<GitHistoryPageResp
     }
 }
 
+/// Finds one commit inside a loaded history window without leaking cursors.
+///
+/// The platform owns the visible window and passes the continuation cursor it
+/// holds. Core reads whole pages until the target appears, the budget is used
+/// up, or the history ends, and returns the continuation state in the same
+/// response. Intermediate streams reuse the single cursor of the page session,
+/// so a caller only ever receives the cursor it can continue with; a failed
+/// page releases the session instead of leaving it for the idle reaper.
+pub fn history_locate(
+    request: GitHistoryLocateRequest,
+) -> Result<GitHistoryLocateResponse, CoreError> {
+    if !(1..=MAX_LOCATE_LIMIT).contains(&request.limit) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Git history locate limit must be between 1 and 500",
+        ));
+    }
+    if !(1..=MAX_LOCATE_PAGES).contains(&request.max_pages) {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Git history locate page budget must be between 1 and 100",
+        ));
+    }
+    let target = validate_locate_target(&request.target)?;
+    let mut cursor = request.cursor.clone();
+    let mut commits = Vec::new();
+    let mut pages_loaded = 0;
+    loop {
+        let page = match history_page(GitHistoryPageRequest {
+            root: request.root.clone(),
+            reference: request.reference.clone(),
+            order: request.order,
+            cursor: cursor.clone(),
+            offset: None,
+            limit: request.limit,
+        }) {
+            Ok(page) => page,
+            Err(error) => {
+                // The failed page already stopped its stream on read errors and
+                // kept it only for an invalid continuation; release that cursor
+                // so the caller cannot leak a session it never sees.
+                release_locate_cursor(&request.root, cursor.take());
+                return Err(error);
+            }
+        };
+        pages_loaded += 1;
+        let hit = page
+            .commits
+            .iter()
+            .position(|commit| commit.hash.eq_ignore_ascii_case(&target));
+        let has_more = page.has_more;
+        let next_cursor = page.next_cursor;
+        // Whole pages are appended so the returned commits and the continuation
+        // cursor stay aligned; truncating at the hit would skip the commits
+        // after it forever.
+        commits.extend(page.commits);
+        if hit.is_some() {
+            return Ok(GitHistoryLocateResponse {
+                found: true,
+                commits,
+                next_cursor,
+                has_more,
+                pages_loaded,
+            });
+        }
+        let Some(next_cursor) = next_cursor else {
+            return Ok(GitHistoryLocateResponse {
+                found: false,
+                commits,
+                next_cursor: None,
+                has_more: false,
+                pages_loaded,
+            });
+        };
+        if !has_more {
+            // Defensive: a continuation without more commits is a spent stream.
+            release_locate_cursor(&request.root, Some(next_cursor));
+            return Ok(GitHistoryLocateResponse {
+                found: false,
+                commits,
+                next_cursor: None,
+                has_more: false,
+                pages_loaded,
+            });
+        }
+        cursor = Some(next_cursor);
+        if pages_loaded >= request.max_pages {
+            return Ok(GitHistoryLocateResponse {
+                found: false,
+                commits,
+                next_cursor: cursor,
+                has_more: true,
+                pages_loaded,
+            });
+        }
+    }
+}
+
+/// Requires the complete object id so a short or symbolic value cannot match a
+/// different commit than the caller selected, and folds the hex case because
+/// Git reports lowercase ids while hosts may forward the selected text verbatim.
+fn validate_locate_target(target: &str) -> Result<String, CoreError> {
+    if target.len() != LOCATE_TARGET_LENGTH || !target.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Git history locate target must be a complete 40-character commit hash",
+        ));
+    }
+    Ok(target.to_ascii_lowercase())
+}
+
+/// Releases a locate continuation the caller will never receive.
+fn release_locate_cursor(root: &str, cursor: Option<String>) {
+    let Some(cursor) = cursor else {
+        return;
+    };
+    if let Err(error) = close_history_cursor(GitHistoryCursorCloseRequest {
+        root: root.to_string(),
+        cursor,
+    }) {
+        // The failed page already ended its stream; report cleanup only.
+        crate::diagnostics::core_events::core_failed(
+            "vcs.history.cleanup_failed",
+            "cursor",
+            &error,
+        );
+    }
+}
+
 /// Preserves the original offset contract for callers that have not migrated to cursors.
 fn offset_history_page(
     root: String,
@@ -479,6 +673,8 @@ struct HistorySession {
     emitted: usize,
     last_access: Instant,
     finished: bool,
+    /// Records the one `git log` process this cursor owns when it ends.
+    trace: Option<super::command_trace::Trace>,
 }
 
 #[derive(Default)]
@@ -545,7 +741,15 @@ impl HistorySession {
             GIT_COMMIT_DATE_ARGUMENT.to_string(),
             "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%D".to_string(),
         ]);
-        if let Some(remote) = super::remote_history::RemoteHistory::start(&root, &arguments)? {
+        let trace = super::command_trace::Trace::begin(&root, &arguments, false);
+        let remote = match super::remote_history::RemoteHistory::start(&root, &arguments) {
+            Ok(remote) => remote,
+            Err(error) => {
+                trace.finish(Some(&error));
+                return Err(error);
+            }
+        };
+        if let Some(remote) = remote {
             return Ok(Self {
                 cursor: format!(
                     "git-history-cursor-{}",
@@ -564,40 +768,31 @@ impl HistorySession {
                 emitted: 0,
                 last_access: Instant::now(),
                 finished: false,
+                trace: Some(trace),
             });
         }
-        let mut process = git_process();
-        let mut child = process
-            .args(&arguments)
-            .current_dir(&root)
-            .env("GIT_OPTIONAL_LOCKS", "0")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| {
-                CoreError::new(ErrorCode::ProcessStartFailed, "Could not start Git history")
-                    .with_details(error.to_string())
-            })?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            CoreError::new(
-                ErrorCode::ProcessFailed,
-                "Git history stdout was unavailable",
-            )
-        })?;
-        let mut stderr = child.stderr.take().ok_or_else(|| {
-            CoreError::new(
-                ErrorCode::ProcessFailed,
-                "Git history stderr was unavailable",
-            )
-        })?;
+        let (child, stdout, mut stderr) = match spawn_history_process(&root, &arguments) {
+            Ok(process) => process,
+            Err(error) => {
+                trace.finish(Some(&error));
+                return Err(error);
+            }
+        };
         // A single-slot channel propagates backpressure to Git instead of buffering the
         // entire repository history between page requests.
         let (sender, receiver) = mpsc::sync_channel(1);
         let stdout_reader = thread::spawn(move || read_history_stream(stdout, sender));
         let stderr_reader = thread::spawn(move || {
             let mut bytes = Vec::new();
-            let _ = stderr.read_to_end(&mut bytes);
+            if let Err(error) = stderr.read_to_end(&mut bytes) {
+                // One reader completion, not per chunk: WARN explains partial diagnostics.
+                crate::diagnostics::core_events::recovery_failed(
+                    "vcs.history.read_failed",
+                    "stderr",
+                    &format!("{:?}", error.kind()),
+                    "io",
+                );
+            }
             bytes
         });
         let cursor = format!(
@@ -619,6 +814,7 @@ impl HistorySession {
             emitted: 0,
             last_access: Instant::now(),
             finished: false,
+            trace: Some(trace),
         })
     }
 
@@ -699,41 +895,115 @@ impl HistorySession {
             return Ok(());
         }
         self.finished = true;
-        self.remote.take();
         self.receiver.take();
+        let mut trace = self.trace.take();
+        if let Some(remote) = self.remote.take() {
+            if let Some(mut trace) = trace {
+                let error = match remote.exit() {
+                    Some((code, stderr)) => {
+                        trace.observe(code, stderr);
+                        (code != Some(0)).then(|| history_failure(stderr))
+                    }
+                    None => Some(closed_cursor()),
+                };
+                trace.finish(error.as_ref());
+            }
+            return Ok(());
+        }
         let status = if let Some(mut child) = self.child.take() {
             if terminate {
-                let _ = child.kill();
+                if let Err(error) = child.kill() {
+                    // An already reaped child is expected; other cleanup failures are distinct.
+                    if !matches!(child.try_wait(), Ok(Some(_))) {
+                        crate::diagnostics::core_events::recovery_failed(
+                            "vcs.history.cleanup_failed",
+                            "kill",
+                            &format!("{:?}", error.kind()),
+                            "io",
+                        );
+                    }
+                }
             }
-            child.wait().map_err(|error| {
-                CoreError::new(
-                    ErrorCode::ProcessFailed,
-                    "Could not read Git history status",
-                )
-                .with_details(error.to_string())
-            })?
+            match child.wait() {
+                Ok(status) => status,
+                Err(error) => {
+                    let error = CoreError::new(
+                        ErrorCode::ProcessFailed,
+                        "Could not read Git history status",
+                    )
+                    .with_details(error.to_string());
+                    if let Some(trace) = trace {
+                        trace.finish(Some(&error));
+                    }
+                    return Err(error);
+                }
+            }
         } else {
             return Ok(());
         };
         if let Some(reader) = self.stdout_reader.take() {
-            let _ = reader.join();
+            if reader.join().is_err() {
+                crate::diagnostics::core_events::recovery_failed(
+                    "vcs.history.cleanup_failed",
+                    "stdout-reader",
+                    "reader_panicked",
+                    "thread",
+                );
+            }
         }
         let stderr = self
             .stderr_reader
             .take()
-            .and_then(|reader| reader.join().ok())
+            .and_then(|reader| match reader.join() {
+                Ok(bytes) => Some(bytes),
+                Err(_) => {
+                    crate::diagnostics::core_events::recovery_failed(
+                        "vcs.history.cleanup_failed",
+                        "stderr-reader",
+                        "reader_panicked",
+                        "thread",
+                    );
+                    None
+                }
+            })
             .unwrap_or_default();
-        validate_history_exit(status, stderr, terminate)
+        if let Some(mut trace) = trace.take() {
+            trace.observe(status.code(), &stderr);
+            // A signal after `terminate` is the kill above, not a Git failure.
+            let error = if status.success() {
+                None
+            } else if terminate && status.code().is_none() {
+                Some(closed_cursor())
+            } else {
+                Some(history_failure(&stderr))
+            };
+            trace.finish(error.as_ref());
+        }
+        validate_history_exit(status, &stderr, terminate)
     }
 
     fn stop(mut self) {
-        let _ = self.finish_process(true);
+        if let Err(error) = self.finish_process(true) {
+            // This owner stops the cursor without failing the completed page.
+            crate::diagnostics::core_events::core_failed(
+                "vcs.history.cleanup_failed",
+                "wait",
+                &error,
+            );
+        }
     }
 }
 
 impl Drop for HistorySession {
     fn drop(&mut self) {
-        let _ = self.finish_process(true);
+        if let Err(error) = self.finish_process(true) {
+            // This owner stops the cursor without failing the completed page.
+            crate::diagnostics::core_events::core_failed(
+                "vcs.history.cleanup_failed",
+                "wait",
+                &error,
+            );
+        }
     }
 }
 
@@ -744,16 +1014,19 @@ fn read_history_stream(stdout: impl Read, sender: SyncSender<HistoryStreamMessag
         line.clear();
         match reader.read_line(&mut line) {
             Ok(0) => {
+                // log-exempt: User cancellation: the cursor owner dropped its receiver when closing the stream.
                 let _ = sender.send(HistoryStreamMessage::End);
                 break;
             }
             Ok(_) => {
                 let normalized = line.trim_end_matches(['\r', '\n']).to_string();
+                // log-exempt: User cancellation: closing the cursor drops the only receiver.
                 if sender.send(HistoryStreamMessage::Line(normalized)).is_err() {
                     break;
                 }
             }
             Err(error) => {
+                // log-exempt: User cancellation: the cursor owner dropped its receiver when closing the stream.
                 let _ = sender.send(HistoryStreamMessage::ReadFailed(error.to_string()));
                 break;
             }
@@ -763,16 +1036,56 @@ fn read_history_stream(stdout: impl Read, sender: SyncSender<HistoryStreamMessag
 
 fn validate_history_exit(
     status: ExitStatus,
-    stderr: Vec<u8>,
+    stderr: &[u8],
     terminated: bool,
 ) -> Result<(), CoreError> {
     if status.success() || terminated {
         return Ok(());
     }
-    Err(
-        CoreError::new(ErrorCode::ProcessFailed, "Git history failed")
-            .with_details(String::from_utf8_lossy(&stderr).trim().to_string()),
-    )
+    Err(history_failure(stderr))
+}
+
+/// The error a nonzero `git log` exit returns, local or remote.
+pub(super) fn history_failure(stderr: &[u8]) -> CoreError {
+    CoreError::new(ErrorCode::ProcessFailed, "Git history failed")
+        .with_details(String::from_utf8_lossy(stderr).trim().to_string())
+}
+
+/// A cursor closed before Git exited stopped the process on purpose.
+fn closed_cursor() -> CoreError {
+    CoreError::new(ErrorCode::Cancelled, "Git history cursor closed")
+}
+
+/// Starts the local `git log`; read-only, so optional index refreshes stay off.
+fn spawn_history_process(
+    root: &str,
+    arguments: &[String],
+) -> Result<(Child, ChildStdout, ChildStderr), CoreError> {
+    let mut child = git_process()
+        .args(arguments)
+        .current_dir(root)
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| {
+            CoreError::new(ErrorCode::ProcessStartFailed, "Could not start Git history")
+                .with_details(error.to_string())
+        })?;
+    let stdout = child.stdout.take().ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Git history stdout was unavailable",
+        )
+    })?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::ProcessFailed,
+            "Git history stderr was unavailable",
+        )
+    })?;
+    Ok((child, stdout, stderr))
 }
 
 fn validate_reference(reference: Option<&str>) -> Result<(), CoreError> {
@@ -1159,6 +1472,111 @@ mod tests {
         );
     }
 
+    #[test]
+    fn locate_request_defaults_and_response_shape_match_the_shared_fixture() {
+        use serde_json::Value;
+        use std::collections::BTreeSet;
+
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/git/history-locate-v1.json"
+        ))
+        .expect("history locate fixture should be valid JSON");
+
+        let minimal: super::GitHistoryLocateRequest =
+            serde_json::from_value(fixture["minimalRequest"].clone())
+                .expect("minimal locate request should decode");
+        assert_eq!(minimal.limit, 300);
+        assert_eq!(minimal.max_pages, 20);
+        assert_eq!(minimal.cursor, None);
+        assert_eq!(minimal.reference, None);
+        assert_eq!(minimal.order, super::HistoryOrder::Topo);
+
+        let portable: super::GitHistoryLocateRequest =
+            serde_json::from_value(fixture["request"].clone())
+                .expect("portable locate request should decode");
+        assert_eq!(portable.order, super::HistoryOrder::Topo);
+        assert_eq!(portable.limit, 100);
+        assert_eq!(portable.max_pages, 20);
+        assert!(portable.cursor.is_some());
+
+        let exhausted = serde_json::to_value(super::GitHistoryLocateResponse {
+            found: false,
+            commits: Vec::new(),
+            next_cursor: None,
+            has_more: false,
+            pages_loaded: 1,
+        })
+        .expect("locate response should encode");
+        assert_eq!(exhausted, fixture["responses"]["exhausted"].clone());
+        let response_keys = |value: &Value| {
+            value
+                .as_object()
+                .expect("locate response should be an object")
+                .keys()
+                .cloned()
+                .collect::<BTreeSet<_>>()
+        };
+        assert_eq!(
+            response_keys(&exhausted),
+            response_keys(&fixture["responses"]["found"])
+        );
+        assert_eq!(
+            response_keys(&exhausted),
+            response_keys(&fixture["responses"]["budgetExhausted"])
+        );
+    }
+
+    #[test]
+    fn locate_rejects_out_of_budget_requests_before_reading_git() {
+        let locate = |limit: usize, max_pages: usize, target: &str| {
+            super::history_locate(super::GitHistoryLocateRequest {
+                root: ".".to_string(),
+                reference: None,
+                order: super::HistoryOrder::default(),
+                target: target.to_string(),
+                cursor: None,
+                limit,
+                max_pages,
+            })
+            .expect_err("the request should be rejected before any Git read")
+        };
+        let valid_target = "0123456789abcdef0123456789abcdef01234567";
+        for (limit, max_pages) in [(0, 20), (501, 20)] {
+            let error = locate(limit, max_pages, valid_target);
+            assert!(matches!(error.code, ErrorCode::InvalidRequest));
+            assert_eq!(
+                error.message,
+                "Git history locate limit must be between 1 and 500"
+            );
+        }
+        for max_pages in [0, 101] {
+            let error = locate(100, max_pages, valid_target);
+            assert!(matches!(error.code, ErrorCode::InvalidRequest));
+            assert_eq!(
+                error.message,
+                "Git history locate page budget must be between 1 and 100"
+            );
+        }
+        for target in [
+            "",
+            "abc1234",
+            "0123456789abcdef0123456789abcdef012345670",
+            "zz23456789abcdef0123456789abcdef01234567",
+        ] {
+            let error = locate(100, 20, target);
+            assert!(matches!(error.code, ErrorCode::InvalidRequest));
+            assert_eq!(
+                error.message,
+                "Git history locate target must be a complete 40-character commit hash"
+            );
+        }
+        assert_eq!(
+            super::validate_locate_target("0123456789ABCDEF0123456789ABCDEF01234567")
+                .expect("uppercase object ids should normalize"),
+            valid_target
+        );
+    }
+
     fn finished_session(cursor: &str, last_access: Instant) -> HistorySession {
         HistorySession {
             host_key: std::path::PathBuf::new(),
@@ -1175,6 +1593,7 @@ mod tests {
             emitted: 0,
             last_access,
             finished: true,
+            trace: None,
         }
     }
 

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -15,12 +16,16 @@ final class RemoteDirectoryObservation: DirectoryChangeSource, @unchecked Sendab
     private var tasks: [Task<Void, Never>] = []
     private var generation = UUID()
 
+    private let logSink: (any LogSink)?
+
     init(
+        logSink: (any LogSink)? = nil,
         configuration: DirectoryWatchConfiguration, visibilityRules: FileVisibilityRules,
         binding: RemoteWorkspaceBinding, registry: RemoteWorkspaceRegistry,
         transport: any RemoteWorkspaceTransport,
         onChange: @escaping @Sendable (DirectoryChangeBatch) -> Void
     ) {
+        self.logSink = logSink
         self.configuration = configuration
         self.visibilityRules = visibilityRules
         self.binding = binding
@@ -45,7 +50,7 @@ final class RemoteDirectoryObservation: DirectoryChangeSource, @unchecked Sendab
                         }
                     } catch {
                         guard !Task.isCancelled else { return }
-                        NSLog("Remote directory watch ended: %@", String(describing: type(of: error)))
+                        self?.logSink?.emit(RemoteDirectoryWatchFailed(error: error))
                         self?.receive(.invalidated(rootRemoved: false), generation: current)
                     }
                 })
@@ -76,29 +81,66 @@ final class RemoteDirectoryObservation: DirectoryChangeSource, @unchecked Sendab
             case .changed(let paths, let overflow):
                 batch.requiresFullRescan = overflow
                 batch.gitStateMayHaveChanged = overflow
+                let urls = paths.map { binding.localURL(forRemotePath: $0).standardizedFileURL.resolvingSymlinksInPath() }
+                let core = RustCoreBridge(coreLogSink: logSink)
+                let decisions: [GitMetadataClassification]
+                switch RustGitMetadataClassifier(core: core).classify(paths: urls.map(\.path), configuration: configuration) {
+                case .success(let events):
+                    decisions = events
+                case .failure(let error):
+                    logSink?.emit(AppCoreFallbackSelected(
+                        error: LogFailure(domain: "RustCore", code: error.code), stage: "git.classifyMetadataChanges"))
+                    batch.requiresFullRescan = true
+                    batch.gitStateMayHaveChanged = true
+                    batch.gitMetadataMayHaveChanged = true
+                    batch.watchRootsChanged = true
+                    if !batch.isEmpty { onChange(batch) }
+                    return
+                }
                 var workspacePaths = Set<String>()
-                for path in paths {
-                    let url = binding.localURL(forRemotePath: path)
+                var sawIndex = false
+                var onlyIndex = !overflow
+                for (url, decision) in zip(urls, decisions) {
                     if configuration.revalidatesIgnoredDirectory(url, isStructuralChange: true) {
                         batch.requiresFullRescan = true
                         batch.gitStateMayHaveChanged = true
                     }
                     if configuration.isIgnored(url) { continue }
-                    if configuration.isGitContextPointer(url) {
+                    switch decision.kind {
+                    case .ignored:
+                        continue
+                    case .context:
+                        onlyIndex = false
                         batch.gitStateMayHaveChanged = true
+                        batch.gitMetadataMayHaveChanged = true
                         batch.watchRootsChanged = true
-                    } else if configuration.containsGitMetadataPath(url) {
+                        continue
+                    case .metadata:
+                        sawIndex = sawIndex || decision.indexOnly
+                        onlyIndex = onlyIndex && decision.indexOnly
                         batch.gitStateMayHaveChanged = true
-                    } else if configuration.containsWorkspacePath(url) {
+                        batch.gitMetadataMayHaveChanged = true
+                        continue
+                    case .ignoreRule:
+                        onlyIndex = false
+                        batch.gitStateMayHaveChanged = true
+                        batch.gitMetadataMayHaveChanged = true
+                    case .other:
+                        if configuration.containsRepositoryPath(url) {
+                            onlyIndex = false
+                            batch.gitStateMayHaveChanged = true
+                        }
+                    }
+                    if configuration.containsWorkspacePath(url) {
+                        onlyIndex = false
                         batch.gitStateMayHaveChanged = true
                         if !visibilityRules.isHiddenPath(url, relativeTo: configuration.workspaceRoot)
                             || visibilityRules.isWatchedDespiteHiding(url, relativeTo: configuration.workspaceRoot) {
                             workspacePaths.insert(url.path)
                         }
-                    } else if configuration.containsRepositoryPath(url) {
-                        batch.gitStateMayHaveChanged = true
                     }
                 }
+                batch.gitIndexOnly = configuration.gitDirectory != nil && sawIndex && onlyIndex && !batch.requiresFullRescan
                 batch.workspacePaths = workspacePaths.sorted()
             }
             if !batch.isEmpty { onChange(batch) }

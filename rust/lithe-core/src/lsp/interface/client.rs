@@ -130,7 +130,7 @@ pub(super) fn client_initialize_for_plugin(
                 "window": {
                     "workDoneProgress": true
                 },
-                "experimental": experimental_capabilities(plugin_owned, &state.offered_toolchain_providers)
+                "experimental": experimental_capabilities(plugin_owned, &state.offered_toolchain_providers, &state.offered_keymap_import_providers)
             },
             "initializationOptions": request.initialization_options
         }),
@@ -543,7 +543,14 @@ pub(super) fn client_apply_server_message_for_plugin(
                 ) {
                     // The engine answers once the host has; the request
                     // carries the backend's own ID back to it.
-                    Ok(plugin_function::HostRoute::Answer(result)) => {
+                    Ok(plugin_function::HostRoute::Answer(mut result)) => {
+                        // getCapabilities also reports the options of the
+                        // granted host services.
+                        if let (plugin_function::GET_CAPABILITIES, Some(editor)) =
+                            (method, &state.host_options.editor)
+                        {
+                            editor.report(&mut result, &state.host_services);
+                        }
                         responses.push(json_rpc_result(id, result)?)
                     }
                     Ok(plugin_function::HostRoute::Forward(service)) => {
@@ -557,11 +564,30 @@ pub(super) fn client_apply_server_message_for_plugin(
                             result: Some(json!({
                                 "id": id,
                                 "service": service,
-                                "params": message.get("params").cloned().unwrap_or(Value::Null),
+                                "params": plugin_function::forwarded_host_params(
+                                    method,
+                                    message.get("params"),
+                                ),
                             })),
                             error: None,
                         })
                     }
+                    // Another plugin's function: the engine's relay checks the
+                    // call against the plugins' manifests and answers the
+                    // backend itself, so the reducer only names the request.
+                    Ok(plugin_function::HostRoute::Relay) => events.push(LspClientEvent {
+                        kind: "functionRelayRequest".to_string(),
+                        request_id: None,
+                        method: Some(method.to_string()),
+                        uri: None,
+                        version: None,
+                        diagnostics: None,
+                        result: Some(json!({
+                            "id": id,
+                            "params": message.get("params").cloned().unwrap_or(Value::Null),
+                        })),
+                        error: None,
+                    }),
                     Err(refusal) => {
                         let mut data = json!({ "code": refusal.code });
                         if let Some(details) = refusal.details {
@@ -612,6 +638,15 @@ pub(super) fn client_apply_server_message_for_plugin(
                 state.server_capabilities = feature_names_from_capabilities(
                     result.get("capabilities").unwrap_or(&Value::Null),
                 );
+                if plugin_owned
+                    && super::plugin_logging::negotiated(
+                        result.get("capabilities").unwrap_or(&Value::Null),
+                    )
+                {
+                    state
+                        .server_capabilities
+                        .push(super::plugin_logging::FEATURE.into());
+                }
                 let functions = plugin_owned
                     .then(|| {
                         plugin_function::negotiate(
@@ -681,6 +716,27 @@ pub(super) fn client_apply_server_message_for_plugin(
                         version: None,
                         diagnostics: None,
                         result: Some(json!({ "providers": state.toolchain_providers })),
+                        error: None,
+                    });
+                }
+                state.keymap_import_providers = plugin_owned
+                    .then(|| {
+                        super::keymap_provider::negotiate(
+                            result.get("capabilities").unwrap_or(&Value::Null),
+                            &state.offered_keymap_import_providers,
+                        )
+                    })
+                    .flatten()
+                    .unwrap_or_default();
+                if !state.keymap_import_providers.is_empty() {
+                    events.push(LspClientEvent {
+                        kind: super::keymap_provider::NEGOTIATED_EVENT.to_string(),
+                        request_id: None,
+                        method: Some("initialize".to_string()),
+                        uri: None,
+                        version: None,
+                        diagnostics: None,
+                        result: Some(json!({ "providers": state.keymap_import_providers })),
                         error: None,
                     });
                 }
@@ -828,9 +884,11 @@ pub(super) fn json_rpc_result(id: &Value, result: Value) -> Result<String, CoreE
 fn experimental_capabilities(
     plugin_owned: bool,
     toolchain_providers: &std::collections::BTreeSet<String>,
+    keymap_import_providers: &std::collections::BTreeSet<String>,
 ) -> Value {
     let mut experimental = super::build_provider::client_experimental_capabilities();
     if plugin_owned {
+        experimental[super::plugin_logging::FEATURE] = json!({"versions": [1]});
         let (functions_key, functions_offer) = plugin_function::client_experimental_capabilities();
         experimental[functions_key] = functions_offer;
         let (vcs_key, vcs_offer) = super::vcs_provider::client_experimental_capabilities();
@@ -839,6 +897,11 @@ fn experimental_capabilities(
             super::toolchain_provider::client_experimental_capabilities(toolchain_providers)
         {
             experimental[toolchain_key] = toolchain_offer;
+        }
+        if let Some((key, offer)) =
+            super::keymap_provider::client_experimental_capabilities(keymap_import_providers)
+        {
+            experimental[key] = offer;
         }
     }
     experimental
@@ -905,8 +968,8 @@ fn validate_uri(value: &str) -> Result<(), CoreError> {
 /// Code's URI library (used by Intelephense, typescript-language-server, and
 /// others) percent-encodes the Windows drive colon (`d:` becomes `d%3A`) and
 /// lowercases the drive letter. A raw map lookup therefore misses even though
-/// the document is open. Comparison happens on the decoded form with the
-/// Windows drive letter case-folded, which keeps Unix URIs case-sensitive.
+/// the document is open. Comparison preserves URI component boundaries and
+/// folds the Windows drive letter while keeping Unix paths case-sensitive.
 fn open_document_for_published_uri<'a>(
     documents: &'a std::collections::BTreeMap<String, LspClientDocument>,
     uri: &str,
@@ -922,25 +985,50 @@ fn open_document_for_published_uri<'a>(
 }
 
 fn normalize_uri_for_comparison(uri: &str) -> String {
-    let decoded = percent_decode(uri);
-    // Fold the Windows drive letter inside a file URI path (`file:///D:/...`)
-    // to lowercase; NTFS paths are case-insensitive and servers standardize on
-    // the lowercase form. The drive letter starts right after `file:///`.
+    let serialized = url::Url::parse(uri)
+        .map(|url| url.to_string())
+        .unwrap_or_else(|_| uri.to_owned());
+    let bytes = serialized.as_bytes();
+    let mut canonical = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let (Some(high), Some(low)) =
+                (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
+            {
+                let decoded = (high << 4) | low;
+                if decoded.is_ascii_alphanumeric() || b"-._~".contains(&decoded) {
+                    canonical.push(decoded);
+                } else {
+                    canonical.extend_from_slice(&[b'%', HEX[high as usize], HEX[low as usize]]);
+                }
+                index += 3;
+                continue;
+            }
+        }
+        canonical.push(bytes[index]);
+        index += 1;
+    }
+    // The input was UTF-8 and only ASCII escapes were replaced.
+    let mut normalized = String::from_utf8(canonical).expect("URI normalization preserves UTF-8");
     const FILE_PREFIX: &str = "file:///";
-    if let Some(path) = decoded.strip_prefix(FILE_PREFIX) {
+    if let Some(path) = normalized.strip_prefix(FILE_PREFIX) {
         let bytes = path.as_bytes();
-        if bytes.len() >= 2
-            && bytes[1] == b':'
-            && bytes[0].is_ascii_alphabetic()
-            && bytes[0].is_ascii_uppercase()
-        {
-            let mut normalized = decoded;
+        if bytes.len() >= 4 && bytes[0].is_ascii_alphabetic() && &bytes[1..4] == b"%3A" {
             let drive_index = FILE_PREFIX.len();
+            normalized.replace_range(drive_index + 1..drive_index + 4, ":");
+        }
+        let bytes = normalized.as_bytes();
+        let drive_index = FILE_PREFIX.len();
+        if bytes.len() > drive_index + 1
+            && bytes[drive_index].is_ascii_alphabetic()
+            && bytes[drive_index + 1] == b':'
+        {
             normalized[drive_index..drive_index + 1].make_ascii_lowercase();
-            return normalized;
         }
     }
-    decoded
+    normalized
 }
 
 fn workspace_name_from_uri(uri: &str) -> String {
@@ -1834,6 +1922,15 @@ fn feature_names_from_capabilities(capabilities: &Value) -> Vec<String> {
     if super::build_provider::tests_negotiated(capabilities) {
         insert_unique(&mut values, super::build_provider::TEST_EXECUTION_FEATURE);
     }
+    if super::build_provider::test_selectors_negotiated(capabilities) {
+        insert_unique(&mut values, super::build_provider::TEST_SELECTORS_FEATURE);
+    }
+    if super::build_provider::test_reports_negotiated(capabilities) {
+        insert_unique(&mut values, super::build_provider::TEST_REPORTS_FEATURE);
+    }
+    if super::build_provider::configuration_negotiated(capabilities) {
+        insert_unique(&mut values, super::build_provider::CONFIGURATION_FEATURE);
+    }
     if super::build_provider::model_inputs_negotiated(capabilities) {
         insert_unique(&mut values, super::build_provider::MODEL_INPUTS_FEATURE);
     }
@@ -1842,6 +1939,12 @@ fn feature_names_from_capabilities(capabilities: &Value) -> Vec<String> {
             &mut values,
             super::build_provider::DEBUG_PREPARATION_FEATURE,
         );
+    }
+    if super::build_provider::runtime_debug_negotiated(capabilities) {
+        insert_unique(&mut values, super::build_provider::RUNTIME_DEBUG_FEATURE);
+    }
+    if super::build_provider::run_options_negotiated(capabilities) {
+        insert_unique(&mut values, super::build_provider::RUN_OPTIONS_FEATURE);
     }
     if super::build_provider::run_preparation_negotiated(capabilities) {
         insert_unique(&mut values, super::build_provider::RUN_PREPARATION_FEATURE);

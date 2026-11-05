@@ -54,6 +54,7 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
         }
     }
 
+    private let logSink: (any LogSink)?
     private let store: RemoteConnectionStore
     private let prober: any RemoteConnectionProbing
     private let sessions: any RemoteSessionConnecting
@@ -84,6 +85,7 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
 
     init(
         store: RemoteConnectionStore,
+        logSink: (any LogSink)? = nil,
         prober: any RemoteConnectionProbing,
         sessions: any RemoteSessionConnecting,
         locator: any RemoteHostLocating,
@@ -94,6 +96,7 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
         self.openWorkspace = openWorkspace
         self.reconnect = reconnect
         self.store = store
+        self.logSink = logSink
         self.prober = prober
         self.sessions = sessions
         self.locator = locator
@@ -223,7 +226,8 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
         connections[index].lastKnownHost = host
         if let saved = savedConnections.firstIndex(where: { $0.id == id }) {
             savedConnections[saved].lastKnownHost = host
-            try? store.save(savedConnections)
+            do { try store.save(savedConnections) }
+            catch { logSink?.emit(RemoteConnectionsSaveFailed(error: error)) }
         }
     }
 

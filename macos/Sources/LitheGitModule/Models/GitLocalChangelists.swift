@@ -1,10 +1,23 @@
 import Foundation
 
-/// Local UI metadata, independent of the Git index. Core owns commit authorization.
+/// Local UI metadata, independent of the Git index. Core owns membership and commit scope.
 package struct GitLocalChangelist: Codable, Equatable, Identifiable, Sendable {
     package let id: String
     package var name: String
     package var displayName: String { id == GitLocalChangelists.defaultID ? "Default ChangeList" : name }
+}
+
+package struct GitChangelistIdentity: Hashable, Sendable {
+    let root: String
+    let path: String
+    let original: String?
+    let isCopy: Bool
+    init(_ change: GitChange) {
+        root = change.repositoryRoot.standardizedFileURL.path
+        path = change.path
+        original = change.originalPath
+        isCopy = change.indexStatus == "C" || change.workTreeStatus == "C"
+    }
 }
 
 package struct GitLocalChangelists: Codable, Equatable, Sendable {
@@ -14,83 +27,35 @@ package struct GitLocalChangelists: Codable, Equatable, Sendable {
     package var lists = [GitLocalChangelist(id: defaultID, name: "")]
     package var activeID = defaultID
     /// Repository/worktree root -> literal repository-relative path -> list ID.
-    /// Keep assignments when a file becomes clean so local configuration stays protected.
     package var assignments: [String: [String: String]] = [:]
+    /// Transient results are not part of persisted host metadata.
+    var projectedMembership: [GitChangelistIdentity: String] = [:]
+    private enum CodingKeys: String, CodingKey { case version, lists, activeID, assignments }
 
-    package var isValid: Bool {
-        let ids = Set(lists.map(\.id))
-        return version == 1 && ids.count == lists.count && ids.contains(Self.defaultID)
-            && ids.contains(activeID) && lists.allSatisfy {
-                !$0.id.isEmpty && ($0.id == Self.defaultID || !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            } && assignments.allSatisfy { root, paths in
-                !root.isEmpty && paths.allSatisfy { path, id in !path.isEmpty && ids.contains(id) }
-            }
-    }
+    /// The host checks its storage version; Core validates all semantic fields.
+    package var isValid: Bool { version == 1 }
 
     package func listID(for change: GitChange) -> String {
-        let paths = assignments[change.repositoryRoot.standardizedFileURL.path] ?? [:]
-        // A stale destination assignment must not override the renamed source.
-        return renamedSourcePath(change).flatMap { paths[$0] } ?? paths[change.path]
-            ?? directoryAssignment(above: change.path, in: paths) ?? Self.defaultID
+        if let id = projectedMembership[GitChangelistIdentity(change)] { return id }
+        // With no assignments every file is in Default. Otherwise a missing
+        // projection is unavailable rather than permission to include a path.
+        return assignments.isEmpty ? Self.defaultID : ""
     }
 
-    /// An untracked directory summary (`dir/`) is assigned by its path; the files
-    /// listed below it, and those staged from it, follow it.
-    private func directoryAssignment(above path: String, in paths: [String: String]) -> String? {
-        guard !paths.isEmpty else { return nil }
-        var ancestor = path.hasSuffix("/") ? Substring(path.dropLast()) : Substring(path)
-        while let separator = ancestor.lastIndex(of: "/") {
-            if let id = paths[String(ancestor[...separator])] { return id }
-            ancestor = ancestor[..<separator]
+    func metadataEquals(_ other: Self) -> Bool {
+        version == other.version && lists == other.lists && activeID == other.activeID && assignments == other.assignments
+    }
+
+    func withMembership(_ members: [String], for changes: [GitChange]) -> Self? {
+        let ids = Set(lists.map(\.id))
+        guard members.count == changes.count, members.allSatisfy({ ids.contains($0) }) else { return nil }
+        var value = self
+        value.projectedMembership.removeAll(keepingCapacity: true)
+        for (change, member) in zip(changes, members) {
+            let key = GitChangelistIdentity(change)
+            if let previous = value.projectedMembership[key], previous != member { return nil }
+            value.projectedMembership[key] = member
         }
-        return nil
-    }
-
-    package mutating func move(_ changes: [GitChange], to id: String) {
-        guard lists.contains(where: { $0.id == id }) else { return }
-        for change in changes {
-            let root = change.repositoryRoot.standardizedFileURL.path
-            for path in [change.path, renamedSourcePath(change)].compactMap({ $0 }) {
-                assignments[root, default: [:]][path] = id
-            }
-        }
-    }
-
-    package mutating func rememberRenames(_ changes: [GitChange]) {
-        let snapshot = self
-        for change in changes where renamedSourcePath(change) != nil {
-            let id = snapshot.listID(for: change)
-            move([change], to: id)
-        }
-    }
-
-    private func renamedSourcePath(_ change: GitChange) -> String? {
-        // A copied file has its own membership; never move its unchanged source.
-        change.indexStatus == "C" || change.workTreeStatus == "C" ? nil : change.originalPath
-    }
-
-    /// Translate local UI assignments into Core's immutable repository-ID scope.
-    package func commitScope(repositories: [GitWorkspaceRepositoryBinding], changes: [GitChange]) -> GitWorkspaceCommitPathScope {
-        var snapshot = self
-        snapshot.rememberRenames(changes)
-        let include = activeID != Self.defaultID
-        var paths: [String: [String]] = [:]
-        for repository in repositories {
-            let rootPath = URL(fileURLWithPath: repository.root).standardizedFileURL.path
-            let assigned = snapshot.assignments[rootPath] ?? [:]
-            let isSelected = { (id: String) in include ? id == activeID : id != Self.defaultID }
-            var selected = Set(assigned.filter { isSelected($0.value) }.keys)
-            // Core matches literal paths, so files that follow an assigned
-            // directory summary must be listed by their own paths.
-            for change in changes where change.repositoryRoot.standardizedFileURL.path == rootPath
-                && assigned[change.path] == nil
-                && snapshot.renamedSourcePath(change).flatMap({ assigned[$0] }) == nil {
-                if let id = snapshot.directoryAssignment(above: change.path, in: assigned), isSelected(id) {
-                    selected.insert(change.path)
-                }
-            }
-            if !selected.isEmpty { paths[repository.id] = selected.sorted() }
-        }
-        return GitWorkspaceCommitPathScope(include: include, paths: paths)
+        return value
     }
 }

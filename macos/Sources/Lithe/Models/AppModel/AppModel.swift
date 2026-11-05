@@ -13,11 +13,12 @@ import LitheCoreContracts
 @MainActor
 final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let id = UUID()
+    lazy var editorSettingsImport = services.makeEditorSettingsImport(settings: settings)
     var hasSuggestedJavaPlugin = false
     lazy var debugPerformanceFeature = DebugPerformanceFeatureModel(sampler: services.debugPerformanceSampler)
     lazy var testPerformanceFeature = TestJVMPerformanceFeatureModel(
         sampler: services.debugPerformanceSampler, provider: services.testJVMPerformance)
-    lazy var ideCapabilities = IdeCapabilitiesFeatureModel(model: self)
+    lazy var ideCapabilities = IdeCapabilitiesFeatureModel(model: self, logSink: services.logSink)
     /// Settings › MCP: servers registered with Codex and Claude Code, created
     /// when the page is first shown.
     lazy var mcpServerLibrary = McpServerLibraryFeatureModel(model: self)
@@ -103,12 +104,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     )
     lazy var agentInstructionsFeature = AgentInstructionsFeatureModel(service: services.agentInstructions)
     lazy var agentHooksFeature = AgentHooksFeatureModel(service: services.agentHooks)
-    lazy var agentSkillsFeature = AgentSkillsFeatureModel(service: services.agentManagement)
+    lazy var agentSkillsFeature = AgentSkillsFeatureModel(service: services.agentManagement, logSink: services.logSink)
     /// Settings › Plugins marketplace and plugin repositories, created when
     /// the page is first shown.
     lazy var pluginMarketplaceFeature = PluginMarketplaceFeatureModel(
         service: services.pluginMarketplace,
-        pluginManager: services.pluginManager
+        pluginManager: services.pluginManager, logSink: services.logSink
     )
     var commitDraftFeature: CommitDraftFeatureModel { featureGraph.commitDraft }
     lazy var commitWorkflow = CommitWorkflowComposition.make(model: self)
@@ -159,6 +160,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var shortcutSessionCoordinator: ShortcutSessionCoordinator?
     private var documentLanguageCoordinator: DocumentLanguageCoordinator?
     private var sidebarRefreshTask: Task<Void, Never>?
+    /// The modifier hover's plugin definition query; a newer hover cancels it.
+    let pluginDefinitionHover = PluginDefinitionHover()
     private var moduleSessionCoordinator: ModuleSessionCoordinator?
     var isModuleRuntimeShuttingDown: Bool { moduleSessionCoordinator?.isShuttingDown == true }
     private(set) var isProjectSessionClosed = false
@@ -208,11 +211,15 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     var runtimeFeature: RuntimeSettingsFeatureModel { featureGraph.runtime }
     var toolchainSettingsFeature: ToolchainSettingsFeatureModel { featureGraph.toolchainSettings }
     var languageToolingFeature: LanguageToolingFeatureModel { featureGraph.languageTooling }
+    var languageServerLogsFeature: LanguageServerLogsModel? { featureGraph.languageServerLogs }
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
+    var providerDebugRunObservation: AnyCancellable?
+    var providerDebugSession: (operation: String, session: DebugSessionID)?
+    /// The runs and debug sessions plugin backends started in this window.
+    let pluginRunSessions = PluginRunSessions()
     var workspaceFeature: WorkspaceFeatureModel { featureGraph.workspace }
     var githubFeature: GitHubFeatureModel { featureGraph.github }
-    var diagnosticsFeature: DiagnosticsFeatureModel { featureGraph.diagnostics }
     var editorTabOrderFeature: EditorTabOrderFeatureModel { featureGraph.editorTabOrder }
     var mediaFeature: MediaDocumentFeatureModel { featureGraph.media }
     var terminalPlacementFeature: TerminalPlacementFeatureModel {
@@ -228,7 +235,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         store: moduleCapabilityStore,
         awaitShutdown: { [weak self] in await self?.awaitModuleRuntimeShutdown() },
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
-        onError: { [weak self] in self?.showNotification($0) }
+        onError: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "module_activation", reason: "activation_failed")) }
     )
     lazy var debugModuleCoordinator = DebugModuleCoordinator(
         runtime: services.moduleRuntime,
@@ -238,7 +245,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         openWorkspace: { feature, url in feature.openWorkspace(at: url) },
         onStateChange: { [weak self] in self?.handleDebugSessionStateChange($0) },
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
-        onError: { [weak self] in self?.showNotification($0) }
+        onError: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "module_activation", reason: "activation_failed")) }
     )
     lazy var languageIntelligenceModuleCoordinator = LanguageIntelligenceModuleCoordinator(
         runtime: services.moduleRuntime,
@@ -248,18 +255,19 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             guard self?.isProjectSessionClosed == false else { throw CancellationError() }
         },
         bind: { [weak self] in self?.bindLanguageIntelligenceCapability($0) },
-        notify: { [weak self] in self?.showNotification($0) }
+        notify: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "language_activation", reason: "activation_failed")) }
     )
     lazy var terminalModuleCoordinator = TerminalModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) }
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
+        logSink: services.logSink
     )
     lazy var gitModuleCoordinator = GitModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
-        onError: { [weak self] in self?.showNotification($0) }
+        onError: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "module_activation", reason: "activation_failed")) }
     )
     let javaLanguageServerPreparationCoordinator = JavaLanguageServerPreparationCoordinator()
     lazy var historyModuleCoordinator = HistoryModuleCoordinator(
@@ -276,19 +284,19 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 LocalHistoryDocumentSnapshot(id: $0.id, url: $0.url, text: $0.text)
             } ?? []
         },
-        notify: { [weak self] in self?.showNotification($0) },
+        notify: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "history_activation", reason: "activation_failed")) },
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) }
     )
     lazy var searchModuleCoordinator = SearchModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
-        onError: { [weak self] in self?.showNotification($0) }
+        onError: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "module_activation", reason: "activation_failed")) }
     )
     lazy var runWorkflowCoordinator = RunWorkflowCoordinator(
         pluginCatalog: services.pluginCatalog,
         moduleRuntime: services.moduleRuntime,
-        notify: { [weak self] in self?.showNotification($0) },
+        notify: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "run_workflow", reason: "preparation_failed")) },
         onPendingActionChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) }
     )
     var languageCapability: LitheLanguageIntelligenceModule.LanguageIntelligenceCapability? {
@@ -317,7 +325,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     lazy var workbenchUIRegistry: WorkbenchModuleUIRegistry = {
         do { return try WorkbenchModuleUIComposition.registry(for: services.pluginCatalog, iconResources: services.pluginUIIconResources) }
         catch {
-            NSLog("Lithe workbench UI registration failed: %@", error.localizedDescription)
+            services.logSink?.emit(AppWorkbenchRegistrationFailed(error: error))
             // External metadata cannot terminate the application shell.
             do {
                 return try WorkbenchModuleUIRegistry(registrations: WorkbenchModuleUIComposition.registrations)
@@ -383,6 +391,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     var detectedClaudeConfiguration: AIConfigurationSnapshot? {
         detectedAIConfigurations.first { $0.source == .claude }
     }
+
+    func openLogs(_ request: LogWindowOpenRequest = .init()) { services.logWindowCoordinator?.open(request) }
 
     func showSettings(category: SettingsCategory = .general) {
         workbenchFeature.presentSettings(category: category)
@@ -483,7 +493,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         if affectsSettings { pendingRelayAffectsSettings = true }
         guard !isObjectWillChangeRelayScheduled else { return }
         isObjectWillChangeRelayScheduled = true
-        let signpost = LitheSignpost.begin("appmodel.relay")
+        let signpost = LitheSignpost.begin("appmodel.relay", logSink: services.logSink)
         Task { @MainActor [weak self] in
             defer { LitheSignpost.end("appmodel.relay", signpost) }
             guard let self else { return }
@@ -608,10 +618,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             guard let self, let root = self.workspaceURL else { return }
             self.searchFeatureIfActive?.invalidateIndex(at: root, visibilityRules: self.settings.searchEverywhereVisibilityRules.searchRules)
         }
-        // The language catalog follows plugins that apply without a restart, so
-        // a debugger installed now is offered now.
+        // The language catalog and the toolchain page follow plugins that apply
+        // without a restart, so a debugger or tool definition installed now is
+        // offered now.
         livePluginObservation = services.pluginRegistrationChanges?.sink { [weak self] in
             self?.languageToolingFeature.refreshCatalog()
+            self?.toolchainSettingsFeature.pluginsChanged()
         }
         suggestDatabasePluginIfNeeded()
         detectedAIConfigurations = loadAIConfigurations()
@@ -627,11 +639,11 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         }
         if let configuration = (needsConfigurationImport ? configurationToImport : nil) ?? (shouldImportCodex ? codexConfiguration : nil) {
             let provider = settings.importAIConfiguration(configuration)
-            try? services.secureStore.delete(key: provider.apiKeyIdentifier)
+            do { try services.secureStore.delete(key: provider.apiKeyIdentifier) } catch { services.logSink?.emit(AppCredentialsCleanupFailed(error: error)) }
         } else if settings.commitMessageAI.providers.isEmpty,
                   let configuration = detectedAIConfigurations.first {
             let provider = settings.importAIConfiguration(configuration)
-            try? services.secureStore.delete(key: provider.apiKeyIdentifier)
+            do { try services.secureStore.delete(key: provider.apiKeyIdentifier) } catch { services.logSink?.emit(AppCredentialsCleanupFailed(error: error)) }
         }
         languageServerToolsIfActive?.onCandidatesChanged = { [weak self] providerID in
             guard let self,
@@ -724,7 +736,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     func shutdownProjectSession() async {
         isProjectSessionClosed = true
-        toolchainSettingsFeature.close()
+        await toolchainSettingsFeature.closeAndDrain()
         commitFileDeletion.reset()
         // Native window close can retain this model through Settings without
         // closing its workspace. Revoke page requests before teardown can yield.
@@ -783,7 +795,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         cancelJavaTestWorkflows()
         debugModuleCoordinator.stopFeature(genericDebugFeatureIfActive)
         executionModuleCoordinator.stopFeatures(
-            maven: mavenFeatureIfActive,
             run: runFeatureIfActive
         )
         languageToolingSessionsIfActive?.stopLanguageServer(providerID: "java")
@@ -950,7 +961,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         } else if placement == .thisWindow {
             openProjectDirectly(url)
         } else {
-            showNotification("Project window management is unavailable.")
+            showNotification("Project window management is unavailable.", logReference: notificationRejection(operation: "project_window", reason: "unavailable"))
         }
     }
 
@@ -975,7 +986,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         languageIntelligenceModuleCoordinator.resetWorkspaceState(languageToolingFeature)
         runtimeFeature.openProject(at: normalizedURL)
         executionModuleCoordinator.resetFeatures(
-            maven: mavenFeatureIfActive,
             run: runFeatureIfActive,
             tests: languageTestServiceIfActive,
             buildSystems: buildSystemsFeatureIfActive
@@ -989,6 +999,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         springFeature.reset()
         mybatisFeature.reset()
         workspaceSessionCoordinator.resetWorkspaceFeature()
+        // The popup belongs to the old project; an activation it started may never finish.
+        dismissSearchEverywhere()
         searchModuleCoordinator.resetFeature(searchFeatureIfActive)
         workbenchFeature.hideAllToolWindows()
         editorChrome.reset()
@@ -1048,7 +1060,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         runtimeFeature.closeProject()
         toolchainSettingsFeature.close()
         executionModuleCoordinator.resetFeatures(
-            maven: mavenFeatureIfActive,
             run: runFeatureIfActive,
             tests: languageTestServiceIfActive,
             buildSystems: buildSystemsFeatureIfActive
@@ -1146,7 +1157,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func javaIconKind(for url: URL) async -> LitheIconKind? {
-        await JavaFileIconResolver.resolve(for: url, storage: services.fileStorage)
+        await JavaFileIconResolver.resolve(for: url, storage: services.fileStorage, logSink: services.logSink)
     }
 
     func refreshWorkspace() async {
@@ -1253,7 +1264,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     func restoreSelectedLocalHistoryEntry() async {
         guard let feature = await activateHistoryModule(),
               let restoration = await feature.restoreSelectedLocalHistoryEntry() else {
-            showNotification("Could not restore local history")
+            showNotification("Could not restore local history", logReference: notificationRejection(operation: "history_restore", reason: "restore_failed"))
             return
         }
         if let documentID = restoration.documentID {
@@ -1272,7 +1283,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     func restoreSelectedProjectLocalHistoryEntry() async {
         guard let feature = await activateHistoryModule(),
               let restoration = await feature.restoreSelectedProjectLocalHistoryEntry() else {
-            showNotification("Could not restore project history")
+            showNotification("Could not restore project history", logReference: notificationRejection(operation: "project_history_restore", reason: "restore_failed"))
             return
         }
         if let documentID = restoration.documentID {
@@ -1354,7 +1365,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 showNotification("Saved \(document.displayName) as \(encoding.displayName)")
             } catch {
                 if !(error is CancellationError) {
-                    showNotification(documentFeature.saveFailureMessage(for: document, error: error))
+                    showNotification(documentFeature.saveFailureMessage(for: document, error: error), logReference: documentFeature.lastSaveFailureReference)
                 }
             }
         }
@@ -1415,7 +1426,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 capability: .aiPullRequestDescription
             )
         }
-        defer { try? services.moduleRuntime.markIdle(.aiAssistance) }
+        defer { do { try services.moduleRuntime.markIdle(.aiAssistance) } catch { services.logSink?.emit(AppModuleTransitionFailed(error: error, module: "ai-assistance", stage: "idle")) } }
         return try await capability.generatePullRequestDescription(
             input: input,
             settings: settings.commitMessageAI
@@ -1427,7 +1438,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func discardPendingGeneratedCommitMessage() {
-        commitDraftFeature.discardGeneratedMessage()
+        commitWorkflow.discardGeneratedMessage()
     }
 
     func toggleStaging(_ change: GitChange) {

@@ -580,7 +580,9 @@ struct WorkbenchView: View {
                             occurrenceCount: notification.occurrenceCount,
                             showHistory: { isNotificationCenterPresented = true },
                             actionTitle: notification.action?.title,
-                            performAction: { model.performNotificationAction(notification.id) }) {
+                            performAction: { model.performNotificationAction(notification.id) },
+                            hasLogReference: notification.logReference != nil,
+                            showLog: { model.showNotificationLog(notification.id) }) {
                             model.dismissNotification(notification.id)
                         }
                         .onHover { model.setNotificationHovered(notification.id, isHovered: $0) }
@@ -609,16 +611,7 @@ struct WorkbenchView: View {
                     copyPath: { model.copyProjectItemPath($0, relative: $1) },
                     relativePath: { model.relativePath(for: $0) },
                     moduleLabel: { url in
-                        let path = url.standardizedFileURL.path
-                        if let project = model.mavenFeatureIfActive?.project {
-                            let owning = project.allModules
-                                .filter { path.hasPrefix($0.url.standardizedFileURL.path + "/") }
-                                .max { $0.url.standardizedFileURL.path.count < $1.url.standardizedFileURL.path.count }
-                            if let owning { return owning.displayName }
-                            if path.hasPrefix(project.rootURL.standardizedFileURL.path + "/") {
-                                return project.displayName
-                            }
-                        }
+                        if let name = model.buildSystemsFeatureIfActive?.projectName(containing: url) { return name }
                         return model.relativePath(for: url).components(separatedBy: "/").first ?? ""
                     },
                     actionIcon: { action in
@@ -883,7 +876,7 @@ struct WorkbenchView: View {
             case "workbench.debug-start-or-restart": debugLaunchButton
             case "workbench.stop-execution": stopExecutionButton
             default:
-                Button { moduleUIRegistry.perform(contribution, model: model) } label: {
+                Button { moduleUIRegistry.perform(contribution, model: model, surface: .toolbar) } label: {
                     HStack(spacing: 6) {
                         moduleUIRegistry.icon(for: contribution, role: .action)
                         Text(verbatim: contribution.title)
@@ -1037,7 +1030,7 @@ struct WorkbenchView: View {
         let control = WorkbenchModuleUIComposition.mainToolbarDebugControl(for: model)
         let isRunningConfiguration = model.activeTestTarget == nil && model.runFeatureIfActive?.isSelectedConfigurationRunning == true
         return Button {
-            moduleUIRegistry.performAction(id: "workbench.run-start-or-restart", model: model)
+            moduleUIRegistry.performAction(id: "workbench.run-start-or-restart", model: model, surface: .toolbar)
         } label: {
             LitheIDEAIcon(
                 resourcePath: control.map { DebugToolbarPresentation.ideaAssetPath(for: $0) }
@@ -1065,7 +1058,7 @@ struct WorkbenchView: View {
 
     private var debugLaunchButton: some View {
         Button {
-            moduleUIRegistry.performAction(id: "workbench.debug-start-or-restart", model: model)
+            moduleUIRegistry.performAction(id: "workbench.debug-start-or-restart", model: model, surface: .toolbar)
         } label: {
             LitheIDEAIcon(
                 resourcePath: isDebugSessionActive
@@ -1087,7 +1080,7 @@ struct WorkbenchView: View {
 
     private var stopExecutionButton: some View {
         Button {
-            moduleUIRegistry.performAction(id: "workbench.stop-execution", model: model)
+            moduleUIRegistry.performAction(id: "workbench.stop-execution", model: model, surface: .toolbar)
         } label: {
             LitheIDEAIcon(
                 resourcePath: "expui/run/stop_stroke.svg",
@@ -1262,22 +1255,14 @@ struct WorkbenchView: View {
         .accessibilityLabel(Text(LocalizedStringKey("Settings")))
         .accessibilityIdentifier("workbench-settings-menu")
         .overlay {
-            LitheDropdownPopover(isPresented: $isSettingsMenuPresented, items: [
-                .action("Settings…", icon: AnyView(LitheIDEAIcon(resourcePath: "expui/general/settings.svg", size: 16)),
-                        initiallySelected: true, shortcut: model.keyboardShortcutFeature.displayText(for: "settings")) {
-                    model.showSettings()
-                },
-                .action("Plugins…") { model.showSettings(category: .plugins) },
-                .separator,
-                .action("Theme…") { model.showSettings(category: .general) },
-                .action("Keymap…") { model.showSettings(category: .keymap) }
-            ]) { EmptyView() }
+            LitheDropdownPopover(isPresented: $isSettingsMenuPresented, items: WorkbenchSettingsMenu.items(model: model)) { EmptyView() }
         }
     }
 
     private var activityBar: some View {
         VStack(spacing: 0) {
             dockStripe(DockPosition(anchor: .left, group: .primary))
+            WorkbenchToolWindowsMenu(model: model)
             Spacer(minLength: 0)
             dockStripe(DockPosition(anchor: .left, group: .secondary))
             dockStripe(DockPosition(anchor: .bottom, group: .primary))
@@ -1338,7 +1323,10 @@ struct WorkbenchView: View {
         .background(frameChromeBackground)
     }
 
-    private func contributionCustomizationItems(_ contribution: ModuleContribution) -> [LitheContextMenuItem] {
+    private func contributionCustomizationItems(
+        _ contribution: ModuleContribution,
+        dockMoveItems: [LitheContextMenuItem] = []
+    ) -> [LitheContextMenuItem] {
         let workbench = model.workbenchFeature
         let state = moduleUIRegistry.state(for: contribution, model: model)
         let hidden = workbench.contributionPreferences[contribution.id]?.isHidden == true
@@ -1351,17 +1339,22 @@ struct WorkbenchView: View {
                 workbench.customizeContribution(contribution.id, isHidden: true)
             }
         ]
+        var moveItems: [LitheContextMenuItem] = []
         if contribution.kind == .toolWindow {
-            items += [
+            moveItems += [
                 .action(L10n.string("Move to Left")) { workbench.customizeContribution(contribution.id, placement: .leftSidebar) },
                 .action(L10n.string("Move to Bottom")) { workbench.customizeContribution(contribution.id, placement: .activityBar) },
                 .action(L10n.string("Move to Right")) { workbench.customizeContribution(contribution.id, placement: .rightSidebar) }
             ]
         }
-        items += [
+        moveItems += [
             .action(L10n.string("Move Earlier")) { workbench.moveContribution(contribution.id, earlier: true) },
             .action(L10n.string("Move Later")) { workbench.moveContribution(contribution.id, earlier: false) }
         ]
+        if !dockMoveItems.isEmpty {
+            moveItems += [.separator] + dockMoveItems
+        }
+        items.append(.submenu(L10n.string("Move"), items: moveItems))
         return items
     }
 
@@ -1393,7 +1386,7 @@ struct WorkbenchView: View {
         if let entry = contribution(for: tool) {
             if !entry.hasDeclarativeContent && model.workbenchFeature.isVisible(tool) {
                 model.workbenchFeature.setVisibility(tool, isVisible: false)
-            } else { moduleUIRegistry.perform(entry, model: model) }
+            } else { moduleUIRegistry.perform(entry, model: model, surface: .button) }
         }
         else if isToolAvailable(tool) { model.workbenchFeature.toggleVisibility(tool) }
     }
@@ -1442,7 +1435,7 @@ struct WorkbenchView: View {
                         let editorItems: [LitheContextMenuItem] = renderer?.openInEditor.map { open in
                             [.action(L10n.string("Open in Editor")) { open(model) }, .separator]
                         } ?? []
-                        return editorItems + (entry.map { contributionCustomizationItems($0) } ?? []) + DockAnchor.allCases.flatMap { anchor in
+                        let dockMoveItems = DockAnchor.allCases.flatMap { anchor in
                             DockGroup.allCases.map { group in
                                 let destination = DockPosition(anchor: anchor, group: group)
                                 return LitheContextMenuItem.action(dockMoveTitle(destination), action: {
@@ -1450,6 +1443,9 @@ struct WorkbenchView: View {
                                 })
                             }
                         }
+                        return editorItems + (entry.map {
+                            contributionCustomizationItems($0, dockMoveItems: dockMoveItems)
+                        } ?? [.submenu(L10n.string("Move"), items: dockMoveItems)])
                     }
                     .accessibilityIdentifier("tool-window-" + tool.rawValue)
                 }
@@ -1821,7 +1817,9 @@ struct WorkbenchView: View {
                 .fixedSize()
                 .help("File encoding")
             }
-            Text("\(settings.tabWidth) spaces")
+            if let document = model.focusedEditorDocument ?? model.activeDocument {
+                EditorIndentationStatusLabel(document: document)
+            }
             Button {
                 model.saveActiveDocument()
             } label: {
@@ -1833,6 +1831,7 @@ struct WorkbenchView: View {
                 model.activeDocument?.isReadOnly == true ? "Read-only document" : "Save"
             ))
             ProjectPreparationStatusView(compact: true)
+            PluginServerStatusView()
             LanguageServerStatusView()
             MemoryUsageStatusView()
             FrameRateStatusView()
@@ -1844,6 +1843,7 @@ struct WorkbenchView: View {
         HStack(spacing: 10) {
             EditorCaretPositionLabel(chrome: model.editorChrome) { model.showGoToLine() }
             ProjectPreparationStatusView(compact: true)
+            PluginServerStatusView()
             LanguageServerStatusView()
             MemoryUsageStatusView()
             FrameRateStatusView()
@@ -1977,6 +1977,12 @@ private struct WorkbenchNotificationCenterView: View {
                                         .buttonStyle(.litheNoPress)
                                         .font(LitheTheme.uiFont(size: 12))
                                         .foregroundStyle(LitheTheme.accent)
+                                    }
+
+                                    if notification.logReference != nil {
+                                        Button("Show log") { model.showNotificationLog(notification.id) }
+                                            .buttonStyle(.litheNoPress)
+                                            .foregroundStyle(LitheTheme.accent)
                                     }
 
                                     Text(notification.updatedAt.formatted(date: .omitted, time: .shortened))

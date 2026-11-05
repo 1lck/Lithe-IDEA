@@ -20,6 +20,27 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 
 当前增加 `buildProviders: 2/3/4` 与 `litheBuild` 协议 2/3/4：原生 Build 任务、测试发现/执行和应用启动准备通过类型化请求进入同一个工作区 Provider，不要求网页，不使用插件私有函数。测试报告复用原有解析器，应用准备交给既有 Run 进程所有者。本文关于版本 1 仅有模型/依赖的说明仍适用于版本 1；具体版本准入、进度、取消与删除条件见[Build Provider 原生任务执行](2026-10-26-build-provider-task-execution.md)。这不代表命令模型运行配置、服务编排或 Java/Maven 业务迁移已经完成。
 
+### 多个构建根各自保存选项（2026-10-28）
+
+同一工作区可能同时包含两个独立工程。它们即使使用同一个构建插件，也可能选择
+不同的 Profiles、配置文件或仓库目录，因此不能把不同实例的路径和开关压成一个共享值。
+插件用 `buildSystems: 3` 为需要隔离的选项声明实例作用域，宿主以检测到的相对根目录
+保存和读取；Core 在生成静态运行入口前就收到同一份实例值。模型、依赖、任务、同步指纹
+与语言导入继续消费这份输入，宿主不从工具名字推测作用域。
+
+例如 A 的配置文件是 `a.xml`、B 是 `b.xml`，编辑或重置 A 只改变 A。显式空数组、
+空文本和 `false` 仍是用户值；实例作用域不再使用共享多选的空选择标记。未声明作用域
+的现有插件保留工作区选项和既有多选行为。不要把实例值覆盖到共享选项，也不要以工作区
+值作为实例的隐藏回退。已有选项改变作用域时，宿主先为各根复制旧值、保留已有实例覆盖和显式空标记，
+读回目标成功后才删除共享源并重新检测。失败阻止发布默认配置，保留源以便重试；暂未检测到
+但已有标记的根也保存其原值。本能力本身
+不宣称旧 Maven 配置和其所有消费者已经迁移。
+
+新增状态只在平台偏好存储中按工作区、构建系统和根目录隔离，不写入发行包或插件包，
+不跨工作树复用。`PluginBuildOptionPersistenceTests` 使用真实 Core、生产存储和服务，
+验证兄弟编辑、空值、重置、重开、任务参数与语言导入；Core fixture 验证静态运行入口
+也使用对应根的参数，并拒绝不支持实例作用域的宿主。
+
 ## 问题
 
 在这次改动之前，构建工具的知识分散在三处：
@@ -42,6 +63,8 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 每个构建系统由能力块组成，只有 `detection`（识别）和 `invocation`（调用方式）必填。其余能力块是 `runtimeDependencies`、`options`、`model`、`tasks`、`run`、`test`、`diagnostics`、`dependencies`、`sync`、`layout`。
 
 没有声明的能力不报错，也不会出现在界面上。例如 Cargo fixture 没有声明依赖树，Build 工具窗口就不显示依赖区。
+
+`build.detect` 对普通文件根或不存在的根保留空实例结果，这属于检测入口的既有兼容边界。共用工作区扫描器后仍在此入口区分根的类型；真实目录的读取、权限或扫描失败继续返回拒绝，不能把所有 I/O 错误当作“未检测到项目”。不要为了修复某个平台的非目录错误而放宽共用扫描器，也不要让宿主按操作系统错误码猜测空结果。回归见 `detection_returns_empty_for_non_directory_and_missing_workspace_roots`。
 
 字段全集只写在 `shared/contracts/plugins/v1/README.md` 的 “API level 3: build systems” 一节和 `plugin-manifest.schema.json` 里，本 Note 不重复。四个 fixture 各示范一种模型来源，按能力命名而不是按真实插件命名：`build-static-file`（读项目文件，内容用 Cargo）、`build-command-stdout`（解码命令输出，内容用 Go）、`build-command-output-file`（解码命令写出的文件，内容用 Gradle）、`build-host-integration`（交给宿主集成，内容用 Maven）。`build-provider`、`build-provider-language-server` 分别示范 Provider 的两种写法。
 
@@ -226,9 +249,11 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 - **视图状态不能跨模型沿用。** 模型、实例列表或工作区变化后清除所选任务、未提交的参数弹窗和选项输入弹窗，避免运行旧模型中的请求。实例选择消失后回到首个有效实例，自定义输入还要校验打开时的实例身份，防止旧弹窗改到新实例。任务分组节点按每级标题的 UTF-8 长度编码身份；标题即使含有分隔符，也不能和另一条分组路径共用折叠状态。
 - **已删除。** `MavenView`、`MavenBuildOutputView`、`MavenDependencyLocalization`、`BuildSystemsView`，`execution.maven`、`execution.maven.output`、`execution.build` 贡献，`toggle-maven` 命令和对应的 `ToolWindow` 常量。旧布局里的这些 ID 和其他未知贡献一样被忽略；`ToolWindow.restoredID` 改为显式映射旧名字，不再依赖 `allCases` 的顺序。
 
-还留着的 Maven 宿主代码：`MavenService`（以及 `MavenFeatureModel`）仍负责未声明插件导入配置时的兼容设置、模块运行/调试的启动上下文，以及 `lithe_maven_*` Agent 工具。Agent 执行的 Maven 目标不再有专门的输出窗口，Agent 通过 `lithe_operation_output` 读取输出。`MavenResolutionProblems`（JDT 报告的 `pom.xml` 问题）仍供编辑器诊断使用，但不再显示在构建窗口里。通用构建窗口读取的依赖也尚未成为 Java 依赖侧栏的补充来源。
-
-macOS 已接入插件选项到 JDT 的通用桥（第 12 节）：检测、选项修改和模型加载完成后，Core 归一化每个实例的生效选项为 `mavenContext` / `javaGradle`，Swift 只负责等待、转发和过期保护，并通过唯一的发布回调更新同一工作区的 Java 会话。停用插件的清除资格归属实际带过 Maven 输入的活动会话，不用工作区内“曾发布过”的全局标记。运行/调试与 Agent 工具仍使用原来的 Maven 业务，因此还不能删除 `MavenService`。
+阶段 D 已删除 macOS 的 `MavenService`、`MavenFeatureModel`、项目加载中的 POM 分支及旧配置存储。
+Run 的工程路径、源码根和选项候选直接读取当前 Provider 模型；模型失效后这些投影立即消失，
+不再用旧 MavenProject 填补。环境设置页只编辑 canonical 工具链，Maven 原生 XML 与调用选项在插件设置中维护。
+旧数据经平台迁移 adapter 校验并读回后才清理，迁移改变配置时重新检测后再发布语言导入输入。
+`MavenResolutionProblems` 仍展示 JDT 诊断；Run 的旧启动规划、精确测试和 Windows 当前共享命令消费者仍须继续迁移。
 
 ### 12. 语言服务器导入：`languageImport`
 
@@ -401,3 +426,79 @@ BuildSystemService 验证上述组合：前置 Runtime 缺失或版本不足时�
 Runtime 的显式选择均阻止模型和依赖 Provider 请求；全部设置为空时仍发送无 tool 的请求。
 `MacBuildToolResolverTests.customRuntimeProbeAndExecutionUseTheSameSiblingHelper`
 用临时可执行脚本验证带空格目录里的 Runtime 在探测和执行时都能找到同目录 helper。
+
+
+### 构建与运行复用本机工具链选择（2026-10-28）
+
+`executableResolution: 2` 的工具链候选引用已有 Run 注册表。Core 只传递工具链 ID 与
+规范化实例根，平台从同一份 local.json 读取项目和子项目选择，不在 Build 中再建 Maven
+路径偏好。显式选择不可用或前置 Runtime 失败时停止请求，不能把无 tool 的请求交给
+Provider 自行找另一套 Maven。被动导入经只读发现入口，不运行 Wrapper 或版本探测。
+
+Maven 构建所用 JDK 与后端进程自身的 JDK 是两项独立选择。宿主把解析得到的少量运行时
+环境与 Maven 路径一起传给 Core；Core 合并插件选项环境后使用既有 Provider 参数。
+模型、依赖、任务、测试和原生配置使用同一输入。不把整个宿主环境经 RPC 转发，否则会
+携带无关凭据。工具链解析到工作区内的程序或文件别名时，仍按项目代码限制显式读取。
+
+
+### 共享 Build 偏好与本机覆盖
+
+旧 Maven 的共享 Profiles 和跳过测试不能迁入本机 UserDefaults 后丢掉团队范围。
+通用 Build 偏好使用 `.lithe/build/options.json`：工作区选项、所有实例的默认值和
+逐根覆盖都有明确位置，值仍由 Core 和插件声明校验。它是 Lithe 的调用偏好，不能
+冒充 Maven 原生 settings。非敏感原生文件仍按来源读取与确认编辑。
+
+本机选项只保存相对共享值的差异，重置本机覆盖重新继承共享值。检测与重开不写共享
+文件，也不把共享默认值复制到本机偏好。本机偏好只有缺失键才表示未配置；键存在但
+不是预期的 Data 时同样报损坏，保留原值，不能当作空选项发布默认配置。读取损坏、不可访问或不支持的文件时停止
+发布默认构建/语言导入配置，保留原始内容并报告错误；写入检查原字节并读回核对。
+旧运行偏好中的 Maven 文件/仓库覆盖属于本机作用域，迁入 `.InstanceDefaults`，
+供之后出现的实例继承，不写入团队文档。已有团队和逐根选择优先于迁移值，
+逐根编辑及重置仍由同一选项合并链处理。两个实例从默认值继承后，编辑 A 不改变 B；Core 的静态运行入口也消费同样的合并值。
+共享文件变化会撤销原生配置草稿和模型快照，不能继续使用之前的配置指纹。
+
+未选中的用户自定义值单独保留为候选，仅在插件允许自定义值时显示，不作为已选值或
+上游模型事实。这样旧 Profiles 迁移不会只保住当前选择，也不会因候选变化触发构建。
+
+团队文档的存储语法由 Core 的 `build.projectOptions` 校验。macOS 和 Windows 的文件
+adapter 只负责有界读取、可写位置及发布，不再分别维护字段、类型和根路径规则。
+校验保留未启用插件的值、自定义候选及显式空选择；损坏文档报错，不能按空文档继续。
+共享 `validation.json` 同时驱动 Core 和真实 macOS bridge，Windows 文件测试复用
+同一团队默认值 fixture。它只校验存储结构，选项的类型、作用域和默认值继续由插件声明决定。
+
+`build.detect` 同时返回 Core 按作用域和实例根合并的已保存选项与被拒绝的键，平台直接
+使用这份选择，不在前端再实现一遍继承链。例如 A 根显式保存空 Profiles，不能在 UI
+发现列表为空时自行补回团队默认值。检测只读，不把归一化结果写回共享文档。
+
+### Windows 结果与文件失效的基础设施
+
+构建输出和结构化结果分开持有。Core 解码后的诊断、测试汇总和用例可以导航源码，
+宿主不解析 Maven 输出或重新聚合报告；测试发现保留工程/目标身份，同名用例不能
+跨模块互换。报告和发现结果分别最多保留四份快照，大列表沿用共享虚拟列表；输出
+通知不能重复复制报告。取消、配置变化和插件撤销后不发布迟到的解码结果。
+
+例如工程 A 和 B 都有 `ExampleTest.fails`，点击 A 的发现项必须把 A 的规范工程 ID
+交给 Core，不能按类名找第一个匹配工程。源码编辑立即撤销发现清单，不能继续使用
+之前的发现项。Core 返回的 `syncFingerprint.watch` 决定模型输入；命中后立即撤销
+模型、依赖和报告，再合并只读检测，不能由前端解析 POM 来推断模块。
+
+首次准备遇到源码事件也会取消，即使尚未取得子工程列表。加载前后核对根输入指纹，
+发布完整模型的 watch 清单；执行前重算完整指纹，漏掉原生事件时也不能发送旧计划。
+通知先交给全部已有工作区所有者，再进行当前文件树的异步目录查询，隐藏面板不会
+丢失失效事件。代价是保守撤销正在准备的模型，需要用户再次明确加载，不能自动
+启动项目代码。团队文档变化立即撤销旧目录，合并后的检测只读。
+
+原生来源的版本检查只返回一致性与观察路径，复用窗口文档 watcher 观察原路径及
+链接目标；缺失父目录观察现存祖先，不创建用户目录。只读版本检查端口与原生写入
+端口独立，模型加载不需要取得保存权限，也不把 XML 或凭据交给 WebView。
+
+已保存 Provider 引用现在可以通过公共 Core 计划交给现有 Windows Run 进程管理，
+不要求旧 Maven store 提供启动模型，也不先加载默认模型。临时运行模型沿用 Core
+的选项校验、reactor 工具选择和该运行配置明确保存的路径覆盖；自己的原生来源观察
+在交接后排空，不停止工作区的共享后端。
+已有框架/模块配置只有在原生能力表准入后才切换；当前表仍关闭。具体所有权与取消规则见
+[任务执行决策](2026-10-26-build-provider-task-execution.md)。以上仍是 Windows 准入
+关闭期间的基础设施。完整 Run/Debug、Java、Agent、旧偏好迁移和实机验收尚未完成，
+不能据此前端测试开放全部 Build 能力。
+`build-provider-workspace.test.ts`、`build-file-inputs.test.ts`、
+`build-workspace-controller.test.ts` 和 `build-pane.test.tsx` 覆盖上述状态与交互。

@@ -104,6 +104,8 @@ assert_classification() {
 
     local actual
     actual="$(scripts/ci/common/classify-ci-changes.sh "$BASE_REVISION" HEAD)"
+    # Validation is captured before scope/draft filtering; tested separately below.
+    actual="$(printf '%s\n' "$actual" | sed '/^validation=/d')"
     if [[ "$actual" != "$expected" ]]; then
         printf 'Classifier case %s failed:\nExpected:\n%s\nActual:\n%s\n' \
             "$name" "$expected" "$actual" >&2
@@ -393,6 +395,21 @@ modify_plugin_settings_schema_test() {
 assert_classification plugin-settings-schema-test-runs-on-linux \
     "$(classification false false false false false false false false)" \
     modify_plugin_settings_schema_test
+modify_logging_script() {
+    mkdir -p scripts/logging
+    printf '%s\n' '// Logging catalog validation' > scripts/logging/generate-log-events.mjs
+}
+assert_classification logging-uses-independent-workflow \
+    "$(classification false false false false false false false false)" \
+    modify_logging_script
+modify_language_specifics_gate() {
+    mkdir -p scripts/architecture
+    printf '%s\n' '// Host language-specifics gate' > scripts/architecture/verify-no-host-language-specifics.mjs
+    printf '%s\n' '{"files": {}}' > scripts/architecture/language-specifics-baseline.json
+}
+assert_classification language-specifics-gate-uses-independent-workflow \
+    "$(classification false false false false false false false false)" \
+    modify_language_specifics_gate
 LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-defers-runner-lanes \
     "$(classification false false false false false false false false false false pull_request true)" \
     modify_unknown_script
@@ -452,3 +469,12 @@ assert_classification rust-bridge-verifier \
     modify_rust_bridge_verifier
 
 printf '%s\n' 'CI change classifier tests passed'
+
+# The required gate remains on docs, but tooling runs only for code/infrastructure.
+git reset --hard -q "$BASE_REVISION"
+modify_readme
+git add . && git commit -q -m validation-docs
+[[ "$(scripts/ci/common/classify-ci-changes.sh "$BASE_REVISION" HEAD)" == *"validation=false"* ]]
+modify_rust_code
+git add . && git commit -q -m validation-code
+[[ "$(LITHE_CI_DRAFT_PULL_REQUEST=true scripts/ci/common/classify-ci-changes.sh "$BASE_REVISION" HEAD)" == *"validation=true"* ]]

@@ -12,6 +12,7 @@ import LitheModuleAPI
 /// is read like a first launch with its cache in the same temporary directory.
 @MainActor
 final class ToolchainSettingsDemo: NSObject, NSApplicationDelegate {
+    private let logSink = MacLogStore()
     private var window: NSWindow?
     private var model: AppModel?
     private var quitMonitor: Any?
@@ -31,7 +32,7 @@ final class ToolchainSettingsDemo: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        guard let defaults = UserDefaults(suiteName: domain), let workspace = Self.workspace(scratch: scratch) else {
+        guard let defaults = UserDefaults(suiteName: domain), let workspace = Self.workspace(scratch: scratch, logSink: logSink) else {
             NSApp.terminate(nil)
             return
         }
@@ -42,7 +43,7 @@ final class ToolchainSettingsDemo: NSObject, NSApplicationDelegate {
         defaults.set(226.0, forKey: "lithe.settings.categorySidebarWidth")
         InterfaceLanguage.select(settings.language.rawValue)
         MacBundledFontRegistry.registerFonts()
-        let container = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode)
+        let container = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode, applicationLogging: logSink)
         let directories = Self.directories(in: workspace)
         container.services.toolchainSettingsLoader = MacToolchainSettingsLoader(
             sources: { Self.samplePlugins },
@@ -100,7 +101,9 @@ final class ToolchainSettingsDemo: NSObject, NSApplicationDelegate {
         model?.workspaceSessionCoordinator.clearSession()
         if let quitMonitor { NSEvent.removeMonitor(quitMonitor) }
         UserDefaults.standard.removePersistentDomain(forName: domain)
-        try? FileManager.default.removeItem(at: scratch)
+        do { try FileManager.default.removeItem(at: scratch) }
+        catch let error as CocoaError where error.code == .fileNoSuchFile { /* Workspace was never created. */ }
+        catch { logSink.emit(AppDemoFailed(error: error, stage: "cleanup")) }
     }
 
     /// `--toolchain-demo-directory <id>` and `--toolchain-demo-expand <tool,…>` open a state to look at,
@@ -128,7 +131,7 @@ final class ToolchainSettingsDemo: NSObject, NSApplicationDelegate {
     }
 
     /// The workspace named on the command line, or a generated sample of real files.
-    private static func workspace(scratch: URL) -> URL? {
+    private static func workspace(scratch: URL, logSink: (any LogSink)? = nil) -> URL? {
         if let path = argument("--toolchain-demo-workspace") {
             return URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
         }
@@ -151,6 +154,7 @@ final class ToolchainSettingsDemo: NSObject, NSApplicationDelegate {
             }
             try FileManager.default.createDirectory(at: root.appendingPathComponent("docs"), withIntermediateDirectories: true)
         } catch {
+            logSink?.emit(AppDemoFailed(error: error, stage: "workspace"))
             return nil
         }
         return root
@@ -225,7 +229,7 @@ final class ToolchainSettingsDemo: NSObject, NSApplicationDelegate {
         manifest["requires"] = requires
         manifest["permissions"] = permissions
         let data = (try? JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])) ?? Data()
-        return ToolchainSettingsPluginSource(pluginID: id, name: name, manifest: data, isEnabled: true, verifiedOfficial: true)
+        return ToolchainSettingsPluginSource(pluginID: id, name: name, manifest: data, isEnabled: true)
     }
 
     private static func tool(

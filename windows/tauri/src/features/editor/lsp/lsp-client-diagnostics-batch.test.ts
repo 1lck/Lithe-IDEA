@@ -4,9 +4,13 @@ import type { LspDiagnosticsPublication } from "@/platform/lsp-core-adapter";
 import { LspClient } from "./lsp-client";
 
 const error = (message: string) => ({
-  range: { start: { line: 0, character: 0 }, end: { line: 0, character: 4 } },
+  range: { start: { line: 0, utf16Column: 0 }, end: { line: 0, utf16Column: 4 } },
   severity: 1,
   message,
+  source: null,
+  code: null,
+  tags: [],
+  relatedInformation: [],
 });
 
 function clientWithOpenDocument(filePath: string, version: number): LspClient {

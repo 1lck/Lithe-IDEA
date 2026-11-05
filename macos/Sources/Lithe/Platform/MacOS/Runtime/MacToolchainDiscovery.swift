@@ -81,7 +81,15 @@ struct MacToolchainDiscovery: Sendable {
     var core: @Sendable (String, [String: Any]) -> [String: Any]? = Self.callCore
     /// The output of a successful probe; failures are not cached and Core reports them.
     var probe: @Sendable (_ executable: String, _ arguments: [String]) -> String? = Self.runProbe
+    /// Consumer probes inherit the exact environment selected for this operation.
+    var consumerProbe: @Sendable (String, [String], [String: String]) -> String? = { executable, arguments, environment in
+        let result = MacProcessRunner().run(ProcessRequest(executablePath: executable, arguments: arguments,
+            environment: environment, timeoutMilliseconds: 5_000))
+        guard result.succeeded, result.output.utf8.count <= probeOutputLimit else { return nil }
+        return result.output
+    }
     /// Asks a plugin's provider and returns `{ id, response }`; `nil` leaves providers unqueried.
+    var logSink: (any LogSink)? = nil
     var queryProvider: (@Sendable (_ pluginID: String, _ providerID: String, _ params: ToolingJSONValue,
                                    _ timeout: TimeInterval) async throws -> ToolingJSONValue)? = nil
     var workspaceContext: @Sendable (_ workspace: URL, _ pluginID: String) async -> WorkspaceContext? = { _, _ in nil }
@@ -94,7 +102,7 @@ struct MacToolchainDiscovery: Sendable {
             guard let manifest = try? JSONSerialization.jsonObject(with: source.manifest) as? [String: Any],
                   manifest["toolDefinitions"] != nil || manifest["toolchainProviders"] != nil
             else { return nil }
-            return ["manifest": manifest, "verifiedOfficial": source.verifiedOfficial]
+            return ["manifest": manifest]
         }
         guard !plugins.isEmpty else { return result }
         let registry: [String: Any] = ["plugins": plugins]
@@ -179,7 +187,12 @@ struct MacToolchainDiscovery: Sendable {
             else { continue }
             jobs.append((pin.directory, input))
         }
-        let local = request.local.flatMap { try? JSONSerialization.jsonObject(with: $0) }
+        let local: Any?
+        do { local = try request.local.map { try JSONSerialization.jsonObject(with: $0) } }
+        catch {
+            logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "toolchain-local-decode"))
+            local = nil
+        }
         for (index, (directory, input)) in jobs.enumerated() {
             if Task.isCancelled { return result }
             let round = answers.rounds[directory]
@@ -271,7 +284,7 @@ struct MacToolchainDiscovery: Sendable {
 
     /// Native evidence for one tool: its scanned homes, the declared login-shell variables
     /// and the facts Core needs to check both.
-    private struct Input {
+    struct Input {
         let tool: String
         let arguments: [String]
         let installations: [[String: Any]]
@@ -285,7 +298,7 @@ struct MacToolchainDiscovery: Sendable {
         let locations: [String: String]
     }
 
-    private struct Target: Hashable {
+    struct Target: Hashable {
         let tool: String
         let executable: String
         let arguments: [String]
@@ -307,7 +320,7 @@ struct MacToolchainDiscovery: Sendable {
     }
 
     /// Executables Core checked but could not version without a probe.
-    private static func probeTargets(_ value: [String: Any]) -> [String] {
+    static func probeTargets(_ value: [String: Any]) -> [String] {
         let rows = (value["skipped"] as? [[String: Any]] ?? []) + (value["shell"] as? [[String: Any]] ?? [])
         var seen: Set<String> = []
         return rows.compactMap { row in
@@ -319,7 +332,7 @@ struct MacToolchainDiscovery: Sendable {
     }
 
     /// Runs probes a few at a time; once the time budget is spent, no new probe starts.
-    private func probe(_ targets: [Target]) async -> (outputs: [Target: String], expired: Bool) {
+    func probe(_ targets: [Target]) async -> (outputs: [Target: String], expired: Bool) {
         guard !targets.isEmpty else { return ([:], false) }
         let deadline = ContinuousClock.now + Self.probeTimeBudget
         let probe = self.probe
@@ -368,7 +381,7 @@ struct MacToolchainDiscovery: Sendable {
     }
 
     /// Expands scans under shared budgets and records each path's native metadata once.
-    private struct Scanner {
+    struct Scanner {
         let home: String
         let environment: [String: String]
         let workspace: String
@@ -385,7 +398,7 @@ struct MacToolchainDiscovery: Sendable {
             self.caseSensitive = caseSensitive
         }
 
-        mutating func input(tool: String, plan: [String: Any], reported: [[String: Any]], pinned: [String] = []) -> Input {
+        mutating func input(tool: String, plan: [String: Any], reported: [[String: Any]], pinned: [String] = [], additionalHomes: [String] = []) -> Input {
             var facts = FactSet(caseSensitive: caseSensitive)
             facts.add(fact(workspace))
             let layouts = (plan["executableLayouts"] as? [[String: Any]] ?? []).filter(MacToolchainDiscovery.applies)
@@ -419,7 +432,7 @@ struct MacToolchainDiscovery: Sendable {
                 variables[variable] = value
             }
             let reportedHomes = reported.compactMap { $0["home"] as? String }
-            for home in homes + reportedHomes + pinned.map(Self.normalized) + variables.values.map(Self.normalized) {
+            for home in homes + reportedHomes + pinned.map(Self.normalized) + variables.values.map(Self.normalized) + additionalHomes.map(Self.normalized) {
                 let found = fact(home)
                 facts.add(found)
                 let canonical = found["kind"] as? String == "directory" ? found["canonicalPath"] as? String : nil
@@ -588,7 +601,7 @@ struct MacToolchainDiscovery: Sendable {
         return remaining.isEmpty
     }
 
-    private static func realpath(_ path: String) -> String? {
+    static func realpath(_ path: String) -> String? {
         guard let resolved = Darwin.realpath(path, nil) else { return nil }
         defer { free(resolved) }
         return String(cString: resolved)

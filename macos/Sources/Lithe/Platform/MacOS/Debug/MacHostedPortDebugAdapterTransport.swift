@@ -35,10 +35,21 @@ final class MacHostedPortDebugAdapterTransport: DebugAdapterDrainingTransport {
         get { transport.onTermination }
         set { transport.onTermination = newValue }
     }
+    /// The server is up, its adapter's port was found and the socket connected.
+    var onConnected: (() -> Void)? {
+        get { transport.onConnected }
+        set { transport.onConnected = newValue }
+    }
+    var onFailure: ((DebugTransportFailureReason) -> Void)? {
+        get { transport.onFailure }
+        set { transport.onFailure = newValue }
+    }
 
     init(
         portResolver: @escaping PortResolver,
         core: any DebugTransportLifecycleCore,
+        logSink: (any LogSink)? = nil,
+        deadlineScheduler: (any DebugOperationDeadlineScheduling)? = nil,
         socketFactory: @escaping @MainActor (String, UInt16) -> any DebugAdapterSocketConnection = {
             NetworkDebugAdapterSocketConnection(host: $0, port: $1)
         }
@@ -48,7 +59,8 @@ final class MacHostedPortDebugAdapterTransport: DebugAdapterDrainingTransport {
                 let port = try await portResolver(root)
                 return DebugAdapterEndpoint(host: "127.0.0.1", port: Int(port))
             },
-            core: core,
+            core: core, logSink: logSink,
+            deadlineScheduler: deadlineScheduler,
             // A cold JDT/project import is endpoint discovery, not a TCP
             // connect. Keep it bounded without applying the direct-host budget;
             // the connect to the discovered port keeps the default short budget.

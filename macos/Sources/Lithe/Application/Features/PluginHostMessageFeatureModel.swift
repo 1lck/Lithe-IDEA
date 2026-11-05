@@ -37,6 +37,9 @@ struct PluginHostMessageEntry: Identifiable, Equatable, Sendable {
     let text: String
     let actions: [String]
     let workspaceGeneration: Int
+    /// Host-owned execution details, displayed in a selectable native viewport.
+    /// Public plugin messages cannot set this field.
+    var details: String? = nil
 }
 
 /// The plugin message surface of one window.

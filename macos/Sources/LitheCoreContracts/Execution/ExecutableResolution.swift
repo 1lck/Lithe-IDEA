@@ -10,12 +10,18 @@ package enum ExecutableCandidate: Equatable, Sendable {
     case runtime(String)
     /// Nil is deliberately unconfigured. Core rejects invalid stored values.
     case setting(id: String, path: String?)
+    case toolchain(id: String, root: String)
 }
 
 package struct ResolvedExecutableCandidate: Equatable, Sendable {
     package let url: URL
     package let executesProjectCode: Bool
     package let terminal: Bool
+    package let environment: [String: String]
+    package init(url: URL, executesProjectCode: Bool, terminal: Bool, environment: [String: String] = [:]) {
+        self.url = url; self.executesProjectCode = executesProjectCode; self.terminal = terminal
+        self.environment = environment
+    }
 }
 
 package enum ExecutableResolution: Equatable, Sendable {
@@ -32,11 +38,14 @@ package struct ExecutableCandidateResolver {
     package let isExecutable: (URL) -> Bool
     package let commands: (String) -> [URL]
     package let runtimes: (String) -> URL?
+    package let toolchains: (String, String) -> ExecutableResolution
 
     package init(fileExists: @escaping (URL) -> Bool, isExecutable: @escaping (URL) -> Bool,
-                 commands: @escaping (String) -> [URL], runtimes: @escaping (String) -> URL?) {
+                 commands: @escaping (String) -> [URL], runtimes: @escaping (String) -> URL?,
+                 toolchains: @escaping (String, String) -> ExecutableResolution = { _, _ in .terminalFailure(L10n.string("The selected toolchain is unavailable.")) }) {
         self.fileExists = fileExists; self.isExecutable = isExecutable
         self.commands = commands; self.runtimes = runtimes
+        self.toolchains = toolchains
     }
 
     package func resolve(_ candidate: ExecutableCandidate, workspaceURL: URL,
@@ -56,6 +65,7 @@ package struct ExecutableCandidateResolver {
             return found([URL(fileURLWithPath: base).appendingPathComponent(path).standardizedFileURL])
         case .command(let command): return found(commands(command))
         case .runtime(let id): return found(runtimes(id).map { [$0] } ?? [])
+        case .toolchain(let id, let root): return toolchains(id, root)
         case .setting(_, let path):
             guard let path, !path.isEmpty else { return .skip }
             guard path.hasPrefix("/"), path == path.trimmingCharacters(in: .whitespacesAndNewlines),

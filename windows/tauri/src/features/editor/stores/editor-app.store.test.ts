@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { toast } from "sonner";
 import * as native from "@/platform/tauri-core";
+import * as core from "@/core/lithe-core-client";
+import * as documentFiles from "@/platform/document-files";
+import * as lsp from "@/platform/lsp-core-adapter";
 import { saveActiveFileAs } from "@/features/keymaps/commands/file-command-actions";
 import { applyWorkspaceEdit } from "../lsp/workspace-edit";
 import { replaceAllInSources, replaceNextInSource } from "@/features/global-search/utils/source-replace";
@@ -130,20 +133,158 @@ describe("workspace-scoped editor actions", () => {
     });
   }
 
+  for (const scope of ["document", "range"] as const) {
+    test(`${scope} formatting catches an asynchronous Core edit rejection`, async () => {
+      const range = { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } };
+      const supported = spyOn(lsp, "isLspSemanticCommandSupported").mockReturnValue(true);
+      const request = spyOn(lsp, "invokeLsp").mockResolvedValue([{ range, newText: "new" }]);
+      const invoke = spyOn(native, "invoke").mockRejectedValue(new Error("invalidRange"));
+      try {
+        const client = LspClient.getInstance();
+        const result = scope === "document"
+          ? client.formatDocument("C:/fixture/a.txt", "old")
+          : client.formatRange("C:/fixture/a.txt", "old", range);
+        expect(await result).toBeNull();
+        expect(invoke).toHaveBeenCalledTimes(1);
+      } finally {
+        invoke.mockRestore();
+        request.mockRestore();
+        supported.mockRestore();
+      }
+    });
+  }
+
+  test("workspace edits await every Core validation before changing buffers", async () => {
+    const a = editorBuffer("a", "first", { path: "C:/fixture/a.txt", isVirtual: false });
+    const b = editorBuffer("b", "second", { path: "C:/fixture/b.txt", isVirtual: false });
+    setWorkspaceBuffers(WORKSPACE_A, [a, b], a.id);
+    workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_A, name: "Workspace A" }, "ready");
+    const failure = Object.assign(new Error("overlappingEdits"), { code: "invalid_request" });
+    const invoke = spyOn(native, "invoke").mockImplementation(async <T>(command: string, args?: unknown): Promise<T> => {
+      expect(command).toBe("lsp.applyTextEdits");
+      if ((args as { text?: string } | undefined)?.text === "second") throw failure;
+      return { text: "changed" } as T;
+    });
+    const edit = { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: "new" };
+    try {
+      await expect(applyWorkspaceEdit({ changes: {
+        "file:///C:/fixture/a.txt": [edit], "file:///C:/fixture/b.txt": [edit],
+      } })).rejects.toBe(failure);
+      expect(getEditorBuffer(WORKSPACE_A, a.id).content).toBe("first");
+      expect(getEditorBuffer(WORKSPACE_A, b.id).content).toBe("second");
+      expect(getEditorBuffer(WORKSPACE_A, a.id).isDirty).toBe(false);
+      expect(invoke).toHaveBeenCalledTimes(2);
+    } finally { invoke.mockRestore(); }
+  });
+
+  test("workspace edits store Core text rather than the pending request", async () => {
+    const a = editorBuffer("a", "中文😀\r\n", { path: "C:/fixture/a.txt", isVirtual: false });
+    setWorkspaceBuffers(WORKSPACE_A, [a], a.id);
+    workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_A, name: "Workspace A" }, "ready");
+    const invoke = spyOn(native, "invoke").mockResolvedValue({ text: "中文🚀\r\n" });
+    try {
+      expect(await applyWorkspaceEdit({ changes: { "file:///C:/fixture/a.txt": [{
+        range: { start: { line: 0, character: 2 }, end: { line: 0, character: 4 } }, newText: "🚀",
+      }] } })).toEqual({ editedFiles: 1 });
+      expect(getEditorBuffer(WORKSPACE_A, a.id).content).toBe("中文🚀\r\n");
+      expect(getEditorBuffer(WORKSPACE_A, a.id).isDirty).toBe(true);
+    } finally { invoke.mockRestore(); }
+  });
+
   test("unrelated loading tabs do not block replacement or lose later edits", async () => {
     const a = editorBuffer("a", "old name", { path: "C:/fixture/a.txt", isVirtual: false });
     const b = editorBuffer("b", "", { path: "C:/fixture/b.txt", isVirtual: false });
     b.loadState = "loading";
     setWorkspaceBuffers(WORKSPACE_A, [a, b], a.id);
     workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_A, name: "Workspace A" }, "ready");
-    expect(await replaceAllInSources([a.path], "old", "new", {
-      caseSensitive: true, wholeWord: false, useRegex: false,
-    })).toBe(1);
+    const invoke = spyOn(core, "executeCore").mockResolvedValue({ id: "test", ok: true, data: { text: "new name", count: 1 } });
+    try {
+      expect(await replaceAllInSources([a.path], "old", "new", {
+        caseSensitive: true, wholeWord: false, useRegex: false,
+      })).toBe(1);
+    } finally { invoke.mockRestore(); }
     const actions = useBufferStore.getStore(WORKSPACE_A).getState().actions;
     actions.replaceRestoredBufferContent(a.id, "stale content", "plaintext", undefined, undefined);
     expect(getEditorBuffer(WORKSPACE_A, a.id).content).toBe("new name");
     expect(getEditorBuffer(WORKSPACE_A, a.id).savedContent).toBe("old name");
     expect(getEditorBuffer(WORKSPACE_A, a.id).isDirty).toBe(true);
+  });
+
+  test("search replacement rejects a buffer changed while Core was planning", async () => {
+    const file = editorBuffer("a", "old", { path: "C:/fixture/a.txt", isVirtual: false });
+    setWorkspaceBuffers(WORKSPACE_A, [file], file.id);
+    workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_A, name: "Workspace A" }, "ready");
+    let release!: (value: core.CoreResponse<{ text: string; count: number }>) => void;
+    const planned = new Promise<core.CoreResponse<{ text: string; count: number }>>((resolve) => { release = resolve; });
+    const invoke = spyOn(core, "executeCore").mockReturnValue(planned);
+    const pending = replaceNextInSource({ filePath: file.path, line: 1, column: 1 }, "old", "new",
+      { caseSensitive: false, wholeWord: true, useRegex: false }, WORKSPACE_A);
+    try {
+      await Promise.resolve();
+      expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ command: "workspace.replaceText",
+        payload: expect.objectContaining({ text: "old", query: "old", replacement: "new", wholeWords: true }) }));
+      useBufferStore.getStore(WORKSPACE_A).getState().actions.updateBufferContent(file.id, "newer edit", true);
+      release({ id: "test", ok: true, data: { text: "new", count: 1 } });
+      await expect(pending).rejects.toThrow();
+      expect(getEditorBuffer(WORKSPACE_A, file.id).content).toBe("newer edit");
+    } finally {
+      release({ id: "test", ok: true, data: { text: "new", count: 1 } });
+      await pending.catch(() => {});
+      invoke.mockRestore();
+    }
+  });
+
+  test("search replacement targets the open buffer across Windows path spellings", async () => {
+    const file = editorBuffer("a", "old", { path: "C:\\Fixture\\A.txt", isVirtual: false, isDirty: true });
+    setWorkspaceBuffers(WORKSPACE_A, [file], file.id);
+    workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_A, name: "Workspace A" }, "ready");
+    const read = spyOn(documentFiles, "readDocumentFileDetails");
+    const invoke = spyOn(core, "executeCore").mockResolvedValue({ id: "test", ok: true, data: { text: "new", count: 1 } });
+    try {
+      expect(await replaceNextInSource({ filePath: "c:/fixture/a.TXT", line: 1, column: 1 }, "old", "new",
+        { caseSensitive: true, wholeWord: false, useRegex: false }, WORKSPACE_A)).toBe(true);
+      expect(getEditorBuffer(WORKSPACE_A, file.id).content).toBe("new");
+      expect(read).not.toHaveBeenCalled();
+    } finally { read.mockRestore(); invoke.mockRestore(); }
+  });
+
+  test("search replacement rejects a closed and reopened workspace", async () => {
+    const file = editorBuffer("a", "old", { path: "C:/fixture/a.txt", isVirtual: false });
+    setWorkspaceBuffers(WORKSPACE_A, [file], file.id);
+    workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_A, name: "Workspace A" }, "ready");
+    let release!: (value: core.CoreResponse<{ text: string; count: number }>) => void;
+    const planned = new Promise<core.CoreResponse<{ text: string; count: number }>>((resolve) => { release = resolve; });
+    const invoke = spyOn(core, "executeCore").mockReturnValue(planned);
+    const pending = replaceNextInSource({ filePath: file.path, line: 1, column: 1 }, "old", "new",
+      { caseSensitive: true, wholeWord: false, useRegex: false }, WORKSPACE_A);
+    try {
+      await Promise.resolve();
+      expect(invoke).toHaveBeenCalledTimes(1);
+      workspaceRuntimeRegistry.removeWorkspace(WORKSPACE_A);
+      workspaceRuntimeRegistry.ensureWorkspace({ id: WORKSPACE_A, name: "Reopened" }, "ready");
+      setWorkspaceBuffers(WORKSPACE_A, [file], file.id);
+      release({ id: "test", ok: true, data: { text: "new", count: 1 } });
+      await expect(pending).rejects.toThrow();
+      expect(getEditorBuffer(WORKSPACE_A, file.id).content).toBe("old");
+    } finally {
+      release({ id: "test", ok: true, data: { text: "new", count: 1 } });
+      await pending.catch(() => {});
+      invoke.mockRestore();
+    }
+  });
+
+  test.each(["C:/fixture/closed.txt", "\\\\server\\share\\closed.txt"])("search replacement checks captured disk identity for %s", async (path) => {
+    workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_A, name: "Workspace A" }, "ready");
+    const read = spyOn(documentFiles, "readDocumentFileDetails").mockResolvedValue({
+      content: "old", encoding: "UTF-16 LE with BOM", identity: "captured-bytes",
+    });
+    const save = spyOn(documentFiles, "saveDocumentFile").mockResolvedValue({ status: "conflict", content: "newer" });
+    const invoke = spyOn(core, "executeCore").mockResolvedValue({ id: "test", ok: true, data: { text: "new", count: 1 } });
+    try {
+      await expect(replaceNextInSource({ filePath: path, line: 1, column: 1 }, "old", "new",
+        { caseSensitive: true, wholeWord: false, useRegex: false }, WORKSPACE_A)).rejects.toThrow();
+      expect(save).toHaveBeenCalledWith(path, "new", "old", "UTF-16 LE with BOM", "UTF-16 LE with BOM", "captured-bytes");
+    } finally { read.mockRestore(); save.mockRestore(); invoke.mockRestore(); }
   });
 
   for (const loadState of ["unloaded", "loading", "error"] as const) {

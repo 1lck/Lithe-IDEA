@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "expected": { "providerNeutral": true, "preservesInputOrderOnTies": true },
+  "cases": [
+    {
+      "name": "edited copy beats generated when neither is preferred",
+      "request": {
+        "sourcePath": "src/App.java", "symbol": "demo.App", "preferredId": null,
+        "caseInsensitivePaths": false,
+        "candidates": [
+          {"id": "generated", "sourcePath": "src/App.java", "symbol": "demo.App", "generated": true, "disabled": false},
+          {"id": "local", "sourcePath": "src/App.java", "symbol": "demo.App", "generated": false, "disabled": false}
+        ]
+      },
+      "expected": "local"
+    },
+    {
+      "name": "preferred generated beats edited and disabled never wins",
+      "request": {
+        "sourcePath": "src/App.java", "symbol": "demo.App", "preferredId": "generated",
+        "caseInsensitivePaths": false,
+        "candidates": [
+          {"id": "disabled", "sourcePath": "src/App.java", "symbol": "demo.App", "generated": false, "disabled": true},
+          {"id": "local", "sourcePath": "src/App.java", "symbol": "demo.App", "generated": false, "disabled": false},
+          {"id": "generated", "sourcePath": "src/App.java", "symbol": "demo.App", "generated": true, "disabled": false}
+        ]
+      },
+      "expected": "generated"
+    },
+    {
+      "name": "Windows path identity ignores case and separator but symbol stays exact",
+      "request": {
+        "sourcePath": "src\\App.java", "symbol": "demo.App", "preferredId": null,
+        "caseInsensitivePaths": true,
+        "candidates": [
+          {"id": "wrong-symbol", "sourcePath": "SRC/App.java", "symbol": "demo.app", "generated": false, "disabled": false},
+          {"id": "matching", "sourcePath": "SRC/App.java", "symbol": "demo.App", "generated": true, "disabled": false}
+        ]
+      },
+      "expected": "matching"
+    },
+    {
+      "name": "macOS path identity remains case sensitive",
+      "request": {
+        "sourcePath": "src/App.java", "symbol": "demo.App", "preferredId": null,
+        "caseInsensitivePaths": false,
+        "candidates": [
+          {"id": "wrong-case", "sourcePath": "SRC/App.java", "symbol": "demo.App", "generated": false, "disabled": false}
+        ]
+      },
+      "expected": null
+    },
+    {
+      "name": "equal rank preserves the incoming order",
+      "request": {
+        "sourcePath": "src/App.java", "symbol": "demo.App", "preferredId": null,
+        "caseInsensitivePaths": false,
+        "candidates": [
+          {"id": "first", "sourcePath": "src/App.java", "symbol": "demo.App", "generated": false, "disabled": false},
+          {"id": "second", "sourcePath": "src/App.java", "symbol": "demo.App", "generated": false, "disabled": false}
+        ]
+      },
+      "expected": "first"
+    }
+  ]
+}

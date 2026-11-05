@@ -42,7 +42,7 @@ Java 的语言服务器 JDT LS（Eclipse 的 Java 语言服务器，提供补全
 - `launch.kind: "runtime"`：用运行时启动包内入口文件，不需要启动脚本。运行时有两种来源：插件自带（`packagedRuntime`，宿主只启动包内这一个文件），或由宿主发现并按 `minimumVersion` 检查版本。
 - 启动模板变量 `${pluginDir}`、`${stateDir}`、`${workspaceStateDir}`、`${arch}`，以及 `initializationOptions`。
 - `settings`：用户可调的选项（整数、枚举、布尔），在启动模板里写 `${setting:<id>}` 引用。Java Support 用它暴露 JDT LS 的最大堆内存和日志级别，决策见 [声明式插件设置](../feature/2026-10-14-declarative-plugin-settings.md)。
-- `hostIntegration`：`{ id, capabilities, resources }`。只有 `dev.lithe` 命名空间的插件可以声明，因为它让受信任的宿主代码去读插件的文件。
+- `hostIntegration`：`{ id, capabilities, resources }`。任何插件都可以声明，不再限于 `dev.lithe` 命名空间（最初只给官方命名空间，2026-11-05 放开）。放开的理由：集成虽然是宿主代码，但只读取声明它的插件自己包内的资源，并把它们交给该插件自己启动的语言服务器或 Java 子进程（扩展 bundle、Lombok agent、测试运行器、调试），没有给插件增加任何权限；普通插件经用户在安装确认窗口确认后，本来就能运行自带的服务器进程。宿主不认识的集成名仍以 `plugin.integration.unsupported` 拒绝。构建系统的 `hostIntegration`（目前只有 `maven`）是另一个声明，仍只给官方命名空间，规则见[构建系统插件契约](2026-10-17-build-system-plugin-contract.md)。
 - 两个 Core 命令：`plugins.declarative.languageServerLaunchPlan` 展开启动计划，`plugins.declarative.checkRuntimeVersion` 解析并比较运行时版本。
 
 API 1 的行为完全不变：已发布的 PHP、Go 包声明 API 1，其参数里的 `${...}` 仍按字面量传递。
@@ -70,6 +70,22 @@ JDK 也一样：`ProjectRuntimeService` 不再问“app 内置的 JDK 在哪”�
 插件身份与宿主集成必须同时传入 Core（#1523）：`StdioLanguageServerSession` 的插件启动入口携带 `hostIntegrationLaunch`、平台缓存目录、工作区指纹、Maven/Gradle 上下文，以及插件配置和 host services。不能因为存在 `pluginID` 就退回只传可执行文件和静态参数的入口，否则 JDT 会把 Equinox jar 当包装脚本，缺少 `-configuration`，随后退出并在发行目录写日志。继续复用 Core 的 `prepare_jdt_configuration_area`，从包内只读配置生成宿主缓存中的可写副本；没有新增资源目录或缓存所有者，也不改变应用签名和增量更新的发行基线。
 
 同一工作区的服务连续三次启动失败后，自动同步直接返回已有失败，直到显式停止/重启或切换工作区；进入 ready 后清零。这保留短暂故障后的重试，但阻止每次编辑器同步重新创建 JVM。这里选择有限尝试而非增加定时器和无限退避；代价是持续失败需要用户修复环境后重新启动服务。
+
+#### 原生日志属于宿主日志会话
+
+Java Support 使用 Equinox 的 `osgi.logfile` 把原生错误日志写入 `${logDir}/jdt.log`，
+宿主在启动前提供当前会话的可写目录，插件安装包和工作区索引不承担日志所有权。
+`eclipse.log.include.commandline=false` 避免运行参数进入原生文件，单段 1024 KiB、两个备份，
+把该日志限制在约 3 MiB；`eclipse.log.level=WARNING` 控制 Equinox 原生日志，JDT 的 `logLevel` 默认同为 WARNING。
+用户仍可明确调整既有日志级别，但原生文件不等同于 Core 脱敏后的结构化事件。
+
+依据是 Equinox `EclipseStarter.PROP_LOGFILE` 与 `EquinoxLogWriter` 的官方属性；
+不要把 Eclipse workspace 的 `.metadata` 缓存整个搬入日志目录，或复制源码和协议正文作为诊断。
+清单依赖已有 `${logDir}` 契约：当前支持的是能提供本机 `logDirectory` 的宿主；远程或缺少目录的宿主按契约拒绝，
+不偷偷回退到旧的工作区 `.metadata/.log`。直接 JVM 适配保留这些自定义 `-D` 参数且必须保持幂等。
+本轮没有变更既有 `log.protocol` 属性，也没有证据据此宣称协议正文已被关闭；
+详细 trace 仍遵循共享日志只接纳 message 摘要、不保存 verbose 载荷的既有边界。
+组件参数测试不能替代真实 JDT 启动、日志轮转和完整工作流验收。
 
 ### 4. 运行、测试、调试由插件声明后交还宿主
 
@@ -160,6 +176,10 @@ dev.lithe.plugin.java-support/
 ### 引入进程外插件协议，让插件自带逻辑
 
 能把 Java 的全部逻辑搬出宿主，也是 Maven 这类带业务逻辑的模块最终需要的形态。但它要先设计取消、超时、崩溃隔离和权限，而 JDT LS 的启动和资源归属用声明就能解决。两者不冲突，协议可以之后单独提案。
+
+### `hostIntegration` 继续只给官方命名空间
+
+最初的做法。它假定“集成运行受信任的宿主代码，所以只能让官方插件用”。2026-11-05 放弃：Java 插件改为普通插件（不再区分官方和普通插件），这条限制会让它的下载版被宿主拒绝；而且限制没有保护到东西，因为集成读取的路径都必须在声明它的插件包内，交给的也只是这个插件自己启动的进程，普通插件经用户确认安装后本来就能运行自带的服务器进程。放开后宿主仍只执行自己实现的集成，不认识的名字被拒绝，所以普通插件拿到的是“按名字启用一段宿主已有的逻辑”，不是执行任意代码的新途径。
 
 ## 后果
 

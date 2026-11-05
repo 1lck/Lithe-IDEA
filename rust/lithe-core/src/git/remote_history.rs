@@ -24,6 +24,8 @@ pub(super) struct RemoteHistory {
     output: VecDeque<u8>,
     stderr: Vec<u8>,
     exited: bool,
+    /// The host's exit code once this process ended; `Some(None)` means a signal.
+    exit_code: Option<Option<i32>>,
 }
 
 impl RemoteHistory {
@@ -44,6 +46,7 @@ impl RemoteHistory {
             output: VecDeque::new(),
             stderr: Vec::new(),
             exited: false,
+            exit_code: None,
         };
         let mut params = serde_json::to_value(params).expect("spawn parameters encode");
         params["processId"] = json!(id);
@@ -144,16 +147,14 @@ impl RemoteHistory {
                 }
                 methods::EVENT_PROCESS_EXIT => {
                     let exit: methods::ProcessExitEvent = event.decode().map_err(failure)?;
+                    if exit.process_id == self.id {
+                        self.exit_code = Some(exit.exit_code.filter(|_| exit.signal.is_none()));
+                    }
                     if exit.process_id != self.id
                         || exit.exit_code != Some(0)
                         || exit.signal.is_some()
                     {
-                        return Err(
-                            CoreError::new(ErrorCode::ProcessFailed, "Git history failed")
-                                .with_details(
-                                    String::from_utf8_lossy(&self.stderr).trim().to_owned(),
-                                ),
-                        );
+                        return Err(super::history::history_failure(&self.stderr));
                     }
                     self.exited = true;
                 }
@@ -165,6 +166,11 @@ impl RemoteHistory {
                 }
             }
         }
+    }
+
+    /// Exit code and stderr once the host reported this process's exit.
+    pub(super) fn exit(&self) -> Option<(Option<i32>, &[u8])> {
+        self.exit_code.map(|code| (code, self.stderr.as_slice()))
     }
 
     fn take_line(&mut self) -> Result<String, CoreError> {
@@ -182,11 +188,23 @@ impl Drop for RemoteHistory {
     fn drop(&mut self) {
         self.events.take();
         self.host.connection.session.unsubscribe("process", self.id);
-        let _ = self.host.connection.session.request_value(
+        if let Err(error) = self.host.connection.session.request_value(
             methods::PROCESS_KILL,
             json!({"processId": self.id, "force": true}),
             Duration::from_secs(2),
-        );
+        ) {
+            // A finished log process is already pruned by the host, which is the
+            // expected missing case. Drop owns other cleanup failures; WARN keeps
+            // the page result.
+            if !crate::diagnostics::core_events::remote_resource_already_gone(&error) {
+                crate::diagnostics::core_events::recovery_failed(
+                    "vcs.history.cleanup_failed",
+                    "remote-kill",
+                    &crate::diagnostics::core_events::client_failure_category(&error),
+                    "remote",
+                );
+            }
+        }
     }
 }
 

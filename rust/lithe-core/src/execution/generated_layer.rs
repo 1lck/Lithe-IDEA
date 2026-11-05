@@ -127,8 +127,8 @@ pub(crate) fn forget(root: &Path) {
         .remove(&key(root));
 }
 
-/// Records `document` for the next session. Failures are ignored: the cache
-/// only shortens the time before Java entries appear.
+/// Records `document` for the next session; cache failures retain the live result
+/// and report the degradation through the host logging handoff.
 pub(super) fn cache_document(
     cache_directory: &Path,
     root: &Path,
@@ -146,7 +146,17 @@ pub(super) fn cache_document(
     let written = fs::create_dir_all(parent)
         .and_then(|()| fs::write(&temporary, bytes))
         .and_then(|()| fs::rename(&temporary, &path));
-    if written.is_err() {
-        let _ = fs::remove_file(&temporary);
+    if let Err(error) = written {
+        // Cache persistence is optional; WARN explains a cold next session.
+        crate::diagnostics::core_events::recovery_failed(
+            "app.cache.write_failed",
+            "generated-cache",
+            &format!("{:?}", error.kind()),
+            "io",
+        );
+        // This boundary keeps the primary result; WARN exposes leftover staging.
+        let mut cleanup = crate::diagnostics::core_events::StorageCleanup::default();
+        cleanup.observe(fs::remove_file(&temporary));
+        cleanup.finish("generated-cache");
     }
 }

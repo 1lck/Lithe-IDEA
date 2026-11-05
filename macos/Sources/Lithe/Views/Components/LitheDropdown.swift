@@ -222,7 +222,8 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
                     items: items, at: menuPoint, appearance: appearance,
                     locale: environment.locale, opensUpward: opensUpward, anchored: true,
                     adjacentTo: opensToSide ? NSRect(x: window.frame.minX, y: rect.minY,
-                        width: window.frame.width, height: rect.height) : nil, parentWindow: window, trigger: anchor
+                        width: window.frame.width, height: rect.height) : nil, parentWindow: window, trigger: anchor,
+                    surface: .menu
                 ) { [weak self] in
                     guard let self else { return }
                     self.menuIsPresented = false

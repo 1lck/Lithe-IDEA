@@ -96,9 +96,8 @@ export function invoke<T>(
     agentEvents?: Channel<unknown>;
     /**
      * Returns the shared Core response unchanged instead of the compatibility
-     * shape `adaptCoreResult` builds. Byte-faithful consumers need it: the diff
-     * adapter re-parses `git.diff` patches for display and strips CR and
-     * end-of-file markers.
+     * shape `adaptCoreResult` builds. Byte-faithful consumers use this for
+     * the dedicated index-to-worktree rollback snapshot.
      */
     rawCoreResult?: boolean;
   },
@@ -123,8 +122,13 @@ export function invoke<T>(
     return tauriInvoke<T>(command, args, nativeOptions).catch(rejectAsError);
   }
 
-  if ((command.startsWith("git_") || command.startsWith("git.")) && command !== "git.consolePresentation") {
+  if ((command.startsWith("git_") || command.startsWith("git.")) && command !== "git.consolePresentation" && command !== "git.changelists" && command !== "git.repositoryColorAssignments" && command !== "git.classifyMetadataChanges") {
     const payload = { ...(args as Record<string, unknown> ?? {}) };
+    if (!rawCoreResult && ["git.diff", "git_diff_file", "git_commit_diff", "git_ref_diff",
+      "git_working_tree_ref_diff", "git_reference_worktree_diff", "git_stash_diff", "git_status_diff_stats"].includes(command)) {
+      payload.includeFileSections = true;
+      payload.omitFilePatch = true;
+    }
     const operationId = typeof payload.operationId === "string" ? payload.operationId : crypto.randomUUID();
     payload.operationId = operationId;
     const channel = new Channel<GitExecutionEvent>();

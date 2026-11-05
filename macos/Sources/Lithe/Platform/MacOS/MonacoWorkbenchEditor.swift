@@ -327,6 +327,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
     private var pluginActionRequests: [String: (id: UUID, task: Task<Void, Never>, deadline: Task<Void, Never>)] = [:]
     private var pluginActionExecutions: [UUID: (documentID: String, registration: PluginEditorActionRegistration, task: Task<Void, Never>)] = [:]
     private var pluginActionsSubscription: AnyCancellable?
+    private let pluginProviders = MonacoPluginEditorProviders()
     private var pluginLanguagesSubscription: AnyCancellable?
     private var lastPluginLanguages: PluginEditorLanguageSet?
     private var testOutcomeSubscription: AnyCancellable?
@@ -389,7 +390,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         view.navigationDelegate = self
         view.uiDelegate = WebMediaCaptureDenier.shared
         webView = view
-        loadingInterval = LitheSignpost.begin("monaco.webview.load")
+        loadingInterval = LitheSignpost.begin("monaco.webview.load", logSink: model?.services.logSink)
         view.load(URLRequest(url: URL(string: "lithe-editor://app/index.html")!))
         return view
     }
@@ -621,6 +622,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         subscriptions[id] = document.textDidChange.sink { [weak self, weak document] in
             guard let self, let document, self.currentDocument(id) === document, !self.applyingEdit else { return }
             self.cancelPluginActions(for: id)
+            self.pluginProviders.cancel(documentID: id, closing: false)
             let previous = self.revisions[id] ?? 0
             self.revisions[id] = previous + 1
             self.call("window.lithe.replace(payload)", arguments: ["payload": ["id": id, "text": document.text, "previousRevision": previous, "revision": previous + 1]])
@@ -729,7 +731,8 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         let identity = service.map(ObjectIdentifier.init)
         guard identity != testServiceIdentity else { return }
         testServiceIdentity = identity
-        testOutcomeSubscription = service?.$testOutcomes
+        testOutcomeSubscription = service?.$testOutcomesByProviderID
+            .map { $0["java"] ?? [] }
             .removeDuplicates()
             .dropFirst()
             .receive(on: DispatchQueue.main)
@@ -756,10 +759,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         lastPluginLanguages = set
         call("window.lithe.setPluginLanguages(payload)", arguments: ["payload": set.editorPayload]) { result in
             if case .success(let value) = result, let failed = (value as? [String: Any])?["failed"] as? [[String: Any]] {
-                for failure in failed {
-                    NSLog("Lithe plugin grammar failed in the editor: %@ %@",
-                          failure["id"] as? String ?? "-", failure["message"] as? String ?? "-")
-                }
+                set.recordGrammarFailures(failed, sink: self.model?.services.logSink)
             }
         }
     }
@@ -778,6 +778,19 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         }
     }
 
+    /// Provider registrations are per window; whenever they change the page
+    /// drops what it holds and asks again.
+    private func observePluginProviders(model: AppModel) {
+        pluginProviders.observe(model: model) { [weak self] in
+            guard let self, self.ready, !self.failed else { return }
+            self.call("window.lithe.refreshPluginEditorProviders()") { result in
+                if case .failure(let error) = result {
+                    self.model?.services.logSink?.emit(PluginsEditorRefreshFailed(error: error))
+                }
+            }
+        }
+    }
+
     private func observePluginActions(model: AppModel) {
         guard pluginActionsSubscription == nil, let service = model.services.pluginEditorActions else { return }
         pluginActionsSubscription = service.changes.receive(on: DispatchQueue.main).sink { [weak self, weak service] in
@@ -791,7 +804,8 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             if self.ready, !self.failed {
                 self.call("window.lithe.refreshPluginEditorActions()") { result in
                     if case .failure(let error) = result {
-                        NSLog("Lithe plugin editor action refresh failed: %@", error.localizedDescription)
+                        // The refresh spans all plugins; report the owning host operation.
+                        self.model?.services.logSink?.emit(PluginsEditorRefreshFailed(error: error))
                     }
                 }
             }
@@ -824,7 +838,9 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             gitFeatureIdentity = identity
             gitSubscription = nil
             if let feature {
-                gitSubscription = feature.$gitLineChangeMarkers.combineLatest(feature.$gitBlameLines).receive(on: DispatchQueue.main)
+                gitSubscription = feature.$gitLineChangeMarkers
+                    .combineLatest(feature.$gitBlameLines, feature.$availableRepositoryRoots, feature.$gitRepositoryRoot)
+                    .receive(on: DispatchQueue.main)
                 .sink { [weak self, weak model] _ in
                     guard let self, let model else { return }
                     self.refreshGitState(model: model)
@@ -915,6 +931,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         // Before the document: its file may be of a plugin language.
         observePluginLanguages(model: model)
         observePluginActions(model: model)
+        observePluginProviders(model: model)
         let id = document.id.uuidString
         let groupDocuments: [EditorDocument]
         if let scopedDocumentID {
@@ -939,6 +956,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             javaRunMarkerLists[oldID] = nil
             javaRunMarkerRequests[oldID] = nil
             cancelPluginActions(for: oldID, closing: true)
+            pluginProviders.cancel(documentID: oldID, closing: true)
             lastGitStates[oldID] = nil
             gitLoads.removeValue(forKey: oldID)?.cancel()
             blameLoads.removeValue(forKey: oldID)?.cancel()
@@ -960,7 +978,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         }
         if activeIDs[surface] != id {
             activeIDs[surface] = id
-            let interval = LitheSignpost.begin("monaco.document.activate")
+            let interval = LitheSignpost.begin("monaco.document.activate", logSink: model.services.logSink)
             var payload: [String: Any] = ["id": id,
                 "revision": revisions[id] ?? 0, "filename": document.url.lastPathComponent,
                 "locationRevision": document.locationRevision, "readonly": self.isReadOnly(document), "focus": !isReadOnlyPreview && surface == "primary" && (scopedDocumentID == nil || isActiveDocument(document.id, model: model)),
@@ -1050,15 +1068,25 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         }
     }
 
+    static func completeFreezeLog(_ span: inout EditorSyncFreezeSpan, matches: Bool,
+        barrierDrained: Bool, browserRevision: Int, inputPasses: Int, modelVersion: Int,
+        nativeRevision: Int, nativeLength: Int, pendingEdits: Int, snapshotRevision: Int?, snapshotLength: Int?) {
+        if matches {
+            span.finish(barrierDrained: barrierDrained, browserRevision: Int64(browserRevision), inputPasses: Int64(inputPasses), modelVersion: Int64(modelVersion), nativeRevision: Int64(nativeRevision), nativeUtf16Length: Int64(nativeLength), pendingEdits: Int64(pendingEdits), snapshotRevision: snapshotRevision.map(Int64.init), snapshotUtf16Length: snapshotLength.map(Int64.init), status: "matched")
+        } else {
+            span.fail(EditorDocument.DocumentError.editorNotSynchronized, barrierDrained: barrierDrained, browserRevision: Int64(browserRevision), inputPasses: Int64(inputPasses), modelVersion: Int64(modelVersion), nativeRevision: Int64(nativeRevision), nativeUtf16Length: Int64(nativeLength), pendingEdits: Int64(pendingEdits), snapshotRevision: snapshotRevision.map(Int64.init), snapshotUtf16Length: snapshotLength.map(Int64.init), status: "mismatch")
+        }
+    }
+
     private func synchronize(id: String, completion: @escaping (Result<Void, Error>) -> Void) {
         guard synchronizingIDs.insert(id).inserted else {
             completion(.failure(EditorDocument.DocumentError.editorNotSynchronized)); return
         }
         let operationID = UUID().uuidString
-        let started = ProcessInfo.processInfo.systemUptime
         let nativeRevision = revisions[id] ?? -1
-        let nativeLength = documents[id]?.text.utf16.count ?? -1
-        NSLog("[monaco.sync] phase=freeze-request operationID=\(operationID) documentID=\(id) revision=\(nativeRevision) utf16Length=\(nativeLength)")
+        guard let documentID = LogSegment(id.lowercased()) else { completion(.failure(EditorDocument.DocumentError.editorNotSynchronized)); return }
+        let sink = model?.services.logSink
+        var span = EditorSyncFreezeSpan.begin(document: documentID, revision: Int64(nativeRevision), operationID: operationID, emit: { sink?.emit($0) })
         call("window.lithe.freeze(id, operationID)", arguments: ["id": id, "operationID": operationID]) { [weak self] result in
             guard let self else { completion(.failure(EditorDocument.DocumentError.editorNotSynchronized)); return }
             let synchronized: Result<Void, Error>
@@ -1083,27 +1111,26 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 let nativeAdvanced = (snapshotRevision ?? Int.max) < currentRevision
                 let matches = !self.failed && snapshotOperation == operationID && barrierDrained &&
                     (exactSnapshot || nativeAdvanced)
-                let durationMs = (ProcessInfo.processInfo.systemUptime - started) * 1_000
-                NSLog("[monaco.sync] phase=freeze-result operationID=\(operationID) documentID=\(id) status=\(matches ? "matched" : "mismatch") durationMs=\(String(format: "%.1f", durationMs)) snapshotRevision=\(snapshotRevision ?? -1) browserRevision=\(browserRevision) nativeRevision=\(currentRevision) modelVersion=\(modelVersion) barrierDrained=\(barrierDrained) pendingEdits=\(pendingEdits) inputPasses=\(inputPasses) snapshotUTF16Length=\(snapshotText?.utf16.count ?? -1) nativeUTF16Length=\(currentLength)")
+                Self.completeFreezeLog(&span, matches: matches, barrierDrained: barrierDrained,
+                    browserRevision: browserRevision, inputPasses: inputPasses, modelVersion: modelVersion,
+                    nativeRevision: currentRevision, nativeLength: currentLength, pendingEdits: pendingEdits,
+                    snapshotRevision: snapshotRevision, snapshotLength: snapshotText?.utf16.count)
                 if matches { synchronized = .success(()) }
                 else {
                     synchronized = .failure(EditorDocument.DocumentError.editorNotSynchronized)
                 }
             case .failure(let error):
-                let nsError = error as NSError
-                let durationMs = (ProcessInfo.processInfo.systemUptime - started) * 1_000
-                NSLog("[monaco.sync] phase=freeze-result operationID=\(operationID) documentID=\(id) status=failed durationMs=\(String(format: "%.1f", durationMs)) domain=\(nsError.domain) code=\(nsError.code)")
+                span.fail(error)
                 synchronized = .failure(error)
             }
             self.call("window.lithe.unlock(id, operationID)", arguments: ["id": id, "operationID": operationID]) { [weak self] unlockResult in
                 guard let self else { completion(.failure(EditorDocument.DocumentError.editorNotSynchronized)); return }
                 self.synchronizingIDs.remove(id)
                 if case .failure(let error) = unlockResult {
-                    let nsError = error as NSError
-                    NSLog("[monaco.sync] phase=unlock operationID=\(operationID) documentID=\(id) status=failed domain=\(nsError.domain) code=\(nsError.code)")
+                    sink?.emit(EditorSyncUnlockFailed(document: documentID, error: error, operationID: operationID))
                     completion(.failure(error))
                 } else {
-                    NSLog("[monaco.sync] phase=unlock operationID=\(operationID) documentID=\(id) status=success")
+                    sink?.emit(EditorSyncUnlockFinished(document: documentID, operationID: operationID))
                     completion(synchronized)
                 }
             }
@@ -1147,7 +1174,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
     func allowsMessage(_ type: String) -> Bool {
         !isReadOnlyPreview || !["format", "codeActions", "resolveCodeAction", "executeCodeAction",
                                "rename", "resolveCompletion", "javaRunMarkerAction", "pluginEditorAction",
-                               "setBlameVisibility"].contains(type)
+                               "pluginEditorProviderCommand", "setBlameVisibility"].contains(type)
     }
 
     func receive(_ message: WKScriptMessage, reply: @escaping (Any?, String?) -> Void) {
@@ -1180,7 +1207,8 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                JSONSerialization.isValidJSONObject(metrics),
                let data = try? JSONSerialization.data(withJSONObject: metrics, options: [.sortedKeys]),
                let json = String(data: data, encoding: .utf8) {
-                FileHandle.standardError.write(Data("LITHE_MONACO_OPEN \(json)\n".utf8))
+                model?.services.logSink?.emit(PerfEditorOpenMeasured(attach: (metrics["attachMs"] as? Double).map { .nanoseconds(Int64($0 * 1_000_000)) }, firstFrame: (metrics["firstAnimationFrameMs"] as? Double).map { .nanoseconds(Int64($0 * 1_000_000)) }, frames: (metrics["frames"] as? Int).map(Int64.init), lines: (metrics["lines"] as? Int).map(Int64.init), maxFrameGap: (metrics["maxFrameGapMs"] as? Double).map { .nanoseconds(Int64($0 * 1_000_000)) }, model: (metrics["modelMs"] as? Double).map { .nanoseconds(Int64($0 * 1_000_000)) }, reused: metrics["reused"] as? Bool, settled: (metrics["settledMs"] as? Double).map { .nanoseconds(Int64($0 * 1_000_000)) }, utf16Length: (metrics["utf16Length"] as? Int).map(Int64.init)))
+                FileHandle.standardOutput.write(Data("LITHE_MONACO_OPEN \(json)\n".utf8))
             }
             reply(["ok": true], nil); return
         }
@@ -1305,7 +1333,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                   let workspace = model.pluginWebWorkspaceContext,
                   model.services.pluginWorkspaceContexts?.contexts.contains(where: { $0.reference == workspace && $0.authority == .local }) == true,
                   let service = model.services.pluginEditorActions, let backends = model.pluginWebBackends,
-                  document.text.utf8.count <= 128 * 1024 else { reply(["actions": []], nil); return }
+                  document.text.utf8.count <= service.host.actionSourceBytes else { reply(["actions": []], nil); return }
             cancelPluginActions(for: id)
             let registrations = service.registrations(context: workspace, filename: document.url.lastPathComponent)
             let text = document.text, version = document.contentVersion, requestID = UUID(), batch = UUID().uuidString
@@ -1334,27 +1362,31 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                             ofPlugin: registration.pluginID, context: workspace, timeout: remaining, progress: { _ in })
                         try Task.checkCancellation()
                         let actions = try service.decode(result, text: text)
-                        guard service.contains(registration), actions.allSatisfy({ service.contains(registration, functionID: $0.invoke.functionID) }) else { continue }
+                        guard service.contains(registration),
+                              actions.allSatisfy({ action in action.functionIDs.allSatisfy { service.contains(registration, functionID: $0) } })
+                        else { continue }
                         for action in actions { items.append((UUID().uuidString, registration, action)) }
                         guard items.count <= 1000 else { items = []; break }
                     } catch {
                         if Task.isCancelled { break }
-                        NSLog("Lithe plugin editor actions failed [%@]: %@", registration.pluginID, error.localizedDescription)
+                        if let plugin = LogSegment(registration.pluginID) { self?.model?.services.logSink?.emit(PluginsEditorActionsFailed(error: error, plugin: plugin)) }
                     }
                 }
                 guard let self, let document, !Task.isCancelled, self.isCurrent(context), document.contentVersion == version,
                       self.pluginActionRequests[id]?.id == requestID,
-                      items.allSatisfy({ service.contains($0.registration, functionID: $0.action.invoke.functionID) }) else {
+                      items.allSatisfy({ item in item.action.functionIDs.allSatisfy { service.contains(item.registration, functionID: $0) } }) else {
                     reply(["cancelled": true], nil); return
                 }
                 self.pluginActionRequests.removeValue(forKey: id)?.deadline.cancel()
                 self.pluginActionLists[id] = EditorActionList(context: context, contentVersion: version, batch: batch, actions: items)
                 reply(["batch": batch, "actions": items.map { item in
                     ["id": item.key, "line": item.action.range.start.line, "endLine": item.action.range.end.line,
-                     "title": item.action.title, "icon": item.action.icon] as [String: Any]
+                     "title": item.action.title, "icon": item.action.icon,
+                     "alternatives": item.action.alternatives.map { ["id": $0.id, "title": $0.title, "icon": $0.icon] }] as [String: Any]
                 }], nil)
             }
             let deadline = Task { @MainActor [weak self] in
+                // log-exempt: 用户取消：调用方取消采样或超时等待时结束任务
                 do { try await Task.sleep(for: PluginEditorActionCollectionBudget.maximum) } catch { return }
                 guard self?.pluginActionRequests[id]?.id == requestID else { return }
                 self?.cancelPluginActions(for: id)
@@ -1367,34 +1399,63 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                   isCurrent(list.context), list.contentVersion == document.contentVersion,
                   let key = body["action"] as? String, let item = list.actions.first(where: { $0.key == key }),
                   let service = model.services.pluginEditorActions,
-                  service.contains(item.registration, functionID: item.action.invoke.functionID),
+                  let chosen = Self.chosenInvocation(of: item.action, alternativeID: body["alternative"]),
+                  service.contains(item.registration, functionID: chosen.invoke.functionID),
                   model.pluginWebWorkspaceContext == item.registration.context,
                   let backends = model.pluginWebBackends,
                   pluginActionExecutions.count < 16 else { reply(["cancelled": true], nil); return }
             model.editorDidFocus(document)
             let operation = UUID()
-            let params: ToolingJSONValue = .object([
+            var members: [String: ToolingJSONValue] = [
                 "documentID": .string(id), "expectedVersion": .integer(Int(clamping: list.contentVersion)),
-                "actionID": .string(item.action.id), "data": item.action.invoke.params,
-            ])
+                "actionID": .string(item.action.id), "data": chosen.invoke.params,
+            ]
+            if let alternativeID = chosen.alternativeID { members["alternativeID"] = .string(alternativeID) }
+            let params = ToolingJSONValue.object(members)
             let task = Task { @MainActor [weak self] in
                 defer { self?.pluginActionExecutions[operation] = nil }
                 do {
-                    _ = try await backends.invokePluginFunction(item.action.invoke.functionID, params: params,
+                    let result = try await backends.invokePluginFunction(chosen.invoke.functionID, params: params,
                         ofPlugin: item.registration.pluginID, context: item.registration.context,
                         timeout: .seconds(60), progress: { _ in })
                     try Task.checkCancellation()
+                    // The plugin may point at places the click led to; showing them is the host's job.
+                    if let reveal = try service.decodeReveal(result) { self?.model?.revealPluginLocations(reveal) }
                     reply(["ok": true], nil)
                 } catch {
                     if Task.isCancelled { reply(["cancelled": true], nil) }
                     else {
-                        NSLog("Lithe plugin editor action failed [%@]: %@", item.registration.pluginID, error.localizedDescription)
-                        self?.model?.showNotification("The plugin host request could not be completed.")
+                        var reference: LogRecordReference?
+                        if let plugin = LogSegment(item.registration.pluginID) {
+                            let event = PluginsEditorActionFailed(error: error, plugin: plugin, operationID: operation.uuidString)
+                            self?.model?.services.logSink?.emit(event)
+                            reference = event.reference
+                        }
+                        self?.model?.showNotification(
+                            L10n.string("The plugin host request could not be completed."), logReference: reference)
                         reply(["ok": false], nil)
                     }
                 }
             }
             pluginActionExecutions[operation] = (id, item.registration, task)
+        case "pluginEditorProviders":
+            guard let model, !failed, !isReadOnlyPreview, body["revision"] as? Int == revisions[id] else {
+                reply(["cancelled": true], nil); return
+            }
+            pluginProviders.answer(body: body, document: document, documentID: id, model: model,
+                isCurrent: { [weak self] in self?.isCurrent(context) == true }, reply: reply)
+        case "pluginEditorProviderCommand":
+            guard let model, !failed, !isReadOnlyPreview, !self.isReadOnly(document), body["revision"] as? Int == revisions[id] else {
+                reply(["cancelled": true], nil); return
+            }
+            pluginProviders.run(body: body, document: document, documentID: id, model: model,
+                isCurrent: { [weak self] in self?.isCurrent(context) == true }, reply: reply)
+        case "pluginEditorProviderLink":
+            guard let model, !failed, !isReadOnlyPreview, body["revision"] as? Int == revisions[id] else {
+                reply(["cancelled": true], nil); return
+            }
+            pluginProviders.open(body: body, document: document, documentID: id, model: model,
+                isCurrent: { [weak self] in self?.isCurrent(context) == true }, reply: reply)
         case "javaNavigationAction":
             guard let model, !failed, let revision = body["revision"] as? Int, revision == revisions[id],
                   let list = javaNavigationLists[id], isCurrent(list.context), list.revision == revision, list.url == document.url,
@@ -1526,12 +1587,13 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                     model.showNotification("Saved image to \(result.relativePath)")
                     reply(["text": text], nil)
                 } catch {
-                    model.showNotification("Could not paste image: \(error.localizedDescription)")
+                    model.showNotification("Could not paste image: \(error.localizedDescription)", logReference: model.notificationFailure(error, operation: "image_paste"))
                     reply(["cancelled": true], nil)
                 }
             }
         case "edit":
             cancelPluginActions(for: id)
+            pluginProviders.cancel(documentID: id, closing: false)
             guard !self.isReadOnly(document), !failed, body["baseRevision"] as? Int == revisions[id],
                   let changes = body["changes"] as? [[String: Any]] else { reply(nil, "Stale editor edit"); return }
             var bound = (document.text as NSString).length
@@ -1539,7 +1601,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             if synchronizingIDs.contains(id) {
                 let insertedLength = ordered.reduce(0) { $0 + (($1["text"] as? String)?.utf16.count ?? 0) }
                 let replacedLength = ordered.reduce(0) { $0 + ($1["length"] as? Int ?? 0) }
-                NSLog("[monaco.sync] phase=edit-during-freeze documentID=\(id) baseRevision=\(body["baseRevision"] as? Int ?? -1) nativeRevision=\(revisions[id] ?? -1) changeCount=\(ordered.count) insertedUTF16Length=\(insertedLength) replacedUTF16Length=\(replacedLength)")
+                if let documentID = LogSegment(id.lowercased()) { model?.services.logSink?.emit(EditorSyncEditReceived(baseRevision: Int64(body["baseRevision"] as? Int ?? -1), changeCount: Int64(ordered.count), document: documentID, insertedUtf16Length: Int64(insertedLength), nativeRevision: Int64(revisions[id] ?? -1), replacedUtf16Length: Int64(replacedLength))) }
             }
             for change in ordered {
                 guard let offset = change["offset"] as? Int, let length = change["length"] as? Int,
@@ -1572,6 +1634,12 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                let index = body["index"] as? Int, let count = body["count"] as? Int,
                count >= 0, (count == 0 ? index == 0 : (0..<count).contains(index)) {
                 model.updateFindState(currentIndex: index, count: count)
+            }
+            reply(["ok": true], nil)
+        case "indentation":
+            if !isReadOnlyPreview, let size = body["tabSize"] as? Int,
+               let spaces = body["insertSpaces"] as? Bool {
+                document.updateIndentation(tabSize: size, insertSpaces: spaces)
             }
             reply(["ok": true], nil)
         case "focus", "cursor":
@@ -1641,7 +1709,8 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                     do {
                         let value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(tokens))
                         if LithePerformanceBaseline.isEnabled {
-                            FileHandle.standardError.write(Data("LITHE_MONACO_SEMANTIC tokens=\(tokens.tokens.count) revision=\(revision ?? -1)\n".utf8))
+                            model.services.logSink?.emit(PerfEditorSemanticMeasured(revision: revision.map(Int64.init), tokens: Int64(tokens.tokens.count)))
+                            FileHandle.standardOutput.write(Data("LITHE_MONACO_SEMANTIC tokens=\(tokens.tokens.count) revision=\(revision ?? -1)\n".utf8))
                         }
                         reply(value, nil)
                     } catch { reply(nil, error.localizedDescription) }
@@ -1821,7 +1890,9 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 reply(["available": false], nil); return
             }
             let revision = revisions[id]
-            model.requestDefinitionAvailability(for: document, line: line, utf16Column: column) { [weak self] result in
+            model.requestDefinitionAvailability(
+                for: document, line: line, utf16Column: column, askPlugins: !isReadOnlyPreview
+            ) { [weak self] result in
                 guard let self, self.isCurrent(context), self.revisions[id] == revision else {
                     reply(["available": false], nil); return
                 }
@@ -1836,10 +1907,21 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 reply(["cancelled": true], nil); return
             }
             model.editorDidFocus(document)
-            model.navigateToSymbol(line: line, utf16Column: column, in: document.url)
+            model.navigateToSymbol(line: line, utf16Column: column, in: document.url, askPlugins: !isReadOnlyPreview)
             reply(["ok": true], nil)
         default: reply(nil, "Unknown editor message")
         }
+    }
+
+    /// The invocation a click on `action` calls: its own, or the alternative
+    /// the page named. nil when the page named an alternative the action lacks.
+    private static func chosenInvocation(
+        of action: PluginEditorAction, alternativeID: Any?
+    ) -> (invoke: PluginEditorAction.Invocation, alternativeID: String?)? {
+        guard let alternativeID, !(alternativeID is NSNull) else { return (action.invoke, nil) }
+        guard let id = alternativeID as? String,
+              let alternative = action.alternatives.first(where: { $0.id == id }) else { return nil }
+        return (alternative.invoke, id)
     }
 
     private static func completionPayload(_ item: LanguageServerCompletionItem) -> [String: Any] {
@@ -1862,8 +1944,9 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         pluginActionRequests.values.forEach { $0.deadline.cancel(); $0.task.cancel() }
         pluginActionExecutions.values.forEach { $0.task.cancel() }
         pluginActionRequests.removeAll(); pluginActionExecutions.removeAll(); pluginActionLists.removeAll()
+        pluginProviders.cancelAll()
         contextMenu.dismiss()
-        model?.showNotification("Editor: \(message)")
+        model?.showNotification("Editor: \(message)", logReference: model?.notificationRejection(operation: "editor", reason: "web_content_failed"))
     }
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         decisionHandler(action.request.url?.absoluteString == "lithe-editor://app/index.html" ? .allow : .cancel)
@@ -1874,6 +1957,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
     isolated deinit {
         pluginActionRequests.values.forEach { $0.deadline.cancel(); $0.task.cancel() }
         pluginActionExecutions.values.forEach { $0.task.cancel() }
+        pluginProviders.cancelAll()
         contextMenu.dismiss()
         gitLoads.values.forEach { $0.cancel() }
         blameLoads.values.forEach { $0.cancel() }

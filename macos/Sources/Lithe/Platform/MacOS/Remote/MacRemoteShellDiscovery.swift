@@ -40,6 +40,7 @@ enum MacRemoteShellDiscovery {
                 try check()
                 let entries: [RemoteDirectoryEntry]
                 do { entries = try host.runtimeDirectory(directory, session: session) }
+                // log-exempt: 预期的缺失：探测的可选文件或目录不存在，按未发现处理
                 catch let error as RustCoreBridge.CoreCallError where error.code == "workspace_not_found" { continue }
                 guard entries.count <= 16_384 else { throw DiscoveryError.failed }
                 let names = Set(candidates.filter { URL(fileURLWithPath: $0).deletingLastPathComponent().path == directory }

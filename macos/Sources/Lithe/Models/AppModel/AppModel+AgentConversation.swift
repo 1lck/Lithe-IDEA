@@ -41,7 +41,7 @@ extension AppModel {
             }
         } catch {
             if !error.isCancellation {
-                showNotification(L10n.string(String.LocalizationValue(error.localizedDescription)))
+                showNotification(L10n.string(String.LocalizationValue(error.localizedDescription)), logReference: notificationFailure(error, operation: "agent_conversation"))
             }
         }
     }
@@ -208,10 +208,16 @@ extension AppModel {
         let directory = storage.cacheDirectory().appendingPathComponent("AgentPastedImages", isDirectory: true)
         try storage.createDirectory(at: directory, withIntermediateDirectories: true)
         let cutoff = Date().addingTimeInterval(-7 * 24 * 3600)
+        var cleanupCount: Int64 = 0
+        var cleanupError: (any Error)?
         for file in storage.listDirectory(at: directory)
         where (storage.metadata(for: file)?.modificationDate ?? .distantFuture) < cutoff {
-            try? storage.removeItem(at: file)
+            do { try storage.removeItem(at: file) }
+            catch where (error as NSError).domain == NSCocoaErrorDomain && [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains((error as NSError).code) {
+                // log-exempt: 预期的缺失：过期图片已由其他清理移除
+            } catch { cleanupCount += 1; cleanupError = error }
         }
+        if let cleanupError { services.logSink?.emit(AgentImagesCleanupFailed(count: cleanupCount, error: cleanupError)) }
         let url = directory.appendingPathComponent(AgentPastedImage.fileName(), isDirectory: false)
         try storage.writeData(png, to: url, options: .atomic)
         return url
@@ -236,7 +242,7 @@ extension AppModel {
             try await services.moduleRuntime.setEnabled(enabled, for: .agentConversation)
             objectWillChange.send()
         } catch {
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "agent_conversation"))
             return
         }
         if enabled, workbenchFeature.isVisible(.agent) {
@@ -266,7 +272,7 @@ extension AppModel {
                 objectWillChange.send()
                 connectAgentConversation()
             } catch {
-                if !error.isCancellation { showNotification(error.localizedDescription) }
+                if !error.isCancellation { showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "agent_conversation")) }
             }
         }
     }
@@ -302,7 +308,7 @@ extension AppModel {
         let commitProviderID = settings.commitMessageAI.activeProviderID
         let provider = settings.importAIConfiguration(configuration)
         settings.commitMessageAI.activeProviderID = commitProviderID
-        try? services.secureStore.delete(key: provider.apiKeyIdentifier)
+        do { try services.secureStore.delete(key: provider.apiKeyIdentifier) } catch { services.logSink?.emit(AppCredentialsCleanupFailed(error: error)) }
         detectedAIConfigurations.removeAll { $0.source == source }
         detectedAIConfigurations.append(configuration)
         settings.setAgentProvider(provider.id, for: agentID, name: name)

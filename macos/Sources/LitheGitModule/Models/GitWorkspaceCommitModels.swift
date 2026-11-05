@@ -16,6 +16,12 @@ package struct GitWorkspaceCommitRelation: Codable, Equatable, Sendable {
 package struct GitWorkspaceCommitPathScope: Codable, Equatable, Sendable {
     package let include: Bool
     package let paths: [String: [String]]
+    package var membership: GitChangelistMembershipScope? = nil
+}
+
+package struct GitChangelistMembershipScope: Codable, Equatable, Sendable {
+    package let activeId: String
+    package let assignments: [String: [String: String]]
 }
 
 /// A destination the user confirmed for a branch whose upstream has a different
@@ -215,4 +221,28 @@ package struct GitSubmoduleCommitPlan: Identifiable, Sendable {
             return GitRepositorySubmoduleRelation(parent: parent, child: child, path: relation.path)
         }
     }
+}
+
+/// Explicit selected identities for Core's real-index preparation.
+package struct GitCommitSelectionRequest: Encodable, Sendable {
+    package struct Repository: Encodable, Sendable {
+        package struct Selection: Encodable, Sendable {
+            let path: String
+            let originalPath: String?
+            let status: String
+            init(_ change: GitChange) {
+                path = change.path
+                originalPath = change.originalPath
+                status = String(change.indexStatus) + String(change.workTreeStatus)
+            }
+        }
+        let root: String
+        let selected: [Selection]
+        package init(root: URL, selected: [GitChange]) {
+            self.root = root.standardizedFileURL.path
+            self.selected = selected.map(Selection.init)
+        }
+    }
+    package let repositories: [Repository]
+    package init(repositories: [Repository]) { self.repositories = repositories }
 }

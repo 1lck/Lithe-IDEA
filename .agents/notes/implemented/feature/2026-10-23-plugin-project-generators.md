@@ -10,6 +10,8 @@
 
 界面复用 #1395 设置窗口的原生 SwiftUI 组件。为此把设置侧栏行、插件字段控件和文件夹选择器抽成了共享组件，设置窗口和克隆仓库窗口改用它们。
 
+后来（计划 API-33）新增 `projectGenerators: 2`，字段多了一种**工具字段**（`type: "tool"`）：生成器只写一个工具定义 ID 和最低版本，宿主用已有的工具解析列出本机安装，用户的选择写进新项目的工具 pin（项目自己记住“用哪个安装”的那份设置）。这样 Python、Node、JDK 等任何工具都能被生成器选择，宿主和 Core 里不出现任何语言名。版本 1 的 `runtime`（只能选 Java）保持原样，等 Java 逻辑迁出宿主后再移除。
+
 ## 问题
 
 - **入口什么都没做。** 欢迎页和项目切换器的「New Project…」调用 `chooseProject(title: "New Project")`，与「打开」只差一个标题。
@@ -24,7 +26,7 @@
 | 部分 | 负责方 | 落点 |
 | --- | --- | --- |
 | 声明的校验、表单求值（派生默认值、显示条件、错误码）、生成计划、压缩包解压 | Rust Core | `rust/lithe-core/src/project_generators/`，命令 `project.*` |
-| 契约与标准答案 | 共享契约 | `shared/contracts/plugins/v1/README.md` 的 Project generators 一节，`fixtures/project-generator.plugin.json`、`fixtures/project-plans.json` |
+| 契约与标准答案 | 共享契约 | `shared/contracts/plugins/v1/README.md` 的 Project generators 一节，`fixtures/project-generators/project-generator.plugin.json`、`fixtures/project-generators/project-plans.json` |
 | 窗口、名称、位置、Git、空项目、启用插件提示 | macOS 宿主 | `NewProjectView`、`NewProjectFeatureModel` |
 | 执行计划：临时目录、写文件、跑命令、下载、移动到位 | macOS 宿主 | `ProjectGenerationService`（编排）+ `MacProjectGenerationPlatform`（平台操作） |
 | Java、Maven Archetype、Spring Boot 的字段、模板和步骤 | 插件 | `Plugins/mac/Official/JavaSupport/`（`plugin.json` 的 `projectGenerators`、`icons/`、`templates/`） |
@@ -56,7 +58,7 @@
 1. Core 用 `project.generationPlan` 校验表单，展开所有文件、argv 和 URL。
 2. 宿主在目标父目录下建 `.<name>.lithe-creating-<随机>` 临时目录，按步骤执行。压缩包由 Core 的 `project.extractArchive` 解压：拒绝目录外路径、符号链接、覆盖已有文件，并限制实际写出的字节数。
 3. 全部成功才原子移动到最终位置；目标已存在就拒绝。失败或取消时删除临时目录。
-4. 所选 JDK 通过 `ProjectRuntimeService.presetJavaHome` 写成新项目的 JDK；勾选 Git 时用 `git.initialize` 建仓库；`openFiles` 写进新项目的工作区会话，项目在哪个窗口打开都会恢复这些标签。
+4. 所选 JDK（版本 1 的 `runtime` 字段）通过 `ProjectRuntimeService.presetJavaHome` 写成新项目的 JDK；声明了 `pinAs` 的工具字段按计划里的 `toolPins` 写成新项目的工具 pin（见下文第 7 节）；勾选 Git 时用 `git.initialize` 建仓库；`openFiles` 写进新项目的工作区会话，项目在哪个窗口打开都会恢复这些标签。
 
 压缩包边下载边计数，超过 256 MiB 立即取消，不先占满磁盘；服务器拒绝请求时最多读 64 KiB 的错误说明。
 
@@ -79,6 +81,36 @@
 | `LitheSettingsSelect`、`LitheSettingsSegmentedControl`、`LitheSettingsCheckbox`、`LitheInfoTip` | 原本就共享 | 新建项目 |
 
 左栏固定宽度，不用每帧 `GeometryReader`，符合[可调整面板性能边界](../architecture/2026-09-13-resizable-ui-performance-boundaries.md)。插件提供的标题和说明走 `LocalizedStringKey`，与插件设置一样可以在宿主的 `Localizable.strings` 里翻译。
+
+### 7. 工具字段（`projectGenerators` 2）
+
+字段写法：`{"id": "sdk", "type": "tool", "tool": "python", "minimumVersion": "3.11", "pinAs": "project"}`。`tool` 是工具定义 ID（已验证的官方定义用短 ID，其余是 `<插件 id>:<定义 id>`），没有封闭列表；没人声明的工具就是没有安装可选。
+
+谁做什么：
+
+| 部分 | 负责方 | 做什么 |
+| --- | --- | --- |
+| 字段校验、默认选择、版本比较、`${field.<id>}` 与 `${field.<id>.executable}` 展开、`toolPins` | Rust Core | 在已有的 `project.generatorForm` 和 `project.generationPlan` 里；选择规则：用户的选择还在候选里就保留，否则取版本最新的，同版本保持宿主给的顺序；没有候选报 `required`（可选字段除外），低于 `minimumVersion` 报 `toolTooOld`。版本按“发行号”比较，末尾的 0 不算（`3.11`、`3.11.0`、`3.11.0.0` 相同），和工具链解析一致。可选字段没有够新的候选时保持为空、不写 pin，和“完全没装”一样，机器上有旧版本不会反而挡住创建；用户明确选了旧版本仍报 `toolTooOld` |
+| 列出候选安装 | macOS 宿主（I/O） | `MacProjectToolInstallations` 复用设置页的工具发现；新建项目没有工作区，所以在一个空的临时目录里发现，用完删除。临时目录建不出来时记日志并抛错，窗口显示“无法查找已安装的工具”和“重试”，而不是“没有安装”；删不掉只记日志，列出的结果照常使用 |
+| 保存 pin | macOS 宿主（I/O） | `MacProjectToolPins` 通过设置页同一个 `ToolchainPreferencesStoring` 写 `.lithe/run/local.json`，不新增存储 |
+| 找不到工具时的提示 | Core 给出提供它的插件，宿主按已有方式显示 | 有定义但插件停用显示“启用”，没有定义显示“在插件市场中查找” |
+
+宿主不判断“这是哪种语言”，也不判断版本够不够：它把发现的安装交给 Core，按 Core 返回的 `installations[].meetsMinimum` 画下拉：太旧的仍然列出（让用户看到为什么没用它），但灰掉且不能选；Core 把可选字段留空时，下拉第一项显示“无”。
+
+pin 写失败不会让项目创建失败：项目已经生成并移动到位，回滚没有意义。创建结果带一个 `toolPinWarning`，窗口提示“项目已创建，但无法保存你选择的工具”，用户可以到设置的工具页再选一次。
+
+**热激活。** 只含生成器、或只含工具定义的插件原来要重启才生效。生成器清单和工具定义都是宿主每次用到时才读的数据，所以它们加入了 `canActivateWithoutRestart`（见[插件热激活](../architecture/2026-10-26-plugin-live-activation.md)）。新建项目窗口监听插件变化，自动重新列出条目和工具候选；窗口打开时安装工具定义插件，下拉随即多出新的安装。插件变化会丢掉所有条目已列出的工具候选，不只是当前条目的：之后切到别的条目会重新查找，不会沿用已停用定义找到的安装；工具重新列出之前“创建”不可用。含语言服务器、构建、界面等其他贡献的插件（例如 Java Support）仍然要重启。
+
+#### 正确做法
+
+- Python 生成器想让用户选解释器：写 `{"type": "tool", "tool": "python", "minimumVersion": "3.11", "pinAs": "project"}`，步骤里用 `${field.sdk.executable}` 调 `venv`。
+- 生成器只需要路径、不想改项目的工具设置：不写 `pinAs`，选择只用于步骤。
+
+#### 不要这样做
+
+- 在生成器里自带发现命令或固定路径。发现归工具定义和 provider，生成器只引用工具 ID。
+- 在宿主里按工具名判断版本、默认值或提示。这些是 Core 的职责，宿主只执行 I/O 和画界面。
+- 在同一个生成器里同时用 `runtime` 和 `tool`：Core 拒绝这样的清单。`runtime` 只属于版本 1。
 
 ### 正确做法
 
@@ -110,6 +142,14 @@
 
 最有吸引力的地方：宿主几乎不用改。没有采用：插件界面原生优先，网页只作为可选方式；名称、位置、校验和提交需要宿主统一控制。
 
+### 给 `runtime` 字段继续增加取值（`python`、`node` ……）
+
+最有吸引力的地方：改动最小，Java 已经这样做。没有采用：`runtime` 取值是 Core 里的封闭列表，每支持一种工具都要改 Core 和宿主，社区插件无法自己带新工具；Core 和宿主里会出现一份又一份语言词汇。工具字段直接引用工具定义 ID，工具的发现和版本规则本来就在工具定义里。
+
+### 生成器自带发现命令
+
+最有吸引力的地方：生成器作者完全自主。没有采用：发现一个工具的方式（PATH、版本管理器、固定目录）已经由工具定义和 provider 描述并被设置页使用；生成器再写一份会让新建项目看到的安装和设置页不一致，选了也无法写成项目的工具 pin。
+
 ### 宿主自己解压（`ditto`）
 
 最有吸引力的地方：少一个 Core 命令。没有采用：压缩包来自用户可修改的服务器，属于不可信输入；放在 Core 里，路径穿越、符号链接、覆盖和大小上限的检查只写一次，Windows 接入时直接复用。
@@ -120,6 +160,9 @@
 - 收益：设置窗口、克隆窗口和向导共用侧栏行、字段控件和文件夹选择器，样式不会各自漂移。
 - 代价：Spring Boot 的版本和依赖列表写在插件里，会随时间过时，要靠插件发版更新；动态列表要等 Provider 能力。
 - 代价：Java Support 的 `requires` 多了 `projectGenerators: 1`，不支持生成器的宿主装不了这一版；停用 Java Support 时模板一起停用。
+- 收益：任何带工具定义的工具都能被生成器选择，新增工具不需要改 Core 和宿主；选择直接成为项目的工具 pin，建完就能用同一个安装构建运行。
+- 代价：使用工具字段的生成器要求 `projectGenerators: 2`，不支持它的宿主装不了这个插件；版本 1 的 `runtime` 字段和 Java 专用路径还在，等 Java 逻辑迁出宿主后再删。
+- 代价：只含生成器或工具定义的插件热激活后，已打开的工具链设置页要重读整份快照（和工作区版本文件变化走同一条合并重载路径），而不是只增删变化的那个工具。
 - 暂不支持：JavaFX、Quarkus、Micronaut、Jakarta EE 等其他 Java 生成器；Windows 宿主（不声明 `projectGenerators`，需要它的插件在 Windows 市场中隐藏）。
 
 ## 验证
@@ -127,7 +170,7 @@
 ```bash
 cargo test --manifest-path rust/Cargo.toml -p lithe-core project_generators
 ./scripts/architecture/verify-shared-contracts.sh
-./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'ProjectGenerationTests|PluginManagerTests'
+./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'ProjectGenerationTests|ProjectToolAdaptersTests|PluginManagerTests|PluginLiveActivationTests'
 ./scripts/plugins/verify-official-plugins.sh
 ./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh
 ```
@@ -142,6 +185,6 @@ cargo test --manifest-path rust/Cargo.toml -p lithe-core project_generators
 - `macos/Sources/Lithe/Views/Workspace/NewProjectView.swift`
 - `macos/Sources/Lithe/Application/Features/NewProjectFeatureModel.swift`
 - `macos/Sources/Lithe/Services/ProjectGeneration/`
-- `macos/Sources/Lithe/Platform/MacOS/ProjectGeneration/`
+- `macos/Sources/Lithe/Platform/MacOS/ProjectGeneration/`（含 `MacProjectToolInstallations.swift`、`MacProjectToolPins.swift`）
 - `macos/Sources/Lithe/Views/Components/LitheSidebarList.swift`
 - `macos/Sources/Lithe/Views/Components/PluginFieldControls.swift`

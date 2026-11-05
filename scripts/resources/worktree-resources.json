@@ -34,6 +34,17 @@
   ],
   "excludedResources": [
     {
+      "id": "ci-rust-compilation-state",
+      "reusable": false,
+      "locations": [
+        "rust/target/",
+        "rust/target/macos/",
+        "windows/tauri/src-tauri/target/"
+      ],
+      "identity": "CI-only Swatinem/rust-cache dependency outputs: OS, architecture, rustc, Cargo manifests/lockfiles, environment and target-directory layout define the key. Incremental and workspace crate outputs are removed by the action; these directories have no sealed local worktree identity.",
+      "reason": "Never copy at any worktree reuse stage. Restore only within CI using the action identity, then let Cargo validate every unit. Each worktree owns mutable compilation state and cleanup; only verified Cargo download archives can be copied through the resource validator. Build-time outputs do not change installed bundles, code signatures or Sparkle delta baselines."
+    },
+    {
       "id": "markdown-preview-assets",
       "reusable": false,
       "locations": [
@@ -161,10 +172,14 @@
         "dist/verify/<arch>/<plugin-id>/",
         "dist/Lithe-Java-Support-<version>-darwin-<arch>.zip",
         ".artifacts/java-plugin-distribution/",
-        "<test-temp>/lithe-package-verification.*/published-index.fixture.json"
+        "<test-temp>/lithe-package-verification.*/published-index.fixture.json",
+        "<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/",
+        "<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/build-systems/<build-system-id>/<workspace-digest>/",
+        "<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/toolchain-queries/<operation-id>/<workspace-digest>/",
+        "<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/debug-adapters/<adapter-id>/<workspace-digest>/"
       ],
-      "identity": "Assembled plugin packages carry build-time downloads (JDT LS, its extensions and one JDK per target architecture for Java Support) and an optional publisher signature; no reliable worktree identity stamp. Plugin state directories are mutable language-server state of one installation. Independent release archives bind plugin version, darwin architecture, upstream input hashes, API/requires and final publisher signature; host-sealed bundled copies are a different origin, never a reusable package",
-      "reason": "Assemble each official declarative plugin independently in every worktree and validate it with LitheOfficialPluginVerifier; do not copy or symlink it across worktrees. Java Support is assembled from the reusable jdtls and jdk download caches by Plugins/mac/Official/JavaSupport/assemble-package.sh, so reuse those caches rather than the package. Never copy or share plugin state at any stage. Release verification extracts a separate copy and checks its publisher signature; delete per-run dist/verify and local integration output when no longer needed. Never transfer a sealed-origin exception to user-installed copies. Runtime installation versions stay read-only, preserving app signatures and Sparkle delta baselines. Distribution decisions read the current checkout index or explicit LITHE_OFFICIAL_PLUGIN_INDEX/--marketplace-index build input; synthetic packaging indexes are per-test fixtures, never reusable or publishable source indexes."
+      "identity": "Assembled plugin packages carry build-time downloads (JDT LS, its extensions and one JDK per target architecture for Java Support) and an optional publisher signature; no reliable worktree identity stamp. Plugin state directories are mutable language-server state of one installation. Independent release archives bind plugin version, darwin architecture, upstream input hashes, API/requires and final publisher signature; host-sealed bundled copies are a different origin, never a reusable package Build Provider model/dependency snapshots and output state are mutable per-plugin/build-system/workspace inputs; they have no version/platform/architecture/toolchain identity stamp.",
+      "reason": "Assemble each official declarative plugin independently in every worktree and validate it with LitheOfficialPluginVerifier; do not copy or symlink it across worktrees. Java Support is assembled from the reusable jdtls and jdk download caches by Plugins/mac/Official/JavaSupport/assemble-package.sh, so reuse those caches rather than the package. Never copy or share plugin state at any stage. Release verification extracts a separate copy and checks its publisher signature; delete per-run dist/verify and local integration output when no longer needed. Never transfer a sealed-origin exception to user-installed copies. Runtime installation versions stay read-only, preserving app signatures and Sparkle delta baselines. Distribution decisions read the current checkout index or explicit LITHE_OFFICIAL_PLUGIN_INDEX/--marketplace-index build input; synthetic packaging indexes are per-test fixtures, never reusable or publishable source indexes. Maven uses existing Provider state instead of the removed macOS Maven dependency-tree temporary adapter. Never reconstruct a JAR path from a legacy tree. Windows Build Provider startup uses the same platform app-data owner with a separate build-system subtree, never a language-server state directory or package resource. Workspace hashes identify runtime owners, not reusable build artifacts. Native toolchain-provider backends are owned only by one Build preparation, reuse their process within that operation and stop before returning; their exclusive per-plugin/operation/workspace state is mutable, has no build identity and is never copied at any stage; stop owned processes before deleting that state. Registry stdio debugger state is mutable per-plugin/adapter/workspace state with no build identity stamp and no permitted copy stage; language-server hosted adapters retain the existing language-server state owner, and stopping Debug never removes shared server state."
     },
     {
       "id": "language-tools",
@@ -339,6 +354,8 @@
       "id": "application-log-state",
       "reusable": false,
       "locations": [
+        "<platform-log-root>/sessions/<session>/{app,editor,lsp,vcs,plugins,remote,run,debug,perf}/",
+        "<platform-log-root>/sessions/<session>/plugins/<id>/files/",
         "<platform-log-root>/{application,language,run,git,plugins,performance}/",
         "<platform-log-root>/lithe.log",
         "<platform-cache>/Lithe/diagnostics-export/<snapshot>/",
@@ -346,7 +363,7 @@
         "<user-export-parent>/.lithe-diagnostics-<snapshot>.zip"
       ],
       "identity": "Mutable distribution-, process-session- and operation-owned diagnostic evidence. No reliable version/platform/architecture/toolchain identity stamp; immutable previews contain redacted bytes for one explicit confirmation only.",
-      "reason": "Native adapters create module logs in user log storage, expire at 30 days and enforce disk budgets. macOS owns one cache staging directory until export/cancel; Windows keeps at most four five-minute previews only in memory and atomically publishes a destination-owned temporary ZIP. Never reuse, copy or share at any worktree stage, and never write into signed packages or installed resources."
+      "reason": "Native adapters create module logs in user log storage, expire at 30 days and enforce disk budgets. macOS owns one cache staging directory until export/cancel; Windows keeps at most four five-minute previews only in memory and atomically publishes a destination-owned temporary ZIP. Never reuse, copy or share at any worktree stage, and never write into signed packages or installed resources. PR3 macOS creates session plugin files with mode 0700 using Core plugin_files_path and descriptor-relative no-follow traversal. Files belong to that log session and expire under the existing retention plan; they are not build/download inputs, and no version, platform, architecture or toolchain combination makes them reusable."
     },
     {
       "id": "mcp-registry-metadata",
@@ -421,6 +438,64 @@
       "reason": "Connections and secrets belong to the user's profile and the keychain. Placeholder roots are empty directories that key per-project state for remote folders and hold no files. Remote installs live on the hosts and are verified by SHA-256 before reuse. Daemon socket, lock and log identity includes the session key and complete executable SHA-256, so rebuilding an unchanged version cannot reconnect to older code. None has a copy stage between worktrees, and none is written into the app bundle or installation directory."
     },
     {
+      "id": "shared-i18n",
+      "reusable": false,
+      "locations": [
+        "shared/i18n",
+        ".artifacts/i18n-windows/",
+        "macos/Resources/<locale>.lproj/Localizable.strings",
+        "macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift",
+        "windows/tauri/src/i18n/shared.generated.ts"
+      ],
+      "identity": "Current worktree shared locale manifest, message registry, per-locale translations and all generated native string-table bytes. Generated outputs have no sealed version/platform/architecture/toolchain reuse identity stamp.",
+      "reason": "Git owns source and checked-in generated outputs. Regenerate and validate them in each target worktree with scripts/i18n/generate-i18n.mjs; no download, cache validator or cross-worktree copy stage is permitted. Packaging copies registered native tables into its own build destination before signing and converts only that copy to binary plist. Runtime only reads bundled tables; it creates no state and changes neither code-signature bytes nor the Sparkle delta baseline."
+    },
+    {
+      "id": "build-native-configuration-state",
+      "path": "<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/configuration-*",
+      "reusable": false,
+      "locations": [
+        "<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/configuration-*/configuration.json",
+        "<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/configuration-*/repository",
+        "<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/run-*/configuration.json",
+        "<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/maven-snapshot.json",
+        "<native-configuration-parent>/.<filename>.lithe-<uuid>",
+        "<native-configuration-parent>/.lithe-document-<pid>-<sequence>.tmp",
+        "<windows-native-host-memory>/native-configuration/<window>/<operation-id>",
+        "<workspaceStateDir>/outputs/<operation-id>.json (private native configuration replacement)",
+        ".artifacts/test-stability/native-configuration-ui/*.png"
+      ],
+      "identity": "Native configuration source revisions and effective values belong to the selected upstream session, source paths and exact native bytes; they are mutable runtime state without a version/platform/architecture/toolchain build identity stamp. Native UI evidence additionally depends on source revision, fixture, theme and viewport and is regenerated per test run.",
+      "reason": "The selected provider owns bounded configuration probes and removes their directories at operation end. Native document bytes and credentials stay in provider/native filesystem staging and never cross RPC; the existing outputs/<operation-id>.json file is privately created by the host, written by the provider without CREATE, hash-checked before guarded publication, and removed on success, failure, cancellation or owner revocation; guarded adjacent temporary replacements preserve metadata and are removed on success or retained only for explicit error recovery. Maven cache v2 records actual upstream-selected source URI/hash identities and invalidates them after external edits. Never copy, symlink or publish this state between worktrees at any stage; installation resources remain read-only and Sparkle delta inputs are unchanged. Settings-only probes snapshot the upstream-populated execution request before repository-session creation and redirect only their own repository manager to configuration-*/repository, then abort before project import. The private repository is removed with that probe; selected user/native repositories must remain uncreated and unchanged."
+    },
+    {
+      "id": "build-project-preferences",
+      "path": ".lithe/build/options.json",
+      "reusable": false,
+      "locations": [
+        ".lithe/build/options.json",
+        "<platform-preferences>/BuildSystems.Options.<build-system-id>.<workspace-digest>",
+        "<platform-preferences>/BuildSystems.Options.<build-system-id>.<workspace-digest>.Instances",
+        "<platform-preferences>/BuildSystems.Migrations.Maven.<workspace-digest>",
+        "<platform-preferences>/BuildSystems.Options.<build-system-id>.<workspace-digest>.InstanceDefaults",
+        "<platform-preferences>/BuildSystems.Migrations.Maven.<workspace-digest>.Runtime",
+        "<windows-app-data>/<app-id>/build-options/<canonical-workspace-digest>.json"
+      ],
+      "identity": "User-authored team Build preferences and machine-local differences scoped to one workspace; no build, platform, architecture or toolchain artifact identity stamp. A bounded cutover receipt records source identities until guarded data migration completes.",
+      "reason": "Team values are ordinary workspace-owned source; local differences belong only to the platform preference store. Neither is a download, generated build input or portable cache. Passive reads never create or rewrite the file; an explicit edit or guarded activation migration preserves unrelated systems and checks exact source bytes. No copy, hardlink or symlink reuse stage is permitted. App/plugin resources and signing/Sparkle baselines remain read-only. Migration receipts are private recovery state, removed after all verified source removals; an external source change after partial publication blocks automatic cleanup. They contain no reusable generated resource and must never leave their owning workspace/profile. Private workspace defaults and the runtime-preference source receipt stay in the same owning platform profile; never transfer them into team preferences or worktree resource reuse. Windows local overrides use the platform app-data adapter and canonical workspace identity. The native document writer owns bounded adjacent replacement files; only explicit UI/Agent saves publish after checking team/local revisions and window cancellation. Local preferences and empty-selection markers are never reusable inputs or installation resources."
+    },
+    {
+      "id": "maven-operation-report-snapshots",
+      "reusable": false,
+      "locations": [
+        "<workspaceStateDir>/execution-*/index.json",
+        "<workspaceStateDir>/execution-*/report-<sequence>.xml",
+        "<system-temp>/lithe-maven-execution-*/"
+      ],
+      "identity": "One plugin/workspace execution owns bounded fresh upstream reports, bound to the exact Maven operation and source hashes; no reusable version/platform/architecture/toolchain identity stamp.",
+      "reason": "The selected Maven core extension snapshots reports only from configured Surefire/Failsafe mojos, including checked failures; the backend validates captured hashes, parses through Apache Surefire and removes its private operation directory in try-with-resources. Reports and state never enter an installation directory. User project report outputs stay owned by the upstream engine; no copy, symlink or hardlink reuse stage is allowed for operation snapshots. Cancellation terminates Maven before normal cleanup; abandoned state belongs to the existing plugin workspace state retention lifecycle. Package bytes, signing and Sparkle baselines remain unchanged."
+    },
+    {
       "id": "remote-workspace-session-state",
       "reusable": false,
       "locations": [
@@ -440,19 +515,6 @@
       "reason": "The existing workspace engines own these records while generic host filesystem/process/PTY adapters perform I/O. Git/build scratch lives on its host and is never mirrored into the local placeholder. Upload staging expires or is removed on abort/disconnect; complete plugin runs are allocated by fs.createRunDirectory and released by session-owned identity after process destruction. Nonpersistent disconnect, shutdown and idle expiry remove published snapshots after worker drain; persistent disconnect retains them. Forced server termination recovery remains unsupported, and old unmanaged snapshots are never adopted or age-scanned. Provider state persists on the host. Native marketplace extraction is deleted after transfer or failure. Package trust/hash/architecture checks authorize one execution and do not establish reusable build identity. Host discovery is memory-only and invalidated on explicit refresh or connection replacement. All reuse stages reject these entries before validation or copying. Runtime writes do not reach installed bundles, code signatures or Sparkle delta baselines."
     },
     {
-      "id": "shared-i18n",
-      "reusable": false,
-      "locations": [
-        "shared/i18n",
-        ".artifacts/i18n-windows/",
-        "macos/Resources/<locale>.lproj/Localizable.strings",
-        "macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift",
-        "windows/tauri/src/i18n/shared.generated.ts"
-      ],
-      "identity": "Current worktree shared locale manifest, message registry, per-locale translations and all generated native string-table bytes. Generated outputs have no sealed version/platform/architecture/toolchain reuse identity stamp.",
-      "reason": "Git owns source and checked-in generated outputs. Regenerate and validate them in each target worktree with scripts/i18n/generate-i18n.mjs; no download, cache validator or cross-worktree copy stage is permitted. Packaging copies registered native tables into its own build destination before signing and converts only that copy to binary plist. Runtime only reads bundled tables; it creates no state and changes neither code-signature bytes nor the Sparkle delta baseline."
-    },
-    {
       "id": "editor-theme-assets",
       "reusable": false,
       "locations": [
@@ -460,10 +522,12 @@
         ".artifacts/monaco-workbench/test-assets/",
         ".artifacts/monaco-probe/assets/",
         "<editor-memory>/plugin-grammar-workers-and-tokens",
-        "<editor-memory>/plugin-editor-action-leases"
+        "<editor-memory>/plugin-editor-action-leases",
+        "frontend/editor/vendor/",
+        "<editor-memory>/bundled-textmate-workers-and-tokens"
       ],
-      "identity": "Current source palettes, upstream pinned theme revisions, license/NOTICE files, Monaco and Bun versions; no validated build identity stamp",
-      "reason": "Rebuild JavaScript and bundled theme licenses together from this checkout. No copy stage or runtime writes; packaged assets remain read-only and preserve code signatures and Sparkle delta baselines. Plugin grammars compile only in terminable workers loaded from the same checkout-built textmate-worker.js. Decoded package resources, tokens and action leases stay in process memory; no reusable identity stamp or runtime bundle writes."
+      "identity": "Current source palettes, upstream pinned theme revisions, license/NOTICE files, Monaco and Bun versions; no validated build identity stamp; Git-owned Make/CMake/Groovy grammar bytes and pinned upstream commits in vendor/NOTICE.txt",
+      "reason": "Rebuild JavaScript and bundled theme licenses together from this checkout. No copy stage or runtime writes; packaged assets remain read-only and preserve code signatures and Sparkle delta baselines. Plugin grammars compile only in terminable workers loaded from the same checkout-built textmate-worker.js. Decoded package resources, tokens and action leases stay in process memory; no reusable identity stamp or runtime bundle writes. Basic TextMate grammars are copied by each checkout build; workers and token state remain memory-only. No grammar download, extracted cache or cross-worktree copy is allowed."
     },
     {
       "id": "plugin-host-runtime-state",
@@ -483,6 +547,28 @@
       ],
       "identity": "Worktree-owned frontend perf bundles, local baselines and CPU profiles. They follow that worktree's sources and machine and carry no identity stamp.",
       "reason": "Never copy or share this state at any worktree reuse stage. A bundle or baseline from another worktree would compare different sources. run-windows-perf.mjs rebuilds the bundle in its own worktree; nothing here reaches an app bundle, install directory or Sparkle delta baseline."
+    },
+    {
+      "id": "consumer-tool-preferences",
+      "path": ".lithe/run/local.json",
+      "reusable": false,
+      "locations": [
+        ".lithe/run/local.json (toolchain.preferences)",
+        "<native-document-adapter>/.lithe/run/local.json adjacent atomic replacement files"
+      ],
+      "identity": "Machine-local user choices and symbolic workspace/consumer inheritance, not a generated resource; no version/platform/architecture/toolchain build identity stamp.",
+      "reason": "The existing Run document owns these preferences until explicit reset or workspace removal. Native operations capture and recheck the source after discovery; only guarded explicit Run/settings saves may replace it. Never copy, share, symlink or hardlink this state between worktrees at any validation or publication stage. App/plugin resources and code signatures/Sparkle delta remain unchanged. References are re-resolved at use time and do not become reusable execution evidence. The macOS Build editor keeps inert drafts in memory, preserves existing file metadata on explicit conditional publication and drains native writes on workspace shutdown; opening, cancelling and resetting an absent value create no resource."
+    },
+    {
+      "id": "shared-logging",
+      "reusable": false,
+      "locations": [
+        "shared/logging/",
+        "macos/Sources/LitheModuleAPI/Logging/LogEvents.generated.swift",
+        "rust/lithe-core/src/diagnostics/catalog_generated.rs"
+      ],
+      "identity": "Git-owned event catalog and checked-in generated source bytes from the current revision. No sealed version/platform/architecture/toolchain reuse identity stamp.",
+      "reason": "Generate and check with scripts/logging/generate-log-events.mjs in each target worktree before compilation. Every validation and copy stage rejects cross-worktree reuse. No download or cache; compiled metadata and Swift event values perform no runtime I/O and never change code signatures or Sparkle delta baselines."
     }
   ]
 }

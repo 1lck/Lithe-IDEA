@@ -1,6 +1,6 @@
 //! Resolves captured toolchain candidates without native I/O or manager semantics.
 
-use super::{definitions, paths, pins, query};
+use super::{definitions, fixed::FixedToolchainSelection, paths, pins, query};
 use crate::plugins::declarative::{PluginRejection, Validation};
 use regex::RegexBuilder;
 use serde::Deserialize;
@@ -117,6 +117,111 @@ pub(crate) fn check_version(input: &Value) -> Validation<Value> {
     capture(definition, output, minimum)
 }
 
+/// Longest argument list or string the launch expansion accepts, in items and bytes.
+const MAX_LAUNCH_ITEMS: usize = 1024;
+const MAX_LAUNCH_ITEM_BYTES: usize = 65536;
+
+/// Reads an optional bounded string argument that never carries a NUL.
+fn launch_text<'a>(input: &'a Value, key: &str) -> Validation<Option<&'a str>> {
+    match input.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_str()
+            .filter(|text| !text.is_empty() && text.len() <= 4096 && !text.contains('\0'))
+            .map(Some)
+            .ok_or_else(|| reject(key)),
+    }
+}
+
+fn launch_list(input: &Value, key: &str) -> Validation<Vec<String>> {
+    let items = array(input, key, MAX_LAUNCH_ITEMS)?;
+    items
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .filter(|text| text.len() <= MAX_LAUNCH_ITEM_BYTES && !text.contains('\0'))
+                .map(str::to_owned)
+                .ok_or_else(|| reject(key))
+        })
+        .collect()
+}
+
+fn launch_mismatch(message: &str) -> PluginRejection {
+    PluginRejection::new("plugin.toolchain.launchMismatch", message)
+}
+
+/// Expands an installed definition's `launch` template for a selected executable.
+///
+/// The definition alone says how its tool starts an entry or takes arguments, so a plugin and a
+/// host never branch on a tool name. A part the caller supplies that the template cannot carry,
+/// or a variable the caller leaves out, is `plugin.toolchain.launchMismatch`.
+pub(crate) fn instantiate_launch(input: &Value) -> Validation<Value> {
+    fields(
+        input,
+        &[
+            "registry",
+            "tool",
+            "executable",
+            "home",
+            "entry",
+            "runtimeArguments",
+            "arguments",
+        ],
+    )?;
+    let registry = definitions::registry(&input["registry"])?;
+    let tool = input["tool"].as_str().ok_or_else(|| reject("tool"))?;
+    let definition = enabled(&registry, tool).ok_or_else(|| reject("tool"))?;
+    let executable = launch_text(input, "executable")?.ok_or_else(|| reject("executable"))?;
+    let home = launch_text(input, "home")?;
+    let entry = launch_text(input, "entry")?;
+    let runtime_arguments = launch_list(input, "runtimeArguments")?;
+    let arguments = launch_list(input, "arguments")?;
+    let mut consumed = BTreeSet::new();
+    let mut expanded = Vec::new();
+    for token in definition["launch"].as_array().into_iter().flatten() {
+        let token = token.as_str().ok_or_else(|| reject("launch"))?;
+        match token {
+            "${executable}" => expanded.push(executable.to_owned()),
+            "${home}" => expanded.push(
+                home.ok_or_else(|| launch_mismatch("The tool's launch needs its home."))?
+                    .to_owned(),
+            ),
+            "${entry}" => {
+                consumed.insert("entry");
+                expanded.push(
+                    entry
+                        .ok_or_else(|| launch_mismatch("The tool's launch needs an entry."))?
+                        .to_owned(),
+                );
+            }
+            "${runtimeArguments}" => {
+                consumed.insert("runtimeArguments");
+                expanded.extend(runtime_arguments.iter().cloned());
+            }
+            "${arguments}" => {
+                consumed.insert("arguments");
+                expanded.extend(arguments.iter().cloned());
+            }
+            literal => expanded.push(literal.to_owned()),
+        }
+    }
+    if entry.is_some() && !consumed.contains("entry") {
+        return Err(launch_mismatch("The tool does not launch an entry."));
+    }
+    if !runtime_arguments.is_empty() && !consumed.contains("runtimeArguments") {
+        return Err(launch_mismatch("The tool takes no runtime arguments."));
+    }
+    if !arguments.is_empty() && !consumed.contains("arguments") {
+        return Err(launch_mismatch("The tool takes no program arguments."));
+    }
+    let rest = expanded.split_off(1);
+    Ok(json!({
+        "executable": expanded.into_iter().next().unwrap_or_default(),
+        "arguments": rest,
+        "versionArguments": definition["version"]["arguments"],
+    }))
+}
+
 /// Exposes both installation routes per tool: definition-owned scans the host expands,
 /// and enabled providers the host queries. Native expansion and checks stay in hosts.
 pub(crate) fn discovery_plan(input: &Value) -> Validation<Value> {
@@ -210,6 +315,47 @@ struct Snapshot<'a> {
 }
 
 impl Snapshot<'_> {
+    /// An explicit consumer choice precedes directory pins, but has exactly the
+    /// same native version and project-code boundary as other checked candidates.
+    fn fixed_selection(&self, fixed: &FixedToolchainSelection) -> Result<Value, &'static str> {
+        match fixed {
+            FixedToolchainSelection::Installation { home } => {
+                self.selection(home, "host:manual", "pinned")
+            }
+            FixedToolchainSelection::Executable { executable } => {
+                let fact = self.fact(executable, "file").map_err(|_| "notFound")?;
+                if fact["executable"] != true {
+                    return Err("notExecutable");
+                }
+                let canonical = fact["canonicalPath"].as_str().ok_or("unsafePath")?;
+                let project = self.roots.iter().any(|root| {
+                    paths::within(executable, root, self.platform, self.case_sensitive)
+                        || paths::within(canonical, root, self.platform, self.case_sensitive)
+                });
+                if project && self.input["projectCodeAllowed"] != true {
+                    return Err("projectCodeRequiresAction");
+                }
+                if self.definition["launch"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|token| token == "${home}")
+                {
+                    return Err("homeUnavailable");
+                }
+                let version = self.version(executable)?;
+                self.environment_selection(
+                    None,
+                    executable,
+                    Some(&version),
+                    "host:manual",
+                    "pinned",
+                    project,
+                )
+            }
+        }
+    }
+
     fn key(&self, path: &str) -> Validation<String> {
         paths::normalize(path, self.platform, self.case_sensitive).ok_or_else(|| reject("path"))
     }
@@ -756,6 +902,8 @@ pub(crate) fn candidates(input: &Value) -> Validation<Value> {
             "probes",
             "systemInstallations",
             "providerInstallations",
+            "fixed",
+            "projectCodeAllowed",
             "environment",
         ],
     )?;
@@ -766,6 +914,12 @@ pub(crate) fn candidates(input: &Value) -> Validation<Value> {
         .ok_or_else(|| reject("tool"))?;
     let definition = enabled(&registry, tool).ok_or_else(|| reject("tool"))?;
     let (snapshot, _) = prepare(input, definition)?;
+    if input
+        .get("projectCodeAllowed")
+        .is_some_and(|value| !value.is_boolean())
+    {
+        return Err(reject("projectCodeAllowed"));
+    }
     string_maps(input, &["environment"])?;
     let mut shell = Vec::new();
     for candidate in definition["executables"]
@@ -812,7 +966,31 @@ pub(crate) fn candidates(input: &Value) -> Validation<Value> {
             .cmp(&version(left))
             .then_with(|| left["home"].as_str().cmp(&right["home"].as_str()))
     });
-    let skipped: Vec<_> = set.skipped.into_values().collect();
+    let mut skipped: Vec<_> = set.skipped.into_values().collect();
+    if let Some(value) = input.get("fixed") {
+        let fixed = FixedToolchainSelection::parse(value)?;
+        let executable = match &fixed {
+            FixedToolchainSelection::Installation { home } => snapshot
+                .checked(home, None)
+                .ok()
+                .and_then(|value| value["executable"].as_str().map(str::to_owned)),
+            FixedToolchainSelection::Executable { executable } => snapshot
+                .fact(executable, "file")
+                .ok()
+                .filter(|fact| fact["executable"] == true)
+                .map(|_| executable.clone()),
+        };
+        if let Err(code) = snapshot.fixed_selection(&fixed) {
+            let mut row = json!({"reason":code});
+            // A project program is not a probe target without the current action.
+            if code == "probeFailed" {
+                if let Some(executable) = executable {
+                    row["executable"] = json!(executable);
+                }
+            }
+            skipped.push(row);
+        }
+    }
     let (selected, conflict) = automatic_choice(&snapshot, set.eligible, None)?;
     Ok(
         json!({"tool":tool,"shell":shell,"installations":installations,"skipped":skipped,
@@ -847,6 +1025,7 @@ pub(crate) fn resolve(input: &Value) -> Validation<Value> {
             "providerChoices",
             "generation",
             "context",
+            "fixed",
         ],
     )?;
     let registry = definitions::registry(&input["registry"])?;
@@ -866,6 +1045,10 @@ pub(crate) fn resolve(input: &Value) -> Validation<Value> {
         .cloned()
         .unwrap_or(json!({"version":1,"toolchains":{}}));
     let pin = pins::resolve(&json!({"document":document,"directory":directory,"tool":tool}))?;
+    let fixed = input
+        .get("fixed")
+        .map(FixedToolchainSelection::parse)
+        .transpose()?;
     let Some(definition) = enabled(&registry, tool) else {
         return Ok(output(
             input,
@@ -891,6 +1074,26 @@ pub(crate) fn resolve(input: &Value) -> Validation<Value> {
     string_maps(input, &["environment", "commandHomes", "providerChoices"])?;
     if let Some(choices) = input.get("providerChoices") {
         fields(choices, &["project", "global", "automatic"])?;
+    }
+    if let Some(fixed) = fixed {
+        return Ok(match snapshot.fixed_selection(&fixed) {
+            Ok(selection) => output(
+                input,
+                json!({"kind":"resolved","selection":selection}),
+                vec![json!({"candidateID":"consumerFixed","layer":"pinned","state":"resolved"})],
+                vec![],
+                vec![],
+            ),
+            Err(code) => output(
+                input,
+                json!({"kind":"terminalFailure","reason":reason(code,tool)}),
+                vec![
+                    json!({"candidateID":"consumerFixed","layer":"pinned","state":"terminalFailure","reason":reason(code,tool)}),
+                ],
+                vec![],
+                vec![],
+            ),
+        });
     }
     // A failed optional provider must never revoke a usable explicit fixed value.
     if let Some(home) = pin["pin"]["home"].as_str() {

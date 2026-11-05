@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "existing-first-stable-candidates",
+      "request": {
+        "existing": ["/user/bin", "/usr/bin", "/user/bin"],
+        "candidates": [
+          { "priority": 1, "id": "launcher", "path": "/tools/bin" },
+          { "priority": 0, "id": "z", "path": "/runtime/z" },
+          { "priority": 0, "id": "a", "path": "/runtime/a" }
+        ],
+        "caseInsensitive": false
+      },
+      "expected": ["/user/bin", "/usr/bin", "/runtime/a", "/runtime/z", "/tools/bin"]
+    },
+    {
+      "name": "windows-folds-ascii-and-ignores-empty",
+      "request": {
+        "existing": ["C:\\Custom", "", "C:\\Tools"],
+        "candidates": [
+          { "priority": 0, "id": "node", "path": "c:\\tools" },
+          { "priority": 1, "id": "launcher", "path": "D:\\Tools" }
+        ],
+        "caseInsensitive": true
+      },
+      "expected": ["C:\\Custom", "C:\\Tools", "D:\\Tools"]
+    },
+    {
+      "name": "case-sensitive-existing-path",
+      "request": {
+        "existing": ["/Bin", "/bin"],
+        "candidates": [],
+        "caseInsensitive": false
+      },
+      "expected": ["/Bin", "/bin"]
+    }
+  ]
+}

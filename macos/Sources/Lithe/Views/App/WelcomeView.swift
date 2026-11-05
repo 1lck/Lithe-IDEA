@@ -74,19 +74,19 @@ struct WelcomeView: View {
             .padding(.horizontal, 14)
 
             Spacer()
+            HStack(spacing: 4) {
+                Button {
+                    showSettingsMenu()
+                } label: {
+                    LitheIDEAIcon(resourcePath: "expui/general/settings.svg", size: 16)
+                }
+                .litheToolbarIconButton()
+                .help("Settings")
+                .accessibilityLabel("Settings")
 
-            Button {
-                showSettingsMenu()
-            } label: {
-                LitheIDEAIcon(resourcePath: "expui/general/settings@20x20.svg", size: 14)
-                    .frame(width: 28, height: 28)
-                    .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: selectionColor)
+                EditorSettingsImportControl(feature: model.editorSettingsImport,
+                    iconOnly: true)
             }
-            .buttonStyle(.litheNoPress)
-            .lithePointer()
-            .foregroundStyle(mutedColor)
-            .help("Settings")
-            .accessibilityLabel("Settings")
             .padding(.horizontal, 14)
             .padding(.bottom, 14)
             .frame(maxWidth: .infinity, alignment: .leading)

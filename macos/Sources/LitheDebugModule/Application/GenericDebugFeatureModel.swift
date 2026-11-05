@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -255,6 +256,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     public var canUpdateJavaService: Bool {
         guard let id = activeSessionID else { return false }
         return providerID == "java" && canControl && javaUpdateTargets[id] != nil
+            && !adapterDeclaredCodeChanges
     }
 
     public func applyJavaServiceUpdate(
@@ -284,6 +286,50 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             serviceUpdateMessage = "Could not apply changes: " + error.localizedDescription
                 + " Restart the service if this change is not supported."
             append((serviceUpdateMessage ?? "") + "\n")
+        }
+    }
+
+    /// Whether the active session's adapter declared a way to apply changed code to the running
+    /// program (`features.hotCodeReplace`). The declaration wins over the host's own service
+    /// update, which only remains for adapters that declared nothing, so one button shows.
+    public var canApplyDeclaredCodeChanges: Bool {
+        canControl && adapterDeclaredCodeChanges
+    }
+
+    private var adapterDeclaredCodeChanges: Bool {
+        activeSession?.declaredBehavior.features?.hotCodeReplace != nil
+    }
+
+    /// Applies changed code through the request the adapter declared; Core sends it and reads
+    /// the reply by the declared field names. `prepare` runs first, so the caller can save the
+    /// documents the program is built from.
+    public func applyDeclaredCodeChanges(prepare: () async throws -> Void) async {
+        guard updatingServiceSessionID == nil, canApplyDeclaredCodeChanges,
+              let id = activeSessionID, let session = activeSession else { return }
+        updatingServiceSessionID = id
+        serviceUpdateFailed = false
+        serviceUpdateMessage = L10n.string("Saving code changes…")
+        defer { updatingServiceSessionID = nil }
+        do {
+            try await prepare()
+            guard activeSessionID == id, isSessionActive else { return }
+            serviceUpdateMessage = L10n.string("Applying code changes…")
+            let changed: [String] = try await withCheckedThrowingContinuation { continuation in
+                session.redefineClasses { continuation.resume(with: $0) }
+            }
+            guard activeSessionID == id, isSessionActive else { return }
+            // The reply may list nothing when the adapter saw no difference.
+            let message = changed.isEmpty
+                ? L10n.string("No code changes to apply.") : L10n.string("Code changes applied.")
+            serviceUpdateMessage = message
+            append(message + "\n")
+            if state == .paused { inspectThreads() }
+        } catch {
+            guard activeSessionID == id, isSessionActive else { return }
+            serviceUpdateFailed = true
+            let message = L10n.string("Could not apply code changes: \(error.localizedDescription)")
+            serviceUpdateMessage = message
+            append(message + "\n")
         }
     }
 
@@ -433,6 +479,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     /// Notifies the host after a debugger session has been stopped and its
     /// adapter resources have been released.
     public var onSessionStopped: ((DebugSessionID) -> Void)?
+    /// Resource owners must see terminal states of inactive sessions as well.
+    public var onSessionStateChanged: ((DebugSessionID, DebugAdapterState) -> Void)?
 
     private let sessions: DebugAdapterSessionManager
     private let breakpointPersistence: (any DebugBreakpointPersisting)?
@@ -464,13 +512,17 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     private static let rootVariablePageID = "__lithe_debug_root_variables__"
     private var debuggeeOutputNormalizer = GenericDebugOutputNormalizer()
 
+    private let logSink: (any LogSink)?
+
     public init(
+        logSink: (any LogSink)? = nil,
         sessions: DebugAdapterSessionManager,
         breakpointPersistence: (any DebugBreakpointPersisting)? = nil,
         breakpointRelocator: (any DebugBreakpointRelocating)? = nil,
         steppingFilterResolver: (any DebugSteppingFilterResolving)? = nil,
         steppingFilterPersistence: (any DebugSteppingFilterPersisting)? = nil
     ) {
+        self.logSink = logSink
         self.sessions = sessions
         self.breakpointPersistence = breakpointPersistence
         self.breakpointRelocator = breakpointRelocator
@@ -519,6 +571,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 )
             }
             self.reconcileRemovedSessions()
+            self.onSessionStateChanged?(sessionID, state)
         }
         sessions.onSessionEvent = { [weak self] sessionID, providerID, event in
             guard let self else { return }
@@ -860,7 +913,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         outputPresentation.flush()
         if let activeFileURL {
             dataBreakpoints.removeAll { !$0.canPersist }
-            try? sessions.setDataBreakpoints(coreDataBreakpoints, for: activeFileURL, adapterProviderID: providerID)
+            do { try sessions.setDataBreakpoints(coreDataBreakpoints, for: activeFileURL, adapterProviderID: providerID) }
+            catch { logSink?.emit(DebugSessionCleanupFailed(error: error, stage: "breakpoints")) }
         }
         if let activeSessionID {
             let children = sessions.childSessionIDs(of: activeSessionID)
@@ -1696,7 +1750,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         let frameID = selectedFrameID
         let scopeID = selectedScopeID
         let partial = !(variablePageStates[Self.rootVariablePageID]?.segments.isEmpty ?? true)
-        let loader = DebugVariableJSONSnapshot { reference, count in
+        let loader = DebugVariableJSONSnapshot(logSink: logSink) { reference, count in
             try await DebugVariableJSONRequest.read(session: session, reference: reference, count: count)
         }
         let result = try await loader.render(presentedVariables, rootsArePartial: partial)

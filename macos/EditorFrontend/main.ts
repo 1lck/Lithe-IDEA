@@ -32,6 +32,10 @@ import passedIcon from "../Resources/IDEAIcons/expui/gutter/runSuccess.svg" with
 import passedIconDark from "../Resources/IDEAIcons/expui/gutter/runSuccess_dark.svg" with { type: "text" };
 import failedIcon from "../Resources/IDEAIcons/expui/gutter/runError.svg" with { type: "text" };
 import failedIconDark from "../Resources/IDEAIcons/expui/gutter/runError_dark.svg" with { type: "text" };
+import debugIcon from "../Resources/IDEAIcons/expui/run/debug.svg" with { type: "text" };
+import debugIconDark from "../Resources/IDEAIcons/expui/run/debug_dark.svg" with { type: "text" };
+import skippedIcon from "../Resources/IDEAIcons/expui/run/testIgnored.svg" with { type: "text" };
+import skippedIconDark from "../Resources/IDEAIcons/expui/run/testIgnored_dark.svg" with { type: "text" };
 import foldIcon from "../Resources/IDEAIcons/expui/gutter/fold.svg" with { type: "text" };
 import foldIconDark from "../Resources/IDEAIcons/expui/gutter/fold_dark.svg" with { type: "text" };
 import unfoldIcon from "../Resources/IDEAIcons/expui/gutter/unfold.svg" with { type: "text" };
@@ -221,11 +225,22 @@ const workbench = mountWorkbench({
   javaNavigationIcons: { "up-interface": implementingMethod, "down-interface": implementedMethod,
     "up-inheritance": overridingMethod, "down-inheritance": overriddenMethod },
   lineNumbersFirst: true,
+  reportIndentation: true,
   gitBlameMenu: true,
   foldingIcons: { expanded: { light: foldIcon, dark: foldIconDark },
     collapsed: { light: unfoldIcon, dark: unfoldIconDark } },
   javaRunIconsDark: { run: runIconDark, "run-all": runAllIconDark, passed: passedIconDark, failed: failedIconDark },
   javaRunIcons: { run: runIcon, "run-all": runAllIcon, passed: passedIcon, failed: failedIcon },
+  // Keys are the icon names the host offers plugins (`PluginEditorHostOptions.macOS`).
+  editorActionIcons: {
+    run: runIcon, "run-all": runAllIcon, debug: debugIcon, test: runIcon,
+    "test-passed": passedIcon, "test-failed": failedIcon, "test-skipped": skippedIcon,
+    "navigate-super": overridingMethod, "navigate-implementations": overriddenMethod,
+  },
+  editorActionIconsDark: {
+    run: runIconDark, "run-all": runAllIconDark, debug: debugIconDark, test: runIconDark,
+    "test-passed": passedIconDark, "test-failed": failedIconDark, "test-skipped": skippedIconDark,
+  },
   keybindings: [
     { command: "editor.action.duplicateSelection", label: "Duplicate Line or Selection", keybinding: KeyMod.CtrlCmd | KeyCode.KeyD },
     { command: "editor.action.moveLinesUpAction", label: "Move Line Up", keybinding: KeyMod.Alt | KeyMod.Shift | KeyCode.UpArrow },

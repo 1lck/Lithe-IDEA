@@ -7,7 +7,7 @@
 
 use super::archive;
 use super::form::{self, FormInput};
-use super::manifest::{GeneratorSection, ProjectGeneratorDeclaration};
+use super::manifest::{GeneratorSection, ProjectGeneratorDeclaration, FIELD_TOOL};
 use super::plan;
 use crate::plugins::capabilities::HostCapabilities;
 use crate::plugins::declarative::{
@@ -139,6 +139,7 @@ pub(crate) fn project_generator_catalog_command(payload: Value) -> Result<Value,
                     json!({ key: id, "providers": found })
                 })
                 .collect();
+            let tools = tool_providers(generator, &providers);
             entries.push((
                 generator.section,
                 generator.order,
@@ -149,6 +150,7 @@ pub(crate) fn project_generator_catalog_command(payload: Value) -> Result<Value,
                     "pluginEnabled": enabled,
                     "generator": generator,
                     "requirements": requirements,
+                    "tools": tools,
                     "usesNetwork": generator.steps.iter().any(|step| step.uses_network()),
                 }),
             ));
@@ -163,6 +165,29 @@ pub(crate) fn project_generator_catalog_command(payload: Value) -> Result<Value,
         "catalog",
         json!({"generators": generators, "issues": issues}),
     ))))
+}
+
+/// The plugins that declare the tool each tool field selects, so a field with
+/// no installation can tell the user which plugin to enable or install. Core
+/// only names declarations; whether a definition is trusted, and whether the
+/// tool is installed, is the host's registry and discovery.
+fn tool_providers(
+    generator: &ProjectGeneratorDeclaration,
+    providers: &dyn Fn(&dyn Fn(&DeclarativePluginManifest) -> bool) -> Vec<Value>,
+) -> Vec<Value> {
+    generator
+        .fields
+        .iter()
+        .filter(|field| field.is(FIELD_TOOL))
+        .filter_map(|field| {
+            let tool = field.tool.as_deref()?;
+            Some(json!({
+                "fieldID": field.id,
+                "tool": tool,
+                "providers": providers(&|candidate| candidate.declares_tool(tool)),
+            }))
+        })
+        .collect()
 }
 
 /// `project.generatorForm`: field values, visibility, and problems.
@@ -199,9 +224,15 @@ pub(crate) fn project_check_name_command(payload: Value) -> Result<Value, CoreEr
 /// `project.extractArchive`: extracts a downloaded archive into staging.
 pub(crate) fn project_extract_archive_command(payload: Value) -> Result<Value, CoreError> {
     let payload: ExtractPayload = decode_payload(payload, "project.extractArchive")?;
+    let result = match archive::extract(&payload.archive_path, &payload.destination) {
+        Ok(files) => Ok(files),
+        Err(archive::ExtractionError::Invalid(rejection)) => Err(rejection),
+        // The extractor has closed its descriptors. Keep the first typed error:
+        // a second cancellation check would reclassify a timeout as cancellation.
+        Err(archive::ExtractionError::Interrupted(error)) => return Err(error),
+    };
     Ok(outcome(
-        archive::extract(&payload.archive_path, &payload.destination)
-            .map(|files| ("extracted", json!({"files": files}))),
+        result.map(|files| ("extracted", json!({"files": files}))),
     ))
 }
 

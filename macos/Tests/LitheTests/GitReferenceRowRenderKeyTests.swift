@@ -15,6 +15,7 @@ struct GitReferenceRowRenderKeyTests {
             fullName: "refs/heads/\(shortName)",
             shortName: shortName,
             kind: .local,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         )
@@ -25,6 +26,7 @@ struct GitReferenceRowRenderKeyTests {
             fullName: "refs/remotes/\(shortName)",
             shortName: shortName,
             kind: .remote,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         )

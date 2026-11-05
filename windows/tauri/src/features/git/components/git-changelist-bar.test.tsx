@@ -18,7 +18,13 @@ const globals = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: b
 let previousAct: boolean | undefined;
 let previousState: Pick<
   ReturnType<typeof useGitChangelistsStore.getState>,
-  "workspaces" | "unavailable"
+  | "workspaces"
+  | "pending"
+  | "unavailable"
+  | "createList"
+  | "renameList"
+  | "removeList"
+  | "activateList"
 >;
 let previousObserver: typeof ResizeObserver;
 let restoreControls: () => void;
@@ -97,11 +103,52 @@ beforeEach(async () => {
     unobserve() {}
     disconnect() {}
   };
+  const initial = useGitChangelistsStore.getState();
   previousState = {
-    workspaces: useGitChangelistsStore.getState().workspaces,
-    unavailable: useGitChangelistsStore.getState().unavailable,
+    workspaces: initial.workspaces,
+    pending: initial.pending,
+    unavailable: initial.unavailable,
+    createList: initial.createList,
+    renameList: initial.renameList,
+    removeList: initial.removeList,
+    activateList: initial.activateList,
   };
-  useGitChangelistsStore.setState({ workspaces: {}, unavailable: false });
+  // The toolbar test scripts host state responses. Reducer semantics and
+  // cross-window serialization are tested through Core and the store separately.
+  const update = (
+    fn: (state: ReturnType<typeof workspaceChangelists>) => ReturnType<typeof workspaceChangelists>,
+  ) => {
+    const current = workspaceChangelists(useGitChangelistsStore.getState(), workspace);
+    useGitChangelistsStore.setState({ workspaces: { [JSON.stringify(workspace)]: fn(current) } });
+  };
+  useGitChangelistsStore.setState({
+    workspaces: {},
+    pending: {},
+    unavailable: false,
+    createList: async (_workspace, name, id) => {
+      update((state) => ({ ...state, lists: [...state.lists, { id, name }] }));
+      return true;
+    },
+    renameList: async (_workspace, id, name) => {
+      update((state) => ({
+        ...state,
+        lists: state.lists.map((list) => (list.id === id ? { ...list, name } : list)),
+      }));
+      return true;
+    },
+    removeList: async (_workspace, id) => {
+      update((state) => ({
+        ...state,
+        lists: state.lists.filter((list) => list.id !== id),
+        activeId: "default",
+      }));
+      return true;
+    },
+    activateList: async (_workspace, id) => {
+      update((state) => ({ ...state, activeId: id }));
+      return true;
+    },
+  });
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);

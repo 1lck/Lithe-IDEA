@@ -18,10 +18,17 @@
       "if": { "required": ["pluginAPIVersion"], "properties": { "pluginAPIVersion": { "maximum": 1 } } },
       "then": { "properties": { "settings": { "maxItems": 0 } } }
     },
+    {"if": {"required": ["requiresTools"]}, "then": {"properties": {"pluginAPIVersion": {"minimum": 4}, "requires": {"required": ["serverProcess"], "properties": {"serverProcess": {"const": 4}}}}}},
+    {"if": {"required": ["outputLinkMatchers"]}, "then": {"properties": {"pluginAPIVersion": {"minimum": 4}, "requires": {"required": ["outputLinkMatchers"]}}}},
+    {"if": {"required": ["requires"], "properties": {"requires": {"required": ["debugAdapters"], "properties": {"debugAdapters": {"const": 3}}}}}, "else": {"properties": {"debugAdapters": {"items": {"properties": {"features": false, "defaults": false}}}}}},
     {"if": {"required": ["toolDefinitions"]}, "then": {"properties": {"pluginAPIVersion": {"minimum": 3}, "requires": {"required": ["toolDefinitions", "executableResolution"], "properties": {"executableResolution": {"const": 2}}}}}},
     {"if": {"required": ["toolchainProviders"]}, "then": {"required": ["backend"], "properties": {"pluginAPIVersion": {"minimum": 3}, "requires": {"required": ["toolchainProviders", "backend", "serverProcess"], "properties": {"backend": {"const": 2}}}, "permissions": {"allOf": [{"contains": {"const": "toolchains.provide"}}, {"contains": {"const": "backend.launch"}}]}}}},
+    {"if": {"required": ["pluginFunctions"]}, "then": {"required": ["backend"], "properties": {"pluginAPIVersion": {"minimum": 3}, "requires": {"required": ["pluginFunctions", "backend", "serverProcess"], "properties": {"backend": {"const": 2}}}}}},
+    {"if": {"required": ["keymapImportProviders"]}, "then": {"required": ["backend", "permissions"], "properties": {"pluginAPIVersion": {"minimum": 3}, "requires": {"required": ["keymapImportProviders", "backend", "serverProcess"], "properties": {"backend": {"const": 2}}}, "permissions": {"allOf": [{"contains": {"const": "keymaps.provide"}}, {"contains": {"const": "keymaps.readSelectedSources"}}, {"contains": {"const": "backend.launch"}}]}}}},
     {"if": {"required": ["requires"], "properties": {"requires": {"required": ["settings"], "properties": {"settings": {"const": 2}}}}}, "else": {"properties": {"settings": {"items": {"$ref": "#/$defs/settingVersion1"}}, "settingActions": {"maxItems": 0}}}},
-    {"if": {"required": ["requires"], "properties": {"requires": {"required": ["languageServers"], "properties": {"languageServers": {"const": 2}}}}}, "else": {"properties": {"languageServers": {"items": {"properties": {"workspaceConfiguration": false}}}}}}
+    {"if": {"required": ["requires"], "properties": {"requires": {"required": ["languageServers"], "properties": {"languageServers": {"minimum": 2}}}}}, "else": {"properties": {"languageServers": {"items": {"properties": {"workspaceConfiguration": false}}}}}},
+    {"if": {"required": ["requires"], "properties": {"requires": {"required": ["languageServers"], "properties": {"languageServers": {"const": 3}}}}}, "else": {"properties": {"languageServers": {"items": {"properties": {"requestMethods": false, "commands": false, "serializedCommands": false, "forwardNotifications": false, "state": false, "remote": false}}}}}},
+    {"if": {"required": ["languageServers"], "properties": {"languageServers": {"contains": {"required": ["launch"], "properties": {"launch": {"required": ["kind"], "properties": {"kind": {"const": "backend"}}}}}}}}, "then": {"required": ["backend"], "properties": {"pluginAPIVersion": {"minimum": 4}, "requires": {"required": ["backend", "serverProcess"], "properties": {"backend": {"const": 2}, "serverProcess": {"const": 3}}}}}}
   ],
   "properties": {
     "schemaVersion": { "const": 2 },
@@ -37,19 +44,22 @@
       "properties": {
         "backend": { "description": "Required exactly when backend is present: the plugin's own process. Version 1 serves only its web pages. Version 2 may also start on onWorkspaceOpen or a plugin command, receives workspace contexts through plugin-function protocol 3, and may be granted workspace.metadata.", "enum": [1, 2] },
         "buildModelInputs": {"description": "Optional public model sharing between already enabled workspace plugins; no installation, private function, or process authority. Required exactly when modelSharing or modelInputs is used. Consumers require buildProviders 6. Version 1 producers cannot also consume inputs.", "enum": [1]},
-        "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support; version 2 adds task execution, version 3 test execution/discovery, version 4 application run preparation, and version 5 native debug preparation; version 6 optional read-only model inputs.", "enum": [1, 2, 3, 4, 5, 6] },
-        "buildSystems": { "description": "Declarative build detection, models, and command plans; does not imply buildProviders support.", "enum": [1, 2] },
-        "debugAdapters": { "description": "Required exactly when debugAdapters is non-empty. Version 2 adds bounded target argument and environment bindings. The DAP session itself is negotiated by the adapter in initialize.", "enum": [1, 2] },
+        "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support; version 2 adds task execution, version 3 test execution/discovery, version 4 application run preparation, and version 5 native debug preparation; version 6 optional read-only model inputs; version 7 non-sensitive native configuration sources; version 8 inline provider test reports; version 9 opaque semantic test selectors; version 10 typed run options and service/task preparation; version 11 registry-selected adapter and host-owned connection target for service debugging.", "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
+        "buildSystems": { "description": "Declarative build detection, models, and command plans; v2 adds the executable setting adapter, v3 instance-scoped options, v4 declarative preparation roles; does not imply buildProviders support.", "enum": [1, 2, 3, 4] },
+        "debugAdapters": { "description": "Required exactly when debugAdapters is non-empty. Version 2 adds bounded target argument and environment bindings. Version 3 adds debugAdapters[].features and defaults, and is required exactly when one is used. The DAP session itself is negotiated by the adapter in initialize.", "enum": [1, 2, 3] },
         "executableResolution": { "enum": [1, 2], "description": "Shared executable candidate ordering and strict selection." },
-    "executionProviders": { "enum": [1] },
-        "languageServers": { "description": "Required exactly when languageServers is non-empty. Version 2 adds languageServers[].workspaceConfiguration.", "enum": [1, 2] },
+        "executionProviders": { "enum": [1] },
+        "languageServers": { "description": "Required exactly when languageServers is non-empty. Version 2 adds languageServers[].workspaceConfiguration. Version 3 adds the session fields requestMethods, commands, serializedCommands, forwardNotifications, state, and remote.", "enum": [1, 2, 3] },
         "languages": { "description": "Version 2 adds languages[].grammar and languages[].configuration and is required exactly when one of them is used.", "enum": [1, 2] },
+        "outputLinkMatchers": { "description": "Required exactly when outputLinkMatchers is non-empty.", "const": 1 },
         "packageTrust": { "description": "Required exactly when vendor.bundledSignatureRequirement is present.", "enum": [1] },
-        "projectGenerators": { "description": "Entries of the New Project window: fields, requirements, and steps.", "enum": [1] },
-        "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, of VCS providers, of debug adapters, and of the plugin backend. Version 2 adds runSelectedRuntime and is required exactly when a debug adapter uses it (pluginAPIVersion 4).", "enum": [1, 2] },
+        "projectGenerators": { "description": "Entries of the New Project window: fields, requirements, and steps. Version 2 adds the tool field and retires the runtime field.", "enum": [1, 2] },
+        "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, of VCS providers, of debug adapters, and of the plugin backend. Versions are cumulative: declare the lowest version that covers every launch the manifest uses. Version 2 adds runSelectedRuntime for a debug adapter (pluginAPIVersion 4). Version 3 adds the backend-resolved launch of a language server (pluginAPIVersion 4, backend 2). Version 4 names runtimes by tool-definition ID and is declared exactly when requiresTools is present.", "enum": [1, 2, 3, 4] },
         "settings": { "description": "Required exactly when settings or settingActions is non-empty. Version 1 is the API level 2 section: integer, enum, and boolean options. Version 2 adds scope, effect, page, section, the multiSelect, text, file, and directory types, and settingActions.", "enum": [1, 2] },
         "toolDefinitions": { "const": 1 },
         "toolchainProviders": { "const": 1 },
+        "keymapImportProviders": { "const": 1 },
+        "pluginFunctions": { "description": "Required exactly when pluginFunctions is present: functions this plugin's backend exports to other plugins, and exported functions it calls. Needs backend 2 (litheFunctions protocol 4).", "const": 1 },
         "ui": { "description": "Version 2 adds web content; version 3 adds native controls; version 4 adds backend-only commands.", "enum": [1, 2, 3, 4] },
         "vcsProviders": { "description": "Required exactly when vcsProviders is non-empty. The provider protocol itself is negotiated in initialize (shared/contracts/vcs-provider-v1.md).", "enum": [1] }
       }
@@ -77,11 +87,19 @@
           "documents.read",
           "editor.edit",
           "editor.actions",
+          "editor.providers",
           "editor.open",
           "preview.open",
           "toolchains.provide",
+          "keymaps.provide",
+          "keymaps.readSelectedSources",
           "browser.open",
-          "window.messages"] }
+          "window.messages",
+          "terminal.create",
+          "run.start",
+          "debug.start",
+          "languageServer.request",
+          "documents.contentProvider"] }
     },
     "activationEvents": {
       "type": "array",
@@ -92,7 +110,24 @@
       }
     },
     "toolDefinitions": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/toolchainToolDefinition" } },
+    "requiresTools": {
+      "description": "requires.serverProcess 4: every tool definition the plugin starts or names, by ID. A runtime tool of a launch, a runtime dependency, a runSelectedRuntime tool, or the tool of a lithe/host/run/start must be listed here. An ID is short or <pluginID>:<id>; a short ID defined by more than one enabled plugin belongs to none of them.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/toolchainToolID" }
+    },
+    "outputLinkMatchers": {
+      "description": "requires.outputLinkMatchers 1: patterns that turn Run and Test console text into links.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/outputLinkMatcher" }
+    },
     "toolchainProviders": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "$ref": "#/$defs/toolchainProvider" } },
+    "keymapImportProviders": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "$ref": "#/$defs/keymapImportProvider" } },
+    "pluginFunctions": { "$ref": "#/$defs/pluginFunctions" },
     "languages": {
       "type": "array",
       "minItems": 0,
@@ -262,6 +297,78 @@
     }
   },
   "$defs": {
+    "pluginFunctionID": {
+      "description": "Dot-separated lowerCamelCase segments, for example document.format.",
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)*$"
+    },
+    "pluginFunctions": {
+      "description": "Functions this plugin exports to other plugins and exported functions it calls. A function is private to its plugin unless it is exported here and registered at runtime with lithe/function/register; calling it takes no permission, because the receiver's export and the caller's declaration are the consent. The called function runs with the receiver's own permissions.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "exports": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/pluginFunctionExport" } },
+        "calls": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/pluginFunctionCall" } }
+      }
+    },
+    "pluginFunctionExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "context"],
+      "properties": {
+        "id": { "$ref": "#/$defs/pluginFunctionID" },
+        "version": { "description": "Version of the function's input and result contract; an incompatible change uses a new version.", "type": "integer", "minimum": 1, "maximum": 1000 },
+        "context": { "description": "The one calling context the function accepts. workspace: a local trusted workspace, scheduled by the host. An export without a context Lithe knows is refused.", "enum": ["workspace"] }
+      }
+    },
+    "pluginFunctionCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "#/$defs/pluginFunctionID" },
+        "version": { "description": "The export contract version this plugin was written for; Core refuses a provider that exports another version.", "type": "integer", "minimum": 1, "maximum": 1000 }
+      }
+    },
+    "keymapImportProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "displayName", "recognition", "inputs"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
+        "recognition": { "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/keymapImportRecognition" } },
+        "inputs": { "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/keymapImportInput" } }
+      }
+    },
+    "keymapImportRecognition": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind", "path"],
+          "properties": { "kind": { "enum": ["file", "directory"] }, "path": { "$ref": "#/$defs/keymapImportInput/properties/path" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "base", "components"],
+          "properties": { "kind": { "const": "root" }, "base": { "const": "userConfig" },
+            "components": { "type": "array", "minItems": 1, "maxItems": 8,
+              "contains": { "const": "*" }, "minContains": 0, "maxContains": 1,
+              "items": { "type": "string", "maxLength": 256, "pattern": "^(?:\\*|(?!.*[. ]$)[^/\\\\:*?\\u0000-\\u001f\\u007f]+)$" } } } }
+      ]
+    },
+    "keymapImportInput": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "path"],
+      "properties": {
+        "kind": { "enum": ["file", "directory"] },
+        "path": { "type": "string", "minLength": 1, "maxLength": 256,
+          "pattern": "^(?!/)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))(?!.*(?:^|/)[^/]*[. ](?:/|$))[^/\\\\:*?\\u0000-\\u001f\\u007f]+(?:/[^/\\\\:*?\\u0000-\\u001f\\u007f]+)*$" },
+        "extension": { "type": "string", "pattern": "^[a-z0-9]{1,16}$" }
+      },
+      "allOf": [
+        { "if": { "properties": { "kind": { "const": "directory" } } }, "then": { "required": ["extension"] } },
+        { "if": { "properties": { "kind": { "const": "file" } } }, "then": { "not": { "required": ["extension"] } } }
+      ]
+    },
     "debugLocalID": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9._-]{0,63}$"
@@ -391,11 +498,8 @@
               "const": "runSelectedRuntime"
             },
             "tool": {
-              "enum": [
-                "python",
-                "java",
-                "node"
-              ]
+              "description": "serverProcess 2 accepts python, java and node; serverProcess 4 accepts the ID of a tool definition listed in requiresTools.",
+              "$ref": "#/$defs/toolchainToolID"
             }
           }
         },
@@ -773,6 +877,93 @@
         },
         "launch": {
           "$ref": "#/$defs/debugLaunch"
+        },
+        "features": {
+          "description": "debugAdapters 3: adapter-specific DAP extensions the adapter implements.",
+          "$ref": "#/$defs/debugAdapterFeatures"
+        },
+        "defaults": {
+          "description": "debugAdapters 3: values the adapter starts with when the user configured none.",
+          "$ref": "#/$defs/debugAdapterDefaults"
+        }
+      }
+    },
+    "debugDeclaredName": {
+      "description": "A DAP command, event, field or argument name: a letter followed by up to 63 letters, digits, dots, underscores or hyphens.",
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,63}$"
+    },
+    "debugAdapterFeatures": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "hotCodeReplace": {
+          "description": "A custom request that applies changed code to the running debuggee.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["request"],
+          "properties": {
+            "request": { "description": "DAP command sent for a redefineClasses inspection.", "$ref": "#/$defs/debugDeclaredName" },
+            "event": { "description": "DAP event whose message the Debug Console shows as progress.", "$ref": "#/$defs/debugDeclaredName" },
+            "changedField": { "description": "Response body field listing the replaced units.", "$ref": "#/$defs/debugDeclaredName" },
+            "errorField": { "description": "Response body field with a failure message the adapter reports in a successful response.", "$ref": "#/$defs/debugDeclaredName" }
+          }
+        },
+        "stepFilters": {
+          "description": "The launch argument through which the adapter receives {skipClasses, skipSynthetics, skipStaticInitializers, skipConstructors}.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["argument"],
+          "properties": {
+            "argument": { "$ref": "#/$defs/debugDeclaredName" }
+          }
+        }
+      }
+    },
+    "debugAdapterDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "stepFilters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "classNameFilters": {
+              "type": "array",
+              "maxItems": 256,
+              "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+            },
+            "skipSynthetics": { "type": "boolean" },
+            "skipStaticInitializers": { "type": "boolean" },
+            "skipConstructors": { "type": "boolean" },
+            "hideFilteredStackFrames": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "outputLinkMatcher": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "pattern"],
+      "properties": {
+        "id": { "description": "Plugin-local ID, unique in the plugin.", "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$" },
+        "pattern": {
+          "description": "A Rust regex matched against one console line. Without resolve it captures path and may capture line and column; it must not match empty text.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "scope": { "description": "The console the matcher applies to; both when absent.", "enum": ["run", "test"] },
+        "resolve": {
+          "description": "A function of the plugin's backend 2 process that turns the named groups into a location.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["function"],
+          "properties": {
+            "function": { "type": "string", "minLength": 1 }
+          }
         }
       }
     },
@@ -804,12 +995,12 @@
       "required": ["id", "type", "title"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*$" },
-        "type": { "enum": ["text", "enum", "boolean", "multiSelect", "runtime"] },
+        "type": { "enum": ["text", "enum", "boolean", "multiSelect", "runtime", "tool"], "description": "runtime needs requires.projectGenerators 1; tool needs requires.projectGenerators 2." },
         "title": { "type": "string", "minLength": 1, "maxLength": 120 },
         "description": { "type": "string", "minLength": 1, "maxLength": 480 },
         "advanced": { "type": "boolean" },
         "visibleWhen": { "$ref": "#/$defs/generatorConditions" },
-        "default": { "description": "text: a template over ${project.name} and earlier fields; enum: an option; boolean; multiSelect: options. Not allowed for runtime." },
+        "default": { "description": "text: a template over ${project.name} and earlier fields; enum: an option; boolean; multiSelect: options. Not allowed for runtime and tool." },
         "options": {
           "type": "array",
           "items": {
@@ -829,7 +1020,14 @@
         "placeholder": { "type": "string", "minLength": 1, "maxLength": 120 },
         "optional": { "type": "boolean" },
         "runtime": { "enum": ["java"] },
-        "minimumVersion": { "type": "string" },
+        "tool": {
+          "description": "tool: a tool definition ID, a short ID or <pluginID>:<id>; a short ID that several enabled plugins define belongs to none of them.",
+          "type": "string",
+          "maxLength": 192,
+          "pattern": "^([a-z0-9]+([.-][a-z0-9]+)*:)?[a-z][a-z0-9-]{0,63}$"
+        },
+        "pinAs": { "description": "tool: project saves the selection as the created project's own tool choice.", "enum": ["project"] },
+        "minimumVersion": { "type": "string", "description": "runtime and tool: one to three dotted numbers." },
         "maximumVersion": { "type": "string", "description": "text and enum: the highest version the value may name, a template over earlier fields such as ${field.jdk.major}." }
       }
     },
@@ -1212,11 +1410,24 @@
       "maxItems": 2,
       "items": { "$ref": "#/$defs/editorDelimiter" }
     },
+    "protocolName": {
+      "description": "An LSP method or command name: non-empty text of at most 256 bytes without whitespace or control characters.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\s\\u0000-\\u001f\\u007f]+$"
+    },
     "languageServer": {
       "type": "object",
       "$ref": "#/$defs/serverProcess",
       "unevaluatedProperties": false,
       "required": ["languageID"],
+      "allOf": [
+        {
+          "if": { "required": ["launch"], "properties": { "launch": { "required": ["kind"], "properties": { "kind": { "const": "backend" } } } } },
+          "then": { "properties": { "arguments": false, "validationArguments": false, "runtimeDependencies": false, "initializationOptions": false }, "not": { "required": ["hostIntegration"] } }
+        }
+      ],
       "properties": {
         "languageID": { "type": "string" },
         "languageIdentifier": { "type": "string", "minLength": 1 },
@@ -1224,8 +1435,58 @@
           "description": "languageServers 2: what the server reads through workspace/configuration and receives again in workspace/didChangeConfiguration. String leaves may be ${setting:<id>} templates, including settings whose effect is immediate, and no other variable.",
           "type": "object"
         },
+        "requestMethods": {
+          "description": "languageServers 3: LSP methods the plugin backend may send with languageServer/request or languageServer/notify. The methods the host sends itself are refused. Requires the languageServer.request permission.",
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/protocolName" }
+        },
+        "commands": {
+          "description": "languageServers 3: workspace/executeCommand commands the backend may run. Declared exactly when requestMethods lists workspace/executeCommand.",
+          "type": "array",
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/protocolName" }
+        },
+        "serializedCommands": {
+          "description": "languageServers 3: commands that run one at a time; a later request for a running command joins it. Each is also listed in commands.",
+          "type": "array",
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/protocolName" }
+        },
+        "forwardNotifications": {
+          "description": "languageServers 3: server notifications the host forwards to the backend. Requires the languageServer.request permission.",
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/protocolName" }
+        },
+        "state": {
+          "description": "languageServers 3: how the host keeps the server's per-workspace state directories.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scope", "retention"],
+          "properties": {
+            "scope": { "const": "workspace" },
+            "retention": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["maxEntries", "maxAgeDays"],
+              "properties": {
+                "maxEntries": { "type": "integer", "minimum": 1, "maximum": 64 },
+                "maxAgeDays": { "type": "integer", "minimum": 1, "maximum": 365 }
+              }
+            }
+          }
+        },
+        "remote": {
+          "description": "languageServers 3: whether the server works on a remote workspace. Supported when absent.",
+          "enum": ["supported", "unsupported"]
+        },
         "hostIntegration": {
-          "description": "pluginAPIVersion 2, official plugins only: a named host integration and the package resources it reads.",
+          "description": "pluginAPIVersion 2: a named host integration and the package resources it reads.",
           "type": "object",
           "additionalProperties": false,
           "required": ["id"],
@@ -1286,16 +1547,27 @@
               "required": ["kind", "tool", "entry"],
               "properties": {
                 "kind": { "const": "runtime" },
-                "tool": { "enum": ["java", "node"] },
+                "tool": { "description": "serverProcess 1 and 2 accept java and node; serverProcess 4 accepts the ID of a tool definition listed in requiresTools.", "$ref": "#/$defs/toolchainToolID" },
                 "minimumVersion": { "$ref": "#/$defs/minimumVersion" },
                 "packagedRuntime": { "type": "string", "minLength": 1 },
                 "runtimeArguments": { "type": "array", "items": { "type": "string" } },
                 "entry": { "type": "string", "minLength": 1 }
               }
+            },
+            {
+              "description": "serverProcess 3, language servers only: the plugin backend answers the command line each time the server starts. Core refuses it in any other process.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "function"],
+              "properties": {
+                "kind": { "const": "backend" },
+                "function": { "description": "Plugin function ID: dot-separated lowerCamelCase segments.", "type": "string", "maxLength": 128, "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)*(?![\\s\\S])" },
+                "timeoutMilliseconds": { "type": "integer", "minimum": 1000, "maximum": 120000 }
+              }
             }
           ]
         },
-        "arguments": { "type": "array", "items": { "type": "string" } },
+        "arguments": { "description": "API 2 launch templates include ${logDir}, supplied explicitly as absolute logDirectory by the host for the current session plugin files directory; never inferred from installation paths.", "type": "array", "items": { "type": "string" } },
         "validationArguments": { "type": "array", "items": { "type": "string" } },
         "runtimeDependencies": {
           "type": "array",
@@ -1303,7 +1575,7 @@
             "type": "object",
             "additionalProperties": false,
             "required": ["tool"],
-            "properties": { "tool": { "enum": ["go", "java", "node"] } }
+            "properties": { "tool": { "description": "serverProcess 1 and 2 accept go, java and node; serverProcess 4 accepts the ID of a tool definition listed in requiresTools.", "$ref": "#/$defs/toolchainToolID" } }
           }
         },
         "initializationOptions": {
@@ -1912,6 +2184,78 @@
               }
             }
           ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "toolchainID"
+          ],
+          "properties": {
+            "kind": {
+              "const": "toolchain"
+            },
+            "toolchainID": {
+              "type": "string",
+              "maxLength": 192,
+              "pattern": "^(?:[a-z0-9]+(?:[.-][a-z0-9]+)*:)?[a-z][a-z0-9-]{0,63}$"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "priority": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "insertBefore": {
+              "type": "string",
+              "minLength": 1
+            },
+            "insertAfter": {
+              "type": "string",
+              "minLength": 1
+            },
+            "platforms": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "macos",
+                  "linux",
+                  "windows"
+                ]
+              }
+            }
+          },
+          "allOf": [
+            {
+              "not": {
+                "required": [
+                  "priority",
+                  "insertBefore"
+                ]
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "priority",
+                  "insertAfter"
+                ]
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "insertBefore",
+                  "insertAfter"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -2249,6 +2593,7 @@
         "invocation"
       ],
       "properties": {
+        "configuration": {"type": "object", "additionalProperties": false, "required": ["source"], "properties": {"source": {"const": "provider"}}, "description": "Format-independent native configuration facts and provider-owned staged editing; requires buildProviders 7 and an owned provider."},
         "modelSharing": {"type": "object", "additionalProperties": false, "properties": {"options": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"type": "string"}}}, "description": "Opt into publishing normalized projects, targets and content roots, plus only these explicitly shared ordinary build option values. Never tasks, run plans, settings or optionValues."},
         "modelInputs": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["pluginID", "buildSystemID"], "properties": {"pluginID": {"type": "string"}, "buildSystemID": {"type": "string"}}}, "description": "Exact optional producer slots, sorted by Core. Missing or disabled producers are unavailable and never installed or activated automatically."},
         "id": {
@@ -2360,7 +2705,7 @@
                     "$ref": "#/$defs/buildVersionProbe"
                   }
                 },
-                "description": "java, node, and go are host-managed and take only id and minimumVersion; any other runtime declares its executables and version probe."
+                "description": "java, node, and go use host version probes. With executableResolution 2 they may select one toolchain candidate; otherwise they take only id and minimumVersion. Other runtimes declare their executables and version probe."
               }
             },
             "version": {
@@ -2411,6 +2756,10 @@
                 ]
               },
               "default": {},
+              "scope": {
+                "description": "Instance scope requires buildSystems 3; omitted means workspace. Hosts persist each detected root independently.",
+                "enum": ["workspace", "instance"]
+              },
               "choices": {
                 "type": "array",
                 "items": {
@@ -2624,6 +2973,19 @@
                 "description": "Omitted expands argv in Core; provider sends lithe/build/execute. Provider tasks require buildProviders 2, empty arguments, and task execution.",
                 "enum": ["provider"]
               },
+              "preparation": {
+                "description": "buildSystems 4: automatic project preparation selected by workflow purpose and canonical model source role. Bindings must be unique within one build system; no prompted or fromModel tasks.",
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["purpose", "sourceRoles"],
+                "properties": {
+                  "purpose": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9._-]*$", "maxLength": 120 },
+                  "sourceRoles": {
+                    "type": "array", "minItems": 1, "maxItems": 6, "uniqueItems": true,
+                    "items": { "enum": ["source", "generatedSource", "resource", "testSource", "generatedTestSource", "testResource"] }
+                  }
+                }
+              },
               "requiresUserArguments": {
                 "type": "boolean"
               },
@@ -2655,12 +3017,16 @@
             ],
             "properties": {
               "debug": {
-                "description": "Native executable debug preparation (buildProviders 5); same-package debugAdapters 2 launch adapter with typed program/cwd/args/env bindings.",
-                "type": "object", "additionalProperties": false, "required": ["adapter"],
-                "properties": { "adapter": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$", "maxLength": 64 } }
+                "description": "Same-package native launch adapter (v5), or a public registry configurationType for connection attach (v11 service runs).",
+                "type": "object", "additionalProperties": false,
+                "oneOf": [{"required": ["adapter"]}, {"required": ["configurationType"]}],
+                "properties": {
+                  "adapter": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$", "maxLength": 64 },
+                  "configurationType": { "type": "string", "minLength": 1, "maxLength": 256 }
+                }
               },
               "source": {
-                "description": "Provider-owned application preparation (buildProviders 4), fromTargets only, without host command templates.",
+                "description": "Provider-owned application preparation (buildProviders 4) or service/task preparation (buildProviders 10), fromTargets only, without host command templates.",
                 "enum": ["provider"]
               },
               "id": {
@@ -2761,6 +3127,11 @@
             "arguments"
           ],
           "properties": {
+            "selectorKinds": {
+              "type": "array", "maxItems": 16, "uniqueItems": true,
+              "description": "Public opaque semantic selector namespaces; provider tests and buildProviders 9 required.",
+              "items": {"type": "string", "maxLength": 120, "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$"}
+            },
             "discovery": {
               "type": "boolean",
               "description": "Opt in to lithe/build/discoverTests; requires provider test source and suite/case filters."
@@ -2828,6 +3199,18 @@
                   "properties": {
                     "decoder": {
                       "const": "hostIntegration"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "decoder"
+                  ],
+                  "properties": {
+                    "decoder": {
+                      "const": "provider"
                     }
                   }
                 }

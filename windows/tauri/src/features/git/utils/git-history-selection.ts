@@ -48,32 +48,3 @@ export function selectedCommitsInHistoryOrder<T extends { hash: string }>(
 ): T[] {
   return commits.filter((commit) => selectedCommitHashes.has(commit.hash));
 }
-
-export function isContiguousGitHistorySelection(
-  commits: readonly { hash: string; parentHashes: readonly string[]; decorations?: string }[],
-  selectedCommitHashes: ReadonlySet<string>,
-): boolean {
-  if (selectedCommitHashes.size < 2) return false;
-  const commitByHash = new Map(commits.map((commit) => [commit.hash, commit]));
-  const currentHead = commits.find((commit) =>
-    (commit.decorations ?? "")
-      .split(",")
-      .map((decoration) => decoration.trim())
-      .some((decoration) => decoration === "HEAD" || decoration.startsWith("HEAD -> ")),
-  );
-  if (!currentHead) return false;
-
-  const firstParentChain: string[] = [];
-  let current: (typeof commits)[number] | undefined = currentHead;
-  while (current) {
-    firstParentChain.push(current.hash);
-    current = current.parentHashes[0] ? commitByHash.get(current.parentHashes[0]) : undefined;
-  }
-  const indices = firstParentChain.flatMap((hash, index) =>
-    selectedCommitHashes.has(hash) ? [index] : [],
-  );
-  return (
-    indices.length === selectedCommitHashes.size &&
-    indices[indices.length - 1] - indices[0] + 1 === indices.length
-  );
-}

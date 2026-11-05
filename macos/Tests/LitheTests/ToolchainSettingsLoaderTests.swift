@@ -26,6 +26,36 @@ struct ToolchainSettingsLoaderTests {
                      manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: enabled)
     }
 
+    /// A complete manifest Core admits, unlike `source()`: the loader asks Core's registry which short tool
+    /// IDs are contested, and Core refuses an incomplete manifest. A provider is added when `providerTools` is set.
+    private func definingSource(
+        pluginID: String, name: String, tools: [String], providerTools: [String] = []
+    ) throws -> ToolchainSettingsPluginSource {
+        var manifest: [String: Any] = [
+            "schemaVersion": 2, "id": pluginID, "displayName": name, "version": "1.0.0", "pluginAPIVersion": 3,
+            "requires": ["toolDefinitions": 1, "executableResolution": 2],
+            "vendor": ["id": "org.example", "displayName": "Fixture publisher", "signatureRequirement": "publisherPackage"],
+            "permissions": [],
+            "toolDefinitions": tools.map { tool -> [String: Any] in
+                ["id": tool, "displayName": "Fixture \(tool)", "icon": ["host": "plugin"],
+                 "executableLayouts": [["path": "bin/\(tool)"]],
+                 "executables": [["id": "shell", "kind": "command", "command": tool]],
+                 "version": ["arguments": ["--version"], "pattern": #"\#(tool) (\d+(?:\.\d+)*)"#],
+                 "commands": [tool], "launch": ["${executable}", "${arguments}"]]
+            }
+        ]
+        if !providerTools.isEmpty {
+            manifest["requires"] = ["toolDefinitions": 1, "executableResolution": 2, "toolchainProviders": 1,
+                                    "backend": 2, "serverProcess": 1]
+            manifest["permissions"] = ["backend.launch", "toolchains.provide"]
+            manifest["toolchainProviders"] = [["id": "manager", "displayName": "Fixture manager", "tools": providerTools,
+                "watchFiles": [["pattern": ".fixture-version", "reader": "native"]]] as [String: Any]]
+            manifest["backend"] = ["launch": ["kind": "packaged", "path": "bin/kits"]]
+        }
+        return .init(pluginID: pluginID, name: name, manifest: try JSONSerialization.data(withJSONObject: manifest),
+                     isEnabled: true)
+    }
+
     private func local(_ pins: [String: Any]) throws -> Data {
         try JSONSerialization.data(withJSONObject: ["version": 1, "toolchains": [:], "pins": pins])
     }
@@ -66,6 +96,118 @@ struct ToolchainSettingsLoaderTests {
         #expect(snapshot.providers.first?.watchFiles == [".fixture-version"])
         #expect(snapshot.diagnostics.isEmpty)
         #expect(files.readPaths == [localPath])
+    }
+
+    @Test func buildConsumersComeFromTheCurrentCoreInvocationAndDisappearWhenDisabled() async throws {
+        let definition = try source()
+        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-systems/build-toolchains.plugin.json")
+        let data = Data(try String(contentsOf: fixture, encoding: .utf8)
+            .replacingOccurrences(of: "dev.lithe.fixture.build-toolchains:compiler", with: "compiler").utf8)
+        let build = ToolchainSettingsPluginSource(pluginID: "dev.lithe.fixture.build-toolchains", name: "Build fixture",
+            manifest: data, isEnabled: true)
+        let snapshot = try await loader(sources: { [definition, build] }).load(workspace: workspace)
+        #expect(snapshot.tools.first?.consumers == [.init(id: build.pluginID + "/cargo", title: "Cargo", pluginName: "Build fixture")])
+        let disabled = ToolchainSettingsPluginSource(pluginID: build.pluginID, name: build.name, manifest: data, isEnabled: false)
+        let withdrawn = try await loader(sources: { [definition, disabled] }).load(workspace: workspace)
+        #expect(withdrawn.tools.first?.consumers.isEmpty == true)
+    }
+
+    @Test func savedPreferenceScopesStayEditableWithoutVersionFilesOrPins() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-preference-directories-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent(".lithe/run/local.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let bytes = Data(#"{"version":2,"configurations":[],"toolchain":{"preferences":{"version":1,"directories":{"modules/service":{"tools":{"compiler":{"home":"/fixture/sdk"}}},"modules/worker":{"consumers":{"dev.example.build/engine":{"compiler":{"inherit":"consumer"}}}}}}}}"#.utf8)
+        try bytes.write(to: url)
+        let source = try source()
+        let reading = loader(sources: { [source] })
+        let saved = try await reading.load(workspace: root)
+        #expect(saved.directories.map(\.id) == [".", "modules", "modules/service", "modules/worker"])
+        #expect(saved.directories.filter(\.hasToolPreferences).map(\.id) == ["modules/service", "modules/worker"])
+        #expect(saved.tools.map(\.directoryID) == saved.directories.map(\.id))
+        #expect(saved.watch.contains(url.path))
+        #expect(try Data(contentsOf: url) == bytes)
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/.gitignore").path))
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/toolchains").path))
+        try Data(#"{"version":2,"configurations":[]}"#.utf8).write(to: url)
+        let reset = try await reading.load(workspace: root)
+        #expect(reset.directories.map(\.id) == ["."])
+        #expect(reset.directories.first?.hasToolPreferences == false)
+    }
+
+    @Test func changingSavedScopesDuringDiscoveryDiscardsOldRowsAndRetriesOnce() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-preference-scope-change-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent(".lithe/run/local.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let original = Data(#"{"version":2,"configurations":[]}"#.utf8)
+        let changed = Data(#"{"version":2,"configurations":[],"toolchain":{"preferences":{"version":1,"directories":{"nested":{"tools":{"compiler":{"home":"/fixture/sdk"}}}}}}}"#.utf8)
+        try original.write(to: url)
+        let source = try source()
+        let reading = loader(sources: { [source] }, discover: { _ in
+            try? changed.write(to: url)
+            return .init()
+        })
+        let snapshot = try await reading.load(workspace: root)
+        #expect(snapshot.directories.map(\.id) == [".", "nested"])
+        #expect(snapshot.directories.last?.hasToolPreferences == true)
+        #expect(try Data(contentsOf: url) == changed)
+    }
+
+    @Test func continuouslyChangingScopesStopAfterOneRetryWithARefreshableFailure() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-continuous-preference-change-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent(".lithe/run/local.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let original = Data(#"{"version":2,"configurations":[]}"#.utf8)
+        try original.write(to: url)
+        let source = try source()
+        let reading = loader(sources: { [source] }, discover: { _ in
+            if var current = try? Data(contentsOf: url) { current.append(32); try? current.write(to: url) }
+            return .init()
+        })
+        await #expect(throws: ToolchainSettingsLoadError.sourceChanged) { try await reading.load(workspace: root) }
+        #expect(try Data(contentsOf: url).count == original.count + 2)
+    }
+
+    @Test(arguments: ["traversal", "too-deep"])
+    func invalidPreferenceDirectoriesAreRejectedBeforeNativeDiscovery(kind: String) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-invalid-preference-scopes-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent(".lithe/run/local.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let directory = kind == "traversal" ? "../outside" : Array(repeating: "nested", count: 65).joined(separator: "/")
+        let bytes = try JSONSerialization.data(withJSONObject: ["version": 2, "configurations": [], "toolchain": ["preferences": ["version": 1,
+            "directories": [directory: ["tools": ["compiler": ["home": "/fixture/sdk"]]]]]]])
+        try bytes.write(to: url)
+        let source = try source()
+        let reading = loader(sources: { [source] }, discover: { _ in
+            Issue.record("An invalid preference scope must not query or probe tools")
+            return .init()
+        })
+        await #expect(throws: (any Error).self) { try await reading.load(workspace: root) }
+        #expect(try Data(contentsOf: url) == bytes)
+    }
+
+    @Test(arguments: ["parent-alias", "file-alias"])
+    func preferenceScopeReaderRefusesExternalAliasesBeforeReading(kind: String) throws {
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-preference-source-alias-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let root = scratch.appendingPathComponent("workspace"), outside = scratch.appendingPathComponent("outside")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside.appendingPathComponent("run"), withIntermediateDirectories: true)
+        let source = outside.appendingPathComponent("run/local.json")
+        let bytes = Data(#"{"version":2,"configurations":[]}"#.utf8)
+        try bytes.write(to: source)
+        let target = root.appendingPathComponent(".lithe/run/local.json")
+        if kind == "parent-alias" {
+            try FileManager.default.createSymbolicLink(at: root.appendingPathComponent(".lithe"), withDestinationURL: outside)
+        } else {
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.createSymbolicLink(at: target, withDestinationURL: source)
+        }
+        #expect(throws: ToolchainSettingsLoadError.readFailed) { try MacToolchainSettingsLoader.safeNativePreferenceRead(target) }
+        #expect(try Data(contentsOf: source) == bytes)
     }
 
     @Test func versionFilesListTheirDirectoriesAndRowsInheritTheNearestFirst() async throws {
@@ -253,6 +395,8 @@ struct ToolchainSettingsLoaderTests {
         }
     }
 
+    /// `source()` manifests are incomplete, so Core's registry refuses them and names no conflict. The loader
+    /// then keeps its own check: a repeated tool ID or plugin ID it cannot attribute is still refused.
     @Test func duplicateToolOwnersAndMalformedEnabledDeclarationsAreRefused() async throws {
         let (first, second) = (try source(), try source(pluginID: "dev.lithe.fixture.other"))
         let malformed = ToolchainSettingsPluginSource(pluginID: "invalid", name: "Invalid", manifest: Data("invalid".utf8), isEnabled: true)
@@ -261,6 +405,32 @@ struct ToolchainSettingsLoaderTests {
                 try await loader(sources: { sources }).load(workspace: nil)
             }
         }
+    }
+
+    /// A short tool ID defined by two enabled plugins belongs to neither. The page still loads: the
+    /// contested tool has no row and no provider capsule, other tools stay listed, and the diagnostics
+    /// name every plugin involved, in plugin ID order.
+    @Test func aToolDefinedByTwoEnabledPluginsIsUnlistedAndExplainedInsteadOfFailingThePage() async throws {
+        let alpha = try definingSource(pluginID: "io.example.alpha", name: "Alpha", tools: ["demo", "extra"],
+                                       providerTools: ["demo", "extra"])
+        let beta = try definingSource(pluginID: "io.example.beta", name: "Beta", tools: ["demo"])
+        let requests = ToolchainDiscoveryRequests()
+        let snapshot = try await loader(sources: { [beta, alpha] }, discover: { request in
+            requests.record(request)
+            return .init()
+        }).load(workspace: workspace)
+        #expect(snapshot.tools.map(\.id) == ["extra"])
+        #expect(snapshot.tools.first?.pluginID == alpha.pluginID && snapshot.tools.first?.pluginName == "Alpha")
+        #expect(snapshot.providers.map(\.tools) == [["extra"]])
+        #expect(snapshot.diagnostics == [L10n.string(
+            "Tool \("demo") is defined by more than one enabled plugin (\("Alpha, Beta")), so none of these definitions is used. Keep only one of these plugins enabled.")])
+        // Discovery still receives every enabled source; Core leaves the contested tool out of its own plan.
+        #expect(requests.values.count == 1)
+        #expect(requests.values.first?.sources.map(\.pluginID) == [alpha.pluginID, beta.pluginID])
+
+        // Without a workspace there is no page to explain it on, yet the capsule list stays consistent.
+        let listing = try await loader(sources: { [alpha, beta] }).load(workspace: nil)
+        #expect(listing.providers.map(\.tools) == [["extra"]])
     }
 
     @Test func installationOnlyProvidersAreListedWithoutCheckingVersionFiles() async throws {

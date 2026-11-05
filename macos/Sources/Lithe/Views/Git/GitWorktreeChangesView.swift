@@ -210,7 +210,7 @@ struct GitWorktreeChangesView: View {
                 actions.showDiffInNewTab?(change)
             },
             .submenu("Move to ChangeList", items: commitSession?.feature.changelists.lists.map { list in
-                .action(list.displayName, isEnabled: enabled) { commitSession?.feature.moveChanges(targets, toChangelist: list.id) }
+                .action(list.displayName, isEnabled: enabled) { Task { await commitSession?.feature.moveChanges(targets, toChangelist: list.id) } }
             } ?? []),
             .separator,
             .action("Stage Files", isEnabled: enabled && targets.contains { GitFileContextMenuPlan(change: $0).showsAdd }) { setStaging(targets, true) },

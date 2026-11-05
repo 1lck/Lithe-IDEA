@@ -7,17 +7,20 @@ final class EditorSessionCoordinator {
     private let document: DocumentFeatureModel
     private let media: MediaDocumentFeatureModel
     private let tabOrder: EditorTabOrderFeatureModel
+    private let languageServerLogs: LanguageServerLogsModel?
     private var observations: [AnyCancellable]
 
     init(
         document: DocumentFeatureModel,
         media: MediaDocumentFeatureModel,
         terminalPlacement: TerminalPlacementFeatureModel,
-        tabOrder: EditorTabOrderFeatureModel
+        tabOrder: EditorTabOrderFeatureModel,
+        languageServerLogs: LanguageServerLogsModel? = nil
     ) {
         self.document = document
         self.media = media
         self.tabOrder = tabOrder
+        self.languageServerLogs = languageServerLogs
         observations = [
             document.$activeDocumentID.dropFirst().sink { [weak media, weak terminalPlacement, weak tabOrder] id in
                 guard let id else { return }
@@ -40,6 +43,7 @@ final class EditorSessionCoordinator {
 
     func resetContent() {
         tabOrder.remove(.languageLogs)
+        languageServerLogs?.stop()
         document.reset()
         media.reset()
     }

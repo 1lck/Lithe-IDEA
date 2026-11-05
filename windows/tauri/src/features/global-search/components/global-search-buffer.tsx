@@ -8,6 +8,7 @@ import type {
 } from "@/features/file-explorer/components/file-navigator-sidebar";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useTranslation } from "@/i18n/locale-provider";
+import { useWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { readFileContent } from "@/features/file-system/controllers/file-operations";
 import { getBaseName, getRelativePath } from "@/utils/path-helpers";
 import { ScrollArea } from "@/ui/scroll-area";
@@ -55,6 +56,7 @@ interface GlobalSearchBufferProps {
 
 const GlobalSearchBuffer = ({ compact = false }: GlobalSearchBufferProps) => {
   const { t } = useTranslation();
+  const workspaceId = useWorkspaceId();
   const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const inputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
@@ -366,6 +368,7 @@ const GlobalSearchBuffer = ({ compact = false }: GlobalSearchBufferProps) => {
         debouncedQuery,
         replaceQuery,
         searchOptions,
+        workspaceId,
       );
 
       if (didReplace) {
@@ -373,12 +376,12 @@ const GlobalSearchBuffer = ({ compact = false }: GlobalSearchBufferProps) => {
       }
     } catch (replaceError) {
       toast.error(
-        replaceError instanceof Error ? replaceError.message : "Failed to replace search match",
+        replaceError instanceof Error ? replaceError.message : t("search.replaceMatchesFailed"),
       );
     } finally {
       setReplaceOperation(null);
     }
-  }, [debouncedQuery, refreshSearch, replaceOperation, replaceQuery, searchOptions, selectedMatch]);
+  }, [debouncedQuery, refreshSearch, replaceOperation, replaceQuery, searchOptions, selectedMatch, t, workspaceId]);
 
   const replaceAll = useCallback(async () => {
     if (
@@ -397,6 +400,7 @@ const GlobalSearchBuffer = ({ compact = false }: GlobalSearchBufferProps) => {
         debouncedQuery,
         replaceQuery,
         searchOptions,
+        workspaceId,
       );
 
       if (count > 0) {
@@ -418,6 +422,8 @@ const GlobalSearchBuffer = ({ compact = false }: GlobalSearchBufferProps) => {
     replaceOperation,
     replaceQuery,
     searchOptions,
+    t,
+    workspaceId,
   ]);
 
   useEffect(() => {

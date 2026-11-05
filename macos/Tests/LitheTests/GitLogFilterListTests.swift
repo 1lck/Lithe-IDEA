@@ -24,6 +24,7 @@ struct GitLogFilterListTests {
             fullName: "\(prefix)/\(shortName)",
             shortName: shortName,
             kind: kind,
+            peelsToCommit: true,
             isCurrent: isCurrent,
             upstreamShortName: upstream
         )

@@ -5,7 +5,6 @@ import Foundation
 /// requests made before the Git feature activates.
 /// Native callbacks only update bounded storage; consumers coalesce publication.
 package final class GitExecutionJournal: @unchecked Sendable {
-    package var onLifecycleEvent: (@Sendable (GitExecutionEvent) -> Void)?
     package let changes = PassthroughSubject<Void, Never>()
     private let lock = NSLock()
     private var contexts: [String: GitExecutionContext] = [:]
@@ -57,10 +56,6 @@ package final class GitExecutionJournal: @unchecked Sendable {
     }
 
     package func receive(_ event: GitExecutionEvent, at root: URL? = nil) {
-        if ["requestStarted", "requestFinished", "commandStarted", "commandFinished"].contains(event.type) {
-            onLifecycleEvent?(event)
-        }
-
         let changed = lock.withLock { receiveLocked(event, root: root) }
         if changed { changes.send() }
     }

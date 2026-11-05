@@ -44,6 +44,11 @@ public struct DeclarativeLanguageServer: Equatable, Sendable {
         /// runtime the plugin ships, for example `runtime/${arch}/bin/java`;
         /// `nil` means the host discovers the tool.
         case runtime(tool: String, entryRelativePath: String, packagedRuntime: String?)
+        /// The plugin's backend chooses the executable and arguments each
+        /// time the server starts (`serverProcess` 3). `function` is the
+        /// backend function the host calls; the host waits at most
+        /// `timeoutMilliseconds` for its answer.
+        case backend(function: String, timeoutMilliseconds: Int)
     }
 
     public let languageID: String
@@ -60,6 +65,21 @@ public struct DeclarativeLanguageServer: Equatable, Sendable {
     /// enables that integration for this server instead of matching on its
     /// language ID.
     public let hostIntegrationID: String?
+    /// How long the server's per-workspace state is kept (`languageServers`
+    /// 3), or nil when the plugin declares none and the host keeps its own
+    /// bounds.
+    public let stateRetention: StateRetention?
+
+    /// The bounds a plugin puts on the per-workspace state of its server.
+    public struct StateRetention: Hashable, Sendable {
+        public let maxEntries: Int
+        public let maxAgeDays: Int
+
+        public init(maxEntries: Int, maxAgeDays: Int) {
+            self.maxEntries = maxEntries
+            self.maxAgeDays = maxAgeDays
+        }
+    }
 
     /// Tool of a runtime launch, such as `node`. The executable the host
     /// starts for this server is that runtime, and the server's own child
@@ -86,6 +106,20 @@ public struct DeclarativeLanguageServer: Equatable, Sendable {
             // The runtime is the process the host starts; the entry file is
             // an argument of the expanded launch plan.
             [tool]
+        case .backend:
+            // The backend names the executable at start time, so there is
+            // nothing to look up or display beforehand.
+            []
+        }
+    }
+
+    /// The backend function and timeout of a server whose launch the plugin
+    /// resolves, or nil for every other launch.
+    public var backendLaunch: (function: String, timeoutMilliseconds: Int)? {
+        if case .backend(let function, let timeoutMilliseconds) = launch {
+            (function, timeoutMilliseconds)
+        } else {
+            nil
         }
     }
 }
@@ -99,12 +133,27 @@ public struct DeclarativeLanguageServerLaunchSource: Hashable, Sendable {
     public let manifest: Data
     /// Root of the installed, read-only plugin package.
     public let packageURL: URL
+    /// True when the plugin's backend names the process at each start
+    /// (`serverProcess` 3), so the host has no executable to look up first.
+    public let resolvesLaunchWithBackend: Bool
+    /// How long the server's per-workspace state is kept, or nil when the
+    /// plugin declares no bounds and the host deletes nothing.
+    public let stateRetention: DeclarativeLanguageServer.StateRetention?
 
-    public init(pluginID: String, languageID: String, manifest: Data, packageURL: URL) {
+    public init(
+        pluginID: String,
+        languageID: String,
+        manifest: Data,
+        packageURL: URL,
+        resolvesLaunchWithBackend: Bool = false,
+        stateRetention: DeclarativeLanguageServer.StateRetention? = nil
+    ) {
         self.pluginID = pluginID
         self.languageID = languageID
         self.manifest = manifest
         self.packageURL = packageURL
+        self.resolvesLaunchWithBackend = resolvesLaunchWithBackend
+        self.stateRetention = stateRetention
     }
 }
 
@@ -137,6 +186,7 @@ public struct LanguageServerRuntimeVersionCheck: Equatable, Sendable {
 
 /// Host directories substituted into a server's launch templates.
 public struct DeclarativeLanguageServerLaunchRequest: Equatable, Sendable {
+    public let logDirectory: URL?
     public let pluginDirectory: URL
     public let stateDirectory: URL
     /// Nil for a process bound to no workspace, such as a plugin backend;
@@ -150,6 +200,9 @@ public struct DeclarativeLanguageServerLaunchRequest: Equatable, Sendable {
     public let settings: [String: ToolingJSONValue]
     /// The workspace's overrides of project-scoped settings.
     public let projectSettings: [String: ToolingJSONValue]
+    /// Scratch directory of one start of the server. Only a launch the
+    /// plugin backend resolves needs it; Core refuses that launch without.
+    public let temporaryDirectory: URL?
 
     public init(
         pluginDirectory: URL,
@@ -157,8 +210,12 @@ public struct DeclarativeLanguageServerLaunchRequest: Equatable, Sendable {
         workspaceStateDirectory: URL?,
         architecture: String,
         settings: [String: ToolingJSONValue] = [:],
-        projectSettings: [String: ToolingJSONValue] = [:]
+        projectSettings: [String: ToolingJSONValue] = [:],
+        logDirectory: URL? = nil,
+        temporaryDirectory: URL? = nil
     ) {
+        self.temporaryDirectory = temporaryDirectory
+        self.logDirectory = logDirectory
         self.pluginDirectory = pluginDirectory
         self.stateDirectory = stateDirectory
         self.workspaceStateDirectory = workspaceStateDirectory
@@ -332,6 +389,24 @@ public struct DeclarativePluginLanguage: Equatable, Hashable, Sendable {
     }
 }
 
+/// A pattern a plugin declares for text in the Run and Test consoles (`outputLinkMatchers`).
+/// Rust Core finds the matches; the host only hands the declarations over.
+public struct DeclarativeOutputLinkMatcher: Equatable, Sendable {
+    public let id: String
+    public let pattern: String
+    /// `run` or `test`; nil applies to both consoles.
+    public let scope: String?
+    /// A function of the plugin's backend that turns the matched groups into a location on click.
+    public let resolveFunction: String?
+
+    public init(id: String, pattern: String, scope: String? = nil, resolveFunction: String? = nil) {
+        self.id = id
+        self.pattern = pattern
+        self.scope = scope
+        self.resolveFunction = resolveFunction
+    }
+}
+
 /// A settings button binds a function of the same plugin; its business stays private.
 public struct DeclarativePluginSettingAction: Equatable, Identifiable, Sendable {
     public let id: String
@@ -399,8 +474,10 @@ public extension PluginSettingsStoring {
 /// joins text; the host creates the directories and checks the package paths.
 public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
     public enum RequiredDirectory: String, Sendable {
+        case log
         case state
         case workspaceState
+        case temporary
     }
 
     public struct RuntimeRequirement: Equatable, Sendable {
@@ -456,6 +533,52 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
     public var backend: Backend? = nil
     /// Set when the plan was selected by debug adapter.
     public var debugAdapter: DebugAdapter? = nil
+    /// Set on the first step of a server whose backend resolves the launch.
+    public var backendResolution: BackendResolution? = nil
+    /// Set on the second step: what the backend's answer asks the host to
+    /// start, already checked by Rust Core.
+    public var resolvedLaunch: ResolvedLaunch? = nil
+    /// The session policy Rust Core enforces for a plugin-owned server,
+    /// passed to `lsp.startServer` unchanged. The host never reads it.
+    public var sessionPolicy: ToolingJSONValue? = nil
+
+    /// The question of the first step: which backend function to call and
+    /// with what, before the host knows what to start (`serverProcess` 3).
+    public struct BackendResolution: Equatable, Sendable {
+        public let function: String
+        public let timeoutMilliseconds: Int
+        /// Params of the function apart from `context` and `tools`, which
+        /// the host attaches.
+        public let resolveParams: [String: ToolingJSONValue]
+
+        public init(function: String, timeoutMilliseconds: Int, resolveParams: [String: ToolingJSONValue]) {
+            self.function = function
+            self.timeoutMilliseconds = timeoutMilliseconds
+            self.resolveParams = resolveParams
+        }
+    }
+
+    /// The answer of the backend's launch function after Rust Core bounded
+    /// and checked it.
+    public struct ResolvedLaunch: Equatable, Sendable {
+        public enum Program: Equatable, Sendable {
+            /// File inside the plugin package, relative to its root.
+            case packaged(String)
+            /// One of the plugin's tool definitions; the host resolves it.
+            case tool(String)
+        }
+
+        public let program: Program
+        public let environment: [String: String]
+        /// Absolute paths inside the host directories the process may write.
+        public let writablePaths: [String]
+
+        public init(program: Program, environment: [String: String], writablePaths: [String]) {
+            self.program = program
+            self.environment = environment
+            self.writablePaths = writablePaths
+        }
+    }
 
     /// What the host needs besides the process: the identity the adapter
     /// registers under and the DAP `adapterID` its requests carry.
@@ -657,6 +780,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
     public let ui: DeclarativeUIContributions?
     /// Entries the plugin adds to the New Project window.
     public let projectGenerators: [DeclarativeProjectGenerator]
+    /// Console text the plugin makes clickable (`outputLinkMatchers` capability).
+    public let outputLinkMatchers: [DeclarativeOutputLinkMatcher]
     /// Whether the plugin declares its own backend process (`backend` 1).
     public let declaresBackend: Bool
     public let normalizedManifest: Data
@@ -685,7 +810,10 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 validationArguments: server.validationArguments,
                 runtimeTools: server.runtimeDependencies.map(\.tool),
                 expandsLaunchTemplates: decoded.pluginAPIVersion >= 2,
-                hostIntegrationID: server.hostIntegration?.id
+                hostIntegrationID: server.hostIntegration?.id,
+                stateRetention: server.state?.retention.map {
+                    DeclarativeLanguageServer.StateRetention(maxEntries: $0.maxEntries, maxAgeDays: $0.maxAgeDays)
+                }
             )
         }
         executionProviders = decoded.executionProviders.map { provider in
@@ -703,16 +831,21 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 displayName: $0.displayName,
                 adapterID: $0.adapterID ?? $0.id,
                 requests: Set($0.requests.compactMap(DebugRequestKind.init(rawValue:))),
+                configurationTypes: $0.configurationTypes,
                 languageIDs: $0.languageIDs,
                 fileLaunchLanguageIDs: $0.fileLaunchLanguageIDs,
                 consoleCommands: $0.consoleCommands,
                 consoleCommandPrefix: $0.consoleCommandPrefix,
                 launchExecutableSettingID: $0.launchExecutableSettingID,
-                disabledCapabilities: $0.disabledCapabilities
+                disabledCapabilities: $0.disabledCapabilities,
+                declaredBehavior: DebugAdapterDeclaredBehavior(features: $0.features, defaults: $0.defaults)
             )
         }
         projectGenerators = decoded.projectGenerators.map {
             DeclarativeProjectGenerator(id: $0.id, displayName: $0.displayName, icon: $0.icon)
+        }
+        outputLinkMatchers = decoded.outputLinkMatchers.map {
+            DeclarativeOutputLinkMatcher(id: $0.id, pattern: $0.pattern, scope: $0.scope, resolveFunction: $0.resolve?.function)
         }
         ui = decoded.ui
         declaresBackend = decoded.backend != nil
@@ -803,6 +936,16 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 )
             ))
         }
+        if !outputLinkMatchers.isEmpty {
+            // Enablement only: the Run and Test consoles apply the matchers while it is on.
+            modules.append(PluginModuleDeclaration(
+                manifest: LanguageExtensionModuleManifests.outputLinks(
+                    pluginID: decoded.id,
+                    displayName: decoded.displayName,
+                    enabledByDefault: enabledByDefault
+                )
+            ))
+        }
         if !projectGenerators.isEmpty {
             modules.append(PluginModuleDeclaration(
                 manifest: LanguageExtensionModuleManifests.projectGenerators(
@@ -824,6 +967,15 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         if decoded.backend != nil && decoded.ui == nil {
             modules.append(PluginModuleDeclaration(manifest: ModuleManifest(
                 id: .backendExtension(decoded.id), displayName: decoded.displayName,
+                scope: .application, defaultState: enabledByDefault ? .enabled : .disabled,
+                activationPolicy: .onDemand
+            )))
+        }
+        if decoded.hasToolDefinitions && modules.isEmpty {
+            // Definitions are valid on their own. Give them an enablement owner
+            // so plugin management can expose them to the settings loader.
+            modules.append(PluginModuleDeclaration(manifest: ModuleManifest(
+                id: .toolchainsExtension(decoded.id), displayName: decoded.displayName,
                 scope: .application, defaultState: enabledByDefault ? .enabled : .disabled,
                 activationPolicy: .onDemand
             )))
@@ -884,19 +1036,32 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
     }
 
     /// Whether the plugin can take effect in a running session. That holds when
-    /// debug adapters and language grammars are its only contributions: the
-    /// host reads adapters on demand when a debug session starts and hands
-    /// grammars to open editors when the registry changes, so the module graph,
+    /// debug adapters, language grammars, console link matchers, project
+    /// generators and tool definitions are its only contributions: the host
+    /// reads adapters on demand when a debug session starts, hands grammars to
+    /// open editors when the registry changes, reads the matchers when a
+    /// console renders, lists generators when the New Project window loads and
+    /// reads tool definitions each time a tool is resolved, so the module graph,
     /// the language-server and run/test modules, backend processes and UI
     /// composition built at launch do not change. Anything else waits for the
     /// next launch.
     public var canActivateWithoutRestart: Bool {
         let modules = pluginManifest.modules
-        let live: Set<ModuleID> = [.debugAdaptersExtension(id.rawValue), .grammarsExtension(id.rawValue)]
+        let live: Set<ModuleID> = [
+            .debugAdaptersExtension(id.rawValue),
+            .grammarsExtension(id.rawValue),
+            .outputLinksExtension(id.rawValue),
+            .projectGeneratorsExtension(id.rawValue),
+            .toolchainsExtension(id.rawValue),
+        ]
         return !modules.isEmpty
             && !declaresBackend
             && modules.allSatisfy { live.contains($0.manifest.id) && $0.contributions.isEmpty }
     }
+
+    /// How long the host waits for a backend launch function when the
+    /// manifest names no timeout; the same default Rust Core applies.
+    private static let defaultBackendLaunchTimeoutMilliseconds = 30_000
 
     private static func launch(_ launch: NormalizedManifest.Launch) -> DeclarativeLanguageServer.Launch {
         switch launch.kind {
@@ -907,6 +1072,11 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 tool: launch.tool ?? "",
                 entryRelativePath: launch.entry ?? "",
                 packagedRuntime: launch.packagedRuntime
+            )
+        case "backend":
+            .backend(
+                function: launch.function ?? "",
+                timeoutMilliseconds: launch.timeoutMilliseconds ?? Self.defaultBackendLaunchTimeoutMilliseconds
             )
         default:
             .systemCommand(launch.commands ?? [])
@@ -976,6 +1146,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let tool: String?
             let entry: String?
             let packagedRuntime: String?
+            let function: String?
+            let timeoutMilliseconds: Int?
         }
         struct RuntimeDependency: Decodable {
             let tool: String
@@ -992,6 +1164,17 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let validationArguments: [String]
             let runtimeDependencies: [RuntimeDependency]
             let hostIntegration: HostIntegration?
+            let state: SessionState?
+
+            /// `state` of a plugin-owned session (`languageServers` 3).
+            struct SessionState: Decodable {
+                struct Retention: Decodable {
+                    let maxEntries: Int
+                    let maxAgeDays: Int
+                }
+
+                let retention: Retention?
+            }
 
             init(from decoder: Decoder) throws {
                 let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -1002,11 +1185,12 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 validationArguments = try values.decodeIfPresent([String].self, forKey: .validationArguments) ?? []
                 runtimeDependencies = try values.decodeIfPresent([RuntimeDependency].self, forKey: .runtimeDependencies) ?? []
                 hostIntegration = try values.decodeIfPresent(HostIntegration.self, forKey: .hostIntegration)
+                state = try values.decodeIfPresent(SessionState.self, forKey: .state)
             }
 
             private enum CodingKeys: String, CodingKey {
                 case languageID, languageIdentifier, launch, arguments, validationArguments, runtimeDependencies
-                case hostIntegration
+                case hostIntegration, state
             }
         }
         struct Setting: Decodable {
@@ -1183,10 +1367,14 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let displayName: String
             let adapterID: String?
             let requests: [String]
+            let configurationTypes: [String]
             let selectors: [Selector]
             let capabilities: Capabilities?
             let console: Console?
             let configurations: Configurations?
+            /// `debugAdapters` 3: what the adapter does beyond standard DAP.
+            let features: DebugAdapterDeclaredBehavior.Features?
+            let defaults: DebugAdapterDeclaredBehavior.Defaults?
 
             /// Every language any selector names; it classifies the plugin as
             /// having a debugger for them.
@@ -1228,14 +1416,18 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 // Rust Core fills in `launch` when the manifest omits `requests`;
                 // the same default keeps a hand-built descriptor consistent.
                 requests = try values.decodeIfPresent([String].self, forKey: .requests) ?? ["launch"]
+                configurationTypes = try values.decodeIfPresent([String].self, forKey: .configurationTypes) ?? []
                 selectors = try values.decodeIfPresent([Selector].self, forKey: .selectors) ?? []
                 capabilities = try values.decodeIfPresent(Capabilities.self, forKey: .capabilities)
                 console = try values.decodeIfPresent(Console.self, forKey: .console)
                 configurations = try values.decodeIfPresent(Configurations.self, forKey: .configurations)
+                features = try values.decodeIfPresent(DebugAdapterDeclaredBehavior.Features.self, forKey: .features)
+                defaults = try values.decodeIfPresent(DebugAdapterDeclaredBehavior.Defaults.self, forKey: .defaults)
             }
 
             private enum CodingKeys: String, CodingKey {
-                case id, displayName, adapterID, requests, selectors, capabilities, console, configurations
+                case configurationTypes, id, displayName, adapterID, requests, selectors, capabilities, console, configurations
+                case features, defaults
             }
         }
 
@@ -1256,6 +1448,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 let requiresUserArguments: Bool
                 let description: String?
                 let category: [String]
+                let preparation: DeclarativeBuildSystem.TaskPreparation?
 
                 init(from decoder: Decoder) throws {
                     let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -1269,11 +1462,12 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                         ?? false
                     description = try values.decodeIfPresent(String.self, forKey: .description)
                     category = try values.decodeIfPresent([String].self, forKey: .category) ?? []
+                    preparation = try values.decodeIfPresent(DeclarativeBuildSystem.TaskPreparation.self, forKey: .preparation)
                 }
 
                 private enum CodingKeys: String, CodingKey {
                     case id, displayName, group, scopes, fromModel, targetTags, requiresUserArguments, description
-                    case category
+                    case category, preparation
                 }
             }
             /// Only where the window offers the option; Core resolves the rest.
@@ -1281,20 +1475,25 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 let id: String
                 let presentation: String?
                 let icon: PluginUIIcon?
+                let scope: DeclarativeBuildSystem.OptionScope?
             }
             struct ProviderRun: Decodable {
-                struct Debug: Decodable { let adapter: String }
+                struct Debug: Decodable { let adapter: String?; let configurationType: String? }
                 let debug: Debug?
                 struct Targets: Decodable { let tags: [String] }
                 let id: String
                 let source: String?
                 let name: String?
+                let execution: BuildExecution?
                 let fromTargets: Targets?
             }
             struct Test: Decodable {
+                let selectorKinds: [String]?
+                struct Results: Decodable { let decoder: String }
                 let scopes: [BuildScope]
                 let targetTags: [String]?
                 let discovery: Bool?
+                let results: Results?
             }
 
             let id: String
@@ -1306,6 +1505,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let test: Test?
             let run: [ProviderRun]
             let dependencies: Source?
+            let nativeConfiguration: Bool
             let declaresProvider: Bool
             let sharesModel: Bool
             let modelInputs: [DeclarativeBuildSystem.ModelInput]
@@ -1321,13 +1521,14 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 test = try values.decodeIfPresent(Test.self, forKey: .test)
                 run = try values.decodeIfPresent([ProviderRun].self, forKey: .run) ?? []
                 dependencies = try values.decodeIfPresent(Source.self, forKey: .dependencies)
+                nativeConfiguration = values.contains(.configuration)
                 declaresProvider = values.contains(.provider)
                 sharesModel = values.contains(.modelSharing)
                 modelInputs = try values.decodeIfPresent([DeclarativeBuildSystem.ModelInput].self, forKey: .modelInputs) ?? []
             }
 
             private enum CodingKeys: String, CodingKey {
-                case id, displayName, icon, options, model, tasks, test, dependencies, provider, run, modelSharing, modelInputs
+                case id, displayName, icon, options, model, tasks, test, dependencies, provider, run, modelSharing, modelInputs, configuration
             }
 
             func declaration() -> DeclarativeBuildSystem {
@@ -1340,7 +1541,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                         .init(
                             id: $0.id,
                             presentation: $0.presentation.flatMap(DeclarativeBuildSystem.OptionPresentation.init),
-                            icon: $0.icon
+                            icon: $0.icon,
+                            scope: $0.scope ?? .workspace
                         )
                     },
                     tasks: tasks.map {
@@ -1348,7 +1550,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                             id: $0.id, displayName: $0.displayName, group: $0.group, scopes: $0.scopes,
                             fromModel: $0.fromModel, targetTags: $0.targetTags,
                             requiresUserArguments: $0.requiresUserArguments, description: $0.description,
-                            category: $0.category
+                            category: $0.category, preparation: $0.preparation
                         )
                     },
                     testScopes: test?.scopes ?? [],
@@ -1359,8 +1561,10 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                     declaresProvider: declaresProvider,
                     testDiscovery: test?.discovery ?? false,
                     providerRuns: run.filter { $0.source == "provider" }.map {
-                        .init(id: $0.id, displayName: $0.name ?? $0.id, targetTags: $0.fromTargets?.tags ?? [], debugAdapter: $0.debug?.adapter)
-                    }, sharesModel: sharesModel, modelInputs: modelInputs
+                        .init(id: $0.id, displayName: $0.name ?? $0.id, targetTags: $0.fromTargets?.tags ?? [], debugAdapter: $0.debug?.adapter, debugConfigurationType: $0.debug?.configurationType, execution: $0.execution ?? .application)
+                    }, sharesModel: sharesModel, modelInputs: modelInputs, nativeConfiguration: nativeConfiguration,
+                    providerTestReports: test?.results?.decoder == "provider",
+                    testSelectorKinds: test?.selectorKinds ?? []
                 )
             }
         }
@@ -1382,9 +1586,20 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         let settings: [Setting]
         let settingActions: [SettingAction]
         let projectGenerators: [ProjectGenerator]
+        let outputLinkMatchers: [OutputLinkMatcher]
         /// Launch fields stay with Rust Core; the host only needs to know
         /// a backend exists.
         let backend: ToolingJSONValue?
+        /// Core owns definition semantics; this bit only supplies an enablement module.
+        let hasToolDefinitions: Bool
+
+        struct OutputLinkMatcher: Decodable {
+            struct Resolve: Decodable { let function: String }
+            let id: String
+            let pattern: String
+            let scope: String?
+            let resolve: Resolve?
+        }
 
         /// What plugin management lists. Fields and steps stay with Rust Core,
         /// which evaluates the New Project form and plans every step.
@@ -1413,13 +1628,15 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             settings = try values.decodeIfPresent([Setting].self, forKey: .settings) ?? []
             settingActions = try values.decodeIfPresent([SettingAction].self, forKey: .settingActions) ?? []
             projectGenerators = try values.decodeIfPresent([ProjectGenerator].self, forKey: .projectGenerators) ?? []
+            outputLinkMatchers = try values.decodeIfPresent([OutputLinkMatcher].self, forKey: .outputLinkMatchers) ?? []
             backend = try values.decodeIfPresent(ToolingJSONValue.self, forKey: .backend)
+            hasToolDefinitions = !(try values.decodeIfPresent([ToolingJSONValue].self, forKey: .toolDefinitions) ?? []).isEmpty
         }
 
         private enum CodingKeys: String, CodingKey {
             case id, displayName, version, pluginAPIVersion, vendor, permissions, activationEvents
             case languages, languageServers, executionProviders, buildSystems, vcsProviders, ui, settings, settingActions
-            case projectGenerators, backend, debugAdapters
+            case projectGenerators, backend, debugAdapters, toolDefinitions, outputLinkMatchers
         }
     }
 }
@@ -1431,6 +1648,8 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
     /// The `adapterID` of the DAP `initialize` request.
     public let adapterID: String
     public let requests: Set<DebugRequestKind>
+    /// Public registry aliases advertised by this adapter.
+    public let configurationTypes: [String]
     /// Every language a selector of the adapter names, whatever the request or
     /// target kind. It says which languages the plugin has a debugger for, so a
     /// debug-only declaration is recognised; it does not choose the adapter for
@@ -1453,29 +1672,36 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
     /// session reports them to Rust Core, which removes them from what the
     /// adapter advertises so the UI never offers a feature the plugin vetoed.
     public let disabledCapabilities: [String]
+    /// The `features` and `defaults` the manifest declares (`debugAdapters` 3). The session hands
+    /// them to Rust Core, whose debug engine follows them for this adapter.
+    public let declaredBehavior: DebugAdapterDeclaredBehavior
 
     public init(
         id: String,
         displayName: String,
         adapterID: String,
         requests: Set<DebugRequestKind> = [.launch, .attach],
+        configurationTypes: [String] = [],
         languageIDs: [String],
         fileLaunchLanguageIDs: [String]? = nil,
         consoleCommands: [DebugConsoleCommand] = [],
         consoleCommandPrefix: String? = nil,
         launchExecutableSettingID: String? = nil,
-        disabledCapabilities: [String] = []
+        disabledCapabilities: [String] = [],
+        declaredBehavior: DebugAdapterDeclaredBehavior = .none
     ) {
         self.id = id
         self.displayName = displayName
         self.adapterID = adapterID
         self.requests = requests
+        self.configurationTypes = configurationTypes
         self.languageIDs = languageIDs
         self.fileLaunchLanguageIDs = fileLaunchLanguageIDs ?? languageIDs
         self.consoleCommands = consoleCommands
         self.consoleCommandPrefix = consoleCommandPrefix
         self.launchExecutableSettingID = launchExecutableSettingID
         self.disabledCapabilities = disabledCapabilities
+        self.declaredBehavior = declaredBehavior
     }
 }
 
@@ -1569,10 +1795,12 @@ public struct DeclarativeDebugStartRequest: Equatable, Sendable {
     public enum Request: String, Sendable { case launch, attach }
 
     public let request: Request
-    /// What the target is: `file` or `process`.
+    /// The registry target kind, including `file`, `executable`, `process` and `connection`.
     public let targetKind: String
     public let path: String?
     public let processID: Int?
+    public let host: String?
+    public let port: UInt16?
     public let workingDirectory: String?
     /// The program the host found for a launch whose adapter binds `program` to
     /// `target.executable`; an absolute path the host has checked is runnable.
@@ -1584,6 +1812,7 @@ public struct DeclarativeDebugStartRequest: Equatable, Sendable {
 
     public init(
         request: Request, targetKind: String, path: String? = nil, processID: Int? = nil,
+        host: String? = nil, port: UInt16? = nil,
         workingDirectory: String? = nil, executable: String? = nil,
         registrationGeneration: Int, currentRegistrationGeneration: Int,
         arguments: [String]? = nil, environment: [String: String]? = nil
@@ -1592,6 +1821,7 @@ public struct DeclarativeDebugStartRequest: Equatable, Sendable {
         self.targetKind = targetKind
         self.path = path
         self.processID = processID
+        self.host = host; self.port = port
         self.workingDirectory = workingDirectory
         self.executable = executable
         self.arguments = arguments
@@ -1635,6 +1865,23 @@ public protocol DeclarativeLanguageServerLaunchPlanning: Sendable {
         languageID: String,
         request: DeclarativeLanguageServerLaunchRequest
     ) throws -> DeclarativeLanguageServerLaunchPlan
+    /// The second step of a server whose backend resolves its launch: Rust
+    /// Core bounds and checks the backend function's answer and returns the
+    /// plan the host starts, with `resolvedLaunch` and `sessionPolicy` set.
+    func decodeLaunch(
+        manifest: Data,
+        languageID: String,
+        request: DeclarativeLanguageServerLaunchRequest,
+        result: ToolingJSONValue
+    ) throws -> DeclarativeLanguageServerLaunchPlan
+    /// Names of the per-workspace state directories of a server that its
+    /// retention bounds say to delete. Active directories are never named.
+    func expiredLanguageServerStateNames(
+        retention: DeclarativeLanguageServer.StateRetention,
+        nowUnixSeconds: Int,
+        entries: [LanguageServerStateEntry],
+        activeNames: [String]
+    ) throws -> [String]
     /// The launch plan of a build system's provider. A provider that shares
     /// a language server gets that server's plan with
     /// `buildProvider.languageServer` set.
@@ -1679,7 +1926,42 @@ public protocol DeclarativeLanguageServerLaunchPlanning: Sendable {
     ) throws -> DeclarativeDebugExecutablePlan?
 }
 
+/// One per-workspace state directory and when it was last used.
+public struct LanguageServerStateEntry: Equatable, Sendable {
+    public let name: String
+    public let lastModifiedUnixSeconds: Int
+
+    public init(name: String, lastModifiedUnixSeconds: Int) {
+        self.name = name
+        self.lastModifiedUnixSeconds = lastModifiedUnixSeconds
+    }
+}
+
 public extension DeclarativeLanguageServerLaunchPlanning {
+    func decodeLaunch(
+        manifest _: Data,
+        languageID _: String,
+        request _: DeclarativeLanguageServerLaunchRequest,
+        result _: ToolingJSONValue
+    ) throws -> DeclarativeLanguageServerLaunchPlan {
+        throw DeclarativePluginRejection(
+            code: "plugin.launch.unavailable",
+            message: "This host cannot decode plugin-resolved launches."
+        )
+    }
+
+    func expiredLanguageServerStateNames(
+        retention _: DeclarativeLanguageServer.StateRetention,
+        nowUnixSeconds _: Int,
+        entries _: [LanguageServerStateEntry],
+        activeNames _: [String]
+    ) throws -> [String] {
+        throw DeclarativePluginRejection(
+            code: "plugin.launch.unavailable",
+            message: "This host cannot select expired language server state."
+        )
+    }
+
     func buildProviderLaunchPlan(
         manifest _: Data,
         buildSystemID _: String,

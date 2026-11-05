@@ -72,6 +72,8 @@ package struct LanguageServerLaunchDescriptor: Hashable, Sendable {
     package let initializationOptions: ToolingJSONValue?
     /// See `LanguageServerExtensionConfiguration.launchSource`.
     package let launchSource: DeclarativeLanguageServerLaunchSource?
+    /// See `LanguageServerExtensionConfiguration.pluginID`.
+    package let pluginID: String?
     /// See `LanguageServerExtensionConfiguration.executableVersionRequirement`.
     package let executableVersionRequirement: LanguageServerExecutableVersionRequirement?
     /// Native host integration the provider declares, such as `jdt`.
@@ -88,6 +90,7 @@ package struct LanguageServerLaunchDescriptor: Hashable, Sendable {
         executableURL: URL? = nil,
         initializationOptions: ToolingJSONValue? = nil,
         launchSource: DeclarativeLanguageServerLaunchSource? = nil,
+        pluginID: String? = nil,
         executableVersionRequirement: LanguageServerExecutableVersionRequirement? = nil,
         hostIntegrationID: String? = nil,
         launchRuntimeTool: String? = nil
@@ -100,6 +103,7 @@ package struct LanguageServerLaunchDescriptor: Hashable, Sendable {
         self.executableURL = executableURL
         self.initializationOptions = initializationOptions
         self.launchSource = launchSource
+        self.pluginID = pluginID ?? launchSource?.pluginID
         self.executableVersionRequirement = executableVersionRequirement
         self.hostIntegrationID = hostIntegrationID
         self.launchRuntimeTool = launchRuntimeTool
@@ -778,34 +782,6 @@ package struct LanguageServerInfo: Equatable, Sendable {
     }
 }
 
-package struct LanguageServerLogEntry: Identifiable, Equatable, Sendable {
-    package let id: UUID
-    package let timestamp: Date
-    package let providerID: String
-    package let operationID: String?
-    package let level: LanguageServerLogLevel
-    package let message: String
-    package let detail: String?
-
-    package init(
-        id: UUID = UUID(),
-        timestamp: Date = Date(),
-        providerID: String,
-        operationID: String? = nil,
-        level: LanguageServerLogLevel,
-        message: String,
-        detail: String? = nil
-    ) {
-        self.id = id
-        self.timestamp = timestamp
-        self.providerID = providerID
-        self.operationID = operationID
-        self.level = level
-        self.message = message
-        self.detail = detail
-    }
-}
-
 package struct MavenProfileProjectResult: Equatable, Sendable {
     package let projectURI: URL
     package let status: String
@@ -871,14 +847,25 @@ package enum WorkspaceConfigurationUpdateResult: Sendable {
 
 @MainActor
 package protocol LanguageServerSession: AnyObject {
+    /// The declarative start attempt this session continues: it fails the
+    /// attempt before launch or hands it to Core with the start request.
+    /// Sessions that never start a declarative process ignore it.
+    func observePluginStartup(_ attempt: PluginOperationAttempt)
     var onProjectPreparation: ((ProjectPreparationSnapshot) -> Void)? { get set }
+    /// Called with each server notification Core forwards to the owning
+    /// plugin's backend (plan API-25).
+    var onPluginServerNotification: ((PluginServerNotification) -> Void)? { get set }
     var onMavenProfileTask: ((String) -> Void)? { get set }
     var onMavenProfileProject: ((MavenProfileProjectResult) -> Void)? { get set }
     var isRunning: Bool { get }
     /// Packaged Java Test runner, if this JDT LS session was launched with one.
     var javaTestRunnerURL: URL? { get }
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)? { get set }
+    var onCoreLog: ((CoreLogRecord) -> Void)? { get set }
     var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)? { get set }
+    /// Controlled issue facts: isWarning, source stage, stable code, exit status, operation ID.
+    /// No message/detail payload crosses this persistence callback.
+    var onLogIssue: ((Bool, String, String, Int?, String?) -> Void)? { get set }
     var onStateChange: ((LanguageServerSessionState) -> Void)? { get set }
     var features: LanguageServerFeatureSet { get }
     var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)? { get set }
@@ -986,6 +973,8 @@ package protocol LanguageServerSession: AnyObject {
     func javaEntrypoints(
         completion: @escaping (Result<JavaEntrypoints, Error>) -> Void
     ) throws
+    /// Awaited launch discovery owns cancellation of its queued Core operation.
+    func javaEntrypoints() async throws -> JavaEntrypoints
     /// Prepares one saved source through Core's shared Java launch operation.
     func prepareJavaLaunch(fileURL: URL, mainClass: String?) async throws -> JavaLaunchPreparation
     /// Test classes and methods JDT reports for one source file.
@@ -1028,11 +1017,14 @@ package protocol LanguageServerSession: AnyObject {
 }
 
 package extension LanguageServerSession {
+    func observePluginStartup(_ attempt: PluginOperationAttempt) {}
+
     func stopAndWait() async -> Bool {
         stop()
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))
         while isRunning, ContinuousClock.now < deadline {
             do { try await Task.sleep(for: .milliseconds(10)) }
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             catch { return false }
         }
         return !isRunning
@@ -1075,6 +1067,30 @@ package extension LanguageServerSession {
     @discardableResult
     func updateWorkspaceConfigurationAsync(_: ToolingJSONValue) async -> WorkspaceConfigurationUpdateResult { .failed }
 
+    /// Sends one request of the owning plugin's backend to this server. Core
+    /// checks the plugin's whitelist and gates before it reaches the server.
+    func requestPluginServer(
+        pluginID _: String,
+        serverID _: String,
+        method _: String,
+        params _: ToolingJSONValue,
+        timeout _: TimeInterval?
+    ) async -> Result<ToolingJSONValue, PluginHostRequestFailure> {
+        .failure(.languageServerUnavailable)
+    }
+
+    /// Sends one notification of the owning plugin's backend to this server.
+    /// `true` when it was written; `false` when the server is not initialized
+    /// yet and reads the stored configuration with `initialized` instead.
+    func notifyPluginServer(
+        pluginID _: String,
+        serverID _: String,
+        method _: String,
+        params _: ToolingJSONValue
+    ) async -> Result<Bool, PluginHostRequestFailure> {
+        .failure(.languageServerUnavailable)
+    }
+
     func buildRequest(method _: String, params _: ToolingJSONValue, timeout _: TimeInterval) async throws
         -> ToolingJSONValue {
         throw LanguageServerRuntimeFailure(
@@ -1091,6 +1107,10 @@ package extension LanguageServerSession {
         completion(.success(.empty))
     }
     var onProjectPreparation: ((ProjectPreparationSnapshot) -> Void)? {
+        get { nil }
+        set {}
+    }
+    var onPluginServerNotification: ((PluginServerNotification) -> Void)? {
         get { nil }
         set {}
     }
@@ -1165,7 +1185,15 @@ package extension LanguageServerSession {
         get { nil }
         set {}
     }
+    var onCoreLog: ((CoreLogRecord) -> Void)? {
+        get { nil }
+        set { }
+    }
     var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)? {
+        get { nil }
+        set {}
+    }
+    var onLogIssue: ((Bool, String, String, Int?, String?) -> Void)? {
         get { nil }
         set {}
     }
@@ -1183,6 +1211,15 @@ package extension LanguageServerSession {
         }
     }
     var serverInfo: LanguageServerInfo? { nil }
+    func javaEntrypoints() async throws -> JavaEntrypoints {
+        try Task.checkCancellation()
+        let value: JavaEntrypoints = try await withCheckedThrowingContinuation { continuation in
+            do { try javaEntrypoints { continuation.resume(with: $0) } }
+            catch { continuation.resume(throwing: error) }
+        }
+        try Task.checkCancellation()
+        return value
+    }
     var onServerInfoChange: ((LanguageServerInfo?) -> Void)? {
         get { nil }
         set {}

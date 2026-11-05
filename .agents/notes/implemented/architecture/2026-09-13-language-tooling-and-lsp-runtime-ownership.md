@@ -67,15 +67,16 @@ languageID 对应描述元数据已有的 `languageServerLaunch.executableNames`
 运行投影、日志选择及订阅必须保留；不能清空被 `removeDuplicates` 去重的共享投影后，
 指望日志或无变化的状态通知重新填回。
 
-“查看日志”打开或聚焦普通编辑器标签页中的 LSP 日志，不新增底部工具窗口。
-日志标签复用混合标签顺序、拖动分组、选择和关闭机制；切换服务器仍使用同一标签。它直接观察现有的最多 100 条会话事件
-和服务器输出，按提供方与最低级别筛选；日志更新不经整个 AppModel 广播。
-“清空视图”只记住所选提供方当前可见缓冲条目的身份，不删除持久诊断日志，
-也不影响其他提供方。标记随缓冲淘汰，不建立另一个无界日志存储。
+“查看日志”打开或聚焦编辑器区的“LSP 日志”标签页，不新增底部工具窗口，也不另开窗口。
+每个工作区窗口只有一个这样的标签页，切换服务器仍在同一标签页里完成；菜单底部的“查看日志”打开列表中的第一个服务器。
+标签页读取已脱敏的 v2 磁盘日志和实时广播，一次只显示一个服务器的通道，没有“全部语言服务器”选项；
+通道由 Core 解析，Swift 不用 providerID 拼通道名。“清空视图”只隐藏所选服务器已经显示的记录，
+每个服务器各有自己的清空点，不删除持久诊断日志，也不建立另一份日志存储。标签页与应用日志窗口的关系见
+[应用级日志窗口与诊断导出](../feature/2026-11-03-structured-logging-log-window.md)。
 
 正确做法是按当前会话事件显示真实内容。不要在 Swift 再实现 JSON-RPC（语言服务器
 使用的请求响应协议）抓包器，或把现有文本日志复制成 Server Trace、RPC Messages
-三个假通道。当前 Core 没有提供原始跟踪/消息采集，日志标签的工具栏明确提示不可用；
+三个假通道。当前 Core 没有提供原始跟踪/消息采集，LSP 日志标签页的 ⓘ 说明明确写出不可用；
 将来确需采集时，应在 Core 既有协议所有者处设计显式启用、脱敏和预算，再扩展契约。
 本次没有新缓存目录、下载或安装资源写入，运行时只读发行基线不变。
 
@@ -192,6 +193,17 @@ JDTLS 报告 `ServiceReady` 后按排序后的 Profiles 发送
 capability → Rust 以 LSP request ID 关联 deadline，用不透明 operation
 ID 投影 terminal result。停止 session 时先 `shutdown` 后 `exit`，服务器
 无响应则由超时路径强制停止，不直接用 `terminate()` 代替。
+
+进程创建后启动失败（initialize 出错、索引被替换或取消）时，进程必须在有界期限内
+确认退出才算清理完成，不能只发信号就丢弃会话。普通 `lsp.startServer` 调用方拿不到
+会话 ID，因此 Core 把未完成清理的会话记在内部待清理列表，下一次显式启动前最多重试
+一次有界释放，仍未完成就拒绝再启动新进程，并保留原始启动错误。进程内原生调用方
+（`start_lsp_owned`）在注册回调里先拿到会话 ID，启动返回错误时仍持有该 ID，自行重试
+`lsp.destroyServer`。macOS 等非 Windows 平台的释放在期限内轮询根进程退出，因为发出
+SIGKILL 后子进程是异步回收的；Windows 等待整个进程树退出。回归见 `engine.rs` 中的
+`native_owner_keeps_failed_initialize_identity_until_verified_disposal`、
+`wire_owner_retries_failed_initialize_disposal_before_another_start` 和
+`wire_owner_cleans_at_most_one_failed_start_before_rejecting_a_backlog`。
 
 ### Java 导入安静期与 Windows 跳转缓存
 

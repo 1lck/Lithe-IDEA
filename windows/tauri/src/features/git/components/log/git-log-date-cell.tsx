@@ -15,14 +15,16 @@ import {
 export function GitLogDateCell({
   date,
   utcOffsetMinutes,
+  unixSeconds,
 }: {
   date: string;
   utcOffsetMinutes: number | undefined;
+  unixSeconds?: number;
 }) {
   const { t, language } = useTranslation();
   const cellRef = useRef<HTMLSpanElement>(null);
   const [now, setNow] = useState(() => new Date());
-  const timestamp = parseGitLogDate(date, utcOffsetMinutes)?.getTime();
+  const timestamp = parseGitLogDate(date, utcOffsetMinutes, unixSeconds)?.getTime();
   const [nativeDateTime, setNativeDateTime] = useState<{
     timestamp: number;
     presentation: DateTimePresentation;
@@ -66,7 +68,7 @@ export function GitLogDateCell({
       ref={cellRef}
       className="git-log-commit-text min-w-0 flex-1 overflow-clip px-2 text-ellipsis whitespace-nowrap text-left text-foreground tabular-nums"
     >
-      {formatGitLogDate(date, t, utcOffsetMinutes, now, presentation)}
+      {formatGitLogDate(date, t, utcOffsetMinutes, now, presentation, unixSeconds)}
     </span>
   );
 }

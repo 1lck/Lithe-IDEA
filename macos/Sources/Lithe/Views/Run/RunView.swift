@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 
 struct RunView: View {
@@ -30,7 +31,7 @@ struct RunView: View {
         VStack(spacing: 0) {
             toolWindowHeader
             if (feature.configurationStatus == .ready && hasRunnableConfigurations)
-                || feature.isRunning || feature.lastExitCode != nil {
+                || feature.isRunning || feature.lastExitCode != nil || feature.hasPluginRun {
                 runToolbar
             }
             if feature.serviceUpdateSessionID == selectedModuleSession?.id,
@@ -51,9 +52,9 @@ struct RunView: View {
                 configurationNoticeBanner(notice)
             }
 
-            if feature.configurationStatus != .ready && !feature.hasBuildProviderRun {
+            if feature.configurationStatus != .ready && !showsProviderRunOutput {
                 configurationSetupView
-            } else if !hasRunnableConfigurations || (feature.hasBuildProviderRun && selectedSessionID == nil) {
+            } else if !hasRunnableConfigurations || (showsProviderRunOutput && selectedSessionID == nil) {
                 OutputTextView(
                     output: feature.output,
                     searchRoots: feature.sourceSearchRoots,
@@ -64,6 +65,7 @@ struct RunView: View {
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
+                .pluginLinks(in: model, scope: .run, searchRoots: feature.sourceSearchRoots)
             } else {
                 RunServicesSplitView(
                     isScopeCollapsed: isConfigurationListCollapsed,
@@ -122,9 +124,9 @@ struct RunView: View {
                     HStack(spacing: 4) {
                         Text("—")
                             .foregroundStyle(LitheTheme.RunEmptyState.text)
-                        Button("Identify and Generate") {
+                        Button("Identify and Generate", action: UserActionTrace.action("run.configurations.generate") {
                             feature.requestRunConfigurationGeneration()
-                        }
+                        })
                         .buttonStyle(.plain)
                         .foregroundStyle(LitheTheme.RunEmptyState.link)
                     }
@@ -166,9 +168,9 @@ struct RunView: View {
                     .font(LitheTheme.uiFont(size: 12))
                     .foregroundStyle(LitheTheme.warning)
             } else if feature.recoveryAction != .none {
-                Button {
+                Button(action: UserActionTrace.action("run.configurations.generate") {
                     feature.requestRunConfigurationGeneration()
-                } label: {
+                }) {
                     Label(
                         feature.recoveryAction == .fixPermissions
                             ? runText("Retry Identification")
@@ -191,7 +193,7 @@ struct RunView: View {
                 "exclamationmark.triangle.fill"
             )
         }
-        if let diagnostic = feature.configurationDiagnostics.first(where: { $0.code == "staleFingerprint" }) {
+        if let diagnostic = feature.configurationDiagnostics.first(where: { ["staleFingerprint", "staleProviderModel", "providerModelNotReady"].contains($0.code) }) {
             return (
                 runText("Run configurations may be out of date"),
                 diagnostic.message,
@@ -267,8 +269,9 @@ struct RunView: View {
         LitheBanner(status: .neutralMuted, layout: .editor, iconStatus: .warning) {
             Text(notice.title).litheBannerTitle()
             Text(notice.message).lineLimit(2)
-            if feature.configurationDiagnostics.contains(where: { $0.code == "staleFingerprint" }) {
-                Button("Identify Again") { feature.requestRunConfigurationGeneration() }
+            if feature.configurationDiagnostics.contains(where: { ["staleFingerprint", "staleProviderModel"].contains($0.code) }) {
+                Button("Identify Again",
+                    action: UserActionTrace.action("run.configurations.generate") { feature.requestRunConfigurationGeneration() })
             } else if feature.blockingToolchainDiagnostic != nil {
                 Button("Project · JDK & Maven") { model.showSettings(category: .project) }
             }
@@ -366,7 +369,7 @@ struct RunView: View {
                     Text(String(format: runText("%lld selected"), Int64(browser.checkedIDs.count)))
                         .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(LitheTheme.secondaryText)
-                    Button(action: runCheckedConfigurations) {
+                    Button(action: UserActionTrace.action("run.checked.start", runCheckedConfigurations)) {
                         LitheIDEAIcon(resourcePath: "expui/run/run.svg", size: 16,
                                       fallbackSystemImage: "play.fill", preservesOriginalColors: true)
                     }
@@ -375,11 +378,11 @@ struct RunView: View {
                     .help("Run checked configurations without restarting running services")
                     .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
 
-                    Button {
+                    Button(action: UserActionTrace.action("run.checked.stop") {
                         for session in feature.moduleSessions where browser.checkedIDs.contains(session.configurationID) && session.isRunning {
                             feature.stopModule(session)
                         }
-                    } label: {
+                    }) {
                         LitheIDEAIcon(resourcePath: "expui/run/stop.svg", size: 16,
                                       fallbackSystemImage: "stop.fill", preservesOriginalColors: true)
                     }
@@ -397,7 +400,7 @@ struct RunView: View {
                     .help("Clear selection")
                 }
 
-                Button {
+                Button(action: UserActionTrace.action("run.panel.start-or-restart") {
                     contentTab = .console
                     if let configuration = selectedRunnableConfiguration {
                         model.startRunConfiguration(configuration)
@@ -406,7 +409,7 @@ struct RunView: View {
                     } else {
                         model.runSelectedConfiguration()
                     }
-                } label: {
+                }) {
                     if selectedSessionHasRun {
                         LitheIDEAIcon(resourcePath: "expui/run/rerun_stroke.svg", size: 16,
                                       fallbackSystemImage: "arrow.clockwise")
@@ -420,10 +423,12 @@ struct RunView: View {
                 .padding(.horizontal, 2)
                 .help(selectedSessionHasRun ? "Restart run" : "Run configuration")
                 .accessibilityLabel(selectedSessionHasRun ? "Restart run" : "Run configuration")
-                .disabled(feature.isLoadingProject)
+                .disabled(feature.isLoadingProject || restartsNothing)
 
                 if feature.hasBuildProviderRun && primaryOutputSelected && primaryRunMatchesSelection {
-                    Button { feature.saveBuildProviderConfiguration() } label: {
+                    Button(action: UserActionTrace.action("run.provider-configuration.save") {
+                        feature.saveBuildProviderConfiguration()
+                    }) {
                         Image(systemName: "square.and.arrow.down")
                     }
                     .buttonStyle(runActionButtonStyle)
@@ -432,13 +437,11 @@ struct RunView: View {
                     .disabled(feature.isLoadingProject)
                 }
 
-                Button {
-                    if let session = selectedModuleSession {
-                        feature.stopModule(session)
-                    } else {
-                        model.stopSelectedRun()
-                    }
-                } label: {
+                Button(action: UserActionTrace.action("run.panel.stop") {
+                    if model.isPreparingRun { model.stopSelectedRun() }
+                    else if let session = selectedModuleSession { feature.stopModule(session) }
+                    else { model.stopSelectedRun() }
+                }) {
                     LitheIDEAIcon(resourcePath: "expui/run/stop.svg", size: 16,
                                   fallbackSystemImage: "stop.fill", preservesOriginalColors: true)
                 }
@@ -449,7 +452,7 @@ struct RunView: View {
                 .accessibilityLabel("Stop run")
 
                 if let session = selectedModuleSession, feature.canUpdateService(session) {
-                    Button { model.updateRunningService(session) } label: {
+                    Button(action: UserActionTrace.action("run.service.update") { model.updateRunningService(session) }) {
                         Image(systemName: "bolt.fill")
                     }
                     .buttonStyle(runActionButtonStyle)
@@ -459,9 +462,9 @@ struct RunView: View {
                     .accessibilityLabel("Update running service")
                 }
 
-                Button {
+                Button(action: UserActionTrace.action("run.configurations.generate") {
                     feature.requestRunConfigurationGeneration()
-                } label: {
+                }) {
                     LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: 16,
                                   fallbackSystemImage: "arrow.clockwise", preservesOriginalColors: true)
                 }
@@ -550,13 +553,25 @@ struct RunView: View {
         selectedSessionID == nil || selectedRunnableConfiguration?.buildProvider != nil
     }
 
+    /// A build provider's run or a plugin's run owns the primary console even when
+    /// the workspace has no generated run configurations.
+    private var showsProviderRunOutput: Bool {
+        feature.hasBuildProviderRun || feature.hasPluginRun
+    }
+
+    /// A plugin run that gave no way to start it again has nothing for Restart to do.
+    private var restartsNothing: Bool {
+        primaryOutputSelected && feature.hasPluginRun && !feature.canRestartPluginRun
+    }
+
     private var selectedSessionHasRun: Bool {
         primaryOutputSelected
-            ? primaryRunMatchesSelection && (feature.isRunning || feature.lastExitCode != nil || feature.hasBuildProviderRun)
+            ? primaryRunMatchesSelection && (feature.isRunning || feature.lastExitCode != nil || showsProviderRunOutput)
             : selectedModuleSession != nil
     }
 
     private var selectedSessionIsRunning: Bool {
+        if model.isPreparingRun { return true }
         guard !primaryOutputSelected else { return primaryRunMatchesSelection && feature.isRunning }
         return selectedModuleSession?.isRunning ?? false
     }
@@ -581,6 +596,7 @@ struct RunView: View {
             ) { url, line, column in
                 model.openSourceLocation(url: url, line: line, column: column)
             }
+            .pluginLinks(in: model, scope: .run, searchRoots: feature.sourceSearchRoots)
         }
     }
 
@@ -764,7 +780,7 @@ struct RunView: View {
             let data = try JSONSerialization.data(withJSONObject: selections, options: [.sortedKeys])
             selectedConfigurationTokens = String(decoding: data, as: UTF8.self)
         } catch {
-            model.showNotification("Could not save service selection")
+            model.showNotification("Could not save service selection", logReference: model.notificationFailure(error, operation: "service_selection"))
         }
     }
 
@@ -859,6 +875,7 @@ struct RunView: View {
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
+                .pluginLinks(in: model, scope: .run, searchRoots: feature.sourceSearchRoots)
                 .id(configuration.id)
             }
         }

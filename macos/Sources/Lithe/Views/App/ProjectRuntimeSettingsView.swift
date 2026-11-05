@@ -9,14 +9,15 @@ struct ProjectRuntimeSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: RuntimeSettingsFeatureModel
     @State private var selectedSubprojectID = ProjectRuntimeInventory.projectDefaultsID
-    /// Editing waits until the form is seeded from this project's saved defaults.
-    /// An earlier edit could not reach `.lithe/run/local.json`, and adopting the
-    /// saved defaults afterwards would silently revert it.
+    /// Editing waits for the canonical toolchain snapshot. Opening is read-only.
     @State private var isPrepared = false
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            if let message = feature.settingsError {
+                Text(message).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.error).padding(8)
+            }
             if model.workspaceURL == nil {
                 emptyWorkspace
             } else {
@@ -25,22 +26,19 @@ struct ProjectRuntimeSettingsView: View {
                     Rectangle().fill(LitheTheme.divider).frame(width: 1)
                     detail
                 }
-                .disabled(!isPrepared)
+                .disabled(!isPrepared || feature.isSaving)
             }
         }
         .background(LitheTheme.settingsSurface)
-        .task {
+        .task(id: model.currentWorkspaceIdentity) {
+            let identity = model.currentWorkspaceIdentity
+            isPrepared = false
             await model.prepareProjectRuntimeSettings()
+            guard !Task.isCancelled, model.currentWorkspaceIdentity == identity else { return }
             if feature.subprojects.contains(where: { $0.id == selectedSubprojectID }) == false {
                 selectedSubprojectID = ProjectRuntimeInventory.projectDefaultsID
             }
             isPrepared = true
-        }
-        .onDisappear {
-            // Before preparation the form holds unmerged values; persisting them
-            // would overwrite the saved project and Maven settings.
-            guard isPrepared else { return }
-            model.persistProjectRuntimeSettings()
         }
     }
 
@@ -51,7 +49,16 @@ struct ProjectRuntimeSettingsView: View {
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
             }
+            Text(verbatim: ".lithe/run/local.json")
+                .font(LitheTheme.smallFont)
+                .foregroundStyle(LitheTheme.secondaryText)
             Spacer()
+            Button("Cancel") { feature.cancelChanges() }
+                .buttonStyle(LitheActionButtonStyle())
+                .disabled(!feature.hasChanges || feature.isSaving)
+            Button("Save") { Task { await model.persistProjectRuntimeSettings() } }
+                .buttonStyle(LitheActionButtonStyle())
+                .disabled(!isPrepared || !feature.hasChanges || feature.isSaving)
             if feature.isDiscovering {
                 ProgressView()
                     .controlSize(.small)
@@ -74,7 +81,7 @@ struct ProjectRuntimeSettingsView: View {
                 Label("Refresh detected runtimes", systemImage: "arrow.clockwise")
             }
             .buttonStyle(LitheActionButtonStyle())
-            .disabled(feature.isDiscovering)
+            .disabled(feature.isDiscovering || feature.isSaving)
         }
         .padding(.horizontal, 16)
         .frame(height: 40)
@@ -253,21 +260,7 @@ struct ProjectRuntimeSettingsView: View {
                     kind: .java,
                     mode: feature.settings.mavenJavaHomePath.isEmpty ? .projectJDK : .configured
                 )
-                pathField(
-                    title: "settings.xml",
-                    value: mavenSettingsPathBinding,
-                    placeholder: effectiveMavenSettingsPath ?? L10n.string("Not found"),
-                    chooseTitle: "Choose Maven settings.xml",
-                    fileOrDirectory: false
-                )
-                pathField(
-                    title: L10n.string("Local Repository"),
-                    value: mavenLocalRepositoryBinding,
-                    placeholder: effectiveMavenLocalRepositoryPath ?? L10n.string("Not found"),
-                    chooseTitle: "Choose Maven Local Repository",
-                    fileOrDirectory: true,
-                    directoryOnly: true
-                )
+
             }
 
             Text("Project runtime settings are saved locally for this project.")
@@ -347,127 +340,6 @@ struct ProjectRuntimeSettingsView: View {
 
     private func requirementMessages(for toolchain: String) -> [String] {
         model.runFeatureIfActive?.configurationDiagnostics.toolchainRequirementMessages(for: toolchain) ?? []
-    }
-
-    /// The configured override, otherwise the file Maven would read by default
-    /// or the installation's `conf/settings.xml`. Showing the resolved path is
-    /// more useful than “Automatic”; when nothing exists, the field says so.
-    private var effectiveMavenSettingsPath: String? {
-        if let path = model.mavenFeatureIfActive?.settingsPath, !path.isEmpty { return path }
-        let configured = feature.settings.mavenSettingsPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !configured.isEmpty { return configured }
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let userSettings = home.appendingPathComponent(".m2/settings.xml")
-        if FileManager.default.fileExists(atPath: userSettings.path) { return userSettings.path }
-        guard let workspaceURL = model.workspaceURL,
-              let executable = feature.mavenChoice(
-                  at: workspaceURL,
-                  overridePath: feature.settings.mavenExecutableOverride
-              ).url else { return nil }
-        // A selected launcher may be a symlink outside the installation.
-        let installationSettings = executable.resolvingSymlinksInPath()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("conf/settings.xml")
-        return FileManager.default.fileExists(atPath: installationSettings.path)
-            ? installationSettings.path
-            : nil
-    }
-
-    /// The same precedence Maven applies: the explicit Lithe override, then
-    /// `<localRepository>` in the user settings, then the installation's
-    /// `conf/settings.xml`, and finally the default repository.
-    private var effectiveMavenLocalRepositoryPath: String? {
-        if let path = model.mavenFeatureIfActive?.localRepositoryPath, !path.isEmpty { return path }
-        let configured = feature.settings.mavenLocalRepositoryPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !configured.isEmpty { return configured }
-        for settings in mavenSettingsCandidates {
-            switch Self.localRepository(inSettingsAt: settings) {
-            case .resolved(let repository):
-                return repository
-            case .unresolved:
-                // A configured value that cannot be interpolated must not fall
-                // back to a guessed default; leave the field unknown instead.
-                return nil
-            case .absent:
-                continue
-            }
-        }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".m2/repository").path
-    }
-
-    /// User settings first; the installation's global settings are merged
-    /// below them and can define `<localRepository>` when the user file does
-    /// not.
-    private var mavenSettingsCandidates: [String] {
-        var paths: [String] = []
-        if let path = model.mavenFeatureIfActive?.settingsPath, !path.isEmpty {
-            paths.append(path)
-        } else {
-            let configured = feature.settings.mavenSettingsPath.trimmingCharacters(in: .whitespacesAndNewlines)
-            let userSettings = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".m2/settings.xml")
-            if !configured.isEmpty {
-                paths.append(configured)
-            } else if FileManager.default.fileExists(atPath: userSettings.path) {
-                paths.append(userSettings.path)
-            }
-        }
-        if let workspaceURL = model.workspaceURL,
-           let executable = feature.mavenChoice(
-               at: workspaceURL,
-               overridePath: feature.settings.mavenExecutableOverride
-           ).url {
-            let installationSettings = executable.resolvingSymlinksInPath()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("conf/settings.xml")
-            if FileManager.default.fileExists(atPath: installationSettings.path),
-               !paths.contains(installationSettings.path) {
-                paths.append(installationSettings.path)
-            }
-        }
-        return paths
-    }
-
-    /// Distinguishes a missing element from one that is configured but cannot
-    /// be interpolated, so the caller never reports the default as the value.
-    private static func localRepository(
-        inSettingsAt path: String
-    ) -> MavenLocalRepositoryValue {
-        guard let data = FileManager.default.contents(atPath: path) else { return .absent }
-        let parser = XMLParser(data: data)
-        let reader = MavenLocalRepositoryReader()
-        parser.delegate = reader
-        parser.shouldResolveExternalEntities = false
-        guard parser.parse(), reader.found else { return .absent }
-        guard let raw = reader.value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !raw.isEmpty else { return .absent }
-        guard let resolved = resolveMavenPath(raw) else { return .unresolved }
-        return .resolved(resolved)
-    }
-
-    /// Maven interpolates `${user.home}` and `${env.NAME}` plus a leading `~`.
-    /// Any other expression or a relative result cannot be reported as the
-    /// actual repository.
-    private static func resolveMavenPath(_ raw: String) -> String? {
-        var value = raw.replacingOccurrences(of: "${user.home}", with: NSHomeDirectory())
-        // Bound the expansion so a self-referential environment value cannot
-        // keep the loop running.
-        for _ in 0..<16 {
-            guard let start = value.range(of: "${env.") else { break }
-            guard let end = value[start.upperBound...].firstIndex(of: "}") else { return nil }
-            let name = String(value[start.upperBound..<end])
-            guard let environment = ProcessInfo.processInfo.environment[name],
-                  !environment.isEmpty else { return nil }
-            value.replaceSubrange(start.lowerBound...end, with: environment)
-        }
-        if value.hasPrefix("~") {
-            value = NSHomeDirectory() + String(value.dropFirst())
-        }
-        guard !value.contains("${") else { return nil }
-        return value.hasPrefix("/") ? value : nil
     }
 
     private func labeledValue(_ title: String, _ value: String) -> some View {
@@ -597,8 +469,8 @@ struct ProjectRuntimeSettingsView: View {
     private func icon(for kind: ProjectRuntimeSubprojectKind) -> String {
         switch kind {
         case .projectDefaults: "internaldrive"
-        case .mavenReactor: "shippingbox"
-        case .mavenModule: "cube"
+        case .buildRoot: "shippingbox"
+        case .buildProject: "cube"
         case .other: "globe"
         }
     }
@@ -618,7 +490,6 @@ struct ProjectRuntimeSettingsView: View {
             get: { feature.settings.javaHomePath },
             set: { value in
                 feature.updateSettings { $0.javaHomePath = value }
-                model.persistProjectRuntimeSettings()
             }
         )
     }
@@ -628,7 +499,6 @@ struct ProjectRuntimeSettingsView: View {
             get: { feature.settings.mavenHomeSelection },
             set: { value in
                 feature.updateSettings { $0.mavenHomeSelection = value }
-                model.persistProjectRuntimeSettings()
             }
         )
     }
@@ -638,7 +508,6 @@ struct ProjectRuntimeSettingsView: View {
             get: { feature.settings.mavenHomePath },
             set: { value in
                 feature.updateSettings { $0.mavenHomePath = value }
-                model.persistProjectRuntimeSettings()
             }
         )
     }
@@ -648,27 +517,6 @@ struct ProjectRuntimeSettingsView: View {
             get: { feature.settings.mavenJavaHomePath },
             set: { value in
                 feature.updateSettings { $0.mavenJavaHomePath = value }
-                model.persistProjectRuntimeSettings()
-            }
-        )
-    }
-
-    private var mavenSettingsPathBinding: Binding<String> {
-        Binding(
-            get: { feature.settings.mavenSettingsPath },
-            set: { value in
-                feature.updateSettings { $0.mavenSettingsPath = value }
-                model.persistProjectRuntimeSettings()
-            }
-        )
-    }
-
-    private var mavenLocalRepositoryBinding: Binding<String> {
-        Binding(
-            get: { feature.settings.mavenLocalRepositoryPath },
-            set: { value in
-                feature.updateSettings { $0.mavenLocalRepositoryPath = value }
-                model.persistProjectRuntimeSettings()
             }
         )
     }
@@ -680,7 +528,6 @@ struct ProjectRuntimeSettingsView: View {
                 feature.updateSettings {
                     $0.setOverride(path: subproject.relativePath, javaHomePath: value)
                 }
-                model.persistProjectRuntimeSettings()
             }
         )
     }
@@ -692,7 +539,6 @@ struct ProjectRuntimeSettingsView: View {
                 feature.updateSettings {
                     $0.setOverride(path: subproject.relativePath, mavenExecutablePath: value)
                 }
-                model.persistProjectRuntimeSettings()
             }
         )
     }
@@ -704,52 +550,7 @@ struct ProjectRuntimeSettingsView: View {
                 feature.updateSettings {
                     $0.setOverride(path: subproject.relativePath, mavenJavaHomePath: value)
                 }
-                model.persistProjectRuntimeSettings()
             }
         )
-    }
-}
-
-private enum MavenLocalRepositoryValue {
-    case absent
-    case resolved(String)
-    case unresolved
-}
-
-/// Reads only `<localRepository>` from a Maven settings file.
-private final class MavenLocalRepositoryReader: NSObject, XMLParserDelegate {
-    var value: String?
-    var found = false
-    private var isReading = false
-    private var text = ""
-
-    func parser(
-        _ parser: XMLParser,
-        didStartElement elementName: String,
-        namespaceURI: String?,
-        qualifiedName qName: String?,
-        attributes attributeDict: [String: String] = [:]
-    ) {
-        if elementName == "localRepository" {
-            found = true
-            isReading = true
-            text = ""
-        }
-    }
-
-    func parser(_ parser: XMLParser, foundCharacters string: String) {
-        if isReading { text += string }
-    }
-
-    func parser(
-        _ parser: XMLParser,
-        didEndElement elementName: String,
-        namespaceURI: String?,
-        qualifiedName qName: String?
-    ) {
-        if elementName == "localRepository", isReading {
-            value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            isReading = false
-        }
     }
 }

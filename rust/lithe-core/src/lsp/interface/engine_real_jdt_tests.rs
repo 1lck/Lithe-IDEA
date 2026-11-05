@@ -13,6 +13,9 @@
 use super::tests::{await_real_smoke_ready, RealSmokeCleanup};
 use super::*;
 
+#[path = "engine_real_jdt_maven_provider_tests.rs"]
+mod maven_provider_tests;
+
 /// Paths an opt-in real JDT LS check needs, or `None` when not configured.
 struct RealJdtToolchain {
     root: PathBuf,
@@ -255,7 +258,9 @@ fn await_operation(
             .wait_events(remaining)
             .map_err(|error| error.message)?
         {
-            if event.operation_id.as_deref() != Some(operation_id) {
+            if event.operation_id.as_deref() != Some(operation_id)
+                || event.kind != "requestCompleted"
+            {
                 continue;
             }
             if let Some(error) = event.error {
@@ -338,9 +343,15 @@ fn real_start_request(
         .to_path_buf();
     StartServerRequest {
         provider_id: "java".to_string(),
+        role: SessionRole::LanguageServer,
+        log_subject: None,
         plugin_id: None,
+        startup_operation: None,
         host_services: Vec::new(),
+        host_options: Default::default(),
         toolchain_providers: Vec::new(),
+        keymap_import_providers: Vec::new(),
+        session_policy: None,
         executable_path: toolchain
             .root
             .join("bin")
@@ -765,6 +776,68 @@ fn real_jdtls_discovers_builds_and_launches_java_25_entrypoints() {
         canonical_workspace.join("target/inherited-ran").is_file(),
         "the inherited test did not run"
     );
+}
+
+/// A plain folder becomes an invisible JDT project in its writable cache.
+/// The Java Debug Server's path-scoped search omits that project, so discovery
+/// must include its entries before Core applies workspace ownership checks.
+#[test]
+fn real_jdtls_lists_entrypoints_in_a_plain_java_folder() {
+    let Some(toolchain) = real_jdt_toolchain() else {
+        return;
+    };
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock should follow the Unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "lithe-real-jdt-plain-{}-{stamp}",
+        std::process::id()
+    ));
+    let workspace = root.join("plain workspace");
+    let source = "src/Main.java";
+    std::fs::create_dir_all(workspace.join("src")).expect("fixture source directory");
+    let text = "public class Main { public static void main(String[] args) { } }\n";
+    std::fs::write(workspace.join(source), text).expect("fixture source");
+    let root_uri = url::Url::from_directory_path(&workspace)
+        .expect("workspace converts to a file URI")
+        .to_string();
+    let installation_before = installation_listing(&toolchain.root);
+    let engine = LspEngine::new();
+    let mut request = real_start_request(&toolchain, &root, &workspace, &root_uri);
+    // This classic main needs no Java 25 features; use JDT's runtime JDK.
+    request.java_runtimes.clear();
+    let started = engine
+        .start_server(request)
+        .expect("real JDTLS should start");
+    let _cleanup = RealSmokeCleanup {
+        engine: &engine,
+        session_id: started.session_id.clone(),
+        root,
+    };
+    let session = engine
+        .session(&started.session_id)
+        .expect("real JDTLS session should be registered");
+    await_real_smoke_ready(&session).unwrap_or_else(|error| panic!("{error}"));
+    session
+        .sync_document(SyncDocumentRequest {
+            session_id: session.id.clone(),
+            uri: url::Url::from_file_path(workspace.join(source))
+                .expect("source converts to a file URI")
+                .to_string(),
+            language_id: "java".to_string(),
+            text: text.to_string(),
+            content_changes: Vec::new(),
+        })
+        .expect("plain source should open");
+    let entrypoints = await_real_entrypoints(&engine, &session, 1);
+    let entries = entrypoints["entries"].as_array().expect("entry list");
+    assert_eq!(entries.len(), 1, "{entrypoints}");
+    assert_eq!(entries[0]["sourcePath"], source, "{entrypoints}");
+    assert_eq!(entries[0]["mainClass"], "Main", "{entrypoints}");
+    assert!(entries[0]["projectName"].is_string(), "{entrypoints}");
+    assert_eq!(entrypoints["diagnostics"], json!([]), "{entrypoints}");
+    assert_eq!(installation_listing(&toolchain.root), installation_before);
 }
 
 /// Regression for a workspace opened through a symbolic link, which is how

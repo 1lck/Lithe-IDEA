@@ -1,7 +1,10 @@
 mod agent;
+mod build_configuration;
+mod build_project_options;
 mod build_runtime_versions;
 mod build_systems;
 mod community_build_plugins;
+mod core_request_traces;
 mod declarative_plugins;
 mod detectors;
 mod file_name_order;
@@ -15,6 +18,7 @@ mod git_repository_setup;
 mod git_untracked_directories;
 mod git_workspace_commit;
 mod github;
+mod language_server_sessions;
 mod languages;
 mod marketplace_plugins;
 mod mybatis;
@@ -28,7 +32,9 @@ pub(crate) mod support;
 mod vcs;
 
 mod plugin_editor_resources;
+mod plugin_run_debug;
 mod toolchain_definitions;
 mod toolchain_pins;
 mod toolchain_queries;
 mod toolchain_resolution;
+mod toolchain_vectors;

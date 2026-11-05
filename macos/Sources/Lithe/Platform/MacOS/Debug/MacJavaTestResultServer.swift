@@ -148,6 +148,7 @@ final class MacJavaTestResultServer: JavaTestResultServing {
         startupDeadlineTask = Task { [weak self] in
             do {
                 try await clock.sleep(until: deadline)
+            // log-exempt: 用户取消：停止结果监听时取消启动期限等待
             } catch {
                 return
             }

@@ -238,6 +238,9 @@ public struct PluginProgram: Equatable, Hashable, Sendable {
     public enum Kind: String, Sendable {
         case packagedLanguageServer
         case systemLanguageServer
+        /// A server whose plugin backend chooses the command line each time
+        /// it starts; the review names the function that does.
+        case backendLanguageServer
         case runtime
         case run
         case test
@@ -265,6 +268,8 @@ public struct PluginProgram: Equatable, Hashable, Sendable {
     public var languageID: String? { string("languageID") }
     public var path: String? { string("path") }
     public var tool: String? { string("tool") }
+    /// Backend function a `backendLanguageServer` program asks to resolve its launch.
+    public var function: String? { string("function") }
     public var commands: [String] { strings("commands") }
     public var arguments: [String] { strings("arguments") }
 

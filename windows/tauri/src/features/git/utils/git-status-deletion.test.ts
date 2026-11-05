@@ -32,4 +32,25 @@ describe("Git status physical deletion", () => {
 
     expect(result).toEqual({ failures: [], refreshError });
   });
+  test("reconciles after partial deletion and refreshes even if reconciliation fails", async () => {
+    const calls: string[] = [];
+    const reconciliationError = new Error("index unavailable");
+    const result = await deleteGitStatusPaths(
+      ["deleted", "failed"],
+      async (path) => {
+        calls.push(`delete:${path}`);
+        if (path === "failed") throw new Error("locked");
+      },
+      async () => {
+        calls.push("refresh");
+      },
+      async () => {
+        calls.push("reconcile");
+        throw reconciliationError;
+      },
+    );
+    expect(calls).toEqual(["delete:deleted", "delete:failed", "reconcile", "refresh"]);
+    expect(result.failures.map((failure) => failure.path)).toEqual(["failed"]);
+    expect(result.reconciliationError).toBe(reconciliationError);
+  });
 });

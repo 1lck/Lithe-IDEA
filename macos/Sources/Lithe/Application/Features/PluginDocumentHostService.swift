@@ -80,6 +80,10 @@ final class PluginDocumentHostService: PluginHostServiceHandling {
                     replacements: replacements)
             }
             return .success(.object(["documentID": .string(id.uuidString), "version": .integer(Int(clamping: result.version)), "applied": .bool(result.applied)]))
-        } catch { return .failure(PluginHostAPIValues.failure(error)) }
+        } catch {
+            var failure = PluginHostAPIValues.failure(error)
+            failure.logError = error
+            return .failure(failure)
+        }
     }
 }

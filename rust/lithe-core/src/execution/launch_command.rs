@@ -62,6 +62,8 @@ pub struct LaunchCommandPlanRequest {
     pub limit: Option<usize>,
     /// JDK feature version read by the host from its `release` file.
     pub java_feature_version: Option<u32>,
+    /// Host-read release files, nearest first; Core interprets their contents.
+    pub java_release_contents: Option<Vec<String>>,
 }
 
 /// JSON response for [`LaunchCommandPlanRequest`].
@@ -97,12 +99,24 @@ impl From<LaunchCommandPlan> for LaunchCommandPlanResponse {
 
 /// Plans a launch through the shared JSON command dispatcher.
 pub fn plan_launch_command_request(request: LaunchCommandPlanRequest) -> LaunchCommandPlanResponse {
+    let version = request.java_feature_version.or_else(|| {
+        request
+            .java_release_contents
+            .as_ref()?
+            .iter()
+            .find(|contents| {
+                contents
+                    .lines()
+                    .any(|line| line.trim().starts_with("JAVA_VERSION="))
+            })
+            .and_then(|contents| java_feature_version_from_release(contents))
+    });
     plan_launch_command(
         &request.executable,
         &request.arguments,
         Path::new(&request.argfile_path),
         request.limit,
-        request.java_feature_version,
+        version,
     )
     .into()
 }
@@ -116,11 +130,24 @@ const MINIMUM_ARGFILE_JAVA_VERSION: u32 = 9;
 /// Hosts pass the result to [`plan_launch_command`], which needs it to know
 /// whether an argument file is supported. Encoding is the host's responsibility.
 pub fn java_feature_version_from_release(contents: &str) -> Option<u32> {
+    let value = java_version_from_release(contents)?;
+    release_feature_version(value)
+}
+
+/// Borrows the full version from JDK-owned release metadata without running Java.
+/// Native discovery uses this value with the shared runtime candidate ordering;
+/// absent or unrecognized metadata must not trigger an implicit process probe.
+pub fn java_version_from_release(contents: &str) -> Option<&str> {
     let value = contents
         .lines()
         .find_map(|line| line.trim().strip_prefix("JAVA_VERSION="))?
         .trim()
         .trim_matches('"');
+    release_feature_version(value)?;
+    Some(value)
+}
+
+fn release_feature_version(value: &str) -> Option<u32> {
     let mut parts = value.split(['.', '_', '-', '+']);
     let first = parts.next()?.parse::<u32>().ok()?;
     if first == 1 {
@@ -511,7 +538,41 @@ mod tests {
     }
 
     #[test]
+    fn launch_command_uses_host_read_release_contents_for_jdk_version() {
+        let mut request = serde_json::json!({
+            "id": "java-version", "command": "execution.planLaunchCommand",
+            "payload": {
+                "executable": "/jdk/bin/java", "arguments": ["-cp", classpath(500), "Main"],
+                "argfilePath": "/tmp/launch.args", "javaReleaseContents": [
+                    "IMPLEMENTOR=\"fixture\"\n", "JAVA_VERSION=\"21.0.2\"\n"
+                ]
+            }
+        });
+        let response: serde_json::Value =
+            serde_json::from_str(&crate::execute_json(&request.to_string())).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["data"]["kind"], "argfile");
+        request["payload"]["javaReleaseContents"] =
+            serde_json::json!(["JAVA_VERSION=\"unknown\"\n", "JAVA_VERSION=\"21\"\n"]);
+        let response: serde_json::Value =
+            serde_json::from_str(&crate::execute_json(&request.to_string())).unwrap();
+        assert_eq!(response["data"]["kind"], "direct");
+        request["payload"]["javaFeatureVersion"] = serde_json::json!(21);
+        let response: serde_json::Value =
+            serde_json::from_str(&crate::execute_json(&request.to_string())).unwrap();
+        assert_eq!(response["data"]["kind"], "argfile");
+    }
+
+    #[test]
     fn the_release_file_reports_the_feature_version() {
+        for version in ["21.0.2", "1.8.0_392", "25-ea+35", "17.0.12+7"] {
+            let release = format!("IMPLEMENTOR=\"fixture\"\nJAVA_VERSION=\"{version}\"\n");
+            assert_eq!(java_version_from_release(&release), Some(version));
+        }
+        assert_eq!(
+            java_version_from_release("JAVA_VERSION=\"unknown\"\n"),
+            None
+        );
         assert_eq!(
             java_feature_version_from_release("IMPLEMENTOR=\"x\"\nJAVA_VERSION=\"21.0.2\"\n"),
             Some(21)

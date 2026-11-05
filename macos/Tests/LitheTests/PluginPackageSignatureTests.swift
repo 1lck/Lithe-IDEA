@@ -5,6 +5,33 @@ import Testing
 
 struct PluginPackageSignatureTests {
     @Test
+    func publisherSignatureMatchesTheSharedCrossPlatformVector() throws {
+        struct Fixture: Decodable {
+            let contents: [String: String]
+            let document: PluginPackageSignature.Document
+            let publicKey: String
+            let trustedPublisherKeys: [String: String]
+        }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf:
+            DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/fixtures/plugins/publisher-signature.json")))
+        #expect(PluginPackageSignature.trustedPublisherKeysBase64 == fixture.trustedPublisherKeys)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("publisher-vector-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for (path, contents) in fixture.contents {
+            let file = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(contents.utf8).write(to: file)
+        }
+        let key = try Curve25519.Signing.PublicKey(rawRepresentation: #require(Data(base64Encoded: fixture.publicKey)))
+        try PluginPackageSignature.verify(packageAt: root, pluginID: "dev.example.signed", pluginVersion: "1.2.3",
+            document: fixture.document, publicKey: key)
+        #expect(throws: PluginPackageSignature.Error.untrustedKey("fixture-rfc8032")) {
+            try PluginPackageSignature.verify(packageAt: root, pluginID: "dev.example.signed", pluginVersion: "1.2.3",
+                document: fixture.document, trustedKeys: PluginPackageSignature.trustedPublisherKeys())
+        }
+    }
+
+    @Test
     func signatureCoversEveryPackageFile() throws {
         let root = try makePackage()
         defer { try? FileManager.default.removeItem(at: root) }

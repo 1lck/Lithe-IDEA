@@ -17,6 +17,23 @@ public protocol AIPullRequestDescriptionGenerating: AnyObject {
     ) async throws -> PullRequestDescriptionOutput
 }
 
+/// Credential-free plan returned by the shared commit-generation Core.
+public struct AICommitRequestPlan: Sendable {
+    public let url: URL
+    public let body: Data
+
+    public init(url: URL, body: Data) {
+        self.url = url
+        self.body = body
+    }
+}
+
+/// Shared commit policy; native hosts retain credential and HTTP ownership.
+public protocol AICommitPlanning: Sendable {
+    func planCommit(input: CommitMessageInput, settings: CommitMessageAISettings, provider: AIProviderProfile) throws -> AICommitRequestPlan
+    func decodeCommitResponse(protocolName: CommitMessageAPIProtocol, response: Data, includeBody: Bool) throws -> String
+}
+
 public protocol AIProviderCredentialResolver: Sendable {
     func readAPIKey(for provider: AIProviderProfile) -> String?
 }
@@ -79,9 +96,15 @@ public enum CommitMessageGenerationError: LocalizedError, Sendable {
     case missingAPIKey
     case emptyDiff
     case sensitiveFileExcluded
+    case diffUnavailable
+    case staleChanges
+    case draftChanged
+    case tooManyFiles
     case httpFailure(statusCode: Int)
     case invalidResponse
     case emptyResponse
+    case invalidOptions
+    case outputLimit
 
     public var errorDescription: String? {
         switch self {
@@ -97,12 +120,24 @@ public enum CommitMessageGenerationError: LocalizedError, Sendable {
             return L10n.string("The staged changes have no textual diff to summarize.")
         case .sensitiveFileExcluded:
             return L10n.string("Sensitive files are not sent to an AI provider.")
+        case .diffUnavailable:
+            return L10n.string("Some selected diffs could not be read. Refresh Git changes and retry.")
+        case .staleChanges:
+            return L10n.string("The selected changes changed. Generate again.")
+        case .draftChanged:
+            return L10n.string("The draft changed while confirming. Your text has been kept.")
+        case .tooManyFiles:
+            return L10n.string("Select at most 1,000 files for AI generation.")
         case .httpFailure(let statusCode):
             return "\(L10n.string("The AI provider returned an HTTP error.")) (\(statusCode))"
         case .invalidResponse:
             return L10n.string("The AI provider returned an unexpected response.")
         case .emptyResponse:
             return L10n.string("The AI provider returned an empty commit message.")
+        case .invalidOptions:
+            return L10n.string("aiCommit.aiCOMMITINVALIDOPTIONS")
+        case .outputLimit:
+            return L10n.string("aiCommit.aiCOMMITOUTPUTLIMIT")
         }
     }
 }

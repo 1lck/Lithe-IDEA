@@ -6,6 +6,8 @@
 
 如果任务会创建、修改或审查测试代码、测试基础设施，开始前还要加载 `.agents/skills/write-stable-tests/SKILL.md`。该 Skill 规定 macOS 和 Windows 测试必须遵守的有界等待、确定性时间、资源清理和单测试计时规则。
 
+如果任务会创建新插件，或为已有插件新增语言服务器、后端、构建、VCS、调试等提供者，开始前还要加载 `.agents/skills/create-lithe-plugin/SKILL.md`。该 Skill 给出当前契约、SDK 和示例的参考地址，规定插件必须完成的日志接线和验收要求。
+
 如果任务会准备、验证或发布 Lithe 稳定版，修改发布说明、版本元数据、标签或发布工作流前，还要加载 `.agents/skills/release-lithe/SKILL.md`。
 
 如果任务会整理问题报告、提出功能建议、准备 Issue 草稿或提交 GitHub Issue，开始前还要加载 `.agents/skills/submit-lithe-issue/SKILL.md`。该 Skill 规定信息追问、诊断采集与脱敏、查重，以及严格遵循仓库 Issue 模板的提交流程；gh 不支持 YAML 表单时按表单字段逐项生成正文提交，不得提交空白或缺字段的正文，不得伪造表单来源标记。
@@ -70,15 +72,15 @@
 ## 开发与协作
 1. 每次进行功能开发或者 bug 修复都单独从最新的 preview 分支创建新分支，如果有对应的 issue 分支名最好与 issue 编号相关
 2. 开发的时候如果涉及到 github 相关的操作麻烦使用 gh CLI 来进行操作而不是使用 Compute rUse 的 Skill。由于沙盒影响可能导致需要反复的 gh 授权，每次需要授权的时候麻烦先申请更高的权限去主环境中查看对应是否有 gh 的Token，如果有就直接复用，这个时候找不到才要求登录 gh
-3. 开发完成提交 PR 的时候需要说清楚对应改动的功能点，哪怕是一些细小的改动也是需要包含在内的，需要确保 code reviewer 马上就可以理解这个改动是什么
+3. 开发完成提交 PR 的时候需要说清楚对应改动的功能点，哪怕是一些细小的改动也是需要包含在内的，需要确保 code reviewer 马上就可以理解这个改动是什么。PR 描述必须以 `.github/pull_request_template.md` 为骨架：最前面是关联 Issue，再选 feat / fix / docs / release 类型；只实现单一平台的 feat 必须为另一平台提交跟进 Issue；功能矩阵、统一日志系统等检查项逐项回答。`gh pr create` 带 `--body` 或 `--body-file` 时不会自动套用模板，必须先读取模板再按它填写
 4. 如果让你修复有关 CI 的流程，记得使用 gh 或者 curl 之类的去查看(优先 gh)而不是使用 Computer Use
 5. 提交 PR 时默认创建 Draft PR（`gh pr create --draft`）。Draft PR 只运行 Linux 检查，不占用 macOS 和 Windows runner。开发完成、本地验证通过、可以评审时，再用 `gh pr ready` 标记为 ready，这时才会运行完整 CI。标记为 ready 之后，把修改攒在一起再 push：每次 push 都会重新运行完整 CI，并取消上一轮还没跑完的 CI。仓库曾因 Actions 用量过高被 GitHub 判定为滥用，所以不要为了看 CI 结果而反复 push；能在本地验证的先在本地验证。
 
 ## 脚本放置与分类
 
-新增、移动脚本前，先阅读 `develop-lithe` Skill 的“脚本放置与分类”一节。脚本必须放在 `scripts/` 下，
+新增、移动脚本前，先阅读 `develop-lithe` Skill 的参考页 `.agents/skills/develop-lithe/references/scripts.md`（脚本放置与分类）。脚本必须放在 `scripts/` 下，
 并按作用语义放进对应子目录（CI 脚本在 `scripts/ci/<工作流名>/` 下），不得直接放在 `scripts/` 根目录。
-入口文件只保留这条提醒，目录表和同步清单以 Skill 为准。
+入口文件只保留这条提醒，目录表和同步清单以该参考页为准。
 
 ## 工作树资源复用与文档维护
 
@@ -113,6 +115,24 @@
 - 修改 `shared/contracts/plugins/v1/` 下任何文件（README、schema、fixture）的 PR 合并后，在
   lithe-plugin-docs 运行 `node scripts/contract.mjs sync --revision <合并后的 preview commit>`
   并提交。不要在 lithe-plugin-docs 里直接改副本。
+- 新增或修改插件协议、能力版本或 API 功能的 PR（即改动 `shared/contracts/plugins/v1/`、
+  `rust/lithe-core/src/plugins/capabilities.rs` 或 `rust/lithe-core/src/lsp/interface/plugin_function.rs`
+  的 PR），合并后必须在 lithe-plugin-docs 的
+  [插件协议更新记录](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/reference/protocol-changelog.md)
+  登记：合入日期、PR、修改人（PR 作者）、改了哪个协议或 API；新版本号同时写进该页“按协议查首次出现”的表。
+  只改了后两个文件、契约目录没变时，同样要同步到合并后的 commit 并登记。登记和契约同步放在同一个
+  lithe-plugin-docs PR 里，PR 描述中直接 `@` 每个被登记 PR 的作者，请他们核对自己那一行。具体步骤见该页的“维护”一节。
+- 新增或修改宿主方法、宿主通知的 PR，即使只是给已有 API 加一个子方法，也要在 PR 描述里附一张
+  “原计划编号 | 方法 | 用途”表，每个方法占一行，格式参照
+  [#1653](https://github.com/1lck/Lithe-IDEA/pull/1653) 的描述。原计划编号只用
+  [API 实施计划](docs/development/macos-plugin-api-plan.md)里的 API-01–44，不得自编新号；
+  不属于任何编号的方法写 —。合并后登记时，每个方法在 lithe-plugin-docs 两处各加一行：
+  [API 总表](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/reference/api-catalog.md)的中英两张方法表
+  （API、方法、用途、权限、协议），以及更新记录的“宿主方法（按 API 编号）”索引（API、方法、协议、日期、PR）。
+  这个 PR 在时间线上的“API 编号”列也要填上。同一个 API 的方法分几个 PR 加入时，每个方法记自己的 PR。
+- 插件开发者只读 lithe-plugin-docs 就必须能开发对应插件。方法的参数、返回值、错误码、权限、生命周期和平台限制，
+  要写进契约 README，再经同步进入 lithe-plugin-docs 的 `contract/v1/`；面向开发者的用法说明写进
+  lithe-plugin-docs 的功能页。只写在实施计划、Agent Note、契约草案或宿主代码里的行为，不算已公开。
 - 契约 README 里指向该目录以外的链接必须写成绝对 URL；`scripts/architecture/verify-shared-contracts.sh`
   会拒绝离开该目录的相对链接。
 - 面向插件开发者的新说明写进 lithe-plugin-docs，不写进本仓库或 Lithe Store。

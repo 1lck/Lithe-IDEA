@@ -5,6 +5,16 @@ import Foundation
 /// checkouts refresh it the next time the project is opened.
 struct MacRecentProjectBranchReader: RecentProjectBranchReading {
     let storage: any FileStorage
+    let core: RustCoreBridge
+
+    init(storage: any FileStorage, core: RustCoreBridge = RustCoreBridge()) {
+        self.storage = storage
+        self.core = core
+    }
+
+    private struct TextRequest: Encodable { let text: String }
+    private struct CheckoutResult: Decodable { let branch: String? }
+    private struct PointerResult: Decodable { let path: String? }
 
     func branch(forProjectAt url: URL) -> String? {
         guard let gitDirectory = gitDirectory(for: url),
@@ -15,16 +25,10 @@ struct MacRecentProjectBranchReader: RecentProjectBranchReading {
               let text = String(data: data, encoding: .utf8) else {
             return nil
         }
-        let line = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if line.hasPrefix("ref: ") {
-            let reference = String(line.dropFirst("ref: ".count))
-            guard reference.hasPrefix("refs/heads/") else { return nil }
-            return String(reference.dropFirst("refs/heads/".count))
-        }
-        // A detached HEAD stores a commit hash; show the same short id Git
-        // shows so the row still describes the checkout.
-        let shortID = String(line.prefix(8))
-        return shortID.isEmpty ? nil : shortID
+        let result: CheckoutResult? = try? core.executeResult(
+            command: "git.parseCheckoutMetadata", payload: TextRequest(text: text)
+        ).get()
+        return result?.branch
     }
 
     private func gitDirectory(for url: URL) -> URL? {
@@ -38,12 +42,11 @@ struct MacRecentProjectBranchReader: RecentProjectBranchReading {
               let text = String(data: data, encoding: .utf8) else {
             return nil
         }
-        // Linked worktrees and submodules store a `gitdir: <path>` pointer.
-        let line = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard line.hasPrefix("gitdir:") else { return nil }
-        let path = line.dropFirst("gitdir:".count)
-            .trimmingCharacters(in: .whitespaces)
-        guard !path.isEmpty else { return nil }
+        // Core interprets the bounded pointer; this host resolves its path.
+        let result: PointerResult? = try? core.executeResult(
+            command: "git.parseGitdirPointer", payload: TextRequest(text: text)
+        ).get()
+        guard let path = result?.path else { return nil }
         // Relative pointers are resolved against the workspace directory;
         // `URL(fileURLWithPath:relativeTo:)` would treat it as a file and drop
         // its last component.

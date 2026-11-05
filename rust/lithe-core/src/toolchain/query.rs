@@ -15,7 +15,9 @@ const LIMIT: &str = "plugin.toolchain.limitExceeded";
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Request {
     jsonrpc: String,
-    id: u64,
+    // Preserve wire types: Core's LSP transport allocates bounded string IDs,
+    // while other compatible transports can allocate positive integer IDs.
+    id: Value,
     method: String,
     params: Params,
 }
@@ -575,7 +577,7 @@ pub(crate) fn validate_installation(
     checked_installation(home, definition, &facts, &roots, layout_path)
 }
 
-/// Decodes one provider reply using only verified registry and native facts.
+/// Decodes one provider reply using only the revalidated registry and native facts.
 /// No filesystem, process, environment or JSON-RPC transport is accessed here.
 pub(crate) fn decode(input: &Value) -> Validation<Value> {
     object_keys(
@@ -608,7 +610,8 @@ pub(crate) fn decode(input: &Value) -> Validation<Value> {
         .map_err(|_| reject(INVALID, "request", "Malformed toolchain query request."))?;
     let params = &request.params;
     if request.jsonrpc != "2.0"
-        || request.id == 0
+        || !(request.id.as_u64().is_some_and(|id| id > 0)
+            || request.id.as_str().is_some_and(|id| bounded(id, 128)))
         || !identifier(&params.operation_id)
         || params.generation == 0
         || !provider_identifier(&params.provider_id)
@@ -752,7 +755,7 @@ pub(crate) fn decode(input: &Value) -> Validation<Value> {
             reject(
                 "plugin.toolchain.permissionDenied",
                 "pluginID",
-                "The enabled provider is not in the verified registry.",
+                "The enabled provider is not in the revalidated registry.",
             )
         })?;
     let provider = &provider["provider"];
@@ -795,7 +798,7 @@ pub(crate) fn decode(input: &Value) -> Validation<Value> {
         REPLY,
     )?;
     if response["jsonrpc"] != "2.0"
-        || response["id"].as_u64() != Some(request.id)
+        || response["id"] != request.id
         || response.get("result").is_some() == response.get("error").is_some()
     {
         return Err(reject(

@@ -14,7 +14,7 @@ struct ActiveTestTarget: Equatable, Sendable {
         return switch scope {
         case .workspace: L10n.string("Workspace")
         case .file(let url): url.lastPathComponent
-        case .testCase(let identifier, _): Self.formattedName(for: identifier)
+        case .testCase(let identifier, _, _): Self.formattedName(for: identifier)
         }
     }
 

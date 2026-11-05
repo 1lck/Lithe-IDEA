@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 import LitheSearchModule
@@ -63,6 +64,18 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         }.childRows(of: rows)
     }
 
+    func rootRows(at rootURL: URL, visibilityRules: FileVisibilityRules) -> [FileNode]? {
+        guard let entries = listDirectories([rootURL], at: rootURL, visibilityRules: visibilityRules)?[rootURL.standardizedFileURL.path] else {
+            return nil
+        }
+        let insideSourceRoot = LitheIcons.isSourceRootDirectory(rootURL)
+        return entries.map { entry in
+            FileNode(url: entry.url, isDirectory: entry.isDirectory,
+                     children: entry.isEmptyDirectory ? [] : nil,
+                     isInsideSourceRoot: entry.isDirectory && insideSourceRoot)
+        }
+    }
+
     private func listDirectories(
         _ directories: [URL],
         at rootURL: URL,
@@ -81,6 +94,8 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
             hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
             hiddenFilePatterns: visibilityRules.hiddenFilePatterns
         ) else {
+            // A remote placeholder is never a fallback filesystem when its host fails.
+            if core.remoteWorkspaces?.binding(forRoot: rootURL) != nil { return nil }
             return FileSystemWorkspaceSnapshotBuilder().listDirectories(
                 directories,
                 at: rootURL,
@@ -259,8 +274,14 @@ extension RustWorkspaceOperations: SearchOperations {
         kinds: Set<SearchResultKind>,
         onResults: @escaping @Sendable (SearchEverywhereResults) -> Void
     ) async -> SearchEverywhereResults? {
-        try? await searchEverywherePage(at: rootURL, query: query, options: options, visibilityRules: visibilityRules,
-            includeGeneratedFileNames: includeGeneratedFileNames, kinds: kinds, cursor: nil, onResults: onResults)
+        do {
+            return try await searchEverywherePage(at: rootURL, query: query, options: options, visibilityRules: visibilityRules,
+                includeGeneratedFileNames: includeGeneratedFileNames, kinds: kinds, cursor: nil, onResults: onResults)
+        // log-exempt: 用户取消：搜索被替换或调用方取消时返回空结果
+        } catch is CancellationError { return nil } catch {
+            core.coreLogSink?.emit(AppCoreFallbackSelected(error: error, stage: "search-everywhere"))
+            return nil
+        }
     }
 
     func searchEverywherePage(

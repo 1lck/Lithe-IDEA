@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 /// Resolves icons for files whose extension does not identify their content.
@@ -9,12 +10,17 @@ enum WorkspaceFileIconResolver {
     static func resolve(
         for url: URL,
         suggested: LitheIconKind,
-        storage: any FileStorage
+        storage: any FileStorage,
+        logSink: (any LogSink)? = nil
     ) async -> (kind: LitheIconKind, isExecutable: Bool) {
         let executable = storage.isExecutable(at: url)
         guard suggested == .generic else { return (suggested, executable) }
-        let data = await Task.detached(priority: .utility) {
-            try? storage.readPrefix(from: url, byteCount: contentSampleByteCount + 3)
+        let data = await Task.detached(priority: .utility) { () -> Data? in
+            do { return try storage.readPrefix(from: url, byteCount: contentSampleByteCount + 3) }
+            catch {
+                logSink?.emit(EditorIconFallbackSelected(error: error, stage: "generic"))
+                return nil
+            }
         }.value
         guard let data else { return (.generic, executable) }
         return (

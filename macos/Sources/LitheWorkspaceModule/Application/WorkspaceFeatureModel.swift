@@ -71,6 +71,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private var visibilityRulesRefreshTask: Task<Void, Never>?
     private var pendingExternalPaths: Set<String> = []
     private var pendingGitRefresh = false
+    private var pendingGitIndexOnly = false
     private var pendingIndexingRuleRefresh = false
     private var pendingFullRescan = false
     private var pendingWatchRootsChanged = false
@@ -95,6 +96,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private var restoreSession: (@MainActor (WorkspaceSession, [URL]) async -> Void)?
     private var openFile: (@MainActor (URL) -> Void)?
     private var notify: (@MainActor (String) -> Void)?
+    package var notifyFailure: ((String) -> Void)?
+    private func notifyOperationFailure(_ message: String) {
+        if let notifyFailure { notifyFailure(message) } else { notify?(message) }
+    }
     private var recordHistory: (@MainActor (URL, LocalHistoryReason) async -> Void)?
     private var relocateHistory: (@MainActor (URL, URL) async -> Void)?
     /// Moves an item through the version control that tracks it, so the
@@ -106,13 +111,17 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private var notifyWorkspaceFileChanges: (@MainActor ([WorkspaceFileChange]) -> Void)?
     private var reloadProjectServices: (@MainActor () async -> Void)?
     private var refreshGit: (@MainActor () async -> Void)?
+    private var refreshGitIndexOnly: (@MainActor () async -> Void)?
     private var updateHistoryVisibilityRules: (@MainActor (FileVisibilityRules) async -> Void)?
     private var onSnapshotLoaded: (@MainActor (WorkspaceSnapshot, Bool) async -> Void)?
     private var warmSearchIndex: (@MainActor (URL, FileVisibilityRules) -> Void)?
     private var updateSearchIndex: (@MainActor (URL, [String], FileVisibilityRules) async -> Void)?
     private var invalidateSearchIndex: (@MainActor (URL, FileVisibilityRules) -> Void)?
 
+    private let logSink: (any LogSink)?
+
     package init(
+        logSink: (any LogSink)? = nil,
         operations: any WorkspaceOperations,
         fileOperations: any WorkspaceFileOperations,
         gitWatchContextProvider: any GitWatchContextProviding,
@@ -121,6 +130,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore(),
         observationDelay: (@Sendable (Duration) async throws -> Void)? = nil
     ) {
+        self.logSink = logSink
         self.operations = operations
         self.fileOperations = fileOperations
         self.gitWatchContextProvider = gitWatchContextProvider
@@ -148,6 +158,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         notifyWorkspaceFileChanges: @escaping @MainActor ([WorkspaceFileChange]) -> Void = { _ in },
         reloadProjectServices: @escaping @MainActor () async -> Void,
         refreshGit: @escaping @MainActor () async -> Void,
+        refreshGitIndexOnly: (@MainActor () async -> Void)? = nil,
         updateHistoryVisibilityRules: @escaping @MainActor (FileVisibilityRules) async -> Void,
         onSnapshotLoaded: @escaping @MainActor (WorkspaceSnapshot, Bool) async -> Void,
         warmSearchIndex: @escaping @MainActor (URL, FileVisibilityRules) -> Void,
@@ -170,6 +181,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         self.notifyWorkspaceFileChanges = notifyWorkspaceFileChanges
         self.reloadProjectServices = reloadProjectServices
         self.refreshGit = refreshGit
+        self.refreshGitIndexOnly = refreshGitIndexOnly
         self.updateHistoryVisibilityRules = updateHistoryVisibilityRules
         self.onSnapshotLoaded = onSnapshotLoaded
         self.warmSearchIndex = warmSearchIndex
@@ -415,9 +427,12 @@ package final class WorkspaceFeatureModel: ObservableObject {
         let id = UUID()
         let ownerID = indexingOwnerID
         let task = Task { @MainActor in
-            _ = try? await previous?.value
+            do { _ = try await previous?.value }
+            catch {
+                if !(error is CancellationError) { self.logSink?.emit(AppWorkspaceRollbackFailed(error: error)) }
+            }
             guard isCurrent(), self.indexingOwnerID == ownerID else { throw CancellationError() }
-            let status = try await Task.detached(priority: .userInitiated) {
+            let status = try await UserActionContext.detached(priority: .userInitiated) {
                 try operations.configureIndexing(at: root, policy: policy, refresh: refresh, ownerID: ownerID)
             }.value
             guard isCurrent(), self.indexingOwnerID == ownerID else {
@@ -495,7 +510,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 guard isCurrent() else { return .stale }
                 indexingStatus = status
                 indexingIssue = nil
-                snapshot = try await Task.detached(priority: .userInitiated) {
+                snapshot = try await UserActionContext.detached(priority: .userInitiated) {
                     try operations.snapshot(at: workspaceURL, visibilityRules: rules).map { snapshot in
                         Self.listingTree(of: snapshot, reloading: previouslyLoaded, operations: operations, rules: rules)
                     }
@@ -691,10 +706,11 @@ package final class WorkspaceFeatureModel: ObservableObject {
             }
             if ownsSettings {
                 indexingSettings = previousSettings
-                try? directoryMarkStore.saveIndexingSettings(previousSettings, for: workspaceURL)
+                do { try directoryMarkStore.saveIndexingSettings(previousSettings, for: workspaceURL) }
+                catch { logSink?.emit(AppWorkspaceRollbackFailed(error: error)) }
             }
             recordIndexingFailure(WorkspaceIndexingFailure.writeFailed)
-            notify?(indexingError ?? "")
+            notifyOperationFailure(indexingError ?? "")
             await refreshCurrent()
         } else if directoryMarkRevision == revision { await refreshCurrent() }
     }
@@ -755,6 +771,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         visibilityRulesRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             while self.isLoadingWorkspace, !Task.isCancelled {
+                // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
                 try? await Task.sleep(for: .milliseconds(50))
             }
             guard !Task.isCancelled, self.workspaceURL == workspaceURL, self.workspaceGeneration == generation else { return }
@@ -795,6 +812,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     package func scheduleWorkspaceSessionPersistence() {
         workspaceSessionPersistenceTask?.cancel()
         workspaceSessionPersistenceTask = Task { @MainActor [weak self] in
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled else { return }
             self?.persistWorkspaceSession()
@@ -846,13 +864,13 @@ package final class WorkspaceFeatureModel: ObservableObject {
             await recordHistory?(request.targetURL, .beforeRename)
         }
 
-        let fileOperations = self.fileOperations
+        let fileOperations = self.fileOperations, logSink = self.logSink
         var movedByVersionControl = false
         if request.kind == .rename, let moveTrackedItem {
-            let exists = await Task.detached(priority: .userInitiated) { fileOperations.fileExists(at: destination) }.value
+            let exists = await UserActionContext.detached(priority: .userInitiated) { fileOperations.fileExists(at: destination) }.value
             if !exists { movedByVersionControl = await moveTrackedItem(request.targetURL, destination) }
         }
-        let errorMessage = movedByVersionControl ? nil : await Task.detached(priority: .userInitiated) { () -> String? in
+        let errorMessage = movedByVersionControl ? nil : await UserActionContext.detached(priority: .userInitiated) { () -> String? in
             guard !fileOperations.fileExists(at: destination) else {
                 return "An item named '\(name)' already exists"
             }
@@ -867,13 +885,14 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 }
                 return nil
             } catch {
+                logSink?.emit(AppWorkspaceFileOperationFailed(error: error, stage: "file-operation"))
                 return error.localizedDescription
             }
         }.value
 
         isPerformingProjectItemOperation = false
         if let errorMessage {
-            notify?(errorMessage)
+            notifyOperationFailure(errorMessage)
             return
         }
         if request.kind == .rename {
@@ -931,8 +950,8 @@ package final class WorkspaceFeatureModel: ObservableObject {
             // A switched workspace may already own a different operation.
             if workspaceGeneration == generation { isPerformingProjectItemOperation = false }
         }
-        let fileOperations = self.fileOperations
-        let validationError = await Task.detached(priority: .userInitiated) {
+        let fileOperations = self.fileOperations, logSink = self.logSink
+        let validationError = await UserActionContext.detached(priority: .userInitiated) {
             Self.projectMoveError(sources, to: target, workspace: workspace, files: fileOperations)
         }.value
         guard workspaceGeneration == generation, workspaceURL == workspace else { return }
@@ -957,12 +976,12 @@ package final class WorkspaceFeatureModel: ObservableObject {
             let previousMarks = directoryMarks
             var movedByVersionControl = false
             if let moveTrackedItem {
-                let preflight = await Task.detached(priority: .userInitiated) {
+                let preflight = await UserActionContext.detached(priority: .userInitiated) {
                     Self.projectMoveError([source], to: target, workspace: workspace, files: fileOperations)
                 }.value
                 if preflight == nil { movedByVersionControl = await moveTrackedItem(source, destination) }
             }
-            let error = movedByVersionControl ? nil : await Task.detached(priority: .userInitiated) { () -> String? in
+            let error = movedByVersionControl ? nil : await UserActionContext.detached(priority: .userInitiated) { () -> String? in
                 do {
                     // Recheck just before writing; the native move also refuses overwrite.
                     if let error = Self.projectMoveError([source], to: target, workspace: workspace, files: fileOperations) {
@@ -970,7 +989,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
                     }
                     try fileOperations.moveItem(at: source, to: destination)
                     return nil
-                } catch { return error.localizedDescription }
+                } catch {
+                    logSink?.emit(AppWorkspaceFileOperationFailed(error: error, stage: "move"))
+                    return error.localizedDescription
+                }
             }.value
             if let error { failure = error; break }
             moved += 1
@@ -988,7 +1010,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
         guard workspaceGeneration == generation, workspaceURL == workspace else { return }
         if let failure {
-            notify?("Moved \(moved) of \(sources.count) items. Remaining items were not moved: \(failure)")
+            notifyOperationFailure("Moved \(moved) of \(sources.count) items. Remaining items were not moved: \(failure)")
         } else if Task.isCancelled {
             notify?("Move cancelled after \(moved) of \(sources.count) items")
         } else {
@@ -1038,12 +1060,12 @@ package final class WorkspaceFeatureModel: ObservableObject {
               let operationWorkspaceURL = workspaceURL else { return false }
         let generation = workspaceGeneration
         guard let sources = validatedCopySources(urls, in: directory, workspace: operationWorkspaceURL) else { return false }
-        let fileOperations = self.fileOperations
-        let result = await Task.detached(priority: .userInitiated) {
-            Self.copyProjectItems(sources, in: directory, fileOperations: fileOperations)
+        let fileOperations = self.fileOperations, logSink = self.logSink
+        let result = await UserActionContext.detached(priority: .userInitiated) {
+            Self.copyProjectItems(sources, in: directory, fileOperations: fileOperations, logSink: logSink)
         }.value
         guard workspaceURL == operationWorkspaceURL, workspaceGeneration == generation else { return false }
-        if let error = result.1 { notify?(error) } else { notify?("Pasted files") }
+        if let error = result.1 { notifyOperationFailure(error) } else { notify?("Pasted files") }
         return result.0 > 0
     }
 
@@ -1072,7 +1094,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     private nonisolated static func copyProjectItems(
-        _ sources: [URL], in directory: URL, fileOperations: any WorkspaceFileOperations
+        _ sources: [URL], in directory: URL, fileOperations: any WorkspaceFileOperations, logSink: (any LogSink)?
     ) -> (Int, String?) {
         var copied = 0
         do {
@@ -1090,7 +1112,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 copied += 1
             }
             return (copied, nil)
-        } catch { return (copied, error.localizedDescription) }
+        } catch {
+            logSink?.emit(AppWorkspaceFileOperationFailed(error: error, stage: "copy"))
+            return (copied, error.localizedDescription)
+        }
     }
 
     package func duplicateProjectItem(at sourceURL: URL) async {
@@ -1099,18 +1124,19 @@ package final class WorkspaceFeatureModel: ObservableObject {
               sourceURL.standardizedFileURL != workspaceURL?.standardizedFileURL else { return }
         isPerformingProjectItemOperation = true
         let destination = availableDuplicateURL(for: sourceURL)
-        let fileOperations = self.fileOperations
-        let errorMessage = await Task.detached(priority: .userInitiated) { () -> String? in
+        let fileOperations = self.fileOperations, logSink = self.logSink
+        let errorMessage = await UserActionContext.detached(priority: .userInitiated) { () -> String? in
             do {
                 try fileOperations.copyItem(at: sourceURL, to: destination)
                 return nil
             } catch {
+                logSink?.emit(AppWorkspaceFileOperationFailed(error: error, stage: "file-operation"))
                 return error.localizedDescription
             }
         }.value
         isPerformingProjectItemOperation = false
         if let errorMessage {
-            notify?(errorMessage)
+            notifyOperationFailure(errorMessage)
         } else {
             notify?("Duplicated \(sourceURL.lastPathComponent)")
             await refreshCurrent()
@@ -1192,7 +1218,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             if fileOperations.fileExists(at: item.url) {
                 // Each item reports its own failure; also say that the rest
                 // of the batch was intentionally left in place.
-                if index < items.count - 1 { notify?("Stopped moving the remaining items to Trash") }
+                if index < items.count - 1 { notifyOperationFailure("Stopped moving the remaining items to Trash") }
                 break
             }
         }
@@ -1233,7 +1259,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             }
         }
         if let errorMessage {
-            notify?(errorMessage)
+            notifyOperationFailure(errorMessage)
             return true
         }
         if request.isDirectory {
@@ -1275,7 +1301,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
 
     package func readFile(at workspaceURL: URL, relativePath: String) async -> String? {
         let operations = self.operations
-        return await Task.detached(priority: .userInitiated) {
+        return await UserActionContext.detached(priority: .userInitiated) {
             operations.readFile(at: workspaceURL, relativePath: relativePath)
         }.value
     }
@@ -1295,7 +1321,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             if workspaceURL == root { indexingSettingsRevision &+= 1; indexingSettings = settings }
         } catch {
             recordIndexingFailure(error, fallback: .writeFailed)
-            notify?(indexingError ?? "")
+            notifyOperationFailure(indexingError ?? "")
         }
     }
 
@@ -1320,7 +1346,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         // The filesystem operation has already succeeded, so rolling the UI back
         // would restore paths that no longer exist. Keep the in-memory state and
         // surface that only preference persistence failed.
-        notify?("Could not update directory marks after the file operation: \(saveError)")
+        notifyOperationFailure("Could not update directory marks after the file operation: \(saveError)")
     }
 
     private static func directoryMarks(
@@ -1410,7 +1436,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         if batch.watchRootsChanged || batch.requiresFullRescan {
             pendingWatchRootsChanged = pendingWatchRootsChanged || batch.watchRootsChanged
             pendingFullRescan = pendingFullRescan || batch.requiresFullRescan
-            pendingGitRefresh = true
+            enqueueGitRefresh(indexOnly: false)
             refreshTask?.cancel()
             refreshTask = nil
             gitRefreshTask?.cancel()
@@ -1425,7 +1451,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         // These are independent owned debounce lanes: tree/index/project work
         // must not delay Git or cancel the last chance to publish a file batch.
         if batch.gitStateMayHaveChanged || batch.gitMetadataMayHaveChanged {
-            scheduleGitRefresh()
+            scheduleGitRefresh(indexOnly: batch.gitIndexOnly)
         }
     }
 
@@ -1438,6 +1464,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         recoveryTask?.cancel()
         recoveryTask = Task { @MainActor [weak self, observationDelay] in
             do { try await observationDelay(.milliseconds(350)) }
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             catch { return }
             guard !Task.isCancelled, let self, let workspaceURL = self.workspaceURL else { return }
             await self.applyPendingRecovery(at: workspaceURL)
@@ -1504,6 +1531,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         refreshTask?.cancel()
         refreshTask = Task { @MainActor [weak self, observationDelay] in
             do { try await observationDelay(.milliseconds(350)) }
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             catch { return }
             guard !Task.isCancelled,
                   let self,
@@ -1515,14 +1543,21 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
     }
 
-    private func scheduleGitRefresh() {
+    private func enqueueGitRefresh(indexOnly: Bool) {
+        pendingGitIndexOnly = pendingGitRefresh ? pendingGitIndexOnly && indexOnly : indexOnly
         pendingGitRefresh = true
+    }
+
+    private func scheduleGitRefresh(indexOnly: Bool? = nil) {
+        if let indexOnly { enqueueGitRefresh(indexOnly: indexOnly) }
+        else if !pendingGitRefresh { enqueueGitRefresh(indexOnly: false) }
         gitRefreshGeneration += 1
         guard gitOperationFreezeDepth == 0, activeGitRefreshID == nil else { return }
         let generation = gitRefreshGeneration
         gitRefreshTask?.cancel()
         gitRefreshTask = Task { @MainActor [weak self, observationDelay] in
             do { try await observationDelay(.milliseconds(350)) }
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             catch { return }
             guard !Task.isCancelled,
                   let self,
@@ -1532,7 +1567,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     private func requestGitRefreshNow() async {
-        pendingGitRefresh = true
+        enqueueGitRefresh(indexOnly: false)
         gitRefreshGeneration += 1
         if activeGitRefreshID == nil {
             gitRefreshTask?.cancel()
@@ -1555,8 +1590,11 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
         while pendingGitRefresh, gitOperationFreezeDepth == 0, !Task.isCancelled,
               workspaceGeneration == generation, activeGitRefreshID == refreshID {
+            let indexOnly = pendingGitIndexOnly
             pendingGitRefresh = false
-            await refreshGit?()
+            pendingGitIndexOnly = false
+            if indexOnly, let refreshGitIndexOnly { await refreshGitIndexOnly() }
+            else { await refreshGit?() }
         }
         guard !Task.isCancelled, workspaceGeneration == generation, activeGitRefreshID == refreshID else { return }
         if pendingIndexingRuleRefresh, !isLoadingWorkspace, !isRefreshingWorkspace {
@@ -1570,7 +1608,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         let generation = workspaceGeneration
         guard gitOperationFreezeDepth == 0 else {
             pendingExternalPaths.formUnion(paths)
-            pendingGitRefresh = true
+            enqueueGitRefresh(indexOnly: false)
             return
         }
         if isLoadingWorkspace || isRefreshingWorkspace {
@@ -1584,7 +1622,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             .sorted { $0.path < $1.path }
         guard !changedURLs.isEmpty else { return }
         let conflictDetected = processExternalChanges?(changedURLs) ?? false
-        if conflictDetected { notify?("External edits conflict with unsaved changes") }
+        if conflictDetected { notifyOperationFailure("External edits conflict with unsaved changes") }
         let previouslyKnown = Set(changedURLs.filter(isKnownProjectFile).map(\.path))
         let previousSnapshotID = appliedSnapshot?.id
         if changedURLs.contains(where: { $0.lastPathComponent == ".gitignore" || $0.path.contains("/.git/") }) {
@@ -1782,7 +1820,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         let rules = visibilityRules
         let loaded = Self.loadedDirectoryPaths(in: root)
         let base = FileNode(url: root.url, isDirectory: true, children: nil)
-        let relisted = await Task.detached(priority: .userInitiated) {
+        let relisted = await UserActionContext.detached(priority: .userInitiated) {
             Self.listingTree(base, reloading: loaded, at: workspaceURL, operations: operations, rules: rules)
         }.value
         guard self.workspaceURL == workspaceURL, workspaceGeneration == generation,
@@ -1818,7 +1856,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             let rules = visibilityRules
             let loaded = Self.loadedDirectoryPaths(in: currentRoot)
             let base = FileNode(url: currentRoot.url, isDirectory: true, children: nil)
-            let relisted = await Task.detached(priority: .userInitiated) {
+            let relisted = await UserActionContext.detached(priority: .userInitiated) {
                 Self.listingTree(base, reloading: loaded, at: workspaceURL, operations: operations, rules: rules)
             }.value
             guard workspaceGeneration == generation, self.workspaceURL == workspaceURL else { return }
@@ -1868,7 +1906,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 let rules = visibilityRules
                 let id = UUID()
                 let paths = missing.map { $0.url.standardizedFileURL.path }
-                let worker = Task.detached(priority: .userInitiated) {
+                let worker = UserActionContext.detached(priority: .userInitiated) {
                     guard !Task.isCancelled else { return nil as [String: [FileNode]]? }
                     let result = operations.childRows(of: missing, at: workspaceURL, visibilityRules: rules)
                     return Task.isCancelled ? nil : result

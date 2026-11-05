@@ -1,6 +1,6 @@
 //! The `build.*` commands: JSON in, outcome envelope out.
 //!
-//! Every command except `build.detect` takes `{manifest, buildSystemID,
+//! Every command except `build.detect` and `build.projectOptions` takes `{manifest, buildSystemID,
 //! request}` and validates the manifest again, as the `plugins.declarative.*`
 //! commands do, so a host never has to trust its own cache of a manifest.
 //! Malformed payloads fail the call; rejected declarations and requests come
@@ -144,6 +144,16 @@ pub(crate) fn build_resolve_options_command(payload: Value) -> Result<Value, Cor
     )
 }
 
+/// `build.editStoredOption`: checks a local preference edit against its declaration.
+pub(crate) fn build_edit_stored_option_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.editStoredOption",
+        "edit",
+        |system, request| super::stored_options::edit(system, request),
+    )
+}
+
 /// `build.modelPlan`: the command that prints a command-sourced model.
 pub(crate) fn build_model_plan_command(payload: Value) -> Result<Value, CoreError> {
     with_build_system(
@@ -200,24 +210,40 @@ pub(crate) fn build_decode_test_discovery_command(payload: Value) -> Result<Valu
 
 /// `build.prepareRunPlan`: validates a provider-owned target launch request.
 pub(crate) fn build_prepare_run_plan_command(payload: Value) -> Result<Value, CoreError> {
-    with_build_system(
+    with_manifest(
         payload,
         "build.prepareRunPlan",
         "plan",
-        |build_system, request: &super::run_preparation::PrepareRunRequest| {
-            super::run_preparation::plan(build_system, request)
+        |build_system, request: &super::run_preparation::PrepareRunRequest, manifest| {
+            super::run_preparation::plan(
+                build_system,
+                request,
+                manifest
+                    .requires()
+                    .get("buildProviders")
+                    .copied()
+                    .unwrap_or(1),
+            )
         },
     )
 }
 
 /// `build.decodeRunPreparation`: validates portable process launch data.
 pub(crate) fn build_decode_run_preparation_command(payload: Value) -> Result<Value, CoreError> {
-    with_build_system(
+    with_manifest(
         payload,
         "build.decodeRunPreparation",
         "launch",
-        |build_system, request: &super::run_preparation::DecodeRunPreparationRequest| {
-            super::run_preparation::decode(build_system, request)
+        |build_system, request: &super::run_preparation::DecodeRunPreparationRequest, manifest| {
+            super::run_preparation::decode(
+                build_system,
+                request,
+                manifest
+                    .requires()
+                    .get("buildProviders")
+                    .copied()
+                    .unwrap_or(1),
+            )
         },
     )
 }
@@ -335,6 +361,52 @@ pub(crate) fn build_resolve_model_inputs_command(payload: Value) -> Result<Value
         "modelInputs",
         |build, request: &super::model_inputs::ResolveRequest| {
             super::model_inputs::resolve(build, request)
+        },
+    )
+}
+
+/// `build.configurationPlan`: read native facts through the owning provider.
+pub(crate) fn build_configuration_plan_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.configurationPlan",
+        "plan",
+        |declaration, request: &OutputPlanRequest| super::configuration::plan(declaration, request),
+    )
+}
+
+/// `build.decodeConfiguration`: non-sensitive facts and bounded write bindings.
+pub(crate) fn build_decode_configuration_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.decodeConfiguration",
+        "configuration",
+        |declaration, request: &super::configuration::DecodeConfigurationRequest| {
+            super::configuration::decode(declaration, request)
+        },
+    )
+}
+
+/// `build.configurationEditPlan`: format-independent provider-owned editing.
+pub(crate) fn build_configuration_edit_plan_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.configurationEditPlan",
+        "plan",
+        |declaration, request: &super::configuration::EditPlanRequest| {
+            super::configuration::edit_plan(declaration, request)
+        },
+    )
+}
+
+/// `build.decodeConfigurationEdit`: validates a receipt without document bytes.
+pub(crate) fn build_decode_configuration_edit_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.decodeConfigurationEdit",
+        "edit",
+        |declaration, request: &super::configuration::DecodeEditRequest| {
+            super::configuration::decode_edit(declaration, request)
         },
     )
 }

@@ -53,8 +53,6 @@ enum SettingsSearchVocabulary {
             ["Network", "Proxy", "Proxy mode", "Proxy type", "Proxy server", "Server address", "Port", "Username", "Password", "Exclusion list", "Test connection", "Follow system proxy", "No proxy", "Custom proxy server", "HTTP", "SOCKS5"]
         case .processTermination:
             ["Process Termination Policy", "Process", "Quit", "Run services", "Terminals with running programs", "Agent tasks", "Background services", "Closing a terminal tab", "After Lithe closes unexpectedly", "Time to exit", "Remembered choices", "Daemon"]
-        case .diagnostics:
-            ["Logs and Diagnostics", "Logs", "Log directory", "Log timeline", "Diagnostics", "Diagnostic bundle", "Export logs", "Bug report", "Detailed diagnostics", "Module", "Session", "Minimum level", "Filter log messages", "From (UTC ISO 8601)", "Until (UTC ISO 8601)", "Retention and cleanup"]
         case .plugins:
             ["Plugins", "Installed", "Marketplace", "Language support"]
         case .mcp:

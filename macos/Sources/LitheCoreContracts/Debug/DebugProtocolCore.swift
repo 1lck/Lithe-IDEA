@@ -452,7 +452,8 @@ public protocol DebugProtocolCore: DebugSteppingFilterResolving, Sendable {
         supportsRunInTerminalRequest: Bool,
         supportsStartDebuggingRequest: Bool,
         disabledCapabilities: [String],
-        parentSessionID: String?
+        parentSessionID: String?,
+        declared: DebugAdapterDeclaredBehavior
     ) throws -> DebugCoreUpdate
     func launchDebugSession(
         sessionID: String,

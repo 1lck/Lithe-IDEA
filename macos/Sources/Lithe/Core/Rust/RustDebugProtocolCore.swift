@@ -49,7 +49,8 @@ extension RustCoreBridge: DebugProtocolCore {
         supportsRunInTerminalRequest: Bool,
         supportsStartDebuggingRequest: Bool,
         disabledCapabilities: [String],
-        parentSessionID: String?
+        parentSessionID: String?,
+        declared: DebugAdapterDeclaredBehavior
     ) throws -> DebugCoreUpdate {
         try executeResult(
             command: "debug.createSession",
@@ -60,7 +61,9 @@ extension RustCoreBridge: DebugProtocolCore {
                 supportsRunInTerminalRequest: supportsRunInTerminalRequest,
                 supportsStartDebuggingRequest: supportsStartDebuggingRequest,
                 disabledCapabilities: disabledCapabilities,
-                parentSessionID: parentSessionID
+                parentSessionID: parentSessionID,
+                features: declared.features,
+                defaults: declared.defaults
             )
         ).get()
     }
@@ -403,12 +406,16 @@ private struct DebugCreateSessionPayload: Encodable {
     let supportsStartDebuggingRequest: Bool
     let disabledCapabilities: [String]
     let parentSessionID: String?
+    /// What the plugin declared for its adapter; Core flattens both keys into the request.
+    let features: DebugAdapterDeclaredBehavior.Features?
+    let defaults: DebugAdapterDeclaredBehavior.Defaults?
 
     private enum CodingKeys: String, CodingKey {
         case sessionID = "sessionId"
         case adapterID = "adapterId"
         case parentSessionID = "parentSessionId"
         case rootPath, supportsRunInTerminalRequest, supportsStartDebuggingRequest, disabledCapabilities
+        case features, defaults
     }
 }
 

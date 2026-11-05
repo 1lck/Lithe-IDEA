@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Combine
 import Foundation
 import LitheCoreContracts
@@ -22,7 +23,11 @@ public final class TerminalSession: ObservableObject, Identifiable {
     public var onOutput: ((String) -> Void)?
     /// Host callback invoked once this session's process exited on its own, as opposed to being stopped by the host; never fired for launch failures.
     public var onEnded: ((TerminalSession) -> Void)?
+    /// Host lifecycle observer for an explicit stop (the natural-exit path
+    /// continues to use onEnded). No output or input access is implied.
+    public var onStopped: (() -> Void)?
 
+    private let logSink: (any LogSink)?
     private let transport: any TerminalTransport
     private var workspaceURL: URL?
     private var selectedShellPath: String?
@@ -30,7 +35,8 @@ public final class TerminalSession: ObservableObject, Identifiable {
     private var launchTask: Task<Void, Never>?
     private var launchGeneration = UUID()
 
-    public init(transport: any TerminalTransport, preferredToolTabTitle: String? = nil) {
+    public init(transport: any TerminalTransport, preferredToolTabTitle: String? = nil, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
         self.transport = transport
         self.preferredToolTabTitle = preferredToolTabTitle
         transport.onTermination = { [weak self] exitCode in
@@ -181,10 +187,12 @@ public final class TerminalSession: ObservableObject, Identifiable {
     public func send(_ command: String) { sendInput(command + "\n") }
     public func sendInput(_ input: String) {
         guard isRunning, isReady, let data = input.data(using: .utf8) else { return }
-        try? transport.send(data)
+        do { try transport.send(data) }
+        catch { logSink?.emit(TerminalInputFailed(error: error, stage: "send", operationID: id.uuidString)) }
     }
-    public func interrupt() { if isRunning { try? transport.interrupt() } }
+    public func interrupt() { if isRunning { do { try transport.interrupt() } catch { logSink?.emit(TerminalInputFailed(error: error, stage: "interrupt", operationID: id.uuidString)) } } }
     public func clear() { transport.clear() }
+    public func displayText(maximumBytes: Int) -> String { transport.displayText(maximumBytes: maximumBytes) }
     public func focus() { transport.focus() }
     public func stop() {
         launchGeneration = UUID()
@@ -212,9 +220,11 @@ public final class TerminalSession: ObservableObject, Identifiable {
     }
 
     private func finishStop() {
+        let wasRunning = isRunning || isReady
         finishDecodedOutput()
         isRunning = false; isReady = false
         if startedAt != nil { endedAt = Date() }
+        if wasRunning { onStopped?() }
     }
 
     private func finishDecodedOutput() {
@@ -234,6 +244,14 @@ public final class TerminalSession: ObservableObject, Identifiable {
         applying changes: [TerminalEnvironmentChange] = []
     ) -> [String: String] {
         var environment = transport.defaultEnvironment()
+        // Strip inherited color controls and CI markers so interactive TUIs can use color; Windows strips the color controls too.
+        environment["NO_COLOR"] = nil
+        environment["FORCE_COLOR"] = nil
+        environment["CLICOLOR_FORCE"] = nil
+        environment["CLICOLOR"] = "1"
+        environment["CI"] = nil
+        environment["GITHUB_ACTIONS"] = nil
+        environment["CONTINUOUS_INTEGRATION"] = nil
         environment["TERM"] = "xterm-256color"
         environment["COLORTERM"] = "truecolor"
         environment["TERM_PROGRAM"] = "Lithe"

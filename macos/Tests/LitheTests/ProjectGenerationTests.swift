@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
@@ -8,6 +9,18 @@ import Testing
 @MainActor
 struct ProjectGenerationTests {
     private static let javaSupportDirectory = "JavaSupport"
+    /// The published projectGenerators 2 fixture: `python-app` asks for a
+    /// `python` tool of at least 3.11, `node-app` for an optional `node` tool.
+    private static let toolFieldPluginID = PluginID("dev.lithe.fixture.project-generator-tool-field")
+    /// The published fixture that defines a tool, for tests where a generator
+    /// points its tool field at a tool another plugin defines.
+    private static let toolDefinitionPluginID = PluginID("dev.lithe.fixture.java-support")
+    private static let python310 = ProjectToolInstallation(
+        home: "/opt/python-3.10", executable: "/opt/python-3.10/bin/python3", version: "3.10.14"
+    )
+    private static let python312 = ProjectToolInstallation(
+        home: "/opt/python-3.12", executable: "/opt/python-3.12/bin/python3", version: "3.12.4"
+    )
     /// Generator-only copy of Java Support's entries, so window tests can
     /// keep the template plugin and the language provider apart the way a
     /// community template plugin would be.
@@ -319,6 +332,310 @@ struct ProjectGenerationTests {
         #expect(feature.value(of: artifact) == .string("billing-api"))
     }
 
+    // MARK: Tool fields: Rust Core
+
+    @Test
+    func catalogNamesThePluginsThatDefineEachTool() throws {
+        let catalog = try Self.planner.catalog([try Self.toolFieldSource(enabled: true)])
+        #expect(catalog.generators.map(\.generator.id) == ["python-app", "node-app"])
+        // Nothing installed defines either tool.
+        #expect(catalog.generators[0].tools == [ProjectToolProviders(fieldID: "python", tool: "python", providers: [])])
+        #expect(catalog.generators[1].tools == [ProjectToolProviders(fieldID: "node", tool: "node", providers: [])])
+    }
+
+    @Test
+    func toolFieldListsTheInstallationsAndFlagsOldOnes() throws {
+        let target = try Self.toolFieldTarget("python-app")
+        var input = ProjectGeneratorFormInput(projectName: "demo")
+        input.tools["python"] = [Self.python310, Self.python312]
+
+        let form = try Self.planner.form(target, input: input)
+        let python = try #require(form.field("python"))
+        #expect(python.installations.map(\.home) == [Self.python310.home, Self.python312.home])
+        #expect(python.installations.map(\.meetsMinimum) == [false, true])
+        // Without a choice the field holds the newest installation.
+        #expect(python.value == .string(Self.python312.home))
+        #expect(form.valid)
+
+        input.values["python"] = .string(Self.python310.home)
+        let old = try Self.planner.form(target, input: input)
+        #expect(old.field("python")?.problem == .toolTooOld)
+        #expect(!old.valid)
+    }
+
+    @Test
+    func aToolFieldWithoutInstallationsIsRequiredUnlessOptional() throws {
+        let input = ProjectGeneratorFormInput(projectName: "demo")
+
+        let required = try Self.planner.form(try Self.toolFieldTarget("python-app"), input: input)
+        #expect(required.field("python")?.problem == .required)
+        #expect(required.field("python")?.installations == [])
+        #expect(!required.valid)
+
+        let optional = try Self.planner.form(try Self.toolFieldTarget("node-app"), input: input)
+        #expect(optional.field("node")?.problem == nil)
+        #expect(optional.valid)
+    }
+
+    @Test
+    func theCommandsGetTheChosenInstallationAndItIsPinned() throws {
+        var input = ProjectGeneratorFormInput(projectName: "demo")
+        input.tools["python"] = [Self.python312]
+
+        let plan = try Self.planner.plan(try Self.toolFieldTarget("python-app"), input: input)
+
+        #expect(plan.toolPins == [
+            ProjectGenerationPlan.ToolPin(
+                field: "python", tool: "python", pinAs: "project",
+                home: Self.python312.home, executable: Self.python312.executable
+            )
+        ])
+        let commands = plan.steps.compactMap { step -> ProjectGenerationPlan.Command? in
+            if case .command(let command) = step { return command }
+            return nil
+        }
+        let command = try #require(commands.first)
+        #expect(command.arguments == ["venv", "--python", Self.python312.executable])
+        #expect(command.environment["PYTHON_HOME"] == Self.python312.home)
+    }
+
+    @Test
+    func anOptionalToolWithoutInstallationIsNotPinned() throws {
+        let plan = try Self.planner.plan(
+            try Self.toolFieldTarget("node-app"), input: ProjectGeneratorFormInput(projectName: "demo")
+        )
+        #expect(plan.toolPins.isEmpty)
+    }
+
+    // MARK: Tool fields: creating projects
+
+    @Test
+    func savesTheChosenToolInstallationInTheNewProject() async throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let pins = ToolPinRecorder()
+        let runner = ScaffoldingRunner(creates: nil)
+        let service = Self.service(runner: runner, saveToolPin: { root, pin in
+            await pins.record(root: root, pin: pin)
+        })
+        var input = ProjectGeneratorFormInput(projectName: "demo")
+        input.tools["python"] = [Self.python312]
+
+        let project = try await service.create(
+            try Self.toolFieldTarget("python-app"), input: input, in: directory.url, createGitRepository: false
+        )
+
+        #expect(project.toolPinWarning == nil)
+        let saved = await pins.saved
+        #expect(saved.map(\.root) == [project.url.path])
+        #expect(saved.map(\.pin.tool) == ["python"])
+        #expect(saved.map(\.pin.home) == [Self.python312.home])
+        // The step that uses the tool ran with the chosen installation.
+        let request = try #require(runner.requests.first)
+        #expect(request.arguments == ["venv", "--python", Self.python312.executable])
+        #expect(request.environment["PYTHON_HOME"] == Self.python312.home)
+    }
+
+    @Test
+    func aFailedPinIsReportedWithoutUndoingTheProject() async throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let service = Self.service(saveToolPin: { _, _ in
+            throw ProjectGenerationError(message: "local.json is locked")
+        })
+        var input = ProjectGeneratorFormInput(projectName: "demo")
+        input.tools["python"] = [Self.python312]
+
+        let project = try await service.create(
+            try Self.toolFieldTarget("python-app"), input: input, in: directory.url, createGitRepository: false
+        )
+
+        #expect(project.toolPinWarning == "local.json is locked")
+        #expect(FileManager.default.fileExists(atPath: project.url.appendingPathComponent("README.md").path))
+    }
+
+    // MARK: Tool fields: window
+
+    @Test
+    func aToolFieldOffersWhatTheHostFound() async throws {
+        let requests = ToolListingRequests()
+        let feature = NewProjectFeatureModel(environment: try Self.environment(
+            plugins: PluginStates(enabled: [Self.toolFieldPluginID]),
+            sources: [try Self.toolFieldSource(enabled: true)],
+            toolInstallations: { tools in
+                requests.record(tools)
+                return ["python": [Self.python310, Self.python312]]
+            }
+        ))
+        await feature.load()
+        let python = try #require(feature.selectedEntry?.generator.fields.first { $0.id == "python" })
+        await Self.waitUntil("the python installations") { feature.toolChoices(for: python).count == 2 }
+
+        #expect(requests.requested.first == ["python"])
+        #expect(feature.toolChoices(for: python).map(\.meetsMinimum) == [false, true])
+        #expect(feature.value(of: python) == .string(Self.python312.home))
+        #expect(feature.canCreate)
+        // Both are listed; only the one new enough can be chosen.
+        #expect(feature.toolOptions(for: python) == [Self.python310.home, Self.python312.home])
+        #expect(!feature.isToolChoosable(Self.python310.home, for: python))
+        #expect(feature.isToolChoosable(Self.python312.home, for: python))
+
+        // The window does not offer an installation below the minimum; one set
+        // anyway is still judged by Core and blocks creating.
+        feature.setValue(.string(Self.python310.home), for: python)
+        #expect(feature.problem(of: python) == .toolTooOld)
+        #expect(!feature.canCreate)
+    }
+
+    @Test
+    func anOptionalToolWithOnlyOldInstallationsOffersNone() async throws {
+        let node16 = ProjectToolInstallation(home: "/opt/node-16", executable: "/opt/node-16/bin/node", version: "16.20.2")
+        let feature = NewProjectFeatureModel(environment: try Self.environment(
+            plugins: PluginStates(enabled: [Self.toolFieldPluginID]),
+            sources: [try Self.toolFieldSource(enabled: true)],
+            toolInstallations: { _ in ["node": [node16]] }
+        ))
+        await feature.load()
+        let entry = try #require(feature.entries.first { $0.generator.id == "node-app" })
+        feature.selection = .generator(entry.id)
+        let node = try #require(entry.generator.fields.first { $0.id == "node" })
+        await Self.waitUntil("the node installations") { feature.toolChoices(for: node).count == 1 }
+
+        // Node.js is optional and 16 is below 18, so the project goes without it.
+        #expect(feature.value(of: node) == .string(""))
+        #expect(feature.toolOptions(for: node) == ["", node16.home])
+        #expect(feature.isToolChoosable("", for: node))
+        #expect(!feature.isToolChoosable(node16.home, for: node))
+        #expect(feature.problem(of: node) == nil)
+        #expect(feature.canCreate)
+    }
+
+    @Test
+    func aToolNobodyDefinesSendsTheUserToTheMarketplace() async throws {
+        let feature = NewProjectFeatureModel(environment: try Self.environment(
+            plugins: PluginStates(enabled: [Self.toolFieldPluginID]),
+            sources: [try Self.toolFieldSource(enabled: true)]
+        ))
+        await feature.load()
+        let python = try #require(feature.selectedEntry?.generator.fields.first { $0.id == "python" })
+        await Self.waitUntil("the tool lookup") { !feature.isListingTools }
+
+        #expect(feature.toolChoices(for: python).isEmpty)
+        #expect(feature.toolNoticeAction(for: python) == .findInMarketplace("python"))
+        #expect(!feature.canCreate)
+    }
+
+    @Test
+    func aDisabledPluginThatDefinesTheToolIsOfferedForEnabling() async throws {
+        let plugins = PluginStates(enabled: [Self.toolFieldPluginID])
+        let feature = NewProjectFeatureModel(environment: try Self.environment(
+            plugins: plugins,
+            sources: [try Self.toolFieldSource(tool: "java", enabled: true), try Self.toolDefinitionSource()]
+        ))
+        await feature.load()
+        let field = try #require(feature.selectedEntry?.generator.fields.first { $0.id == "python" })
+        await Self.waitUntil("the tool lookup") { !feature.isListingTools }
+        #expect(feature.toolNoticeAction(for: field)
+            == .enable(Self.toolDefinitionPluginID, name: "Tool definition fixture"))
+
+        // Once the defining plugin is on, the tool is merely not installed.
+        plugins.enabled.insert(Self.toolDefinitionPluginID)
+        feature.reloadCatalog()
+        await Self.waitUntil("the tool lookup") { !feature.isListingTools }
+        #expect(feature.toolNoticeAction(for: field) == nil)
+    }
+
+    @Test
+    func aPluginChangeReloadsTheEntriesAndLooksForToolsAgain() async throws {
+        let plugins = PluginStates(enabled: [])
+        let changes = PassthroughSubject<Void, Never>()
+        let requests = ToolListingRequests()
+        let feature = NewProjectFeatureModel(environment: try Self.environment(
+            plugins: plugins,
+            sources: [try Self.toolFieldSource(enabled: true)],
+            toolInstallations: { tools in
+                requests.record(tools)
+                return [:]
+            },
+            pluginChanges: changes.eraseToAnyPublisher()
+        ))
+        await feature.load()
+        await Self.waitUntil("the first tool lookup") { requests.requested.count == 1 }
+        #expect(feature.entries.first?.pluginEnabled == false)
+
+        plugins.enabled.insert(Self.toolFieldPluginID)
+        changes.send()
+        await Self.mainQueueTurn()
+
+        #expect(feature.entries.first?.pluginEnabled == true)
+        await Self.waitUntil("the second tool lookup") { requests.requested.count == 2 }
+    }
+
+    @Test
+    func aPluginChangeDropsTheToolsListedForOtherEntries() async throws {
+        let plugins = PluginStates(enabled: [Self.toolFieldPluginID, Self.toolDefinitionPluginID])
+        let changes = PassthroughSubject<Void, Never>()
+        let requests = ToolListingRequests()
+        let feature = NewProjectFeatureModel(environment: try Self.environment(
+            plugins: plugins,
+            sources: [try Self.toolFieldSource(tool: "java", enabled: true), try Self.toolDefinitionSource()],
+            toolInstallations: { tools in
+                requests.record(tools)
+                // Like discovery, only an enabled definition finds anything.
+                let defined = plugins.enabled.contains(Self.toolDefinitionPluginID)
+                return Dictionary(uniqueKeysWithValues: tools.map { ($0, defined ? [Self.python312] : []) })
+            },
+            pluginChanges: changes.eraseToAnyPublisher()
+        ))
+        await feature.load()
+        let entry = try #require(feature.selectedEntry)
+        let field = try #require(entry.generator.fields.first { $0.id == "python" })
+        await Self.waitUntil("the first tool lookup") { feature.toolChoices(for: field).count == 1 }
+
+        // The definition goes away while another entry is selected.
+        feature.selection = .empty
+        plugins.enabled.remove(Self.toolDefinitionPluginID)
+        changes.send()
+        await Self.mainQueueTurn()
+        feature.selection = .generator(entry.id)
+
+        // The installation the removed definition found is not offered again.
+        #expect(!feature.canCreate)
+        await Self.waitUntil("the tools to be looked up again") {
+            requests.requested.count == 2 && !feature.isListingTools
+        }
+        #expect(feature.toolChoices(for: field).isEmpty)
+        #expect(feature.toolNoticeAction(for: field) == .enable(Self.toolDefinitionPluginID, name: "Tool definition fixture"))
+        #expect(!feature.canCreate)
+    }
+
+    @Test
+    func aFailedToolLookupIsShownAndCanBeRetried() async throws {
+        let lookup = ToolLookupOutcome()
+        let feature = NewProjectFeatureModel(environment: try Self.environment(
+            plugins: PluginStates(enabled: [Self.toolFieldPluginID]),
+            sources: [try Self.toolFieldSource(enabled: true)],
+            toolInstallations: { _ in
+                if lookup.fails { throw CocoaError(.fileWriteNoPermission) }
+                return ["python": [Self.python312]]
+            }
+        ))
+        await feature.load()
+        let python = try #require(feature.selectedEntry?.generator.fields.first { $0.id == "python" })
+        await Self.waitUntil("the failed tool lookup") { !feature.isListingTools }
+
+        // A lookup that did not run is not "nothing installed".
+        #expect(feature.toolListingError(for: python) != nil)
+        #expect(feature.toolNoticeAction(for: python) == nil)
+        #expect(!feature.canCreate)
+
+        lookup.fails = false
+        feature.retryToolListing()
+        await Self.waitUntil("the retried tool lookup") { feature.toolChoices(for: python).count == 1 }
+        #expect(feature.toolListingError(for: python) == nil)
+        #expect(feature.canCreate)
+    }
+
     // MARK: Helpers
 
     private static var planner: RustProjectGeneratorOperations {
@@ -345,11 +662,15 @@ struct ProjectGenerationTests {
         }
         var language = manifest
         language["projectGenerators"] = nil
-        language["permissions"] = ["languageServer.launch"]
+        // The language half keeps the debug adapter it declares, so it keeps
+        // the debug permissions that adapter needs.
+        language["permissions"] = ["languageServer.launch", "debug.launch", "debug.attach"]
         languageRequires["projectGenerators"] = nil
         language["requires"] = languageRequires
         var templates = manifest
-        for key in ["languages", "languageServers", "settings"] { templates[key] = nil }
+        // The template half requires only projectGenerators, so every other
+        // capability contribution leaves with its requirement.
+        for key in ["languages", "languageServers", "settings", "debugAdapters", "toolDefinitions"] { templates[key] = nil }
         templates["id"] = templatesPluginID.rawValue
         templates["displayName"] = "Java Templates"
         templates["permissions"] = ["project.generate"]
@@ -394,26 +715,100 @@ struct ProjectGenerationTests {
     private static func platform(runner: any BuildCommandRunning = ScaffoldingRunner(creates: nil)) -> MacProjectGenerationPlatform {
         MacProjectGenerationPlatform(
             environment: { $0.merging(["PATH": "/usr/bin:/bin"]) { override, _ in override } },
-            executable: { $0 == "mvn" ? URL(fileURLWithPath: "/usr/local/bin/mvn") : nil },
+            // The scaffolding tools the tests' generators run by name.
+            executable: { ["mvn", "uv"].contains($0) ? URL(fileURLWithPath: "/usr/local/bin/\($0)") : nil },
             runner: runner
         )
     }
 
     private static func service(
         runner: any BuildCommandRunning = ScaffoldingRunner(creates: nil),
-        recorder: JavaHomeRecorder = JavaHomeRecorder()
+        recorder: JavaHomeRecorder = JavaHomeRecorder(),
+        saveToolPin: @escaping @Sendable (URL, ProjectGenerationPlan.ToolPin) async throws -> Void = { _, _ in }
     ) -> ProjectGenerationService {
         ProjectGenerationService(
             planner: planner,
             platform: platform(runner: runner),
             initializeGitRepository: { _ in nil },
-            recordJavaHome: { root, home in await recorder.record(root: root, home: home) }
+            recordJavaHome: { root, home in await recorder.record(root: root, home: home) },
+            saveToolPin: saveToolPin
         )
+    }
+
+    // MARK: Tool field fixtures
+
+    /// The project-generator fixtures. The tool-field manifest's
+    /// `templates/tool-field` source resolves against this directory.
+    private static var generatorFixturesURL: URL {
+        DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/project-generators", isDirectory: true)
+    }
+
+    private static var toolchainFixturesURL: URL {
+        DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/toolchains", isDirectory: true)
+    }
+
+    /// The tool-field fixture's `plugin.json`. `tool` points its `python` field
+    /// at another tool, to test fields whose tool a different plugin defines.
+    private static func toolFieldManifest(tool: String? = nil) throws -> Data {
+        let text = try String(
+            contentsOf: generatorFixturesURL.appendingPathComponent("project-generator-tool-field.plugin.json"),
+            encoding: .utf8
+        )
+        guard let tool else { return Data(text.utf8) }
+        return Data(text.replacingOccurrences(of: "\"tool\": \"python\"", with: "\"tool\": \"\(tool)\"").utf8)
+    }
+
+    private static func toolFieldSource(tool: String? = nil, enabled: Bool) throws -> ProjectGeneratorPluginSource {
+        ProjectGeneratorPluginSource(
+            pluginID: toolFieldPluginID, manifest: try toolFieldManifest(tool: tool),
+            packageURL: generatorFixturesURL, isEnabled: enabled
+        )
+    }
+
+    private static func toolFieldTarget(_ generatorID: String) throws -> ProjectGeneratorTarget {
+        ProjectGeneratorTarget(
+            pluginID: toolFieldPluginID, generatorID: generatorID,
+            manifest: try toolFieldManifest(), packageURL: generatorFixturesURL
+        )
+    }
+
+    /// A disabled plugin that only defines a tool.
+    private static func toolDefinitionSource() throws -> ProjectGeneratorPluginSource {
+        ProjectGeneratorPluginSource(
+            pluginID: toolDefinitionPluginID,
+            manifest: try Data(contentsOf: toolchainFixturesURL.appendingPathComponent("tool-definition.plugin.json")),
+            packageURL: toolchainFixturesURL, isEnabled: false
+        )
+    }
+
+    /// Waits for `condition` with a two second deadline and records an issue
+    /// naming what never happened, instead of leaving a stuck test to the CI
+    /// timeout.
+    private static func waitUntil(_ what: String, _ condition: @MainActor () -> Bool) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if condition() { return }
+            await Task.yield()
+        }
+        if !condition() { Issue.record("Timed out after two seconds waiting for \(what).") }
+    }
+
+    /// Returns after the work already queued on the main queue, such as a
+    /// Combine `receive(on: .main)` delivery sent just before.
+    private static func mainQueueTurn() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
     }
 
     private static func environment(
         plugins: PluginStates,
-        sources: [ProjectGeneratorPluginSource]? = nil
+        sources: [ProjectGeneratorPluginSource]? = nil,
+        toolInstallations: @escaping @MainActor ([String]) async throws -> [String: [ProjectToolInstallation]] = { _ in [:] },
+        pluginChanges: AnyPublisher<Void, Never> = Empty<Void, Never>().eraseToAnyPublisher()
     ) throws -> NewProjectEnvironment {
         let split = try splitJavaSupport()
         let installed = sources ?? [split.templates, split.language]
@@ -432,7 +827,9 @@ struct ProjectGenerationTests {
             setPluginEnabled: { _ = plugins.enabled.insert($0) },
             openMarketplace: { _ in },
             openProject: { _ in },
-            store: InMemoryStore()
+            store: InMemoryStore(),
+            toolInstallations: toolInstallations,
+            pluginChanges: pluginChanges
         )
     }
 
@@ -503,11 +900,37 @@ private actor JavaHomeRecorder {
     }
 }
 
+private struct SavedToolPin: Equatable, Sendable {
+    let root: String
+    let pin: ProjectGenerationPlan.ToolPin
+}
+
+private actor ToolPinRecorder {
+    private(set) var saved: [SavedToolPin] = []
+
+    func record(root: URL, pin: ProjectGenerationPlan.ToolPin) {
+        saved.append(SavedToolPin(root: root.path, pin: pin))
+    }
+}
+
+/// The tools the window asked the host to look up, one entry per request.
+@MainActor
+private final class ToolListingRequests {
+    private(set) var requested: [[String]] = []
+
+    func record(_ tools: [String]) { requested.append(tools) }
+}
+
 @MainActor
 private final class PluginStates {
     var enabled: Set<PluginID>
 
     init(enabled: Set<PluginID>) { self.enabled = enabled }
+}
+
+/// Whether the stand-in tool lookup fails, switched by the test.
+private final class ToolLookupOutcome {
+    var fails = true
 }
 
 /// Stands in for a scaffolding tool: records the request and creates one

@@ -149,17 +149,16 @@ enum MacShortcutInputPolicy {
         (responder as? NSTextInputClient)?.hasMarkedText() == true
     }
 
-    /// Terminal surfaces own plain Control chords. Readline, shells, and TUI
-    /// applications bind them to editing (Ctrl-D EOF, Ctrl-R history, Ctrl-W
-    /// delete-word), so the application keymap must not consume them. Chords
-    /// that add Command, Shift, or Option keep their application meaning.
+    /// Shells and TUIs own plain Control chords, except the configured terminal
+    /// toggle itself: the user must be able to leave the focused terminal.
     static func shouldDeferToTerminal(
         _ responder: NSResponder?,
-        modifierFlags: NSEvent.ModifierFlags
+        modifierFlags: NSEvent.ModifierFlags,
+        commandID: String? = nil
     ) -> Bool {
         guard responder is LitheTerminalView else { return false }
         let flags = modifierFlags.intersection([.command, .control, .option, .shift])
-        return flags == .control
+        return flags == .control && commandID != "toggle-terminal"
     }
 
     /// A focused HTML preview page answers its own browser shortcuts (find, zoom,
@@ -222,14 +221,8 @@ private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
             if MacShortcutInputPolicy.shouldDeferToMarkedText(event.window?.firstResponder) {
                 return event
             }
-            // A focused terminal receives Control chords untouched; otherwise
-            // Ctrl-D would start a debug session instead of ending input.
-            if MacShortcutInputPolicy.shouldDeferToTerminal(
-                event.window?.firstResponder,
-                modifierFlags: event.modifierFlags
-            ) {
-                return event
-            }
+            // Windows such as Logs own Find before the workspace keymap.
+            if MacWindowFindTarget.handle(event) { return nil }
             // A focused HTML preview page owns its find, zoom and print
             // chords; the keymap would otherwise take ⌘F before the page.
             // Note: 预览页面快捷键的归属见 .agents/notes/implemented/feature/2026-10-22-html-preview-embedded-browser.md
@@ -250,6 +243,15 @@ private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
                     for: binding,
                     registrations: self.registrations
                   ) else {
+                return event
+            }
+            // Preserve shell input such as Ctrl-D even when another application
+            // action is registered, while allowing the configured terminal toggle.
+            if MacShortcutInputPolicy.shouldDeferToTerminal(
+                event.window?.firstResponder,
+                modifierFlags: event.modifierFlags,
+                commandID: commandID
+            ) {
                 return event
             }
             Task { @MainActor in

@@ -6,10 +6,9 @@ import LitheModuleAPI
 
 @MainActor
 extension AppModel {
-    var mavenFeatureIfActive: MavenFeatureModel? { executionCapability?.mavenFeature }
     var runFeatureIfActive: RunFeatureModel? { executionCapability?.runFeature }
 
-    /// Run configurations and Maven goals still running in this project, for
+    /// Run configurations and plugin build tasks still running in this project, for
     /// the question before the project, its window or Lithe closes. Record IDs
     /// carry the session ID so several projects can be listed together.
     var runServiceExitCandidates: [RunServiceExitCandidate] {
@@ -31,10 +30,10 @@ extension AppModel {
                 )
             }
         }
-        if let maven = mavenFeatureIfActive, maven.isRunning {
+        if let build = buildSystemsFeatureIfActive, build.isRunning, let operation = build.operation {
             candidates.append(RunServiceExitCandidate(
-                id: "maven:\(id.uuidString)",
-                title: maven.runningTitle ?? "Maven",
+                id: "build:\(id.uuidString):\(operation.id.uuidString)",
+                title: operation.title,
                 projectName: project
             ))
         }
@@ -50,27 +49,7 @@ extension AppModel {
         // hand back a run feature that teardown releases moments later, and the
         // deferred action waiting on it would never be resumed.
         guard let access = await executionModuleCoordinator.activateAccess() else { return nil }
-        access.mavenFeature.configureJavaConfigurationSync { [weak self] rootURL in
-            guard let self, self.workspaceURL?.standardizedFileURL == rootURL.standardizedFileURL,
-                  let sessions = self.languageToolingSessionsIfActive else { return false }
-            // Plugin options own Java import when present; a legacy Maven
-            // settings write must not replace them, including during detection.
-            guard !self.isBuildLanguageImportPending else { return false }
-            switch sessions.updateJavaMavenConfiguration(rootURL: rootURL, reloadProjects: false) {
-            case .updated: return true
-            case .noSession: return false
-            case .failed(let failure):
-                throw NSError(
-                    domain: "MavenJavaConfiguration",
-                    code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: failure.userMessage]
-                )
-            }
-        }
-        for ownership in services.pluginCatalog.languageSupports.values {
-            registerLanguageDependencySourceIfAvailable(support: ownership.declaration)
-        }
-        registerJavaDependencySourceIfAvailable()
+        loadBuildSystems(access)
         return access
     }
 
@@ -158,6 +137,13 @@ extension AppModel {
         }
         feature.onSessionStopped = { [weak self] debugSessionID in
             self?.stopDebugTerminalProcesses(for: debugSessionID)
+            self?.stopProviderDebugProcess(for: debugSessionID)
+            self?.pluginDebugSessionEnded(debugSessionID)
+        }
+        feature.onSessionStateChanged = { [weak self] sessionID, state in
+            guard state == .failed || state == .terminated else { return }
+            self?.stopProviderDebugProcess(for: sessionID)
+            self?.pluginDebugSessionEnded(sessionID)
         }
         feature.onSessionRunInTerminalRequest = { [weak self] debugSessionID, request, completion in
             guard let self else {
@@ -189,7 +175,7 @@ extension AppModel {
                   self.workspaceURL == workspaceURL else { return }
             _ = await activateDebugModule()
         } catch {
-            showNotification(error.localizedDescription)
+            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "execution_modules"))
         }
     }
 }

@@ -1,0 +1,99 @@
+{
+  "request": {
+    "state": {
+      "lists": [
+        {
+          "id": "default",
+          "name": ""
+        },
+        {
+          "id": "one",
+          "name": "One"
+        },
+        {
+          "id": "two",
+          "name": "Two"
+        }
+      ],
+      "activeId": "default",
+      "assignments": {
+        "/repo": {
+          "dir/": "one",
+          "dir/a": "two",
+          "source": "one",
+          "dest": "default"
+        }
+      }
+    },
+    "files": [
+      {
+        "root": "/repo",
+        "path": "dir/a",
+        "isCopy": false
+      },
+      {
+        "root": "/repo",
+        "path": "dir/b",
+        "isCopy": false
+      }
+    ],
+    "repositories": [
+      {
+        "id": "A",
+        "root": "/repo"
+      }
+    ],
+    "action": {
+      "type": "remove",
+      "id": "two"
+    }
+  },
+  "response": {
+    "state": {
+      "lists": [
+        {
+          "id": "default",
+          "name": ""
+        },
+        {
+          "id": "one",
+          "name": "One"
+        }
+      ],
+      "activeId": "default",
+      "assignments": {
+        "/repo": {
+          "dir/": "one",
+          "dir/a": "default",
+          "source": "one",
+          "dest": "default"
+        }
+      }
+    },
+    "members": [
+      "default",
+      "one"
+    ],
+    "scope": {
+      "include": false,
+      "paths": {
+        "A": [
+          "dir/",
+          "dir/b",
+          "source"
+        ]
+      },
+      "membership": {
+        "activeId": "default",
+        "assignments": {
+          "A": {
+            "dir/": "one",
+            "dir/a": "default",
+            "source": "one",
+            "dest": "default"
+          }
+        }
+      }
+    }
+  }
+}

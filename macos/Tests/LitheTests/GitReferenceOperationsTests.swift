@@ -19,7 +19,7 @@ struct GitReferenceOperationsTests {
             }
         }
         let reference = GitReference(fullName: "refs/heads/\(branch)", shortName: branch,
-                                     kind: .local, isCurrent: true, upstreamShortName: nil)
+                                     kind: .local, peelsToCommit: true, isCurrent: true, upstreamShortName: nil)
         let request = GitWorktreeCreation(mode: .newBranch, name: "ui-worktree", reference: reference,
                                           revision: nil, destination: destination, noCheckout: false)
         let result = try #require(RustGitOperations(core: core).createWorktree(request, at: fixture.repository))
@@ -28,6 +28,20 @@ struct GitReferenceOperationsTests {
         #expect(try await fixture.git(["worktree", "list", "--porcelain"]).contains("branch refs/heads/ui-worktree"))
         #expect(try await fixture.git(["branch", "--show-current"]) == branch)
         try await fixture.git(["worktree", "remove", destination.path])
+    }
+
+    @Test(.enabled(if: RustCoreBridge().isAvailable, "Requires the linked Rust Core integration library"))
+    func tagDeletionEligibilityComesFromRealCoreReferences() async throws {
+        let fixture = try await GitReferenceFixture()
+        try await fixture.git(["tag", "commit-tag", "HEAD"])
+        try await fixture.git(["tag", "tree-tag", "HEAD^{tree}"])
+        try await fixture.git(["tag", "blob-tag", "HEAD:tracked.txt"])
+        let operations = RustGitOperations(core: RustCoreBridge())
+        let snapshot = try #require(operations.references(at: fixture.repository, operationID: "tag-eligibility"))
+        let tags = Dictionary(uniqueKeysWithValues: snapshot.references.filter { $0.kind == .tag }.map { ($0.shortName, $0) })
+        #expect(tags["commit-tag"]?.supportsTagDeletion == true)
+        #expect(tags["tree-tag"]?.supportsTagDeletion == false)
+        #expect(tags["blob-tag"]?.supportsTagDeletion == false)
     }
 
     @Test
@@ -41,6 +55,7 @@ struct GitReferenceOperationsTests {
             fullName: "refs/heads/\(mainName)",
             shortName: mainName,
             kind: .local,
+            peelsToCommit: true,
             isCurrent: true,
             upstreamShortName: nil
         )
@@ -56,6 +71,7 @@ struct GitReferenceOperationsTests {
             fullName: "refs/remotes/origin/feature",
             shortName: "origin/feature",
             kind: .remote,
+            peelsToCommit: true,
             isCurrent: false,
             upstreamShortName: nil
         )

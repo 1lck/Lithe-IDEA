@@ -21,5 +21,51 @@
     "root": ".",
     "operation": "stashDrop",
     "reference": "1111111111111111111111111111111111111111"
+  },
+  "sectionRequest": {
+    "root": ".",
+    "pathspecs": [
+      "."
+    ],
+    "stashReference": "1111111111111111111111111111111111111111",
+    "includeFileSections": true
+  },
+  "sectionResponse": {
+    "patch": "",
+    "rows": [],
+    "hunks": [],
+    "hasDecodingLoss": false,
+    "files": [
+      {
+        "path": "example.txt",
+        "originalPath": null,
+        "status": "M",
+        "patch": "diff --git a/example.txt b/example.txt\n--- a/example.txt\n+++ b/example.txt\n@@ -1 +1 @@\n-before\n+after\n",
+        "rows": [
+          {
+            "oldLine": null,
+            "newLine": null,
+            "left": "@@ -1 +1 @@",
+            "kind": "information",
+            "hunkId": "hunk-0"
+          },
+          {
+            "oldLine": 1,
+            "newLine": 1,
+            "left": "before",
+            "right": "after",
+            "kind": "changed",
+            "hunkId": "hunk-0"
+          }
+        ],
+        "hunks": [
+          {
+            "id": "hunk-0",
+            "header": "@@ -1 +1 @@",
+            "patch": "diff --git a/example.txt b/example.txt\n--- a/example.txt\n+++ b/example.txt\n@@ -1 +1 @@\n-before\n+after\n"
+          }
+        ]
+      }
+    ]
   }
 }

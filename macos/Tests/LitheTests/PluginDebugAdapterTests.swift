@@ -13,6 +13,49 @@ import Testing
 struct PluginDebugAdapterTests {
     private struct ResolveFailure: Error, Equatable {}
 
+    @Test(arguments: ["unchanged", "disabled", "replaced", "generation"])
+    func providerConnectionUsesTheOwningRegistryEntryAndRevokesStaleBindings(change: String) throws {
+        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("Plugins/mac/Official/JavaSupport/plugin.json")
+        let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: Data(contentsOf: fixture))
+        let package = InstalledPluginPackage(descriptor: descriptor, installation: PluginInstallationRecord(
+            pluginID: descriptor.id, activeVersion: descriptor.pluginManifest.version, origin: .marketplace, status: .installed),
+            packageURL: URL(fileURLWithPath: "/fixture/java-support"))
+        let entry = try #require(PluginDebugAdapterEntry.qualifiedIndex(of: [package]).values.first)
+        var entries = [entry.providerID: entry]
+        var generation = 7
+        let resolver = MacBuildConnectionDebugResolver(planner: DeclarativePluginTestSupport.operations,
+            entries: { entries }, generation: { generation })
+        let prepared = try resolver.prepare(configurationType: "java", preferredAdapterID: nil, port: 51235)
+        #expect(prepared.options.adapterID == entry.providerID)
+        #expect(prepared.options.target.kind == "connection")
+        #expect(prepared.configuration.adapterProviderID == entry.providerID)
+        #expect(prepared.configuration.arguments["hostName"] == .string("127.0.0.1"))
+        #expect(prepared.configuration.arguments["port"] == .integer(51235))
+        #expect(prepared.isCurrent())
+        if change == "disabled" { entries = [:] }
+        if change == "generation" { generation += 1 }
+        if change == "replaced" {
+            let replacement = InstalledPluginPackage(descriptor: descriptor, installation: package.installation,
+                packageURL: URL(fileURLWithPath: "/fixture/replacement"))
+            entries[entry.providerID] = PluginDebugAdapterEntry(plugin: replacement, adapter: entry.adapter)
+        }
+        #expect(prepared.isCurrent() == (change == "unchanged"))
+        // Explicit old language IDs and a missing alias never select built-in adapters.
+        #expect(throws: DebugLaunchConfigurationResolutionError.providerDebugUnavailable) {
+            try resolver.prepare(configurationType: "java", preferredAdapterID: "java", port: 51235)
+        }
+        #expect(throws: DebugLaunchConfigurationResolutionError.providerDebugUnavailable) {
+            try resolver.prepare(configurationType: "missing", preferredAdapterID: nil, port: 51235)
+        }
+        entries["another/adapter"] = entry
+        if change == "unchanged" {
+            #expect(throws: DebugLaunchConfigurationResolutionError.providerDebugUnavailable) {
+                try resolver.prepare(configurationType: "java", preferredAdapterID: nil, port: 51235)
+            }
+            #expect(try resolver.prepare(configurationType: "java", preferredAdapterID: entry.providerID, port: 51235).isCurrent())
+        }
+    }
+
     @Test(arguments: ["valid", "not-executable", "withdrawn", "replaced", "program-alias", "instance-alias"])
     func providerDebugHandoffRechecksFilesAndCurrentPackage(change: String) throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("provider-debug-\(UUID().uuidString)", isDirectory: true)
@@ -23,7 +66,7 @@ struct PluginDebugAdapterTests {
         let program = instance.appendingPathComponent("main")
         try Data("#!/bin/sh\nexit 0\n".utf8).write(to: program)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: program.path)
-        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-provider-debug-preparation.plugin.json")
+        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-providers/build-provider-debug-preparation.plugin.json")
         let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: Data(contentsOf: fixture))
         let package = InstalledPluginPackage(descriptor: descriptor, installation: PluginInstallationRecord(
             pluginID: descriptor.id, activeVersion: descriptor.pluginManifest.version, origin: .marketplace, status: .installed),
@@ -81,7 +124,7 @@ struct PluginDebugAdapterTests {
         let id = "explicit-adapter-\(UUID().uuidString)"
         _ = try core.createDebugSession(sessionID: id, adapterID: "example-dap", rootPath: "/workspace/example",
             supportsRunInTerminalRequest: false, supportsStartDebuggingRequest: false,
-            disabledCapabilities: [], parentSessionID: nil)
+            disabledCapabilities: [], parentSessionID: nil, declared: .none)
         defer { core.destroyDebugSession(sessionID: id) }
         let body = Data(#"{"seq":1,"type":"response","request_seq":1,"command":"initialize","success":true,"body":{}}"#.utf8)
         var reply = Data("Content-Length: \(body.count)\r\n\r\n".utf8)
@@ -158,6 +201,110 @@ struct PluginDebugAdapterTests {
         }
     }
 
+    /// A missing command fails before anything starts, so the session's start
+    /// attempt stays at `resolve`; once the launch is known it moves to `launch`.
+    @Test
+    func theTransportMovesTheStartAttemptToLaunchOnlyOnceTheLaunchIsKnown() async throws {
+        let reporter = PluginOperationReporter(record: { _ in }, clock: { 0 })
+        let missing = MacPluginDebugAdapterTransport(
+            adapterID: "lldb",
+            resolve: { _ in Self.process(.commands(["lldb-dap"])) },
+            makeProcess: { Issue.record("No process starts for a missing command."); fatalError() },
+            core: RustCoreBridge(),
+            findCommand: { _ in nil }
+        )
+        let unresolved = reporter.begin(pluginID: "acme.lldb", operation: .debugAdapterStart, at: .resolve)
+        missing.startupAttempt = unresolved
+        #expect(throws: MacPluginDebugAdapterTransport.TransportError.self) {
+            try missing.start(rootURL: URL(fileURLWithPath: "/tmp/workspace", isDirectory: true))
+        }
+        #expect(unresolved.stage == .resolve)
+
+        let probe = HostedAdapterProbe()
+        let hosted = MacPluginDebugAdapterTransport(
+            adapterID: "example",
+            resolve: { _ in Self.hostedLaunch() },
+            makeProcess: { Issue.record("A hosted adapter starts no process of its own."); fatalError() },
+            core: RustCoreBridge()
+        )
+        defer { hosted.stop() }
+        hosted.onTermination = { probe.recordTermination($0) }
+        let resolved = reporter.begin(pluginID: "acme.example", operation: .debugAdapterStart, at: .resolve)
+        hosted.startupAttempt = resolved
+        try hosted.start(rootURL: URL(fileURLWithPath: "/tmp/hosted-adapter-stage", isDirectory: true))
+        #expect(resolved.stage == .launch)
+        #expect(await probe.waitUntilTerminated(), "The session did not end before the local deadline")
+        // The server never hosted the adapter, so the launch is what failed.
+        #expect(resolved.stage == .launch)
+    }
+
+    /// A hosted adapter is launching until its socket connects: a start that
+    /// ends before then is the launch's, or the discovery deadline's, and only
+    /// an adapter that was reached exits. Real Core runs both the session and
+    /// the socket lifecycle; the server, the socket and the clock are fakes.
+    @Test(arguments: ["connects", "fails", "timesOut"])
+    func aHostedAdapterStartIsRecordedAtTheStageItReached(_ end: String) async throws {
+        struct Unavailable: LocalizedError { var errorDescription: String? { "The Example language server did not start." } }
+        let probe = HostedAdapterProbe()
+        let deadlines = HostedAdapterDeadlines()
+        let observations = HostedStartObservations()
+        let unanswered = UnansweredPortRequest()
+        let reporter = PluginOperationReporter(record: { observations.append($0) }, clock: { 0 })
+        let core = RustCoreBridge()
+        let transport = MacPluginDebugAdapterTransport(
+            adapterID: "example",
+            resolve: { _ in Self.hostedLaunch() },
+            makeProcess: { Issue.record("A hosted adapter starts no process of its own."); fatalError() },
+            core: core,
+            startHostedPort: { _, _, _ in
+                switch end {
+                case "fails": throw Unavailable()
+                // Never answers, like a server that never hosts the adapter.
+                // test-stability: allow(swift-unbounded-wait) reason: the test fires the discovery deadline, which closes the transport and cancels this wait; the session.stop() defer cancels it if any expectation fails first.
+                case "timesOut": return try await unanswered.wait()
+                default: return 4711
+                }
+            },
+            socketFactory: { host, port in probe.makeSocket(host: host, port: port) },
+            deadlineScheduler: deadlines
+        )
+        let sessionID = "hosted-start-\(end)-\(UUID().uuidString)"
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "example-dap", transport: transport, core: core, sessionID: sessionID,
+            deadlineScheduler: deadlines,
+            beginPluginStartup: {
+                reporter.begin(pluginID: "acme.example", operation: .debugAdapterStart, at: .resolve, operationID: $0)
+            }
+        )
+        defer { session.stop() }
+        session.onEvent = { if case .terminated(let code) = $0 { probe.recordTermination(code ?? 0) } }
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/hosted-adapter-\(end)", isDirectory: true))
+        switch end {
+        case "connects":
+            #expect(await probe.waitUntilConnected(), "The socket was not opened before the local deadline")
+            #expect(observations.recorded.isEmpty)
+            probe.socket.onReady?()
+            probe.socket.onComplete?()
+        case "timesOut":
+            let discovery = try #require(deadlines.pending.first { $0.milliseconds == 120_000 })
+            discovery.fire()
+        default:
+            break
+        }
+        #expect(await probe.waitUntilTerminated(), "The session did not end before the local deadline")
+
+        let stage: PluginOperationStage = switch end {
+        case "connects": .exit
+        case "timesOut": .timeout
+        default: .launch
+        }
+        #expect(observations.recorded == [PluginOperationObservation(
+            pluginID: "acme.example", operation: .debugAdapterStart, failure: stage,
+            durationMs: 0, operationID: sessionID
+        )])
+    }
+
     // MARK: - Launch transport
 
     /// Resolves the fixture's `native` adapter, declared over `transport`.
@@ -179,7 +326,7 @@ struct PluginDebugAdapterTests {
         editLaunch: (inout [String: Any]) -> Void = { _ in }
     ) throws -> MacPluginLanguageServerLaunchResolver.DebugAdapterLaunch {
         let url = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/\(fixture).plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/debug-adapters/\(fixture).plugin.json")
         var manifest = try #require(
             try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
         )
@@ -528,6 +675,70 @@ private final class HostedAdapterSocket: DebugAdapterSocketConnection {
         completion(.success(()))
     }
     func stop() { stopCount += 1 }
+}
+
+/// The plugin operations a session recorded, in order.
+@MainActor
+private final class HostedStartObservations {
+    private(set) var recorded: [PluginOperationObservation] = []
+    func append(_ observation: PluginOperationObservation) { recorded.append(observation) }
+}
+
+/// A port request the server never answers. Only cancelling the waiting task
+/// ends it, so a test that needs the discovery deadline never races a reply.
+@MainActor
+private final class UnansweredPortRequest {
+    private var waiter: CheckedContinuation<UInt16, any Error>?
+    private var isCancelled = false
+
+    func wait() async throws -> UInt16 {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                if isCancelled { continuation.resume(throwing: CancellationError()) } else { waiter = continuation }
+            }
+        } onCancel: {
+            Task { @MainActor in self.cancel() }
+        }
+    }
+
+    private func cancel() {
+        isCancelled = true
+        waiter?.resume(throwing: CancellationError())
+        waiter = nil
+    }
+}
+
+/// Deadlines that fire only when a test fires them, so no test waits on a clock.
+@MainActor
+private final class HostedAdapterDeadlines: DebugOperationDeadlineScheduling {
+    private(set) var scheduled: [HostedAdapterDeadline] = []
+    var pending: [HostedAdapterDeadline] { scheduled.filter { !$0.isCancelled } }
+
+    func schedule(afterMilliseconds milliseconds: Int, action: @escaping @MainActor () -> Void) -> any DebugOperationDeadline {
+        let deadline = HostedAdapterDeadline(milliseconds: milliseconds, action: action)
+        scheduled.append(deadline)
+        return deadline
+    }
+}
+
+@MainActor
+private final class HostedAdapterDeadline: DebugOperationDeadline {
+    let milliseconds: Int
+    private var action: (@MainActor () -> Void)?
+    var isCancelled: Bool { action == nil }
+
+    init(milliseconds: Int, action: @escaping @MainActor () -> Void) {
+        self.milliseconds = milliseconds
+        self.action = action
+    }
+
+    func cancel() { action = nil }
+
+    func fire() {
+        let action = action
+        self.action = nil
+        action?()
+    }
 }
 
 /// Remembers that an event happened and resumes one waiter when it does. Both

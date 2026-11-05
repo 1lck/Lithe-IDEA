@@ -45,6 +45,14 @@ package struct RunOptions: Codable, Hashable, Sendable {
     package var arguments = ""
     package var environment: [String: String] = [:]
     package var java = JavaCapability()
+    package var providerRunOptions: BuildProviderRunOptions?
+
+    /// Reset emits explicit clears for inherited per-Run tools. Omitting this
+    /// namespace would keep the previous provider choices on disk.
+    package func resettingProviderRunOptions() -> RunOptions {
+        let cleared = providerRunOptions?.tools.keys.map { ($0, Optional<FixedToolchainSelection>.none) } ?? []
+        return RunOptions(providerRunOptions: BuildProviderRunOptions(tools: Dictionary(uniqueKeysWithValues: cleared)))
+    }
 
     package init(
         javaHomePath: String = "",
@@ -55,11 +63,13 @@ package struct RunOptions: Codable, Hashable, Sendable {
         mavenSkipTests: Bool? = nil,
         mavenExecutablePath: String = "",
         mavenJavaHomePath: String = "",
-        environment: [String: String] = [:]
+        environment: [String: String] = [:],
+        providerRunOptions: BuildProviderRunOptions? = nil
     ) {
         self.workingDirectoryPath = workingDirectoryPath
         arguments = programArguments
         self.environment = environment
+        self.providerRunOptions = providerRunOptions
         java = JavaCapability(
             homePath: javaHomePath,
             mavenExecutablePath: mavenExecutablePath,
@@ -100,7 +110,7 @@ package struct RunOptions: Codable, Hashable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case workingDirectoryPath, arguments, environment, java
+        case workingDirectoryPath, arguments, environment, java, providerRunOptions
         case javaHomePath, vmArguments, programArguments, activeProfiles
     }
 
@@ -111,6 +121,7 @@ package struct RunOptions: Codable, Hashable, Sendable {
             ?? container.decodeIfPresent(String.self, forKey: .programArguments)
             ?? ""
         environment = try container.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
+        providerRunOptions = try container.decodeIfPresent(BuildProviderRunOptions.self, forKey: .providerRunOptions)
         java = try container.decodeIfPresent(JavaCapability.self, forKey: .java) ?? JavaCapability(
             homePath: try container.decodeIfPresent(String.self, forKey: .javaHomePath) ?? "",
             vmArguments: try container.decodeIfPresent(String.self, forKey: .vmArguments) ?? "",
@@ -124,6 +135,7 @@ package struct RunOptions: Codable, Hashable, Sendable {
         try container.encode(arguments, forKey: .arguments)
         try container.encode(environment, forKey: .environment)
         try container.encode(java, forKey: .java)
+        try container.encodeIfPresent(providerRunOptions, forKey: .providerRunOptions)
     }
 }
 
@@ -230,12 +242,15 @@ package struct ResolvedRunExecutable: Sendable {
 
 @MainActor
 package protocol RunExecutableResolving: AnyObject {
+    /// Acquires fresh plugin-defined tools before the synchronous process handoff.
+    func prepare(_ plan: SharedLaunchPlan, projectURL: URL, options: RunOptions) async throws -> ResolvedRunExecutable?
     func resolve(_ plan: SharedLaunchPlan, projectURL: URL, options: RunOptions) throws -> ResolvedRunExecutable
     func refreshCandidates(projectURL: URL) async
     func candidates(projectURL: URL) -> [ProjectToolchainCandidate]
 }
 
 package extension RunExecutableResolving {
+    func prepare(_ plan: SharedLaunchPlan, projectURL: URL, options: RunOptions) async throws -> ResolvedRunExecutable? { nil }
     func refreshCandidates(projectURL _: URL) async {}
     func candidates(projectURL _: URL) -> [ProjectToolchainCandidate] { [] }
 
@@ -274,14 +289,12 @@ package protocol RunRuntimePort: AnyObject {
     func javaHomeURL(overridePath: String?) -> URL?
     func mavenJavaHomeURL(overridePath: String?) -> URL?
     func runConfigurationToolchainCandidates(
-        for project: MavenProject?,
         projectRoot: URL?,
         javaHomeOverride: String?,
         mavenExecutableOverride: String?
     ) -> [ProjectToolchainCandidate]
     /// Project restoration awaits version probes instead of running them on the UI executor.
     func loadRunConfigurationToolchainCandidates(
-        for project: MavenProject?,
         projectRoot: URL?,
         javaHomeOverride: String?,
         mavenExecutableOverride: String?
@@ -327,6 +340,13 @@ package enum LanguageTestItemKind: String, Equatable, Sendable {
 }
 
 package struct LanguageTestItem: Identifiable, Equatable, Sendable {
+    /// A language provider's explicit association with canonical report names.
+    /// This is presentation metadata; execution still forwards testIdentifier.
+    package struct ReportIdentity: Hashable, Sendable {
+        package let suite: String
+        package let name: String?
+        package init(suite: String, name: String? = nil) { self.suite = suite; self.name = name }
+    }
     package let id: String
     package let providerID: String
     package let label: String
@@ -336,6 +356,9 @@ package struct LanguageTestItem: Identifiable, Equatable, Sendable {
     package let testIdentifier: String?
     /// Visual nesting below the provider section; source files start at zero.
     package let depth: Int
+    package var projectPath: String?
+    package var buildReference: BuildTestReference?
+    package let reportIdentity: ReportIdentity?
 
     package init(
         id: String,
@@ -344,7 +367,8 @@ package struct LanguageTestItem: Identifiable, Equatable, Sendable {
         kind: LanguageTestItemKind,
         fileURL: URL?,
         testIdentifier: String? = nil,
-        depth: Int = 0
+        depth: Int = 0, projectPath: String? = nil, buildReference: BuildTestReference? = nil,
+        reportIdentity: ReportIdentity? = nil
     ) {
         self.id = id
         self.providerID = providerID
@@ -353,13 +377,39 @@ package struct LanguageTestItem: Identifiable, Equatable, Sendable {
         self.fileURL = fileURL
         self.testIdentifier = testIdentifier
         self.depth = max(0, depth)
+        self.projectPath = projectPath; self.buildReference = buildReference
+        self.reportIdentity = reportIdentity
+    }
+}
+
+/// A report-derived build selector. The current model is revalidated on every
+/// rerun; no executable, classpath, source path or cached launch is persisted.
+package struct BuildTestReference: Codable, Equatable, Sendable {
+    package let pluginID: String
+    package let buildSystemID: String
+    package let root: String
+    package let projectID: String
+    package let suite: String
+    package let testCase: String?
+
+    package init(pluginID: String, buildSystemID: String, root: String, projectID: String, suite: String, testCase: String?) {
+        self.pluginID = pluginID; self.buildSystemID = buildSystemID; self.root = root; self.projectID = projectID
+        self.suite = suite; self.testCase = testCase
+    }
+    package var suiteReference: Self {
+        Self(pluginID: pluginID, buildSystemID: buildSystemID, root: root, projectID: projectID, suite: suite, testCase: nil)
     }
 }
 
 package enum LanguageTestScope: Equatable, Sendable {
     case workspace
     case file(URL)
-    case testCase(identifier: String, fileURL: URL?)
+    case testCase(identifier: String, fileURL: URL?, buildReference: BuildTestReference? = nil)
+
+    package var buildReference: BuildTestReference? {
+        if case .testCase(_, _, let reference) = self { return reference }
+        return nil
+    }
 }
 
 package struct LanguageTestContext: Equatable, Sendable {

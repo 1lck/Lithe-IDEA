@@ -40,7 +40,7 @@ struct WorkbenchNotificationTests {
         defer { feature.clear(); clock.releaseAll() }
         var opened = 0
         feature.show("Database is now a plugin.", arguments: [],
-                     action: WorkbenchNotification.Action(title: "Open Marketplace") { opened += 1 })
+                     action: WorkbenchNotification.Action(id: "plugins.marketplace.open", title: "Open Marketplace") { opened += 1 })
         #expect(clock.pending.isEmpty)
         clock.advance(.seconds(100))
         let id = feature.activeNotifications[0].id
@@ -495,4 +495,43 @@ private final class NotificationTestStore: KeyValueStore {
     func string(forKey key: String) -> String? { values[key] as? String }
     func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
     func set(_ value: Any?, forKey key: String) { values[key] = value }
+}
+
+extension WorkbenchNotificationTests {
+    @Test func referenceCoexistsWithActionAndSurvivesRepeatedMessage() throws {
+        let feature = WorkbenchNotificationFeatureModel()
+        feature.setApplicationActive(false)
+        defer { feature.clear() }
+        let logs = TypedLogRecorder()
+        let scope = LogScope(sink: logs, operationID: "fixture-op")
+        let reference = scope.emitReferenced(AppNotificationOperationRejected(operation: "fixture", reason: "unavailable"))
+        #expect(reference == logs.events.last?.reference)
+        var actionCount = 0
+        var opened: LogWindowOpenRequest?
+        feature.openLogs = { opened = $0 }
+        feature.show("fixture", action: .init(id: "fixture.retry", title: "Retry", perform: { actionCount += 1 }), logReference: reference)
+        feature.show("fixture")
+        let notification = try #require(feature.notifications.first)
+        #expect(notification.logReference == reference && notification.action != nil)
+        #expect(notification.occurrenceCount == 2)
+        feature.perform(notification.id)
+        #expect(actionCount == 1)
+        feature.showLog(notification.id)
+        #expect(opened == .init(reference: reference))
+    }
+}
+
+extension WorkbenchNotificationTests {
+    @Test func balloonRendersBothTheOriginalActionAndLogAction() async throws {
+        let host = NSHostingView(rootView: WorkbenchNotificationBanner(message: "fixture",
+            occurrenceCount: 1, actionTitle: "Retry", hasLogReference: true, dismiss: {}))
+        let window = NSWindow(contentRect: .init(x: 0, y: 0, width: 500, height: 200),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        _ = try await AgentNativeControlTestSupport.frame(of: "workbench-notification-action", in: host)
+        _ = try await AgentNativeControlTestSupport.frame(of: "workbench-notification-show-log", in: host)
+    }
 }

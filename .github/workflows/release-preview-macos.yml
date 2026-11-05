@@ -56,15 +56,16 @@ jobs:
     needs: prepare
     if: github.actor == github.repository_owner || contains(format(',{0},', vars.LITHE_RELEASE_ACTOR), format(',{0},', github.actor)) || github.event_name == 'schedule'
     runs-on: macos-26
-    # Intel packaging took ~26 minutes before Sparkle in AutoBuild run 40812978761.
     # Match stable release budgets so update generation has its own bounded window.
     timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
+        # AutoBuild ships Apple Silicon only. Cold Intel Swift compiles exceeded the
+        # 35-minute packaging budget (run 41826256404); stable releases keep x86_64.
+        # publish-autobuild.mjs owns the matching architecture list.
         architecture:
           - arm64
-          - x86_64
 
     steps:
       - name: Check out preview source

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Darwin
 import Foundation
 
@@ -8,6 +9,7 @@ private func lithePerformancePIDPath(_ pid: Int32, _ buffer: UnsafeMutableRawPoi
 /// eligible. Maven/Gradle build daemons are not used as a substitute for tests.
 struct MacTestJVMPerformance: TestJVMPerformanceProviding {
     let processRegistry: ManagedProcessRegistry?
+    var logSink: (any LogSink)? = nil
 
     static func javaExecutable(processID: Int32) -> URL? {
         var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
@@ -74,6 +76,7 @@ struct MacTestJVMPerformance: TestJVMPerformanceProviding {
                             startedSeconds: cpu.startedSeconds, startedMicroseconds: cpu.startedMicroseconds)
                     }.sorted { $0.processID < $1.processID }
                     continuation.yield(all)
+                    // log-exempt: 用户取消：调用方取消采样或超时等待时结束任务
                     do { try await Task.sleep(for: .seconds(1)) } catch { break }
                 }
                 continuation.finish()
@@ -110,8 +113,9 @@ struct MacTestJVMPerformance: TestJVMPerformanceProviding {
             await Task {
                 // This unique recording name can only belong to this request,
                 // including a start/exit race after the initial identity check.
-                _ = try? await command(process.javaExecutable, tool: "jcmd",
-                    arguments: [String(process.processID), "JFR.stop", "name=\(recording.name)"])
+                do { _ = try await command(process.javaExecutable, tool: "jcmd",
+                    arguments: [String(process.processID), "JFR.stop", "name=\(recording.name)"]) }
+                catch { logSink?.emit(AppStorageMaintenanceFailed(error: LogFailure(domain: "debug.recording", code: error is CancellationError ? "cancelled" : "stop_failed"), stage: "recording-stop")) }
                 await discard(recording)
             }.value
             throw error
@@ -148,10 +152,13 @@ struct MacTestJVMPerformance: TestJVMPerformanceProviding {
     }
 
     func discard(_ recording: TestJVMRecording) async {
-        try? await stopRecording(recording)
+        do { try await stopRecording(recording) }
+        catch { logSink?.emit(AppStorageMaintenanceFailed(error: LogFailure(domain: "debug.recording", code: error is CancellationError ? "cancelled" : "stop_failed"), stage: "recording-stop")) }
         let expected = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-jfr-\(recording.id.uuidString)")
         guard recording.fileURL.standardizedFileURL == expected.appendingPathComponent("recording.jfr").standardizedFileURL else { return }
-        try? FileManager.default.removeItem(at: expected)
+        do { try FileManager.default.removeItem(at: expected) }
+        catch let error as CocoaError where error.code == .fileNoSuchFile { /* Recording never produced a file. */ }
+        catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "recording-remove")) }
     }
 
     /// jcmd parses a diagnostic command after OS argv; quote that grammar rather
@@ -165,7 +172,7 @@ struct MacTestJVMPerformance: TestJVMPerformanceProviding {
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
             throw DebugPerformanceError.unavailable("The selected JDK does not provide \(tool).")
         }
-        let process = MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution)
+        let process = MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution, logSink: logSink)
         let output = JVMToolOutput()
         let pair = AsyncThrowingStream<Int32, Error>.makeStream()
         process.onOutput = { output.append($0) }

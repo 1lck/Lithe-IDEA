@@ -26,6 +26,11 @@
     "inspectionStatus": "ready",
     "requiresGeneration": true,
     "configurationCount": 1,
-    "provider": "build.provider"
-  }
+    "provider": "build.provider",
+    "applicationReferenceUsesLaunchOptions": false
+  },
+  "executionKinds": [
+    "service",
+    "task"
+  ]
 }

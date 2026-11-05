@@ -41,7 +41,9 @@ Project 文件树则需要主目录所属仓库的原始相对路径。互相覆
   顶部与文件树的全局状态刷新延续原先始终更新的行为，Commit 自动刷新设置仍控制
   面板额外的分支、stash 等读取，不再使顶部保留旧状态。
 - 原始记录及相同投影复用对象，重复的相同快照不会反复重建文件列表。
-  仓库查询失败保留最后一次成功记录并记录错误，不能把失败当作干净工作区。
+  仓库查询按根独立收集结果，由共享 `git.workspaceStatusMerge` 计划新快照、保留旧快照或未知状态；
+  失败根不能视为干净，也不能确认暂存操作。移除的根不得从旧状态复活，提示显示结果可能过期。
+  宿主仍按工作区版本水位线原子发布，过期结果不能覆盖后来的状态或失败标记。
 - 不新增持久化目录、下载资源或运行时写入路径；状态及监听标识只属于工作区生命周期，
   不影响发行包、代码签名或增量更新。
 
@@ -62,6 +64,20 @@ macOS 顶部尚未显示同步箭头，此处只参考其状态归属。
 - 给每个 UI 分别增加监听：重复维护刷新规则，资源生命周期继续依赖可见面板。
 - 文件状态与操作状态共用一条版本水位线：纯状态刷新先发布后，较早开始的完整读取所带的
   操作状态会被一并丢弃，冲突横幅停在旧值，继续按钮保持禁用。
+
+### Git 事件分类的跨平台归属
+
+Git 指针、规则文件、共享引用、当前 worktree 的 index、其他 worktree 的私有
+状态，以及 objects、LFS 和临时提交目录，由 Core 的纯函数统一分类。子模块的 Git
+状态位于 `modules`，其 HEAD 或 index 会影响父仓库 gitlink，因此该目录的事件
+在尚无明确子模块根身份时保守地刷新，不能整体过滤。Windows
+原生监听器直接调用该函数；macOS 本地与远程监听器按事件批次分页调用同一契约，
+不逐条跨桥。仅有当前 worktree index 写入的批次刷新工作区 Git 状态，不额外重拉历史与
+worktree 列表；macOS 的既有状态读取仍会附带 stash 等查询。合并过程中出现其他相关事件时提升为完整元数据刷新。原生丢失事件和根目录变化仍由宿主优先处理；分类失败时保守地重扫并
+重新检查监听根。被排除的嵌套工作树及工作区可见性仍由工作区层管理。远程源文件
+与 Git 元数据混在一个批次时，必须同时保留工作区路径与元数据刷新标志。
+这项决策不创建缓存或写入发行包；共享 fixture 和两端宿主测试覆盖分类边界，
+真实产品、远程工作区及高频事件的端到端验收仍需单独执行。
 
 ## 后果
 
@@ -87,6 +103,12 @@ macOS 顶部尚未显示同步箭头，此处只参考其状态归属。
 
 ## 适用范围
 
+- `rust/lithe-core/src/git/metadata_watch.rs`
+- `shared/fixtures/git/metadata-classification-v1.json`
+- `windows/tauri/crates/project/src/git_watcher.rs`
+- `macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDirectoryWatcher.swift`
+- `macos/Sources/Lithe/Services/Remote/RemoteDirectoryObservation.swift`
+- `macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift`
 - `windows/tauri/src/features/git/stores/git.store.ts`
 - `windows/tauri/src/features/git/runtime/git-status-refresh-host.tsx`
 - `windows/tauri/src/features/git/runtime/git-metadata-watch-host.tsx`

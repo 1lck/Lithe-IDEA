@@ -97,6 +97,78 @@ impl Drop for Repository {
 }
 
 #[test]
+fn history_action_capabilities_use_real_head_and_complete_first_parent_chain() {
+    let repo = Repository::new("history-action-capabilities");
+    let first = repo.commit("story.txt", "one\n", "one");
+    let root_actions = repo.request(
+        "git.historyActionCapabilities",
+        json!({"revisions":[first]}),
+    );
+    assert_eq!(root_actions["data"]["canUndo"], false, "{root_actions}");
+    let second = repo.commit("story.txt", "two\n", "two");
+    let third = repo.commit("story.txt", "three\n", "three");
+    let head = repo.commit("story.txt", "four\n", "four");
+    repo.git(&["checkout", "-qb", "side", &second]);
+    let side = repo.commit("side.txt", "side\n", "side");
+    repo.git(&["checkout", "-q", "main"]);
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/history-action-capabilities-v1.json"
+    ))
+    .unwrap();
+    let capabilities = |revisions: Vec<&str>| {
+        let mut request = fixture["request"].clone();
+        request["revisions"] = json!(revisions);
+        let response = repo.request("git.historyActionCapabilities", request);
+        assert_eq!(response["ok"], true, "{response}");
+        response["data"].clone()
+    };
+    let remote = capabilities(vec![&side]);
+    let mut expected_other = fixture["otherResponse"].clone();
+    expected_other["head"] = json!(head);
+    assert_eq!(remote, expected_other);
+    assert_eq!(remote["head"], head);
+    assert_eq!(remote["canCherryPick"], true);
+    assert_eq!(remote["canUndo"], false);
+    let selected_head = capabilities(vec![&head]);
+    let mut expected_head = fixture["headResponse"].clone();
+    expected_head["head"] = json!(head);
+    assert_eq!(selected_head, expected_head);
+    assert_eq!(selected_head["canCherryPick"], false);
+    assert_eq!(selected_head["canUndo"], true);
+    assert_eq!(capabilities(vec![&third, &second])["canSquash"], true);
+    assert_eq!(capabilities(vec![&head, &second])["canSquash"], false);
+    assert_eq!(capabilities(vec![&first, &side])["canSquash"], false);
+    assert_eq!(capabilities(vec![&third, &third])["canSquash"], false);
+    repo.git(&["checkout", "-q", "--detach", &head]);
+    let detached = capabilities(vec![&head]);
+    assert_eq!(detached["canUndo"], false);
+    assert_eq!(capabilities(vec![&third, &second])["canSquash"], false);
+}
+
+#[test]
+fn history_action_capabilities_reject_invalid_identities_and_handle_unborn_head() {
+    let repo = Repository::new("history-actions-invalid");
+    let unborn = repo.request("git.historyActionCapabilities", json!({"revisions":[]}));
+    assert_eq!(unborn["ok"], true, "{unborn}");
+    assert_eq!(unborn["data"]["head"], Value::Null);
+    assert_eq!(unborn["data"]["canSquash"], false);
+    for invalid in ["HEAD", "-bad", "a"] {
+        let result = repo.request(
+            "git.historyActionCapabilities",
+            json!({"revisions":[invalid]}),
+        );
+        assert_eq!(result["ok"], false, "{result}");
+        assert_eq!(result["error"]["code"], "invalid_request");
+    }
+    let excessive = vec!["a".repeat(40); 1001];
+    let result = repo.request(
+        "git.historyActionCapabilities",
+        json!({"revisions":excessive}),
+    );
+    assert_eq!(result["ok"], false, "{result}");
+}
+
+#[test]
 fn undo_preserves_staged_unstaged_and_untracked_content_and_keeps_recovery() {
     let repo = Repository::new("undo-reviewed");
     let parent = repo.commit("story.txt", "one\n", "one");
@@ -911,4 +983,127 @@ fn native_rebase_large_escaped_manifest_remains_readable_through_abort() {
     assert_eq!(restored.steps[1].message.as_deref(), Some(message.as_str()));
     assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
     assert!(!repo.0.join(".git/rebase-merge").exists());
+}
+
+#[test]
+fn github_pr_checkout_rejects_conflicts_and_stale_review_before_creating_branch() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/github/pr-checkout-plan-v1.json"
+    ))
+    .unwrap();
+    let codes = &fixture["errorCodes"];
+    let repo = Repository::new("github-pr-checkout");
+    let original = repo.commit("one.txt", "first\n", "first");
+    repo.git(&["branch", "pr/42-feature-test"]);
+    let remote_head = repo.commit("one.txt", "second\n", "second");
+    let remote = repo.0.join("remote.git");
+    let remote_path = remote.to_str().unwrap();
+    repo.git(&["init", "--bare", "--template=", "-q", remote_path]);
+    repo.git(&["remote", "add", "origin", remote_path]);
+    repo.git(&["push", "-q", "origin", "HEAD:refs/pull/42/head"]);
+    let preview = |repo: &Repository| {
+        let response = repo.request(
+            "git.pullRequestCheckoutPreview",
+            json!({"number":42,"headRef":"feature/test"}),
+        );
+        assert_eq!(response["ok"], true, "{response}");
+        response["data"].clone()
+    };
+    let apply = |repo: &Repository, reviewed: &Value| {
+        repo.request("git.pullRequestCheckout", json!({
+        "number":42,"headRef":"feature/test", "expectedHead":reviewed["head"], "expectedBranch":reviewed["currentBranch"], "expectedOriginFingerprint":reviewed["originFingerprint"]
+    }))
+    };
+    let collision = repo.request(
+        "git.pullRequestCheckoutPreview",
+        json!({"number":42,"headRef":"feature/test"}),
+    );
+    assert_eq!(collision["ok"], false, "{collision}");
+    assert_eq!(collision["error"]["code"], codes["branchExists"]);
+    repo.git(&["branch", "-D", "pr/42-feature-test"]);
+    let reviewed = preview(&repo);
+    repo.git(&["branch", "pr/42-feature-test", &original]);
+    let rejected = apply(&repo, &reviewed);
+    assert_eq!(rejected["ok"], false, "{rejected}");
+    assert_eq!(rejected["error"]["code"], codes["branchExists"]);
+    assert_eq!(
+        repo.git(&["rev-parse", "refs/heads/pr/42-feature-test"]),
+        original
+    );
+    repo.git(&["branch", "-D", "pr/42-feature-test"]);
+    let stale = preview(&repo);
+    repo.commit("one.txt", "third\n", "third");
+    let rejected = apply(&repo, &stale);
+    assert_eq!(rejected["ok"], false, "{rejected}");
+    assert_eq!(rejected["error"]["code"], codes["checkoutChanged"]);
+    let fresh = preview(&repo);
+    let replacement_remote = repo.0.join("other-remote.git");
+    let replacement_path = replacement_remote.to_str().unwrap();
+    repo.git(&["init", "--bare", "--template=", "-q", replacement_path]);
+    repo.git(&["remote", "set-url", "origin", replacement_path]);
+    let rejected = apply(&repo, &fresh);
+    assert_eq!(rejected["ok"], false, "{rejected}");
+    assert_eq!(rejected["error"]["code"], codes["checkoutChanged"]);
+    repo.git(&["remote", "set-url", "origin", remote_path]);
+    let fresh = preview(&repo);
+    let result = apply(&repo, &fresh);
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(result["data"]["exitCode"], 0, "{result}");
+    assert!(result["data"]["operationError"].is_null(), "{result}");
+    assert_eq!(
+        repo.git(&["branch", "--show-current"]),
+        "pr/42-feature-test"
+    );
+    assert_eq!(repo.git(&["rev-parse", "HEAD"]), remote_head);
+}
+
+#[test]
+fn github_pr_checkout_reports_parent_and_descendant_ref_conflicts() {
+    let repo = Repository::new("github-pr-ref-conflicts");
+    repo.commit("one.txt", "first\n", "first");
+    repo.git(&[
+        "remote",
+        "add",
+        "origin",
+        "https://example.invalid/fixture/repo.git",
+    ]);
+    let preview = |repo: &Repository| {
+        let result = repo.request(
+            "git.pullRequestCheckoutPreview",
+            json!({"number":42,"headRef":"feature/test"}),
+        );
+        assert_eq!(result["ok"], false, "{result}");
+        assert!(!result.to_string().contains("example.invalid"));
+        result["error"]["code"].clone()
+    };
+    repo.git(&["branch", "pr"]);
+    assert_eq!(preview(&repo), "git_branch_exists");
+    repo.git(&["branch", "-D", "pr"]);
+    repo.git(&["branch", "pr/42-feature-test/child"]);
+    assert_eq!(preview(&repo), "git_branch_exists");
+}
+
+#[test]
+fn github_pr_checkout_preview_checks_displayed_repository_without_leaking_origin() {
+    let repo = Repository::new("github-pr-repository-identity");
+    repo.commit("one.txt", "first\n", "first");
+    repo.git(&[
+        "remote",
+        "add",
+        "origin",
+        "https://github.com/example/project.git",
+    ]);
+    let matching = repo.request("git.pullRequestCheckoutPreview", json!({
+        "number":42,"headRef":"feature/test","expectedRepository":{"owner":"example","name":"project"}
+    }));
+    assert_eq!(matching["ok"], true, "{matching}");
+    let fingerprint = matching["data"]["originFingerprint"].as_str().unwrap();
+    assert_eq!(fingerprint.len(), 64);
+    assert!(!matching["data"].to_string().contains("github.com"));
+    let other = repo.request("git.pullRequestCheckoutPreview", json!({
+        "number":42,"headRef":"feature/test","expectedRepository":{"owner":"another","name":"project"}
+    }));
+    assert_eq!(other["ok"], false, "{other}");
+    assert_eq!(other["error"]["code"], "git_checkout_changed");
+    assert!(!other.to_string().contains("github.com"));
 }

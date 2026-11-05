@@ -1,0 +1,446 @@
+{
+  "description": "Canonical reactor paths plus explicit Run overrides, without applying project defaults as configuration overrides or writing source documents.",
+  "cases": [
+    {
+      "name": "explicit configuration paths override canonical project defaults",
+      "request": {
+        "path": ".",
+        "configurationId": "maven-run",
+        "localDocument": {
+          "version": 2,
+          "toolchain": {
+            "java": {
+              "homePath": "C:/Global JDK"
+            },
+            "maven": {
+              "executablePath": "C:/Global Maven/bin/mvn.cmd",
+              "javaHomePath": "C:/Global Maven JDK"
+            },
+            "pathOverrides": {
+              "reactor": {
+                "javaHomePath": "C:/Reactor JDK",
+                "mavenExecutablePath": "C:/Reactor Maven/bin/mvn.cmd",
+                "mavenJavaHomePath": "C:/Reactor Maven JDK"
+              }
+            }
+          },
+          "configurations": [
+            {
+              "id": "maven-run",
+              "extensions": {
+                "java": {
+                  "homePath": " C:/Run JDK ",
+                  "mavenExecutablePath": "C:/Run Maven/bin/mvn.cmd",
+                  "mavenJavaHomePath": "C:/Run Maven JDK"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "generatedDocument": {
+        "version": 2,
+        "configurations": [
+          {
+            "id": "maven-run",
+            "name": "Module",
+            "provider": "maven.module",
+            "execution": "task",
+            "cwd": ".",
+            "toolchains": {
+              "java": "project-jdk",
+              "maven": "project-maven"
+            },
+            "extensions": {
+              "maven": {
+                "module": "."
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty configuration values inherit the canonical reactor instead of global defaults",
+      "request": {
+        "path": "reactor",
+        "configurationId": "maven-run",
+        "localDocument": {
+          "version": 2,
+          "toolchain": {
+            "java": {
+              "homePath": "C:/Global JDK"
+            },
+            "maven": {
+              "executablePath": "C:/Global Maven/bin/mvn.cmd",
+              "javaHomePath": "C:/Global Maven JDK"
+            },
+            "pathOverrides": {
+              "reactor": {
+                "javaHomePath": "C:/Reactor JDK",
+                "mavenExecutablePath": "C:/Reactor Maven/bin/mvn.cmd",
+                "mavenJavaHomePath": "C:/Reactor Maven JDK"
+              }
+            }
+          },
+          "configurations": [
+            {
+              "id": "maven-run",
+              "extensions": {
+                "java": {
+                  "homePath": "",
+                  "mavenExecutablePath": "",
+                  "mavenJavaHomePath": ""
+                }
+              }
+            }
+          ]
+        }
+      },
+      "generatedDocument": {
+        "version": 2,
+        "configurations": [
+          {
+            "id": "maven-run",
+            "name": "Module",
+            "provider": "maven.module",
+            "execution": "task",
+            "cwd": "reactor",
+            "toolchains": {
+              "java": "project-jdk",
+              "maven": "project-maven"
+            },
+            "extensions": {
+              "maven": {
+                "module": "."
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a configuration cannot select another provider root",
+      "request": {
+        "path": ".",
+        "configurationId": "maven-run",
+        "localDocument": {
+          "version": 2,
+          "toolchain": {
+            "java": {
+              "homePath": "C:/Global JDK"
+            },
+            "maven": {
+              "executablePath": "C:/Global Maven/bin/mvn.cmd",
+              "javaHomePath": "C:/Global Maven JDK"
+            },
+            "pathOverrides": {
+              "reactor": {
+                "javaHomePath": "C:/Reactor JDK",
+                "mavenExecutablePath": "C:/Reactor Maven/bin/mvn.cmd",
+                "mavenJavaHomePath": "C:/Reactor Maven JDK"
+              }
+            }
+          },
+          "configurations": [
+            {
+              "id": "maven-run",
+              "extensions": {
+                "java": {}
+              }
+            }
+          ]
+        }
+      },
+      "generatedDocument": {
+        "version": 2,
+        "configurations": [
+          {
+            "id": "maven-run",
+            "name": "Module",
+            "provider": "maven.module",
+            "execution": "task",
+            "cwd": "other",
+            "toolchains": {
+              "java": "project-jdk",
+              "maven": "project-maven"
+            },
+            "extensions": {
+              "maven": {
+                "module": "."
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "an unknown configuration cannot fall back to project paths",
+      "request": {
+        "path": ".",
+        "configurationId": "missing-run",
+        "localDocument": {
+          "version": 2,
+          "toolchain": {
+            "java": {
+              "homePath": "C:/Global JDK"
+            },
+            "maven": {
+              "executablePath": "C:/Global Maven/bin/mvn.cmd",
+              "javaHomePath": "C:/Global Maven JDK"
+            },
+            "pathOverrides": {
+              "reactor": {
+                "javaHomePath": "C:/Reactor JDK",
+                "mavenExecutablePath": "C:/Reactor Maven/bin/mvn.cmd",
+                "mavenJavaHomePath": "C:/Reactor Maven JDK"
+              }
+            }
+          },
+          "configurations": [
+            {
+              "id": "maven-run",
+              "extensions": {
+                "java": {}
+              }
+            }
+          ]
+        }
+      },
+      "generatedDocument": {
+        "version": 2,
+        "configurations": [
+          {
+            "id": "maven-run",
+            "name": "Module",
+            "provider": "maven.module",
+            "execution": "task",
+            "cwd": ".",
+            "toolchains": {
+              "java": "project-jdk",
+              "maven": "project-maven"
+            },
+            "extensions": {
+              "maven": {
+                "module": "."
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "malformed explicit paths cannot fall back to a valid default",
+      "request": {
+        "path": ".",
+        "configurationId": "maven-run",
+        "localDocument": {
+          "version": 2,
+          "toolchain": {
+            "java": {
+              "homePath": "C:/Global JDK"
+            },
+            "maven": {
+              "executablePath": "C:/Global Maven/bin/mvn.cmd",
+              "javaHomePath": "C:/Global Maven JDK"
+            },
+            "pathOverrides": {
+              "reactor": {
+                "javaHomePath": "C:/Reactor JDK",
+                "mavenExecutablePath": "C:/Reactor Maven/bin/mvn.cmd",
+                "mavenJavaHomePath": "C:/Reactor Maven JDK"
+              }
+            }
+          },
+          "configurations": [
+            {
+              "id": "maven-run",
+              "extensions": {
+                "java": {
+                  "mavenExecutablePath": false
+                }
+              }
+            }
+          ]
+        }
+      },
+      "generatedDocument": {
+        "version": 2,
+        "configurations": [
+          {
+            "id": "maven-run",
+            "name": "Module",
+            "provider": "maven.module",
+            "execution": "task",
+            "cwd": ".",
+            "toolchains": {
+              "java": "project-jdk",
+              "maven": "project-maven"
+            },
+            "extensions": {
+              "maven": {
+                "module": "."
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "team and local explicit fields reuse the existing Run merge",
+      "request": {
+        "path": "reactor",
+        "configurationId": "maven-run",
+        "localDocument": {
+          "version": 2,
+          "toolchain": {
+            "java": {
+              "homePath": "C:/Global JDK"
+            },
+            "maven": {
+              "executablePath": "C:/Global Maven/bin/mvn.cmd",
+              "javaHomePath": "C:/Global Maven JDK"
+            },
+            "pathOverrides": {
+              "reactor": {
+                "javaHomePath": "C:/Reactor JDK",
+                "mavenExecutablePath": "C:/Reactor Maven/bin/mvn.cmd",
+                "mavenJavaHomePath": "C:/Reactor Maven JDK"
+              }
+            }
+          },
+          "configurations": [
+            {
+              "id": "maven-run",
+              "extensions": {
+                "java": {
+                  "mavenExecutablePath": "",
+                  "mavenJavaHomePath": "C:/Local Maven JDK"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "teamDocument": {
+        "version": 2,
+        "configurations": [
+          {
+            "id": "maven-run",
+            "extensions": {
+              "java": {
+                "homePath": "C:/Team JDK",
+                "mavenExecutablePath": "C:/Team Maven/bin/mvn.cmd"
+              }
+            }
+          }
+        ]
+      },
+      "generatedDocument": {
+        "version": 2,
+        "configurations": [
+          {
+            "id": "maven-run",
+            "name": "Module",
+            "provider": "maven.module",
+            "execution": "task",
+            "cwd": "reactor",
+            "toolchains": {
+              "java": "project-jdk",
+              "maven": "project-maven"
+            },
+            "extensions": {
+              "maven": {
+                "module": "."
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "saved selectors inherit canonical paths without a generated layer",
+      "request": {
+        "path": "reactor",
+        "configurationId": "user:reference",
+        "localDocument": {
+          "version": 2,
+          "toolchain": {
+            "maven": {
+              "executablePath": "C:/Global Maven/bin/mvn.cmd"
+            },
+            "pathOverrides": {
+              "reactor": {
+                "mavenExecutablePath": "C:/Reactor Maven/bin/mvn.cmd"
+              }
+            }
+          },
+          "configurations": [
+            {
+              "id": "user:reference",
+              "name": "Reference",
+              "provider": "build.provider",
+              "execution": "task",
+              "extensions": {
+                "build": {
+                  "pluginID": "dev.example.build",
+                  "buildSystemID": "example",
+                  "root": "reactor",
+                  "run": "module",
+                  "projectID": "p",
+                  "targetID": "t",
+                  "execution": "task",
+                  "userArguments": []
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "version": 1,
+  "expected": {
+    "explicit configuration paths override canonical project defaults": {
+      "toolchain": {
+        "javaHomePath": "C:/Run JDK",
+        "mavenExecutablePath": "C:/Run Maven/bin/mvn.cmd",
+        "mavenJavaHomePath": "C:/Run Maven JDK",
+        "runtimeExecutablePaths": {}
+      }
+    },
+    "empty configuration values inherit the canonical reactor instead of global defaults": {
+      "toolchain": {
+        "javaHomePath": "C:/Reactor JDK",
+        "mavenExecutablePath": "C:/Reactor Maven/bin/mvn.cmd",
+        "mavenJavaHomePath": "C:/Reactor Maven JDK",
+        "runtimeExecutablePaths": {}
+      }
+    },
+    "a configuration cannot select another provider root": {
+      "errorCode": "invalid_request"
+    },
+    "an unknown configuration cannot fall back to project paths": {
+      "errorCode": "invalid_request"
+    },
+    "malformed explicit paths cannot fall back to a valid default": {
+      "errorCode": "parse_failed"
+    },
+    "team and local explicit fields reuse the existing Run merge": {
+      "toolchain": {
+        "javaHomePath": "C:/Team JDK",
+        "mavenExecutablePath": "C:/Reactor Maven/bin/mvn.cmd",
+        "mavenJavaHomePath": "C:/Local Maven JDK",
+        "runtimeExecutablePaths": {}
+      }
+    },
+    "saved selectors inherit canonical paths without a generated layer": {
+      "toolchain": {
+        "javaHomePath": "",
+        "mavenExecutablePath": "C:/Reactor Maven/bin/mvn.cmd",
+        "mavenJavaHomePath": "",
+        "runtimeExecutablePaths": {}
+      }
+    }
+  }
+}

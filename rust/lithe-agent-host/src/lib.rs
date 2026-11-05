@@ -6,6 +6,8 @@
 //! credential storage stay with the platform applications.
 //! See `.agents/notes/implemented/architecture/2026-09-25-shared-acp-agent-conversation.md`.
 
+pub mod failure_log;
+
 pub mod catalog;
 mod claude_desktop;
 mod claude_earlier_history;
@@ -800,6 +802,7 @@ impl AgentHandle {
                     Err(error) => Some(error.to_string()),
                 };
                 emit(AgentEvent::Stopped { message });
+                // log-exempt: 用户取消：AgentHandle 已关闭完成通道，放弃等待 worker 的退出通知。
                 let _ = finished_tx.send(());
             })
             .map_err(|error| error.to_string())?;
@@ -856,6 +859,7 @@ impl AgentHandle {
         }
         reject_pending_permissions(&self.permissions, None);
         self.stop_requested.store(true, Ordering::Release);
+        // log-exempt: 用户取消：Agent worker 已退出并关闭控制通道，不再等待 Stop。
         let _ = self.controls.send(Control::Stop);
         if self.finished.recv_timeout(STOP_TIMEOUT).is_err() {
             let pid = self.child_pid.load(Ordering::SeqCst);
@@ -866,11 +870,17 @@ impl AgentHandle {
                     force_kill_tree(pid);
                 }
             }
-            let _ = self.finished.recv_timeout(STOP_TIMEOUT);
+            crate::failure_log::worker_stop(self.finished.recv_timeout(STOP_TIMEOUT));
         }
         if let Some(worker) = self.worker.take() {
             if worker.is_finished() {
-                let _ = worker.join();
+                crate::failure_log::outcome(
+                    "agent.host.operation_failed",
+                    "worker_join",
+                    worker.join(),
+                    "panic",
+                    "thread",
+                );
             }
         }
     }
@@ -894,6 +904,7 @@ fn answer_permission(
         .and_then(|mut pending| pending.remove(request_id));
     match pending {
         Some(pending) => {
+            // log-exempt: 用户取消：ACP permission 请求方已结束该请求，放弃等待用户决定。
             let _ = pending.reply.send(option_id);
             Ok(())
         }
@@ -910,6 +921,7 @@ fn reject_pending_permissions(permissions: &PendingPermissions, session_id: Opti
             .collect();
         for id in ids {
             if let Some(entry) = pending.remove(&id) {
+                // log-exempt: 用户取消：被取消的 ACP permission 请求方已退出，放弃等待拒绝应答。
                 let _ = entry.reply.send(None);
             }
         }
@@ -930,6 +942,7 @@ fn reject_ended_subagent_permissions(
             .collect();
         for id in ids {
             if let Some(entry) = pending.remove(&id) {
+                // log-exempt: 用户取消：已结束子 Agent 的 permission 请求方已退出，放弃等待拒绝应答。
                 let _ = entry.reply.send(None);
             }
         }
@@ -1068,12 +1081,22 @@ async fn run_agent(
                     if configured {
                         Some(proxy)
                     } else {
-                        eprintln!("Subscription statistics are unavailable");
+                        failure_log::failed(
+                            "agent.observation.start_failed",
+                            "subscription_observation",
+                            "configuration",
+                            "agent",
+                        );
                         None
                     }
                 }
                 Err(_) => {
-                    eprintln!("Agent model-call statistics could not start");
+                    failure_log::failed(
+                        "agent.observation.start_failed",
+                        "proxy_start",
+                        "start",
+                        "agent",
+                    );
                     None
                 }
             }
@@ -1101,8 +1124,13 @@ async fn run_agent(
     let mut context_recovery = if codex_executable.is_some() {
         match codex_context::Recovery::start().await {
             Ok(recovery) => Some(Arc::new(recovery)),
-            Err(_) => {
-                eprintln!("Codex history context reporting is unavailable");
+            Err(error) => {
+                failure_log::failed(
+                    "agent.history.prepare_failed",
+                    "context_start",
+                    &format!("{:?}", error.kind()),
+                    "io",
+                );
                 None
             }
         }
@@ -1131,7 +1159,12 @@ async fn run_agent(
             }
             Err(error) if native_recovery => return Err(error),
             Err(_) => {
-                eprintln!("Could not prepare Codex history context reporting");
+                failure_log::failed(
+                    "agent.history.prepare_failed",
+                    "relay_prepare",
+                    "prepare",
+                    "agent",
+                );
                 context_recovery = None;
                 // Without the native account-routing guard, retain direct
                 // inference rather than bypassing managed residency rules.
@@ -1263,7 +1296,13 @@ async fn run_agent(
         terminate_tree(&mut child).await;
     }
     child_pid.store(0, Ordering::SeqCst);
-    let _ = tokio::time::timeout(STOP_TIMEOUT, stderr_task).await;
+    crate::failure_log::nested(
+        "agent.host.operation_failed",
+        "stderr_join",
+        tokio::time::timeout(STOP_TIMEOUT, stderr_task).await,
+        "completion_failed",
+        "task",
+    );
     result.map_err(|message| {
         // The protocol error wraps this text as JSON data; return it verbatim so
         // clients can localize the one actionable sign-in instruction.
@@ -1318,11 +1357,16 @@ async fn terminate_tree(child: &mut tokio::process::Child) {
                 .collect()
         })
         .unwrap_or_default();
+    // log-exempt: 预期的缺失：TERM 后尚未退出由下方强制终止和最终 wait 统一判定，当前宽限期结束不是清理失败。
     let _ = tokio::time::timeout(STOP_TIMEOUT, child.wait()).await;
     for process_id in tree {
         force_kill_tree(process_id);
     }
-    let _ = tokio::time::timeout(STOP_TIMEOUT, child.wait()).await;
+    crate::failure_log::process_wait(
+        "agent.host.operation_failed",
+        "process_wait",
+        tokio::time::timeout(STOP_TIMEOUT, child.wait()).await,
+    );
 }
 
 /// End only the agent process: the host already ended the descendants the user
@@ -1342,8 +1386,16 @@ async fn terminate_process(child: &mut tokio::process::Child) {
             return;
         }
     }
-    let _ = child.start_kill();
-    let _ = tokio::time::timeout(STOP_TIMEOUT, child.wait()).await;
+    crate::failure_log::kill(
+        "agent.host.operation_failed",
+        "process_kill",
+        child.start_kill(),
+    );
+    crate::failure_log::process_wait(
+        "agent.host.operation_failed",
+        "process_wait",
+        tokio::time::timeout(STOP_TIMEOUT, child.wait()).await,
+    );
 }
 
 /// SIGKILL one process without touching its descendants or group.
@@ -1359,6 +1411,7 @@ fn force_kill_process(process_id: u32) {
         }
     }
     #[cfg(not(unix))]
+    // log-exempt: 预期的缺失：非 Unix 平台没有单进程信号操作，此处只消费未使用的进程 ID。
     let _ = process_id;
 }
 
@@ -1372,7 +1425,9 @@ fn force_kill_tree(process_id: u32) {
         signal: "SIGKILL".into(),
         include_target: true,
     };
-    let _ = kill_tree::blocking::kill_tree_with_config(process_id, &config);
+    crate::failure_log::kill_tree(kill_tree::blocking::kill_tree_with_config(
+        process_id, &config,
+    ));
     #[cfg(unix)]
     if let Ok(group) = libc::pid_t::try_from(process_id) {
         if group > 1 {
@@ -1907,6 +1962,7 @@ where
                                         "injected" => ("injected", None),
                                         "startedNewTurn" if tracks_detached_steering => { detached = true; ("injected", None) },
                                         "startedNewTurn" => {
+                                            // log-exempt: 用户取消：ACP 连接控制循环已退出，放弃等待 steering 致命失败通知。
                                             let _ = fatal.send("This Agent started an untracked continuation. Reconnect and check the conversation before retrying.".into());
                                             return;
                                         },
@@ -1918,12 +1974,13 @@ where
                                 Err(_) => {
                                     // A timed-out extension might still consume the input.
                                     // Stop the connection rather than retrying it blindly.
+                                    // log-exempt: 用户取消：ACP 连接控制循环已退出，放弃等待 steering 超时通知。
                                     let _ = fatal.send("The Agent did not confirm the supplementary message. Reconnect and check the conversation before retrying.".into());
                                     return;
                                 }
                             };
                             if detached && retry.borrow().cancelling {
-                                let _ = connection.send_notification(CancelNotification::new(session_id.clone()));
+                                crate::failure_log::cancel_notification(connection.send_notification(CancelNotification::new(session_id.clone())));
                             }
                             emit(AgentEvent::SteeringResult { token, session_id, outcome: outcome.into(), message });
                             // Publish delivery before releasing the terminal-event barrier.
@@ -2008,8 +2065,8 @@ where
                                     return;
                                 }
                                 reject_pending_permissions(&prompt_permissions, Some(&session_id));
-                                let _ = connection
-                                    .send_notification(CancelNotification::new(session_id.clone()));
+                                crate::failure_log::cancel_notification(connection
+                                    .send_notification(CancelNotification::new(session_id.clone())));
                                 emit(AgentEvent::TurnCancelling {
                                     session_id: session_id.clone(),
                                 });
@@ -2051,6 +2108,7 @@ where
                                             Some(session_id.clone()),
                                             timeout_message,
                                         ));
+                                        // log-exempt: 用户取消：ACP 连接控制循环已退出，放弃等待 prompt 取消期限通知。
                                         let _ = cancel_deadline.send((session_id, generation));
                                     }
                                 }
@@ -2101,14 +2159,15 @@ where
                         // this point would otherwise remain pending after cancellation.
                         reject_pending_permissions(&cancel_permissions, Some(&session_id));
                         if let Some(generation) = generation {
-                            let _ = connection
-                                .send_notification(CancelNotification::new(session_id.clone()));
+                            crate::failure_log::cancel_notification(connection
+                                .send_notification(CancelNotification::new(session_id.clone())));
                             emit(AgentEvent::TurnCancelling {
                                 session_id: session_id.clone(),
                             });
                             let deadline = cancel_deadline_tx.clone();
                             tasks.spawn(async move {
                                 tokio::time::sleep(CANCEL_TIMEOUT).await;
+                                // log-exempt: 用户取消：ACP 连接控制循环已退出，放弃等待用户 Stop 的期限通知。
                                 let _ = deadline.send((session_id, generation));
                             });
                         }
@@ -2121,7 +2180,7 @@ where
                 .map(|turns| turns.keys().cloned().collect())
                 .unwrap_or_default();
             for session_id in running {
-                let _ = connection.send_notification(CancelNotification::new(session_id));
+                crate::failure_log::cancel_notification(connection.send_notification(CancelNotification::new(session_id)));
             }
             tasks.abort_all();
             while tasks.join_next().await.is_some() {}

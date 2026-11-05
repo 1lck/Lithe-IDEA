@@ -4,6 +4,7 @@ import vscode from "../themes/vscode.json";
 import idea from "../themes/idea.json";
 
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
+import { vs, vs_dark } from "monaco-editor/esm/vs/editor/standalone/common/themes.js";
 
 import { MONACO_TOKEN_SYNTAX_ROLES, createMonacoTokenStyleRules } from "./token-theme-roles";
 
@@ -12,6 +13,8 @@ export interface WorkbenchThemeInput {
   dark: boolean;
   syntaxScheme?: "lithe" | "github" | "one" | "vscode" | "idea";
   italicComments?: boolean;
+  custom?: { name: string; dark: boolean; colors: Record<string, string>;
+    tokens: Record<string, { foreground?: string; fontStyle?: string }> };
   colors?: {
     background?: string;
     foreground?: string;
@@ -39,6 +42,8 @@ function themeName(id: string): string {
 }
 
 export function defineWorkbenchTheme(input: WorkbenchThemeInput, palette: SyntaxPalette): string {
+  if (input.custom) input = { ...input, dark: input.custom.dark,
+    colors: { ...(input.dark === input.custom.dark ? input.colors : {}), ...input.custom.colors } };
   const appearance = input.dark ? "dark" : "light";
   // Token names such as "constructor" must never resolve through Object.prototype.
   const syntaxColors = new Map(Object.entries(palette.defaults).map(([role, value]) => [role, value[appearance]]));
@@ -65,6 +70,43 @@ export function defineWorkbenchTheme(input: WorkbenchThemeInput, palette: Syntax
     if (color) tokens.set(token, color);
   }
   if (input.syntaxScheme === "idea") {
+    // Keep Monaco's UI defaults, but resolve every inherited syntax foreground
+    // through this palette. Otherwise a more specific VS rule wins over IDEA
+    // (keyword.flow, operator.swift, attribute.value.html, etc.).
+    tokens.set("", syntaxColors.get("text")!);
+    for (const rule of (input.dark ? vs_dark : vs).rules) {
+      if (!rule.foreground || rule.token === "invalid" || tokens.has(rule.token)) continue;
+      let parent = rule.token;
+      while (parent && !tokens.has(parent)) parent = parent.slice(0, Math.max(0, parent.lastIndexOf(".")));
+      tokens.set(rule.token, tokens.get(parent)!);
+    }
+    // SQL's inherited Monaco rules override generic colors (red strings,
+    // magenta builtins, slate operators). Resolve the language roles explicitly.
+    for (const [token, role] of [
+      ["string.sql", "string"], ["operator.sql", "text"],
+      ["operator.sql.word", "keyword"], ["predefined.sql", "text"],
+      ["predefined.sql.keyword", "keyword"], ["keyword.sql", "keyword"],
+      ["number.sql", "number"], ["comment.sql", "comment"],
+      ["comment.quote.sql", "comment"], ["delimiter.sql", "text"],
+      ["delimiter.parenthesis.sql", "text"], ["delimiter.square.sql", "text"],
+    ]) tokens.set(token, syntaxColors.get(role)!);
+    // Community YAMLHighlighter: keys -> KEYWORD, plain/block scalars -> TEXT,
+    // quoted scalars -> STRING, comments -> DOC_COMMENT, anchors/tags -> IDENTIFIER.
+    // Keep the language suffix: changing generic type/string would recolor Java and JSON.
+    for (const [token, role] of [
+      ["type.yaml", "keyword"], ["string.yaml", "string"], ["string.yaml.plain", "text"],
+      ["number.yaml", "text"], ["keyword.yaml", "text"],
+      ["comment.yaml", "documentationComment"], ["tag.yaml", "text"],
+      ["namespace.yaml", "text"], ["operators.yaml", "text"],
+      ["string.escape.yaml", "string"],
+    ]) tokens.set(token, syntaxColors.get(role)!);
+    for (const kind of ["float", "octal", "hex", "infinity", "nan", "date"])
+      tokens.set(`number.${kind}.yaml`, syntaxColors.get("text")!);
+    // Light overrides YAML_ANCHOR explicitly instead of inheriting IDENTIFIER.
+    if (!input.dark) {
+      tokens.set("namespace.yaml", "#0000e6");
+      tokens.set("tag.yaml", "#0000e6");
+    }
     // Java METHOD_CALL inherits the identifier color. Darcula's STATIC_METHOD
     // has font attributes but no foreground; declarations use FUNCTION_DECLARATION.
     // Keep lexical Java names neutral until the language server classifies them.
@@ -103,13 +145,36 @@ export function defineWorkbenchTheme(input: WorkbenchThemeInput, palette: Syntax
     const value = input.colors?.[role];
     if (value) for (const key of monacoKeys) colors[key] = value;
   }
+  // Apply custom styles after the built-in language overrides, including their more-specific aliases.
+  if (input.custom?.colors.foreground) tokens.set("", input.custom.colors.foreground);
+  const customRules: monaco.editor.ITokenThemeRule[] = [];
+  const custom = input.custom?.tokens;
+  if (custom) {
+    const candidates = new Set([...tokens.keys(), ...Object.keys(custom),
+      ...createMonacoTokenStyleRules(false).map(rule => rule.token)]);
+    const aliases = new Map(MONACO_TOKEN_SYNTAX_ROLES);
+    for (const token of candidates) {
+      let key = token;
+      while (key && !Object.hasOwn(custom, key)) key = key.slice(0, Math.max(0, key.lastIndexOf(".")));
+      const role = aliases.get(token);
+      const parts = token.split(".");
+      const method = parts[0] === "method";
+      const declaration = method && parts.includes("declaration");
+      const staticMethod = method && parts.includes("static");
+      const semantic = staticMethod ? custom[declaration ? "method.declaration.static" : "method.static"]
+        : declaration ? custom["method.declaration"] ?? custom.functionDeclaration : undefined;
+      const style = semantic ?? ((declaration || staticMethod) ? undefined : custom[key] ?? (role ? custom[role] : undefined));
+      if (style) customRules.push({ token, ...(style.foreground ? { foreground: style.foreground.slice(1) } : {}),
+        ...(style.fontStyle !== undefined ? { fontStyle: [style.fontStyle, ...(parts.includes("deprecated") ? ["strikethrough"] : [])].filter(Boolean).join(" ") } : {}) });
+    }
+  }
   const name = themeName(input.id);
   monaco.editor.defineTheme(name, {
     base: input.dark ? "vs-dark" : "vs", inherit: true, colors,
     rules: [...[...tokens].map(([token, foreground]) => ({ token, foreground: foreground.slice(1) })),
       { token: "comment", fontStyle: input.italicComments ? "italic" : "" },
       { token: "documentationComment", fontStyle: input.italicComments ? "italic" : "" },
-      ...createMonacoTokenStyleRules(input.italicComments === true)],
+      ...createMonacoTokenStyleRules(input.italicComments === true), ...customRules],
   });
   return name;
 }

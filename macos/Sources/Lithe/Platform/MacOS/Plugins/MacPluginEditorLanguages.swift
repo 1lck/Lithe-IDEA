@@ -21,7 +21,7 @@ final class MacPluginEditorLanguages: PluginEditorLanguageProviding {
     private let isModuleUsable: @MainActor (ModuleID) -> Bool
     private let livePackages: @MainActor () -> [InstalledPluginPackage]
     private let decoder: any DeclarativeEditorContributionDecoding
-    private let log: @MainActor (_ message: String, _ fields: [String: String]) -> Void
+    private let logSink: (any LogSink)?
     private let changeSubject = PassthroughSubject<Void, Never>()
     private var subscriptions: Set<AnyCancellable> = []
     /// Decoded languages by file identity; nil records a refused grammar so
@@ -54,7 +54,7 @@ final class MacPluginEditorLanguages: PluginEditorLanguageProviding {
         livePackages: @escaping @MainActor () -> [InstalledPluginPackage],
         decoder: any DeclarativeEditorContributionDecoding,
         triggers: [AnyPublisher<Void, Never>],
-        log: @escaping @MainActor (_ message: String, _ fields: [String: String]) -> Void
+        logSink: (any LogSink)? = nil
     ) {
         self.launchRegistered = launchRegistered.filter {
             $0.descriptor.languages.contains { $0.hasEditorResources }
@@ -62,7 +62,7 @@ final class MacPluginEditorLanguages: PluginEditorLanguageProviding {
         self.isModuleUsable = isModuleUsable
         self.livePackages = livePackages
         self.decoder = decoder
-        self.log = log
+        self.logSink = logSink
         for trigger in triggers {
             trigger.sink { [weak self] in self?.changeSubject.send() }.store(in: &subscriptions)
         }
@@ -80,22 +80,27 @@ final class MacPluginEditorLanguages: PluginEditorLanguageProviding {
                 // First enabled plugin ID wins deterministically for presentation.
                 guard seen.insert(language.id).inserted, let value = grammar(of: language, in: package) else { continue }
                 set.languages.append(value)
+                set.pluginIDs[language.id] = package.descriptor.id.rawValue
             }
         }
         return set
     }
 
     private func grammar(of language: DeclarativePluginLanguage, in package: InstalledPluginPackage) -> ToolingJSONValue? {
-        let fields = ["plugin": package.descriptor.id.rawValue, "language": language.id]
+        let plugin = LogSegment(package.descriptor.id.rawValue)
+        let languageID = language.id.utf8.count <= 64 ? language.id : nil
+        func rejected(_ reason: String, error: (any Error)? = nil) {
+            if let plugin { logSink?.emit(PluginsGrammarRejected(error: error, language: languageID, plugin: plugin, reason: reason)) }
+        }
         guard let path = language.grammarPath else {
             return try? decoder.decodeGrammar(manifest: package.descriptor.normalizedManifest, languageID: language.id, grammar: "")
         }
         guard let url = Self.packageFile(path, in: package.packageURL) else {
-            log("plugin grammar is outside its package", fields)
+            rejected("outside_package")
             return nil
         }
         guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
-            log("plugin grammar is not a regular file", fields)
+            rejected("not_regular_file")
             return nil
         }
         let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
@@ -110,7 +115,7 @@ final class MacPluginEditorLanguages: PluginEditorLanguageProviding {
                     message: "The grammar file is missing or larger than 256 KiB.", field: "grammar.path")
             }
             let handle = try FileHandle(forReadingFrom: url)
-            defer { try? handle.close() }
+            defer { do { try handle.close() } catch { logSink?.emit(PluginsResourcesMaintenanceFailed(error: error, stage: "file-close")) } }
             let bytes = try handle.read(upToCount: Self.maximumGrammarBytes + 1) ?? Data()
             guard bytes.count <= Self.maximumGrammarBytes,
                   let text = String(data: bytes, encoding: .utf8) else {
@@ -120,7 +125,7 @@ final class MacPluginEditorLanguages: PluginEditorLanguageProviding {
             value = try decoder.decodeGrammar(manifest: package.descriptor.normalizedManifest,
                                               languageID: language.id, grammar: text)
         } catch {
-            log("plugin grammar refused", fields.merging(["error": error.localizedDescription]) { _, new in new })
+            rejected("invalid_grammar", error: error)
             value = nil
         }
         decoded[key] = .some(value)

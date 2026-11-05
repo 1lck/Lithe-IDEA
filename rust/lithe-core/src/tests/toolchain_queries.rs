@@ -1,24 +1,18 @@
 //! Pure query validation with inert native filesystem facts and cross-platform paths.
 
+use super::toolchain_vectors::{error_responses, query_request, query_response, HOME, WORKSPACE};
 use crate::toolchain::{paths, query};
 use serde_json::{json, Value};
-
-const HOME: &str = "/opt/lithe-fixtures/installs/java/21.0.4";
-const WORKSPACE: &str = "/opt/lithe-fixtures/workspace";
 
 fn contract(name: &str) -> Value {
     let source = match name {
         "java" => include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../shared/contracts/plugins/v1/fixtures/tool-definition.plugin.json"
+            "/../../shared/contracts/plugins/v1/fixtures/toolchains/tool-definition.plugin.json"
         )),
         "mise" => include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../shared/contracts/plugins/v1/fixtures/toolchain-provider.plugin.json"
-        )),
-        "queries" => include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../shared/contracts/plugins/v1/proposals/toolchains/fixtures/query-cases.json"
+            "/../../shared/contracts/plugins/v1/fixtures/toolchains/toolchain-provider.plugin.json"
         )),
         _ => panic!("unknown contract fixture"),
     };
@@ -34,9 +28,8 @@ fn fact(path: &str, kind: &str, executable: bool) -> Value {
 }
 
 fn input() -> Value {
-    let fixture = contract("queries");
-    json!({"registry":{"plugins":[{"manifest":manifest(&contract("java")),"verifiedOfficial":true},{"manifest":manifest(&contract("mise")),"verifiedOfficial":false}]},
-        "pluginID":"dev.lithe.fixture.mise","request":fixture["cases"][0]["request"],"response":fixture["cases"][0]["response"],"currentGeneration":1,"platform":"macos",
+    json!({"registry":{"plugins":[{"manifest":manifest(&contract("java"))},{"manifest":manifest(&contract("mise"))}]},
+        "pluginID":"dev.lithe.fixture.mise","request":query_request(),"response":query_response(),"currentGeneration":1,"platform":"macos",
         "filesystem":[fact(WORKSPACE,"directory",false),fact(HOME,"directory",false),fact(&format!("{HOME}/bin/java"),"file",true),fact(&format!("{WORKSPACE}/mise.toml"),"file",false)]})
 }
 
@@ -54,6 +47,38 @@ fn toolchain_queries_decode_installed_contract_reply_without_native_io() {
     );
     assert_eq!(outcome["statements"][0]["request"], "21");
     assert_eq!(outcome["diagnostics"], json!([]));
+}
+
+/// Core transport uses string JSON-RPC IDs; matching includes both type and value.
+#[test]
+fn toolchain_queries_preserve_bounded_string_and_numeric_wire_identities() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/toolchains/rpc-id-cases.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let mut value = input();
+        value["request"]["id"] = case["id"].clone();
+        value["response"]["id"] = case["id"].clone();
+        assert_eq!(
+            query::decode(&value).is_ok(),
+            case["accepted"].as_bool().unwrap(),
+            "{case}"
+        );
+    }
+    for (request, response) in [
+        (json!(1), json!("1")),
+        (json!("1"), json!(1)),
+        (json!("one"), json!("two")),
+    ] {
+        let mut value = input();
+        value["request"]["id"] = request;
+        value["response"]["id"] = response;
+        assert_eq!(
+            query::decode(&value).unwrap_err().code,
+            "plugin.toolchain.invalidReply"
+        );
+    }
 }
 
 #[test]
@@ -193,9 +218,8 @@ fn toolchain_queries_refuse_mismatched_rpc_and_operation_generations() {
 #[test]
 fn toolchain_queries_keep_every_error_mapping_unique_and_validate_the_pair() {
     let mut numbers = std::collections::BTreeSet::new();
-    for response in contract("queries")["errorResponses"].as_array().unwrap() {
+    for mut response in error_responses() {
         let mut value = input();
-        let mut response = response.clone();
         response["id"] = value["request"]["id"].clone();
         response["error"]["data"]["operationID"] =
             value["request"]["params"]["operationID"].clone();

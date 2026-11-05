@@ -73,12 +73,12 @@ struct RemoteConnectionsView: View {
             ))
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack(spacing: 2) {
-                Button { feature.addConnection() } label: {
+                Button(action: UserActionTrace.action("workspace.remote.add") { feature.addConnection() }) {
                     LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: 16, fallbackSystemImage: "plus")
                 }
                 .litheToolbarIconButton()
                 .help(Text(LocalizedStringKey("New SSH Connection")))
-                Button { feature.removeSelection() } label: {
+                Button(action: UserActionTrace.action("workspace.remote.remove") { feature.removeSelection() }) {
                     Image(systemName: "minus").font(LitheTheme.uiFont(size: 12, weight: .medium))
                 }
                 .litheToolbarIconButton(isEnabled: feature.selection != nil)
@@ -134,7 +134,8 @@ struct RemoteConnectionsView: View {
                         LitheSettingsRow("Remote folder", info: "The project folder on the host; empty uses the home directory. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder.") {
                             textField("Remote folder", text: binding(\.remoteDirectory),
                                       prompt: connection.lastKnownHost?.homeDirectory ?? "~")
-                            Button(LocalizedStringKey("Browse…")) { feature.browseRemoteFolder() }
+                            Button(LocalizedStringKey("Browse…"),
+                                action: UserActionTrace.action("workspace.remote.browse") { feature.browseRemoteFolder() })
                                 .buttonStyle(LitheActionButtonStyle())
                                 .disabled(!feature.canConnect || connection.problem != nil
                                           || feature.selectionTestState == .testing)
@@ -156,7 +157,8 @@ struct RemoteConnectionsView: View {
                 LitheIDEAIcon(resourcePath: "expui/webReferences/server.svg", size: 32, fallbackSystemImage: "server.rack")
                 Text(LocalizedStringKey("No SSH connections yet."))
                     .foregroundStyle(LitheTheme.secondaryText)
-                Button(LocalizedStringKey("New SSH Connection")) { feature.addConnection() }
+                Button(LocalizedStringKey("New SSH Connection"),
+                    action: UserActionTrace.action("workspace.remote.add") { feature.addConnection() })
                     .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -183,10 +185,12 @@ struct RemoteConnectionsView: View {
                 Spacer(minLength: 8)
                 statusPill(connection, state: state)
                 if state == .testing {
-                    Button(LocalizedStringKey("Stop")) { feature.cancelTest() }
+                    Button(LocalizedStringKey("Stop"),
+                        action: UserActionTrace.action("workspace.remote.test.cancel") { feature.cancelTest() })
                         .buttonStyle(LitheActionButtonStyle())
                 } else {
-                    Button(LocalizedStringKey("Test Connection")) { feature.testSelection() }
+                    Button(LocalizedStringKey("Test Connection"),
+                        action: UserActionTrace.action("workspace.remote.test") { feature.testSelection() })
                         .buttonStyle(LitheActionButtonStyle())
                         .disabled(connection.problem != nil)
                 }
@@ -344,9 +348,8 @@ struct RemoteConnectionsView: View {
                                 if feature.isLocating {
                                     ProgressView().controlSize(.small)
                                 } else {
-                                    Button(LocalizedStringKey(host.location == nil ? "Look Up Location" : "Look Up Again")) {
-                                        feature.locateSelectedHost()
-                                    }
+                                    Button(LocalizedStringKey(host.location == nil ? "Look Up Location" : "Look Up Again"),
+                                        action: UserActionTrace.action("workspace.remote.locate") { feature.locateSelectedHost() })
                                     .buttonStyle(LitheActionButtonStyle())
                                 }
                             }
@@ -467,12 +470,12 @@ struct RemoteConnectionsView: View {
             Button(LocalizedStringKey("Cancel")) { closePanel() }
                 .buttonStyle(LitheActionButtonStyle())
                 .keyboardShortcut(.cancelAction)
-            Button(LocalizedStringKey("Save")) {
+            Button(LocalizedStringKey("Save"), action: UserActionTrace.action("workspace.remote.save") {
                 if feature.save() { closePanel() }
-            }
+            })
             .buttonStyle(LitheActionButtonStyle())
             .disabled(!feature.canSave)
-            Button(LocalizedStringKey("Open")) { feature.openSelection() }
+            Button(LocalizedStringKey("Open"), action: UserActionTrace.action("workspace.remote.open") { feature.openSelection() })
                 .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction)
                 .disabled(!feature.canSave || !feature.canConnect || feature.selection?.problem != nil
@@ -579,7 +582,8 @@ private struct RemoteFolderBrowserView: View {
                     Button(LocalizedStringKey("Cancel")) { feature.closeBrowser() }
                         .buttonStyle(LitheActionButtonStyle())
                         .keyboardShortcut(.cancelAction)
-                    Button(LocalizedStringKey("Choose This Folder")) { feature.chooseBrowserFolder() }
+                    Button(LocalizedStringKey("Choose This Folder"),
+                        action: UserActionTrace.action("workspace.remote.folder.choose") { feature.chooseBrowserFolder() })
                         .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                         .keyboardShortcut(.defaultAction)
                         .disabled(browser.isLoading)

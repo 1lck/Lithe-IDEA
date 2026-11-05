@@ -38,13 +38,17 @@ struct WorkbenchModuleUIRegistry {
         let perform: @MainActor (AppModel) -> Void
         /// Native activation also binds feature observations; restoration must not toggle content.
         let activateOwner: (@MainActor (AppModel) async -> Bool)?
+        /// Runs only after an asynchronous display request passes its final identity checks.
+        let didShow: (@MainActor (AppModel) -> Void)?
         let state: @MainActor (AppModel) -> ActionState
         init(id: String, perform: @escaping @MainActor (AppModel) -> Void,
              activateOwner: (@MainActor (AppModel) async -> Bool)? = nil,
+             didShow: (@MainActor (AppModel) -> Void)? = nil,
              state: @escaping @MainActor (AppModel) -> ActionState = { _ in .init() }) {
             self.id = id
             self.perform = perform
             self.activateOwner = activateOwner
+            self.didShow = didShow
             self.state = state
         }
     }
@@ -111,21 +115,25 @@ struct WorkbenchModuleUIRegistry {
         let contributions: [ModuleContribution]
         let actions: [Action]
         let renderers: [Renderer]
+        let localizesTitles: Bool
 
         init(
             contributions: [ModuleContribution] = [],
             actions: [Action] = [],
-            renderers: [Renderer] = []
+            renderers: [Renderer] = [],
+            localizesTitles: Bool = true
         ) {
             self.contributions = contributions
             self.actions = actions
             self.renderers = renderers
+            self.localizesTitles = localizesTitles
         }
     }
 
     private let actions: [String: Action]
     private let renderers: [String: Renderer]
     private var iconAssets: [String: WorkbenchContributionIcon.Asset] = [:]
+    private var literalTitleIDs: Set<String> = []
 
     init(registrations: [Registration]) throws {
         var actions: [String: Action] = [:]
@@ -154,6 +162,7 @@ struct WorkbenchModuleUIRegistry {
 
         self.actions = actions
         self.renderers = renderers
+        literalTitleIDs = Set(registrations.filter { !$0.localizesTitles }.flatMap { $0.contributions.map(\.id) })
         try validate(contributions: registrations.flatMap(\.contributions))
         registerIcons(registrations.flatMap(\.contributions).filter { $0.uiIcon != nil }, resources: [:])
     }
@@ -188,7 +197,7 @@ struct WorkbenchModuleUIRegistry {
                 ))
             }
         }
-        return Registration(contributions: declaration.contributions, actions: actions, renderers: renderers)
+        return Registration(contributions: declaration.contributions, actions: actions, renderers: renderers, localizesTitles: false)
     }
 
     mutating func registerIcons(_ contributions: [ModuleContribution], resources: [String: PluginUIIconResources]) {
@@ -227,6 +236,14 @@ struct WorkbenchModuleUIRegistry {
         contribution.actionID.flatMap { actions[$0]?.activateOwner }
     }
 
+    func didShow(_ contribution: ModuleContribution, model: AppModel) {
+        contribution.actionID.flatMap { actions[$0]?.didShow }?(model)
+    }
+
+    func localizesTitle(for contribution: ModuleContribution) -> Bool {
+        !literalTitleIDs.contains(contribution.id)
+    }
+
     func isContentVisible(for contribution: ModuleContribution, model: AppModel) -> Bool {
         let state = state(for: contribution, model: model)
         guard state.isVisible && state.isEnabled, let renderer = renderer(for: contribution) else { return false }
@@ -258,16 +275,24 @@ struct WorkbenchModuleUIRegistry {
         return action.state(model)
     }
 
-    func performAction(id: String, model: AppModel) {
+    /// `surface` names the UI entry that invoked the action; `nil` marks host
+    /// restore or replay, which is not a user action and writes no action line.
+    func performAction(id: String, model: AppModel, surface: UserActionSurface?) {
         let state = state(forActionID: id, model: model)
-        guard state.isVisible && state.isEnabled else { return }
-        actions[id]?.perform(model)
+        guard state.isVisible && state.isEnabled, let action = actions[id] else { return }
+        trace(id, surface: surface, model: model) { action.perform(model) }
     }
 
-    func perform(_ contribution: ModuleContribution, model: AppModel) {
+    func perform(_ contribution: ModuleContribution, model: AppModel, surface: UserActionSurface?) {
         let state = state(for: contribution, model: model)
-        guard state.isVisible && state.isEnabled, let actionID = contribution.actionID else { return }
-        actions[actionID]?.perform(model)
+        guard state.isVisible && state.isEnabled, let actionID = contribution.actionID,
+              let action = actions[actionID] else { return }
+        trace(actionID, surface: surface, model: model) { action.perform(model) }
+    }
+
+    private func trace(_ id: String, surface: UserActionSurface?, model: AppModel, _ body: () -> Void) {
+        guard let surface else { return body() }
+        UserActionTrace.run(id, surface: surface, sink: model.services.logSink, body)
     }
 
     func selectedToolContent(

@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import * as tauriCore from "@/platform/tauri-core";
+import commitSelectionFixture from "../../../../../../shared/fixtures/git/commit-selection-plan-v1.json";
 
 let unavailableRepo: string | null = null;
 let statusFailure: Error | null = null;
+let rollbackPlan: unknown = { steps: [] };
+let rollbackFailure: Error | null = null;
+let interceptPrepare: (() => Promise<unknown>) | undefined;
+let interceptReserve: (() => Promise<unknown>) | undefined;
 
 let interceptWrite: ((args: Record<string, unknown>) => Promise<unknown>) | undefined;
 // Keyed by command: repository discovery may or may not run first, depending
@@ -11,38 +16,67 @@ let fileDiffResponse: unknown = null;
 let statusFiles: unknown[] | null = null;
 let directoryListings: Record<string, unknown[]> | null = null;
 
-const invoke = mock(async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
-  if (command === "git.write" && interceptWrite) return interceptWrite(args ?? {});
-  if (command === "git_diff_file") return fileDiffResponse;
-  if (command === "git_discover_repo") {
-    const path = String(args?.path ?? "");
-    return path.startsWith("C:/workspace/") ? path : "C:/repo";
-  }
-  if (command === "git.untrackedDirectory") {
-    const listing = directoryListings?.[String(args?.directory ?? "")];
-    if (!listing) throw new Error("Git untracked file listing failed");
-    return { files: listing };
-  }
-  if (command === "git_status") {
-    const repoPath = String(args?.repoPath ?? "");
-    if (statusFailure) throw statusFailure;
-    if (repoPath === unavailableRepo) return null;
-    if (statusFiles) return { branch: "main", ahead: 0, behind: 0, files: statusFiles };
-    return {
-      branch: repoPath.endsWith("service-a") ? "main" : "develop",
-      ahead: repoPath.endsWith("service-a") ? 1 : 0,
-      behind: repoPath.endsWith("service-b") ? 2 : 0,
-      files: [
-        {
-          path: "src/App.tsx",
-          status: "modified",
-          staged: repoPath.endsWith("service-b"),
-        },
-      ],
-    };
-  }
-  return null;
-});
+const invoke = mock(
+  async (
+    command: string,
+    args?: Record<string, unknown>,
+    _options?: Parameters<typeof tauriCore.invoke>[2],
+  ): Promise<unknown> => {
+    if (command === "core_reserve_commit_selection")
+      return interceptReserve ? interceptReserve() : true;
+    if (command === "git.prepareCommitSelection" && interceptPrepare) return interceptPrepare();
+    if (command === "git.rollbackPrepare") {
+      if (rollbackFailure) throw rollbackFailure;
+      return rollbackPlan;
+    }
+    if (command === "git.write" && interceptWrite) return interceptWrite(args ?? {});
+    if (command === "git_diff_file") return fileDiffResponse;
+    if (command === "git.workspaceStatusMerge") {
+      const roots = args?.roots as string[];
+      const previous = new Set(args?.previousRoots as string[]);
+      const outcomes = args?.outcomes as Array<{ root: string; success: boolean }>;
+      return {
+        entries: roots.map((root) => ({ root, source: outcomes.find((item) => item.root === root)?.success
+          ? "current" : previous.has(root) ? "previous" : "missing" })),
+        confirmedRoots: outcomes.filter((item) => item.success).map((item) => item.root),
+        failedRoots: outcomes.filter((item) => !item.success).map((item) => item.root),
+      };
+    }
+    if (command === "git.resolveFileContext") {
+      const root = String(args?.root ?? "");
+      const path = String(args?.path ?? "");
+      return { root, path: path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path, ownership: "git" };
+    }
+    if (command === "git_discover_repo") {
+      const path = String(args?.path ?? "");
+      return path.startsWith("C:/workspace/") ? path : "C:/repo";
+    }
+    if (command === "git.untrackedDirectory") {
+      const listing = directoryListings?.[String(args?.directory ?? "")];
+      if (!listing) throw new Error("Git untracked file listing failed");
+      return { files: listing };
+    }
+    if (command === "git_status") {
+      const repoPath = String(args?.repoPath ?? "");
+      if (statusFailure) throw statusFailure;
+      if (repoPath === unavailableRepo) return null;
+      if (statusFiles) return { branch: "main", ahead: 0, behind: 0, files: statusFiles };
+      return {
+        branch: repoPath.endsWith("service-a") ? "main" : "develop",
+        ahead: repoPath.endsWith("service-a") ? 1 : 0,
+        behind: repoPath.endsWith("service-b") ? 2 : 0,
+        files: [
+          {
+            path: "src/App.tsx",
+            status: "modified",
+            staged: repoPath.endsWith("service-b"),
+          },
+        ],
+      };
+    }
+    return null;
+  },
+);
 
 let invokeSpy: ReturnType<typeof spyOn<typeof tauriCore, "invoke">>;
 
@@ -51,15 +85,17 @@ const {
   addPathsToLocalGitExclude,
   discardHunk,
   rollbackFilesChanges,
+  prepareCommitSelection,
+  reconcileDeletedSelection,
   setFilesStaged,
   getWorkspaceGitStatus,
   getWorkspaceRootGitStatus,
   getGitStatus,
   getRepositoryGitStatuses,
+  getWorkspaceStatusRefresh,
 } = await import("./git-status-api");
-const { isUntrackedDirectoryExpanded, setUntrackedDirectoryExpanded } = await import(
-  "../services/git-untracked-directory-expansions"
-);
+const { isUntrackedDirectoryExpanded, setUntrackedDirectoryExpanded } =
+  await import("../services/git-untracked-directory-expansions");
 const { getFullContextFileDiff, getWorkingTreePathDiff } = await import("./git-diff-api");
 const gitEvents = await import("../events/git-events");
 
@@ -70,6 +106,10 @@ beforeEach(() => {
   fileDiffResponse = null;
   unavailableRepo = null;
   statusFailure = null;
+  rollbackPlan = { steps: [] };
+  rollbackFailure = null;
+  interceptPrepare = undefined;
+  interceptReserve = undefined;
   statusFiles = null;
   directoryListings = null;
 });
@@ -106,17 +146,64 @@ describe("Git status batch mutations", () => {
     });
   });
 
-  test("rolls back selected tracked paths with one shared Core invocation", async () => {
-    await expect(
-      rollbackFilesChanges("C:/repo", ["src/first.ts", "src/second.ts"]),
-    ).resolves.toBeUndefined();
+  test("prepares repository-relative rename and added identities before executing Core steps", async () => {
+    const changes = [
+      { path: "new.txt", originalPath: "old.txt", status: "R " },
+      { path: "added.txt", status: "A " },
+    ];
+    rollbackPlan = {
+      steps: [
+        { operation: "discardAll", paths: ["old.txt", "new.txt"] },
+        { operation: "unstage", paths: ["added.txt"] },
+      ],
+    };
+    const emitted = spyOn(gitEvents, "emitGitChanged");
+    try {
+      await rollbackFilesChanges("C:/repo", changes);
+      expect(invoke.mock.calls.filter(([command]) => command === "git.rollbackPrepare")).toEqual([
+        ["git.rollbackPrepare", { repoPath: "C:/repo", changes, deleteAddedFiles: false }],
+      ]);
+      expect(invoke.mock.calls.filter(([command]) => command === "git.write")).toEqual([
+        [
+          "git.write",
+          { repoPath: "C:/repo", operation: "discardAll", paths: ["old.txt", "new.txt"] },
+        ],
+        ["git.write", { repoPath: "C:/repo", operation: "unstage", paths: ["added.txt"] }],
+      ]);
+      expect(emitted).toHaveBeenCalledWith({
+        repoPath: "C:/repo",
+        scopes: ["working-tree"],
+        source: "rollback-files",
+      });
+    } finally {
+      emitted.mockRestore();
+    }
+  });
 
-    expectSingleGitWrite();
-    expect(invoke).toHaveBeenLastCalledWith("git.write", {
-      repoPath: "C:/repo",
-      operation: "discardAll",
-      paths: ["src/first.ts", "src/second.ts"],
-    });
+  test("refreshes after a partially failed rollback, but not after a stale preflight", async () => {
+    const changes = [{ path: "added.txt", status: "A " }];
+    const emitted = spyOn(gitEvents, "emitGitChanged");
+    try {
+      rollbackFailure = new Error("GIT_ROLLBACK_STALE_SELECTION");
+      await expect(rollbackFilesChanges("C:/repo", changes)).rejects.toThrow(
+        "GIT_ROLLBACK_STALE_SELECTION",
+      );
+      expect(invoke.mock.calls.filter(([command]) => command === "git.write")).toHaveLength(0);
+      expect(emitted).not.toHaveBeenCalled();
+      rollbackFailure = null;
+      rollbackPlan = { steps: [{ operation: "unstage", paths: ["added.txt"] }] };
+      interceptWrite = async () => {
+        throw new Error("write failed");
+      };
+      await expect(rollbackFilesChanges("C:/repo", changes)).rejects.toThrow("write failed");
+      expect(emitted).toHaveBeenCalledWith({
+        repoPath: "C:/repo",
+        scopes: ["working-tree"],
+        source: "rollback-files",
+      });
+    } finally {
+      emitted.mockRestore();
+    }
   });
 
   test("discards one hunk in its owning repository and announces the file change", async () => {
@@ -136,12 +223,14 @@ describe("Git status batch mutations", () => {
         repoPath: "C:/workspace/service-a",
         hunk,
       });
-      expect(recorded()).toEqual([{
-        repoPath: "C:/workspace/service-a",
-        filePath: "src/App.tsx",
-        scopes: ["working-tree"],
-        source: "discard-hunk",
-      }]);
+      expect(recorded()).toEqual([
+        {
+          repoPath: "C:/workspace/service-a",
+          filePath: "src/App.tsx",
+          scopes: ["working-tree"],
+          source: "discard-hunk",
+        },
+      ]);
 
       // A rejected patch reports failure without announcing a change. Route by
       // command: repository discovery may already be cached in random order.
@@ -152,9 +241,13 @@ describe("Git status batch mutations", () => {
       const error = spyOn(console, "error").mockImplementation(() => {});
       try {
         await expect(discardHunk("C:/repo", hunk)).resolves.toBe(false);
-      } finally { error.mockRestore(); }
+      } finally {
+        error.mockRestore();
+      }
       expect(recorded()).toHaveLength(1);
-    } finally { emitted.mockRestore(); }
+    } finally {
+      emitted.mockRestore();
+    }
   });
 
   test("adds selected paths to the repository gitignore", async () => {
@@ -304,6 +397,190 @@ describe("Git staging write coordination", () => {
     }
   }, 1000);
 
+  test("reconciles deleted identities through Core using their owning repository", async () => {
+    const changes = [
+      { path: "new[1].txt", status: "A " },
+      { path: "tracked.txt", status: " M" },
+    ];
+    const emitted = spyOn(gitEvents, "emitGitChanged");
+    try {
+      await reconcileDeletedSelection("C:/repo", changes);
+      expect(invoke).toHaveBeenCalledWith(
+        "git.reconcileDeletedSelection",
+        { root: "C:/repo", changes },
+        { gitExecutionSource: "user" },
+      );
+      expect(emitted).toHaveBeenCalledWith(
+        expect.objectContaining({ repoPath: "C:/repo", source: "reconcile-deleted-selection" }),
+      );
+    } finally {
+      emitted.mockRestore();
+    }
+  });
+
+  test("forwards the shared commit selection identities to Core", async () => {
+    for (const item of commitSelectionFixture.cases) {
+      invoke.mockClear();
+      await prepareCommitSelection(
+        [{ root: "C:/repo", selected: item.selected }],
+        "fixture-selection",
+        new AbortController().signal,
+      );
+      expect(
+        invoke.mock.calls.filter(([command]) => command === "git.prepareCommitSelection"),
+      ).toEqual([
+        [
+          "git.prepareCommitSelection",
+          {
+            repositories: [{ root: "C:/repo", selected: item.selected }],
+            operationId: "fixture-selection",
+          },
+          { gitExecutionSource: "user" },
+        ],
+      ]);
+    }
+  }, 1000);
+
+  test("commit selection waits for an existing index write and forwards all roots", async () => {
+    const started = deferred(),
+      release = deferred();
+    interceptWrite = async () => {
+      started.resolve();
+      await release.promise;
+    };
+    const staging = setFilesStaged("C:/workspace/A", ["earlier.ts"], true);
+    const operations: Promise<unknown>[] = [staging];
+    try {
+      await started.promise;
+      const selection = prepareCommitSelection(
+        [
+          { root: "C:/workspace/B", selected: [{ path: "src/b.ts", status: "MM" }] },
+          { root: "C:/workspace/A", selected: [] },
+        ],
+        "commit-selection-test",
+        new AbortController().signal,
+      );
+      operations.push(selection);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(
+        invoke.mock.calls.filter(([command]) => command === "git.prepareCommitSelection"),
+      ).toHaveLength(0);
+      release.resolve();
+      await selection;
+      expect(
+        invoke.mock.calls.filter(([command]) => command === "git.prepareCommitSelection"),
+      ).toEqual([
+        [
+          "git.prepareCommitSelection",
+          {
+            repositories: [
+              { root: "C:/workspace/A", selected: [] },
+              { root: "C:/workspace/B", selected: [{ path: "src/b.ts", status: "MM" }] },
+            ],
+            operationId: "commit-selection-test",
+          },
+          { gitExecutionSource: "user" },
+        ],
+      ]);
+    } finally {
+      release.resolve();
+      await Promise.allSettled(operations);
+    }
+  }, 1000);
+
+  test("cancelling while admission is pending never dispatches a Core write", async () => {
+    const started = deferred(),
+      release = deferred();
+    interceptReserve = async () => {
+      started.resolve();
+      await release.promise;
+      return true;
+    };
+    const controller = new AbortController();
+    const operation = prepareCommitSelection(
+      [{ root: "C:/repo", selected: [{ path: "a.ts", status: " M" }] }],
+      "reserve-selection-test",
+      controller.signal,
+    );
+    try {
+      await started.promise;
+      controller.abort();
+      release.resolve();
+      await expect(operation).rejects.toMatchObject({ name: "AbortError" });
+      expect(
+        invoke.mock.calls.filter(([command]) => command === "git.prepareCommitSelection"),
+      ).toHaveLength(0);
+      expect(
+        invoke.mock.calls.filter(([command]) => command === "core_release_commit_selection"),
+      ).toEqual([["core_release_commit_selection", { operationId: "reserve-selection-test" }]]);
+    } finally {
+      controller.abort();
+      release.resolve();
+      await Promise.allSettled([operation]);
+    }
+  }, 1000);
+
+  test("cancelling a running commit selection cancels Core and rejects late completion", async () => {
+    const started = deferred(),
+      release = deferred();
+    interceptPrepare = async () => {
+      started.resolve();
+      await release.promise;
+      return { prepared: true };
+    };
+    const controller = new AbortController();
+    const operation = prepareCommitSelection(
+      [{ root: "C:/repo", selected: [{ path: "a.ts", status: " M" }] }],
+      "cancel-selection-test",
+      controller.signal,
+    );
+    try {
+      await started.promise;
+      controller.abort();
+      expect(invoke.mock.calls.filter(([command]) => command === "core_cancel")).toEqual([
+        ["core_cancel", { operationId: "cancel-selection-test" }],
+      ]);
+      release.resolve();
+      await expect(operation).rejects.toMatchObject({ name: "AbortError" });
+    } finally {
+      controller.abort();
+      release.resolve();
+      await Promise.allSettled([operation]);
+    }
+  }, 1000);
+
+  test("prepares rollback only after the pending staging operation finishes", async () => {
+    const started = deferred();
+    const release = deferred();
+    interceptWrite = async () => {
+      started.resolve();
+      await release.promise;
+    };
+    const staging = setFilesStaged("C:/repo", ["added.txt"], true);
+    const operations: Promise<unknown>[] = [staging];
+    try {
+      await started.promise;
+      rollbackPlan = { steps: [] };
+      const rollback = rollbackFilesChanges("C:/repo", [{ path: "added.txt", status: "A " }]);
+      operations.push(rollback);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(
+        invoke.mock.calls.filter(([command]) => command === "git.rollbackPrepare"),
+      ).toHaveLength(0);
+      release.resolve();
+      await rollback;
+      expect(
+        invoke.mock.calls.filter(([command]) => command === "git.rollbackPrepare"),
+      ).toHaveLength(1);
+    } finally {
+      release.resolve();
+      await Promise.allSettled(operations);
+      interceptWrite = undefined;
+    }
+  }, 1000);
+
   test("allows another repository to finish while the first is pending", async () => {
     const started = deferred();
     const release = deferred();
@@ -357,6 +634,33 @@ describe("Git staging write coordination", () => {
 });
 
 describe("Git status query failures", () => {
+  test("publishes healthy roots while preserving a failed root and removing old roots", async () => {
+    const first = "C:/workspace/service-a";
+    const second = "C:/workspace/service-b";
+    const previous = { branch: "previous", ahead: 0, behind: 0, files: [{ path: "old.txt", status: "modified" as const, staged: false }] };
+    unavailableRepo = second;
+    const result = await getWorkspaceStatusRefresh([first, second], "background", [first, second], {
+      [second]: previous, "C:/workspace/removed": previous,
+    });
+    expect(result.statuses[first]?.branch).toBe("main");
+    expect(result.statuses[second]).toEqual(previous);
+    expect(result.statuses["C:/workspace/removed"]).toBeUndefined();
+    expect(result.confirmedRoots).toEqual([first]);
+    expect(result.failedRoots).toEqual([second]);
+  });
+
+  test("keeps a first-time failure unknown and recovers when the root succeeds", async () => {
+    const root = "C:/workspace/service-b";
+    unavailableRepo = root;
+    const failed = await getWorkspaceStatusRefresh([root], "background", [root], {});
+    expect(failed.statuses[root]).toBeNull();
+    expect(failed.failedRoots).toEqual([root]);
+    unavailableRepo = null;
+    const recovered = await getWorkspaceStatusRefresh([root], "background", [root], failed.statuses);
+    expect(recovered.statuses[root]?.branch).toBe("develop");
+    expect(recovered.failedRoots).toEqual([]);
+  });
+
   test("bootstrap preserves root-relative paths while reading every discovered repository", async () => {
     const snapshot = await getWorkspaceRootGitStatus("C:/repo", [
       "C:/repo",

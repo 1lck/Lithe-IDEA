@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "An imported key displaces only that key from an untouched default",
+      "request": {
+        "current": [
+          {"commandID": "debug-resume", "customized": false, "keys": [{"key": "f9", "modifiers": []}, {"key": "r", "modifiers": ["meta", "alt"]}]},
+          {"commandID": "toggle-breakpoint", "customized": false, "keys": [{"key": "f8", "modifiers": ["control"]}]}
+        ],
+        "incoming": {"bindings": [{"commandID": "toggle-breakpoint", "keys": [{"key": "f9", "modifiers": []}]}]}
+      },
+      "expected": {"displaced": [{"commandID": "debug-resume", "keys": [{"key": "f9", "modifiers": []}]}], "conflicts": []}
+    },
+    {
+      "name": "A user customized owner is not displaced",
+      "request": {
+        "current": [
+          {"commandID": "debug-resume", "customized": true, "keys": [{"key": "f9", "modifiers": []}]},
+          {"commandID": "toggle-breakpoint", "customized": false, "keys": []}
+        ],
+        "incoming": {"bindings": [{"commandID": "toggle-breakpoint", "keys": [{"key": "f9", "modifiers": []}]}]}
+      },
+      "expected": {"displaced": [], "conflicts": [{"commandID": "toggle-breakpoint", "ownerID": "debug-resume", "key": {"key": "f9", "modifiers": []}}]}
+    },
+    {
+      "name": "Two imported actions cannot own the same key",
+      "request": {
+        "current": [{"commandID": "one", "customized": false, "keys": []}, {"commandID": "two", "customized": false, "keys": []}],
+        "incoming": {"bindings": [{"commandID": "one", "keys": [{"key": "f3", "modifiers": []}]}, {"commandID": "two", "keys": [{"key": "f3", "modifiers": []}]}]}
+      },
+      "expected": {"displaced": [], "conflicts": [{"commandID": "two", "ownerID": "one", "key": {"key": "f3", "modifiers": []}}]}
+    },
+    {
+      "name": "A custom conflict prevents otherwise valid default displacements",
+      "request": {
+        "current": [
+          {"commandID": "default-owner", "customized": false, "keys": [{"key": "f3", "modifiers": []}]},
+          {"commandID": "custom-owner", "customized": true, "keys": [{"key": "f4", "modifiers": []}]},
+          {"commandID": "imported", "customized": false, "keys": []}
+        ],
+        "incoming": {"bindings": [{"commandID": "imported", "keys": [{"key": "f3", "modifiers": []}, {"key": "f4", "modifiers": []}]}]}
+      },
+      "expected": {"displaced": [], "conflicts": [{"commandID": "imported", "ownerID": "custom-owner", "key": {"key": "f4", "modifiers": []}}]}
+    },
+    {
+      "name": "A swap does not displace either imported action",
+      "request": {
+        "current": [{"commandID": "one", "customized": true, "keys": [{"key": "f3", "modifiers": []}]}, {"commandID": "two", "customized": true, "keys": [{"key": "f4", "modifiers": []}]}],
+        "incoming": {"bindings": [{"commandID": "one", "keys": [{"key": "f4", "modifiers": []}]}, {"commandID": "two", "keys": [{"key": "f3", "modifiers": []}]}]}
+      },
+      "expected": {"displaced": [], "conflicts": []}
+    },
+    {
+      "name": "An unrelated native-only key does not block an import",
+      "request": {
+        "current": [{"commandID": "existing", "customized": true, "keys": [{"key": "native-special", "modifiers": []}]}, {"commandID": "imported", "customized": false, "keys": []}],
+        "incoming": {"bindings": [{"commandID": "imported", "keys": [{"key": "f9", "modifiers": []}]}]}
+      },
+      "expected": {"displaced": [], "conflicts": []}
+    },
+    {
+      "name": "A provider cannot name an action absent from the current catalog",
+      "request": {"current": [{"commandID": "one", "customized": false, "keys": []}], "incoming": {"bindings": [{"commandID": "other", "keys": []}]}}
+    }
+  ]
+}

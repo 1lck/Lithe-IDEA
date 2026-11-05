@@ -844,7 +844,7 @@ const DEFAULT_MAX_HEAP_ARGUMENT: &str = JDTLS_MAX_HEAP_ARGUMENT;
 const CONSTRAINED_HEAP_MEBIBYTES: u64 = 1536;
 const MAX_HEAP_PREFIX: &str = "-Xmx";
 /// Language-server log level used when the plugin does not choose one.
-const DEFAULT_LOG_LEVEL_ARGUMENT: &str = "-Dlog.level=ALL";
+const DEFAULT_LOG_LEVEL_ARGUMENT: &str = "-Dlog.level=WARNING";
 const LOG_LEVEL_PREFIX: &str = "-Dlog.level=";
 /// JVM defaults vscode-java and the JDT LS CI launch the language server with.
 ///
@@ -1934,6 +1934,11 @@ mod tests {
             "--jvm-arg=-Xmx4g".to_string(),
             "--jvm-arg=-Dlog.level=INFO".to_string(),
             "--jvm-arg=-Duser.language=en".to_string(),
+            "--jvm-arg=-Dosgi.logfile=/session/plugins/java/files/jdt.log".to_string(),
+            "--jvm-arg=-Declipse.log.include.commandline=false".to_string(),
+            "--jvm-arg=-Declipse.log.size.max=1024".to_string(),
+            "--jvm-arg=-Declipse.log.backup.max=2".to_string(),
+            "--jvm-arg=-Declipse.log.level=WARNING".to_string(),
             "--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=true".to_string(),
             "-data=/old/data".to_string(),
         ];
@@ -1966,6 +1971,11 @@ mod tests {
                 "-Dlog.level=INFO",
                 "-Djava.import.generatesMetadataFilesAtProjectRoot=false",
                 "-Duser.language=en",
+                "-Dosgi.logfile=/session/plugins/java/files/jdt.log",
+                "-Declipse.log.include.commandline=false",
+                "-Declipse.log.size.max=1024",
+                "-Declipse.log.backup.max=2",
+                "-Declipse.log.level=WARNING",
                 "-jar",
                 "/jdtls/plugins/equinox.jar",
                 "-configuration",
@@ -2012,7 +2022,7 @@ mod tests {
             heap_and_level(&[]),
             (
                 vec!["-Xmx2048m".to_string()],
-                vec!["-Dlog.level=ALL".to_string()]
+                vec!["-Dlog.level=WARNING".to_string()]
             )
         );
         // The last acceptable choice wins; a malformed one never reaches the JVM.
@@ -2038,7 +2048,7 @@ mod tests {
             ]),
             (
                 vec!["-Xmx2048m".to_string()],
-                vec!["-Dlog.level=ALL".to_string()]
+                vec!["-Dlog.level=WARNING".to_string()]
             )
         );
         // A plugin that launches the server as `java <jvm options> -jar <launcher>`

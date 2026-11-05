@@ -106,6 +106,24 @@ struct BranchSwitcherPopoverBehaviorTests {
 
     @Test
     @MainActor
+    func referenceDecodingPreservesTagDeletionEligibility() throws {
+        let references = #"""
+        [
+          {"fullName":"refs/tags/commit","shortName":"commit","kind":"tag","peelsToCommit":true,"isCurrent":false},
+          {"fullName":"refs/tags/tree","shortName":"tree","kind":"tag","peelsToCommit":false,"isCurrent":false}
+        ]
+        """#
+        let data = Data((#"{"references": "# + references + #", "recentReferences": "# + references + #", "commits":[], "hasMore":false}"#).utf8)
+        let history = try JSONDecoder().decode(RustCoreBridge.GitHistoryPayload.self, from: data).makeSnapshot()
+        let snapshot = try JSONDecoder().decode(RustCoreBridge.GitReferencesPayload.self, from: data).makeSnapshot()
+        for rows in [history.references, history.recentReferences, snapshot.references, snapshot.recentReferences] {
+            #expect(rows.map(\.peelsToCommit) == [true, false])
+            #expect(rows.map(\.supportsTagDeletion) == [true, false])
+        }
+    }
+
+    @Test
+    @MainActor
     func actionsAndBranchesShareScrollingWhileSearchStaysFixed() throws {
         let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
         let host = NSHostingView(rootView: BranchSwitcherPopover(feature: feature, isPresented: .constant(true),

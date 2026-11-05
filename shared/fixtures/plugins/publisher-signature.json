@@ -1,0 +1,30 @@
+{
+  "description": "Cross-platform public test key only; no production trust. Canonical payload matches PluginPackageSignature.swift.",
+  "publicKey": "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+  "contents": {
+    "plugin.json": "{\"id\":\"dev.example.signed\",\"version\":\"1.2.3\"}\n",
+    "bin/runner.cmd": "@echo fixture\r\n",
+    "lib/z.txt": "last ASCII\n",
+    "lib/ä-雪.txt": "雪 and accents\n",
+    "lib/é.txt": "Canonical equivalence preserves original UTF-8 bytes\n"
+  },
+  "document": {
+    "schemaVersion": 1,
+    "algorithm": "ed25519",
+    "keyID": "fixture-rfc8032",
+    "pluginID": "dev.example.signed",
+    "pluginVersion": "1.2.3",
+    "files": {
+      "plugin.json": "ecfdff6026a4a0664e339246c79bd3cb3efa60e1688cc78eaf41b6e33b648555",
+      "bin/runner.cmd": "a25251292e203527ce5f352d622dfdadbbab8edaef1a0d472dcb31543c0c25cd",
+      "lib/z.txt": "51214621962a32a2acddd443c7d2e7311a6ce5e383f747d15003dc46153dc393",
+      "lib/ä-雪.txt": "4362be8d0439a283303be550a63ce3d9b6afd0f9dd2ca8e82adc81c317254e5c",
+      "lib/é.txt": "85ca67aabba68a386ecb31a062b228490cee96f1f9a95d3772e7a7061f0676c3"
+    },
+    "signature": "r6fo1F3xoG9BXu+w9jErYL7xQJuttPpvnSPUOI+DzbVF4E0TfHP7L171lzV5mhXi1o287cMr9z7aWdGnV9t+Cg=="
+  },
+  "payload": "schemaVersion=1\nalgorithm=ed25519\nkeyID=fixture-rfc8032\npluginID=ZGV2LmV4YW1wbGUuc2lnbmVk\npluginVersion=MS4yLjM\nfile=YmluL3J1bm5lci5jbWQ=a25251292e203527ce5f352d622dfdadbbab8edaef1a0d472dcb31543c0c25cd\nfile=bGliL3oudHh0=51214621962a32a2acddd443c7d2e7311a6ce5e383f747d15003dc46153dc393\nfile=bGliL8OkLembqi50eHQ=4362be8d0439a283303be550a63ce3d9b6afd0f9dd2ca8e82adc81c317254e5c\nfile=bGliL2XMgS50eHQ=85ca67aabba68a386ecb31a062b228490cee96f1f9a95d3772e7a7061f0676c3\nfile=cGx1Z2luLmpzb24=ecfdff6026a4a0664e339246c79bd3cb3efa60e1688cc78eaf41b6e33b648555\n",
+  "trustedPublisherKeys": {
+    "lithe-official-plugins-v2": "yTjUaLpCNXXEQDuan5Ymw5rCtR0JeTNmh6hyTfOFjTs="
+  }
+}

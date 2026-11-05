@@ -32,6 +32,8 @@ extension AppModel: PluginHostWindowPort {
 
     var hostMessages: PluginHostMessageFeatureModel { featureGraph.pluginMessages }
 
+    var hostLanguageServers: (any PluginLanguageServerRouting)? { languageToolingSessionsIfActive }
+
     func hostDocumentState(at url: URL, flushingEditor: Bool) async -> PluginHostDocumentState? {
         guard currentWorkspaceIdentity != nil else { return nil }
         let normalized = url.standardizedFileURL
@@ -100,7 +102,7 @@ extension AppModel: PluginHostWindowPort {
     }
 
     func hostNoteMessageLimit(pluginName: String) {
-        showNotification("%@ sent messages too quickly, so some were not shown.", arguments: [pluginName])
+        showNotification("%@ sent messages too quickly, so some were not shown.", arguments: [pluginName], logReference: notificationRejection(operation: "plugin_messages", reason: "rate_limited"))
     }
 
     /// Ends the plugin messages of this window, for a closing window or a replaced workspace.

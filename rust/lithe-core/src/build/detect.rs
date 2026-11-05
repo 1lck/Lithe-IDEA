@@ -7,13 +7,16 @@
 //! projects without running a build tool.
 
 use super::decode::Workspace;
-use super::manifest::{BuildSystemDeclaration, ModelSource, Nesting};
+use super::manifest::{BuildSystemDeclaration, ModelSource, Nesting, OptionKind, OptionScope};
 use super::options;
 use super::outputs::{model_value, read_model, source_marker};
 use crate::plugins::declarative::{validate_manifest_value, PluginRejection, Validation};
+use crate::protocol::CoreError;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::ErrorKind;
+use std::path::Path;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -25,6 +28,17 @@ pub(crate) struct DetectRequest {
     /// Stored option values by build-system ID, for run entries.
     #[serde(default)]
     pub(crate) options: BTreeMap<String, BTreeMap<String, Value>>,
+    /// Values by build-system ID and normalized instance root. Only options
+    /// declared with instance scope may read this map.
+    #[serde(default)]
+    pub(crate) instance_options: BTreeMap<String, BTreeMap<String, BTreeMap<String, Value>>>,
+    /// Team-owned defaults for instance-scoped options, before root overrides.
+    #[serde(default)]
+    pub(crate) instance_defaults: BTreeMap<String, BTreeMap<String, Value>>,
+    /// Explicit per-root empty workspace multi-selections, preserving values
+    /// needed by sibling models. Unknown or changed option kinds ignore markers.
+    #[serde(default)]
+    pub(crate) empty_selections: BTreeMap<String, BTreeMap<String, BTreeSet<String>>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,8 +131,38 @@ fn instance(
         }
     }
     let resolved = options::resolve(declaration, stored, model_values.as_ref());
+    // Hosts must not recreate scope/default/root merging when handing this
+    // exact instance to a provider. Explicit empty selections remain chosen.
+    instance["options"] = json!(resolved.chosen_values);
+    instance["droppedOptions"] = json!(resolved.dropped);
     instance["optionFingerprint"] = json!(options::fingerprint(declaration, &resolved));
     instance
+}
+
+// Detection historically accepts absent/non-directory roots as an empty view.
+// Keep that boundary local: scans of real directories must still report I/O
+// failures, and the shared run scanner retains its required-root semantics.
+// The check goes through workspace I/O so a remote root, including one opened
+// through a host symbolic link, is examined on the owning host rather than in
+// the unmaterialized local projection.
+fn scan_directory_root(
+    root: &Path,
+    scan: impl FnOnce(&Path) -> Result<Vec<crate::execution::DirectoryContext>, CoreError>,
+) -> Validation<Vec<crate::execution::DirectoryContext>> {
+    match crate::remote::workspace_io::metadata(root) {
+        Ok(metadata) if !metadata.is_dir() => return Ok(Vec::new()),
+        Err(error) if matches!(error.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
+            return Ok(Vec::new());
+        }
+        Err(error) => {
+            return Err(PluginRejection::new(
+                "plugin.build.invalidSelection",
+                error.to_string(),
+            ));
+        }
+        Ok(_) => {}
+    }
+    scan(root).map_err(|error| PluginRejection::new("plugin.build.invalidSelection", error.message))
 }
 
 /// `build.detect`: every instance of every build system the enabled plugins
@@ -177,8 +221,7 @@ pub(crate) fn detect(request: DetectRequest) -> Validation<Value> {
     if owners.is_empty() {
         return Ok(json!({ "instances": [], "rejected": rejected, "shadowed": shadowed }));
     }
-    let directories = crate::execution::scan(&workspace.path)
-        .map_err(|error| PluginRejection::new("plugin.build.invalidSelection", error.message))?;
+    let directories = scan_directory_root(&workspace.path, crate::execution::scan)?;
     let empty = BTreeMap::new();
     let mut seen = BTreeSet::new();
     let mut instances = Vec::new();
@@ -186,7 +229,38 @@ pub(crate) fn detect(request: DetectRequest) -> Validation<Value> {
         let stored = request.options.get(&owner.declaration.id).unwrap_or(&empty);
         for (root, markers) in roots(owner.declaration, &directories) {
             if seen.insert((owner.declaration.id.clone(), root.clone())) {
-                instances.push(instance(owner, &workspace, &root, markers, stored));
+                let local = request
+                    .instance_options
+                    .get(&owner.declaration.id)
+                    .and_then(|roots| roots.get(&root));
+                let mut values = BTreeMap::new();
+                for option in &owner.declaration.options {
+                    let value = match option.scope {
+                        OptionScope::Workspace => stored.get(&option.id),
+                        OptionScope::Instance => {
+                            local.and_then(|values| values.get(&option.id)).or_else(|| {
+                                request
+                                    .instance_defaults
+                                    .get(&owner.declaration.id)
+                                    .and_then(|values| values.get(&option.id))
+                            })
+                        }
+                    };
+                    if let Some(value) = value {
+                        values.insert(option.id.clone(), value.clone());
+                    }
+                    if option.scope == OptionScope::Workspace
+                        && option.kind == OptionKind::MultiSelect
+                        && request
+                            .empty_selections
+                            .get(&owner.declaration.id)
+                            .and_then(|roots| roots.get(&root))
+                            .is_some_and(|ids| ids.contains(&option.id))
+                    {
+                        values.insert(option.id.clone(), json!([]));
+                    }
+                }
+                instances.push(instance(owner, &workspace, &root, markers, &values));
             }
         }
     }
@@ -196,4 +270,30 @@ pub(crate) fn detect(request: DetectRequest) -> Validation<Value> {
         "rejected": rejected,
         "shadowed": shadowed,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn existing_directory_scan_errors_are_not_empty_detections() {
+        // A real readable directory passes metadata. Inject the subsequent
+        // failure so ACL differences and elevated test users cannot bypass it.
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        assert!(root.is_dir());
+        for kind in [
+            ErrorKind::PermissionDenied,
+            ErrorKind::NotFound,
+            ErrorKind::Other,
+        ] {
+            let error = scan_directory_root(root, |scanned| {
+                assert_eq!(scanned, root);
+                Err(std::io::Error::new(kind, "controlled directory scan failure").into())
+            })
+            .expect_err("an existing directory's scan failure must reject detection");
+            assert_eq!(error.code, "plugin.build.invalidSelection");
+            assert_eq!(error.message, "controlled directory scan failure");
+        }
+    }
 }

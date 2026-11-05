@@ -1,0 +1,873 @@
+{
+  "version": 1,
+  "root": "app",
+  "events": [
+    {
+      "id": "app.core.fallback_selected",
+      "channel": "app",
+      "level": "warn",
+      "message": "Core request used a fallback",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Core request or catalog decoding operation that selected a fallback"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.credentials.cleanup_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Obsolete credential removal failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.credentials.write_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "Credential update failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure that prevented completing the requested operation"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.demo.failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Problems demo {stage} failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Problems demo step that failed, e.g. creation or cleanup"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "File operation error raised while creating or removing the Problems demo files"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.diagnostics.cleanup_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Diagnostic staging cleanup failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.diagnostics.export_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "Diagnostic bundle operation failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Diagnostic export phase that failed: planning, collect, manifest, prepare, staging, archive or cleanup"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.font.missing",
+      "channel": "app",
+      "level": "warn",
+      "message": "Bundled font {font} missing",
+      "fields": {
+        "font": {
+          "type": "token",
+          "required": true,
+          "description": "Filename of the missing bundled font, e.g. Inter-Regular.otf"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.font.registration_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Bundled font {font} registration failed",
+      "fields": {
+        "font": {
+          "type": "token",
+          "required": true,
+          "description": "Filename of the font passed to CoreText for registration"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "CoreText error returned when registering this bundled font"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.history.operation_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Local history operation failed",
+      "fields": {
+        "count": {
+          "type": "int",
+          "required": false,
+          "description": "Number of failed snapshots in this batch; absent for a single history operation"
+        },
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "History action that failed, such as record, relocate or restore"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheLocalHistoryModule"
+    },
+    {
+      "id": "app.history.restore_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "Local history restore failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure that prevented completing the requested operation"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheLocalHistoryModule"
+    },
+    {
+      "id": "app.ide.request_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "IDE capability request failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "IDE request phase that failed, such as response encoding or dispatch"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.logging.redirect_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Application log redirect to {directory} failed",
+      "fields": {
+        "directory": {
+          "type": "path",
+          "required": true,
+          "description": "Requested log destination directory, redacted before persistence"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Filesystem error that prevented switching to the requested log directory"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.module.transition_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Module transition failed",
+      "fields": {
+        "module": {
+          "type": "token",
+          "required": true,
+          "description": "Module identifier whose lifecycle transition failed"
+        },
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Lifecycle action that failed, such as shutdown, sleep or idle"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheApplicationKernel"
+    },
+    {
+      "id": "app.process.journal_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Process lifecycle journal write failed at {stage}",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Lifecycle journal write stage, e.g. process-exit or startup-descendants"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Persistence error raised while saving managed process identities"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.process.watch_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Retained process watch failed at {stage}",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Retained process watcher step, e.g. create, register or read"
+        },
+        "pid": {
+          "type": "int",
+          "required": false,
+          "description": "Retained process PID being registered; absent for watcher-wide failures"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "POSIX error from creating, registering or reading the retained process watcher"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.search.directory_skipped",
+      "channel": "app",
+      "level": "warn",
+      "message": "Search index directory {path} skipped",
+      "fields": {
+        "path": {
+          "type": "path",
+          "required": true,
+          "description": "Workspace-relative directory that the search index could not enumerate"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Directory enumeration error that made this search subtree incomplete"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.session.started",
+      "channel": "app",
+      "level": "info",
+      "message": "Application session started",
+      "fields": {},
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.settings.decode_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Stored settings used defaults",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Stored preference component whose decoding failed"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.shell.environment",
+      "channel": "app",
+      "level": "info",
+      "message": "Login shell {shell} environment read from {source}",
+      "fields": {
+        "shell": {
+          "type": "token",
+          "required": true,
+          "description": "Basename of the interactive login shell executable, e.g. zsh"
+        },
+        "source": {
+          "type": "token",
+          "required": true,
+          "description": "Login environment read trigger, e.g. startup, refresh or manual"
+        },
+        "variables": {
+          "type": "int",
+          "required": false,
+          "description": "Number of variables returned by the shell; absent when the read failed"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe",
+      "span": {
+        "failureLevel": "warn"
+      }
+    },
+    {
+      "id": "app.window.session_missing",
+      "channel": "app",
+      "level": "warn",
+      "message": "Project window {window} session missing",
+      "fields": {
+        "window": {
+          "type": "id",
+          "required": true,
+          "description": "Internal project window UUID whose corresponding session could not be found"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.workbench.registration_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Workbench UI registration failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Validation error raised when registering workbench UI contributions"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.workspace.directory_skipped",
+      "channel": "app",
+      "level": "warn",
+      "message": "Workspace directory {path} skipped",
+      "fields": {
+        "path": {
+          "type": "path",
+          "required": true,
+          "description": "Workspace-relative directory omitted from the workspace tree after an enumeration failure"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Directory enumeration error that made the workspace tree incomplete"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.workspace.file_operation_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "Workspace file operation failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Workspace file action that failed, such as move, copy or create"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheWorkspaceModule"
+    },
+    {
+      "id": "app.workspace.rollback_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Workspace preference rollback failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Underlying failure at this operation boundary, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "LitheWorkspaceModule"
+    },
+    {
+      "id": "app.workspace.scratch_cleanup_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Workspace scratch cleanup failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Filesystem error raised while removing the workspace scratch directory"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.logging.diagnostics_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Runtime detailed diagnostics command failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Host command failure when changing a managed session trace gate; stable code only"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.action_search.failed",
+      "channel": "app",
+      "level": "error",
+      "message": "Action catalog search failed",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Core command failure while matching the current action catalog; excludes query text and action content"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.cache.write_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Generated execution cache write failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Generated execution cache persistence stage; currently generated-cache"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "I/O category from persisting a generated execution document for the next session"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.indexing.rollback_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Indexing policy rollback failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Index policy rollback component that failed: lease or provider"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Core error category returned while restoring a failed indexing policy installation"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.storage.cleanup_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Core storage cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Storage cleanup owner, e.g. snapshot-rollback, history-pruning, or jdt-settings"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "First filesystem failure category observed while removing owned temporary or history files"
+        },
+        "count": {
+          "type": "int",
+          "required": true,
+          "description": "Number of failed storage removals summarized by this cleanup operation"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.native.operation_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "Native {stage} operation failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Native user request that could not finish, such as relaunch, agent-preserve, or background-selection"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Original native error from the failed request, preserving stable domain and code"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.storage.maintenance_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "Native storage {stage} failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Native storage operation that failed, such as file-close, staging-remove, or permissions"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Native filesystem error preserving its stable domain and code at the handling boundary"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.diagnostics.crash_skipped",
+      "channel": "app",
+      "level": "warn",
+      "message": "Crash report collection skipped evidence",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Native failure reading the DiagnosticReports directory or an eligible application crash report"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.notification.operation_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "User operation {operation} failed",
+      "fields": {
+        "operation": {
+          "type": "token",
+          "required": true,
+          "description": "Source-owned operation category at the notification boundary, such as run_configuration or plugin_settings"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Error raised by the requested operation before the user-facing failure notification"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.notification.operation_rejected",
+      "channel": "app",
+      "level": "warn",
+      "message": "User operation {operation} was rejected",
+      "fields": {
+        "operation": {
+          "type": "token",
+          "required": true,
+          "description": "Source-owned operation category rejected at the notification boundary"
+        },
+        "reason": {
+          "type": "token",
+          "required": true,
+          "description": "Fixed source-owned rejection category, never the localized notification or user input"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
+      "id": "app.ide.connection_cleanup_failed",
+      "channel": "app",
+      "level": "warn",
+      "message": "IDE MCP connection cleanup failed",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled app.ide.connection_cleanup_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from app.ide.connection_cleanup_failed; never error display text"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.ide.broker_failed",
+      "channel": "app",
+      "level": "error",
+      "message": "IDE MCP broker stopped unexpectedly",
+      "fields": {
+        "stage": {
+          "type": "token",
+          "required": true,
+          "description": "Controlled app.ide.broker_failed operation stage; excludes paths and peer input"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Fixed summary and stable failure category from app.ide.broker_failed; never error display text"
+        }
+      },
+      "rate": 60,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.core.request.finished",
+      "channel": "app/core",
+      "level": "info",
+      "message": "Core request {method} finished",
+      "fields": {
+        "method": {
+          "type": "token",
+          "required": true,
+          "description": "Core protocol method name the host requested, e.g. git.write or workspace.repositories"
+        },
+        "operation": {
+          "type": "token",
+          "required": false,
+          "description": "Payload operation selector when the method multiplexes several actions, e.g. fetch for git.write"
+        },
+        "source": {
+          "type": "token",
+          "required": true,
+          "description": "Effective request source after merging the host origin and Git execution options: user, background or unknown"
+        },
+        "trigger": {
+          "type": "token",
+          "required": false,
+          "description": "Stable UI action id that the host reported as the cause of this request, never a localized title"
+        },
+        "path": {
+          "type": "path",
+          "required": false,
+          "description": "First absolute workspace, repository or project root named in the request payload"
+        },
+        "remote": {
+          "type": "bool",
+          "required": false,
+          "description": "Present and true when the request ran against a remote workspace host"
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Wall time Core spent executing the request, from parsing to the final response"
+        },
+        "cancelled": {
+          "type": "bool",
+          "required": false,
+          "description": "Present and true when the request ended because the host cancelled it"
+        }
+      },
+      "rate": 600,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.core.request.traced",
+      "channel": "app/core",
+      "level": "debug",
+      "message": "Core request {method} traced",
+      "fields": {
+        "method": {
+          "type": "token",
+          "required": true,
+          "description": "Core protocol method name the host requested, e.g. git.write or workspace.repositories"
+        },
+        "operation": {
+          "type": "token",
+          "required": false,
+          "description": "Payload operation selector when the method multiplexes several actions, e.g. fetch for git.write"
+        },
+        "source": {
+          "type": "token",
+          "required": true,
+          "description": "Effective request source after merging the host origin and Git execution options: user, background or unknown"
+        },
+        "trigger": {
+          "type": "token",
+          "required": false,
+          "description": "Stable UI action id that the host reported as the cause of this request, never a localized title"
+        },
+        "path": {
+          "type": "path",
+          "required": false,
+          "description": "First absolute workspace, repository or project root named in the request payload"
+        },
+        "remote": {
+          "type": "bool",
+          "required": false,
+          "description": "Present and true when the request ran against a remote workspace host"
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Wall time Core spent executing the request, from parsing to the final response"
+        },
+        "cancelled": {
+          "type": "bool",
+          "required": false,
+          "description": "Present and true when the request ended because the host cancelled it"
+        }
+      },
+      "rate": 600,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.core.request.failed",
+      "channel": "app/core",
+      "level": "warn",
+      "message": "Core request {method} failed",
+      "fields": {
+        "method": {
+          "type": "token",
+          "required": true,
+          "description": "Core protocol method name the host requested, e.g. git.write or workspace.repositories"
+        },
+        "operation": {
+          "type": "token",
+          "required": false,
+          "description": "Payload operation selector when the method multiplexes several actions, e.g. fetch for git.write"
+        },
+        "source": {
+          "type": "token",
+          "required": true,
+          "description": "Effective request source after merging the host origin and Git execution options: user, background or unknown"
+        },
+        "trigger": {
+          "type": "token",
+          "required": false,
+          "description": "Stable UI action id that the host reported as the cause of this request, never a localized title"
+        },
+        "path": {
+          "type": "path",
+          "required": false,
+          "description": "First absolute workspace, repository or project root named in the request payload"
+        },
+        "remote": {
+          "type": "bool",
+          "required": false,
+          "description": "Present and true when the request ran against a remote workspace host"
+        },
+        "duration": {
+          "type": "duration",
+          "required": true,
+          "description": "Wall time Core spent executing the request, from parsing to the final response"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Core error returned to the host for this request, with its stable code and domain"
+        }
+      },
+      "rate": 600,
+      "owner": "lithe-core"
+    },
+    {
+      "id": "app.action.performed",
+      "channel": "app",
+      "level": "info",
+      "message": "User action {action} performed",
+      "fields": {
+        "action": {
+          "type": "token",
+          "required": true,
+          "description": "Stable id of the user action that started the work, never a localized menu or button title"
+        },
+        "surface": {
+          "type": "token",
+          "required": true,
+          "description": "UI surface that invoked the action: menu, shortcut, palette, toolbar, button, context_menu, notification or plugin"
+        }
+      },
+      "rate": 600,
+      "owner": "LitheModuleAPI"
+    }
+  ]
+}

@@ -16,6 +16,7 @@ struct ToolchainSettingsSnapshot: Equatable, Sendable {
         var depth: Int = 0
         /// Version files in this directory itself; ancestors' files are not repeated.
         var versionFiles: [VersionFile] = []
+        var hasToolPreferences = false
     }
 
     /// What a provider says one source asks for. `request` stays the manager's own syntax.
@@ -118,6 +119,13 @@ struct ToolchainSettingsSnapshot: Equatable, Sendable {
     }
 
     struct Tool: Identifiable, Equatable, Sendable {
+        /// Current Build contributions whose Core invocation actually references
+        /// this tool. Other consumers remain hidden until their adapters migrate.
+        struct Consumer: Identifiable, Equatable, Sendable {
+            let id: String
+            let title: String
+            let pluginName: String
+        }
         let id: String
         var directoryID: String = "."
         let displayName: String
@@ -135,6 +143,7 @@ struct ToolchainSettingsSnapshot: Equatable, Sendable {
         var detection: Detection? = nil
         /// `nil` when Core could not resolve this directory.
         var resolution: Resolution? = nil
+        var consumers: [Consumer] = []
 
         var identity: String { "\(directoryID):\(id)" }
     }

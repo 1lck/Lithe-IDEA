@@ -58,6 +58,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             pendingURLs.forEach { projectSessions.openStandaloneFile($0) }
         }
     }
+    var logSink: (any LogSink)?
     var flushApplicationLogs: (() async -> Void)?
     var prepareStableRollbackTermination: (() -> Bool)?
     var cancelStableRollbackTermination: (() -> Bool)?
@@ -103,12 +104,13 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         let currentScope = instance.scope.id
         let excluded = instance.excludedProcessIDs
         let settings = settings?.processTermination ?? ProcessTerminationSettings()
+        let logSink = self.logSink
         let leftovers = await Task.detached {
             MacStartupProcessSweep.leftovers(
                 store: store,
                 currentScope: currentScope,
                 excluding: excluded,
-                settings: settings
+                settings: settings, logSink: logSink
             )
         }.value
         guard !leftovers.isEmpty else { return }
@@ -131,7 +133,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
             _ = MacProcessScopeScanner.terminate(ended, gracePeriod: gracePeriod)
         }.value
         // Whatever was kept is no longer Lithe's to manage.
-        Set(leftovers.map(\.scope)).forEach(store.remove)
+        Set(leftovers.map(\.scope)).forEach { store.remove(scope: $0, logSink: logSink) }
     }
 
     func prepareForUpdateRelaunch() {
@@ -157,6 +159,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     private func boundUpdateTermination() {
         updateForceExitTask?.cancel()
         updateForceExitTask = Task { @MainActor [weak self] in
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             try? await Task.sleep(nanoseconds: Self.updateTerminationForceExitNanoseconds)
             guard let self, self.isUpdateInstallTermination, !Task.isCancelled else { return }
             // Sparkle's installer is waiting, and the user has confirmed unsaved work.
@@ -279,6 +282,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
                 await projectSessions.stopAllSessions()
             }
             group.addTask {
+                // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
                 try? await Task.sleep(nanoseconds: timeoutNanoseconds)
             }
             await group.next()
@@ -292,7 +296,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         MacLiveProcessGroups.application.terminateAllAndWait()
         sweepProcessScope()
         if relaunchesAfterTermination, !isUpdateInstallTermination {
-            MacApplicationRelauncher.scheduleRelaunch()
+            MacApplicationRelauncher.scheduleRelaunch(logSink: logSink)
         }
         isUpdateInstallTermination = false
         updateForceExitTask?.cancel()
@@ -485,11 +489,15 @@ struct LitheApp: App {
     @StateObject private var memoryUsageMonitor: MemoryUsageMonitor
     @StateObject private var frameRateMonitor = FrameRateMonitor()
     @StateObject private var updateChecker: UpdateChecker
-    private let applicationLogWriter: MacApplicationLogWriter
+    @StateObject private var logWindowCoordinator: LogWindowCoordinator
+    @StateObject private var logWindowModel: LogWindowModel
+    @StateObject private var logExportFeature: DiagnosticsFeatureModel
+    private let applicationLogWriter: MacLogStore
 
     init() {
+        var migrationLogs: [any LogEvent] = []
         do {
-            _ = try MacDevelopmentProfileMigration.prepare()
+            _ = try MacDevelopmentProfileMigration.prepare(report: { if migrationLogs.count < 8 { migrationLogs.append($0) } })
         } catch {
             let alert = NSAlert()
             alert.messageText = L10n.string("Could not copy your Stable settings")
@@ -499,11 +507,6 @@ struct LitheApp: App {
             exit(1)
         }
         let store = MacUserDefaultsStore()
-        if LithePerformanceBaseline.isEnabled || LitheSignpost.settingsLatencyTracingEnabled {
-            LitheSignpost.configureBaselineOutput { line in
-                FileHandle.standardError.write(Data(line.utf8))
-            }
-        }
         let settings = AppSettings(
             store: store,
             logDirectoryProvider: MacServiceContainer.makeLogDirectoryProvider()
@@ -517,6 +520,7 @@ struct LitheApp: App {
                 proxyPolicyBridge.networkProxyPolicy(from: configuration)
             }
         )
+        let logWindowCoordinator = LogWindowCoordinator()
         let applicationLogWriter = MacServiceContainer.makeApplicationLogWriter { [weak settings] in
             Task { @MainActor [weak settings] in settings?.setCustomLogDirectory(nil) }
         }
@@ -532,12 +536,35 @@ struct LitheApp: App {
             }
         }
         self.applicationLogWriter = applicationLogWriter
-        applicationLogWriter.record(level: "info", scope: "session", message: "session started")
-        MacLoginShellEnvironment.shared.attach(logging: applicationLogWriter)
-        let gitPerformanceLogger = MacGitPerformanceLogger(writer: applicationLogWriter)
-        MacBundledFontRegistry.registerFonts { message in
-            Self.appendApplicationLog(applicationLogWriter, message: message)
+        UserActionTrace.applicationSink = applicationLogWriter
+        _logWindowCoordinator = StateObject(wrappedValue: logWindowCoordinator)
+        settings.logWindowSink = applicationLogWriter
+        let logWindowModel = LogWindowModel(logging: applicationLogWriter, preferences: settings.logWindowPreferences,
+            sink: applicationLogWriter, save: { [weak settings] in settings?.logWindowPreferences = $0 })
+        #if arch(arm64)
+        let architecture = "arm64"
+        #else
+        let architecture = "x86_64"
+        #endif
+        logWindowModel.environment = .init(appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
+            osVersion: ProcessInfo.processInfo.operatingSystemVersionString, architecture: architecture, plugins: [])
+        _logWindowModel = StateObject(wrappedValue: logWindowModel)
+        migrationLogs.forEach { applicationLogWriter.emit($0) }
+        let exportService = MacServiceContainer.makeDiagnosticsExportService(fileStorage: MacFileStorage(),
+            processRunner: MacProcessRunner(logging: applicationLogWriter), core: RustCoreBridge(),
+            applicationLogging: applicationLogWriter, sink: applicationLogWriter)
+        exportService.environmentProvider = { [weak logWindowModel] in
+            logWindowModel?.environment ?? .init(appVersion: "", osVersion: "", architecture: architecture, plugins: [])
         }
+        let logExportFeature = DiagnosticsFeatureModel(service: exportService, sink: applicationLogWriter)
+        _logExportFeature = StateObject(wrappedValue: logExportFeature)
+        applicationLogWriter.emit(AppSessionStarted())
+        if let error = SyntaxHighlightingRegistry.loadError { applicationLogWriter.emit(EditorSyntaxConfigurationFailed(error: error, kind: "formats")) }
+        if let error = SyntaxHighlightingColorConfiguration.loadError { applicationLogWriter.emit(EditorSyntaxConfigurationFailed(error: error, kind: "colors")) }
+        MacLoginShellEnvironment.shared.attach(logging: applicationLogWriter)
+        MacProcessInstance.current?.attach(logSink: applicationLogWriter)
+        let gitPerformanceLogger = applicationLogWriter
+        MacBundledFontRegistry.registerFonts(logSink: applicationLogWriter)
         let processRegistry = ManagedProcessRegistry()
         let moduleStore = MacModuleConfigurationStore(store: store)
         _settings = StateObject(wrappedValue: settings)
@@ -546,9 +573,7 @@ struct LitheApp: App {
         let projectSessions = ProjectSessionManager(
             settings: settings,
             modelFactory: {
-                AppCompositionBuilder.makeModel(
-                    settings: settings,
-                    services: MacServiceContainer(
+                let services = MacServiceContainer(
                         store: store,
                         settings: settings,
                         processRegistry: processRegistry,
@@ -560,7 +585,11 @@ struct LitheApp: App {
                         applicationLogging: applicationLogWriter,
                         networkSessionProvider: networkSessionProvider
                     ).services
-                )
+                services.logWindowCoordinator = logWindowCoordinator
+                logWindowModel.environment = .init(appVersion: logWindowModel.environment.appVersion,
+                    osVersion: logWindowModel.environment.osVersion, architecture: logWindowModel.environment.architecture,
+                    plugins: services.pluginManager.snapshots.filter { $0.isEnabled }.map(\.id.rawValue))
+                return AppCompositionBuilder.makeModel(settings: settings, services: services)
             },
             projectWindowPresenter: { [weak projectWindowLauncher] windowID in
                 projectWindowLauncher?.present(windowID)
@@ -575,8 +604,8 @@ struct LitheApp: App {
         _projectSessions = StateObject(wrappedValue: projectSessions)
         _memoryUsageMonitor = StateObject(wrappedValue: MemoryUsageMonitor(
             startedAt: litheProcessLaunchDate,
-            baselineReporter: { marker in
-                Self.appendApplicationLog(applicationLogWriter, message: marker + "\n")
+            baselineReporter: { event, marker in
+                applicationLogWriter.emit(event)
                 Self.emitPerformanceBaselineMarker(marker)
             },
             logsPerformanceBaseline: ProcessInfo.processInfo.environment["LITHE_PERFORMANCE_BASELINE"] == "1",
@@ -585,15 +614,14 @@ struct LitheApp: App {
         ))
         Self.emitPerformanceBaselineMarker(LithePerformanceBaseline.configurationMarker())
         let updateChecker = UpdateChecker(
-            diagnosticSink: { message in
-                Self.appendApplicationLog(applicationLogWriter, message: message)
-            },
+            logSink: applicationLogWriter,
             sessionFactory: { [networkSessionProvider] configuration in
                 networkSessionProvider.makeSession(configuration: configuration)
             }
         )
         _updateChecker = StateObject(wrappedValue: updateChecker)
         appDelegate.projectSessions = projectSessions
+        appDelegate.logSink = applicationLogWriter
         appDelegate.flushApplicationLogs = { await applicationLogWriter.finishSession() }
         appDelegate.settings = settings
         let appDelegate = appDelegate
@@ -616,29 +644,16 @@ struct LitheApp: App {
     }
 
     private static func redirectApplicationLogs(
-        _ writer: MacApplicationLogWriter,
+        _ writer: MacLogStore,
         to directory: URL
     ) -> Bool {
         do {
             try writer.redirect(to: directory)
             return true
         } catch {
-            let message = "Could not redirect Lithe logs to \(directory.path): \(error.localizedDescription)\n"
-            if let data = message.data(using: .utf8) {
-                FileHandle.standardError.write(data)
-            }
+            writer.emit(AppLoggingRedirectFailed(directory: directory, error: error))
             return false
         }
-    }
-
-    // `App` makes this type main-actor isolated, but the writer is thread-safe and
-    // update diagnostics arrive from background tasks.
-    private nonisolated static func appendApplicationLog(
-        _ writer: MacApplicationLogWriter,
-        message: String
-    ) {
-        writer.record(level: "info", scope: "application", message: message)
-
     }
 
     private static func emitPerformanceBaselineMarker(_ marker: String) {
@@ -650,6 +665,12 @@ struct LitheApp: App {
 
     private var model: AppModel { projectSessions.activeModel }
 
+    /// Menu items log under their command id. A menu item's own key equivalent
+    /// also fires here, so its surface stays `menu`.
+    private func menuAction(_ id: String, _ body: () -> Void) {
+        UserActionTrace.run(id, surface: .menu, sink: applicationLogWriter, body)
+    }
+
     private var restartApplication: ApplicationRestartAction {
         let appDelegate = appDelegate
         return ApplicationRestartAction { appDelegate.requestRestart() }
@@ -657,7 +678,11 @@ struct LitheApp: App {
 
     var body: some Scene {
         WindowGroup(id: LitheWindowID.welcome) {
-            RootView(scope: .primary)
+            EditorSettingsImportStartup(feature: model.editorSettingsImport,
+                windowHandler: PrimaryProjectWindowSessions(manager: projectSessions)) {
+                RootView(scope: .primary)
+                    .environment(\.applicationLogSink, applicationLogWriter)
+            }
                 .environmentObject(model)
                 .environmentObject(projectSessions)
                 .environmentObject(projectWindowLauncher)
@@ -687,59 +712,67 @@ struct LitheApp: App {
         )
         .windowStyle(.hiddenTitleBar)
         .commands {
+            CommandGroup(after: .windowList) {
+                Button("Logs") { menuAction("show-logs") { logWindowCoordinator.open() } }
+                    .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "show-logs"))
+            }
             CommandGroup(replacing: .newItem) {
                 Button("Open Project…") {
-                    model.chooseProject()
+                    menuAction("open-project") { model.chooseProject() }
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "open-project"))
 
                 Button("New Window") {
-                    projectSessions.ensurePrimaryWindowAvailable()
-                    projectWindowLauncher.presentPrimary()
+                    menuAction("new-window") {
+                        projectSessions.ensurePrimaryWindowAvailable()
+                        projectWindowLauncher.presentPrimary()
+                    }
                 }
             }
 
             CommandGroup(after: .saveItem) {
                 Button("Save") {
-                    model.saveActiveDocument()
+                    menuAction("save") { model.saveActiveDocument() }
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "save"))
                 .disabled(model.activeDocument == nil)
 
                 Button("Close Project") {
-                    model.closeProject()
+                    menuAction("close-project") { model.closeProject() }
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "close-project"))
                 .disabled(model.workspaceURL == nil)
 
                 Button("Close File") {
-                    model.closeStandaloneFile()
+                    menuAction("close-file") { model.closeStandaloneFile() }
                 }
                 .disabled(model.standaloneFileURL == nil)
             }
 
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {
-                    model.showSettings()
+                    menuAction("settings") { model.showSettings() }
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "settings"))
             }
 
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") {
-                    Task { await updateChecker.checkForUpdates(manual: true, presentingDetails: true) }
+                    menuAction("check-for-updates") {
+                        Task { await updateChecker.checkForUpdates(manual: true, presentingDetails: true) }
+                    }
                 }
                 .disabled(updateChecker.isBusy)
 
                 Button("Export Diagnostics Bundle…") {
-                    model.diagnosticsFeature.presentExport()
+                    menuAction("export-diagnostics-bundle") { model.openLogs(.init(presentsExport: true)) }
                 }
             }
 
             CommandMenu("Navigate") {
                 Group {
                     Button("Back") {
-                        model.navigateBack()
+                        menuAction("navigate-back") { model.navigateBack() }
                     }
                     .litheKeyboardShortcut(
                         model.keyboardShortcutFeature.primaryKeyPress(for: "navigate-back")
@@ -747,7 +780,7 @@ struct LitheApp: App {
                     .disabled(!model.canNavigateBack)
 
                     Button("Forward") {
-                        model.navigateForward()
+                        menuAction("navigate-forward") { model.navigateForward() }
                     }
                     .litheKeyboardShortcut(
                         model.keyboardShortcutFeature.primaryKeyPress(for: "navigate-forward")
@@ -756,8 +789,14 @@ struct LitheApp: App {
 
                     Divider()
 
+                    Button("Find Action…") {
+                        menuAction("find-action") { model.openFindAction() }
+                    }
+                    .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-action"))
+                    .disabled(!model.canPerformShortcutCommand(id: "find-action"))
+
                     Button("Search Everywhere…") {
-                        model.toggleSearchEverywhere()
+                        menuAction("search-everywhere") { model.toggleSearchEverywhere() }
                     }
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "search-everywhere"))
                     .disabled(model.workspaceURL == nil)
@@ -765,31 +804,31 @@ struct LitheApp: App {
                     Divider()
 
                     Button("Find in File…") {
-                        model.showFindBar()
+                        menuAction("find-in-file") { model.showFindBar() }
                     }
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-in-file"))
                     .disabled(model.activeDocument == nil)
 
                     Button("Replace in File…") {
-                        model.showReplaceBar()
+                        menuAction("replace-in-file") { model.showReplaceBar() }
                     }
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "replace-in-file"))
                     .disabled(model.activeDocument == nil)
 
                     Button("Find Next") {
-                        model.navigateFind(offset: 1)
+                        menuAction("find-next") { model.navigateFind(offset: 1) }
                     }
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-next"))
                     .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
 
                     Button("Find Previous") {
-                        model.navigateFind(offset: -1)
+                        menuAction("find-previous") { model.navigateFind(offset: -1) }
                     }
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-previous"))
                     .disabled(!model.isFindBarVisible || model.findMatchCount == 0)
 
                     Button("Go to Line…") {
-                        model.showGoToLine()
+                        menuAction("go-to-line") { model.showGoToLine() }
                     }
                     .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "go-to-line"))
                     .disabled(model.activeDocument == nil)
@@ -798,7 +837,7 @@ struct LitheApp: App {
                 Divider()
 
                 Button("Go to Definition") {
-                    model.goToDefinition()
+                    menuAction("go-to-definition") { model.goToDefinition() }
                 }
                 .litheKeyboardShortcut(
                     model.keyboardShortcutFeature.primaryKeyPress(for: "go-to-definition")
@@ -806,13 +845,13 @@ struct LitheApp: App {
                 .disabled(!model.canPerformShortcutCommand(id: "go-to-definition"))
 
                 Button("Go to Implementation") {
-                    model.goToImplementation()
+                    menuAction("go-to-implementation") { model.goToImplementation() }
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "go-to-implementation"))
                 .disabled(!model.supportsLanguageServerFeature(.implementation))
 
                 Button("Find Usages") {
-                    model.findReferences()
+                    menuAction("find-usages") { model.findReferences() }
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "find-usages"))
                 .disabled(!model.supportsLanguageServerFeature(.references))
@@ -820,13 +859,13 @@ struct LitheApp: App {
                 Divider()
 
                 Button("Find in Files…") {
-                    model.openProjectSearch()
+                    menuAction("search-in-project") { model.openProjectSearch() }
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "search-in-project"))
                 .disabled(model.workspaceURL == nil)
 
                 Button("Replace in Files…") {
-                    model.openProjectReplace()
+                    menuAction("replace-in-project") { model.openProjectReplace() }
                 }
                 .litheKeyboardShortcut(model.keyboardShortcutFeature.primaryKeyPress(for: "replace-in-project"))
                 .disabled(model.workspaceURL == nil)
@@ -834,14 +873,14 @@ struct LitheApp: App {
 
             CommandMenu("History") {
                 Button("Show Local History…") {
-                    if let fileURL = model.activeDocument?.url {
-                        model.showLocalHistory(for: fileURL)
+                    menuAction("local-history") {
+                        if let fileURL = model.activeDocument?.url { model.showLocalHistory(for: fileURL) }
                     }
                 }
                 .disabled(model.activeDocument == nil)
 
                 Button("Show Project Local History…") {
-                    model.showProjectLocalHistory()
+                    menuAction("project-local-history") { model.showProjectLocalHistory() }
                 }
                 .disabled(model.workspaceURL == nil)
             }
@@ -851,10 +890,11 @@ struct LitheApp: App {
             if let windowID {
                 let scopedSessions = projectSessions.sessions(in: .dedicated(windowID))
                 if scopedSessions.isEmpty {
-                    ProjectWindowMissingSessionView(windowID: windowID)
+                    ProjectWindowMissingSessionView(logSink: applicationLogWriter, windowID: windowID)
                         .environmentObject(projectWindowLauncher)
                 } else {
                     RootView(scope: .dedicated(windowID))
+                        .environment(\.applicationLogSink, applicationLogWriter)
                         .environmentObject(projectSessions.activeModel(in: .dedicated(windowID)))
                         .environmentObject(projectSessions)
                         .environmentObject(projectWindowLauncher)
@@ -875,6 +915,16 @@ struct LitheApp: App {
             height: LitheWindowLayout.workspaceContentSize.height
         )
         .windowStyle(.hiddenTitleBar)
+
+        Window(L10n.string("Logs"), id: LitheWindowID.logs) {
+            LogWindowView(model: logWindowModel, coordinator: logWindowCoordinator, exportFeature: logExportFeature)
+                .environmentObject(settings)
+                .environment(\.locale, settings.language.locale)
+                .preferredColorScheme(settings.themePreference.preferredColorScheme)
+                .id(settings.language)
+        }
+        .defaultSize(width: 1340, height: 786)
+        .windowResizability(.contentMinSize)
 
         Window(settingsWindowTitle(for: settings.language), id: LitheWindowID.settings) {
             SettingsWindowHost(projectSessions: projectSessions, settings: settings)
@@ -914,6 +964,7 @@ struct LitheApp: App {
 }
 
 private struct ProjectWindowMissingSessionView: View {
+    var logSink: (any LogSink)?
     let windowID: UUID
     @EnvironmentObject private var projectWindowLauncher: ProjectWindowLauncher
 
@@ -932,10 +983,7 @@ private struct ProjectWindowMissingSessionView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
         .onAppear {
-            let message = "Lithe project window \(windowID.uuidString) has no matching session.\n"
-            if let data = message.data(using: .utf8) {
-                FileHandle.standardError.write(data)
-            }
+            if let window = LogSegment(windowID.uuidString.lowercased()) { logSink?.emit(AppWindowSessionMissing(window: window)) }
         }
     }
 }

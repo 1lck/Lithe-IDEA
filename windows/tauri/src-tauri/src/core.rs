@@ -403,9 +403,57 @@ pub async fn core_execute(window: tauri::WebviewWindow, request: String) -> Stri
     })
 }
 
+fn commit_selection_gates() -> &'static crate::commit_selection_gate::GateRegistry {
+    static GATES: OnceLock<crate::commit_selection_gate::GateRegistry> = OnceLock::new();
+    GATES.get_or_init(Default::default)
+}
+
+#[tauri::command]
+pub fn core_reserve_commit_selection(webview: tauri::Webview, operation_id: String) -> bool {
+    let owner = webview.window().label().to_owned();
+    if webview.get_webview_window(&owner).is_none()
+        || !commit_selection_gates().reserve(&owner, &operation_id)
+    {
+        return false;
+    }
+    // The destruction callback can race admission. A second check closes the
+    // gap if it ran before this reservation was inserted.
+    if webview.get_webview_window(&owner).is_none() {
+        commit_selection_gates().release(&owner, &operation_id);
+        return false;
+    }
+    true
+}
+
+#[tauri::command]
+pub fn core_release_commit_selection(webview: tauri::Webview, operation_id: String) {
+    commit_selection_gates().release(webview.window().label(), &operation_id);
+}
+
+pub(crate) fn start_commit_selection(
+    owner: &str,
+    operation_id: &str,
+) -> Option<Arc<std::sync::atomic::AtomicBool>> {
+    commit_selection_gates().start(owner, operation_id)
+}
+
+pub(crate) struct CommitSelectionCompletion(pub String);
+impl Drop for CommitSelectionCompletion {
+    fn drop(&mut self) {
+        commit_selection_gates().finish(&self.0);
+    }
+}
+
+pub(crate) fn close_window_commit_selections(owner: &str) {
+    for id in commit_selection_gates().close_owner(owner) {
+        let _ = lithe_core::cancel_operation(&id);
+    }
+}
+
 #[tauri::command]
 pub fn core_cancel(operation_id: String) -> bool {
-    lithe_core::cancel_operation(&operation_id)
+    let reserved = commit_selection_gates().cancel(&operation_id);
+    lithe_core::cancel_operation(&operation_id) || reserved
 }
 
 /// Resolves MCP's read-only helper and writable connection storage in the native host.

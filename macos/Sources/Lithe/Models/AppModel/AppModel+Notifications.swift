@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 extension AppModel {
     var activeNotifications: [WorkbenchNotification] {
@@ -9,20 +10,27 @@ extension AppModel {
         notificationFeature.notifications
     }
 
-    func showNotification(_ message: String) {
-        notificationFeature.show(message)
+    func showNotification(_ message: String, arguments: [String] = [],
+                          action: WorkbenchNotification.Action? = nil, logReference: LogRecordReference? = nil) {
+        notificationFeature.show(message, arguments: arguments, action: action, logReference: logReference)
     }
 
-    func showNotification(_ message: String, arguments: [String]) {
-        notificationFeature.show(message, arguments: arguments)
+    /// Records the failure at the boundary that decides to notify the user.
+    func notificationFailure(_ error: Error, operation: String) -> LogRecordReference? {
+        guard !error.isCancellation, let sink = services.logSink else { return nil }
+        return LogScope(sink: sink).emitReferenced(AppNotificationOperationFailed(error: error, operation: operation))
     }
 
-    func showNotification(_ message: String, arguments: [String] = [], action: WorkbenchNotification.Action) {
-        notificationFeature.show(message, arguments: arguments, action: action)
+    func notificationRejection(operation: String, reason: String) -> LogRecordReference? {
+        guard let sink = services.logSink else { return nil }
+        return LogScope(sink: sink).emitReferenced(AppNotificationOperationRejected(operation: operation, reason: reason))
     }
+
+    func showNotificationLog(_ id: UUID) { notificationFeature.showLog(id) }
 
     func performNotificationAction(_ id: UUID) {
-        notificationFeature.perform(id)
+        guard let action = notificationFeature.notifications.first(where: { $0.id == id })?.action else { return }
+        UserActionTrace.run(action.id, surface: .notification, sink: services.logSink) { notificationFeature.perform(id) }
     }
 
     func setNotificationHovered(_ id: UUID, isHovered: Bool) {

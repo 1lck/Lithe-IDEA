@@ -282,6 +282,7 @@ pub(super) fn test_results(
     let mut cases: Vec<TestCaseResult> = reported_cases
         .into_iter()
         .map(|case| TestCaseResult {
+            project: None,
             suite: case.class_name,
             case: case.method,
             status: status(&case.status),
@@ -310,6 +311,7 @@ pub(super) fn test_results(
                 existing.line = existing.line.or(detail.line);
             }
             None => cases.push(TestCaseResult {
+                project: None,
                 suite,
                 case,
                 status,

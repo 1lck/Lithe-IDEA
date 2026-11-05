@@ -7,6 +7,7 @@ export interface SourceModelChange {
   previousContent: string;
   content: string;
   changes: SourceTextChange[];
+  anchorChanges?: SourceTextChange[];
   external: boolean;
 }
 const sources = new WeakMap<Monaco.editor.ITextModel, EditorModelSource>();
@@ -43,7 +44,7 @@ export class EditorModelSource {
         next = next.slice(0, change.offset) + change.text + next.slice(change.offset + change.length);
       }
       this.content = next;
-      this.lastChange = { previousContent, content: next, changes, external: false };
+      this.lastChange = { previousContent, content: next, changes, anchorChanges: this.source.lastAnchorChanges, external: false };
     });
     model.onWillDispose(() => { subscription.dispose(); sources.delete(model); });
   }

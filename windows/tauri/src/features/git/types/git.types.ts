@@ -40,6 +40,8 @@ export interface GitCommit {
   date: string;
   /** Author's UTC offset in minutes (east positive) for `date`, when Core reports one. */
   dateUtcOffsetMinutes?: number;
+  /** Core-resolved author instant in Unix seconds, when the offset is known. */
+  dateUnixSeconds?: number;
   decorations: string;
 }
 
@@ -118,6 +120,16 @@ export interface GitHistoryPage {
   hasMore: boolean;
 }
 
+/** Result of Core's bounded walk that locates one commit in the paginated history. */
+export interface GitHistoryLocateResult {
+  found: boolean;
+  /** Commits read from the platform's cursor up to the hit, in reading order. */
+  commits: GitCommit[];
+  nextCursor?: string;
+  hasMore: boolean;
+  pagesLoaded: number;
+}
+
 export interface GitCommitFile {
   status: string;
   path: string;
@@ -160,6 +172,8 @@ export interface GitDiff {
   writePatch?: string;
   /** Display normalization lost EOF/CRLF bytes; only whole-file writes are safe. */
   has_lossy_line_endings?: boolean;
+  has_decoding_loss?: boolean;
+  core_hunks?: { id: string; header: string; patch: string }[];
   additions?: number;
   deletions?: number;
   is_truncated?: boolean;
@@ -232,6 +246,7 @@ export interface GitStash {
 export interface GitTag {
   name: string;
   commit: string;
+  object_id?: string;
   message?: string;
   date: string;
   is_annotated: boolean;

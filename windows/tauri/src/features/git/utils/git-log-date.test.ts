@@ -65,6 +65,13 @@ describe("formatGitLogDate", () => {
     );
   });
 
+  test("uses the Core-resolved instant for commit date presentation", () => {
+    expect(parseGitLogDate("2026/09/10 00:30", 480, 1788971400)?.toISOString()).toBe(
+      "2026-09-09T16:30:00.000Z",
+    );
+    expect(parseGitLogDate("2026/09/10 00:30", 480, Number.NaN)).toBeNull();
+  });
+
   test("keeps dates with unknown offsets absolute", () => {
     expect(format("2026/09/10 15:25", null)).toBe("9/10/2026 3:25 PM");
     expect(

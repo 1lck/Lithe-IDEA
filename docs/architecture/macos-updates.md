@@ -128,11 +128,13 @@ as **AutoBuild — 构建自 … UTC**). Workflow run/attempt counters do not or
 versions. Equal or older times cannot replace a published build. Retrying
 publication retains the artifact's original time instead of relabeling old bytes.
 
-Publication waits for both macOS architectures and the reusable Windows installer
-build, all carrying the same source, version, build and timestamp.
-The publisher checks both existing appcasts before any remote mutation: the new
-time must be strictly later than each published `pubDate`, and the numeric build
-must increase. As long as the `preview-0.3.0` release remains, its appcasts also
+AutoBuild builds macOS for Apple Silicon (`arm64`) only. Intel (`x86_64`) Macs
+receive stable releases; stable packaging and appcasts keep both architectures.
+Publication waits for the Apple Silicon build and the reusable Windows installer
+build, both carrying the same source, version, build and timestamp.
+The publisher checks the existing arm64 appcast before any remote mutation: the new
+time must be strictly later than the published `pubDate`, and the numeric build
+must increase. As long as the `preview-0.3.0` release remains, its arm64 appcast also
 pass the strict baseline check, even when AutoBuild exists but is empty or has only
 an incomplete checkpoint. Exact-plan recovery applies only to AutoBuild. Legacy builds
 such as `58.1` remain readable baselines; new builds
@@ -149,7 +151,10 @@ fail before mutation. The checkpoint itself is retained and verified with the as
 
 The rolling tag stays `AutoBuild`. New packages write
 `LitheUpdateChannel=autobuild`; legacy `preview` metadata remains readable.
-The feed is `releases/download/AutoBuild/appcast-preview-<architecture>.xml`.
+The feed is `releases/download/AutoBuild/appcast-preview-arm64.xml`. Intel
+AutoBuild installs from before this change request `appcast-preview-x86_64.xml`,
+which publication prunes; their update check fails, and **Return to Stable**
+remains the supported path.
 Sparkle uses the selected channel's feed. Skipped versions and automatic-check
 preferences remain separate under `app.lithe.desktop.sparkle.stable` and
 `app.lithe.desktop.sparkle.autobuild`; legacy preferences are not migrated.
@@ -167,7 +172,7 @@ no signed rolling Tauri manifest is published. They never claim freshness or
 open the browser silently during scheduled checks.
 
 ZIPs retain compatible names such as `Lithe-preview-20261015.124354-arm64.zip`.
-AutoBuild keeps only the current full ZIP per architecture and deltas targeting
+AutoBuild keeps only the current Apple Silicon full ZIP and deltas targeting
 the current build. Previous ZIPs are temporary delta inputs; older clients can
 use the current full archive after checking again. Historical cached feed URLs
 are not retained.

@@ -26,6 +26,7 @@ enum PluginHostEditorFlush {
             // Started before the request, so a request that answers at once
             // cancels it instead of leaving it behind.
             waiter.timeout = Task { @MainActor in
+                // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
                 do { try await sleep(timeout) } catch { return }
                 waiter.finish(false)
             }

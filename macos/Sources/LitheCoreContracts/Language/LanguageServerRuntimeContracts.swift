@@ -215,6 +215,9 @@ package struct LanguageServerRuntimeError: Equatable, Sendable {
     /// Plugin-defined code of a failed plugin function, for the plugin's own
     /// UI only; the host never branches on it.
     package let pluginErrorCode: String?
+    /// Structured facts of a failed plugin-server request. They travel to the
+    /// calling backend unchanged as the failure's details.
+    package let details: ToolingJSONValue?
 
     package init(
         code: String,
@@ -223,7 +226,8 @@ package struct LanguageServerRuntimeError: Equatable, Sendable {
         underlyingMessage: String?,
         processExitCode: Int?,
         javaBuildReport: JavaBuildReport? = nil,
-        pluginErrorCode: String? = nil
+        pluginErrorCode: String? = nil,
+        details: ToolingJSONValue? = nil
     ) {
         self.code = code
         self.stage = stage
@@ -232,6 +236,7 @@ package struct LanguageServerRuntimeError: Equatable, Sendable {
         self.processExitCode = processExitCode
         self.javaBuildReport = javaBuildReport
         self.pluginErrorCode = pluginErrorCode
+        self.details = details
     }
 }
 
@@ -283,6 +288,10 @@ package enum JavaLaunchPreparation: Equatable, Sendable {
 }
 
 package struct LanguageServerRuntimeEvent: Equatable, Sendable {
+    /// Optional structured fact on any runtime event, including stateChanged; independent of type.
+    package let coreLog: CoreLogRecord?
+    package let pluginID: String?
+    package let role: String?
     package let mavenProfileTask: String?
     package let mavenProfileProject: MavenProfileProjectResult?
     package let type: String
@@ -315,8 +324,10 @@ package struct LanguageServerRuntimeEvent: Equatable, Sendable {
         detail: String? = nil,
         mavenProfileTask: String? = nil,
         mavenProfileProject: MavenProfileProjectResult? = nil,
-        method: String? = nil
+        method: String? = nil,
+        coreLog: CoreLogRecord? = nil, pluginID: String? = nil, role: String? = nil
     ) {
+        self.coreLog = coreLog; self.pluginID = pluginID; self.role = role
         self.method = method
         self.mavenProfileTask = mavenProfileTask
         self.mavenProfileProject = mavenProfileProject
@@ -359,7 +370,15 @@ package struct JavaLanguageImportConfiguration: Equatable, Sendable {
     }
 }
 
+/// Explicit process ownership supplied by each launcher, never inferred from IDs.
+package enum LanguageServerLogRole: String, Sendable { case languageServer = "language_server", vcs, build, toolchain, backend }
+
 package protocol LanguageServerRuntimeCore: Sendable {
+    /// Core records the result of this declarative start attempt.
+    func observingPluginStartup(_ handoff: PluginOperationHandoff) -> any LanguageServerRuntimeCore
+    func loggingRuntime(role: LanguageServerLogRole, logSubject: String?, pluginID: String?) -> any LanguageServerRuntimeCore
+    func emitCoreLog(_ record: CoreLogRecord)
+
     /// Network-backed startup must run off the main actor. This is resolved
     /// from the workspace owner, before any process is created.
     func requiresBackgroundLanguageServerStart(rootURL: URL) -> Bool
@@ -497,6 +516,29 @@ package protocol LanguageServerRuntimeCore: Sendable {
         params: ToolingJSONValue,
         timeout: TimeInterval
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Sends an import request with an opaque snapshot token to a negotiated provider.
+    func requestKeymapImportProvider(
+        sessionID: String,
+        providerID: String,
+        snapshotID: String,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Starts a plugin backend offering its shortcut and optional toolchain providers.
+    func startPluginKeymapImportBackend(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        hostServices: [String],
+        toolchainProviders: [String],
+        keymapImportProviders: [String],
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
     /// Starts a plugin backend and offers it the manifest's toolchain providers.
     func startPluginToolchainBackend(
         pluginID: String,
@@ -547,6 +589,27 @@ package protocol LanguageServerRuntimeCore: Sendable {
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
+    /// Starts a plugin-owned server together with the policy that lets the
+    /// plugin's backend reach it through the host (plan API-25). Core enforces
+    /// `sessionPolicy`: the requests the backend may send, the gates they wait
+    /// for and the server notifications it receives.
+    func startPluginLanguageServer(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        workspaceConfiguration: ToolingJSONValue?,
+        sessionPolicy: ToolingJSONValue,
+        hostServices: [String],
+        cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
     /// Starts a plugin backend that may request the host services named in
     /// `hostServices` (function protocol 2). Core checks every request
     /// against them before publishing a `hostRequest` event.
@@ -578,6 +641,12 @@ package protocol LanguageServerRuntimeCore: Sendable {
         method: String,
         params: ToolingJSONValue
     ) -> Result<Bool, LanguageServerRuntimeFailure>
+    /// Replaces what Core's relay between plugin backends knows about the
+    /// enabled plugins and the live workspace contexts. Calls in flight that
+    /// the new snapshot no longer allows end with an explicit error.
+    func configurePluginFunctionRelay(
+        _ snapshot: PluginFunctionRelaySnapshot
+    ) -> Result<Void, LanguageServerRuntimeFailure>
     /// Replaces the configuration a running plugin server reads and tells it
     /// through `workspace/didChangeConfiguration`.
     func updateWorkspaceConfiguration(
@@ -605,12 +674,38 @@ package protocol LanguageServerRuntimeCore: Sendable {
         context: PluginWorkspaceContextReference?,
         timeout: TimeInterval
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Sends one LSP request of a plugin backend to its own server
+    /// (`lsp.pluginServerRequest`). Core checks the plugin's whitelist and
+    /// gates; the outcome arrives as one `requestCompleted` event with the
+    /// server's result under `result.value`. `timeout` nil keeps Core's default.
+    func pluginServerRequest(
+        sessionID: String,
+        pluginID: String,
+        serverID: String,
+        method: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval?
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Sends one LSP notification of a plugin backend to its own server.
+    /// `true` when Core wrote it; `false` when the server is not initialized
+    /// yet and reads the stored configuration with `initialized` instead.
+    func pluginServerNotify(
+        sessionID: String,
+        pluginID: String,
+        serverID: String,
+        method: String,
+        params: ToolingJSONValue
+    ) -> Result<Bool, LanguageServerRuntimeFailure>
     func cancelLanguageServerOperation(sessionID: String, operationID: String)
     func pollLanguageServerEvents(sessionID: String) -> [LanguageServerRuntimeEvent]
     func destroyLanguageServer(sessionID: String)
 }
 
 package extension LanguageServerRuntimeCore {
+    func observingPluginStartup(_ handoff: PluginOperationHandoff) -> any LanguageServerRuntimeCore { self }
+    func loggingRuntime(role: LanguageServerLogRole, logSubject: String?, pluginID: String?) -> any LanguageServerRuntimeCore { self }
+    func emitCoreLog(_ record: CoreLogRecord) {}
+
     func saveLanguageServerDocument(sessionID _: String, fileURL _: URL, text _: String) -> Result<Bool, LanguageServerRuntimeFailure> {
         .success(false)
     }
@@ -764,6 +859,25 @@ package extension LanguageServerRuntimeCore {
         ))
     }
 
+    func requestKeymapImportProvider(
+        sessionID _: String, providerID _: String, snapshotID _: String, timeout _: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(code: "not_supported", message: L10n.string(
+            "Shortcut import is unavailable. Update Lithe and the editor import plugin, then try again."
+        )))
+    }
+
+    func startPluginKeymapImportBackend(
+        pluginID _: String, providerID _: String, executableURL _: URL, arguments _: [String],
+        environment _: [String: String], rootURL _: URL, initializationOptions _: ToolingJSONValue?,
+        hostServices _: [String], toolchainProviders _: [String], keymapImportProviders _: [String],
+        initializeTimeout _: TimeInterval, requestTimeout _: TimeInterval, shutdownTimeout _: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(code: "not_supported", message: L10n.string(
+            "Shortcut import is unavailable. Update Lithe and the editor import plugin, then try again."
+        )))
+    }
+
     /// Runtimes without the protocol start the backend without the offer, so
     /// it negotiates no provider and receives no query.
     func startPluginToolchainBackend(
@@ -808,6 +922,34 @@ package extension LanguageServerRuntimeCore {
             runtimeExecutableURL: nil, jdtlsLaunchResources: nil, cacheDirectoryURL: nil,
             workspaceFingerprint: nil, initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
+        )
+    }
+
+    /// Runtimes that cannot enforce a session policy start the process as a
+    /// plain plugin backend: without the policy, so the plugin's backend has
+    /// no route to the server, and without workspace configuration.
+    func startPluginLanguageServer(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        workspaceConfiguration _: ToolingJSONValue?,
+        sessionPolicy _: ToolingJSONValue,
+        hostServices: [String],
+        cacheDirectoryURL _: URL?,
+        workspaceFingerprint _: String?,
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        startPluginLanguageServer(
+            pluginID: pluginID, providerID: providerID, executableURL: executableURL, arguments: arguments,
+            environment: environment, rootURL: rootURL, initializationOptions: initializationOptions,
+            hostServices: hostServices,
+            initializeTimeout: initializeTimeout, requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
         )
     }
 
@@ -902,6 +1044,13 @@ package extension LanguageServerRuntimeCore {
         ))
     }
 
+    /// A runtime without the relay has no calls between plugins to configure.
+    func configurePluginFunctionRelay(
+        _: PluginFunctionRelaySnapshot
+    ) -> Result<Void, LanguageServerRuntimeFailure> {
+        .success(())
+    }
+
     func updateWorkspaceConfiguration(
         sessionID _: String,
         configuration _: ToolingJSONValue
@@ -935,6 +1084,33 @@ package extension LanguageServerRuntimeCore {
         .failure(LanguageServerRuntimeFailure(
             code: "not_supported",
             message: "Plugin functions are not supported by this runtime."
+        ))
+    }
+
+    func pluginServerRequest(
+        sessionID _: String,
+        pluginID _: String,
+        serverID _: String,
+        method _: String,
+        params _: ToolingJSONValue,
+        timeout _: TimeInterval?
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "Plugin language server requests are not supported by this runtime."
+        ))
+    }
+
+    func pluginServerNotify(
+        sessionID _: String,
+        pluginID _: String,
+        serverID _: String,
+        method _: String,
+        params _: ToolingJSONValue
+    ) -> Result<Bool, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "Plugin language server notifications are not supported by this runtime."
         ))
     }
 }
@@ -975,6 +1151,51 @@ package struct PluginHostRequestFailure: Error, Equatable, Sendable {
     }
 }
 
+package extension PluginHostRequestFailure {
+    /// The backend's own server is not there to answer: stopped, still
+    /// starting, or never started with a session policy.
+    static let languageServerUnavailable = PluginHostRequestFailure(
+        message: "The language server is not running.", code: "plugin.host.languageServerUnavailable"
+    )
+
+    /// The server the backend named belongs to another plugin. A plugin may
+    /// only talk to the servers its own package declares.
+    static let foreignContribution = PluginHostRequestFailure(
+        message: "The language server belongs to another plugin.", code: "plugin.host.foreignContribution"
+    )
+
+    /// Core refused the call before it reached the server. Core puts the
+    /// stable `plugin.host.*` code in `details`; any other diagnostic there
+    /// never becomes the code the backend sees.
+    init(refusal failure: LanguageServerRuntimeFailure) {
+        let code = failure.details.flatMap { $0.hasPrefix("plugin.host.") ? $0 : nil }
+        self.init(message: failure.message, code: code ?? "plugin.host.languageServerUnavailable")
+    }
+
+    /// The server's answer was an error. Core already mapped its code to a
+    /// `plugin.host.*` code and put the server's own `{ code, message }` in
+    /// `details`; the backend receives both unchanged.
+    init(completion error: LanguageServerRuntimeError, message: String) {
+        let code = error.code.hasPrefix("plugin.host.") ? error.code : "plugin.host.languageServerUnavailable"
+        self.init(message: message, code: code, details: error.details)
+    }
+}
+
+/// A server notification Rust Core forwarded because the plugin's manifest
+/// lists its method in `forwardNotifications`. `params` is nil when the
+/// payload was too large; the backend then asks the server for the state.
+package struct PluginServerNotification: Equatable, Sendable {
+    package let method: String
+    package let params: ToolingJSONValue?
+    package let truncated: Bool
+
+    package init(method: String, params: ToolingJSONValue?, truncated: Bool) {
+        self.method = method
+        self.params = params
+        self.truncated = truncated
+    }
+}
+
 /// One generation of one workspace context, as a call or a host request
 /// names it (function protocol 3). Only the host decides whether it is
 /// still current.
@@ -985,6 +1206,47 @@ package struct PluginWorkspaceContextReference: Hashable, Sendable {
     package init(contextID: String, generation: Int) {
         self.contextID = contextID
         self.generation = generation
+    }
+}
+
+/// What Core's relay between plugin backends needs from the host: which
+/// plugins are enabled, and which workspace contexts are live. The host
+/// reports facts only; Core decides what each call may do with them.
+package struct PluginFunctionRelaySnapshot: Equatable, Sendable {
+    package struct Plugin: Equatable, Sendable {
+        package let pluginID: String
+        /// The manifest's `pluginFunctions.exports`, as Core normalized them.
+        package let exports: [ToolingJSONValue]
+        /// The manifest's `pluginFunctions.calls`, as Core normalized them.
+        package let calls: [ToolingJSONValue]
+
+        package init(pluginID: String, exports: [ToolingJSONValue], calls: [ToolingJSONValue]) {
+            self.pluginID = pluginID
+            self.exports = exports
+            self.calls = calls
+        }
+    }
+
+    package struct Context: Equatable, Sendable {
+        package let contextID: String
+        package let generation: Int
+        /// Whether the workspace is on an SSH host; Core refuses relayed
+        /// calls in it.
+        package let isRemote: Bool
+
+        package init(contextID: String, generation: Int, isRemote: Bool) {
+            self.contextID = contextID
+            self.generation = generation
+            self.isRemote = isRemote
+        }
+    }
+
+    package let plugins: [Plugin]
+    package let contexts: [Context]
+
+    package init(plugins: [Plugin], contexts: [Context]) {
+        self.plugins = plugins
+        self.contexts = contexts
     }
 }
 

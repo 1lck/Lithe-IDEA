@@ -7,6 +7,28 @@ import Testing
 
 @MainActor
 struct DebugModuleTests {
+    @Test
+    func terminalStateIsReportedForAnInactiveSessionWithoutChangingTheSelection() throws {
+        let provider = DebugProviderDescriptor(id: "python", displayName: "Python", fileExtensions: ["py"])
+        var created: [DeferredInspectionDebugSession] = []
+        let manager = DebugAdapterSessionManager(providers: [provider]) { _, _ in
+            let session = DeferredInspectionDebugSession(); created.append(session); return session
+        }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        defer { feature.reset() }
+        var ended: [DebugSessionID] = []
+        feature.onSessionStateChanged = { id, state in if state == .failed { ended.append(id) } }
+        let root = URL(fileURLWithPath: "/workspace")
+        let configuration = DebugLaunchConfiguration(name: "Service", request: .launch, arguments: [:])
+        #expect(feature.startAdditional(fileURL: root.appendingPathComponent("a.py"), rootURL: root, configuration: configuration))
+        let first = try #require(feature.activeSessionID)
+        #expect(feature.startAdditional(fileURL: root.appendingPathComponent("b.py"), rootURL: root, configuration: configuration))
+        let second = try #require(feature.activeSessionID), state = feature.state
+        created[0].transition(to: .failed)
+        #expect(ended == [first])
+        #expect(feature.activeSessionID == second && feature.state == state)
+    }
+
     @Test(arguments: [DebugRequestKind.launch, .attach], [false, true])
     func explicitEndpointUsesItsFactoryAndPreservesTheDAPRequest(request: DebugRequestKind, explicit: Bool) throws {
         let descriptor = DebugProviderDescriptor(id: "python", displayName: "Python", fileExtensions: ["py"])
@@ -463,6 +485,75 @@ struct DebugModuleTests {
         #expect(session.redefineCount == 1)
         #expect(session.executionCommands.isEmpty)
         #expect(feature.serviceUpdateMessage == "Code changes applied.")
+    }
+
+    @Test
+    func anAdapterThatDeclaredHotCodeReplaceOffersApplyingChangesAndSendsItAfterPreparing() async {
+        let session = DeferredInspectionDebugSession()
+        session.declaredBehavior = DebugAdapterDeclaredBehavior(
+            features: .init(hotCodeReplace: .init(request: "script.reload"))
+        )
+        let feature = makeDeclaredFeature(session: session, rootPath: "/workspace/declared-reload")
+        defer { feature.stop() }
+        #expect(feature.canApplyDeclaredCodeChanges)
+        var prepared = false
+
+        await feature.applyDeclaredCodeChanges {
+            #expect(session.redefineCount == 0)
+            prepared = true
+        }
+
+        #expect(prepared)
+        #expect(session.redefineCount == 1)
+        #expect(session.executionCommands.isEmpty)
+        #expect(feature.serviceUpdateFailed == false)
+        #expect(feature.updatingServiceSessionID == nil)
+    }
+
+    @Test
+    func aDeclaredHotCodeReplaceReplacesTheHostServiceUpdateSoOneButtonShows() async {
+        let session = DeferredInspectionDebugSession()
+        session.declaredBehavior = DebugAdapterDeclaredBehavior(
+            features: .init(hotCodeReplace: .init(request: "script.reload"))
+        )
+        let feature = makeDeferredFeature(session: session, rootPath: "/workspace/declared-over-service")
+        defer { feature.stop() }
+        feature.registerJavaUpdateTarget(JavaDebugLaunchTarget(mainClass: "example.Main", projectName: "app"))
+
+        #expect(feature.canApplyDeclaredCodeChanges)
+        #expect(!feature.canUpdateJavaService)
+    }
+
+    @Test
+    func anAdapterThatDeclaredNothingOffersNoApplyChangesAction() async {
+        let session = DeferredInspectionDebugSession()
+        let feature = makeDeclaredFeature(session: session, rootPath: "/workspace/undeclared-reload")
+        defer { feature.stop() }
+        #expect(!feature.canApplyDeclaredCodeChanges)
+
+        await feature.applyDeclaredCodeChanges { Issue.record("Nothing was declared, so nothing is prepared") }
+
+        #expect(session.redefineCount == 0)
+        #expect(feature.serviceUpdateMessage == nil)
+    }
+
+    @Test
+    func aFailedPreparationNeverAsksTheAdapterToApplyChanges() async {
+        let session = DeferredInspectionDebugSession()
+        session.declaredBehavior = DebugAdapterDeclaredBehavior(
+            features: .init(hotCodeReplace: .init(request: "script.reload"))
+        )
+        let feature = makeDeclaredFeature(session: session, rootPath: "/workspace/declared-reload-failure")
+        defer { feature.stop() }
+
+        await feature.applyDeclaredCodeChanges {
+            throw NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Save failed"])
+        }
+
+        #expect(session.redefineCount == 0)
+        #expect(feature.serviceUpdateFailed)
+        #expect(feature.serviceUpdateMessage?.contains("Save failed") == true)
+        #expect(feature.updatingServiceSessionID == nil)
     }
 
     @Test
@@ -982,6 +1073,49 @@ struct DebugModuleTests {
         try session.start(rootURL: URL(fileURLWithPath: "/tmp/lldb-core", isDirectory: true))
 
         #expect(core.lastDisabledCapabilities == ["supportsStepBack", "supportsRestartRequest"])
+    }
+
+    @Test
+    func coreProtocolSessionHandsTheDeclaredFeaturesAndDefaultsToCore() throws {
+        let declared = DebugAdapterDeclaredBehavior(
+            features: .init(
+                hotCodeReplace: .init(request: "reloadModules", changedField: "modules"),
+                stepFilters: .init(argument: "justMyCode")
+            ),
+            defaults: .init(stepFilters: .init(classNameFilters: ["vendor.*"], skipConstructors: true))
+        )
+        let core = RecordingDebugProtocolCore()
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "example-dap",
+            declaredBehavior: declared,
+            transport: RecordingTransport(),
+            core: core,
+            sessionID: "declared-session",
+            deadlineScheduler: RecordingDebugDeadlineScheduler()
+        )
+        defer { session.stop() }
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/declared-core", isDirectory: true))
+
+        #expect(core.lastDeclaredBehavior == declared)
+        #expect(session.declaredBehavior.features?.hotCodeReplace?.request == "reloadModules")
+    }
+
+    @Test
+    func coreProtocolSessionDeclaresNothingUnlessThePluginDid() throws {
+        let core = RecordingDebugProtocolCore()
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "example-dap",
+            transport: RecordingTransport(),
+            core: core,
+            sessionID: "undeclared-session",
+            deadlineScheduler: RecordingDebugDeadlineScheduler()
+        )
+        defer { session.stop() }
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/undeclared-core", isDirectory: true))
+
+        #expect(core.lastDeclaredBehavior == DebugAdapterDeclaredBehavior.none)
     }
 
     @Test
@@ -4966,6 +5100,207 @@ struct DebugModuleTests {
         return feature
     }
 
+    private func makeDeclaredFeature(
+        session: DeferredInspectionDebugSession,
+        rootPath: String
+    ) -> GenericDebugFeatureModel {
+        let descriptor = DebugProviderDescriptor(id: "example-dap", displayName: "Example", fileExtensions: ["ex"])
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let root = URL(fileURLWithPath: rootPath, isDirectory: true)
+        precondition(feature.start(
+            fileURL: root.appendingPathComponent("main.ex"),
+            rootURL: root,
+            configuration: DebugLaunchConfiguration(name: "main", request: .launch, arguments: [:])
+        ))
+        return feature
+    }
+
+    // MARK: Declarative adapter start
+
+    @Test
+    func aDeclarativeAdapterThatBecomesReadyRecordsOneFinishedStart() throws {
+        let transport = RecordingTransport()
+        let core = RecordingDebugProtocolCore()
+        let operations = RecordedDebugStartOperations()
+        let session = declarativeAdapterSession(transport: transport, core: core, operations: operations)
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/declarative-adapter"))
+        #expect(operations.observations.isEmpty)
+        core.enqueueReceive(
+            sessionID: RecordedDebugStartOperations.operationID, state: "ready",
+            events: [["sequence": 2, "type": "stateChanged", "state": "ready"]]
+        )
+        transport.emitData(Data("initialize-response".utf8))
+        #expect(session.state == .ready)
+        // An adapter that exits after its start finished does not end the start again.
+        transport.terminate(1)
+
+        #expect(operations.observations == [RecordedDebugStartOperations.expected(failure: nil)])
+    }
+
+    @Test
+    func aDeclarativeAdapterWhoseExecutableIsUnavailableRecordsTheResolveStage() {
+        let transport = RecordingTransport()
+        transport.failsToStart = true
+        let operations = RecordedDebugStartOperations()
+        let session = declarativeAdapterSession(
+            transport: transport, core: RecordingDebugProtocolCore(), operations: operations
+        )
+
+        #expect(throws: RecordingTransport.StartFailure.self) {
+            try session.start(rootURL: URL(fileURLWithPath: "/tmp/declarative-adapter"))
+        }
+
+        #expect(operations.observations == [RecordedDebugStartOperations.expected(failure: .resolve)])
+    }
+
+    @Test
+    func aDeclarativeAdapterThatFailsToLaunchRecordsTheStageItsTransportReached() {
+        let transport = LaunchFailingTransport()
+        let operations = RecordedDebugStartOperations()
+        let session = declarativeAdapterSession(
+            transport: transport, core: RecordingDebugProtocolCore(), operations: operations
+        )
+
+        #expect(throws: LaunchFailingTransport.LaunchFailure.self) {
+            try session.start(rootURL: URL(fileURLWithPath: "/tmp/declarative-adapter"))
+        }
+
+        #expect(operations.observations == [RecordedDebugStartOperations.expected(failure: .launch)])
+        #expect(transport.startupAttempt == nil, "The session lends the attempt only for the start call")
+    }
+
+    @Test
+    func aDeclarativeAdapterThatNeverInitializesRecordsTheTimeout() throws {
+        let transport = RecordingTransport()
+        let deadlines = RecordingDebugDeadlineScheduler()
+        let operations = RecordedDebugStartOperations()
+        let session = declarativeAdapterSession(
+            transport: transport, core: RecordingDebugProtocolCore(), deadlines: deadlines,
+            operations: operations, initializationTimeoutMilliseconds: 1_000
+        )
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/declarative-adapter"))
+        deadlines.fireLast()
+
+        #expect(session.state == .failed)
+        #expect(operations.observations == [RecordedDebugStartOperations.expected(failure: .timeout)])
+    }
+
+    @Test(arguments: [0, 3])
+    func aDeclarativeAdapterThatExitsBeforeItIsReadyRecordsTheExit(exitCode: Int) throws {
+        let transport = RecordingTransport()
+        let operations = RecordedDebugStartOperations()
+        let session = declarativeAdapterSession(
+            transport: transport, core: RecordingDebugProtocolCore(), operations: operations
+        )
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/declarative-adapter"))
+        transport.terminate(exitCode)
+
+        #expect(operations.observations == [RecordedDebugStartOperations.expected(failure: .exit)])
+    }
+
+    @Test
+    func stoppingADeclarativeAdapterBeforeItIsReadyRecordsNothing() throws {
+        let transport = RecordingTransport()
+        let core = RecordingDebugProtocolCore()
+        let operations = RecordedDebugStartOperations()
+        let session = declarativeAdapterSession(transport: transport, core: core, operations: operations)
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/declarative-adapter"))
+        session.stop()
+        transport.terminate(0)
+        #expect(session.state == .terminated)
+        #expect(operations.observations.isEmpty)
+
+        // The next start is a new attempt of its own.
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/declarative-adapter"))
+        core.enqueueReceive(
+            sessionID: RecordedDebugStartOperations.operationID, state: "ready",
+            events: [["sequence": 2, "type": "stateChanged", "state": "ready"]]
+        )
+        transport.emitData(Data("initialize-response".utf8))
+        #expect(operations.observations == [RecordedDebugStartOperations.expected(failure: nil)])
+    }
+
+    /// An adapter that connects after `start` returns, like one a language
+    /// server hosts, is still launching until it connects; ending before then
+    /// is a launch failure, and only a connected adapter can exit.
+    @Test(arguments: [false, true])
+    func aDeclarativeAdapterThatConnectsLaterIsLaunchingUntilItConnects(connected: Bool) throws {
+        let transport = LaterConnectingTransport()
+        let operations = RecordedDebugStartOperations()
+        let session = declarativeAdapterSession(
+            transport: transport, core: RecordingDebugProtocolCore(), operations: operations
+        )
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/declarative-adapter"))
+        if connected { transport.connect() }
+        transport.terminate(1)
+
+        #expect(operations.observations == [RecordedDebugStartOperations.expected(failure: connected ? .exit : .launch)])
+    }
+
+    @Test
+    func aSessionCoreRefusesIsNotRecordedAsThePlugins() {
+        let core = RecordingDebugProtocolCore()
+        core.refusesSessions = true
+        let operations = RecordedDebugStartOperations()
+        let session = declarativeAdapterSession(transport: RecordingTransport(), core: core, operations: operations)
+
+        #expect(throws: RecordingDebugProtocolCore.SessionRefused.self) {
+            try session.start(rootURL: URL(fileURLWithPath: "/tmp/declarative-adapter"))
+        }
+
+        #expect(session.state == .failed)
+        #expect(operations.observations.isEmpty)
+    }
+
+    /// The start is synchronous, so a cancelled caller does not turn the
+    /// adapter's own failure into a cancellation.
+    @Test
+    func aStartThatFailsInACancelledTaskIsStillRecorded() async {
+        let transport = RecordingTransport()
+        transport.failsToStart = true
+        let operations = RecordedDebugStartOperations()
+        let session = declarativeAdapterSession(
+            transport: transport, core: RecordingDebugProtocolCore(), operations: operations
+        )
+
+        // The task cannot run before this main-actor test suspends, so it is
+        // already cancelled when it starts the session.
+        let start = Task { @MainActor in
+            #expect(Task.isCancelled)
+            #expect(throws: RecordingTransport.StartFailure.self) {
+                try session.start(rootURL: URL(fileURLWithPath: "/tmp/declarative-adapter"))
+            }
+        }
+        start.cancel()
+        await start.value
+
+        #expect(operations.observations == [RecordedDebugStartOperations.expected(failure: .resolve)])
+    }
+
+    private func declarativeAdapterSession(
+        transport: any DebugAdapterTransport,
+        core: RecordingDebugProtocolCore,
+        deadlines: RecordingDebugDeadlineScheduler = RecordingDebugDeadlineScheduler(),
+        operations: RecordedDebugStartOperations,
+        initializationTimeoutMilliseconds: Int? = nil
+    ) -> CoreDebugAdapterProtocolSession {
+        CoreDebugAdapterProtocolSession(
+            adapterID: "lldb-dap",
+            transport: transport,
+            core: core,
+            sessionID: RecordedDebugStartOperations.operationID,
+            deadlineScheduler: deadlines,
+            initializationTimeoutMilliseconds: initializationTimeoutMilliseconds,
+            beginPluginStartup: { operations.begin(operationID: $0) }
+        )
+    }
+
     private func indexedVariables(
         _ range: Range<Int>,
         idPrefix: String = "item"
@@ -4991,8 +5326,12 @@ private final class RecordingTransport: DebugAdapterTransport {
     var onTermination: ((Int) -> Void)?
     private(set) var sentData: [Data] = []
     private(set) var stopCalls = 0
+    struct StartFailure: Error {}
+    /// When set, `start` throws before anything runs, like an unresolved executable.
+    var failsToStart = false
 
     func start(rootURL: URL) throws {
+        if failsToStart { throw StartFailure() }
         isRunning = true
     }
 
@@ -5175,6 +5514,7 @@ private struct RecordingDebugVariablePageRequest: Equatable {
 @MainActor
 private final class DeferredInspectionDebugSession: DebugAdapterControllingSession, DebugAdapterRunInTerminalSession {
     private(set) var redefineCount = 0
+    var declaredBehavior: DebugAdapterDeclaredBehavior = .none
     func redefineClasses(_ completion: @escaping (Result<[String], Error>) -> Void) {
         redefineCount += 1
         completion(.success(["example.Main"]))
@@ -5461,6 +5801,9 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
 
 @MainActor
 private final class RecordingDebugProtocolCore: DebugProtocolCore {
+    struct SessionRefused: Error {}
+    /// When set, `createDebugSession` throws, as Core does for a parent that already ended.
+    var refusesSessions = false
     private var receiveUpdates: [DebugCoreUpdate] = []
     private(set) var lastInspectionOperationID: String?
     private(set) var lastDataBreakpointInfoOperationID: String?
@@ -5481,6 +5824,7 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
     private(set) var lastSupportsStartDebuggingRequest: Bool?
     private(set) var lastParentSessionID: String?
     private(set) var lastDisabledCapabilities: [String] = []
+    private(set) var lastDeclaredBehavior: DebugAdapterDeclaredBehavior?
     private(set) var startDebuggingResults: [(requestID: String, succeeded: Bool)] = []
     private(set) var runInTerminalCompletions: [RecordingRunInTerminalCompletion] = []
     let defaultSteppingFilters = DebugSteppingFilters(
@@ -5505,8 +5849,11 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
         supportsRunInTerminalRequest: Bool,
         supportsStartDebuggingRequest: Bool,
         disabledCapabilities: [String],
-        parentSessionID: String?
+        parentSessionID: String?,
+        declared: DebugAdapterDeclaredBehavior
     ) throws -> DebugCoreUpdate {
+        if refusesSessions { throw SessionRefused() }
+        lastDeclaredBehavior = declared
         lastDisabledCapabilities = disabledCapabilities
         lastParentSessionID = parentSessionID
         lastSupportsRunInTerminalRequest = supportsRunInTerminalRequest
@@ -5741,6 +6088,80 @@ private struct RecordingRunInTerminalCompletion: Equatable {
     let requestID: String
     let response: DebugRunInTerminalResponse?
     let errorDescription: String?
+}
+
+/// Records the start attempts a session reports, on a clock that advances
+/// `tick` milliseconds per reading, so every attempt lasts exactly one tick.
+/// The session under test is `operationID`, so `expected` also proves the
+/// attempt is recorded under the session's ID.
+@MainActor
+private final class RecordedDebugStartOperations {
+    static let pluginID = "io.example.debug"
+    static let operationID = "debug-start-session"
+    static let tick: UInt64 = 7
+    private(set) var observations: [PluginOperationObservation] = []
+    private var now: UInt64 = 0
+
+    func begin(operationID: String) -> PluginOperationAttempt {
+        PluginOperationReporter(
+            record: { [self] in observations.append($0) },
+            clock: { [self] in now += Self.tick; return now }
+        ).begin(pluginID: Self.pluginID, operation: .debugAdapterStart, at: .resolve, operationID: operationID)
+    }
+
+    static func expected(failure: PluginOperationStage?) -> PluginOperationObservation {
+        PluginOperationObservation(
+            pluginID: pluginID, operation: .debugAdapterStart, failure: failure,
+            durationMs: tick, operationID: operationID
+        )
+    }
+}
+
+/// Resolves its launch like the plugin transport, then fails to start it.
+@MainActor
+private final class LaunchFailingTransport: DebugAdapterLaunchResolvingTransport {
+    struct LaunchFailure: Error {}
+    var startupAttempt: PluginOperationAttempt?
+    let isRunning = false
+    var onData: ((Data) -> Void)?
+    var onErrorOutput: ((Data) -> Void)?
+    var onTermination: ((Int) -> Void)?
+
+    func start(rootURL _: URL) throws {
+        startupAttempt?.advance(to: .launch)
+        throw LaunchFailure()
+    }
+
+    func send(_: Data) throws {}
+    func stop() {}
+}
+
+/// Resolves its launch, returns from `start`, and connects only later, like a
+/// transport to an adapter that a language server hosts.
+@MainActor
+private final class LaterConnectingTransport: DebugAdapterLaunchResolvingTransport {
+    var startupAttempt: PluginOperationAttempt?
+    private var lentAttempt: PluginOperationAttempt?
+    private(set) var isRunning = false
+    var onData: ((Data) -> Void)?
+    var onErrorOutput: ((Data) -> Void)?
+    var onTermination: ((Int) -> Void)?
+
+    func start(rootURL _: URL) throws {
+        startupAttempt?.advance(to: .launch)
+        lentAttempt = startupAttempt
+        isRunning = true
+    }
+
+    func connect() { lentAttempt?.advance(to: .initialize) }
+
+    func terminate(_ exitCode: Int) {
+        isRunning = false
+        onTermination?(exitCode)
+    }
+
+    func send(_: Data) throws {}
+    func stop() { isRunning = false }
 }
 
 @MainActor

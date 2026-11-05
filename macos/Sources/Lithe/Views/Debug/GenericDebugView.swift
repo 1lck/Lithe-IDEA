@@ -266,6 +266,16 @@ struct GenericDebugView: View {
                     .help("Apply code changes to this service")
                     .accessibilityLabel("Apply code changes")
                 }
+                if feature.canApplyDeclaredCodeChanges {
+                    Button { model.applyDeclaredDebugCodeChanges() } label: {
+                        Image(systemName: "bolt.fill")
+                    }
+                    .litheToolbarIconButton()
+                    .padding(.horizontal, 2)
+                    .disabled(feature.updatingServiceSessionID != nil)
+                    .help("Apply code changes to the running program")
+                    .accessibilityLabel("Apply code changes")
+                }
                 if feature.serviceUpdateFailed && feature.canUpdateJavaService {
                     Button("Restart service") { model.restartUpdatedDebugService() }
                         .disabled(feature.updatingServiceSessionID != nil)

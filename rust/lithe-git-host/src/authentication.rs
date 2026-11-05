@@ -123,13 +123,7 @@ impl Session {
                         // A bounded credential frame fits in a fresh loopback send buffer.
                         // Failure closes the connection; it never logs or retries the secret.
                         if let Some(answer) = answer {
-                            let mut bytes = answer.into_bytes();
-                            bytes.push(b'\n');
-                            let result = pending.stream.write_all(&bytes);
-                            bytes.fill(0);
-                            if let Err(error) = result {
-                                eprintln!("Git authentication response failed: {error}");
-                            }
+                            write_response(&mut pending.stream, answer, crate::failure_log::emit);
                         }
                         return false;
                     }
@@ -283,5 +277,58 @@ impl Drop for Confirmation {
         if let Ok(mut map) = answers().lock() {
             map.remove(&self.request_id);
         }
+    }
+}
+
+/// Zero the credential frame before emitting only the stable write category.
+fn write_response(
+    mut writer: impl std::io::Write,
+    answer: String,
+    emit: impl FnOnce(&str, crate::failure_log::Fields<'_>),
+) {
+    let mut bytes = answer.into_bytes();
+    bytes.push(b'\n');
+    let result = writer.write_all(&bytes);
+    bytes.fill(0);
+    if let Err(error) = result {
+        emit(
+            "vcs.authentication.response_failed",
+            &[
+                ("stage", serde_json::json!("write_response")),
+                (
+                    "error",
+                    serde_json::json!("Git authentication response failed"),
+                ),
+                (
+                    "error_code",
+                    serde_json::json!(format!("{:?}", error.kind())),
+                ),
+                ("error_domain", serde_json::json!("io")),
+            ],
+        );
+    }
+}
+
+#[cfg(test)]
+mod failure_tests {
+    #[test]
+    fn credential_write_failure_never_emits_credentials_or_io_message() {
+        // A real read-only file descriptor rejects writes on every platform.
+        let file = std::fs::File::open(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/authentication.rs"),
+        )
+        .unwrap();
+        let credential = "test-only-private-credential";
+        let called = std::cell::Cell::new(false);
+        super::write_response(file, credential.into(), |event, fields| {
+            called.set(true);
+            assert_eq!(event, "vcs.authentication.response_failed");
+            assert_eq!(fields.len(), 4);
+            assert_eq!(fields[0].1, "write_response");
+            assert_eq!(fields[1].1, "Git authentication response failed");
+            assert_eq!(fields[3].1, "io");
+            assert!(!serde_json::to_string(fields).unwrap().contains(credential));
+        });
+        assert!(called.get());
     }
 }

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Combine
 import Foundation
 import LitheCoreContracts
@@ -38,10 +39,13 @@ public final class AgentConversationFeatureModel: ObservableObject {
     private let historyExporter: (any AgentHistoryExporting)?
     private let statisticsPersistence: (any AgentSessionStatisticsPersisting)?
 
-    public init(transport: any AgentConversationTransport, workspaceURL: URL? = nil,
+    private let logSink: (any LogSink)?
+
+    public init(logSink: (any LogSink)? = nil, transport: any AgentConversationTransport, workspaceURL: URL? = nil,
                 historyPersistence: (any AgentHistoryPersisting)? = nil,
                 historyExporter: (any AgentHistoryExporting)? = nil,
                 statisticsPersistence: (any AgentSessionStatisticsPersisting)? = nil) {
+        self.logSink = logSink
         self.transport = transport
         self.workspaceURL = workspaceURL
         self.historyPersistence = historyPersistence
@@ -90,7 +94,7 @@ public final class AgentConversationFeatureModel: ObservableObject {
         let model = AgentConnectionModel(transport: transport)
         model.statisticsStore = statisticsPersistence.map { persistence in
             AgentSessionStatisticsStore(persistence: persistence, agentID: agentID,
-                                        workspaceURL: { [weak self] in self?.workspaceURL })
+                                        workspaceURL: { [weak self] in self?.workspaceURL }, logSink: logSink)
         }
         model.onAttentionChanged = { [weak self] needsAttention in
             self?.updateAttention(agentID, needsAttention)

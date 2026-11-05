@@ -17,6 +17,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -32,9 +33,8 @@ pub struct LspProcessSpec {
 
 /// A running language-server process.
 ///
-/// Every method is infallible-by-design except writing: a process that has
-/// already exited is a normal state the engine reports through its own events,
-/// not an error to propagate from the handle.
+/// Exit notification and verified disposal are separate: a dead root may
+/// still own descendants. Disposal must succeed before releasing resources.
 pub trait LspProcessHandle: Send + Sync {
     /// OS process identifier when the platform exposes one. Scripted test
     /// handles intentionally return no identifier.
@@ -56,6 +56,24 @@ pub trait LspProcessHandle: Send + Sync {
 
     /// Ends the process without waiting for it to agree.
     fn terminate(&self);
+
+    /// Transfers a native cleanup failure to the engine that owns role routing.
+    fn take_termination_failure(&self) -> Option<std::io::Error> {
+        None
+    }
+
+    /// Confirms disposal before the engine forgets the owning session.
+    /// Scripted handles have no descendants and report their own exit.
+    fn dispose(&self, _timeout: Duration) -> Result<(), CoreError> {
+        if self.exit_status().is_some() {
+            Ok(())
+        } else {
+            Err(CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Language-server cleanup is incomplete.",
+            ))
+        }
+    }
 }
 
 /// A launched process and the two streams the engine reads on its own threads.
@@ -115,6 +133,7 @@ impl LspProcessLauncher for SystemProcessLauncher {
             handle: Arc::new(SystemProcess {
                 input: Mutex::new(Some(stdin)),
                 child: Mutex::new(child),
+                termination_failure: Mutex::new(None),
                 #[cfg(target_os = "windows")]
                 tree,
             }),
@@ -202,9 +221,15 @@ fn windows_batch_env_value(value: &str) -> String {
     escaped
 }
 
+/// Interval between exit checks while a native disposal waits for the root.
+#[cfg(not(target_os = "windows"))]
+const DISPOSAL_POLL_MS: u64 = 10;
+
 struct SystemProcess {
     input: Mutex<Option<ChildStdin>>,
     child: Mutex<Child>,
+    /// At most one pending cleanup category, transferred to the owning engine.
+    termination_failure: Mutex<Option<std::io::Error>>,
     /// The server and its descendants; dropping the handle ends all of them.
     #[cfg(target_os = "windows")]
     tree: lithe_git_host::ProcessTree,
@@ -256,11 +281,80 @@ impl LspProcessHandle for SystemProcess {
     }
 
     fn terminate(&self) {
-        #[cfg(target_os = "windows")]
-        let _ = self.tree.kill();
-        if let Ok(mut child) = self.child.lock() {
-            let _ = child.kill();
+        // Native I/O returns only a category; the engine decides WARN and role routing.
+        let result = self.terminate_native();
+        if let Err(error) = result {
+            *self
+                .termination_failure
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some(error);
         }
+    }
+
+    fn take_termination_failure(&self) -> Option<std::io::Error> {
+        self.termination_failure
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+    }
+
+    fn dispose(&self, timeout: Duration) -> Result<(), CoreError> {
+        #[cfg(target_os = "windows")]
+        self.tree.terminate(timeout).map_err(|error| {
+            CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Language-server process tree did not exit.",
+            )
+            .with_details(error.to_string())
+        })?;
+        // A signalled child is reaped asynchronously, so an immediate status
+        // read after termination can still report it running. Repeat the
+        // idempotent kill and poll until the bounded disposal deadline. The
+        // last kill failure explains a root that outlives the deadline.
+        #[cfg(not(target_os = "windows"))]
+        let kill_failure = {
+            let mut last = None;
+            let deadline = std::time::Instant::now() + timeout;
+            while self.exit_status().is_none() && std::time::Instant::now() < deadline {
+                if let Err(error) = self.terminate_native() {
+                    last = Some(error);
+                }
+                std::thread::sleep(Duration::from_millis(DISPOSAL_POLL_MS));
+            }
+            last
+        };
+        #[cfg(target_os = "windows")]
+        let kill_failure: Option<std::io::Error> = None;
+        if self.exit_status().is_none() {
+            let error = CoreError::new(
+                ErrorCode::ProcessFailed,
+                "Language-server root did not exit.",
+            );
+            return Err(match kill_failure {
+                Some(cause) => error.with_details(cause.to_string()),
+                None => error,
+            });
+        }
+        Ok(())
+    }
+}
+
+impl SystemProcess {
+    fn terminate_native(&self) -> std::io::Result<()> {
+        #[cfg(target_os = "windows")]
+        let tree_result = self.tree.kill();
+        let child_result = match self.child.lock() {
+            Ok(mut child) => match child.kill() {
+                Ok(()) => Ok(()),
+                // A process that exited before termination is expected absence.
+                Err(_) if matches!(child.try_wait(), Ok(Some(_))) => Ok(()),
+                Err(error) => Err(error),
+            },
+            Err(_) => Err(std::io::Error::other("Process lock poisoned")),
+        };
+        #[cfg(target_os = "windows")]
+        tree_result?;
+        child_result
     }
 }
 
@@ -272,7 +366,8 @@ fn missing_stream(stream: &str) -> CoreError {
     .with_details(stream)
 }
 
-#[cfg(all(test, target_os = "windows"))]
+#[cfg(test)]
+#[cfg(target_os = "windows")]
 mod tests {
     use super::{
         language_server_command, windows_batch_command_line, LspProcessLauncher, LspProcessSpec,

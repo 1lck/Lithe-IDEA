@@ -10,6 +10,8 @@
     <a href="#核心功能">核心功能</a> ·
     <a href="#产品截图">产品截图</a> ·
     <a href="#下载与安装">下载</a> ·
+    <a href="https://github.com/Lithe-IDEA/Lithe-store">插件市场</a> ·
+    <a href="https://github.com/Lithe-IDEA/lithe-plugin-docs">插件开发</a> ·
     <a href="https://1lck.github.io/Lithe-IDEA/">工程决策看板</a> ·
     <a href="#如何开发">如何开发</a>
   </p>
@@ -44,7 +46,7 @@ https://github.com/user-attachments/assets/17e2325b-afed-4bbb-9926-a962f777269b
   </tr>
   <tr>
     <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="Lithe QQ 群二维码"></a></td>
-    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr-2026-10.png" width="280" alt="Lithe 微信群二维码"></a></td>
+    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.jpg" width="280" alt="Lithe 微信群二维码"></a></td>
   </tr>
 </table>
 </div>
@@ -363,6 +365,16 @@ open dist/Lithe.app
     </td>
     <td>
       <a href="https://www.atlascloud.ai/zh"><strong>Atlas Cloud</strong></a> 提供 <strong>400 多种模型</strong>的 AI 中转服务，开发者可以在同一平台探索和比较模型。感谢 Atlas Cloud 对 Lithe 的支持！
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://www.compshare.cn?ytag=GPU_YY_YX_git_litheidea">
+        <img src="./docs/assets/sponsors/compshare.png" width="64" alt="优云智算 Compshare">
+      </a>
+    </td>
+    <td>
+      <a href="https://www.compshare.cn?ytag=GPU_YY_YX_git_litheidea"><strong>优云智算 Compshare</strong></a> UCloud 旗下 AI 云平台，提供 GPU 算力及包月、按次的国模 Coding Plan，支持 Claude Code、Codex 和 API 接入。H3 视频生成套餐低至 0.08 元/秒，支持 2K 分辨率及最长 30 秒视频；支持企业高并发、7×24 技术支持和自助开票。
     </td>
   </tr>
   <tr>

@@ -75,6 +75,7 @@ public extension LanguageExecutionSession {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(5))
         while isRunning, clock.now < deadline {
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             try? await Task.sleep(for: .milliseconds(25))
         }
         return !isRunning
@@ -104,6 +105,11 @@ public struct LanguageServerExtensionConfiguration: Equatable, Sendable {
     /// starts. When set, `arguments` are templates and are never passed to
     /// the process as written.
     public let launchSource: DeclarativeLanguageServerLaunchSource?
+    /// Plugin whose declaration contributes the server, at any plugin API
+    /// version; nil for a server the host itself provides. It only attributes
+    /// the start to the plugin: a plugin API 1 server has no `launchSource`
+    /// and still starts as a host-owned process.
+    public let pluginID: String?
     /// Minimum version a discovered executable must report, for a server
     /// started by a runtime such as `java`.
     public let executableVersionRequirement: LanguageServerExecutableVersionRequirement?
@@ -125,6 +131,7 @@ public struct LanguageServerExtensionConfiguration: Equatable, Sendable {
         executableURL: URL? = nil,
         languageIdentifier: String,
         launchSource: DeclarativeLanguageServerLaunchSource? = nil,
+        pluginID: String? = nil,
         executableVersionRequirement: LanguageServerExecutableVersionRequirement? = nil,
         hostIntegrationID: String? = nil,
         launchRuntimeTool: String? = nil
@@ -139,6 +146,7 @@ public struct LanguageServerExtensionConfiguration: Equatable, Sendable {
         self.executableURL = executableURL
         self.languageIdentifier = languageIdentifier
         self.launchSource = launchSource
+        self.pluginID = pluginID ?? launchSource?.pluginID
         self.executableVersionRequirement = executableVersionRequirement
         self.hostIntegrationID = hostIntegrationID
         self.launchRuntimeTool = launchRuntimeTool
@@ -173,6 +181,7 @@ public extension LanguageServerExtensionLifecycle {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(5))
         while isRunning, clock.now < deadline {
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             try? await Task.sleep(for: .milliseconds(25))
         }
     }

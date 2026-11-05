@@ -521,10 +521,10 @@ fn collect_files(
         {
             // A transient/inaccessible descendant must not hide unrelated workspace results.
             // Log only a workspace-relative path; root errors and cancellation still propagate.
-            eprintln!(
-                "Search index skipped directory {:?}: {}",
-                relative_path(path, root),
-                error.message
+            crate::diagnostics::core_events::directory_skipped(
+                "app.search.directory_skipped",
+                &relative_path(path, root),
+                &error.code,
             );
             return Ok(());
         }
@@ -601,6 +601,8 @@ pub(crate) fn make_symbol_match(indexed: &IndexedSymbol, path: String) -> Search
         preview: indexed.signature.clone(),
         symbol_name: Some(indexed.name.clone()),
         name_match_ranges: Vec::new(),
+        source_line: None,
+        content_match_ranges: Vec::new(),
         matching_degree: None,
         is_ignored: None,
     }

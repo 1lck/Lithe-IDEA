@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Combine
 import Foundation
 
@@ -20,12 +21,16 @@ public final class TerminalFeatureModel: ObservableObject {
     private var shellDiscoveryGeneration = UUID()
     private var pendingProcessSessions: [UUID: TerminalSession] = [:]
 
+    private let logSink: (any LogSink)?
+
     public init(
+        logSink: (any LogSink)? = nil,
         terminalFactory: @escaping () -> any TerminalTransport,
         workspaceTerminalFactory: ((URL) -> any TerminalTransport)? = nil,
         shellDiscovery: @escaping () -> [String] = { [] },
         workspaceShellDiscovery: ((URL) async throws -> [String]?)? = nil
     ) {
+        self.logSink = logSink
         self.terminalFactory = terminalFactory
         self.workspaceTerminalFactory = workspaceTerminalFactory
         self.shellDiscovery = shellDiscovery
@@ -73,7 +78,7 @@ public final class TerminalFeatureModel: ObservableObject {
     }
 
     public var activeTerminalSession: TerminalSession? {
-        guard let activeTerminalSessionID else { return terminalSessions.first }
+        guard let activeTerminalSessionID else { return nil }
         return terminalSessions.first { $0.id == activeTerminalSessionID }
     }
 
@@ -106,7 +111,7 @@ public final class TerminalFeatureModel: ObservableObject {
         setShellWorkspace(workspaceURL)
         let transport = workspaceTerminalFactory?(workspaceURL) ?? terminalFactory()
         transport.configureInitialSurface(showsWorkbenchBackground: showsWorkbenchBackground)
-        let session = TerminalSession(transport: transport, preferredToolTabTitle: preferredToolTabTitle)
+        let session = TerminalSession(transport: transport, preferredToolTabTitle: preferredToolTabTitle, logSink: logSink)
         session.start(in: workspaceURL, shellPath: shellPath)
         terminalSessions.append(session)
         activeTerminalSessionID = session.id
@@ -121,7 +126,7 @@ public final class TerminalFeatureModel: ObservableObject {
     ) throws -> (session: TerminalSession, processID: Int32) {
         let transport = workspaceTerminalFactory?(URL(fileURLWithPath: launch.workingDirectory)) ?? terminalFactory()
         transport.configureInitialSurface(showsWorkbenchBackground: showsWorkbenchBackground)
-        let session = TerminalSession(transport: transport)
+        let session = TerminalSession(transport: transport, logSink: logSink)
         session.onOutput = onOutput
         let processID = try session.startProcess(launch)
         terminalSessions.append(session)
@@ -135,17 +140,18 @@ public final class TerminalFeatureModel: ObservableObject {
         _ launch: TerminalProcessLaunch,
         workspaceURL: URL,
         showsWorkbenchBackground: Bool = false,
+        selectsSession: Bool = true,
         onOutput: ((String) -> Void)? = nil
     ) async throws -> (session: TerminalSession, processID: Int32) {
         let transport = workspaceTerminalFactory?(workspaceURL) ?? terminalFactory()
         transport.configureInitialSurface(showsWorkbenchBackground: showsWorkbenchBackground)
-        let session = TerminalSession(transport: transport)
+        let session = TerminalSession(transport: transport, logSink: logSink)
         session.onOutput = onOutput
         pendingProcessSessions[session.id] = session
         defer { pendingProcessSessions[session.id] = nil }
         let processID = try await session.startProcessAsync(launch)
         terminalSessions.append(session)
-        activeTerminalSessionID = session.id
+        if selectsSession { activeTerminalSessionID = session.id }
         return (session, processID)
     }
 

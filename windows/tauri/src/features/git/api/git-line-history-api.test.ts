@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // file registers last must still serve every consumer.
 const invoke = mock(async (command: string, _args?: unknown): Promise<unknown> => {
   if (command === "git_discover_repo") return "C:/repo";
+  if (command === "git.resolveFileContext") return { root: "C:/repo", path: "src/main.ts", ownership: "git" };
   if (command === "git.lineHistory") {
     return { baseCommit: "b".repeat(40), unmappedLines: [], commits: [], truncated: false };
   }
@@ -44,7 +45,7 @@ describe("getGitLineHistory", () => {
     });
 
     expect(invoke.mock.calls).toEqual([
-      ["git_discover_repo", { path: "C:/repo/src" }],
+      ["git.resolveFileContext", { root: "C:/repo", path: "src/main.ts" }],
       [
         "git.lineHistory",
         {
@@ -66,11 +67,11 @@ describe("getGitLineHistory", () => {
   test("skips the core query when cancellation covers the discovery phase", async () => {
     let releaseDiscovery: (() => void) | undefined;
     invoke.mockImplementation(async (command: string) => {
-      if (command === "git_discover_repo") {
+      if (command === "git.resolveFileContext") {
         await new Promise<void>((resolve) => {
           releaseDiscovery = resolve;
         });
-        return "C:/repo";
+        return { root: "C:/repo", path: "src/main.ts", ownership: "git" };
       }
       throw new Error(`Unexpected command: ${command}`);
     });
@@ -97,7 +98,7 @@ describe("getGitLineHistory", () => {
 
   test("returns null when the file is not inside a repository", async () => {
     invoke.mockImplementation(async (command: string) => {
-      if (command === "git_discover_repo") {
+      if (command === "git.resolveFileContext") {
         throw new Error("not a git repository");
       }
       throw new Error(`Unexpected command: ${command}`);

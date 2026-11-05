@@ -3,11 +3,159 @@
 //! Network transport and credential storage remain platform-owned. This module
 //! keeps GitHub REST paths, payloads, response shapes, and error translation
 //! identical for the macOS and Windows products.
+//!
+//! Device polling: .agents/notes/implemented/bug-fix/2026-11-04-github-device-authorization-deadline.md
 
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+
+const DEVICE_EXPIRATION_MAX_SECONDS: u64 = 86_400;
+// Once an interval reaches the maximum lifetime, no further poll can occur.
+const DEVICE_INTERVAL_MAX_SECONDS: u64 = DEVICE_EXPIRATION_MAX_SECONDS;
+const DEVICE_SLOW_DOWN_SECONDS: u64 = 5;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Facts for a non-destructive pull-request checkout proposal.
+pub struct PullRequestCheckoutPlanRequest {
+    /// Positive GitHub pull-request number.
+    pub number: u64,
+    /// Untrusted source branch name returned by GitHub.
+    pub head_ref: String,
+    /// Whether the proposed local ref conflicts with a current local ref.
+    pub branch_exists: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Actions shown before fetching and creating a local branch.
+pub struct PullRequestCheckoutPlan {
+    pub allowed: bool,
+    pub branch: String,
+    /// `branchExists` requires the existing local ref to be resolved by the user.
+    pub conflict: Option<&'static str>,
+    /// Ordered effects which require the user's checkout action.
+    pub actions: Vec<&'static str>,
+}
+
+/// Builds a safe branch name without ever proposing to reset an existing ref.
+pub fn pull_request_checkout_plan(
+    request: PullRequestCheckoutPlanRequest,
+) -> Result<PullRequestCheckoutPlan, CoreError> {
+    if request.number == 0 || request.head_ref.len() > 4_096 {
+        return Err(invalid_field("pullRequest"));
+    }
+    // ASCII-only names keep validation deterministic across filesystem and UI locales.
+    let raw: String = request
+        .head_ref
+        .chars()
+        .take(160)
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let mut name = raw
+        .replace("..", "-")
+        .trim_matches(&['.', '-'][..])
+        .to_string();
+    while name.contains("..") {
+        name = name.replace("..", "-");
+    }
+    if name.is_empty() {
+        name = "head".into();
+    }
+    if name.ends_with(".lock") {
+        name.push_str("-head");
+    }
+    let branch = format!("pr/{}-{name}", request.number);
+    let allowed = !request.branch_exists;
+    Ok(PullRequestCheckoutPlan {
+        allowed,
+        branch,
+        conflict: (!allowed).then_some("branchExists"),
+        actions: if allowed {
+            vec!["fetchPullRequest", "createBranch"]
+        } else {
+            vec![]
+        },
+    })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// One device-flow observation; elapsed time is supplied by the platform's monotonic clock.
+pub struct DeviceAuthorizationTransitionRequest {
+    /// `start`, `tick`, or a normalized device-token status.
+    pub event: String,
+    /// Server-provided authorization lifetime, in seconds.
+    pub expires_in: u64,
+    /// Current polling interval, in seconds.
+    pub interval: u64,
+    /// Milliseconds elapsed since authorization began.
+    pub elapsed_milliseconds: u64,
+    /// Optional interval returned with a `slowDown` response.
+    #[serde(default)]
+    pub suggested_interval: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The next action and polling interval; never contains credentials or codes.
+pub struct DeviceAuthorizationTransition {
+    /// `wait`, `poll`, `authorize`, `expired`, `denied`, or `failed`.
+    pub action: &'static str,
+    /// Interval to provide on the next transition, in seconds.
+    pub interval_seconds: u64,
+    /// Monotonic delay for `wait`, bounded by the authorization deadline.
+    pub wait_milliseconds: u64,
+}
+
+/// Plans a bounded device authorization transition without owning timers or credentials.
+pub fn device_authorization_transition(
+    request: DeviceAuthorizationTransitionRequest,
+) -> Result<DeviceAuthorizationTransition, CoreError> {
+    let expiration_ms = request.expires_in.clamp(1, DEVICE_EXPIRATION_MAX_SECONDS) * 1_000;
+    let mut interval = request.interval.clamp(1, DEVICE_INTERVAL_MAX_SECONDS);
+    let action = match request.event.as_str() {
+        // A server response is authoritative even if network latency crossed the local deadline.
+        "authorized" => "authorize",
+        "expired" => "expired",
+        "denied" => "denied",
+        "failed" => "failed",
+        "start" | "tick" | "pending" | "slowDown" => {
+            if request.elapsed_milliseconds >= expiration_ms {
+                "expired"
+            } else if request.event == "tick" {
+                "poll"
+            } else {
+                if request.event == "slowDown" {
+                    interval = interval
+                        .max(request.suggested_interval.unwrap_or(interval))
+                        .saturating_add(DEVICE_SLOW_DOWN_SECONDS)
+                        .min(DEVICE_INTERVAL_MAX_SECONDS);
+                }
+                "wait"
+            }
+        }
+        _ => return Err(invalid_field("event")),
+    };
+    let wait_milliseconds = if action == "wait" {
+        (interval * 1_000).min(expiration_ms - request.elapsed_milliseconds)
+    } else {
+        0
+    };
+    Ok(DeviceAuthorizationTransition {
+        action,
+        interval_seconds: interval,
+        wait_milliseconds,
+    })
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]

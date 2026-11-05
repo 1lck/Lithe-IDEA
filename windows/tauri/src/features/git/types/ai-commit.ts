@@ -60,7 +60,8 @@ export interface CommitFileInput {
   path: string;
   changeKind: string;
   diff: string;
-  fingerprint?: string;
+  originalCharacters?: number;
+  truncated?: boolean;
 }
 
 export const DEFAULT_COMMIT_AI: CommitAISettings = {

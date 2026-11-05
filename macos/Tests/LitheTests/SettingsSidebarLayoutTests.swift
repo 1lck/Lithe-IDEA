@@ -36,7 +36,7 @@ struct SettingsSidebarLayoutTests {
         #expect(SettingsGroup.versionControl.categories == [.git])
         #expect(SettingsGroup.build.categories == [.toolchainEnvironment, .toolchainSources, .project, .run])
         #expect(SettingsGroup.languages.categories == [.lsp])
-        #expect(SettingsGroup.tools.categories == [.terminal, .diagnostics])
+        #expect(SettingsGroup.tools.categories == [.terminal])
         #expect(SettingsGroup.ai.categories == [.providers, .agents, .instructions, .skills, .hooks, .mcp, .ai])
         #expect(SettingsSubgroup.library.categories == [.instructions, .skills, .hooks, .mcp])
     }

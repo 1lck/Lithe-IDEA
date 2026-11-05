@@ -186,7 +186,10 @@ final class VcsProvidersFeatureModel: ObservableObject {
     /// cannot replace a newer one.
     private var treeRevisions: [String: Int] = [:]
 
+    private let logSink: (any LogSink)?
+
     init(
+        logSink: (any LogSink)? = nil,
         planner: any VcsRootPlanning,
         providers: any VcsProviderRequesting,
         mappingStore: any VcsRootMappingStoring,
@@ -197,6 +200,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
         metadataWatcherFactory: (any DirectoryWatcherFactory)? = nil,
         sources: @escaping @MainActor () -> [VcsProviderPluginSource]
     ) {
+        self.logSink = logSink
         self.planner = planner
         self.providers = providers
         self.mappingStore = mappingStore
@@ -264,7 +268,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
         let planner = planner
         let generation = generation
         detectionTask = Task { [weak self] in
-            let result = await Task.detached(priority: .userInitiated) {
+            let result = await UserActionContext.detached(priority: .userInitiated) {
                 Result {
                     try planner.detectRoots(
                         workspaceURL: workspaceURL, manifests: sources.map(\.manifest), mappings: mappings
@@ -487,6 +491,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
         let sleep = sleep
         let generation = generation
         scheduledTask = Task { [weak self] in
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             do { try await sleep(Self.refreshDelay) } catch { return }
             guard let self, self.generation == generation, !Task.isCancelled else { return }
             let roots = self.scheduledRoots
@@ -556,13 +561,17 @@ final class VcsProvidersFeatureModel: ObservableObject {
         }
         let revision = (treeRevisions[rootID] ?? 0) + 1
         treeRevisions[rootID] = revision
-        let planner = planner
+        let planner = planner, logSink = logSink
         let rootIDs = allRootIDs
         let ambiguousIDs = ambiguous.map(\.id)
         let generation = generation
         Task { [weak self] in
-            let owners = await Task.detached(priority: .utility) {
-                try? planner.owners(roots: rootIDs, ambiguous: ambiguousIDs, paths: paths)
+            let owners = await Task.detached(priority: .utility) { () -> [String?]? in
+                do { return try planner.owners(roots: rootIDs, ambiguous: ambiguousIDs, paths: paths) }
+                catch {
+                    logSink?.emit(VcsRootsFallbackSelected(error: error, stage: "ownership"))
+                    return nil
+                }
             }.value
             guard let self, self.generation == generation, self.treeRevisions[rootID] == revision,
                   self.index(of: rootID) != nil else { return }
@@ -675,9 +684,13 @@ final class VcsProvidersFeatureModel: ObservableObject {
         let sources = sources()
         guard !sources.isEmpty else { return true }
         let mappings = mappingStore.mappings(workspaceURL: workspaceURL)
-        let planner = planner, generation = generation
-        let detection = await Task.detached(priority: .userInitiated) {
-            try? planner.detectRoots(workspaceURL: workspaceURL, manifests: sources.map(\.manifest), mappings: mappings)
+        let planner = planner, logSink = logSink, generation = generation
+        let detection = await UserActionContext.detached(priority: .userInitiated) { () -> VcsDetection? in
+            do { return try planner.detectRoots(workspaceURL: workspaceURL, manifests: sources.map(\.manifest), mappings: mappings) }
+                catch {
+                    logSink?.emit(VcsRootsFallbackSelected(error: error, stage: "detection"))
+                    return nil
+                }
         }.value
         guard self.generation == generation, !Task.isCancelled else { return false }
         guard let detection, !detection.truncated, !isTruncated, detection.roots.map(\.id) == allRootIDs,
@@ -728,7 +741,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
         guard paths.count == changes.count else { return false }
         let planner = planner, roots = allRootIDs, ambiguous = ambiguous.map(\.id), generation = generation
         do {
-            let owners = try await Task.detached(priority: .userInitiated) {
+            let owners = try await UserActionContext.detached(priority: .userInitiated) {
                 try planner.owners(roots: roots, ambiguous: ambiguous, paths: paths)
             }.value
             guard self.generation == generation, !Task.isCancelled,
@@ -829,12 +842,16 @@ final class VcsProvidersFeatureModel: ObservableObject {
         // Both ends must belong to the root by Core's rule: a nested root of
         // another VCS, such as a Git repository, or an ambiguous directory
         // with no VCS chosen takes its paths away from the working copy.
-        let planner = planner
+        let planner = planner, logSink = logSink
         let rootIDs = allRootIDs
         let ambiguousIDs = ambiguous.map(\.id)
         let generation = generation
-        let owners = await Task.detached(priority: .userInitiated) {
-            try? planner.owners(roots: rootIDs, ambiguous: ambiguousIDs, paths: [sourcePath, destinationPath])
+        let owners = await UserActionContext.detached(priority: .userInitiated) { () -> [String?]? in
+            do { return try planner.owners(roots: rootIDs, ambiguous: ambiguousIDs, paths: [sourcePath, destinationPath]) }
+                catch {
+                    logSink?.emit(VcsRootsFallbackSelected(error: error, stage: "ownership"))
+                    return nil
+                }
         }.value
         // An action that started meanwhile leaves the move to the disk, as
         // one running before would, instead of reporting it as refused.
@@ -909,7 +926,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
             roots[index].negotiation = reply.negotiation
         }
         let planner = planner
-        let value = try await Task.detached(priority: .userInitiated) {
+        let value = try await UserActionContext.detached(priority: .userInitiated) {
             try planner.decodeReply(
                 operation, capabilities: reply.negotiation.capabilities, reply: reply.value, as: Value.self
             )

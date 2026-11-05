@@ -19,16 +19,16 @@ pub(crate) const JAVA_RESOLVE_MAIN_CLASS_COMMAND: &str = "vscode.java.resolveMai
 /// Version of the serialized [`JavaEntrypoints`] shape.
 pub(crate) const JAVA_ENTRYPOINTS_SCHEMA_VERSION: u32 = 1;
 
-/// `workspace/executeCommand` params that discover entry points under one workspace.
+/// `workspace/executeCommand` params that discover the session's Java entries.
 ///
-/// Passing the workspace URI scopes the search to projects inside it instead of
-/// every project JDT has imported. Java Debug Server compares that path with
-/// each project's canonical location textually, so `scope_uri` must name the
-/// workspace with symbolic links resolved or no project matches.
-pub(crate) fn java_entrypoints_command(scope_uri: &str) -> Value {
+/// The bundled Java Debug Server's path-scoped search excludes invisible
+/// projects, whose location is JDT's cache rather than their linked workspace.
+/// Its unscoped command includes these projects. The normalizer below still
+/// restricts every returned source to the opened workspace or its resolved root.
+pub(crate) fn java_entrypoints_command() -> Value {
     json!({
         "command": JAVA_RESOLVE_MAIN_CLASS_COMMAND,
-        "arguments": [scope_uri],
+        "arguments": [],
     })
 }
 
@@ -219,11 +219,32 @@ mod tests {
     }
 
     #[test]
-    fn the_command_is_scoped_to_the_workspace() {
+    fn the_command_includes_jdt_invisible_projects_before_workspace_filtering() {
         assert_eq!(
-            java_entrypoints_command("file:///work/app/"),
-            json!({ "command": "vscode.java.resolveMainClass", "arguments": ["file:///work/app/"] })
+            java_entrypoints_command(),
+            json!({ "command": "vscode.java.resolveMainClass", "arguments": [] })
         );
+    }
+
+    #[test]
+    fn unscoped_results_keep_only_sources_owned_by_the_open_workspace() {
+        let result = json!([
+            { "mainClass": "Main", "projectName": "invisible-cache-project", "filePath": "/resolved/app/src/Main.java" },
+            { "mainClass": "Foreign", "projectName": "other-project", "filePath": "/resolved/app-other/src/Foreign.java" }
+        ]);
+        let normalized =
+            normalize_java_entrypoints("file:///linked/app/", Some("/resolved/app"), &result)
+                .expect("list result");
+        assert_eq!(
+            normalized.entries,
+            vec![entry(
+                "src/Main.java",
+                "Main",
+                Some("invisible-cache-project")
+            )]
+        );
+        assert_eq!(normalized.diagnostics.len(), 1);
+        assert_eq!(normalized.diagnostics[0].code, "outsideWorkspace");
     }
 
     #[test]

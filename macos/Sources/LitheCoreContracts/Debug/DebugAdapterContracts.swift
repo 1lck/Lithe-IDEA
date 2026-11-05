@@ -20,6 +20,17 @@ public protocol DebugAdapterTransport: AnyObject {
     func stop()
 }
 
+/// A transport that resolves a declared launch when it starts. It owns the
+/// session's start attempt until the adapter is reachable: `resolve` until the
+/// launch is known, then `launch`, then `initialize` once the adapter can take
+/// the handshake, or `timeout` when its own startup deadline ends the launch.
+/// A transport that connects after `start` returns keeps the attempt it was
+/// lent until then; the session ends the attempt and never moves it back.
+@MainActor
+public protocol DebugAdapterLaunchResolvingTransport: DebugAdapterTransport {
+    var startupAttempt: PluginOperationAttempt? { get set }
+}
+
 /// Optional bounded best-effort flush for the final DAP disconnect frame.
 /// This ends the transport, never the external server; `stop` still aborts now.
 @MainActor
@@ -233,18 +244,40 @@ public struct JavaDebugLaunchTarget: Codable, Hashable, Sendable {
     public let projectName: String?
     public let modulePaths: [String]
     public let classPaths: [String]
+    /// The host completed the current build provider preparation before JDT launch resolution.
+    public let buildPrepared: Bool
+
+    public init(mainClass: String, projectName: String?, modulePaths: [String] = [], classPaths: [String] = []) {
+        self.init(mainClass: mainClass, projectName: projectName, modulePaths: modulePaths, classPaths: classPaths, buildPrepared: false)
+    }
 
     public init(
         mainClass: String,
         projectName: String?,
         modulePaths: [String] = [],
-        classPaths: [String] = []
+        classPaths: [String] = [],
+        buildPrepared: Bool
     ) {
         self.mainClass = mainClass
         self.projectName = projectName
         self.modulePaths = modulePaths
         self.classPaths = classPaths
+        self.buildPrepared = buildPrepared
     }
+
+    private enum CodingKeys: String, CodingKey { case mainClass, projectName, modulePaths, classPaths, buildPrepared }
+
+    /// Core's shared Java preparation has no host resource receipt. An absent
+    /// receipt must retain Maven preparation rather than bypass it.
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(mainClass: try values.decode(String.self, forKey: .mainClass),
+            projectName: try values.decodeIfPresent(String.self, forKey: .projectName),
+            modulePaths: try values.decode([String].self, forKey: .modulePaths),
+            classPaths: try values.decode([String].self, forKey: .classPaths),
+            buildPrepared: try values.decodeIfPresent(Bool.self, forKey: .buildPrepared) ?? false)
+    }
+
 }
 
 /// Java test runner family reported by the JDT LS Java Test extension.
@@ -1010,12 +1043,16 @@ public protocol DebugAdapterControllingSession: DebugAdapterSession {
     /// Text the adapter's console reads as "a debugger command follows"; nil when the
     /// plugin declared none.
     var consoleCommandPrefix: String? { get }
+    /// What the adapter's plugin declared beyond standard DAP (`features`, `defaults`); a view
+    /// reads it to decide which extra actions to offer.
+    var declaredBehavior: DebugAdapterDeclaredBehavior { get }
     func cancelPendingOperations()
 }
 
 public extension DebugAdapterControllingSession {
     var consoleCommands: [DebugConsoleCommand] { [] }
     var consoleCommandPrefix: String? { nil }
+    var declaredBehavior: DebugAdapterDeclaredBehavior { .none }
     func evaluateInConsole(
         _ expression: String,
         frameID: Int?,

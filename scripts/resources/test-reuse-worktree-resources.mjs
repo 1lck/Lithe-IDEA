@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { publishDirectory } from "./reuse-worktree-resources.mjs";
+import { publishDirectory, validatorArguments } from "./reuse-worktree-resources.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const reuseScript = path.join(scriptDirectory, "reuse-worktree-resources.mjs");
@@ -120,6 +120,12 @@ try {
       assert.ok(snapshots.locations.some(location => location.includes(component)), component);
     }
   });
+  await test("CI compilation caches remain isolated from worktree resource reuse", { timeout: 15000 }, async () => {
+    const refused = reuse(["--resource", "ci-rust-compilation-state"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /ci-rust-compilation-state is isolated.*cannot be reused/);
+    await assert.rejects(fs.access(targetRoot), { code: "ENOENT" });
+  });
   await test("SwiftPM build products and compiler stamps cannot be reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "swiftpm-build-state");
@@ -138,6 +144,8 @@ try {
     const resource = registry.excludedResources.find(item => item.id === "editor-theme-assets");
     assert.equal(resource.reusable, false);
     assert.ok(resource.locations.includes(".artifacts/editor/macos/"));
+    assert.ok(resource.locations.includes("frontend/editor/vendor/"));
+    assert.ok(resource.locations.includes("<editor-memory>/bundled-textmate-workers-and-tokens"));
     const refused = reuse(["--resource", resource.id]);
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /editor-theme-assets.*cannot be reused/);
@@ -151,6 +159,18 @@ try {
     const refused = reuse(["--resource", resource.id]);
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /editor-theme-assets.*cannot be reused/);
+  });
+  await test("shared logging generated APIs cannot cross worktrees", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "shared-logging");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("rust/lithe-core/src/diagnostics/catalog_generated.rs"));
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(resource.id));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /shared-logging.*cannot be reused/);
   });
   await test("shared translations are regenerated locally rather than reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
@@ -182,6 +202,8 @@ try {
   await test("application log state and export snapshots cannot be reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "application-log-state");
+    assert(resource.locations.includes("<platform-log-root>/sessions/<session>/plugins/<id>/files/"));
+    assert.match(resource.reason, /0700.*no-follow/);
     assert.equal(resource.reusable, false);
     assert.ok(resource.locations.some(location => location.includes("diagnostics-export")));
     const result = reuse(["--resource", resource.id]);
@@ -318,6 +340,46 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /jdt-maven-settings.*cannot be reused/);
   });
+  await test("team and local Build preferences cannot be copied as worktree resources", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "build-project-preferences");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes(".lithe/build/options.json"));
+    assert.ok(resource.locations.includes("<windows-app-data>/<app-id>/build-options/<canonical-workspace-digest>.json"));
+    assert.ok(resource.locations.includes("<platform-preferences>/BuildSystems.Migrations.Maven.<workspace-digest>"));
+    assert.ok(resource.locations.includes("<platform-preferences>/BuildSystems.Options.<build-system-id>.<workspace-digest>.InstanceDefaults"));
+    assert.ok(resource.locations.includes("<platform-preferences>/BuildSystems.Migrations.Maven.<workspace-digest>.Runtime"));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /build-project-preferences.*cannot be reused/);
+  });
+  await test("Maven operation reports cannot be copied between worktrees", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "maven-operation-report-snapshots");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<workspaceStateDir>/execution-*/index.json"));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /maven-operation-report-snapshots.*cannot be reused/);
+  });
+  await test("native configuration probe and conditional replacement state cannot be reused", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "build-native-configuration-state");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.some(location => location.endsWith("configuration-*/configuration.json")));
+    assert.ok(resource.locations.some(location => location.endsWith("configuration-*/repository")));
+    assert.ok(resource.locations.some(location => location.endsWith("maven-snapshot.json")));
+    assert.ok(resource.locations.some(location => location.includes(".<filename>.lithe-<uuid>")));
+    assert.ok(resource.locations.includes("<native-configuration-parent>/.lithe-document-<pid>-<sequence>.tmp"));
+    assert.ok(resource.locations.includes("<windows-native-host-memory>/native-configuration/<window>/<operation-id>"));
+    assert.ok(resource.locations.includes("<workspaceStateDir>/outputs/<operation-id>.json (private native configuration replacement)"));
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(resource.id));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /build-native-configuration-state.*cannot be reused/);
+  });
   await test("plugin web state has no transferable build identity or copy stage", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "plugin-web-state");
@@ -342,10 +404,17 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /official-plugin-packages is isolated.*cannot be reused/);
   });
-  await test("plugin packages and marketplace state stay isolated in each worktree", { timeout: 15000 }, () => {
+  await test("plugin packages and marketplace state stay isolated in each worktree", { timeout: 15000 }, async () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
-    for (const id of ["official-plugin-packages", "plugin-marketplace-state", "plugin-host-runtime-state", "mcp-registry-metadata", "mcp-tool-probe-state", "agent-instruction-library-state", "agent-hook-library-state"]) {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const pluginState = registry.excludedResources.find(resource => resource.id === "official-plugin-packages");
+    assert.ok(pluginState.locations.includes("<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/"));
+    assert.ok(pluginState.locations.includes("<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/build-systems/<build-system-id>/<workspace-digest>/"));
+    assert.ok(pluginState.locations.includes("<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/toolchain-queries/<operation-id>/<workspace-digest>/"));
+    assert.ok(pluginState.locations.includes("<windows-local-app-data>/<app-id>/plugin-state/<plugin-id>/debug-adapters/<adapter-id>/<workspace-digest>/"));
+    assert.equal(pluginState.reusable, false);
+    for (const id of ["consumer-tool-preferences", "official-plugin-packages", "plugin-marketplace-state", "plugin-host-runtime-state", "mcp-registry-metadata", "mcp-tool-probe-state", "agent-instruction-library-state", "agent-hook-library-state"]) {
       assert.ok(!listed.stdout.includes(id));
       const refused = reuse(["--resource", id]);
       assert.notEqual(refused.status, 0);

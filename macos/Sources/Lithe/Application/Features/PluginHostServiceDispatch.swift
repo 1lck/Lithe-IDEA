@@ -14,6 +14,15 @@ protocol PluginBackendActivating: AnyObject {
     /// starts when it declares `onCommand:<id>`, and the running backend
     /// receives `lithe/host/commands/didRun` with the window's context.
     func runCommand(_ commandID: String, owner: ModuleID, context: PluginWorkspaceContextReference?)
+    /// Tells the plugin's running backend about a language server the plugin
+    /// owns: `lithe/host/languageServer/didChangeState` or
+    /// `didReceiveNotification`. A backend that holds no `languageServer`
+    /// host method grant does not receive it.
+    func notifyLanguageServer(pluginID: String, method: String, params: ToolingJSONValue)
+}
+
+extension PluginBackendActivating {
+    func notifyLanguageServer(pluginID _: String, method _: String, params _: ToolingJSONValue) {}
 }
 
 /// How a host service failed, as a function protocol 3 backend sees it.
@@ -49,9 +58,24 @@ enum PluginHostErrorCode: String, Sendable, CaseIterable {
     case rateLimited = "plugin.host.rateLimited"
     case cancelled = "plugin.host.cancelled"
     case timeout = "plugin.host.timeout"
+    /// The tool a run names (`{tool, reason}` in the details) has no usable
+    /// installation: `reason` is `notFound` when none is installed and
+    /// `unusable` when the chosen one cannot run.
+    case toolUnresolved = "plugin.host.toolUnresolved"
     /// The backend went away while the host worked on its request.
     case backendExited = "plugin.backend.exited"
     case failed = "plugin.host.failed"
+    /// The plugin's language server is not running (stopped, still starting,
+    /// or never started with a session policy).
+    case languageServerUnavailable = "plugin.host.languageServerUnavailable"
+    /// The language server answered the request with a JSON-RPC error; the
+    /// server's own `{ code, message }` is in the details.
+    case languageServerError = "plugin.host.languageServerError"
+    /// The method, or the `workspace/executeCommand` command, is not one the
+    /// plugin's manifest declares for the server.
+    case methodNotDeclared = "plugin.host.methodNotDeclared"
+    /// The server or document scheme belongs to another plugin.
+    case foreignContribution = "plugin.host.foreignContribution"
 }
 
 /// A failed host service request. The message reaches the backend, so it
@@ -62,6 +86,7 @@ struct PluginHostServiceError: Error, Equatable, Sendable {
     /// Facts the backend may act on, such as `{ currentVersion }` of a
     /// version conflict. The same rule as the message applies.
     let details: [String: ToolingJSONValue]?
+    var logError: (any Error)? = nil
 
     init(_ code: PluginHostErrorCode, _ message: String, details: [String: ToolingJSONValue]? = nil) {
         self.code = code
@@ -69,8 +94,25 @@ struct PluginHostServiceError: Error, Equatable, Sendable {
         self.details = details
     }
 
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.code == rhs.code && lhs.message == rhs.message && lhs.details == rhs.details
+    }
+
     var failure: PluginHostRequestFailure {
         PluginHostRequestFailure(message: message, code: code.rawValue, details: details.map { .object($0) })
+    }
+
+    /// An answer Rust Core or a session already put into the backend's
+    /// shape. A code this host does not know reaches the backend as `failed`,
+    /// as it would from Core.
+    init(_ failure: PluginHostRequestFailure) {
+        var details: [String: ToolingJSONValue]?
+        if case .object(let members)? = failure.details { details = members }
+        self.init(
+            failure.code.flatMap(PluginHostErrorCode.init(rawValue:)) ?? .failed,
+            failure.message,
+            details: details
+        )
     }
 }
 
@@ -217,7 +259,10 @@ final class PluginHostServiceDispatcher {
     private var inFlight: [String: [String: Pending]] = [:]
     private var contextObserver: UUID?
 
-    init(contexts: PluginWorkspaceContexts) {
+    private let logSink: (any LogSink)?
+
+    init(contexts: PluginWorkspaceContexts, logSink: (any LogSink)? = nil) {
+        self.logSink = logSink
         self.contexts = contexts
         contextObserver = contexts.observeClose { [weak self] contextID in
             guard let self else { return }
@@ -252,8 +297,14 @@ final class PluginHostServiceDispatcher {
         Array(Set(uniqueHandlers.map(\.service))).sorted()
     }
 
+    /// Services Core answers itself. The host has no handler for them, but
+    /// the plugin is still granted them: a call between two plugins runs
+    /// inside Core, and the host only starts the callee's backend.
+    static let coreServedGrants: Set<String> = ["functions"]
+
     func supportedGrants(_ requested: [String]) -> [String] {
         requested.filter { grant in
+            if Self.coreServedGrants.contains(grant) { return true }
             if handlers[grant] != nil { return true }
             let legacy: [String]
             switch grant {
@@ -311,8 +362,16 @@ final class PluginHostServiceDispatcher {
             contextID = Self.contextReference(value)?.contextID
         } else { contextID = nil }
         // User-choice messages have no clock deadline; their session, context
-        // and cancellation own dismissal. Machine operations are locally bounded.
-        let deadline: Task<Void, Never>? = request.method.hasPrefix("lithe/host/window/show") ? nil : Task { @MainActor [weak self] in
+        // and cancellation own dismissal. A language server request ends by the
+        // timeout Core enforces (default 60 s, at most 300 s), which the 30 s
+        // host deadline would cut short. Other machine operations are locally bounded.
+        let hasOwnDeadline = request.method.hasPrefix("lithe/host/window/show")
+            || [
+                "lithe/host/terminal/create", "lithe/host/terminal/reopen",
+                "lithe/host/languageServer/request",
+            ].contains(request.method)
+        let deadline: Task<Void, Never>? = hasOwnDeadline ? nil : Task { @MainActor [weak self] in
+            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             do { try await Task.sleep(for: .seconds(30)) } catch { return }
             guard let self, self.sessionIDs[pluginID] == currentSession,
                   let pending = self.inFlight[pluginID]?.removeValue(forKey: request.id) else { return }
@@ -384,7 +443,11 @@ final class PluginHostServiceDispatcher {
         let call = PluginHostCall(
             pluginID: pluginID, sessionID: sessionID, request: request, context: context, params: params, subscriptions: subscriptions
         )
-        return await handler.answer(call).mapError(\.failure)
+        let result = await handler.answer(call)
+        if case .failure(let failure) = result, failure.code != .cancelled, let plugin = LogSegment(pluginID) {
+            logSink?.emit(PluginsHostRequestFailed(error: failure.logError ?? LogFailure(domain: "PluginHost", code: failure.code.rawValue), plugin: plugin, operationID: request.id))
+        }
+        return result.mapError(\.failure)
     }
 
     static func contextReference(_ value: ToolingJSONValue) -> PluginWorkspaceContextReference? {
@@ -415,7 +478,7 @@ final class PluginCredentialHostService: PluginHostServiceHandling {
         let outcome = await Task.detached(priority: .userInitiated) {
             PluginHostServices.answer(request, pluginID: pluginID, credentials: credentials)
         }.value
-        return outcome.mapError { PluginHostServiceError(.failed, $0.message) }
+        return outcome
     }
 }
 
@@ -473,9 +536,11 @@ final class PluginWorkspaceHostService: PluginHostServiceHandling {
             do {
                 try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
             } catch {
-                return .failure(PluginHostServiceError(
+                var failure = PluginHostServiceError(
                     .failed, L10n.string("The host could not create the plugin's workspace state directory.")
-                ))
+                )
+                failure.logError = error
+                return .failure(failure)
             }
             var object = describe(context, pluginID: call.pluginID)
             object["stateDirectory"] = .string(directory.path)

@@ -1,4 +1,3 @@
-import { parseRawDiffContent } from "@/features/git/utils/git-diff-parser";
 import type { GitDiff, GitDiffSplitRow } from "@/features/git/types/git.types";
 import { countSplitDiffStats } from "@/features/git/utils/git-diff-helpers";
 
@@ -6,10 +5,6 @@ type JsonRecord = Record<string, any>;
 
 function asRecord(value: unknown): JsonRecord {
   return typeof value === "object" && value !== null ? (value as JsonRecord) : {};
-}
-
-function withoutTrailingCarriageReturn(value: string): string {
-  return value.endsWith("\r") ? value.slice(0, -1) : value;
 }
 
 function normalizeStatus(status: string, untracked: boolean): string {
@@ -63,11 +58,7 @@ function adaptStructuredSplitHunks(value: unknown): GitDiffSplitRow[][] {
 
     const left = typeof row.left === "string" ? row.left : undefined;
     const right = typeof row.right === "string" ? row.right : kind === "context" ? left : undefined;
-    const isInvisibleChange =
-      kind === "changed" &&
-      left !== undefined &&
-      right !== undefined &&
-      withoutTrailingCarriageReturn(left) === withoutTrailingCarriageReturn(right);
+    const isInvisibleChange = kind === "changed" && row.isInvisibleChange === true;
     const visualKind = isInvisibleChange ? "context" : kind;
     currentHunk.push({
       kind: visualKind as GitDiffSplitRow["kind"],
@@ -83,50 +74,43 @@ function adaptStructuredSplitHunks(value: unknown): GitDiffSplitRow[][] {
   return hunks;
 }
 
-function attachStructuredSplitHunks(diffs: GitDiff[], value: unknown): GitDiff[] {
-  const availableHunks = adaptStructuredSplitHunks(value);
-  let hunkOffset = 0;
-
-  return diffs.map((diff) => {
-    const hunkCount = diff.lines.filter((line) => line.line_type === "header").length;
-    const splitHunks = availableHunks.slice(hunkOffset, hunkOffset + hunkCount);
-    hunkOffset += hunkCount;
-    if (splitHunks.length !== hunkCount || hunkCount === 0) return diff;
-
-    const stats = countSplitDiffStats(splitHunks);
-    return {
-      ...diff,
-      split_hunks: splitHunks,
-      additions: stats.additions,
-      deletions: stats.deletions,
-    };
-  });
-}
-
 function adaptDiff(command: string, args: JsonRecord | undefined, value: unknown): unknown {
   const data = asRecord(value);
-  const patch = typeof data.patch === "string" ? data.patch : "";
-  const argumentsRecord = asRecord(args);
-  const fallback =
-    argumentsRecord.filePath ??
-    argumentsRecord.commitHash ??
-    argumentsRecord.baseRef ??
-    `git-${command}.diff`;
-  const parsed = parseRawDiffContent(patch, String(fallback));
-  const parsedDiffs = "files" in parsed ? parsed.files : [parsed];
-  const diffs = attachStructuredSplitHunks(parsedDiffs, data.rows);
-
-  if (command === "git_diff_file") {
-    return diffs[0] ?? null;
-  }
+  const diffs: GitDiff[] = (Array.isArray(data.files) ? data.files : []).map((entry: unknown) => {
+    const file = asRecord(entry);
+    const path = String(file.path ?? "");
+    const status = String(file.status ?? "M");
+    const splitHunks = adaptStructuredSplitHunks(file.rows);
+    const stats = countSplitDiffStats(splitHunks);
+    const decodingLoss = Boolean(data.hasDecodingLoss);
+    return {
+      file_path: path, old_path: status === "A" ? undefined : String(file.originalPath ?? path),
+      new_path: status === "D" ? undefined : path, is_new: status === "A",
+      is_deleted: status === "D", is_renamed: status === "R", is_binary: Boolean(file.isBinary),
+      is_image: false, has_lossy_line_endings: Boolean(file.hasLossyLineEndings) || decodingLoss,
+      has_decoding_loss: decodingLoss,
+      lines: (Array.isArray(file.lines) ? file.lines : []).map((entry: unknown) => {
+        const line = asRecord(entry);
+        return { line_type: line.lineType, content: String(line.content ?? ""),
+          old_line_number: line.oldLine ?? undefined, new_line_number: line.newLine ?? undefined };
+      }),
+      split_hunks: splitHunks,
+      additions: splitHunks.length ? stats.additions : Number(file.additions ?? 0),
+      deletions: splitHunks.length ? stats.deletions : Number(file.deletions ?? 0),
+      core_hunks: decodingLoss ? undefined : (Array.isArray(file.hunks) ? file.hunks : []).map((entry: unknown) => {
+        const hunk = asRecord(entry);
+        return { id: String(hunk.id ?? ""), header: String(hunk.header ?? ""),
+          patch: String((status === "R" ? hunk.contentPatch : hunk.patch) ?? "") };
+      }),
+    };
+  });
   if (command === "git_status_diff_stats") {
-    const staged = Boolean(argumentsRecord.staged);
-    return diffs.map((diff) => ({
-      file_path: diff.file_path,
-      staged,
-      additions: diff.additions ?? diff.lines.filter((line) => line.line_type === "added").length,
-      deletions: diff.deletions ?? diff.lines.filter((line) => line.line_type === "removed").length,
-    }));
+    return diffs.map((diff) => ({ file_path: diff.file_path, staged: Boolean(asRecord(args).staged),
+      additions: diff.additions ?? 0, deletions: diff.deletions ?? 0 }));
+  }
+  if (command === "git_diff_file") {
+    return diffs[0] ?? { file_path: String(asRecord(args).filePath ?? ""), is_new: false,
+      is_deleted: false, is_renamed: false, lines: [] };
   }
   return diffs;
 }
@@ -139,6 +123,9 @@ function adaptDiffStats(args: JsonRecord | undefined, value: unknown): unknown {
     return adaptDiff("git_status_diff_stats", args, value);
   }
 
+  if (data.files.some((file: JsonRecord) => Array.isArray(file.rows))) {
+    return adaptDiff("git_status_diff_stats", args, value);
+  }
   const requestStaged = Boolean(asRecord(args).staged);
   return data.files.map((entry: unknown) => {
     const file = asRecord(entry);
@@ -149,6 +136,28 @@ function adaptDiffStats(args: JsonRecord | undefined, value: unknown): unknown {
       deletions: Number(file.deletions ?? 0),
     };
   });
+}
+
+/** Projects one Core history commit into the Windows commit shape. */
+function adaptHistoryCommit(commit: JsonRecord) {
+  return {
+    hash: commit.hash,
+    shortHash: commit.shortHash ?? String(commit.hash ?? "").slice(0, 7),
+    parentHashes: Array.isArray(commit.parentHashes) ? commit.parentHashes : [],
+    message: commit.subject,
+    author: commit.authorName,
+    email: commit.authorEmail,
+    date: commit.date,
+    dateUtcOffsetMinutes:
+      typeof commit.dateUtcOffsetMinutes === "number" ? commit.dateUtcOffsetMinutes : undefined,
+    dateUnixSeconds:
+      typeof commit.dateUnixSeconds === "number" ? commit.dateUnixSeconds : undefined,
+    decorations: commit.decorations ?? "",
+  };
+}
+
+function adaptHistoryCommits(value: unknown) {
+  return Array.isArray(value) ? value.map((commit: JsonRecord) => adaptHistoryCommit(commit)) : [];
 }
 
 export function adaptCoreResult<T>(
@@ -203,22 +212,7 @@ export function adaptCoreResult<T>(
               behind: typeof reference.behind === "number" ? reference.behind : 0,
             }))
           : [],
-        commits: Array.isArray(data.commits)
-          ? data.commits.map((commit: JsonRecord) => ({
-              hash: commit.hash,
-              shortHash: commit.shortHash ?? String(commit.hash ?? "").slice(0, 7),
-              parentHashes: Array.isArray(commit.parentHashes) ? commit.parentHashes : [],
-              message: commit.subject,
-              author: commit.authorName,
-              email: commit.authorEmail,
-              date: commit.date,
-              dateUtcOffsetMinutes:
-                typeof commit.dateUtcOffsetMinutes === "number"
-                  ? commit.dateUtcOffsetMinutes
-                  : undefined,
-              decorations: commit.decorations ?? "",
-            }))
-          : [],
+        commits: adaptHistoryCommits(data.commits),
         hasMore: Boolean(data.hasMore),
       } as T;
     case "git_references":
@@ -250,24 +244,17 @@ export function adaptCoreResult<T>(
       } as T;
     case "git_history_page":
       return {
-        commits: Array.isArray(data.commits)
-          ? data.commits.map((commit: JsonRecord) => ({
-              hash: commit.hash,
-              shortHash: commit.shortHash ?? String(commit.hash ?? "").slice(0, 7),
-              parentHashes: Array.isArray(commit.parentHashes) ? commit.parentHashes : [],
-              message: commit.subject,
-              author: commit.authorName,
-              email: commit.authorEmail,
-              date: commit.date,
-              dateUtcOffsetMinutes:
-                typeof commit.dateUtcOffsetMinutes === "number"
-                  ? commit.dateUtcOffsetMinutes
-                  : undefined,
-              decorations: commit.decorations ?? "",
-            }))
-          : [],
+        commits: adaptHistoryCommits(data.commits),
         nextCursor: typeof data.nextCursor === "string" ? data.nextCursor : undefined,
         hasMore: Boolean(data.hasMore),
+      } as T;
+    case "git.historyLocate":
+      return {
+        found: Boolean(data.found),
+        commits: adaptHistoryCommits(data.commits),
+        nextCursor: typeof data.nextCursor === "string" ? data.nextCursor : undefined,
+        hasMore: Boolean(data.hasMore),
+        pagesLoaded: typeof data.pagesLoaded === "number" ? data.pagesLoaded : 0,
       } as T;
     case "git_branches":
       return (
@@ -311,6 +298,7 @@ export function adaptCoreResult<T>(
     case "git_diff_file":
     case "git_commit_diff":
     case "git.diff":
+    case "git.parsePatch":
     case "git_ref_diff":
     case "git_working_tree_ref_diff":
     case "git_stash_diff":
@@ -319,27 +307,19 @@ export function adaptCoreResult<T>(
       return adaptDiffStats(args, value) as T;
     case "git_discover_repo":
       return String(typeof value === "string" ? value : (data.output ?? "")).trim() as T;
-    case "git_get_remotes": {
-      const remotes = new Map<string, string>();
-      for (const line of String(data.output ?? "").split("\n")) {
-        const match = line.match(/^(\S+)\s+(\S+)\s+\(fetch\)$/);
-        if (match) remotes.set(match[1], match[2]);
-      }
-      return [...remotes].map(([name, url]) => ({ name, url })) as T;
-    }
+    case "git_get_remotes":
+      return (Array.isArray(data.remotes) ? data.remotes : []) as T;
     case "git_get_tags":
-      return String(data.output ?? "")
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => {
-          const [name = "", commit = "", message = "", date = "", objectType = ""] =
-            line.split("\0");
+      return (Array.isArray(data.tags) ? data.tags : [])
+        .map((entry: unknown) => {
+          const tag = asRecord(entry);
           return {
-            name,
-            commit,
-            message: message || undefined,
-            date,
-            is_annotated: objectType === "tag",
+            name: tag.name,
+            commit: tag.targetId,
+            object_id: tag.objectId,
+            message: tag.message ?? undefined,
+            date: tag.date,
+            is_annotated: tag.isAnnotated,
           };
         }) as T;
     case "git_get_worktrees": {

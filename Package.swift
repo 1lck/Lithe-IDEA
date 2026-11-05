@@ -145,9 +145,15 @@ let package = Package(
             path: "macos/Tests/LitheTestDesktopIsolationTests",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        .target(
+            name: "LitheGitTestSupport",
+            dependencies: ["LitheGitModule"],
+            path: "macos/Tests/LitheGitTestSupport",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .testTarget(
             name: "LitheTests",
-            dependencies: ["LitheTestDesktopIsolation", "Lithe", "LitheModuleAPI", "LitheApplicationKernel", "LitheCoreContracts", "LitheGitModule", "LitheAIAssistanceModule", "LitheAgentConversationModule", "LitheLanguageIntelligenceModule", "LitheExecutionModule", "LithePluginPackageSigning", .product(name: "Testing", package: "swift-testing")],
+            dependencies: ["LitheGitTestSupport", "LitheTestDesktopIsolation", "Lithe", "LitheModuleAPI", "LitheApplicationKernel", "LitheCoreContracts", "LitheGitModule", "LitheAIAssistanceModule", "LitheAgentConversationModule", "LitheLanguageIntelligenceModule", "LitheExecutionModule", "LithePluginPackageSigning", .product(name: "Testing", package: "swift-testing")],
             path: "macos/Tests/LitheTests",
             resources: [
                 .copy("Fixtures")
@@ -190,7 +196,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LitheGitModuleTests",
-            dependencies: ["LitheGitModule", "LitheApplicationKernel", .product(name: "Testing", package: "swift-testing")],
+            dependencies: ["LitheGitTestSupport", "LitheGitModule", "LitheApplicationKernel", "LitheRustCore", .product(name: "Testing", package: "swift-testing")],
             path: "macos/Tests/LitheGitModuleTests",
             resources: [.copy("Fixtures")],
             swiftSettings: [.swiftLanguageMode(.v6)]
@@ -239,7 +245,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "LitheCoreVerifier",
-            dependencies: ["LitheCoreContracts", "LitheGitModule", "LitheSearchModule"],
+            dependencies: ["LitheGitTestSupport", "LitheCoreContracts", "LitheGitModule", "LitheSearchModule"],
             path: "macos/Tests/LitheCoreVerifier",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

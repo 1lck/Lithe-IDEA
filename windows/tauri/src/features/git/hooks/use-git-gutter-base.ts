@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
-import { getFullContextFileDiff } from "../api/git-diff-api";
+import { getResolvedFullContextFileDiff } from "../api/git-diff-api";
 import { resolveRepositoryForFile } from "../api/git-repo-api";
 import { isGitChangeRelevant, subscribeToGitChanges } from "../events/git-events";
 import { useGitStore } from "../stores/git.store";
@@ -36,7 +36,7 @@ export async function loadGitGutterBase(
   }
 
   const source: GitGutterBaseSource | null = gitGutterBaseFromDiff(
-    await getFullContextFileDiff(resolved.repoPath, resolved.filePath, false),
+    await getResolvedFullContextFileDiff(resolved, false),
   );
   if (!source) return null;
   return {

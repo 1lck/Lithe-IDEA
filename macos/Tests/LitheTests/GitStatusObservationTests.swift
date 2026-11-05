@@ -8,6 +8,212 @@ import Testing
 
 @Suite("Git status observation", .serialized)
 struct GitStatusObservationTests {
+    @Test
+    func blameMenuAcceptsAnyDiscoveredRepositoryButNotUntrackedOrPrefixNeighbors() {
+        let roots = [URL(fileURLWithPath: "/workspace/first"), URL(fileURLWithPath: "/workspace/second")]
+        #expect(gitBlameCanAnnotate(URL(fileURLWithPath: "/workspace/second/file"), repositoryRoots: roots, isUntracked: false))
+        #expect(!gitBlameCanAnnotate(URL(fileURLWithPath: "/workspace/second/file"), repositoryRoots: roots, isUntracked: true))
+        #expect(!gitBlameCanAnnotate(URL(fileURLWithPath: "/workspace/second-other/file"), repositoryRoots: roots, isUntracked: false))
+        #expect(!gitBlameCanAnnotate(URL(fileURLWithPath: "/workspace/second"), repositoryRoots: roots, isUntracked: false))
+    }
+
+    @Test @MainActor
+    func realCoreWorkspacePlanKeepsFailedRepositoryRows() async {
+        let first = URL(fileURLWithPath: "/workspace/A")
+        let second = URL(fileURLWithPath: "/workspace/B")
+        let changes = [first, second].map { root in
+            GitChange(repositoryRoot: root, path: "file.txt", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        }
+        let snapshots = WorkspaceFailureSnapshots(first: first, second: second, changes: changes)
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())),
+            snapshotProvider: { root in await snapshots.next(root) }, repositoryRootsProvider: { _ in [first, second] })
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { first.deletingLastPathComponent() },
+            isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        await feature.refreshGit()
+        #expect(feature.gitChanges == [changes[1]])
+        #expect(feature.failedStatusRepositoryRoots == [second])
+    }
+
+    @Test @MainActor
+    func blameUsesTheEditedFilesRepositoryInsteadOfTheActiveCheckout() async throws {
+        let fixture = try GitObservationFixture(label: "blame-file-ownership")
+        let first = fixture.url.appendingPathComponent("first", isDirectory: true)
+        let second = fixture.url.appendingPathComponent("second", isDirectory: true)
+        try await fixture.initializeRepository(at: first)
+        try await fixture.initializeRepository(at: second)
+        let file = second.appendingPathComponent("tracked.txt")
+        try Data("second repository\n".utf8).write(to: file)
+        try await fixture.git(["add", "tracked.txt"], at: second)
+        try await fixture.git(["commit", "-q", "-m", "second repo change"], at: second)
+        let expected = try await fixture.git(["rev-parse", "HEAD"], at: second)
+        let service = GitService(operations: RustGitOperations(core: RustCoreBridge()))
+        let lines = await service.blame(fileURL: file, at: first)
+        #expect(lines.count == 1)
+        #expect(lines.first?.commitHash == expected)
+    }
+
+    @Test @MainActor
+    func coreHistoryDatesPreserveOffsetAndFilterEquivalentInstants() async throws {
+        let fixture = try GitObservationFixture(label: "history-timezones")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        for (subject, date) in [("east", "2026-09-10T00:30:00+0800"), ("west", "2026-09-09T09:30:00-0700")] {
+            var environment = ProcessInfo.processInfo.environment
+            environment["GIT_AUTHOR_DATE"] = date
+            environment["GIT_COMMITTER_DATE"] = date
+            let result = try await TestProcess.run(executableURL: URL(fileURLWithPath: "/usr/bin/git"),
+                arguments: ["-c", "user.email=tests@lithe.local", "-c", "user.name=Lithe Tests", "commit", "--allow-empty", "-qm", subject],
+                currentDirectoryURL: root, environment: environment)
+            #expect(result.terminationStatus == 0)
+        }
+        let operations = RustGitOperations(core: RustCoreBridge())
+        let history = try #require(operations.history(at: root, reference: nil, limit: 10))
+        let east = try #require(history.commits.first { $0.subject == "east" })
+        let west = try #require(history.commits.first { $0.subject == "west" })
+        #expect(east.dateUtcOffsetMinutes == 480)
+        #expect(west.dateUtcOffsetMinutes == -420)
+        #expect(east.dateUnixSeconds == 1788971400)
+        #expect(west.dateUnixSeconds == east.dateUnixSeconds)
+        let service = GitService(operations: operations)
+        let matches = await service.historyDateMatches([east, west],
+            after: Date(timeIntervalSince1970: 1788971400), before: Date(timeIntervalSince1970: 1788971460))
+        #expect(matches == Set([east.hash, west.hash]))
+        let excluded = await service.historyDateMatches([east, west],
+            after: nil, before: Date(timeIntervalSince1970: 1788971400))
+        #expect(excluded == Set<String>())
+        let feature = GitFeatureModel(service: service)
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { true }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let query = GitLogQuery(afterDate: Date(timeIntervalSince1970: 1788971400),
+            beforeDate: Date(timeIntervalSince1970: 1788971460))
+        await feature.applyGitLogFilter(query)
+        #expect(feature.gitLogMatchedCommitHashes == Set([east.hash, west.hash]))
+        #expect(!feature.isFilteringGitLog)
+    }
+
+    @Test @MainActor
+    func historyMenuCapabilitiesUseCoreAndInvalidateOnSelectionChange() async throws {
+        let fixture = try GitObservationFixture(label: "history-action-capabilities")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        let first = try await fixture.git(["rev-parse", "HEAD"], at: root)
+        try await fixture.git(["commit", "--allow-empty", "-qm", "second"], at: root)
+        let head = try await fixture.git(["rev-parse", "HEAD"], at: root)
+        let operations = RustGitOperations(core: RustCoreBridge())
+        let service = GitService(operations: operations)
+        let editor = GitHistoryEditingFeatureModel(service: service, execute: { _, _, _ in nil })
+        defer { editor.reset() }
+        editor.select(head, visibleHashes: [head, first], additive: false, range: false)
+        let ready = TestGate(), refreshed = TestGate()
+        var changes = 0
+        editor.loadActionCapabilities(at: root) {
+            changes += 1
+            if changes == 1 { ready.open() }
+            if changes == 3 { refreshed.open() }
+        }
+        try #require(await ready.waitUntilOpen())
+        let headActions = try #require(editor.capabilities(at: root))
+        #expect(headActions.head == head)
+        #expect(headActions.canUndo)
+        #expect(!headActions.canCherryPick)
+        let history = try #require(operations.history(at: root, reference: nil, limit: 10))
+        editor.retainSelection(in: history.commits, fallback: head)
+        #expect(editor.capabilities(at: root) == nil)
+        try #require(await refreshed.waitUntilOpen())
+        #expect(editor.capabilities(at: root)?.canUndo == true)
+        editor.select(first, visibleHashes: [head, first], additive: false, range: false)
+        #expect(changes == 4)
+        #expect(editor.capabilities(at: root) == nil)
+        let next = TestGate()
+        editor.loadActionCapabilities(at: root) { next.open() }
+        try #require(await next.waitUntilOpen())
+        #expect(editor.capabilities(at: root)?.canCherryPick == true)
+        editor.selectForContextMenu(first)
+        #expect(editor.capabilities(at: root) == nil)
+    }
+
+    @Test
+    func savedStashSnapshotUsesCoreSectionsForTrackedUntrackedAndBinaryFiles() async throws {
+        let fixture = try GitObservationFixture(label: "saved-stash-core")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        try await fixture.git(["config", "diff.noprefix", "true"], at: root)
+        try Data("initial\nchanged\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        try Data("new file\n".utf8).write(to: root.appendingPathComponent("新文件.txt"))
+        try Data([0, 255, 128, 0]).write(to: root.appendingPathComponent("binary.bin"))
+        try await fixture.git(["stash", "push", "-u", "-m", "saved"], at: root)
+        let operations = RustGitOperations(core: RustCoreBridge())
+        let stash = try #require(operations.stashes(at: root)?.first)
+        let service = GitService(operations: operations)
+        let snapshot = try await service.savedChangesSnapshot(stash: stash, shelf: nil, at: root).get()
+        #expect(snapshot.files.count == 3)
+        let tracked = try #require(snapshot.files.first { $0.file.path == "tracked.txt" })
+        #expect(tracked.file.status == "M")
+        #expect(tracked.document.rows.contains { $0.rightText == "changed" })
+        #expect(tracked.document.patch == tracked.patch)
+        let added = try #require(snapshot.files.first { $0.file.path == "新文件.txt" })
+        #expect(added.file.status == "A")
+        #expect(added.document.rows.contains { $0.rightText == "new file" })
+        let binary = try #require(snapshot.files.first { $0.file.path == "binary.bin" })
+        #expect(binary.patch.contains("GIT binary patch"))
+        #expect(binary.version == "Stash")
+    }
+
+    @Test
+    func savedShelfUsesCoreDocumentsForBothPatchLayers() async throws {
+        let fixture = try GitObservationFixture(label: "saved-shelf-core")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        let file = root.appendingPathComponent("tracked.txt")
+        try Data("staged\n".utf8).write(to: file)
+        try await fixture.git(["add", "tracked.txt"], at: root)
+        let staged = try await fixture.git(["diff", "--cached", "--binary"], at: root) + "\n"
+        try Data("working\n".utf8).write(to: file)
+        let working = try await fixture.git(["diff", "--binary"], at: root) + "\n"
+        let shelf = GitShelfEntry(id: UUID(), message: "saved", createdAt: Date(timeIntervalSince1970: 0),
+            paths: ["tracked.txt"], stagedPatch: staged, workingPatch: working)
+        let service = GitService(operations: RustGitOperations(core: RustCoreBridge()))
+        let snapshot = try await service.savedChangesSnapshot(stash: nil, shelf: shelf, at: root).get()
+        #expect(snapshot.versions == ["Staged", "Working tree"])
+        let stagedFile = try #require(snapshot.files.first { $0.version == "Staged" })
+        let workingFile = try #require(snapshot.files.first { $0.version == "Working tree" })
+        #expect(stagedFile.document.rows.contains { $0.rightText == "staged" })
+        #expect(workingFile.document.rows.contains { $0.rightText == "working" })
+        #expect(stagedFile.patch == stagedFile.document.patch)
+        #expect(workingFile.patch == workingFile.document.patch)
+    }
+
+    @Test @MainActor
+    func commitMessageRejectsRestagedContentWithoutAStatusRefresh() async throws {
+        let fixture = try GitObservationFixture(label: "commit-message-stale-index")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        let file = root.appendingPathComponent("tracked.txt")
+        try Data("staged before generation\n".utf8).write(to: file)
+        try await fixture.git(["add", "tracked.txt"], at: root)
+        try Data("unstaged version\n".utf8).write(to: file)
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let draft = CommitDraftFeatureModel()
+        var notices: [String] = []
+        let workflow = CommitWorkflowCoordinator(draft: draft, activateGit: { feature }, workspaceGeneration: { 0 },
+            generate: { input in
+                #expect(input.diff.contains("staged before generation"))
+                #expect(!input.diff.contains("unstaged version"))
+                try Data("restaged after generation started\n".utf8).write(to: file)
+                try await fixture.git(["add", "tracked.txt"], at: root)
+                return "Stale description"
+            }, notify: { notices.append($0) })
+        await workflow.generateMessage()
+        #expect(draft.message.isEmpty && draft.pendingGeneratedMessage == nil)
+        #expect(notices == [CommitMessageGenerationError.staleChanges.localizedDescription])
+    }
+
     @Test @MainActor
     func mountedCommitPanelObservesExternalEditsAndKeepsRollbackEnabledDuringBackgroundReads() async throws {
         let fixture = try GitObservationFixture(label: "mounted-commit-refresh")
@@ -284,6 +490,26 @@ struct GitStatusObservationTests {
         #expect(feature.gitChanges.map(\.path) == ["unchecked.txt"])
     }
 
+    @Test
+    @MainActor
+    func realGitRollbackRejectsSelectionStagedAfterDialogOpened() async throws {
+        let fixture = try GitObservationFixture(label: "rollback-stale")
+        let root = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: root)
+        try Data("outside edit\n".utf8).write(to: root.appendingPathComponent("tracked.txt"))
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        feature.requestRollbackChanges(feature.gitChanges, included: feature.gitChanges)
+        let captured = try #require(feature.pendingRollbackSelection)
+        try await fixture.git(["add", "tracked.txt"], at: root)
+        await feature.confirmRollbackChanges(captured)
+        #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: root) == "tracked.txt")
+        #expect(try String(contentsOf: root.appendingPathComponent("tracked.txt"), encoding: .utf8) == "outside edit\n")
+        #expect(!feature.isRollingBackChanges)
+    }
+
     @Test(arguments: [false, true])
     @MainActor
     func realGitRollbackAddedFilesRequiresExplicitDeletion(deleteAdded: Bool) async throws {
@@ -385,6 +611,7 @@ struct GitStatusObservationTests {
         let worktree = try #require(feature.gitWorktrees.first { $0.url.standardizedFileURL == linked })
         await feature.inspectWorktree(worktree)
         let scoped = feature.commitFeature(for: worktree)
+        await scoped.changelistProjectionTask?.value
         scoped.requestRollbackChanges(scoped.gitChanges, included: scoped.gitChanges)
         await scoped.confirmRollbackChanges(try #require(scoped.pendingRollbackSelection))
         #expect(try await fixture.git(["status", "--porcelain"], at: linked).isEmpty)
@@ -428,6 +655,7 @@ struct GitStatusObservationTests {
         await feature.refreshWorktrees()
         #expect(Set(feature.gitWorktreeInspection?.changes.map(\.path) ?? []) == expectedPaths)
         let scoped = feature.commitFeature(for: worktree)
+        await scoped.changelistProjectionTask?.value
         #expect(Set(scoped.gitChanges.map(\.path)) == expectedPaths)
         // Worktrees' toolbar stages through the host; Commit's checkbox batch
         // uses the scoped model. Neither entry point may add the nested root.
@@ -442,6 +670,7 @@ struct GitStatusObservationTests {
         #expect(Set(scoped.gitChanges.map(\.path)) == expectedPaths)
         let stageAll = scoped.beginSetStaging(scoped.activeChangelistChanges, staged: true, includeWorkingTreeChanges: true)
         await scoped.finishSetStaging(stageAll, staged: true)
+        await scoped.changelistProjectionTask?.value
         #expect(try await fixture.git(["diff", "--cached", "--name-only"], at: checkout) == "new.txt\ntracked.txt")
         #expect(try await !fixture.git(["ls-files", "--stage"], at: checkout).contains("160000"))
         #expect(await scoped.commitStagedChanges(message: "Keep nested repository independent", amend: false))
@@ -479,6 +708,7 @@ struct GitStatusObservationTests {
         let worktree = try #require(feature.gitWorktrees.first { $0.url.standardizedFileURL == linked })
         await feature.inspectWorktree(worktree)
         let scoped = feature.commitFeature(for: worktree)
+        await scoped.changelistProjectionTask?.value
         #expect(scoped.activeChangelistChanges.contains { $0.isStaged })
         #expect(await scoped.commitStagedChanges(message: "Selected checkout only", amend: false))
         #expect(try await fixture.git(["rev-parse", "HEAD"], at: primary) == originalHEAD)
@@ -934,7 +1164,7 @@ private final class GitObservationRecorder {
     }
 }
 
-private final class GitObservationFixture {
+private final class GitObservationFixture: Sendable {
     let url: URL
 
     init(label: String) throws {
@@ -973,6 +1203,24 @@ private final class GitObservationFixture {
         }
         return String(decoding: result.output, as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private actor WorkspaceFailureSnapshots {
+    let first: URL
+    let second: URL
+    let changes: [GitChange]
+    private var reads: [URL: Int] = [:]
+    init(first: URL, second: URL, changes: [GitChange]) {
+        self.first = first; self.second = second; self.changes = changes
+    }
+    func next(_ root: URL) -> GitSnapshot? {
+        let count = reads[root, default: 0]
+        reads[root] = count + 1
+        if root == first {
+            return GitSnapshot(repositoryRoot: first, branch: "main", changes: count == 0 ? [changes[0]] : [])
+        }
+        return count == 0 ? GitSnapshot(repositoryRoot: second, branch: "main", changes: [changes[1]]) : nil
     }
 }
 

@@ -313,7 +313,10 @@ impl RemoteProcess {
             if !matches!(&error, ClientError::Remote(remote) if remote.code == lithe_remote::protocol::ErrorCode::UnknownResource)
                 && !self.connection.session.is_closed()
             {
-                eprintln!("remote backend cleanup failed: {error}");
+                crate::diagnostics::core_events::cleanup_failed(
+                    "remote.process.cleanup_failed",
+                    &crate::diagnostics::core_events::client_failure_category(&error),
+                );
             }
         }
         self.finish(None, None);
@@ -431,6 +434,13 @@ impl LspProcessHandle for RemoteProcess {
     }
     fn terminate(&self) {
         self.cleanup();
+    }
+    /// The backend owns the remote process tree, so the bounded forced kill
+    /// request is the final local receipt; it also records the exit. Without
+    /// it a failed session that never terminated could not be destroyed.
+    fn dispose(&self, _timeout: Duration) -> Result<(), CoreError> {
+        self.cleanup();
+        Ok(())
     }
 }
 

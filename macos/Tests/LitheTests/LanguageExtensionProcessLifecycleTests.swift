@@ -78,6 +78,10 @@ struct LanguageExtensionProcessLifecycleTests {
         #expect(provider.configuration.executableNames == ["gopls"])
         #expect(provider.configuration.validationArguments == ["version"])
         #expect(provider.configuration.runtimeTools == ["go"])
+        // A plugin API 1 launch is literal, yet the start is still the
+        // plugin's, so the host can record it on the plugin's channel.
+        #expect(provider.configuration.launchSource == nil)
+        #expect(provider.configuration.pluginID == "dev.lithe.plugin.go-support")
         try await runtime.setEnabled(false, for: moduleID)
     }
 
@@ -152,7 +156,7 @@ struct LanguageExtensionProcessLifecycleTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let operations = DeclarativePluginTestSupport.operations
         let descriptor = try operations.validate(manifest: Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/language-host-integration.plugin.json")))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/languages/language-host-integration.plugin.json")))
         let packageURL = root.appendingPathComponent("package", isDirectory: true)
         let installed = InstalledPluginPackage(
             descriptor: descriptor,

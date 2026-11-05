@@ -66,4 +66,43 @@ for plugin in "${plugins[@]}"; do
         "$package_signer_binary" --verify "$plugin"
     fi
 done
+
+# No official package ships a packaged backend, so a copy of the Java Support
+# package declares one. The verifier must admit the declared backend binary and
+# reject a sibling binary, a missing backend and a backend path that leaves the
+# package. The copy lives under this script's temporary root; `cp -c` clones
+# files where the volume supports it, and the built package stays unchanged.
+fixture_root=$(mktemp -d "${TMPDIR:-/tmp}/lithe-official-plugin-verifier.XXXXXX")
+trap 'rm -rf "$fixture_root"' EXIT
+fixture="$fixture_root/dev.lithe.plugin.java-support"
+cp -cR "$PLUGIN_ROOT/dev.lithe.plugin.java-support" "$fixture"
+verifier_bin_dir=$(swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path)
+verifier_binary="$verifier_bin_dir/LitheOfficialPluginVerifier"
+mkdir -p "$fixture/bin"
+cp "$verifier_binary" "$fixture/bin/fixture-backend"
+node -e 'const fs = require("node:fs"); const path = process.argv[1]; const manifest = JSON.parse(fs.readFileSync(path, "utf8")); manifest.requires.backend = 2; manifest.requires.serverProcess = 1; manifest.permissions = [...new Set([...manifest.permissions, "backend.launch"])]; manifest.backend = {launch: {kind: "packaged", path: "bin/fixture-backend"}, arguments: []}; fs.writeFileSync(path, JSON.stringify(manifest));' "$fixture/plugin.json"
+if ! "$verifier_binary" "$fixture" > "$fixture_root/declared.log" 2>&1; then
+    print -u2 -- "Official plugin verifier rejected a declared packaged backend"
+    cat "$fixture_root/declared.log" >&2
+    exit 1
+fi
+cp "$verifier_binary" "$fixture/bin/undeclared-native"
+if "$verifier_binary" "$fixture" > "$fixture_root/unexpected.log" 2>&1; then
+    print -u2 -- "Official plugin verifier accepted undeclared native code"
+    exit 1
+fi
+grep -Fq 'Native code is only allowed in a declared backend or packaged runtime:' "$fixture_root/unexpected.log"
+rm "$fixture/bin/undeclared-native" "$fixture/bin/fixture-backend"
+if "$verifier_binary" "$fixture" > "$fixture_root/missing.log" 2>&1; then
+    print -u2 -- "Official plugin verifier accepted a missing backend executable"
+    exit 1
+fi
+grep -Fq 'A declared launch file is missing or not executable:' "$fixture_root/missing.log"
+cp "$verifier_binary" "$fixture_root/outside"
+node -e 'const fs = require("node:fs"); const path = process.argv[1]; const manifest = JSON.parse(fs.readFileSync(path, "utf8")); manifest.backend.launch.path = "../outside"; fs.writeFileSync(path, JSON.stringify(manifest));' "$fixture/plugin.json"
+if "$verifier_binary" "$fixture" > "$fixture_root/traversal.log" 2>&1; then
+    print -u2 -- "Official plugin verifier accepted a backend outside its package"
+    exit 1
+fi
+grep -Fq 'A declared launch file is missing or not executable:' "$fixture_root/traversal.log"
 print "Verified ${#plugins[@]} official declarative plugin package(s)"

@@ -7,7 +7,8 @@ import LitheModuleAPI
 /// translates payloads and outcomes.
 struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, DeclarativeExecutionPlanning,
     DeclarativeLanguageServerLaunchPlanning, DeclarativePluginSettingsResolving, LanguageServerRuntimeVersionChecking,
-    DeclarativeEditorContributionDecoding, PluginEditorActionDecoding {
+    DeclarativeEditorContributionDecoding, PluginEditorActionDecoding, PluginContentDecoding,
+    PluginEditorProviderDecoding {
     let core: RustCoreBridge
 
     func validateNativeNodes(ui: PluginNativeUI, data: ToolingJSONValue) throws -> [PluginNativeUI.Node] {
@@ -117,6 +118,52 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         ))
     }
 
+    func decodeLaunch(
+        manifest: Data,
+        languageID: String,
+        request: DeclarativeLanguageServerLaunchRequest,
+        result: ToolingJSONValue
+    ) throws -> DeclarativeLanguageServerLaunchPlan {
+        let outcome: Outcome<LaunchPlanResult> = try execute(
+            "plugins.languageServers.decodeLaunch",
+            payload: DecodeLaunchPayload(
+                manifest: try Self.json(manifest),
+                languageID: languageID,
+                request: LaunchRequest(request),
+                result: result
+            )
+        )
+        return try Self.launchPlan(from: outcome.value.plan)
+    }
+
+    func expiredLanguageServerStateNames(
+        retention: DeclarativeLanguageServer.StateRetention,
+        nowUnixSeconds: Int,
+        entries: [LanguageServerStateEntry],
+        activeNames: [String]
+    ) throws -> [String] {
+        // This command answers with its data only, without a status.
+        let result: Result<StateRetentionResult, RustCoreBridge.CoreCallError> = core.executeResult(
+            command: "plugins.languageServers.stateRetention",
+            payload: StateRetentionPayload(
+                retention: .init(maxEntries: retention.maxEntries, maxAgeDays: retention.maxAgeDays),
+                nowUnixSeconds: nowUnixSeconds,
+                entries: entries.map {
+                    .init(name: $0.name, lastModifiedUnixSeconds: $0.lastModifiedUnixSeconds)
+                },
+                activeNames: activeNames
+            )
+        )
+        do {
+            return try result.get().expiredNames
+        } catch {
+            throw DeclarativePluginRejection(
+                code: "plugin.launch.invalidRequest",
+                message: "Lithe could not select the expired language server state: \(error.localizedDescription)"
+            )
+        }
+    }
+
     func buildProviderLaunchPlan(
         manifest: Data,
         buildSystemID: String,
@@ -191,6 +238,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
                         kind: request.targetKind,
                         path: request.path,
                         processID: request.processID,
+                        host: request.host, port: request.port,
                         workingDirectory: request.workingDirectory,
                         executable: request.executable,
                         arguments: request.arguments, environment: request.environment
@@ -235,7 +283,12 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
             "plugins.declarative.languageServerLaunchPlan",
             payload: payload
         )
-        let plan = outcome.value.plan
+        return try Self.launchPlan(from: outcome.value.plan)
+    }
+
+    /// Maps Core's wire plan, from either step of a launch, to the plan the
+    /// host works with.
+    private static func launchPlan(from plan: LaunchPlan) throws -> DeclarativeLanguageServerLaunchPlan {
         var result = DeclarativeLanguageServerLaunchPlan(
             arguments: plan.arguments,
             validationArguments: plan.validationArguments,
@@ -270,6 +323,9 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
             }
         )
         result.workspaceConfiguration = plan.workspaceConfiguration
+        result.backendResolution = plan.backendResolution
+        result.resolvedLaunch = plan.resolvedLaunch
+        result.sessionPolicy = plan.sessionPolicy
         result.vcsProvider = plan.vcsProvider.map {
             .init(
                 vcs: $0.vcs,
@@ -309,11 +365,84 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         return outcome.value.language
     }
 
-    func decodeEditorActions(kind: String, value: ToolingJSONValue, text: String = "") throws -> ToolingJSONValue {
-        struct Payload: Encodable { let kind: String; let value: ToolingJSONValue; let text: String }
+    func decodeEditorActions(
+        kind: String, value: ToolingJSONValue, text: String = "", host: PluginEditorHostOptions
+    ) throws -> ToolingJSONValue {
+        struct Payload: Encodable {
+            let kind: String
+            let value: ToolingJSONValue
+            let text: String
+            let version = 2
+            let icons: [String]
+            let sourceBytes: Int
+        }
         let result: ToolingJSONValue = try core.executeResult(
-            command: "plugins.editorActions.decode", payload: Payload(kind: kind, value: value, text: text)).get()
+            command: "plugins.editorActions.decode",
+            payload: Payload(kind: kind, value: value, text: text, icons: host.actionIcons, sourceBytes: host.actionSourceBytes)
+        ).get()
         return result
+    }
+
+    func decodeContent(_ answer: ToolingJSONValue) throws -> String {
+        struct Payload: Encodable { let result: ToolingJSONValue }
+        struct Decoded: Decodable { let content: String }
+        // This command answers with its data only, without a status.
+        let decoded: Decoded = try core.executeResult(
+            command: "plugins.contentProviders.decode", payload: Payload(result: answer)
+        ).get()
+        return decoded.content
+    }
+
+    func decodeEditorProviderRegistration(value: ToolingJSONValue, types: [String]) throws -> ToolingJSONValue {
+        struct Payload: Encodable { let kind = "registration"; let value: ToolingJSONValue; let types: [String] }
+        let outcome: Result<ToolingJSONValue, RustCoreBridge.CoreCallError> = core.executeResult(
+            command: "plugins.editorProviders.decode", payload: Payload(value: value, types: types))
+        switch outcome {
+        case .success(let result): return result
+        case .failure(let error):
+            // Core reports a type the host does not route as notSupported
+            // with `providers.<type>`; every other failure is malformed input.
+            if error.code == "not_supported", let option = error.details, option.hasPrefix("providers.") {
+                throw PluginEditorProviderUnsupported(option: option)
+            }
+            throw error
+        }
+    }
+
+    func decodeEditorProviderResult(
+        type: String, value: ToolingJSONValue, legend: ToolingJSONValue?
+    ) throws -> ToolingJSONValue {
+        struct Payload: Encodable {
+            let kind = "result"
+            let type: String
+            let value: ToolingJSONValue
+            let legend: ToolingJSONValue?
+        }
+        let result: ToolingJSONValue = try core.executeResult(
+            command: "plugins.editorProviders.decode", payload: Payload(type: type, value: value, legend: legend)
+        ).get()
+        return result
+    }
+
+    func mergeEditorDefinitions(
+        documentURI: String, line: Int, character: Int, server: [ToolingJSONValue], plugin: [ToolingJSONValue]
+    ) throws -> (server: [Int], plugin: [Int]) {
+        struct Position: Encodable { let line: Int; let character: Int }
+        struct Value: Encodable {
+            let documentUri: String
+            let position: Position
+            let server: [ToolingJSONValue]
+            let plugin: [ToolingJSONValue]
+        }
+        struct Payload: Encodable { let kind = "mergeDefinitions"; let value: Value }
+        struct Kept: Decodable { let server: [Int]; let plugin: [Int] }
+        let kept: Kept = try core.executeResult(
+            command: "plugins.editorProviders.decode",
+            payload: Payload(value: Value(
+                documentUri: documentURI, position: Position(line: line, character: character),
+                server: server, plugin: plugin))
+        ).get()
+        return (kept.server, kept.plugin)
     }
 
     func resolveSettings(
@@ -440,6 +569,9 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
     }
 
     private struct LaunchRequest: Encodable {
+        let logDirectory: String?
+        /// Omitted unless the plugin backend resolves the launch.
+        let temporaryDirectory: String?
         let pluginDirectory: String
         let stateDirectory: String
         /// Omitted for a process bound to no workspace.
@@ -449,6 +581,8 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let projectSettings: [String: ToolingJSONValue]
 
         init(_ request: DeclarativeLanguageServerLaunchRequest) {
+            logDirectory = request.logDirectory?.path
+            temporaryDirectory = request.temporaryDirectory?.path
             pluginDirectory = request.pluginDirectory.path
             stateDirectory = request.stateDirectory.path
             workspaceStateDirectory = request.workspaceStateDirectory?.path
@@ -473,6 +607,9 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
             let packagedRuntime: String?
             let minimumVersion: String?
             let versionArguments: [String]?
+            /// `backend` launches: the function to call and its timeout.
+            let function: String?
+            let timeoutMilliseconds: Int?
 
             var executable: DeclarativeLanguageServerLaunchPlan.Executable? {
                 switch kind {
@@ -525,6 +662,36 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let vcsProvider: VcsProvider?
         let backend: Backend?
         let debugAdapter: DebugAdapter?
+        /// First step of a backend-resolved launch.
+        let resolveParams: [String: ToolingJSONValue]?
+        /// Second step of a backend-resolved launch.
+        let environment: [String: String]?
+        let writablePaths: [String]?
+        let sessionPolicy: ToolingJSONValue?
+
+        /// The question of the first step, when the plan asks one.
+        var backendResolution: DeclarativeLanguageServerLaunchPlan.BackendResolution? {
+            guard launch.kind == "backend", let function = launch.function, let resolveParams else { return nil }
+            return .init(
+                function: function,
+                timeoutMilliseconds: launch.timeoutMilliseconds ?? 30_000,
+                resolveParams: resolveParams
+            )
+        }
+
+        /// The answer the second step decoded, when the plan holds one. Only
+        /// a decoded answer carries `writablePaths`, which tells it apart
+        /// from the ordinary plan of a packaged server.
+        var resolvedLaunch: DeclarativeLanguageServerLaunchPlan.ResolvedLaunch? {
+            guard let writablePaths else { return nil }
+            let program: DeclarativeLanguageServerLaunchPlan.ResolvedLaunch.Program
+            switch (launch.kind, launch.path, launch.tool) {
+            case ("packaged", let path?, _): program = .packaged(path)
+            case ("tool", _, let tool?): program = .tool(tool)
+            default: return nil
+            }
+            return .init(program: program, environment: environment ?? [:], writablePaths: writablePaths)
+        }
 
         struct DebugAdapter: Decodable {
             struct Selector: Decodable {
@@ -621,6 +788,34 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let request: LaunchRequest
     }
 
+    private struct DecodeLaunchPayload: Encodable {
+        let manifest: ToolingJSONValue
+        let languageID: String
+        let request: LaunchRequest
+        let result: ToolingJSONValue
+    }
+
+    private struct StateRetentionPayload: Encodable {
+        struct Retention: Encodable {
+            let maxEntries: Int
+            let maxAgeDays: Int
+        }
+
+        struct Entry: Encodable {
+            let name: String
+            let lastModifiedUnixSeconds: Int
+        }
+
+        let retention: Retention
+        let nowUnixSeconds: Int
+        let entries: [Entry]
+        let activeNames: [String]
+    }
+
+    private struct StateRetentionResult: Decodable {
+        let expiredNames: [String]
+    }
+
     private struct DebugStartArgumentsPayload: Encodable {
         struct Facts: Encodable {
             struct Registration: Encodable {
@@ -632,6 +827,8 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
                 let kind: String
                 let path: String?
                 let processID: Int?
+                let host: String?
+                let port: UInt16?
                 let workingDirectory: String?
                 let executable: String?
                 let arguments: [String]?

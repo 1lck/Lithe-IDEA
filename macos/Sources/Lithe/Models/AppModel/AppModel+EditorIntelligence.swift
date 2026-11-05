@@ -7,6 +7,18 @@ struct LanguageSessionChromeSignature: Equatable {
     var infos: [String: LanguageServerInfo]
 }
 
+/// Menu availability uses the discovered workspace roots; the eventual blame
+/// request still resolves the file's actual repository in Core.
+func gitBlameCanAnnotate(_ fileURL: URL, repositoryRoots: [URL], isUntracked: Bool) -> Bool {
+    guard fileURL.isFileURL, !isUntracked else { return false }
+    let url = fileURL.standardizedFileURL
+    return repositoryRoots.contains { root in
+        let root = root.standardizedFileURL
+        let prefix = root.path == "/" ? "/" : root.path + "/"
+        return url != root && url.path.hasPrefix(prefix)
+    }
+}
+
 extension AppModel {
     func handleLanguageSessionChange() {
         refreshEditorDiagnosticsStore()
@@ -50,7 +62,7 @@ extension AppModel {
             format: L10n.string("Maven could not resolve this project (%lld problems): %@"),
             problems.count,
             first.message
-        ))
+        ), logReference: notificationRejection(operation: "project_import", reason: "resolution_failed"))
     }
 
     func refreshCodeVision(for fileURL: URL) async {
@@ -67,10 +79,9 @@ extension AppModel {
     }
 
     func canShowBlame(for fileURL: URL) -> Bool {
-        guard let root = gitRepositoryRoot?.standardizedFileURL, fileURL.isFileURL else { return false }
-        let url = fileURL.standardizedFileURL
-        let prefix = root.path == "/" ? "/" : root.path + "/"
-        return url != root && url.path.hasPrefix(prefix) && gitChange(for: url)?.isUntracked != true
+        let roots = (gitFeatureIfActive?.availableRepositoryRoots ?? []) + [gitRepositoryRoot].compactMap { $0 }
+        return gitBlameCanAnnotate(fileURL, repositoryRoots: roots,
+                                   isUntracked: gitChange(for: fileURL.standardizedFileURL)?.isUntracked == true)
     }
 
     func showBlame(for fileURL: URL) {

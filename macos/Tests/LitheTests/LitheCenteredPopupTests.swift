@@ -7,6 +7,60 @@ import LitheCoreContracts
 @Suite("Centered product popup", .serialized)
 struct LitheCenteredPopupTests {
     @MainActor
+    @Test(arguments: ["release", "move", "closePanel", "closeOwner"])
+    func titledPanelDetachesDuringDragAndCleansUp(ending: String) async throws {
+        let owner = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 800, height: 600),
+                             styleMask: [.titled], backing: .buffered, defer: false)
+        owner.isReleasedWhenClosed = false
+        var mousePressed = true
+        let presenter = LitheCenteredPopupPresenter(isLeftMousePressed: { mousePressed })
+        defer { presenter.close(); owner.close() }
+        let host = NSHostingController(rootView: Color.clear.frame(width: 640, height: 467))
+        var dismissals = 0
+        presenter.show(contentController: host, parent: owner, dialogTitle: "Import IDE settings") {
+            dismissals += 1
+        }
+        let panel = try #require(host.view.window)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while host.view.bounds.width == 0, clock.now < deadline { await Task.yield() }
+        #expect(host.view.bounds.width == 640)
+        func mouse(_ type: NSEvent.EventType, y: CGFloat) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: NSPoint(x: 120, y: y),
+                modifierFlags: [], timestamp: 0, windowNumber: panel.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        presenter.handleTitlebarMouseEvent(try mouse(.leftMouseDown, y: 20))
+        #expect(panel.parent === owner)
+        presenter.handleTitlebarMouseEvent(try mouse(.leftMouseDown, y: panel.contentLayoutRect.maxY + 4))
+        #expect(panel.parent == nil)
+        let frame = panel.frame
+        presenter.center()
+        #expect(panel.frame == frame)
+        #expect(panel.parent == nil)
+        if ending == "closePanel" { panel.performClose(nil) }
+        if ending == "closeOwner" { owner.close() }
+        if ending == "move" {
+            let notification = Notification(name: NSWindow.didMoveNotification, object: panel)
+            presenter.windowDidMove(notification)
+            #expect(panel.parent == nil, "A move while held must not reattach the panel")
+            mousePressed = false
+            presenter.windowDidMove(notification)
+        } else {
+            presenter.handleTitlebarMouseEvent(try mouse(.leftMouseUp, y: 20))
+        }
+        if ending == "closePanel" || ending == "closeOwner" {
+            #expect(!panel.isVisible)
+            #expect(panel.parent == nil)
+            #expect(dismissals == 1)
+        } else {
+            #expect(panel.parent === owner)
+            #expect(panel.frame == frame)
+            #expect(dismissals == 0)
+        }
+    }
+
+    @MainActor
     @Test
     func dragAreaHandsTheOriginalMouseEventToTheWindowServer() throws {
         let window = PopupDragRecordingWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 42),
@@ -101,6 +155,33 @@ struct LitheCenteredPopupTests {
         panel.performClose(nil)
         #expect(!panel.isVisible)
         #expect(dismissals == 1)
+    }
+
+    @MainActor
+    @Test(arguments: [ColorScheme.dark, .light])
+    func importPanelRetainsNativeShadowChromeAndCloses(scheme: ColorScheme) async throws {
+        let parent = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 800, height: 600),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false
+        parent.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        let presenter = LitheCenteredPopupPresenter()
+        defer { presenter.close(); parent.close() }
+        let host = NSHostingController(rootView: Color.clear.frame(width: 640, height: 467))
+        var dismissals = 0
+        presenter.show(contentController: host, parent: parent, dialogTitle: "Import IDE settings") { dismissals += 1 }
+        let panel = try #require(host.view.window)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while host.view.bounds.width == 0, clock.now < deadline { await Task.yield() }
+        #expect(panel.hasShadow)
+        #expect(panel.styleMask.contains(.titled))
+        #expect(panel.standardWindowButton(.closeButton)?.isEnabled == true)
+        #expect(panel.contentLayoutRect.size == NSSize(width: 640, height: 467))
+        #expect(panel.parent === parent)
+        panel.performClose(nil)
+        #expect(!panel.isVisible)
+        #expect(dismissals == 1)
+        #expect(parent.childWindows?.isEmpty != false)
     }
 
     @MainActor

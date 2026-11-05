@@ -33,6 +33,7 @@ struct ChangesSidebarView: View {
     @State private var pendingDropShelf: GitShelfEntry?
     @State private var selection = GitChangeSelection()
     @State private var sectionsCache = GitChangeSectionsCache()
+    @State private var repositoryColors: GitRepositoryColors?
 
     var body: some View {
         let _ = LitheSignpost.bodyEvaluated("ChangesSidebarView")
@@ -40,6 +41,29 @@ struct ChangesSidebarView: View {
             tabHeader
 
             GitChangesOperationStatus(feature: feature, editor: feature.interactiveRebase)
+
+            if !feature.failedStatusRepositoryRoots.isEmpty {
+                HStack(alignment: .top, spacing: 7) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(LitheTheme.warning)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Some repositories could not be refreshed. Displayed changes may be out of date.")
+                        Text(feature.failedStatusRepositoryRoots.map(\.path).sorted().joined(separator: ", "))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .lineLimit(2)
+                            .help(feature.failedStatusRepositoryRoots.map(\.path).sorted().joined(separator: "\n"))
+                    }
+                    .font(LitheTheme.uiFont(size: 11.5))
+                    Spacer(minLength: 0)
+                    Button("Refresh") { Task { await feature.refreshGit() } }
+                        .controlSize(.small)
+                        .lithePointer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(LitheTheme.raised)
+                .accessibilityIdentifier("git-status-partial-refresh-warning")
+            }
 
             if let conflict = feature.pendingStashRestoreConflict {
                 if feature.isStashRestoreConflictNoticeVisible {
@@ -74,6 +98,14 @@ struct ChangesSidebarView: View {
             }
         }
         .background(hasBackgroundImage ? Color.clear : LitheTheme.sidebar)
+        .task(id: feature.repositoryRootsGeneration) {
+            let generation = feature.repositoryRootsGeneration
+            let roots = feature.availableRepositoryRoots
+            repositoryColors = nil
+            let colors = await feature.repositoryColors(for: roots)
+            guard !Task.isCancelled, generation == feature.repositoryRootsGeneration else { return }
+            repositoryColors = colors
+        }
         .background(LitheToolWindowActivityTracker(isActive: $commitToolActive))
         .onAppear {
             selectRequestedStashIfNeeded()
@@ -414,7 +446,7 @@ struct ChangesSidebarView: View {
         return HStack(spacing: LitheTheme.Tree.iconTextGap) {
             inclusionCheckbox(changes)
             Image(systemName: "folder.fill")
-                .foregroundStyle(GitRepositoryColor.color(for: repository.root, in: feature.availableRepositoryRoots))
+                .foregroundStyle(repositoryColors.map { GitRepositoryColor.color(at: $0.slot(for: repository.root)) } ?? LitheTheme.secondaryText)
             Text(repositoryDisplayName(repository.root)).font(LitheTheme.uiFont(size: 13, weight: .semibold))
             Text(String(repository.fileCount)).foregroundStyle(LitheTheme.Tree.secondaryText)
         }
@@ -531,7 +563,7 @@ struct ChangesSidebarView: View {
         }
         items.append(.submenu("Move to ChangeList", items: feature.changelists.lists.map { list in
             .action(list.displayName, isEnabled: !feature.changelistEditingDisabled,
-                    action: { feature.moveChanges(targets, toChangelist: list.id) })
+                    action: { Task { await feature.moveChanges(targets, toChangelist: list.id) } })
         }))
         items.append(.separator)
         items.append(.action(

@@ -1,12 +1,8 @@
-import type { Diagnostic as LSPDiagnostic } from "vscode-languageserver-protocol";
+import type { LspClientDiagnostic } from "@/core/lsp-diagnostic";
 import { create } from "zustand";
 import type { Diagnostic as LintDiagnostic } from "@/features/editor/linter/linter-service";
 import { createSelectors } from "@/utils/zustand-selectors";
 import type { Diagnostic } from "../types/diagnostics.types";
-
-function diagnosticMessageToString(message: LSPDiagnostic["message"]): string {
-  return typeof message === "string" ? message : message.value;
-}
 
 export interface OwnerDiagnosticsUpdate {
   filePath: string;
@@ -36,7 +32,7 @@ interface DiagnosticsState {
 /**
  * Convert an LSP diagnostic into the UI-friendly diagnostics model.
  */
-export function convertLSPDiagnostic(filePath: string, lspDiag: LSPDiagnostic): Diagnostic {
+export function convertLSPDiagnostic(filePath: string, lspDiag: LspClientDiagnostic): Diagnostic {
   let severity: Diagnostic["severity"] = "info";
 
   switch (lspDiag.severity) {
@@ -56,12 +52,13 @@ export function convertLSPDiagnostic(filePath: string, lspDiag: LSPDiagnostic): 
     severity,
     filePath,
     line: lspDiag.range.start.line,
-    column: lspDiag.range.start.character,
+    column: lspDiag.range.start.utf16Column,
     endLine: lspDiag.range.end.line,
-    endColumn: lspDiag.range.end.character,
-    message: diagnosticMessageToString(lspDiag.message),
-    source: lspDiag.source,
-    code: lspDiag.code?.toString(),
+    endColumn: lspDiag.range.end.utf16Column,
+    message: lspDiag.message,
+    source: lspDiag.source ?? undefined,
+    code: lspDiag.code ?? undefined,
+    lspDiagnostic: lspDiag,
   };
 }
 

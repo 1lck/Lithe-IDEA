@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 import LitheGitModule
 import LitheSearchModule
@@ -10,6 +11,13 @@ import LitheRustCore
 /// Windows Qt binding will consume. The bridge stays synchronous at this
 /// layer; callers move filesystem and Git work off the main actor.
 struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
+    var logRole: LanguageServerLogRole = .languageServer
+    var logSubject: String? = nil
+    var logPluginID: String? = nil
+    var startupOperation: PluginOperationHandoff? = nil
+    var coreLogSink: (any LogSink)? = nil
+    var registerLogSession: (@Sendable (String, String) -> Void)? = nil
+    var releaseLogSession: (@Sendable (String) -> Void)? = nil
     var gitPreferences: GitExecutionPreferences? = nil
     var gitExecutionJournal: GitExecutionJournal? = nil
     var remoteWorkspaces: RemoteWorkspaceRegistry? = nil
@@ -28,6 +36,28 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let payload: Payload
         var gitExecution: GitExecutionOptions? = nil
         var remoteWorkspace: RemoteWorkspace? = nil
+        var origin: RequestOrigin? = nil
+    }
+
+    /// Who started a request. Core logs user requests at INFO under the action's
+    /// operation and keeps background or unattributed requests at DEBUG.
+    struct RequestOrigin: Encodable, Equatable {
+        var source: String?
+        var trigger: String?
+        var operation: String?
+
+        /// Long-lived descendants of an old action keep its correlation but no
+        /// longer claim to be user work; a background Git poller always wins.
+        static func resolve(action: UserAction?, gitSource: GitExecutionSource,
+            now: ContinuousClock.Instant = .now) -> RequestOrigin? {
+            if gitSource == .background { return RequestOrigin(source: GitExecutionSource.background.rawValue) }
+            if let action {
+                let fresh = action.startedAt.duration(to: now) < .seconds(60)
+                return RequestOrigin(source: fresh ? GitExecutionSource.user.rawValue : nil,
+                    trigger: action.id, operation: action.operationID)
+            }
+            return gitSource == .unknown ? nil : RequestOrigin(source: gitSource.rawValue)
+        }
     }
 
     private struct Envelope<Data: Decodable>: Decodable {
@@ -347,8 +377,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let redacted: String
     }
 
-    struct DiagnosticsManifestPayload: Decodable, Sendable {
-        struct Environment: Decodable, Sendable {
+    struct DiagnosticsManifestPayload: Codable, Sendable {
+        struct Environment: Codable, Sendable {
             let appVersion: String
             let osName: String
             let osVersion: String
@@ -357,12 +387,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let diskFreeBytes: Int64
         }
 
-        struct FileEntry: Decodable, Sendable {
+        struct FileEntry: Codable, Sendable {
             let relativePath: String
             let sizeBytes: Int64
             let description: String
         }
 
+        let redaction: String
         let schemaVersion: Int
         let generatedAtEpochMilliseconds: Int64
         let environment: Environment
@@ -388,231 +419,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let description: String
     }
 
-    struct MavenScanPayload: Decodable, Sendable {
-        struct SourceRoot: Decodable, Sendable {
-            let path: String
-            let kind: String
-
-            func makeModel() -> MavenSourceRoot? {
-                guard let kind = MavenSourceRootKind(rawValue: kind) else { return nil }
-                return MavenSourceRoot(path: path, kind: kind)
-            }
-        }
-
-        struct Profile: Decodable, Sendable {
-            let id: String
-            let isActiveByDefault: Bool
-        }
-
-        /// The core serializes Maven coordinates as `groupId` / `artifactId`,
-        /// matching Maven itself. Swift spells the same properties with a
-        /// capital D, so the mapping has to be explicit -- without it decoding
-        /// fails and the whole scan silently returns nil.
-        struct Module: Decodable, Sendable {
-            let relativePath: String
-            let groupID: String?
-            let artifactID: String
-            let version: String?
-            let packaging: String
-            let sourceRoots: [SourceRoot]?
-            let modules: [Module]
-
-            enum CodingKeys: String, CodingKey {
-                case relativePath
-                case groupID = "groupId"
-                case artifactID = "artifactId"
-                case version
-                case packaging
-                case sourceRoots
-                case modules
-            }
-
-            func makeModel(rootURL: URL) -> MavenModule {
-                MavenModule(
-                    relativePath: relativePath,
-                    url: rootURL.appendingPathComponent(relativePath),
-                    groupID: groupID,
-                    artifactID: artifactID,
-                    version: version,
-                    packaging: packaging,
-                    modules: modules.map { $0.makeModel(rootURL: rootURL) },
-                    sourceRoots: sourceRoots?.compactMap { $0.makeModel() } ?? []
-                )
-            }
-        }
-
-        let relativePath: String
-        let groupID: String?
-        let artifactID: String
-        let version: String?
-        let packaging: String
-        let sourceRoots: [SourceRoot]?
-        let modules: [Module]
-        let profiles: [Profile]
-        let hasWrapper: Bool
-
-        enum CodingKeys: String, CodingKey {
-            case groupID = "groupId"
-            case relativePath
-            case artifactID = "artifactId"
-            case version
-            case packaging
-            case sourceRoots
-            case modules
-            case profiles
-            case hasWrapper
-        }
-
-        func makeProject(workspaceRootURL: URL) -> MavenProject {
-            let rootURL = relativePath == "."
-                ? workspaceRootURL
-                : workspaceRootURL.appending(path: relativePath, directoryHint: .isDirectory)
-            return MavenProject(
-                rootURL: rootURL,
-                pomURL: rootURL.appendingPathComponent("pom.xml"),
-                groupID: groupID,
-                artifactID: artifactID,
-                version: version,
-                packaging: packaging,
-                modules: modules.map { $0.makeModel(rootURL: rootURL) },
-                profiles: profiles.map {
-                    MavenProfile(id: $0.id, isActiveByDefault: $0.isActiveByDefault)
-                },
-                hasWrapper: hasWrapper,
-                sourceRoots: sourceRoots?.compactMap { $0.makeModel() } ?? []
-            )
-        }
-    }
-
-    struct MavenDiagnosticsPayload: Decodable, Sendable {
-        struct Issue: Decodable, Sendable {
-            let path: String
-            let line: Int
-            let column: Int?
-            let severity: String
-            let message: String
-        }
-
-        let issues: [Issue]
-    }
-
-    struct MavenTestResultsPayload: Decodable, Sendable {
-        struct Failure: Decodable, Sendable {
-            let name: String
-            let kind: String
-            let message: String?
-            let path: String?
-            let line: Int?
-            let column: Int?
-        }
-
-        let testsRun: Int
-        let failures: Int
-        let errors: Int
-        let skipped: Int
-        let passed: Int
-        let success: Bool
-        let failureDetails: [Failure]
-        /// Absent from older Core builds; treated as no recorded outcomes.
-        let testCases: [MavenTestCaseOutcome]?
-    }
-
     struct JavaRunMarkersPayload: Decodable, Sendable {
         let markers: [JavaRunMarker]
-    }
-
-    struct MavenLaunchPlanPayload: Decodable, Sendable {
-        struct Executable: Decodable, Sendable {
-            let toolchain: String
-        }
-
-        let version: Int
-        let executable: Executable
-        let arguments: [String]
-        let workingDirectory: String
-        let configurationFingerprint: String
-
-        func makeModel() -> MavenLaunchPlan {
-            MavenLaunchPlan(
-                version: version,
-                toolchain: executable.toolchain,
-                arguments: arguments,
-                workingDirectory: workingDirectory,
-                configurationFingerprint: configurationFingerprint
-            )
-        }
-    }
-
-    struct MavenDependenciesPayload: Decodable, Sendable {
-        struct Dependency: Decodable, Sendable {
-            let modulePath: String
-            let groupID: String
-            let artifactID: String
-            let version: String
-            let type: String
-            let classifier: String?
-            let scope: String
-            let resolution: String
-            let selectedVersion: String?
-            let premanagedVersion: String?
-            let premanagedScope: String?
-            let originalScope: String?
-            let ignoredScope: String?
-            let children: [Dependency]
-
-            enum CodingKeys: String, CodingKey {
-                case modulePath
-                case groupID = "groupId"
-                case artifactID = "artifactId"
-                case version
-                case type
-                case classifier
-                case scope
-                case resolution
-                case selectedVersion
-                case premanagedVersion
-                case premanagedScope
-                case originalScope
-                case ignoredScope
-                case children
-            }
-
-            func makeModel() throws -> MavenDependency {
-                guard let resolution = MavenDependencyResolution(rawValue: resolution) else {
-                    throw MavenOperationError(
-                        code: "parse_failed",
-                        message: "Maven dependency resolution state is invalid.",
-                        details: resolution
-                    )
-                }
-                return MavenDependency(
-                    modulePath: modulePath,
-                    groupID: groupID,
-                    artifactID: artifactID,
-                    version: version,
-                    type: type,
-                    classifier: classifier,
-                    scope: scope,
-                    resolution: resolution,
-                    selectedVersion: selectedVersion,
-                    premanagedVersion: premanagedVersion,
-                    premanagedScope: premanagedScope,
-                    originalScope: originalScope,
-                    ignoredScope: ignoredScope,
-                    children: try children.map { try $0.makeModel() }
-                )
-            }
-        }
-
-        let modulePath: String
-        let dependencies: [Dependency]
-
-        func makeModel() throws -> MavenDependencyTree {
-            MavenDependencyTree(
-                modulePath: modulePath,
-                dependencies: try dependencies.map { try $0.makeModel() }
-            )
-        }
     }
 
     struct SpringIndexPayload: Decodable, Sendable {
@@ -717,9 +525,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
             let java: Java?
             let maven: Maven?
+            var pathOverrides: [String: ProjectToolchainSelection.PathOverride]? = nil
         }
         struct Generator: Codable, Sendable {
             let fingerprint: String
+            let providerFingerprint: String?
+            let providerRunFingerprint: String?
+            let unreadablePaths: [String]?
             let inputs: [String: String]?
         }
         struct Configuration: Codable, Sendable {
@@ -738,6 +550,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 let mavenJavaHomePath: String?
                 let source: String?
                 let sourceSet: String?
+                var module: String? = nil
+                var mainClass: String? = nil
+                var build: RunBuildProjectReference? = nil
             }
             struct Debug: Codable, Sendable {
                 let adapter: String
@@ -746,6 +561,11 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 let maven: Maven?
                 let java: Java?
                 var build: BuildProviderRunReference? = nil
+                var buildRun: BuildProviderRunOptions? = nil
+                private enum CodingKeys: String, CodingKey {
+                    case maven, java, build
+                    case buildRun = "build-run"
+                }
             }
             let id: String
             let name: String
@@ -1213,9 +1033,25 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let patch: String
         }
 
+        struct File: Decodable, Sendable {
+            let path: String
+            let originalPath: String?
+            let status: String
+            let patch: String
+            let rows: [Row]
+            let hunks: [Hunk]
+
+            func makeDocument() -> DiffDocument {
+                DiffDocument(patch: patch,
+                    rows: rows.enumerated().map { $0.element.makeModel(sequence: $0.offset) },
+                    hunks: hunks.map { DiffHunk(id: $0.id, header: $0.header, patch: $0.patch) })
+            }
+        }
+
         let patch: String
         let rows: [Row]
         let hunks: [Hunk]
+        let files: [File]?
 
         func makeDocument() -> DiffDocument {
             DiffDocument(
@@ -1251,6 +1087,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let authorName: String
             let authorEmail: String
             let date: String
+            let dateUtcOffsetMinutes: Int?
+            let dateUnixSeconds: Int64?
             let subject: String
             let decorations: String
         }
@@ -1296,6 +1134,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                         authorName: commit.authorName,
                         authorEmail: commit.authorEmail,
                         date: commit.date,
+                        dateUtcOffsetMinutes: commit.dateUtcOffsetMinutes,
+                        dateUnixSeconds: commit.dateUnixSeconds,
                         subject: commit.subject,
                         decorations: commit.decorations
                     )
@@ -1330,6 +1170,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 fullName: reference.fullName,
                 shortName: reference.shortName,
                 kind: kind,
+                peelsToCommit: reference.peelsToCommit,
                 isCurrent: reference.isCurrent,
                 upstreamShortName: reference.upstreamShortName,
                 ahead: reference.ahead ?? 0, behind: reference.behind ?? 0
@@ -1352,12 +1193,69 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                         authorName: commit.authorName,
                         authorEmail: commit.authorEmail,
                         date: commit.date,
+                        dateUtcOffsetMinutes: commit.dateUtcOffsetMinutes,
+                        dateUnixSeconds: commit.dateUnixSeconds,
                         subject: commit.subject,
                         decorations: commit.decorations
                     )
                 },
                 nextCursor: nextCursor,
                 hasMore: hasMore
+            )
+        }
+    }
+
+    struct GitHistoryLocatePayload: Decodable, Sendable {
+        let found: Bool
+        let commits: [GitHistoryPayload.Commit]
+        let nextCursor: String?
+        let hasMore: Bool
+        let pagesLoaded: Int
+
+        func makeResult() -> GitHistoryLocateResult {
+            GitHistoryLocateResult(
+                found: found,
+                commits: commits.map { commit in
+                    GitCommit(
+                        hash: commit.hash,
+                        shortHash: commit.shortHash,
+                        parentHashes: commit.parentHashes,
+                        authorName: commit.authorName,
+                        authorEmail: commit.authorEmail,
+                        date: commit.date,
+                        dateUtcOffsetMinutes: commit.dateUtcOffsetMinutes,
+                        dateUnixSeconds: commit.dateUnixSeconds,
+                        subject: commit.subject,
+                        decorations: commit.decorations
+                    )
+                },
+                nextCursor: nextCursor,
+                hasMore: hasMore,
+                pagesLoaded: pagesLoaded
+            )
+        }
+    }
+
+    struct GitBranchNamePreviewPayload: Decodable, Sendable {
+        struct ValidationError: Decodable, Sendable {
+            let code: GitBranchNameErrorCode
+            let name: String?
+            let branch: String?
+        }
+
+        let typingCleanedName: String
+        let cleanedName: String
+        let initialName: String
+        let error: ValidationError?
+
+        func makeModel() -> GitBranchNamePreview {
+            GitBranchNamePreview(
+                typingCleanedName: typingCleanedName,
+                cleanedName: cleanedName,
+                initialName: initialName,
+                error: error.map {
+                    GitBranchNameError(code: $0.code, name: $0.name, branch: $0.branch)
+                }
             )
         }
     }
@@ -1373,6 +1271,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 authorName: commit.authorName,
                 authorEmail: commit.authorEmail,
                 date: commit.date,
+                dateUtcOffsetMinutes: commit.dateUtcOffsetMinutes,
+                dateUnixSeconds: commit.dateUnixSeconds,
                 subject: commit.subject,
                 decorations: commit.decorations
             )
@@ -1383,6 +1283,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         struct File: Decodable, Sendable {
             let status: String
             let path: String
+            let isUntracked: Bool?
         }
 
         let files: [File]
@@ -1685,25 +1586,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let destinationPath: String
     }
 
-    private struct MavenScanRequest: Encodable {
-        let root: String
-        let paths: [String]
-    }
-
-    private struct MavenLaunchPlanRequest: Encodable {
-        let root: String
-        let context: MavenLaunchContext
-        let module: String?
-        let goals: [String]
-    }
-
-    private struct MavenDependencyPlanRequest: Encodable {
-        let root: String
-        let context: MavenLaunchContext
-        let module: String?
-        let outputFile: String
-    }
-
     private struct MarkdownRenderRequest: Encodable {
         let source: String
     }
@@ -1845,7 +1727,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     private struct LspClientDiagnosticLocationRequest: Encodable {
-        let uri: String
+        let uri: LspDocumentURI
         let range: LspTextEditsRequest.TextEdit.Range
     }
 
@@ -1894,6 +1776,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     // session ID, opaque operation IDs, and the events Rust chooses to publish.
 
     struct LspStartServerPayload: Decodable, Sendable {
+        let channel: String?
         let sessionId: String
         let state: String
         let processId: Int32?
@@ -1954,21 +1837,61 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let changes: [Change]
     }
 
+    /// File paths are converted by Core inside the existing LSP request. An
+    /// upstream virtual URI keeps its original identity and is never rewritten.
+    private enum LspDocumentURI: Encodable {
+        case path(String)
+        case literal(String)
+
+        init(_ url: URL) {
+            guard url.isFileURL else {
+                self = .literal(url.absoluteString)
+                return
+            }
+            let normalized = url.standardizedFileURL
+            let path = normalized.path
+            self = .path(normalized.hasDirectoryPath && !path.hasSuffix("/") ? path + "/" : path)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            switch self {
+            case .path(let path):
+                struct FilePath: Encodable { let path: String; let platform = "posix" }
+                try FilePath(path: path).encode(to: encoder)
+            case .literal(let uri):
+                var value = encoder.singleValueContainer()
+                try value.encode(uri)
+            }
+        }
+    }
+
     private struct LspStartServerRequest: Encodable {
+        let role: String
+        let logSubject: String?
         let providerId: String
         /// The plugin that owns the process; nil for host-owned servers.
         let pluginId: String?
+        /// A declarative start attempt whose result Core records.
+        let startupOperation: PluginOperationHandoff?
         let executablePath: String
         let arguments: [String]
         let environment: [String: String]
-        let rootUri: String
+        let rootUri: LspDocumentURI
         let workingDirectory: String
         let initializationOptions: ToolingJSONValue?
         let workspaceConfiguration: ToolingJSONValue?
         /// Host services a plugin backend may request; omitted when none.
         let hostServices: [String]?
+        /// What the host declares for the services it serves; omitted when none.
+        let hostOptions: LspHostOptions?
         /// Manifest providers offered to a plugin backend; omitted when none.
         let toolchainProviders: [String]?
+        /// Shortcut import providers offered to a plugin backend; omitted when none.
+        let keymapImportProviders: [String]?
+        /// What the plugin backend may do with this server through the host
+        /// (plan API-25), exactly as `plugins.declarative.languageServerLaunchPlan`
+        /// returned it. Omitted when the plugin declares none.
+        let sessionPolicy: ToolingJSONValue?
         let runtimeExecutablePath: String?
         let jdtlsLaunchResources: LspJdtlsLaunchResourcesRequest?
         let cacheDirectory: String?
@@ -1979,6 +1902,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let initializeTimeoutMilliseconds: Int
         let requestTimeoutMilliseconds: Int
         let shutdownTimeoutMilliseconds: Int
+    }
+
+    /// `lsp.startServer.hostOptions`: Core relays it to the plugin backend
+    /// through `getCapabilities`, only for the methods it grants.
+    private struct LspHostOptions: Encodable {
+        let editor: PluginEditorHostOptions
     }
 
     private struct LspJavaRuntimeRequest: Encodable {
@@ -2019,7 +1948,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let end: LspSyncDocumentRequest.Position
         }
         let sessionId: String
-        let uri: String
+        let uri: LspDocumentURI
         let languageId: String
         let text: String
         let contentChanges: [Change]
@@ -2027,7 +1956,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     private struct LspWorkspaceFilesChangedRequest: Encodable {
         struct Change: Encodable {
-            let uri: String
+            let uri: LspDocumentURI
             let kind: String
         }
 
@@ -2042,13 +1971,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     private struct JavaNavigationMarkersRequest: Encodable {
         let sessionId: String
-        let uri: String
+        let uri: LspDocumentURI
         let documentVersion: Int
     }
 
     private struct JavaResolveNavigationRequest: Encodable {
         let sessionId: String
-        let uri: String
+        let uri: LspDocumentURI
         let line: Int
         let utf16Column: Int
         let direction: String
@@ -2058,7 +1987,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     private struct LspCloseDocumentRequest: Encodable {
         let sessionId: String
-        let uri: String
+        let uri: LspDocumentURI
     }
 
     /// A semantic request names the operation it wants, not the LSP method that
@@ -2067,7 +1996,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let sessionId: String
         let operationId: String?
         let operation: String
-        let uri: String?
+        let uri: LspDocumentURI?
         let virtualUri: String?
         let position: LspTextEditsRequest.TextEdit.Range.Position?
         let newName: String?
@@ -2082,7 +2011,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             sessionId: String,
             operationId: String? = nil,
             operation: String,
-            uri: String? = nil,
+            uri: LspDocumentURI? = nil,
             virtualUri: String? = nil,
             position: LspTextEditsRequest.TextEdit.Range.Position? = nil,
             newName: String? = nil,
@@ -2122,6 +2051,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let timeoutMilliseconds: Int
     }
 
+    private struct LspKeymapImportRequest: Encodable {
+        let sessionId: String
+        let providerID: String
+        let snapshotID: String
+        let timeoutMilliseconds: Int
+    }
+
     private struct LspVcsRequest: Encodable {
         let sessionId: String
         let vcs: String
@@ -2149,6 +2085,25 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let timeoutMilliseconds: Int
         /// Omitted when nil, so Core sees the version 2 request shape.
         let context: Context?
+    }
+
+    /// A request the plugin backend sent to its own language server.
+    private struct LspPluginServerRequest: Encodable {
+        let sessionId: String
+        let pluginId: String
+        let serverID: String
+        let method: String
+        let params: ToolingJSONValue
+        /// Omitted when nil, so Core applies its default deadline.
+        let timeoutMilliseconds: Int?
+    }
+
+    private struct LspPluginServerNotifyRequest: Encodable {
+        let sessionId: String
+        let pluginId: String
+        let serverID: String
+        let method: String
+        let params: ToolingJSONValue
     }
 
     private struct LspHostResponseRequest: Encodable {
@@ -2180,6 +2135,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     struct LspRuntimeEventPayload: Decodable, Sendable {
+        let channel: String?
+        let pluginId: String?
+        let role: String?
+        let event: String?
+        let fields: [String: CoreLogScalar]?
+        let catalogLevel: String?
         let type: String
         let sequence: UInt64
         let providerId: String
@@ -2219,6 +2180,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let processExitCode: Int?
         let javaBuildReport: JavaBuildReport?
         let pluginErrorCode: String?
+        /// Facts of a failed plugin-server request, such as the server's own
+        /// error code and message.
+        let details: ToolingJSONValue?
     }
 
     struct LspServerInfoPayload: Decodable, Sendable {
@@ -2226,26 +2190,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let version: String?
     }
 
-    private struct MavenDiagnosticsRequest: Encodable {
-        let root: String
-        let output: String
-    }
-
-    private struct MavenTestResultsRequest: Encodable {
-        let root: String
-        let output: String
-        let reports: MavenTestReportRequest?
-    }
-
     private struct JavaRunMarkersRequest: Encodable {
         let mainMethods: [JavaMainMethod]
         let testItems: [JavaTestItem]
-        let testCases: [MavenTestCaseOutcome]
-    }
-
-    private struct MavenDependenciesRequest: Encodable {
-        let modulePath: String
-        let outputFile: String
+        let testCases: [BuildTestResults.TestCase]
     }
 
     private struct RunConfigurationInspectRequest: Encodable {
@@ -2254,6 +2202,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let checkFingerprint: Bool?
         /// JDT's current answer; omitted while the Java service is not ready.
         let javaEntrypoints: JavaEntrypoints?
+        let projectOwnership: [RunProjectOwnership]?
+        let providerRuns: [RunProviderConfiguration]?
     }
     private struct RunConfigurationGenerateRequest: Encodable {
         let root: String
@@ -2262,13 +2212,18 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         /// Omitted while JDT has not answered; Core then keeps the previous
         /// generation's Java entries.
         let javaEntrypoints: JavaEntrypoints?
+        let projectOwnership: [RunProjectOwnership]?
+        let providerRuns: [RunProviderConfiguration]?
         /// Application cache root where Core keeps the last detection for the
         /// next session; the workspace is never written.
         let cacheDirectory: String?
+
     }
     private struct RunConfigurationResolveRequest: Encodable {
         let root: String
         let toolchainCandidates: [ProjectToolchainCandidate]
+        let teamDocument: ToolingJSONValue?
+        let localDocument: ToolingJSONValue?
     }
     private struct RunConfigurationUpdateOptionsRequest: Encodable {
         let root: String
@@ -2284,6 +2239,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let mavenExecutablePath: String
         let mavenJavaHomePath: String
         let toolchain: ProjectToolchainSelection?
+        let providerRunOptions: BuildProviderRunOptions?
     }
     private struct RunConfigurationCreateUserRequest: Encodable {
         let root: String
@@ -2299,6 +2255,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let mainClass: String
             let classPaths: [String]
             let modulePaths: [String]
+            let buildPrepared: Bool
         }
         let root: String
         let configurationId: String
@@ -2420,6 +2377,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     private struct GitDiffRequest: Encodable {
         let root: String
         let pathspecs: [String]
+        let stashReference: String?
+        let includeFileSections: Bool?
         let reference: String?
         let gitReference: GitReferenceRequest?
         let targetGitReference: GitReferenceRequest?
@@ -2454,6 +2413,28 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let order: String?
     }
 
+    private struct GitHistoryLocateRequest: Encodable {
+        let root: String
+        let reference: String?
+        let order: String?
+        let target: String
+        let cursor: String?
+        let limit: Int
+        let maxPages: Int
+    }
+
+    private struct GitBranchNamePreviewRequest: Encodable {
+        struct Reference: Encodable {
+            let kind: String
+            let shortName: String
+        }
+
+        let rawName: String
+        let requireName: Bool
+        let references: [Reference]
+        let reference: Reference?
+    }
+
     private struct GitHistoryCursorCloseRequest: Encodable {
         let root: String
         let cursor: String
@@ -2478,6 +2459,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let reference: String?
         let gitReference: GitReferenceRequest?
         let targetGitReference: GitReferenceRequest?
+        let includeUntracked: Bool
     }
 
     private struct GitStashesRequest: Encodable {
@@ -2878,101 +2860,11 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         return response?.relocated == true
     }
 
-    func scanMaven(at rootURL: URL, paths: [String] = []) -> MavenScanPayload? {
-        try? scanMavenResult(at: rootURL, paths: paths).get()
-    }
-
-    func scanMavenResult(
-        at rootURL: URL,
-        paths: [String] = []
-    ) -> Result<MavenScanPayload?, CoreCallError> {
-        let result: Result<Envelope<MavenScanPayload>, CoreCallError> = decodeEnvelope(
-            command: "maven.scan",
-            payload: MavenScanRequest(
-                root: rootURL.standardizedFileURL.path,
-                paths: paths
-            )
-        )
-        return result.map(\.data)
-    }
-
-    func mavenLaunchPlan(
-        at rootURL: URL,
-        context: MavenLaunchContext,
-        module: String?,
-        goals: [String]
-    ) -> Result<MavenLaunchPlanPayload, CoreCallError> {
-        executeResult(
-            command: "maven.launchPlan",
-            payload: MavenLaunchPlanRequest(
-                root: rootURL.standardizedFileURL.path,
-                context: context,
-                module: module,
-                goals: goals
-            )
-        )
-    }
-
-    func mavenDependencyPlan(
-        at rootURL: URL,
-        context: MavenLaunchContext,
-        module: String?,
-        outputFile: URL
-    ) -> Result<MavenLaunchPlanPayload, CoreCallError> {
-        executeResult(
-            command: "maven.dependencyPlan",
-            payload: MavenDependencyPlanRequest(
-                root: rootURL.standardizedFileURL.path,
-                context: context,
-                module: module,
-                outputFile: outputFile.standardizedFileURL.path
-            )
-        )
-    }
-
-    func mavenDependencies(
-        modulePath: String,
-        outputFile: URL
-    ) -> Result<MavenDependenciesPayload, CoreCallError> {
-        executeResult(
-            command: "maven.dependencies",
-            payload: MavenDependenciesRequest(
-                modulePath: modulePath,
-                outputFile: outputFile.standardizedFileURL.path
-            )
-        )
-    }
-
-    func mavenDiagnostics(at rootURL: URL, output: String) -> MavenDiagnosticsPayload? {
-        execute(
-            command: "maven.diagnostics",
-            payload: MavenDiagnosticsRequest(
-                root: rootURL.standardizedFileURL.path,
-                output: output
-            )
-        )
-    }
-
-    func mavenTestResults(
-        at rootURL: URL,
-        output: String,
-        reports: MavenTestReportRequest? = nil
-    ) -> Result<MavenTestResultsPayload, CoreCallError> {
-        executeResult(
-            command: "maven.testResults",
-            payload: MavenTestResultsRequest(
-                root: rootURL.standardizedFileURL.path,
-                output: output,
-                reports: reports
-            )
-        )
-    }
-
     /// Combines JDT main/test discovery and recorded outcomes into gutter markers.
     func javaRunMarkers(
         mainMethods: [JavaMainMethod],
         testItems: [JavaTestItem],
-        testCases: [MavenTestCaseOutcome]
+        testCases: [BuildTestResults.TestCase]
     ) -> Result<JavaRunMarkersPayload, CoreCallError> {
         executeResult(
             command: "java.runMarkers",
@@ -3014,14 +2906,17 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     func inspectRunConfiguration(
         at rootURL: URL,
         checkFingerprint: Bool? = nil,
-        javaEntrypoints: JavaEntrypoints? = nil
+        javaEntrypoints: JavaEntrypoints? = nil,
+        projectOwnership: [RunProjectOwnership]? = nil,
+        providerRuns: [RunProviderConfiguration]? = nil
     ) -> Result<RunConfigurationInspectPayload, CoreCallError> {
         executeResult(
             command: "runConfig.inspect",
             payload: RunConfigurationInspectRequest(
                 root: rootURL.standardizedFileURL.path,
                 checkFingerprint: checkFingerprint,
-                javaEntrypoints: javaEntrypoints
+                javaEntrypoints: javaEntrypoints,
+                projectOwnership: projectOwnership, providerRuns: providerRuns
             )
         )
     }
@@ -3031,7 +2926,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         paths: [String],
         modulePaths: [String],
         javaEntrypoints: JavaEntrypoints? = nil,
+        projectOwnership: [RunProjectOwnership]? = nil,
+        providerRuns: [RunProviderConfiguration]? = nil,
         cacheDirectoryURL: URL? = nil
+
     ) -> Result<RunConfigurationGeneratePayload, CoreCallError> {
         executeResult(
             command: "runConfig.generate",
@@ -3040,22 +2938,33 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 paths: paths,
                 modulePaths: modulePaths,
                 javaEntrypoints: javaEntrypoints,
+                projectOwnership: projectOwnership, providerRuns: providerRuns,
                 cacheDirectory: cacheDirectoryURL?.path
+
             )
         )
     }
 
     func resolveRunConfiguration(
         at rootURL: URL,
-        toolchainCandidates: [ProjectToolchainCandidate]
+        toolchainCandidates: [ProjectToolchainCandidate],
+        teamDocument: ToolingJSONValue? = nil,
+        localDocument: ToolingJSONValue? = nil
     ) -> Result<RunConfigurationPayload, CoreCallError> {
         executeResult(
             command: "runConfig.resolve",
             payload: RunConfigurationResolveRequest(
                 root: rootURL.standardizedFileURL.path,
-                toolchainCandidates: toolchainCandidates
+                toolchainCandidates: toolchainCandidates,
+                teamDocument: teamDocument, localDocument: localDocument
             )
         )
+    }
+
+    func providerLaunchInputs(at rootURL: URL, configurationID: String, providerRoot: String) -> Result<ProviderLaunchInputs, CoreCallError> {
+        struct Request: Encodable { let root: String; let configurationId: String; let providerRoot: String }
+        return executeResult(command: "runConfig.providerLaunchInputs", payload: Request(root: rootURL.standardizedFileURL.path,
+            configurationId: configurationID, providerRoot: providerRoot))
     }
 
     func createLaunchPlan(
@@ -3078,7 +2987,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                     LaunchPlanRequest.JavaLaunch(
                         mainClass: $0.mainClass,
                         classPaths: $0.classPaths,
-                        modulePaths: $0.modulePaths
+                        modulePaths: $0.modulePaths,
+                        buildPrepared: $0.buildPrepared
                     )
                 },
                 debugPort: debugPort,
@@ -3109,7 +3019,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 javaHomePath: options.javaHomePath,
                 mavenExecutablePath: options.mavenExecutablePath,
                 mavenJavaHomePath: options.mavenJavaHomePath,
-                toolchain: toolchain
+                toolchain: toolchain,
+                providerRunOptions: options.providerRunOptions
             )
         )
     }
@@ -3136,7 +3047,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 javaHomePath: options.javaHomePath,
                 mavenExecutablePath: options.mavenExecutablePath,
                 mavenJavaHomePath: options.mavenJavaHomePath,
-                toolchain: toolchain
+                toolchain: toolchain,
+                providerRunOptions: options.providerRunOptions
             )
         )
     }
@@ -3513,6 +3425,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             payload: GitDiffRequest(
                 root: rootURL.standardizedFileURL.path,
                 pathspecs: pathspecs,
+                stashReference: nil,
+                includeFileSections: nil,
                 reference: reference,
                 gitReference: gitReference.map(GitReferenceRequest.init),
                 targetGitReference: targetGitReference.map(GitReferenceRequest.init),
@@ -3523,6 +3437,22 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 ignoreAllWhitespace: ignoreAllWhitespace
             )
         )
+    }
+
+    private struct GitParsePatchRequest: Encodable {
+        let root: String
+        let patch: String
+    }
+
+    func gitParseSavedPatch(at rootURL: URL, patch: String) -> Result<GitDiffPayload, CoreCallError> {
+        executeResult(command: "git.parsePatch", payload: GitParsePatchRequest(root: rootURL.standardizedFileURL.path, patch: patch))
+    }
+
+    func gitSavedStashDiff(at rootURL: URL, reference: String) -> Result<GitDiffPayload, CoreCallError> {
+        executeResult(command: "git.diff", payload: GitDiffRequest(
+            root: rootURL.standardizedFileURL.path, pathspecs: ["."], stashReference: reference,
+            includeFileSections: true, reference: nil, gitReference: nil, targetGitReference: nil,
+            commit: nil, staged: false, untracked: false, contextLines: 3, ignoreAllWhitespace: false))
     }
 
     func gitApply(
@@ -3555,6 +3485,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    struct GitHistoryDateQueryPayload: Decodable, Sendable {
+        let matchingIds: [String]
+    }
+
+    func gitHistoryDateQuery(_ query: GitHistoryDateQuery) -> GitHistoryDateQueryPayload? {
+        execute(command: "git.historyQuery", payload: query)
+    }
+
     func gitHistory(
         at rootURL: URL,
         reference: String?,
@@ -3581,6 +3519,33 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    func gitBranchNamePreview(
+        rawName: String,
+        requireName: Bool,
+        references: [GitReference],
+        reference: GitReference?
+    ) -> GitBranchNamePreviewPayload? {
+        execute(
+            command: "git.branchNamePreview",
+            payload: GitBranchNamePreviewRequest(
+                rawName: rawName,
+                requireName: requireName,
+                references: references.map {
+                    GitBranchNamePreviewRequest.Reference(
+                        kind: $0.kind.rawValue,
+                        shortName: $0.shortName
+                    )
+                },
+                reference: reference.map {
+                    GitBranchNamePreviewRequest.Reference(
+                        kind: $0.kind.rawValue,
+                        shortName: $0.shortName
+                    )
+                }
+            )
+        )
+    }
+
     func gitHistoryPage(
         at rootURL: URL,
         reference: String?,
@@ -3597,6 +3562,31 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 cursor: cursor,
                 limit: limit,
                 order: order
+            ),
+            operationID: operationID
+        )
+    }
+
+    func gitHistoryLocate(
+        at rootURL: URL,
+        reference: String?,
+        order: String?,
+        target: String,
+        cursor: String?,
+        limit: Int,
+        maxPages: Int,
+        operationID: String
+    ) -> GitHistoryLocatePayload? {
+        execute(
+            command: "git.historyLocate",
+            payload: GitHistoryLocateRequest(
+                root: rootURL.standardizedFileURL.path,
+                reference: reference,
+                order: order,
+                target: target,
+                cursor: cursor,
+                limit: limit,
+                maxPages: maxPages
             ),
             operationID: operationID
         )
@@ -3634,7 +3624,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         at rootURL: URL,
         reference: String? = nil,
         gitReference: GitReference? = nil,
-        targetGitReference: GitReference? = nil
+        targetGitReference: GitReference? = nil,
+        includeUntracked: Bool = false
     ) -> GitComparisonPayload? {
         execute(
             command: "git.comparison",
@@ -3642,7 +3633,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 root: rootURL.standardizedFileURL.path,
                 reference: reference,
                 gitReference: gitReference.map(GitReferenceRequest.init),
-                targetGitReference: targetGitReference.map(GitReferenceRequest.init)
+                targetGitReference: targetGitReference.map(GitReferenceRequest.init),
+                includeUntracked: includeUntracked
             )
         )
     }
@@ -3884,7 +3876,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         initializationOptions: ToolingJSONValue? = nil,
         workspaceConfiguration: ToolingJSONValue? = nil,
         hostServices: [String] = [],
+        editorOptions: PluginEditorHostOptions? = nil,
         toolchainProviders: [String] = [],
+        keymapImportProviders: [String] = [],
+        sessionPolicy: ToolingJSONValue? = nil,
         runtimeExecutableURL: URL? = nil,
         jdtlsLaunchResources: JDTLSLaunchResources? = nil,
         cacheDirectoryURL: URL? = nil,
@@ -3895,20 +3890,25 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         requestTimeout: TimeInterval = 30,
         shutdownTimeout: TimeInterval = 2
     ) -> Result<LspStartServerPayload, CoreCallError> {
-        executeResult(
+        let result: Result<LspStartServerPayload, CoreCallError> = executeResult(
             command: "lsp.startServer",
             payload: LspStartServerRequest(
+                role: logRole.rawValue, logSubject: logSubject,
                 providerId: providerID,
-                pluginId: pluginID,
+                pluginId: pluginID ?? logPluginID,
+                startupOperation: startupOperation,
                 executablePath: executableURL.standardizedFileURL.path,
                 arguments: arguments,
                 environment: environment,
-                rootUri: rootURL.standardizedFileURL.absoluteString,
+                rootUri: LspDocumentURI(rootURL),
                 workingDirectory: workingDirectoryURL.standardizedFileURL.path,
                 initializationOptions: initializationOptions,
                 workspaceConfiguration: workspaceConfiguration,
                 hostServices: hostServices.isEmpty ? nil : hostServices,
+                hostOptions: editorOptions.map(LspHostOptions.init),
                 toolchainProviders: toolchainProviders.isEmpty ? nil : toolchainProviders,
+                keymapImportProviders: keymapImportProviders.isEmpty ? nil : keymapImportProviders,
+                sessionPolicy: sessionPolicy,
                 runtimeExecutablePath: runtimeExecutableURL?.standardizedFileURL.path,
                 jdtlsLaunchResources: jdtlsLaunchResources.map {
                     LspJdtlsLaunchResourcesRequest(
@@ -3931,6 +3931,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 shutdownTimeoutMilliseconds: Self.milliseconds(shutdownTimeout)
             )
         )
+        if case .success(let started) = result, let channel = started.channel {
+            registerLogSession?(started.sessionId, channel)
+        }
+        return result
     }
 
     /// Asks the server to shut down. The session stays addressable until
@@ -3984,11 +3988,11 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     func lspSaveDocument(sessionID: String, fileURL: URL, text: String) -> Result<Bool, CoreCallError> {
-        struct Request: Encodable { let sessionId: String; let uri: String; let text: String }
+        struct Request: Encodable { let sessionId: String; let uri: LspDocumentURI; let text: String }
         struct Response: Decodable { let sent: Bool }
         let result: Result<Response, CoreCallError> = executeResult(
             command: "lsp.saveDocument",
-            payload: Request(sessionId: sessionID, uri: fileURL.standardizedFileURL.absoluteString, text: text)
+            payload: Request(sessionId: sessionID, uri: LspDocumentURI(fileURL), text: text)
         )
         return result.map(\.sent)
     }
@@ -4006,7 +4010,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             command: "lsp.syncDocument",
             payload: LspSyncDocumentRequest(
                 sessionId: sessionID,
-                uri: fileURL.standardizedFileURL.absoluteString,
+                uri: LspDocumentURI(fileURL),
                 languageId: languageID,
                 // Keep the full snapshot for the initial didOpen and as a
                 // recovery source; Rust emits range-based didChange when safe.
@@ -4067,7 +4071,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 sessionId: sessionID,
                 changes: changes.map {
                     LspWorkspaceFilesChangedRequest.Change(
-                        uri: $0.fileURL.standardizedFileURL.absoluteString,
+                        uri: LspDocumentURI($0.fileURL),
                         kind: $0.kind.rawValue
                     )
                 }
@@ -4080,7 +4084,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             command: "lsp.closeDocument",
             payload: LspCloseDocumentRequest(
                 sessionId: sessionID,
-                uri: fileURL.standardizedFileURL.absoluteString
+                uri: LspDocumentURI(fileURL)
             )
         )
     }
@@ -4106,7 +4110,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             payload: LspSemanticRequest(
                 sessionId: sessionID,
                 operation: operation.rawValue,
-                uri: fileURL?.standardizedFileURL.absoluteString,
+                uri: fileURL.map(LspDocumentURI.init),
                 virtualUri: virtualURI,
                 position: position.map {
                     .init(line: $0.line, utf16Column: $0.utf16Column)
@@ -4147,7 +4151,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             command: "java.navigationMarkers",
             payload: JavaNavigationMarkersRequest(
                 sessionId: sessionID,
-                uri: fileURL.standardizedFileURL.absoluteString,
+                uri: LspDocumentURI(fileURL),
                 documentVersion: documentVersion
             )
         )
@@ -4163,7 +4167,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             command: "java.resolveNavigation",
             payload: JavaResolveNavigationRequest(
                 sessionId: sessionID,
-                uri: fileURL.standardizedFileURL.absoluteString,
+                uri: LspDocumentURI(fileURL),
                 line: marker.line,
                 utf16Column: marker.utf16Column,
                 direction: marker.direction.rawValue,
@@ -4232,6 +4236,22 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    /// Requests a negotiated import provider using only a host-owned snapshot reference.
+    func lspKeymapImportRequest(
+        sessionID: String,
+        providerID: String,
+        snapshotID: String,
+        timeout: TimeInterval
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.keymapImportRequest",
+            payload: LspKeymapImportRequest(
+                sessionId: sessionID, providerID: providerID, snapshotID: snapshotID,
+                timeoutMilliseconds: max(1, Self.milliseconds(timeout))
+            )
+        )
+    }
+
     /// Invokes a plugin function. Core refuses it unless the session belongs
     /// to `pluginID` and registered the function.
     func lspFunctionRequest(
@@ -4252,6 +4272,48 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 context: context.map { .init(contextID: $0.contextID, generation: $0.generation) }
             )
         )
+    }
+
+    /// Sends one LSP request of a plugin backend to its own server. Core
+    /// applies the plugin's whitelist, gates and timeout; the answer arrives as
+    /// the `requestCompleted` event of the returned operation.
+    func lspPluginServerRequest(
+        sessionID: String,
+        pluginID: String,
+        serverID: String,
+        method: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval?
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.pluginServerRequest",
+            payload: LspPluginServerRequest(
+                sessionId: sessionID, pluginId: pluginID, serverID: serverID, method: method, params: params,
+                timeoutMilliseconds: timeout.map { max(1, Self.milliseconds($0)) }
+            )
+        )
+    }
+
+    private struct LspPluginServerNotifyResponse: Decodable {
+        let delivered: Bool
+    }
+
+    /// Sends one LSP notification of a plugin backend to its own server.
+    /// `false` when the server is not initialized yet and will read the stored
+    /// configuration with its `initialized` notification instead.
+    func lspPluginServerNotify(
+        sessionID: String,
+        pluginID: String,
+        serverID: String,
+        method: String,
+        params: ToolingJSONValue
+    ) -> Result<Bool, CoreCallError> {
+        executeResult(
+            command: "lsp.pluginServerNotify",
+            payload: LspPluginServerNotifyRequest(
+                sessionId: sessionID, pluginId: pluginID, serverID: serverID, method: method, params: params
+            )
+        ).map { (response: LspPluginServerNotifyResponse) in response.delivered }
     }
 
     /// Answers one `hostRequest` event of a plugin backend.
@@ -4295,6 +4357,37 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             command: "lsp.hostNotify",
             payload: LspHostNotifyRequest(sessionId: sessionID, method: method, params: params)
         ).map { (response: LspHostNotifyResponse) in response.delivered }
+    }
+
+    private struct LspConfigureFunctionRelayRequest: Encodable {
+        struct Plugin: Encodable {
+            let pluginID: String
+            let exports: [ToolingJSONValue]
+            let calls: [ToolingJSONValue]
+        }
+
+        struct Context: Encodable {
+            let contextID: String
+            let generation: Int
+            let authority: String
+        }
+
+        let plugins: [Plugin]
+        let contexts: [Context]
+    }
+
+    /// Replaces the enabled plugins and live workspace contexts that Core's
+    /// relay between plugin backends works from.
+    func lspConfigureFunctionRelay(_ snapshot: PluginFunctionRelaySnapshot) -> Result<Void, CoreCallError> {
+        executeVoid(
+            command: "lsp.configureFunctionRelay",
+            payload: LspConfigureFunctionRelayRequest(
+                plugins: snapshot.plugins.map { .init(pluginID: $0.pluginID, exports: $0.exports, calls: $0.calls) },
+                contexts: snapshot.contexts.map {
+                    .init(contextID: $0.contextID, generation: $0.generation, authority: $0.isRemote ? "remote" : "local")
+                }
+            )
+        )
     }
 
     /// Cancels a pending operation. Its completion event still arrives, carrying
@@ -4377,7 +4470,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             relatedInformation: diagnostic.relatedInformation.map {
                 LspClientDiagnosticRelatedInformationRequest(
                     location: LspClientDiagnosticLocationRequest(
-                        uri: $0.fileURL.standardizedFileURL.absoluteString,
+                        uri: LspDocumentURI($0.fileURL),
                         range: makeRangeRequest($0.range)
                     ),
                     message: $0.message
@@ -4440,11 +4533,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         payload: Payload,
         operationID: String? = nil
     ) -> Data? {
-        try? executeResult(
-            command: command,
-            payload: payload,
-            operationID: operationID
-        ).get()
+        do {
+            return try executeResult(command: command, payload: payload, operationID: operationID).get()
+        } catch {
+            coreLogSink?.emit(AppCoreFallbackSelected(error: LitheModuleAPI.LogFailure(domain: "RustCore", code: error.code), stage: command, operationID: operationID))
+            return nil
+        }
     }
 
     /// Runs a command whose success carries no data. The core encodes those as a
@@ -4513,7 +4607,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 details: nil
             ))
         }
-        let observesGit = command.hasPrefix("git.") && command != "git.authRespond" && command != "git.consolePresentation"
+        let observesGit = command.hasPrefix("git.") && command != "git.authRespond" && command != "git.consolePresentation" && command != "git.changelists" && command != "git.classifyMetadataChanges"
         let execution = observesGit ? GitExecutionContext.current : nil
         if execution?.isCancellationRequested == true {
             return .failure(CoreCallError(code: "cancelled", message: "Operation was cancelled", details: nil))
@@ -4522,13 +4616,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         var gitOptions = gitPreferences?.snapshot ?? GitExecutionOptions()
         gitOptions.interactive = execution != nil
         gitOptions.source = execution?.source ?? GitExecutionSource.current
+        let origin = RequestOrigin.resolve(action: execution?.action ?? UserActionContext.current, gitSource: gitOptions.source)
         let remoteWorkspace: RemoteWorkspace?
-        do {
-            remoteWorkspace = try self.remoteWorkspace(for: command, payload: payload)
-        } catch let failure as CoreCallError {
-            return .failure(failure)
-        } catch {
-            return .failure(CoreCallError(code: "invalid_request", message: "Invalid workspace request", details: nil))
+        switch Result(catching: { try self.remoteWorkspace(for: command, payload: payload) }) {
+        case .success(let value): remoteWorkspace = value
+        case .failure(let error):
+            return .failure((error as? CoreCallError) ?? CoreCallError(code: "invalid_request", message: "Invalid workspace request", details: nil))
         }
         guard let requestData = try? JSONEncoder().encode(
             Request(
@@ -4538,7 +4631,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 command: command,
                 payload: payload,
                 gitExecution: (observesGit || command == "workspace.searchEverywhere") ? gitOptions : nil,
-                remoteWorkspace: remoteWorkspace
+                remoteWorkspace: remoteWorkspace,
+                origin: origin
             )
         ),
         let request = String(data: requestData, encoding: .utf8),

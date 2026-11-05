@@ -75,6 +75,63 @@ struct PluginLanguageServerLaunchResolverTests {
         #expect(try packageFiles(fixture.source.packageURL) == filesBefore)
     }
 
+    @Test
+    func unavailableLogStorageOnlyRejectsTemplatesThatRequireIt() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeFixture(root: root, manifest: "node-runtime.plugin.json", languageID: "fixture")
+        // Use the actual writer with an invalid filesystem root, rather than a
+        // fabricated planner result, to exercise the optional-storage boundary.
+        let blocked = root.appendingPathComponent("blocked-logs")
+        try Data("ordinary file".utf8).write(to: blocked)
+        let writer = MacLogStore(defaultDirectory: blocked)
+        let resolver = MacPluginLanguageServerLaunchResolver(planner: DeclarativePluginTestSupport.operations,
+            directories: fixture.directories, settings: InMemoryPluginSettings(),
+            logDirectory: { try writer.pluginFilesDirectory(pluginID: $0) })
+        let resolved = try resolver.resolve(fixture.source, workspaceRootURL: fixture.workspaceURL)
+        #expect(resolved.arguments.contains("--stdio"))
+        _ = try resolver.executableProbe(for: fixture.source)
+
+        var manifest = try #require(JSONSerialization.jsonObject(with: fixture.source.manifest) as? [String: Any])
+        var servers = try #require(manifest["languageServers"] as? [[String: Any]])
+        servers[0]["arguments"] = ["--log=${logDir}/server.log"]
+        manifest["languageServers"] = servers
+        let source = DeclarativeLanguageServerLaunchSource(pluginID: fixture.source.pluginID, languageID: "fixture",
+            manifest: try JSONSerialization.data(withJSONObject: manifest), packageURL: fixture.source.packageURL)
+        #expect(throws: (any Error).self) { try resolver.resolve(source, workspaceRootURL: fixture.workspaceURL) }
+        #expect(try String(contentsOf: blocked, encoding: .utf8) == "ordinary file")
+        try writer.redirect(to: root.appendingPathComponent("recovered-logs"))
+        let collection = try await writer.collect(query: .init(session: "all"))
+        #expect(collection.writeFailures > 0)
+        await writer.finishSession()
+    }
+
+    @Test
+    func logDirectoryTemplateUsesTheCurrentSessionOutsideTheInstalledPackage() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try makeFixture(root: root, manifest: "node-runtime.plugin.json", languageID: "fixture")
+        var manifest = try #require(JSONSerialization.jsonObject(with: fixture.source.manifest) as? [String: Any])
+        var servers = try #require(manifest["languageServers"] as? [[String: Any]])
+        servers[0]["arguments"] = ["--stdio", "--log=${logDir}/server.log"]
+        manifest["languageServers"] = servers
+        let source = DeclarativeLanguageServerLaunchSource(pluginID: fixture.source.pluginID, languageID: "fixture",
+            manifest: try JSONSerialization.data(withJSONObject: manifest), packageURL: fixture.source.packageURL)
+        let before = try packageFiles(source.packageURL)
+        let writer = MacLogStore(defaultDirectory: root.appendingPathComponent("logs"))
+        let resolver = MacPluginLanguageServerLaunchResolver(planner: DeclarativePluginTestSupport.operations,
+            directories: fixture.directories, settings: InMemoryPluginSettings(),
+            logDirectory: { try writer.pluginFilesDirectory(pluginID: $0) })
+        let resolved = try resolver.resolve(source, workspaceRootURL: fixture.workspaceURL)
+        let files = try writer.pluginFilesDirectory(pluginID: source.pluginID)
+        #expect(resolved.arguments.last == "--log=" + files.path + "/server.log")
+        #expect(isDirectory(files))
+        #expect(files.path.hasPrefix(root.resolvingSymlinksInPath().appendingPathComponent("logs/sessions").path + "/"))
+        #expect(try packageFiles(source.packageURL) == before)
+        #expect(throws: (any Error).self) { try fixture.resolver.resolve(source, workspaceRootURL: fixture.workspaceURL) }
+        await writer.finishSession()
+    }
+
     /// The Java plugin's JDT LS files reach the shared JDT launch only through
     /// what the plugin declares; nothing is looked up in the app or on the Mac.
     @Test
@@ -356,6 +413,8 @@ struct PluginLanguageServerLaunchResolverTests {
             core: RustCoreBridge()
         )
         var states: [LanguageServerSessionState] = []
+        var issues: [(Bool, String, String)] = []
+        session.onLogIssue = { warning, stage, code, _, _ in issues.append((warning, stage, code)) }
         session.onStateChange = { states.append($0) }
 
         #expect(throws: LanguageServerSessionStartError.self) {
@@ -367,6 +426,137 @@ struct PluginLanguageServerLaunchResolverTests {
             return
         }
         #expect(failure.code == "plugin.launch.invalidRequest")
+        #expect(issues.count == 1)
+        #expect(issues.first?.0 == false)
+        #expect(issues.first?.1 == "processStart")
+        #expect(issues.first?.2 == "plugin.launch.invalidRequest")
+    }
+
+    // MARK: Declarative start attempt
+
+    /// A launch plan Core rejects fails the plugin's start before any process
+    /// exists, so the host records it at `resolve`; stopping afterwards adds nothing.
+    @MainActor
+    @Test
+    func aFailedLaunchPlanRecordsTheDeclarativeStartAtResolve() {
+        let operations = RecordedPluginOperations()
+        let session = LanguageServerRuntimeSession(
+            providerID: "fixture",
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["${pluginDir}/server"],
+            environment: [:],
+            launchResolver: { _ in
+                throw DeclarativePluginRejection(
+                    code: "plugin.launch.invalidRequest",
+                    message: "The launch request has no usable pluginDirectory."
+                )
+            },
+            core: RustCoreBridge()
+        )
+        session.observePluginStartup(operations.reporter.begin(
+            pluginID: "dev.example.plugin", operation: .languageServerStart, at: .resolve, operationID: "lsp-start"
+        ))
+
+        #expect(throws: LanguageServerSessionStartError.self) {
+            try session.start(rootURL: URL(fileURLWithPath: "/projects/one"), workspaceFingerprint: nil)
+        }
+        session.stop()
+
+        #expect(operations.observations == [RecordedPluginOperations.languageServerStart(
+            pluginID: "dev.example.plugin", failure: .resolve, operationID: "lsp-start"
+        )])
+    }
+
+    /// Stopping cancels the attempt on every stop path, so a later start of the
+    /// same session cannot report the stopped one.
+    @MainActor
+    @Test
+    func aStartStoppedBeforeLaunchIsNotReportedByALaterStart() async {
+        let operations = RecordedPluginOperations()
+        let session = LanguageServerRuntimeSession(
+            providerID: "fixture",
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["${pluginDir}/server"],
+            environment: [:],
+            launchResolver: { _ in
+                throw DeclarativePluginRejection(
+                    code: "plugin.launch.invalidRequest",
+                    message: "The launch request has no usable pluginDirectory."
+                )
+            },
+            core: RustCoreBridge()
+        )
+        session.observePluginStartup(operations.reporter.begin(
+            pluginID: "dev.example.plugin", operation: .languageServerStart, at: .resolve, operationID: "lsp-start"
+        ))
+
+        #expect(await session.stopAndWait())
+        #expect(throws: LanguageServerSessionStartError.self) {
+            try session.start(rootURL: URL(fileURLWithPath: "/projects/one"), workspaceFingerprint: nil)
+        }
+
+        #expect(operations.observations.isEmpty)
+    }
+
+    /// The manager begins an attempt only for a server a plugin declares,
+    /// whether its launch is templated (plugin API 2 and later) or literal
+    /// (plugin API 1): a server the host owns has no plugin to attribute it to.
+    /// The attempt carries the manager's operation ID, so it joins the
+    /// session's other records.
+    @MainActor
+    @Test(arguments: ["launchTemplates", "pluginAPI1", "hostOwned"])
+    func aServerWithoutAnExecutableRecordsOnlyADeclarativeStart(owner: String) {
+        let source = DeclarativeLanguageServerLaunchSource(
+            pluginID: "dev.example.plugin",
+            languageID: "fixture",
+            manifest: Data(),
+            packageURL: URL(fileURLWithPath: "/plugins/fixture")
+        )
+        let declarative = owner != "hostOwned"
+        let launch = LanguageServerLaunchDescriptor(
+            executableNames: ["fixture-language-server"],
+            arguments: [],
+            launchSource: owner == "launchTemplates" ? source : nil,
+            pluginID: owner == "pluginAPI1" ? "dev.example.plugin" : nil
+        )
+        let descriptor = LanguageProviderDescriptor(
+            id: "fixture",
+            displayName: "Fixture",
+            fileExtensions: ["fixture"],
+            capabilities: .languageServer,
+            activationPolicy: .onDemand,
+            languageServerLaunch: launch
+        )
+        let runtime = StdioLanguageProviderRuntime(
+            descriptor: descriptor,
+            runtimeService: FixedLanguageToolRuntime(candidates: [:]),
+            languageServerLaunch: launch,
+            languageServerCore: RustCoreBridge(),
+            languageServerExecutableResolver: { _ in nil }
+        )
+        let operations = RecordedPluginOperations()
+        let manager = LanguageToolingSessionManager(
+            catalog: .init(descriptors: [descriptor]),
+            pluginOperations: operations.reporter,
+            runtimes: [runtime]
+        )
+        defer { manager.stopAllLanguageServers() }
+        let operationID = UUID()
+
+        // Only what is recorded matters here: with no executable every server
+        // stops at discovery, and only a plugin's server has an attempt to end.
+        #expect(throws: (any Error).self) {
+            _ = try manager.startLanguageServer(
+                providerID: descriptor.id, rootURL: URL(fileURLWithPath: "/projects/one"), operationID: operationID
+            )
+        }
+
+        let expected = declarative
+            ? [RecordedPluginOperations.languageServerStart(
+                pluginID: "dev.example.plugin", failure: .resolve, operationID: operationID.uuidString
+            )]
+            : []
+        #expect(operations.observations == expected)
     }
 
     // MARK: Fixtures
@@ -463,7 +653,7 @@ struct PluginLanguageServerLaunchResolverTests {
 
     private func fixtureManifest(_ name: String) throws -> Data {
         try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/languages")
             .appendingPathComponent(name))
     }
 

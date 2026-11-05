@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Combine
 import Foundation
 
@@ -22,6 +23,7 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
     @Published public private(set) var projectLocalHistoryDiffRows: [LocalHistoryDiffRow] = []
     @Published public private(set) var isLoadingProjectLocalHistory = false
 
+    private let logSink: (any LogSink)?
     private let workspaceAccess: any LocalHistoryWorkspaceAccess
     private let storage: any LocalHistoryStorage
     private let localHistoryOperations: any LocalHistoryOperations
@@ -40,12 +42,14 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
 
     public init(
         workspaceAccess: any LocalHistoryWorkspaceAccess,
+        logSink: (any LogSink)? = nil,
         storage: any LocalHistoryStorage,
         localHistoryOperations: any LocalHistoryOperations,
         workspaceURLProvider: @escaping () -> URL? = { nil },
         projectFilesProvider: @escaping () -> [URL] = { [] },
         documentsProvider: @escaping () -> [LocalHistoryDocumentSnapshot] = { [] }
     ) {
+        self.logSink = logSink
         self.workspaceAccess = workspaceAccess
         self.storage = storage
         self.localHistoryOperations = localHistoryOperations
@@ -69,7 +73,7 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
             workspaceURL: workspaceURL,
             visibilityRules: visibilityRules,
             storage: storage,
-            operations: localHistoryOperations
+            operations: localHistoryOperations, logSink: logSink
         )
     }
 
@@ -148,9 +152,11 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         guard let localHistoryService else { return }
         let currentText = document.text
         let url = document.url
-        startBackgroundTask {
-            _ = try? await localHistoryService.record(text: previousText, for: url, reason: .saved)
-            _ = try? await localHistoryService.record(text: currentText, for: url, reason: .saved)
+        startBackgroundTask { [logSink] in
+            do { _ = try await localHistoryService.record(text: previousText, for: url, reason: .saved) }
+            catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "record")) }
+            do { _ = try await localHistoryService.record(text: currentText, for: url, reason: .saved) }
+            catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "record")) }
         }
     }
 
@@ -158,8 +164,9 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         guard let localHistoryService else { return }
         let text = document.text
         let url = document.url
-        startBackgroundTask {
-            _ = try? await localHistoryService.record(text: text, for: url, reason: .unsavedDiscard)
+        startBackgroundTask { [logSink] in
+            do { _ = try await localHistoryService.record(text: text, for: url, reason: .unsavedDiscard) }
+            catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "record")) }
         }
     }
 
@@ -168,7 +175,8 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         for fileURL: URL,
         reason: LocalHistoryReason
     ) async {
-        _ = try? await localHistoryService?.record(text: text, for: fileURL, reason: reason)
+        do { _ = try await localHistoryService?.record(text: text, for: fileURL, reason: reason) }
+        catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "record")) }
     }
 
     public func recordHistory(containedIn url: URL, reason: LocalHistoryReason) async {
@@ -183,7 +191,8 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
     }
 
     public func relocateHistory(from sourceURL: URL, to destinationURL: URL) async {
-        try? await localHistoryService?.relocateHistory(from: sourceURL, to: destinationURL)
+        do { try await localHistoryService?.relocateHistory(from: sourceURL, to: destinationURL) }
+        catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "relocate")) }
     }
 
     public func recordExternalChanges(_ paths: [URL]) {
@@ -268,13 +277,15 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
             let restoredText = try await localHistoryService.content(for: entry)
             let document = documentsProvider().first { $0.url == request.fileURL }
             if let document {
-                _ = try? await localHistoryService.record(
+                do { _ = try await localHistoryService.record(
                     text: document.text,
                     for: request.fileURL,
                     reason: .restored
-                )
+                ) }
+            catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "record")) }
             } else {
-                _ = try? await localHistoryService.recordFile(at: request.fileURL, reason: .restored)
+                do { _ = try await localHistoryService.recordFile(at: request.fileURL, reason: .restored) }
+                catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "record")) }
             }
             guard workspaceAccess.writeFile(
                 restoredText,
@@ -283,6 +294,7 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
             ) else { return nil }
             return Restoration(url: request.fileURL, documentID: document?.id)
         } catch {
+            logSink?.emit(AppHistoryRestoreFailed(error: error))
             return nil
         }
     }
@@ -300,13 +312,15 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
             let restoredText = try await localHistoryService.content(for: entry)
             let document = documentsProvider().first { $0.url == targetURL }
             if let document {
-                _ = try? await localHistoryService.record(
+                do { _ = try await localHistoryService.record(
                     text: document.text,
                     for: targetURL,
                     reason: .restored
-                )
+                ) }
+            catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "record")) }
             } else if workspaceAccess.fileExists(at: targetURL) {
-                _ = try? await localHistoryService.recordFile(at: targetURL, reason: .restored)
+                do { _ = try await localHistoryService.recordFile(at: targetURL, reason: .restored) }
+                catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "record")) }
             }
             guard workspaceAccess.writeFile(
                 restoredText,
@@ -315,6 +329,7 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
             ) else { return nil }
             return Restoration(url: targetURL, documentID: document?.id)
         } catch {
+            logSink?.emit(AppHistoryRestoreFailed(error: error))
             return nil
         }
     }
@@ -347,7 +362,7 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         do {
             let historicalText = try await localHistoryService.content(for: entry)
             let currentText = try currentText(for: request.fileURL)
-            let rows = await Task.detached(priority: .userInitiated) {
+            let rows = await UserActionContext.detached(priority: .userInitiated) {
                 LocalHistoryDiffBuilder.rows(old: historicalText, current: currentText)
             }.value
             guard selectedLocalHistoryEntry?.id == entry.id else { return }
@@ -389,7 +404,7 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         do {
             let historicalText = try await localHistoryService.content(for: entry)
             let currentText = try currentText(for: fileURL)
-            let rows = await Task.detached(priority: .userInitiated) {
+            let rows = await UserActionContext.detached(priority: .userInitiated) {
                 LocalHistoryDiffBuilder.rows(old: historicalText, current: currentText)
             }.value
             guard selectedProjectLocalHistoryEntry?.id == entry.id else { return }

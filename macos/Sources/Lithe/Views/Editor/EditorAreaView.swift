@@ -26,13 +26,13 @@ enum EditorDocumentIconResolver {
 private struct EditorDocumentTabStyle: ViewModifier {
     @ObservedObject var document: EditorDocument
     @Environment(\.colorScheme) private var colorScheme
-    let project: MavenProject?
+    let importedSourceRootKind: String?
     let isSelected: Bool
     let isActive: Bool
 
     func body(content: Content) -> some View {
         content.modifier(LitheToolWindowTabStyle(isSelected: isSelected, isActive: isActive,
-            fileColor: EditorDocument.isTestSourceFile(document.url, project: project, hasTests: document.hasJavaTests)
+            fileColor: EditorDocument.isTestSourceFile(document.url, importedSourceRootKind: importedSourceRootKind, hasTests: document.hasJavaTests)
                 ? LitheToolWindowTabStyle.testSourceColor(for: colorScheme) : nil))
     }
 }
@@ -81,7 +81,7 @@ private struct EditorDocumentTabIcon: View {
                 let resolved = await WorkspaceFileIconResolver.resolve(
                     for: url,
                     suggested: .generic,
-                    storage: model.services.fileStorage
+                    storage: model.services.fileStorage, logSink: model.services.logSink
                 )
                 guard !Task.isCancelled, resolutionKey == key else { return }
                 resolvedKind = resolved.kind
@@ -720,7 +720,7 @@ struct EditorAreaView: View {
             .allowsHitTesting(isActive || hoveredTabItem == .document(document.id))
             .padding(.trailing, 4)
         }
-        .modifier(EditorDocumentTabStyle(document: document, project: model.mavenFeatureIfActive?.project,
+        .modifier(EditorDocumentTabStyle(document: document, importedSourceRootKind: model.buildSystemsFeatureIfActive?.sourceRootKind(containing: document.url),
             isSelected: isActive, isActive: editorGroupIsActive))
         .padding(.horizontal, 4)
         .padding(.vertical, LitheTheme.Metrics.editorTabVerticalInset)
@@ -1158,8 +1158,8 @@ struct EditorAreaView: View {
                         .allowsHitTesting(paneDiffID == id)
                         .accessibilityHidden(paneDiffID != id)
                 }
-                if paneItem == .languageLogs {
-                    LanguageServerLogsView(feature: model.languageToolingFeature.logs)
+                if paneItem == .languageLogs, let logs = model.languageServerLogsFeature {
+                    LanguageServerLogsView(feature: logs)
                 } else if case .agentConversation(let tab) = paneItem {
                     if tab == model.focusedAgentEditorTab {
                         AgentConversationView(model: model, isEditor: true)

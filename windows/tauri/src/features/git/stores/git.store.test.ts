@@ -250,6 +250,31 @@ describe("Git working-tree publication ordering", () => {
     }, 1000);
   }
 
+  test("a stale partial result cannot restore old rows or failure markers", () => {
+    const store = createGitStore();
+    const { actions } = store.getState();
+    const first = "C:/repo-a", second = "C:/repo-b";
+    actions.prepareRepositoryLoad(first);
+    const older = actions.beginWorkingTreeRefresh();
+    const newer = actions.beginWorkingTreeRefresh();
+    const fresh = status(true);
+    actions.publishRepositoryStatuses({ [first]: fresh, [second]: fresh }, newer, [first, second], []);
+    actions.publishRepositoryStatuses({ [first]: status(false), [second]: status(false) }, older, [first, second], [second]);
+    expect(store.getState().repositoryStatuses[second]).toBe(fresh);
+    expect(store.getState().failedStatusRoots).toEqual([]);
+  });
+
+  test("removes a repository and its retained failure when it leaves the workspace", () => {
+    const store = createGitStore();
+    const { actions } = store.getState();
+    const first = "C:/repo-a", second = "C:/repo-b";
+    actions.prepareRepositoryLoad(first);
+    actions.publishRepositoryStatuses({ [first]: status(false), [second]: status(false) }, undefined, [first, second], [second]);
+    actions.publishRepositoryStatuses({ [first]: status(true) }, undefined, [first], []);
+    expect(store.getState().repositoryStatuses[second]).toBeUndefined();
+    expect(store.getState().failedStatusRoots).toEqual([]);
+  });
+
   test("starting a newer read neither notifies subscribers nor blocks an available snapshot", () => {
     const store = createGitStore();
     const { actions } = store.getState();

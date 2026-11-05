@@ -6,6 +6,5 @@ typealias LanguageTestItem = LitheCoreContracts.LanguageTestItem
 typealias LanguageTestScope = LitheCoreContracts.LanguageTestScope
 typealias LanguageTestContext = LitheCoreContracts.LanguageTestContext
 typealias LanguageTestPlan = LitheCoreContracts.LanguageTestPlan
-typealias LanguageTestResults = LitheCoreContracts.MavenTestResults
-typealias LanguageTestFailureDetail = LitheCoreContracts.MavenTestFailureDetail
+typealias LanguageTestResults = LitheCoreContracts.BuildTestResults
 typealias LanguageTestProvider = LitheCoreContracts.LanguageTestProvider

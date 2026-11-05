@@ -24,6 +24,7 @@ final class MacProjectGenerationPlatform: ProjectGenerationPlatform, @unchecked 
     private let runner: any BuildCommandRunning
     private let session: URLSession
     private let maximumDownloadBytes: Int64
+    private let logSink: (any LogSink)?
     private let fileManager: FileManager
 
     init(
@@ -32,25 +33,27 @@ final class MacProjectGenerationPlatform: ProjectGenerationPlatform, @unchecked 
         runner: any BuildCommandRunning,
         session: URLSession = .shared,
         maximumDownloadBytes: Int64 = defaultMaximumDownloadBytes,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        logSink: (any LogSink)? = nil
     ) {
         self.environment = environment
         self.executable = executable
         self.runner = runner
         self.session = session
         self.maximumDownloadBytes = maximumDownloadBytes
+        self.logSink = logSink
         self.fileManager = fileManager
     }
 
     /// Resolves tools and the environment through the user's runtime settings.
     @MainActor
-    convenience init(runtime: ProjectRuntimeService, runner: any BuildCommandRunning) {
+    convenience init(runtime: ProjectRuntimeService, runner: any BuildCommandRunning, logSink: (any LogSink)? = nil) {
         self.init(
             environment: { runtime.processEnvironment(overrides: $0) },
             executable: { command in
                 runtime.executableCandidates(command).first { $0.source != .project }?.executableURL
             },
-            runner: runner
+            runner: runner, logSink: logSink
         )
     }
 
@@ -131,7 +134,7 @@ final class MacProjectGenerationPlatform: ProjectGenerationPlatform, @unchecked 
         let (bytes, response) = try await session.bytes(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
-            let detail = await Self.serverMessage(in: bytes)
+            let detail = await Self.serverMessage(in: bytes, logSink: logSink)
             bytes.task.cancel()
             throw ProjectGenerationError(message: String(
                 localized: "\(url.host ?? "The server") answered with status \(status). \(detail)"
@@ -153,7 +156,7 @@ final class MacProjectGenerationPlatform: ProjectGenerationPlatform, @unchecked 
         }
         do {
             let handle = try FileHandle(forWritingTo: destination)
-            defer { try? handle.close() }
+            defer { do { try handle.close() } catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "generator-download-close")) } }
             var buffer = Data()
             buffer.reserveCapacity(Self.writeChunkBytes)
             var received: Int64 = 0
@@ -196,7 +199,9 @@ final class MacProjectGenerationPlatform: ProjectGenerationPlatform, @unchecked 
     }
 
     func removeItem(at url: URL) {
-        try? fileManager.removeItem(at: url)
+        do { try fileManager.removeItem(at: url) }
+        catch let error as CocoaError where error.code == .fileNoSuchFile { /* Staging was not created. */ }
+        catch { logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "generator-remove")) }
     }
 
     func itemExists(at url: URL) -> Bool {
@@ -205,7 +210,7 @@ final class MacProjectGenerationPlatform: ProjectGenerationPlatform, @unchecked 
 
     /// Spring Initializr and similar servers explain a refused request in a
     /// small JSON body; a longer or different body is not shown.
-    private static func serverMessage(in bytes: URLSession.AsyncBytes) async -> String {
+    private static func serverMessage(in bytes: URLSession.AsyncBytes, logSink: (any LogSink)?) async -> String {
         var data = Data()
         do {
             for try await byte in bytes {
@@ -213,6 +218,7 @@ final class MacProjectGenerationPlatform: ProjectGenerationPlatform, @unchecked 
                 data.append(byte)
             }
         } catch {
+            logSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "generator-error-response"))
             return ""
         }
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

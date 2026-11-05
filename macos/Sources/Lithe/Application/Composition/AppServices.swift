@@ -10,6 +10,22 @@ import LitheLanguageIntelligenceModule
 /// Platform composition roots construct this graph with their own adapters.
 @MainActor
 final class AppServices {
+    var logWindowCoordinator: LogWindowCoordinator?
+    var logWindowLogging: (any LogWindowLogging)?
+    /// Process log sink supplied by the composition root; modules receive the same instance.
+    var logSink: (any LogSink)?
+    var editorSettingsImportScan: ((URL?) async throws -> [EditorSettingsImportSource])?
+    var editorSettingsImportKeymapPlan: (([KeymapImportCurrent], [KeymapImportBinding]) throws -> KeymapImportBindingPlan)?
+    var editorSettingsImportLoadKeymapOnSelection = false
+    var debugStartOrContinue: ((Bool, Bool, Bool) throws -> DebugStartOrContinueAction)?
+    func makeEditorSettingsImport(settings: AppSettings) -> EditorSettingsImportFeatureModel {
+        EditorSettingsImportFeatureModel(settings: settings, chooseDirectory: { [platformUI] in
+            platformUI.chooseDirectory(title: settings.language.localizedString("Choose IDE configuration directory"),
+                                       prompt: settings.language.localizedString("Choose"))
+        }, scan: editorSettingsImportScan, planKeymap: editorSettingsImportKeymapPlan,
+        loadKeymapOnSelection: editorSettingsImportLoadKeymapOnSelection, logSink: logSink)
+    }
+
     var ideCapabilityRegistry: IdeCapabilityRegistry?
     var ideHostTransport: (any IdeHostTransport)?
     /// Codex and Claude Code MCP configuration files. `nil` before platform
@@ -28,8 +44,13 @@ final class AppServices {
     /// Installed plugins with their enabled state, for the New Project
     /// catalog and the plugins that provide a generator's requirements.
     var projectGeneratorSources: (@MainActor () -> [ProjectGeneratorPluginSource])?
+    /// Installations of the tools a generator's `tool` fields pick, by tool
+    /// definition ID, found without a workspace; `nil` when the platform
+    /// cannot discover tools.
+    var projectToolInstallations: (@MainActor ([String]) async throws -> [String: [ProjectToolInstallation]])?
     /// Read-only plugin toolchain projection; absent until platform composition.
     var toolchainSettingsLoader: (any ToolchainSettingsLoading)?
+    var toolchainPreferences: (any ToolchainPreferencesStoring)?
     var toolchainInputWatcher: (any ToolchainInputWatching)?
     /// Existing workspace tree projection; settings must not start a second filesystem scan.
     var toolchainSettingsDirectories: (@MainActor () -> [String])?
@@ -53,9 +74,14 @@ final class AppServices {
     /// `nil` when the platform runs no plugin backends.
     var pluginBackendActivation: (any PluginBackendActivating)?
     var pluginEditorActions: PluginEditorActionHostService?
+    var pluginContentProviders: PluginContentProviderHostService?
+    var pluginEditorProviders: PluginEditorProviderHostService?
     /// Static plugin editor resources; `nil` when
     /// the platform loads no plugins.
     var pluginEditorLanguages: (any PluginEditorLanguageProviding)?
+    /// Console links from plugins' output link matchers; `nil` when
+    /// the platform loads no plugins.
+    var pluginOutputLinks: PluginOutputLinkService?
     let moduleRuntime: ModuleRuntime
     let pluginManager: any PluginManaging
     let pluginMarketplace: any PluginMarketplaceServicing

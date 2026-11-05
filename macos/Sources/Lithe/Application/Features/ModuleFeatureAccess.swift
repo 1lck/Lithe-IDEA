@@ -10,7 +10,6 @@ struct DebugFeatureAccess {
 /// The execution features exposed to application workflows after activation.
 @MainActor
 struct ExecutionFeatureAccess {
-    let mavenFeature: MavenFeatureModel
     let runFeature: RunFeatureModel
     let tests: LanguageTestService
     let projectDevelopment: ProjectDevelopmentFeatureModel

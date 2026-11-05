@@ -24,13 +24,14 @@ extension AppModel {
                 )
             } catch {
                 let prefix = settings.language.localizedString("native.inline.failedToClearTheJavaIndex")
-                showNotification("\(prefix): \(error.localizedDescription)")
+                showNotification("\(prefix): \(error.localizedDescription)", logReference: notificationFailure(error, operation: "java_index"))
             }
         }
     }
 
     func bindLanguageIntelligenceCapability(_ capability: LanguageIntelligenceCapability) {
         languageToolingFeature.bindProjectPreparation(capability.sessions)
+        bindPluginLanguageServers(capability.sessions.pluginServers)
         cacheModuleCapability(
             capability,
             id: .languageIntelligence,

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 import LitheGitModule
 
@@ -174,7 +175,7 @@ struct GitWorktreesView: View {
             let query = searchText
             let inspection = feature.gitWorktreeInspection
             let currentChangeCount = feature.gitChangedFileCount
-            let projection = await Task.detached(priority: .userInitiated) {
+            let projection = await UserActionContext.detached(priority: .userInitiated) {
                 GitWorktreeListProjection.items(
                     worktrees: worktrees,
                     query: query,
@@ -194,7 +195,7 @@ struct GitWorktreesView: View {
             } else {
                 changes = []
             }
-            let rows = await Task.detached(priority: .userInitiated) {
+            let rows = await UserActionContext.detached(priority: .userInitiated) {
                 changes.map(GitWorktreeRowsSnapshot.Row.change)
             }.value
             guard taskIdentity == worktreeChangesProjectionIdentity else { return }
@@ -217,7 +218,7 @@ struct GitWorktreesView: View {
             }
             let query = historySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
             let commits = inspection.commits
-            let rows = await Task.detached(priority: .userInitiated) {
+            let rows = await UserActionContext.detached(priority: .userInitiated) {
                 let projection = query.isEmpty ? commits : commits.filter {
                     $0.subject.localizedCaseInsensitiveContains(query)
                         || $0.authorName.localizedCaseInsensitiveContains(query)

@@ -1,0 +1,142 @@
+{
+  "cases": [
+    {
+      "name": "empty",
+      "request": {
+        "offset": 0,
+        "totalCount": 0,
+        "repositoryIds": []
+      },
+      "expected": {
+        "assignments": [],
+        "fallbackSlot": 0,
+        "showColors": false
+      }
+    },
+    {
+      "name": "single",
+      "request": {
+        "offset": 0,
+        "totalCount": 1,
+        "repositoryIds": [
+          "/project"
+        ]
+      },
+      "expected": {
+        "assignments": [
+          {
+            "id": "/project",
+            "slot": 0
+          }
+        ],
+        "fallbackSlot": 0,
+        "showColors": false
+      }
+    },
+    {
+      "name": "full order includes hidden worktree",
+      "request": {
+        "offset": 0,
+        "totalCount": 3,
+        "repositoryIds": [
+          "/work/app",
+          "/work/app/.worktrees/topic",
+          "/work/lib"
+        ]
+      },
+      "expected": {
+        "assignments": [
+          {
+            "id": "/work/app",
+            "slot": 0
+          },
+          {
+            "id": "/work/app/.worktrees/topic",
+            "slot": 1
+          },
+          {
+            "id": "/work/lib",
+            "slot": 2
+          }
+        ],
+        "fallbackSlot": 0,
+        "showColors": true
+      }
+    },
+    {
+      "name": "page retains global offset and wraps",
+      "request": {
+        "offset": 7,
+        "totalCount": 10,
+        "repositoryIds": [
+          "C:/g",
+          "C:/h",
+          "C:/i"
+        ]
+      },
+      "expected": {
+        "assignments": [
+          {
+            "id": "C:/g",
+            "slot": 7
+          },
+          {
+            "id": "C:/h",
+            "slot": 0
+          },
+          {
+            "id": "C:/i",
+            "slot": 1
+          }
+        ],
+        "fallbackSlot": 0,
+        "showColors": true
+      }
+    },
+    {
+      "name": "remote and UNC identities",
+      "request": {
+        "offset": 0,
+        "totalCount": 2,
+        "repositoryIds": [
+          "remote://server/work/app",
+          "//server/share/app"
+        ]
+      },
+      "expected": {
+        "assignments": [
+          {
+            "id": "remote://server/work/app",
+            "slot": 0
+          },
+          {
+            "id": "//server/share/app",
+            "slot": 1
+          }
+        ],
+        "fallbackSlot": 0,
+        "showColors": true
+      }
+    },
+    {
+      "name": "later page",
+      "request": {
+        "offset": 256,
+        "totalCount": 257,
+        "repositoryIds": [
+          "/work/last"
+        ]
+      },
+      "expected": {
+        "assignments": [
+          {
+            "id": "/work/last",
+            "slot": 0
+          }
+        ],
+        "fallbackSlot": 0,
+        "showColors": true
+      }
+    }
+  ]
+}
