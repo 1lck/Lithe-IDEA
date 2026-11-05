@@ -317,6 +317,7 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             initializationOptions: initializationOptions,
             workspaceConfiguration: workspaceConfiguration,
             hostServices: hostServices,
+            editorOptions: .macOS,
             runtimeExecutableURL: hostIntegrationLaunch?.runtimeExecutableURL,
             jdtlsLaunchResources: hostIntegrationLaunch?.coreLaunch?.jdtlsLaunchResources,
             cacheDirectoryURL: cacheDirectoryURL,
@@ -397,7 +398,7 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         lspStartServer(
             providerID: providerID, pluginID: pluginID, executableURL: executableURL,
             arguments: arguments, environment: environment, rootURL: rootURL, workingDirectoryURL: rootURL,
-            initializationOptions: initializationOptions, hostServices: hostServices,
+            initializationOptions: initializationOptions, hostServices: hostServices, editorOptions: .macOS,
             toolchainProviders: toolchainProviders, keymapImportProviders: keymapImportProviders,
             initializeTimeout: initializeTimeout, requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
         ).map {
@@ -429,6 +430,7 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             workingDirectoryURL: rootURL,
             initializationOptions: initializationOptions,
             hostServices: hostServices,
+            editorOptions: .macOS,
             toolchainProviders: toolchainProviders,
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,
@@ -461,6 +463,7 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             workingDirectoryURL: rootURL,
             initializationOptions: initializationOptions,
             hostServices: hostServices,
+            editorOptions: .macOS,
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,
             shutdownTimeout: shutdownTimeout

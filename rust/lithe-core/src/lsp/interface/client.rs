@@ -543,7 +543,14 @@ pub(super) fn client_apply_server_message_for_plugin(
                 ) {
                     // The engine answers once the host has; the request
                     // carries the backend's own ID back to it.
-                    Ok(plugin_function::HostRoute::Answer(result)) => {
+                    Ok(plugin_function::HostRoute::Answer(mut result)) => {
+                        // getCapabilities also reports the options of the
+                        // granted host services.
+                        if let (plugin_function::GET_CAPABILITIES, Some(editor)) =
+                            (method, &state.host_options.editor)
+                        {
+                            editor.report(&mut result, &state.host_services);
+                        }
                         responses.push(json_rpc_result(id, result)?)
                     }
                     Ok(plugin_function::HostRoute::Forward(service)) => {

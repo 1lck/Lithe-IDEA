@@ -78,6 +78,26 @@
       "owner": "Lithe"
     },
     {
+      "id": "plugins.editor.provider_failed",
+      "channel": "plugins/{plugin}/host",
+      "level": "warn",
+      "message": "Plugin {plugin} editor provider failed",
+      "fields": {
+        "plugin": {
+          "type": "id",
+          "required": true,
+          "description": "Validated plugin id whose editor language-feature provider function failed or answered invalidly"
+        },
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Error returned while calling the provider function or validating its result"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
+    },
+    {
       "id": "plugins.editor.refresh_failed",
       "channel": "plugins",
       "level": "warn",

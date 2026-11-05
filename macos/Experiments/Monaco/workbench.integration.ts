@@ -332,34 +332,46 @@ async function verify() {
       request: async payload => {
         if ((payload as any).type === "pluginEditorAction") { calls.push(payload); return { ok: true }; }
         return { batch: String(++collections), actions: [
-          { id: "send", line: 1, endLine: 1, title: "Send request", icon: "run" },
+          { id: "send", line: 1, endLine: 1, title: "Send request", icon: "run",
+            alternatives: [{ id: "debug", title: "Debug request", icon: "debug" }] },
           { id: "preview", line: 1, endLine: 1, title: "Preview request", icon: "run" },
+          { id: "parent", line: 1, endLine: 1, title: "Go to parent", icon: "navigate-super" },
         ] };
       },
     });
-    try {
-      initialEditor.setModel(model);
-      binding.attach(initialEditor);
-      await binding.refresh();
-      assert(model.getAllDecorations().filter(value => value.options.linesDecorationsClassName?.includes("lithe-plugin-editor-action")).length === 1,
-        "same-line actions created competing gutter decorations");
+    const actionDecorations = () => model.getAllDecorations()
+      .filter(value => value.options.linesDecorationsClassName?.includes("lithe-editor-action"));
+    const click = (lane: "left" | "right") => {
       const target = document.createElement("span");
-      target.className = "lithe-plugin-editor-action";
+      target.className = `lithe-editor-action lithe-editor-action-lane-${lane}`;
       (initialEditor as any)._onMouseDown.fire({
         target: { element: target, position: new Position(1, 1) },
         event: { leftButton: true, posx: 10, posy: 10, preventDefault() {}, stopPropagation() {} },
       });
-      assert(menu.length === 2 && menu[0].label === "Send request" && menu[1].label === "Preview request",
-        "same-line plugin actions lost their separate menu labels");
+    };
+    try {
+      initialEditor.setModel(model);
+      binding.attach(initialEditor);
+      await binding.refresh();
+      // One marker per line and lane: run actions share one, navigation has its own.
+      assert(actionDecorations().length === 2, "same-line actions created competing gutter decorations");
+      assert(binding.hasNavigation(entry), "navigation marker did not ask for the left lane");
+      click("right");
+      assert(menu.length === 3 && menu[0].label === "Send request" && menu[1].label === "Debug request" &&
+        menu[2].label === "Preview request", "same-line plugin actions lost their menu labels or alternatives");
+      await menu[1].run();
+      assert(calls.length === 1 && calls[0].action === "send" && calls[0].alternative === "debug" && calls[0].batch === "1",
+        "alternative click did not preserve the opaque action/alternative/batch identity");
       await menu[0].run();
-      assert(calls.length === 1 && calls[0].action === "send" && calls[0].batch === "1",
-        "explicit click did not preserve the opaque action/batch identity");
+      assert(calls.length === 2 && calls[1].action === "send" && !("alternative" in calls[1]),
+        "primary click named an alternative");
+      click("left");
+      assert(menu.length === 1 && menu[0].label === "Go to parent", "navigation lane menu mixed in run actions");
       entry.revision++;
       binding.schedule("tool", entry);
-      assert(!model.getAllDecorations().some(value => value.options.linesDecorationsClassName?.includes("lithe-plugin-editor-action")),
-        "edited document kept its old action clickable");
+      assert(actionDecorations().length === 0, "edited document kept its old action clickable");
       await menu[0].run();
-      assert(calls.length === 1, "retained menu executed an action after its batch was revoked");
+      assert(calls.length === 2, "retained menu executed an action after its batch was revoked");
     } finally {
       service.showContextMenu = originalMenu;
       active = false; binding.dispose(); initialEditor.setModel(previous); model.dispose();

@@ -92,6 +92,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
     /// workspace or command goes on without it.
     var editorActions: PluginEditorActionHostService?
     var contentProviders: PluginContentProviderHostService?
+    var editorProviders: PluginEditorProviderHostService?
     var onActivationFailure: (@MainActor (_ pluginID: String, _ error: Error) -> Void)?
     private static let maximumBackgroundStarts = 2
     private static let maximumPendingNotifications = 128
@@ -686,6 +687,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         session.onFunctionsChange = { [weak self] ids in
             self?.editorActions?.updateFunctions(pluginID: pluginID, sessionID: sessionToken, ids: ids)
             self?.contentProviders?.updateFunctions(pluginID: pluginID, sessionID: sessionToken, ids: ids)
+            self?.editorProviders?.updateFunctions(pluginID: pluginID, sessionID: sessionToken, ids: ids)
         }
         session.onHostRequest = { [weak session] request in
             hostDispatcher.handle(request, pluginID: pluginID, sessionID: sessionToken) { outcome in

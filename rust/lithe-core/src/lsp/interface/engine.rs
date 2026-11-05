@@ -138,6 +138,10 @@ pub struct StartServerRequest {
     /// requests to the host.
     #[serde(default)]
     pub host_services: Vec<String>,
+    /// Options of the granted host services, such as the icons the host
+    /// draws for editor actions. Only a plugin-owned session may name any.
+    #[serde(default)]
+    pub host_options: super::HostOptions,
     /// Provider IDs of the plugin's verified manifest. Only a plugin-owned
     /// session with some is offered `litheToolchains`.
     #[serde(default)]
@@ -2313,6 +2317,7 @@ impl LspEngine {
                 lifecycle: LspLifecycleState::Created,
                 client: LspClientState {
                     host_services: request.host_services.into_iter().collect(),
+                    host_options: request.host_options,
                     ..initialize.state
                 },
                 pending: BTreeMap::from([(
@@ -6893,6 +6898,16 @@ fn validate_start_request(request: &StartServerRequest) -> Result<(), CoreError>
     if let Some(policy) = &request.session_policy {
         policy.validate(request.plugin_id.as_deref())?;
     }
+    if !request.host_options.is_empty()
+        && (request.plugin_id.is_none()
+            || request
+                .host_options
+                .editor
+                .as_ref()
+                .is_some_and(|editor| editor.validate().is_err()))
+    {
+        return Err(invalid_field("hostOptions"));
+    }
     if request.executable_path.trim().is_empty()
         || request.executable_path.contains('\0')
         || request.working_directory.trim().is_empty()
@@ -9232,6 +9247,7 @@ mod tests {
             plugin_id: None,
             startup_operation: None,
             host_services: Vec::new(),
+            host_options: Default::default(),
             toolchain_providers: Vec::new(),
             keymap_import_providers: Vec::new(),
             session_policy: None,
@@ -14729,6 +14745,7 @@ public class Main {
                 plugin_id: None,
                 startup_operation: None,
                 host_services: Vec::new(),
+                host_options: Default::default(),
                 toolchain_providers: Vec::new(),
                 keymap_import_providers: Vec::new(),
                 session_policy: None,
@@ -15494,6 +15511,7 @@ public class Main {
             plugin_id: None,
             startup_operation: None,
             host_services: Vec::new(),
+            host_options: Default::default(),
             toolchain_providers: Vec::new(),
             keymap_import_providers: Vec::new(),
             session_policy: None,
@@ -18229,6 +18247,79 @@ public class Main {
             .events
             .iter()
             .all(|event| event.kind != "hostRequest"));
+    }
+
+    /// Editor options the host declared at start are reported with the
+    /// methods they belong to, and only when those methods are granted.
+    #[test]
+    fn capability_discovery_reports_granted_editor_options() {
+        use crate::plugins::editor_actions::{EditorHostOptions, REGISTER_PROVIDERS};
+        let mut harness = Harness::start(|request| {
+            request.plugin_id = Some(FUNCTION_PLUGIN.to_string());
+            request.host_services = vec![REGISTER_PROVIDERS.to_string()];
+            request.host_options.editor = Some(EditorHostOptions {
+                action_icons: vec!["run".into(), "test-failed".into()],
+                action_source_bytes: 1024 * 1024,
+                provider_types: vec!["hover".into(), "codeLens".into()],
+            });
+        });
+        harness.server.complete_initialize(json!({
+            "experimental": { "litheFunctions": { "version": 3 } }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": "caps",
+            "method": "lithe/host/getCapabilities"
+        }));
+        let reply = await_reply(&harness, "caps");
+        let editor = &reply["result"]["services"]["editor"];
+        assert_eq!(editor["methods"], json!([REGISTER_PROVIDERS]));
+        assert_eq!(
+            editor["options"],
+            json!({ "providerTypes": ["hover", "codeLens"] })
+        );
+        assert!(reply["result"]["limits"]["editorActionSourceBytes"].is_null());
+        harness.poll();
+        assert!(harness
+            .events
+            .iter()
+            .all(|event| event.kind != "hostRequest"));
+    }
+
+    /// Host options belong to a plugin backend and must be ones Core can
+    /// enforce.
+    #[test]
+    fn start_contract_rejects_unenforceable_host_options() {
+        use crate::plugins::editor_actions::EditorHostOptions;
+        let server = ScriptedServer::new();
+        let mut request = start_request(&server);
+        let options = EditorHostOptions {
+            action_icons: vec!["run".into()],
+            action_source_bytes: 1024 * 1024,
+            provider_types: Vec::new(),
+        };
+        request.host_options.editor = Some(options.clone());
+        request.plugin_id = None;
+        assert!(validate_start_request(&request).is_err());
+        request.plugin_id = Some(FUNCTION_PLUGIN.to_string());
+        assert!(validate_start_request(&request).is_ok());
+        for invalid in [
+            EditorHostOptions {
+                action_source_bytes: 2 * 1024 * 1024,
+                ..options.clone()
+            },
+            EditorHostOptions {
+                action_icons: vec!["Run Fast".into()],
+                ..options.clone()
+            },
+            EditorHostOptions {
+                provider_types: vec!["diagnostics".into()],
+                ..options.clone()
+            },
+        ] {
+            request.host_options.editor = Some(invalid);
+            assert!(validate_start_request(&request).is_err());
+        }
     }
 
     /// From version 3 a field a method does not define is answered as an

@@ -102,6 +102,7 @@ pub(crate) const HOST_PERMISSIONS: &[&str] = &[
     "documents.read",
     "editor.edit",
     "editor.actions",
+    "editor.providers",
     "editor.open",
     "preview.open",
     "browser.open",
@@ -123,7 +124,7 @@ pub(crate) const PERMISSION_DOCUMENTS_CONTENT_PROVIDER: &str = "documents.conten
 const CREDENTIALS_GET: &str = "lithe/host/credentials/get";
 const CREDENTIALS_SET: &str = "lithe/host/credentials/set";
 const CREDENTIALS_DELETE: &str = "lithe/host/credentials/delete";
-const GET_CAPABILITIES: &str = "lithe/host/getCapabilities";
+pub(crate) const GET_CAPABILITIES: &str = "lithe/host/getCapabilities";
 const SUBSCRIPTIONS_DISPOSE: &str = "lithe/host/subscriptions/dispose";
 const WORKSPACE_LIST_CONTEXTS: &str = "lithe/host/workspace/listContexts";
 const WORKSPACE_GET_CONTEXT: &str = "lithe/host/workspace/getContext";
@@ -712,6 +713,13 @@ pub(crate) const HOST_METHODS: &[HostMethod] = &[
         method: "lithe/host/editor/registerActions",
         service: "editor",
         permission: Some("editor.actions"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/editor/registerProviders",
+        service: "editor",
+        permission: Some("editor.providers"),
         since: CONTEXT_VERSION,
         params: HostParams::Object,
     },
