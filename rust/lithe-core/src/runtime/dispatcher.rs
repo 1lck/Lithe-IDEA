@@ -889,6 +889,11 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
             parsed.payload,
             crate::project::file_name_order::order_entries_command,
         ),
+        CoreCommand::WorkspaceRankNames => plugin_response(
+            id,
+            parsed.payload,
+            crate::project::name_ranking::rank_names_command,
+        ),
         CoreCommand::WorkspaceRepositories => {
             match serde_json::from_value::<WorkspaceRepositoriesRequest>(parsed.payload)
                 .map_err(|error| {

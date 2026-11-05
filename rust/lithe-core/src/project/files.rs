@@ -193,6 +193,10 @@ pub struct SearchRequest {
     /// Case-insensitive glob fragments that exclude matching candidate paths.
     #[serde(default)]
     pub exclude_path_patterns: Vec<String>,
+    /// Open and recent files that break ties between equal file-name matches. Paths are
+    /// relative to `root` with `/` separators; without it ordering is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<super::name_ranking::RankContext>,
     /// Optional root prefix used solely for include/exclude matching.
     #[serde(default)]
     pub path_filter_prefix: String,
@@ -793,6 +797,10 @@ pub(crate) fn search_everywhere_with_page(
     } else {
         request.max_content_results.unwrap_or(limit).min(limit)
     };
+    let context_index = request
+        .context
+        .as_ref()
+        .map(super::name_ranking::ContextIndex::new);
     let mut files = Vec::new();
     let mut types = Vec::new();
     let mut symbols = Vec::new();
@@ -847,6 +855,11 @@ pub(crate) fn search_everywhere_with_page(
                 result.name_match_ranges.clear();
             } else {
                 continue;
+            }
+            if let Some(index) = &context_index {
+                result.matching_degree = result
+                    .matching_degree
+                    .map(|degree| index.contextual_degree(degree, &file.path));
             }
             if let Some(page) = page.as_ref() {
                 page.push(&mut files, result, file_limit);

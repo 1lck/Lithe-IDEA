@@ -7,6 +7,7 @@ import {
 export type { LocalHistoryEntry } from "../utils/history-metadata";
 import { appDataDir, join } from "@tauri-apps/api/path";
 import { executeCore, type CoreResponse } from "@/core/lithe-core-client";
+import { hiddenPathRules } from "@/features/settings/lib/hidden-path-rules";
 import { useProjectStore } from "@/features/window/stores/project.store";
 import { getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 
@@ -45,6 +46,7 @@ const listCoreEntries = async (
       workspaceRoot: context.workspaceRoot,
       storageRoot: context.storageRoot,
       path: context.relativePath,
+      ...hiddenPathRules(),
     },
   });
   return coreData(response).entries;
@@ -66,6 +68,7 @@ export const recordLocalHistoryFile = async (
         storageRoot: context.storageRoot,
         path: context.relativePath,
         reason: coreReason,
+        ...hiddenPathRules(),
       },
     }),
   );
@@ -137,7 +140,11 @@ export async function listProjectLocalHistory(workspaceRoot: string): Promise<Lo
   const response = await executeCore<{ entries: CoreHistoryEntry[] }>({
     id: crypto.randomUUID(),
     command: "history.entries",
-    payload: { workspaceRoot, storageRoot: await workspaceHistoryStorage(workspaceRoot) },
+    payload: {
+      workspaceRoot,
+      storageRoot: await workspaceHistoryStorage(workspaceRoot),
+      ...hiddenPathRules(),
+    },
   });
   return coreData(response).entries.map(toLocalEntry);
 }

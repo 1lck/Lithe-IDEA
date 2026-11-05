@@ -1308,6 +1308,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `workspace.recentProjects.reduce` | Apply one record, remove, pin, import, or normalize action to the recent project list and return the retained order |
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
+| `workspace.rankNames` | Pure ranking of candidate names that the platform enumerates itself (`{ query, candidates: [{ name, path? }], context: { openPaths, recentPaths }, limitPerTier? }`). Use it only for lists Core cannot index: Windows remote/WSL roots, symbol lists, navigator lists. Roots Core indexes go through `workspace.searchEverywhere`, so an inventory is never sent back to Core. Returns `matches: [{ index, degree, tier, nameMatchRanges }]` ordered by degree, open/recent tier, recency, then file-name order (fixture `shared/fixtures/search/rank-names-v1.json`) |
 | `workspace.replacePreview` | Return deterministic replacement lines and complete replacement text |
 | `workspace.replaceText` | Plan replacement against a host-captured text snapshot without writing |
 | `workspace.searchTextBatch` | Search provider-captured text snapshots using workspace matching rules |
@@ -2725,6 +2726,8 @@ requests finish. Watcher updates refresh the retained variants.
 Agent file completion uses project visibility and leaves generated names disabled;
 only the Search Everywhere UI explicitly enables them. Directory-versus-file
 matching examples are shared in `shared/fixtures/search/exclusions.json`.
+
+`workspace.searchEverywhere` takes an optional `context: { openPaths, recentPaths }` (paths relative to `root`, `/` separators, recent first). It only breaks ties between equal file-name matches (open first, then recent by recency) and scales the returned `matchingDegree` by 1024 plus the tie-break, using the same code as `workspace.rankNames`; omit it and results are unchanged (fixture `shared/fixtures/search/search-everywhere-context-v1.json`).
 
 `workspace.searchEverywhere` uses the same query options and visibility fields,
 and additionally accepts `maxSymbolResults` and optional

@@ -3,7 +3,7 @@ import { LspClient } from "@/features/editor/lsp/lsp-client";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { isEditorLspSupported } from "@/features/editor/lsp/built-in-language-support";
-import { fuzzyScore } from "../utils/fuzzy-search";
+import { useRankedNames } from "@/features/file-search/hooks/use-ranked-names";
 
 export interface SymbolItem {
   name: string;
@@ -68,22 +68,16 @@ export const useSymbolSearch = (query: string, isActive: boolean) => {
     }
   }, [isActive, fetchSymbols]);
 
-  // Filter symbols by query (everything after @)
+  // Filter symbols by query (everything after @); Core owns matching and order.
   const symbolQuery = query.slice(1).trim();
-  const filteredSymbols = symbolQuery
-    ? symbols
-        .map((symbol) => ({
-          symbol,
-          score: fuzzyScore(symbol.name, symbolQuery),
-        }))
-        .filter(({ score }) => score > 0)
-        .sort((a, b) => b.score - a.score)
-        .map(({ symbol }) => symbol)
-    : symbols.sort((a, b) => {
-        const kindDiff = (SYMBOL_KIND_ORDER[a.kind] ?? 99) - (SYMBOL_KIND_ORDER[b.kind] ?? 99);
-        if (kindDiff !== 0) return kindDiff;
-        return a.line - b.line;
-      });
+  const rankedSymbols = useRankedNames(symbols, symbolQuery, (symbol) => ({ name: symbol.name }));
+  const filteredSymbols =
+    rankedSymbols ??
+    [...symbols].sort((a, b) => {
+      const kindDiff = (SYMBOL_KIND_ORDER[a.kind] ?? 99) - (SYMBOL_KIND_ORDER[b.kind] ?? 99);
+      if (kindDiff !== 0) return kindDiff;
+      return a.line - b.line;
+    });
 
   return {
     symbols: filteredSymbols,

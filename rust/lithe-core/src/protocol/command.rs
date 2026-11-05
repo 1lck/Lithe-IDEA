@@ -306,6 +306,8 @@ pub enum CoreCommand {
     WorkspaceListDirectories,
     /// Orders natively enumerated directory siblings (`workspace.orderEntries`).
     WorkspaceOrderEntries,
+    /// Ranks host-supplied candidate names with the shared matcher (`workspace.rankNames`).
+    WorkspaceRankNames,
     /// Filter ordinary workspace-relative event paths using shared defaults.
     WorkspaceFilterChanges,
     /// Finds Git repositories that belong to an opened workspace (`workspace.repositories`).
@@ -964,6 +966,7 @@ impl CoreCommand {
             "workspace.filterChanges" => Some(Self::WorkspaceFilterChanges),
             "workspace.listDirectories" => Some(Self::WorkspaceListDirectories),
             "workspace.orderEntries" => Some(Self::WorkspaceOrderEntries),
+            "workspace.rankNames" => Some(Self::WorkspaceRankNames),
             "workspace.repositories" => Some(Self::WorkspaceRepositories),
             "workspace.recentProjects.reduce" => Some(Self::WorkspaceRecentProjectsReduce),
             "workspace.searchIndex.warm" => Some(Self::WorkspaceSearchIndexWarm),

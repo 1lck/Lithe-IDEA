@@ -1,6 +1,7 @@
 import { configureWorkspaceIndexing } from "@/features/file-explorer/stores/workspace-indexing";
 import { executeCore } from "@/core/lithe-core-client";
 import { getFilenameFromPath } from "@/features/file-system/controllers/file-utils";
+import { hiddenPathRules } from "@/features/settings/lib/hidden-path-rules";
 import { joinPath, getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 
 export interface SearchMatchRange {
@@ -82,6 +83,7 @@ interface CoreSearchMatch {
   preview: string;
   sourceLine?: string;
   contentMatchRanges?: Array<{ start: number; length: number }>;
+  matchingDegree?: number;
 }
 
 function coreData<T>(response: Awaited<ReturnType<typeof executeCore<T>>>): T {
@@ -164,6 +166,7 @@ export async function searchFilesContent(
       excludePathPatterns: request.exclude_patterns ?? [],
       pathFilterPrefix: getRelativePath(root, request.filter_root ?? root).replace(/\\/g, "/"),
       includeContentRanges: true,
+      ...hiddenPathRules(),
     },
   });
   const page = coreData(response);
@@ -232,18 +235,84 @@ export async function fffScanStatus(
   };
 }
 
+/** Open and recent absolute paths that break ties between equal name matches. */
+export interface FileNameSearchContext {
+  openPaths?: readonly string[];
+  /** Most recent first. */
+  recentPaths?: readonly string[];
+}
+
+export interface FileNameSearchHit {
+  path: string;
+  name: string;
+  relative_path: string;
+  /** Core's degree; scaled by the context tie-break when a context was sent. */
+  score: number;
+}
+
+/**
+ * Ranks file names inside Core's own name index (`workspace.searchEverywhere`, files only) so a
+ * query never ships the inventory back to Core. The context travels as paths relative to each
+ * root; Core folds it into the degree with the same code `workspace.rankNames` uses.
+ */
+export async function searchFileNames(
+  query: string,
+  rootPaths: readonly string[],
+  limit: number,
+  workspaceId?: string,
+  context: FileNameSearchContext = {},
+): Promise<FileNameSearchHit[]> {
+  const trimmed = query.trim();
+  if (!trimmed || rootPaths.length === 0) return [];
+  const relativeTo = (root: string, paths: readonly string[] | undefined) =>
+    (paths ?? [])
+      .filter((path) => pathStartsWithRoot(path, root))
+      .map((path) => getRelativePath(path, root).replace(/\\/g, "/"));
+  const perRoot = await Promise.all(
+    rootPaths.map(async (root) => {
+      await configureWorkspaceIndexing(root, [], false, workspaceId);
+      const response = await executeCore<{ matches: CoreSearchMatch[] }>({
+        id: crypto.randomUUID(),
+        command: "workspace.searchEverywhere",
+        payload: {
+          root,
+          workspaceRoots: rootPaths,
+          query: trimmed,
+          resultKinds: ["file"],
+          maxResults: limit,
+          maxFileResults: limit,
+          maxSymbolResults: 0,
+          maxContentResults: 0,
+          context: {
+            openPaths: relativeTo(root, context.openPaths),
+            recentPaths: relativeTo(root, context.recentPaths),
+          },
+          ...hiddenPathRules(),
+        },
+      });
+      return coreData(response)
+        .matches.filter((match) => match.kind === "file")
+        .map((match) => ({
+          path: joinPath(root, match.path),
+          name: getFilenameFromPath(match.path),
+          relative_path: match.path,
+          score: match.matchingDegree ?? 0,
+        }));
+    }),
+  );
+  return perRoot
+    .flat()
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
 export async function fffSearchFiles(
   query: string,
   rootPaths: readonly string[],
   limit = 100,
   workspaceId?: string,
 ): Promise<FffSearchHit[]> {
-  const files = await fffListFiles(rootPaths, workspaceId);
-  const normalizedQuery = query.toLocaleLowerCase();
-  return files
-    .filter((file) => file.relative_path.toLocaleLowerCase().includes(normalizedQuery))
-    .slice(0, limit)
-    .map((file, index) => ({ ...file, score: limit - index }));
+  return searchFileNames(query, rootPaths, limit, workspaceId);
 }
 
 export async function fffListFiles(
@@ -282,7 +351,7 @@ async function listWorkspaceFiles(
   }>({
     id: crypto.randomUUID(),
     command: "workspace.snapshot",
-    payload: { root, workspaceRoots, includeTree: false },
+    payload: { root, workspaceRoots, includeTree: false, ...hiddenPathRules() },
   });
   const data = coreData(response);
   if (data.incompleteDirectories?.length)
