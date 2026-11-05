@@ -95,6 +95,18 @@ function languageOf(file) {
 }
 
 const REGEX_PRECEDERS = new Set(["", "(", ",", "=", ":", "[", "!", "&", "|", "?", "{", "}", ";", "+", "-", "*", "%", "<", ">", "~", "^"]);
+// Keywords after which `/` starts a regular expression, not a division.
+const REGEX_KEYWORDS = new Set(["return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do", "else", "yield", "await"]);
+
+// True when `/` at `index` follows one of REGEX_KEYWORDS used as a keyword,
+// that is, not as a property name such as `options.in`.
+function followsRegexKeyword(text, index) {
+  let end = index;
+  while (end > 0 && /\s/.test(text[end - 1])) end -= 1;
+  let start = end;
+  while (start > 0 && /[A-Za-z0-9_$]/.test(text[start - 1])) start -= 1;
+  return text[start - 1] !== "." && REGEX_KEYWORDS.has(text.slice(start, end));
+}
 
 /**
  * Replaces comments with spaces and keeps strings, so line numbers and string
@@ -207,7 +219,7 @@ export function stripComments(text, language) {
       lastSignificant = "`";
       continue;
     }
-    if (character === "/" && language === "script" && REGEX_PRECEDERS.has(lastSignificant)) {
+    if (character === "/" && language === "script" && (REGEX_PRECEDERS.has(lastSignificant) || (lastSignificant === "a" && followsRegexKeyword(text, index)))) {
       // Regular expression literal: skip it so quotes inside are not strings.
       let position = index + 1;
       let inClass = false;
@@ -290,26 +302,34 @@ export function nameComparisons(code, language) {
 
 const RUST_STRING_TABLE = /\b(?:const|static)\s+[A-Za-z_][A-Za-z0-9_]*\s*:\s*&?\s*(?:'static\s+)?\[\s*&\s*(?:'static\s+)?str\s*(?:;\s*[^\]]+)?\]\s*=\s*&?\s*\[([^\]]*)\]\s*;/g;
 
-/** Counts Rust string tables that list a language or tool name. */
+/**
+ * Counts the entries of Rust string tables that list a language or tool name.
+ * Every entry counts, so adding a tool to an existing table raises the count.
+ */
 export function toolTables(code) {
   let count = 0;
   for (const match of code.matchAll(RUST_STRING_TABLE)) {
     const values = [...match[1].matchAll(/"((?:\\.|[^"\\])*)"/g)].map((value) => value[1]);
-    if (values.some((value) => TOOL_TABLE_NAMES.has(value.toLowerCase()) || listedWords(value).length > 0)) count += 1;
+    if (values.some((value) => TOOL_TABLE_NAMES.has(value.toLowerCase()) || listedWords(value).length > 0)) count += values.length;
   }
   return count;
 }
 
-function hasClosedValues(schema) {
-  if (Array.isArray(schema)) return schema.some(hasClosedValues);
-  if (!schema || typeof schema !== "object") return false;
-  if (Array.isArray(schema.enum) || Object.hasOwn(schema, "const")) return true;
-  return ["items", "oneOf", "anyOf", "allOf"].some((key) => hasClosedValues(schema[key]));
+/** Counts the values that `enum` and `const` close, including nested alternatives. */
+function closedValues(schema) {
+  if (Array.isArray(schema)) return schema.reduce((sum, item) => sum + closedValues(item), 0);
+  if (!schema || typeof schema !== "object") return 0;
+  let count = Array.isArray(schema.enum) ? schema.enum.length : Object.hasOwn(schema, "const") ? 1 : 0;
+  for (const key of ["items", "oneOf", "anyOf", "allOf"]) count += closedValues(schema[key]);
+  return count;
 }
 
 /**
- * Counts schema fields that close the set of tools, runtimes, or build imports,
- * and every `hostIntegration` field, which names one host-built integration.
+ * Counts the closed values of schema fields that name tools, runtimes, or
+ * build imports, so adding a member to an existing enum raises the count. A
+ * `hostIntegration` field counts its integration names (an object form names
+ * them in `id`) and at least one, because the field itself names a host-built
+ * integration.
  */
 export function schemaEnums(schema) {
   let count = 0;
@@ -318,9 +338,9 @@ export function schemaEnums(schema) {
     if (!node || typeof node !== "object") return;
     if (node.properties && typeof node.properties === "object" && !Array.isArray(node.properties)) {
       for (const [name, property] of Object.entries(node.properties)) {
-        if (name === "hostIntegration") count += 1;
-        else if ((name === "tool" || name === "runtime") && hasClosedValues(property)) count += 1;
-        else if (name === "kind" && parentProperty === "languageImport" && hasClosedValues(property)) count += 1;
+        if (name === "hostIntegration") count += Math.max(1, closedValues(property) + closedValues(property?.properties?.id));
+        else if (name === "tool" || name === "runtime") count += closedValues(property);
+        else if (name === "kind" && parentProperty === "languageImport") count += closedValues(property);
       }
     }
     for (const [key, value] of Object.entries(node)) {

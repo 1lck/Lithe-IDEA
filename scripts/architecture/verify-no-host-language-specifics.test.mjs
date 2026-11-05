@@ -94,6 +94,14 @@ test("comments are not counted; strings, raw strings and regex literals are hand
     "/* mybatis */ const id = 'jdt';",
   ].join("\n");
   assert.deepEqual(listedWords(stripComments(script, "script")), ["gradle", "jdt"]);
+  const keywordRegex = [
+    "function f(s: string) { return /[/*]/.test(s); }",
+    "const runtime = \"java\";",
+    "const kind = typeof /[*/]/; const tool = 'maven';",
+    "const half = options.in / 2; const other = 'gradle'; // spring",
+  ].join("\n");
+  assert.deepEqual(listedWords(stripComments(keywordRegex, "script")), ["java", "maven", "gradle"],
+    "a regex after return or typeof does not open a block comment; `.in /` stays a division");
   const stripped = stripComments("a // java\nb", "rust");
   assert.equal(stripped.split("\n").length, 2, "line breaks survive so line numbers stay stable");
 });
@@ -135,29 +143,38 @@ test("a match arm scan stays linear on large files", { timeout: 5000 }, () => {
   assert.ok(performance.now() - started < 2_000, "the scan must finish well inside the test budget");
 });
 
-test("Rust string tables naming a language or tool are counted", { timeout: 1000 }, () => {
+test("every entry of a Rust string table naming a language or tool is counted", { timeout: 1000 }, () => {
   const code = [
     "const KNOWN_RUNTIME_TOOLS: &[&str] = &[\"go\", \"node\"];",
     "pub(crate) const LAUNCH: &'static [&'static str] = &[\"java\"];",
     "static IGNORED: [&str; 2] = [\".gradle\", \"target\"];",
     "const ARCHITECTURES: &[&str] = &[\"arm64\", \"x86_64\"];",
   ].join("\n");
-  assert.equal(toolTables(code), 3);
+  assert.equal(toolTables(code), 5);
+  const grown = code.replace("&[\"go\", \"node\"]", "&[\"go\", \"node\", \"python\"]");
+  assert.equal(toolTables(grown), 6, "adding a tool to an existing table raises the count");
 });
 
-test("schema rules count closed tool, runtime and import enums and every hostIntegration", { timeout: 1000 }, () => {
+test("schema rules count the members of closed tool, runtime and import enums and of every hostIntegration", { timeout: 1000 }, () => {
   const schema = {
     properties: {
       launch: { properties: { tool: { enum: ["java", "node"] }, runtime: { oneOf: [{ const: "java" }] } } },
       languageImport: { properties: { kind: { enum: ["maven", "gradle"] } } },
       other: { properties: { kind: { enum: ["file", "folder"] } } },
       model: { properties: { hostIntegration: { type: "string" } } },
+      server: { properties: { hostIntegration: { type: "object", properties: { id: { enum: ["jdt"] }, capabilities: { items: { enum: ["run", "debug"] } } } } } },
+      build: { properties: { hostIntegration: { enum: ["maven"] } } },
       open: { properties: { tool: { type: "string", pattern: "^[a-z]+$" } } },
     },
   };
-  assert.equal(schemaEnums(schema), 4);
+  // tool 2 + runtime 1 + kind 2 + one per hostIntegration; the object form counts its id values only.
+  assert.equal(schemaEnums(schema), 8);
+  const grown = structuredClone(schema);
+  grown.properties.launch.properties.tool.enum.push("python");
+  grown.properties.server.properties.hostIntegration.properties.id.enum.push("pyright");
+  assert.equal(schemaEnums(grown), 10, "adding a member to an existing enum raises the count");
   const { counts } = scanText("shared/contracts/plugins/v1/plugin-manifest.schema.json", JSON.stringify(schema));
-  assert.equal(counts.schemaEnums, 4);
+  assert.equal(counts.schemaEnums, 8);
   assert.equal(scanText("shared/contracts/plugins/v1/fixtures/example.json", JSON.stringify(schema)).counts.schemaEnums, undefined);
 });
 
@@ -256,6 +273,24 @@ test("the ratchet rejects increases, new files and unrecorded decreases", { time
   assert.equal(result.code, 0, output(result));
   assert.match(output(result), /1 counts lowered/);
   assert.equal(run(root).code, 0);
+});
+
+test("the ratchet catches a regex after return and a tool added to existing closed lists", { timeout: 1000 }, (t) => {
+  const root = repository(t, {
+    "rust/lithe-core/src/tools.rs": "const KNOWN_RUNTIME_TOOLS: &[&str] = &[\"go\", \"node\"];\n",
+    "shared/contracts/plugins/v1/plugin-manifest.schema.json": { properties: { launch: { properties: { tool: { enum: ["java", "node"] } } } } },
+  });
+  assert.equal(run(root, "--update-baseline").code, 0);
+  write(root, {
+    "frontend/editor/src/pattern.ts": "function f(s: string) { return /[/*]/.test(s); }\nconst runtime = \"java\";\n",
+    "rust/lithe-core/src/tools.rs": "const KNOWN_RUNTIME_TOOLS: &[&str] = &[\"go\", \"node\", \"python\"];\n",
+    "shared/contracts/plugins/v1/plugin-manifest.schema.json": { properties: { launch: { properties: { tool: { enum: ["java", "node", "python"] } } } } },
+  });
+  const result = run(root);
+  assert.equal(result.code, 1);
+  assert.match(output(result), /frontend\/editor\/src\/pattern\.ts: words 0 -> 1 \(new file\)/);
+  assert.match(output(result), /tools\.rs: toolTables 2 -> 3/);
+  assert.match(output(result), /plugin-manifest\.schema\.json: schemaEnums 2 -> 3/);
 });
 
 test("strict mode reports every counted file", { timeout: 1000 }, (t) => {
