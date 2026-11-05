@@ -13,8 +13,8 @@ macro_rules! contract_file {
     };
 }
 
-const GRAMMAR_PLUGIN: &str = contract_file!("fixtures/language-grammar.plugin.json");
-const HTTP_GRAMMAR: &str = contract_file!("fixtures/grammars/http.monarch.json");
+const GRAMMAR_PLUGIN: &str = contract_file!("fixtures/languages/language-grammar.plugin.json");
+const HTTP_GRAMMAR: &str = contract_file!("fixtures/languages/grammars/http.monarch.json");
 
 fn manifest(source: &str) -> Value {
     serde_json::from_str(source).expect("fixture manifest is JSON")
@@ -195,7 +195,7 @@ fn configuration_only_contribution_decodes_without_grammar() {
         .unwrap()
         .remove("grammar");
     // A backend is a complete tool plugin, with no language-server ownership.
-    let tool = manifest(contract_file!("fixtures/backend-workspace.plugin.json"));
+    let tool = manifest(contract_file!("fixtures/backend/backend-workspace.plugin.json"));
     plugin["backend"] = tool["backend"].clone();
     plugin["requires"]["backend"] = json!(2);
     plugin["requires"]["serverProcess"] = json!(1);

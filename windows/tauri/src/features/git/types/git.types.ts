@@ -120,6 +120,16 @@ export interface GitHistoryPage {
   hasMore: boolean;
 }
 
+/** Result of Core's bounded walk that locates one commit in the paginated history. */
+export interface GitHistoryLocateResult {
+  found: boolean;
+  /** Commits read from the platform's cursor up to the hit, in reading order. */
+  commits: GitCommit[];
+  nextCursor?: string;
+  hasMore: boolean;
+  pagesLoaded: number;
+}
+
 export interface GitCommitFile {
   status: string;
   path: string;
@@ -236,6 +246,7 @@ export interface GitStash {
 export interface GitTag {
   name: string;
   commit: string;
+  object_id?: string;
   message?: string;
   date: string;
   is_annotated: boolean;

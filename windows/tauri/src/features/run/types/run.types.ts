@@ -38,6 +38,8 @@ export interface RunConfiguration {
   env: Record<string, string>;
   jvmArguments: string[];
   programArguments: string[];
+  /** Core-formatted editor text for the corresponding exact argument vectors. */
+  editorArgumentText?: { vm: string; program: string };
   profiles: string[];
   mavenSkipTests: boolean | null;
   javaHomePath: string;

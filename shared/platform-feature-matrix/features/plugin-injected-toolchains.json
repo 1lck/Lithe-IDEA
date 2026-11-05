@@ -16,7 +16,7 @@
       "rust/lithe-core/src/tests/toolchain_queries.rs",
       "rust/lithe-core/src/tests/toolchain_pins.rs",
       "rust/lithe-core/src/tests/toolchain_resolution.rs",
-      "shared/contracts/plugins/v1/toolchains.md",
+      "shared/contracts/plugins/v1/toolchains/README.md",
       "macos/Sources/Lithe/Core/Ports/ToolchainSettings.swift",
       "macos/Sources/Lithe/Application/Features/ToolchainSettingsFeatureModel.swift",
       "macos/Sources/Lithe/Platform/MacOS/Runtime/MacToolchainSettingsLoader.swift",
@@ -65,7 +65,7 @@
       "rust/lithe-core/src/toolchain/resolution.rs",
       "rust/lithe-core/src/tests/toolchain_queries.rs",
       "shared/contracts/plugins/v1/plugin-manifest.schema.json",
-      "shared/contracts/plugins/v1/toolchains.md"
+      "shared/contracts/plugins/v1/toolchains/README.md"
     ]
   },
   "owner": "Plugin Platform",

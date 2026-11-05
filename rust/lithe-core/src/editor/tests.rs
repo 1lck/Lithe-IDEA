@@ -6,6 +6,27 @@ use serde_json::{json, Value};
 
 use super::line_edit::{line_comment_token, line_edit, LineCommentTokenRequest, LineEditRequest};
 
+#[test]
+fn navigation_input_matches_shared_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/editor/navigation-input-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let response: Value = serde_json::from_str(&crate::execute_json(
+            &json!({"command":"editor.parseNavigationInput", "payload":{"text":case["input"]}})
+                .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+        assert_eq!(
+            response["data"]["target"], case["target"],
+            "{}",
+            case["name"]
+        );
+    }
+}
+
 fn edit(
     operation: &str,
     source: &str,

@@ -90,7 +90,7 @@ import { GitFileItem } from "./git-status-file-item";
 import { IDEA_CHECKBOX_CLASS_NAME } from "../../utils/idea-control-styles";
 import { useGitStatusExpandableHint } from "./use-git-status-expandable-hint";
 import { useTreeContentWidth } from "../../hooks/use-tree-content-width";
-import { buildGitRepositoryColorMap } from "../../utils/git-repository-colors";
+import { useRepositoryColors } from "../../utils/git-repository-colors";
 import { showGitPatchDialog } from "../../services/git-patch-dialog-service";
 import { installTreeGuideVisibility } from "@/features/file-explorer/lib/tree-guide-visibility";
 
@@ -391,10 +391,7 @@ const GitStatusPanel = ({
     visibleFiles,
     displayFileByPath,
   } = useMemo(() => buildGitStatusPresentation(displayFiles), [displayFiles]);
-  const repositoryColorByKey = useMemo(
-    () => buildGitRepositoryColorMap(repositoryPaths ?? []),
-    [repositoryPaths],
-  );
+  const repositoryColors = useRepositoryColors(repositoryPaths);
   const repositoryGroups = useMemo(
     () => groupGitFilesByRepository(visibleFiles, repoPath),
     [visibleFiles, repoPath],
@@ -1505,7 +1502,7 @@ const GitStatusPanel = ({
           leading={
             <FolderOpen
               className="file-tree-node-icon text-subtle-foreground"
-              style={{ color: repositoryColorByKey.get(normalizeRepositoryPath(row.repoPath)) }}
+              style={{ color: repositoryColors?.colors.get(normalizeRepositoryPath(row.repoPath)) ?? repositoryColors?.fallback }}
             />
           }
           className="h-full py-0.5"

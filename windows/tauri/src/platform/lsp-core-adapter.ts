@@ -15,6 +15,8 @@ import {
 import { emit } from "@tauri-apps/api/event";
 import { executeCore, type CoreResponse } from "@/core/lithe-core-client";
 import type { LspClientDiagnostic } from "@/core/lsp-diagnostic";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 import { type JavaBuildReport } from "@/platform/java-launch-readiness";
 import { frontendTrace } from "@/utils/frontend-trace";
 import {
@@ -76,6 +78,7 @@ interface Session {
   pending: Map<string, PendingOperation>;
   completed: Map<string, RuntimeEvent>;
   documentVersions: Map<string, number>;
+  documentUris: Map<string, string>;
 }
 
 interface FileAttachment {
@@ -213,7 +216,14 @@ function persistSessions(): void {
 
 function attachFile(session: Session, filePath: string, attachmentId: string): Session | null {
   const key = fileKey(filePath);
-  const previous = fileSessions.get(key)?.session;
+  const current = fileSessions.get(key);
+  if (current?.session === session && current.id === attachmentId) return null;
+  const previous = current?.session;
+  if (previous) {
+    const uri = previous.documentUris.get(key);
+    if (uri) previous.documentVersions.delete(uri);
+    previous.documentUris.delete(key);
+  }
   if (previous && previous !== session) {
     for (const existing of previous.files) {
       if (fileKey(existing) === key) previous.files.delete(existing);
@@ -240,6 +250,9 @@ function detachFile(session: Session, filePath: string, attachmentId?: string): 
   for (const existing of session.files) {
     if (fileKey(existing) === key) session.files.delete(existing);
   }
+  const uri = session.documentUris.get(key);
+  if (uri) session.documentVersions.delete(uri);
+  session.documentUris.delete(key);
   fileSessions.delete(key);
   return true;
 }
@@ -296,6 +309,7 @@ function restorePersistedSessions(): void {
         pending: new Map(),
         completed: new Map(),
         documentVersions: new Map(),
+        documentUris: new Map(),
       };
       const key = sessionKey(session.workspacePath, session.languageId);
       const previous = sessions.get(key);
@@ -362,10 +376,8 @@ async function core<T>(
   );
 }
 
-function fileUri(path: string): string {
-  const normalized = path.replace(/\\/g, "/");
-  const prefixed = /^[A-Za-z]:\//.test(normalized) ? `/${normalized}` : normalized;
-  return encodeURI(`file://${prefixed.startsWith("/") ? "" : "/"}${prefixed}`);
+function documentPathDescriptor(path: string): { path: string; platform: "auto" } {
+  return { path, platform: "auto" };
 }
 
 function normalizeCoreValue(value: unknown): unknown {
@@ -863,7 +875,7 @@ async function createSession(args: JsonRecord, key: string, generation: number):
         executablePath: args.serverPath,
         arguments: args.serverArgs ?? [],
         environment,
-        rootUri: fileUri(workspacePath),
+        rootUri: documentPathDescriptor(workspacePath),
         workingDirectory: workspacePath,
         initializationOptions: args.initializationOptions ?? null,
         workspaceConfiguration: args.workspaceConfiguration ?? null,
@@ -897,6 +909,7 @@ async function createSession(args: JsonRecord, key: string, generation: number):
     pending: new Map(),
     completed: new Map(),
     documentVersions: new Map(),
+    documentUris: new Map(),
   };
   try {
     assertCurrent();
@@ -1132,7 +1145,7 @@ async function requestOperation(
   const operation = new LspOperationLog("semanticRequest", started.operationId, {
     sessionId: session.id,
     method: command,
-    documentUri: payload.uri,
+    documentUri: typeof payload.uri === "string" ? payload.uri : undefined,
   });
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -1257,7 +1270,7 @@ async function requestJavaTestItems(session: Session, filePath: string): Promise
     await requestOperation(session, {
       sessionId: session.id,
       operation: "javaTestItems",
-      uri: fileUri(filePath),
+      uri: documentPathDescriptor(filePath),
     }),
   ) as Partial<JavaTestItems> | null;
   if (value?.schemaVersion !== 1 || !Array.isArray(value.items)) {
@@ -1281,7 +1294,7 @@ async function requestJavaMainMethods(
     await requestOperation(session, {
       sessionId: session.id,
       operation: "javaMainMethods",
-      uri: fileUri(filePath),
+      uri: documentPathDescriptor(filePath),
     }),
   ) as Partial<JavaMainMethods> | null;
   if (value?.schemaVersion !== 1 || !Array.isArray(value.methods)) {
@@ -1354,7 +1367,7 @@ function semanticPayload(command: string, args: JsonRecord, session: Session): J
   if (command === "lsp_get_virtual_document") {
     payload.virtualUri = args.virtualUri;
   } else {
-    payload.uri = typeof args.documentUri === "string" ? args.documentUri : fileUri(args.filePath);
+    payload.uri = typeof args.documentUri === "string" ? args.documentUri : documentPathDescriptor(args.filePath);
   }
   if (typeof args.line === "number") {
     payload.position = { line: args.line, utf16Column: args.character ?? 0 };
@@ -1442,23 +1455,32 @@ async function synchronizeDocument(
   session: Session,
   filePath: string,
   payload: JsonRecord,
-): Promise<void> {
+): Promise<{ documentVersion: number; changed: boolean }> {
   const operation = new LspOperationLog(operationName, crypto.randomUUID(), {
     sessionId: session.id,
     filePath,
     languageId: session.languageId,
   });
+  const attachment = fileSessions.get(fileKey(filePath));
   try {
-    const sync = await core<{ documentVersion: number; changed: boolean }>(
+    const sync = await core<{ documentVersion: number; changed: boolean; uri: string }>(
       "lsp.syncDocument",
       payload,
       operation.operationId,
     );
-    session.documentVersions.set(fileUri(filePath), sync.documentVersion);
+    if (typeof sync.uri !== "string" || !sync.uri) {
+      const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+      throw lspAdapterError("invalid_response", t("native.returnedAnUnexpectedResponse", { arg1: "Core" }));
+    }
+    if (fileSessions.get(fileKey(filePath)) === attachment && attachment?.session === session) {
+      session.documentUris.set(fileKey(filePath), sync.uri);
+      session.documentVersions.set(sync.uri, sync.documentVersion);
+    }
     operation.succeeded({
       documentVersion: sync.documentVersion,
       changed: sync.changed,
     });
+    return { documentVersion: sync.documentVersion, changed: sync.changed };
   } catch (reason) {
     operation.failed(reason);
     throw reason;
@@ -1471,13 +1493,19 @@ async function closeDocument(session: Session, filePath: string): Promise<void> 
     filePath,
     languageId: session.languageId,
   });
+  const attachment = fileSessions.get(fileKey(filePath));
   try {
     await core(
       "lsp.closeDocument",
-      { sessionId: session.id, uri: fileUri(filePath) },
+      { sessionId: session.id, uri: documentPathDescriptor(filePath) },
       operation.operationId,
     );
-    session.documentVersions.delete(fileUri(filePath));
+    const key = fileKey(filePath);
+    if (fileSessions.get(key) === attachment && attachment?.session === session) {
+      const uri = session.documentUris.get(key);
+      if (uri) session.documentVersions.delete(uri);
+      session.documentUris.delete(key);
+    }
     operation.succeeded();
   } catch (reason) {
     operation.failed(reason);
@@ -1648,13 +1676,13 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
   }
   if (command === "lsp_document_open") {
     const session = sessionForFile(args.filePath, args.attachmentId);
-    await synchronizeDocument("documentOpen", session, args.filePath, {
+    const sync = await synchronizeDocument("documentOpen", session, args.filePath, {
       sessionId: session.id,
-      uri: fileUri(args.filePath),
+      uri: documentPathDescriptor(args.filePath),
       languageId: args.languageId ?? session.languageId,
       text: args.content ?? "",
     });
-    return undefined as T;
+    return sync as T;
   }
   if (command === "lsp_document_change") {
     const session = sessionForFile(args.filePath, args.attachmentId);
@@ -1679,21 +1707,21 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
           })
           .filter(Boolean)
       : [];
-    await synchronizeDocument("documentChange", session, args.filePath, {
+    const sync = await synchronizeDocument("documentChange", session, args.filePath, {
       sessionId: session.id,
-      uri: fileUri(args.filePath),
+      uri: documentPathDescriptor(args.filePath),
       languageId: args.languageId ?? session.languageId,
       // Absent when the ranged changes alone describe the edit.
       text: args.content ?? "",
       ...(contentChanges.length > 0 ? { contentChanges } : {}),
     });
-    return undefined as T;
+    return sync as T;
   }
   if (command === "lsp_document_save") {
     const session = sessionForFile(args.filePath, args.attachmentId);
     await core("lsp.saveDocument", {
       sessionId: session.id,
-      uri: fileUri(args.filePath),
+      uri: documentPathDescriptor(args.filePath),
       text: args.content ?? "",
     });
     return undefined as T;
@@ -1716,7 +1744,7 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     try {
       const changes = Array.isArray(args.changes)
         ? args.changes.map((change: JsonRecord) => ({
-            uri: fileUri(String(change.path ?? "")),
+            uri: documentPathDescriptor(String(change.path ?? "")),
             kind: change.kind,
           }))
         : [];
@@ -1832,20 +1860,20 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
   }
   if (command === "java_navigation_markers") {
     const session = sessionForFile(args.sessionFilePath ?? args.filePath);
-    const uri = typeof args.documentUri === "string" ? args.documentUri : fileUri(args.filePath);
+    const uri = typeof args.documentUri === "string" ? args.documentUri : documentPathDescriptor(args.filePath);
     return (await requestOperation(
       session,
       {
         sessionId: session.id,
         uri,
-        documentVersion: session.documentVersions.get(uri),
+        documentVersion: session.documentVersions.get(typeof uri === "string" ? uri : session.documentUris.get(fileKey(args.filePath)) ?? ""),
       },
       "java.navigationMarkers",
     )) as T;
   }
   if (command === "java_resolve_navigation") {
     const session = sessionForFile(args.sessionFilePath ?? args.filePath);
-    const uri = typeof args.documentUri === "string" ? args.documentUri : fileUri(args.filePath);
+    const uri = typeof args.documentUri === "string" ? args.documentUri : documentPathDescriptor(args.filePath);
     const result = await requestOperation(
       session,
       {
@@ -1855,7 +1883,7 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
         utf16Column: args.character ?? 0,
         direction: args.direction,
         relation: args.relation,
-        documentVersion: session.documentVersions.get(uri),
+        documentVersion: session.documentVersions.get(typeof uri === "string" ? uri : session.documentUris.get(fileKey(args.filePath)) ?? ""),
       },
       "java.resolveNavigation",
     );

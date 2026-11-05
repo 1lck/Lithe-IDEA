@@ -152,6 +152,15 @@ prune、仓库覆盖关闭时，重置提示应为开启；子模块只有选择
 表示真。预览和执行共用这个结果；非法配置必须报告错误，不能悄悄启用远程。
 用户明确选择单个远程时仍可 Fetch，跳过设置只约束 Fetch 全部远程。
 
+设置页显示的标签行为由 Core 的 `git.executionInspect` 从同一份 Git 配置和
+实际 Fetch 选项计算，两端只翻译结果与来源。`fetch.pruneTags` 或远程的完整
+标签 refspec 会让 Git 即使收到 `--no-tags` 也获取标签；启用 prune 时还会
+删除远程没有的本地标签。部分或排除型标签 refspec 显示为自定义，不猜测完整
+结果。无可用远程或 Git 拒绝的布尔配置显示不可确定，原始配置仍可编辑。
+例如，`--no-tags --no-prune` 配合 `fetch.pruneTags=true` 时显示“获取全部”，
+不要只回显 Lithe 选中的“不获取”。`shared/fixtures/git/fetch-behavior-v1.json`
+覆盖来源和多远程规则，Core 的真实 Git 测试对照标签 refspec、无效布尔值与实际 Fetch。
+
 普通 Fetch 仍是一项直接操作，可选的设置预览留在现有 Git 菜单中。控制台
 页签不增加 Fetch 按钮，也不把预览变成普通操作的必经确认步骤。
 

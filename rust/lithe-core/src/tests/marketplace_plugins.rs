@@ -18,11 +18,11 @@ const INDEX_CASES: &str = contract_file!("fixtures/marketplace/index-cases.json"
 const INVALID_ENTRIES: &str = contract_file!("fixtures/marketplace/invalid-index-entries.json");
 const SOURCE_URLS: &str = contract_file!("fixtures/marketplace/source-urls.json");
 const INSTALL_REVIEWS: &str = contract_file!("fixtures/marketplace/install-reviews.json");
-const PHP_FIXTURE: &str = contract_file!("fixtures/language-packaged-server.plugin.json");
-const GO_FIXTURE: &str = contract_file!("fixtures/language-system-command.plugin.json");
-const MIX_FIXTURE: &str = contract_file!("fixtures/build-provider-language-server.plugin.json");
-const GRADLE_FIXTURE: &str = contract_file!("fixtures/build-provider.plugin.json");
-const CARGO_FIXTURE: &str = contract_file!("fixtures/build-static-file.plugin.json");
+const PHP_FIXTURE: &str = contract_file!("fixtures/languages/language-packaged-server.plugin.json");
+const GO_FIXTURE: &str = contract_file!("fixtures/languages/language-system-command.plugin.json");
+const MIX_FIXTURE: &str = contract_file!("fixtures/build-providers/build-provider-language-server.plugin.json");
+const GRADLE_FIXTURE: &str = contract_file!("fixtures/build-providers/build-provider.plugin.json");
+const CARGO_FIXTURE: &str = contract_file!("fixtures/build-systems/build-static-file.plugin.json");
 const OFFICIAL_INDEX: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../Plugins/marketplace/index.json"

@@ -5,6 +5,7 @@ import {
   closeGitHistoryCursor,
   getGitHistoryPage,
   getGitReferences,
+  locateGitCommit,
 } from "../api/git-commits-api";
 import { subscribeToGitChanges } from "../events/git-events";
 import type { GitCommit, GitHistorySnapshot, GitReference } from "../types/git.types";
@@ -358,6 +359,77 @@ export function useGitLogController(
     });
   }, [isLoadingMore, load, repoPath]);
 
+  /**
+   * Locates one commit in the paginated history through Core's bounded
+   * `git.historyLocate` walk and returns it when found. The pages read while
+   * searching are deduplicated into the loaded window and advance the cursor and
+   * `hasMore`, so a hit becomes a normal selectable row. A failed read sets the
+   * log's error state instead of being reported as "not found".
+   */
+  const locateCommit = useCallback(
+    async (target: string): Promise<GitCommit | null> => {
+      if (!repoPathRef.current || repoPathRef.current !== repoPath) return null;
+      const cursor = activeCursorRef.current;
+      // The visible window is exhausted: the commit is not reachable from it
+      // without reloading the first page, which the log does not do.
+      if (cursor === null) return null;
+      const requestId = ++requestIdRef.current;
+      const isStaleRequest = () =>
+        requestId !== requestIdRef.current || repoPathRef.current !== repoPath;
+      // A locate owns the pagination cursor from here on; a page that was already
+      // in flight must not rewind the window the locate appends to. Taking the
+      // cursor now also keeps a failed walk from replaying a spent cursor.
+      cancelActiveOperations();
+      activeCursorRef.current = null;
+      const operationId = `git-log-${controllerIdRef.current}-${requestId}-locate`;
+      activeOperationIdsRef.current.add(operationId);
+      setIsLoadingMore(true);
+      try {
+        const result = await locateGitCommit(
+          repoPath,
+          target,
+          cursor,
+          COMMITS_PER_PAGE,
+          operationId,
+          selectedReferenceRef.current?.fullName,
+        );
+        if (isStaleRequest()) {
+          if (result?.nextCursor) void closeGitHistoryCursor(repoPath, result.nextCursor);
+          return null;
+        }
+        if (!result) {
+          setLoadState("failed");
+          setError(t("git.historyLoadFailed"));
+          return null;
+        }
+        setHistory((current) => {
+          const loadedHashes = new Set(current.commits.map((commit) => commit.hash));
+          const commits = [
+            ...current.commits,
+            ...result.commits.filter((commit) => !loadedHashes.has(commit.hash)),
+          ];
+          return { ...current, commits, hasMore: result.hasMore && commits.length < MAX_COMMITS };
+        });
+        activeCursorRef.current = result.nextCursor ?? null;
+        // Core folds hex case when it matches the target; match the same way so a
+        // commit reported found is always returned to the caller.
+        const normalizedTarget = target.toLowerCase();
+        return (
+          result.commits.find((commit) => commit.hash.toLowerCase() === normalizedTarget) ?? null
+        );
+      } catch (locateError) {
+        if (isStaleRequest()) return null;
+        setLoadState("failed");
+        setError(locateError instanceof Error ? locateError.message : t("git.historyLoadFailed"));
+        return null;
+      } finally {
+        activeOperationIdsRef.current.delete(operationId);
+        if (!isStaleRequest()) setIsLoadingMore(false);
+      }
+    },
+    [cancelActiveOperations, repoPath, t],
+  );
+
   const stateBelongsToRepository = stateRepoPathRef.current === repoPath;
 
   return {
@@ -371,5 +443,6 @@ export function useGitLogController(
     forgetReference,
     refresh,
     loadMore,
+    locateCommit,
   };
 }

@@ -97,7 +97,7 @@ struct BuildToolProviderResolutionTests {
     }
 
     private static func source(root: URL) throws -> BuildSystemPluginSource {
-        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-tool-path.plugin.json")
+        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-systems/build-tool-path.plugin.json")
         var manifest = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as? [String: Any])
         manifest["requires"] = ["buildSystems": 1, "buildProviders": 1, "executableResolution": 1, "settings": 2, "serverProcess": 1]
         manifest["permissions"] = ["process.build", "languageServer.launch"]

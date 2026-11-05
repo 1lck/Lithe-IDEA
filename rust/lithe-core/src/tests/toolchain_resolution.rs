@@ -15,19 +15,19 @@ fn contract(name: &str) -> Value {
     let source = match name {
         "java" => include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../shared/contracts/plugins/v1/fixtures/tool-definition.plugin.json"
+            "/../../shared/contracts/plugins/v1/fixtures/toolchains/tool-definition.plugin.json"
         )),
         "mise" => include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../shared/contracts/plugins/v1/fixtures/toolchain-provider.plugin.json"
+            "/../../shared/contracts/plugins/v1/fixtures/toolchains/toolchain-provider.plugin.json"
         )),
         "query" => include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../shared/contracts/plugins/v1/proposals/toolchains/fixtures/query-cases.json"
+            "/../../shared/contracts/plugins/v1/fixtures/toolchains/proposal/query-cases.json"
         )),
         "local" => include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../shared/contracts/plugins/v1/proposals/toolchains/fixtures/local.json"
+            "/../../shared/contracts/plugins/v1/fixtures/toolchains/proposal/local.json"
         )),
         _ => panic!("unknown fixture"),
     };

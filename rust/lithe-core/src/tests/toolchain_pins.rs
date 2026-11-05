@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 fn fixture() -> Value {
     serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../shared/contracts/plugins/v1/proposals/toolchains/fixtures/local.json"
+        "/../../shared/contracts/plugins/v1/fixtures/toolchains/proposal/local.json"
     )))
     .unwrap()
 }

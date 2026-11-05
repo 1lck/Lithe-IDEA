@@ -176,7 +176,7 @@ Swift 和 Windows 各写一遍合并规则最直接，但两边一旦有细微�
 - `./scripts/macos/test/test-macos.sh --filter SettingsSidebarLayoutTests`：静态页面仍各归一个分组。
 - `./scripts/macos/test/test-macos.sh --filter PluginSettingsLayoutTests`：480、640、900 点宽的深浅主题下，路径输入框和完整选择按钮都在容器内，按钮可调用选择器并写入所选路径。
 - `./scripts/macos/test/test-macos.sh --filter PluginDetailLayoutTests`：实际 Java 插件表单在深浅主题中往返缩放，详情边界始终跟随分隔条，窄面板下右侧设置可经原生横向滚动到达。
-- 共享夹具：`shared/contracts/plugins/v1/fixtures/settings-v2.plugin.json`。
+- 共享夹具：`shared/contracts/plugins/v1/fixtures/settings/settings-v2.plugin.json`。
 
 ## 适用范围
 

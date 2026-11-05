@@ -99,7 +99,7 @@ Registry 注册时不启动程序做验证。一个适配器在接入验收中�
 
 ### 5. Registry 与插件声明
 
-完整字段和拒绝规则见[正式调试适配器契约](../../../../shared/contracts/plugins/v1/README.md#api-level-4-debug-adapters)、[清单 schema](../../../../shared/contracts/plugins/v1/plugin-manifest.schema.json) 和[拒绝 fixtures](../../../../shared/contracts/plugins/v1/fixtures/debug-adapter-rejections.json)，这里只记录决策：
+完整字段和拒绝规则见[正式调试适配器契约](../../../../shared/contracts/plugins/v1/README.md#api-level-4-debug-adapters)、[清单 schema](../../../../shared/contracts/plugins/v1/plugin-manifest.schema.json) 和[拒绝 fixtures](../../../../shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter-rejections.json)，这里只记录决策：
 
 - 插件只写一个 `plugin.json.debugAdapters` 块，必填 `id`、`displayName`、`launch`。`launch` 由两部分组成：复用 `serverProcess` 的进程，加上 `stdio`、`tcpAnnounced` 或 `tcpPort` 三种传输之一；调试服务寄居在同一插件的语言服务器里时（Java Debug Server 之于 JDT LS），改用 `tcpLanguageServer`，此时没有 `process`，只有 `endpoint`。
 - 拟定 API 4、`requires.debugAdapters: 1`、`debug.launch` / `debug.attach` 权限。需要 Run 选中的运行时时，使用 `serverProcess: 2` 的 `runSelectedRuntime`。
@@ -135,7 +135,7 @@ macOS 多会话（本阶段）：宿主在 `DebugAdapterSessionManager` 里实�
 
 `makeChildSession` 是可选覆盖：默认子会话就是 provider 的 `makeSession` 再开一个会话，宿主因此总会声明 `supportsStartDebuggingRequest`。这是有意取舍：旧调试内核要整体被替换，不为兼容旧行为保留休眠开关。代价是 debugpy 这类通过 `connect` 主机和端口附加的适配器，在没有 TCP 子会话传输前，子会话会被忽略该端点，多进程 Python 调试暂时不可用；由具体语言插件覆盖 `makeChildSession` 补上。Swift 侧仍未消费 `projection`、`childSession*` 与 `disabledCapabilities`。
 
-P3 的声明层已在 Rust Core 落地：`plugin.json.debugAdapters[]` 作为插件 API 4 进入正式契约（`shared/contracts/plugins/v1/`），`debug/adapters.rs` 校验声明、安装包资源和启动计划，C01–C09、S01–S02 拒绝用例由 `fixtures/debug-adapter-rejections.json` 驱动 Core 测试。启动计划与安装检查由 macOS 声明式 Provider 接入（先 stdio + launch）。
+P3 的声明层已在 Rust Core 落地：`plugin.json.debugAdapters[]` 作为插件 API 4 进入正式契约（`shared/contracts/plugins/v1/`），`debug/adapters.rs` 校验声明、安装包资源和启动计划，C01–C09、S01–S02 拒绝用例由 `fixtures/debug-adapters/debug-adapter-rejections.json` 驱动 Core 测试。启动计划与安装检查由 macOS 声明式 Provider 接入（先 stdio + launch）。
 
 macOS 声明式 Provider：
 - Rust Core 新增 `languageServerLaunchPlan` 的 `debugAdapterID` 选择器和 `debug.adapters.startArguments` 命令；后者按 manifest、adapterID、request 与事实（注册代次、目标、运行时选择）返回启动参数，拒绝码为 `debug.provider.stale`、`debug.request.unsupported`、`debug.runtime.stale`、`debug.target.invalid`、`plugin.launch.unavailable`。

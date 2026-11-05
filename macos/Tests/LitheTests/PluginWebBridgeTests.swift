@@ -422,7 +422,7 @@ struct PluginWebBridgeTests {
 
     @Test func cargoExampleSelectionReachesTheRealCorePlan() async throws {
         let manifest = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-static-file.plugin.json"))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-systems/build-static-file.plugin.json"))
         let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: manifest)
         let source = BuildSystemPluginSource(
             pluginID: descriptor.id.rawValue, manifest: descriptor.normalizedManifest,
@@ -960,7 +960,7 @@ struct PluginWebPackageTests {
         try FileManager.default.createDirectory(at: package.appendingPathComponent("ui"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: package.appendingPathComponent("icons"), withIntermediateDirectories: true)
         try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/web-panel.plugin.json"))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/ui/web-panel.plugin.json"))
             .write(to: package.appendingPathComponent("plugin.json"))
         try Data(#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16"/></svg>"#.utf8)
             .write(to: package.appendingPathComponent("icons/panel.svg"))

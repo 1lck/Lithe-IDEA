@@ -66,7 +66,7 @@ function fixture(
     profiles: [],
     mavenExecutablePath: options.panel ?? mavenHome,
   }));
-  return { discoverRunToolchains, resolveRunConfiguration, mavenLaunchContextForWorkspace };
+  return { discoverRunToolchains, resolveRunConfiguration, mavenLaunchContextForWorkspace, formatArgumentTexts: mock(async (lists: string[][]) => lists.map(() => "")) };
 }
 
 describe("Run diagnostics use the effective Maven selection", () => {
@@ -118,4 +118,23 @@ describe("Run diagnostics use the effective Maven selection", () => {
     expect(dependencies.mavenLaunchContextForWorkspace).not.toHaveBeenCalled();
     expect(dependencies.discoverRunToolchains).toHaveBeenCalledTimes(1);
   });
+});
+
+test("run editor preserves argument boundaries from the Core formatter", async () => {
+  const dependencies = fixture({ usesMaven: false });
+  const resolveRunConfiguration = async (): Promise<CoreResolveResult> => ({
+    configurations: [{
+      id: "app", name: "App", provider: "shell",
+      args: ["--name", "Alice Smith", ""],
+    }],
+  });
+  const formatArgumentTexts = mock(async (lists: string[][]) => {
+    expect(lists).toEqual([[], ["--name", "Alice Smith", ""]]);
+    return ["", '--name "Alice Smith" ""'];
+  });
+  const result = await resolveConfigurations(root, "workspace-A", {
+    ...dependencies, resolveRunConfiguration, formatArgumentTexts,
+  });
+  const { runOptionsFor } = await import("../stores/run.store");
+  expect(runOptionsFor(result.configurations[0]).programArguments).toBe('--name "Alice Smith" ""');
 });

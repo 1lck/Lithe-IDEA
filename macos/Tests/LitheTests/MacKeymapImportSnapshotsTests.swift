@@ -12,7 +12,7 @@ struct MacKeymapImportSnapshotsTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try Data("bindings".utf8).write(to: root.appendingPathComponent("bindings.json"))
         let fixture = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/keymap-import-provider.plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/keymap-import/keymap-import-provider.plugin.json")
         let plan = try RustKeymapImportOperations(core: RustCoreBridge()).planSources(
             manifest: Data(contentsOf: fixture), providerID: "first"
         )
@@ -49,7 +49,7 @@ struct MacKeymapImportSnapshotsTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try Data("bindings".utf8).write(to: root.appendingPathComponent("bindings.json"))
         let fixture = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/keymap-import-provider.plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/keymap-import/keymap-import-provider.plugin.json")
         let plan = try RustKeymapImportOperations(core: RustCoreBridge()).planSources(
             manifest: Data(contentsOf: fixture), providerID: "first"
         )

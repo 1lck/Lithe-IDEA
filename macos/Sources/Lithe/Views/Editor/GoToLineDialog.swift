@@ -2,6 +2,8 @@ import LitheModuleAPI
 import AppKit
 import SwiftUI
 
+private let goToLineValidationQuietPeriod = Duration.milliseconds(75)
+
 /// “Go to Line:Column”dialog: a small floating window with a single
 /// `[Line] [:column]:` input that accepts a 1-based line or line:column,
 /// prefilled with the current caret position and fully selected. Return or
@@ -19,12 +21,13 @@ enum GoToLineDialog {
     /// Present the dialog modally over the editor window; on OK, parse the
     /// input and jump. Invalid input keeps Return from jumping.
     static func present(model: AppModel) {
-        guard !isPresented, model.activeDocument != nil else { return }
+        guard !isPresented, let documentID = model.activeDocument?.id else { return }
         isPresented = true
         defer { isPresented = false }
         model.showGoToLine()
 
-        let coordinator = DialogCoordinator()
+        let logSink = model.services.logSink
+        let coordinator = GoToLineDialogCoordinator(parseInput: { GoToLineInput.parse($0, logSink: logSink) })
         coordinator.onConfirm = { NSApp.stopModal(withCode: okResponse) }
         coordinator.onCancel = { NSApp.stopModal(withCode: cancelResponse) }
         let panel = makePanel(
@@ -42,7 +45,7 @@ enum GoToLineDialog {
         panel.orderOut(nil)
 
         model.hideGoToLine()
-        if response == okResponse, let input = coordinator.confirmedText {
+        if response == okResponse, model.activeDocument?.id == documentID, let input = coordinator.confirmedInput {
             model.goToLine(input)
         }
     }
@@ -53,7 +56,7 @@ enum GoToLineDialog {
         return "\(max(caret?.line ?? 0, 0) + 1):\(max(caret?.utf16Column ?? 0, 0) + 1)"
     }
 
-    private static func makePanel(coordinator: DialogCoordinator, appearance: NSAppearance?) -> NSPanel {
+    private static func makePanel(coordinator: GoToLineDialogCoordinator, appearance: NSAppearance?) -> NSPanel {
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 340, height: 96),
             styleMask: [.titled, .closable],
@@ -73,7 +76,7 @@ enum GoToLineDialog {
 
     private static func configureContent(
         panel: NSPanel,
-        coordinator: DialogCoordinator,
+        coordinator: GoToLineDialogCoordinator,
         initialValue: String
     ) {
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 96))
@@ -94,11 +97,11 @@ enum GoToLineDialog {
         field.font = LitheTheme.uiNSFont(size: 13)
         field.delegate = coordinator
         field.target = coordinator
-        field.action = #selector(DialogCoordinator.confirmFromField)
+        field.action = #selector(GoToLineDialogCoordinator.confirmFromField)
         coordinator.field = field
         content.addSubview(field)
 
-        coordinator.canConfirm = GoToLineInput.parse(initialValue) != nil
+        coordinator.validate(initialValue)
         let buttons = NSHostingView(rootView: GoToLineActions(coordinator: coordinator))
         buttons.frame = NSRect(x: 16, y: 12, width: 308, height: 28)
         content.addSubview(buttons)
@@ -123,10 +126,64 @@ enum GoToLineDialog {
 }
 
 @MainActor
-private final class DialogCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSTextFieldDelegate {
+final class GoToLineDialogCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSTextFieldDelegate {
     weak var field: NSTextField?
     @Published var canConfirm = false
-    private(set) var confirmedText: String?
+    private(set) var confirmedInput: GoToLineInput?
+    private var validatedText: String?
+    private var validatedInput: GoToLineInput?
+    private var pendingConfirmation: String?
+    private var validationTask: Task<Void, Never>?
+    private var validationGeneration: UInt64 = 0
+    private let parseInput: @Sendable (String) async -> GoToLineInput?
+    private let waitForQuiet: @Sendable () async -> Bool
+
+    init(
+        parseInput: @escaping @Sendable (String) async -> GoToLineInput? = { GoToLineInput.parse($0) },
+        waitForQuiet: @escaping @Sendable () async -> Bool = {
+            // log-exempt: 用户取消：输入更新或窗口关闭会取消防抖等待，不代表操作失败。
+            try? await Task.sleep(for: goToLineValidationQuietPeriod)
+            return !Task.isCancelled
+        }
+    ) {
+        self.parseInput = parseInput
+        self.waitForQuiet = waitForQuiet
+        super.init()
+    }
+
+    deinit { validationTask?.cancel() }
+
+    func validate(_ text: String) {
+        validationTask?.cancel()
+        validationGeneration &+= 1
+        let generation = validationGeneration
+        validatedText = nil
+        validatedInput = nil
+        pendingConfirmation = nil
+        canConfirm = false
+        validationTask = Task.detached(priority: .userInitiated) { [weak self, parseInput, waitForQuiet] in
+            guard await waitForQuiet(), !Task.isCancelled else { return }
+            let input = await parseInput(text)
+            guard !Task.isCancelled else { return }
+            // NSApp.runModal does not drain ordinary MainActor tasks. Deliver
+            // through the native modal run loop, then recheck the generation.
+            RunLoop.main.perform(inModes: [.default, .modalPanel, .eventTracking]) {
+                MainActor.assumeIsolated {
+                    guard let self, self.validationGeneration == generation,
+                          self.field?.stringValue == text else { return }
+                    let shouldConfirm = self.pendingConfirmation == text
+                    self.pendingConfirmation = nil
+                    self.validatedText = text
+                    self.validatedInput = input
+                    self.canConfirm = input != nil
+                    if shouldConfirm, let input, self.confirmedInput == nil {
+                        self.confirmedInput = input
+                        self.onConfirm?()
+                    }
+                }
+            }
+        }
+    }
     var onConfirm: (() -> Void)?
     var onCancel: (() -> Void)?
 
@@ -138,7 +195,7 @@ private final class DialogCoordinator: NSObject, ObservableObject, NSWindowDeleg
     /// Gray out OK while the input is not a valid line or line:column.
     func controlTextDidChange(_ notification: Notification) {
         guard let field else { return }
-        canConfirm = GoToLineInput.parse(field.stringValue) != nil
+        validate(field.stringValue)
     }
 
     func control(
@@ -171,19 +228,26 @@ private final class DialogCoordinator: NSObject, ObservableObject, NSWindowDeleg
     }
 
     private func confirm() {
-        guard let field,
-              GoToLineInput.parse(field.stringValue) != nil else { return }
-        confirmedText = field.stringValue
+        guard confirmedInput == nil, let field else { return }
+        guard validatedText == field.stringValue else {
+            pendingConfirmation = field.stringValue
+            return
+        }
+        guard let validatedInput else { return }
+        confirmedInput = validatedInput
         onConfirm?()
     }
 
     private func cancel() {
+        validationTask?.cancel()
+        validationGeneration &+= 1
+        pendingConfirmation = nil
         onCancel?()
     }
 }
 
 private struct GoToLineActions: View {
-    @ObservedObject var coordinator: DialogCoordinator
+    @ObservedObject var coordinator: GoToLineDialogCoordinator
 
     var body: some View {
         HStack(spacing: LitheTheme.ActionButton.spacing) {

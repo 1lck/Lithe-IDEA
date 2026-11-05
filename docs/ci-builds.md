@@ -179,20 +179,22 @@ The GitHub CLI can also download a particular run's packages:
 gh run download <run-id> --repo 1lck/Lithe-IDEA --pattern 'Lithe-macos-*'
 ```
 
-After the combined publication succeeds, download the latest Apple Silicon DMG,
-Intel DMG or Windows x64 installer from the fixed
+After the combined publication succeeds, download the latest Apple Silicon DMG
+or Windows x64 installer from the fixed
 [AutoBuild release page](https://github.com/1lck/Lithe-IDEA/releases/tag/AutoBuild).
+AutoBuild does not build Intel (`x86_64`) macOS packages; Intel Macs use stable
+releases, which still publish `x86_64` DMGs and appcasts.
 
 The release tag is exactly **AutoBuild**; its title and body display
 **AutoBuild — 构建自 YYYY-MM-DD HH:mm:ss UTC**. Prepare reads the package version
 from `windows/tauri/src-tauri/tauri.conf.json` at the pinned source revision and
-passes it to all three platform builds. Installer filenames contain that source
+passes it to the Apple Silicon and Windows builds. Installer filenames contain that source
 version; the workflow does not maintain a separate preview version. AutoBuild
 identity and update ordering use the build timestamp.
-The release keeps only the latest two macOS DMGs and Windows x64 installer with
-checksums, current Sparkle full ZIPs and deltas targeting the current build,
-appcasts, and the latest downloadable version of each registered official plugin
-with SHA-256 sidecars. No previous installer, plugin version or update history is
+The release keeps only the latest Apple Silicon DMG and Windows x64 installer
+with checksums, the current Apple Silicon Sparkle full ZIP and deltas targeting the
+current build, `appcast-preview-arm64.xml`, and the publication checkpoint. Plugins
+are not published here. No previous installer, Intel asset or update history is
 retained. macOS jobs expose artifact links before the combined release publishes.
 
 ⚠️ 风险提示：AutoBuild 未经过稳定版验证，可能包含缺陷或导致数据丢失；普通用户建议使用 Stable 稳定版。
@@ -208,8 +210,9 @@ retained. macOS jobs expose artifact links before the combined release publishes
 保留 `release-preview-macos.yml` 文件；prepare 只采样一次 UTC，从同一秒导出
 `YYYYMMDD.HHMMSS` build（例如 `20261015.124354`）及标准 ISO 时间，并固定源码 SHA
 和版本。顺序来自构建时间，旧 `58.1` 仅兼容作为历史基线。
-两个 macOS 架构与可复用 Windows 工作流并行使用该身份；Windows 没有独立定时任务
-或发布权限。publish 必须等待三个平台全部成功，并检出 `github.workflow_sha`
+Apple Silicon（`arm64`）macOS 构建与可复用 Windows 工作流并行使用该身份；AutoBuild
+不构建 Intel（`x86_64`），Intel 只随正式版发布。Windows 没有独立定时任务
+或发布权限。publish 必须等待 macOS 与 Windows 全部成功，并检出 `github.workflow_sha`
 执行发布脚本，不能从 `preview` 检出不存在或未经本次工作流审查的 helper。
 工作流与源码的选择方式及插件签名边界见
 [应用内更新的签名与发布策略](../.agents/notes/implemented/process/2026-09-13-macos-update-signing-and-release-strategy.md)。
@@ -223,24 +226,26 @@ gh workflow run release-preview-macos.yml \
   -f source_branch=preview
 ```
 
-不要直接重跑旧的失败任务，它仍然使用旧工作流。确认两个 macOS 架构、Windows
-和 publish job 均成功，再检查安装包和 `appcast-preview-*.xml` 的更新时间。
+不要直接重跑旧的失败任务，它仍然使用旧工作流。确认 arm64 macOS、Windows
+和 publish job 均成功，再检查安装包和 `appcast-preview-arm64.xml` 的更新时间。
 macOS 的稳定版与 AutoBuild 共用 75 分钟 job、35 分钟打包、30 分钟 Sparkle
 生成的有界预算；原 30 分钟总上限可能在 Intel 打包成功后取消更新包生成。
+AutoBuild 的 Intel 冷编译曾在 35 分钟打包上限内超时（run 41826256404），因此
+AutoBuild 改为只构建 arm64，没有为它放宽期限。
 这些期限分别定义在两个工作流中，由同一组离线测试检查，不会随源码分支自动同步。
 公开渠道使用 `autobuild`，基础设施兼容内部 `preview` 开关与既有 appcast 文件名。
 固定 tag 为 `AutoBuild`，标题与正文显示本次 UTC 构建时间。滚动 Release 的最初发布日期
 不代表本次构建日期；以标题、appcast 与安装包中的共享时间为准。
 
-发布器验证三个平台的源码、版本、build、ISO 时间完全一致，且 build 精确对应 ISO 秒。
-任何远端写入前下载双架构已有 appcast，要求新时间严格晚于每份基线且 build 数值递增；
-只要旧 `preview-0.3.0` release 仍存在，就同时校验其双架构 appcast；即使 AutoBuild 已创建
+发布器验证 arm64 macOS 与 Windows 的源码、版本、build、ISO 时间完全一致，且 build 精确对应 ISO 秒。
+任何远端写入前下载已有 arm64 appcast，要求新时间严格晚于基线且 build 数值递增；
+只要旧 `preview-0.3.0` release 仍存在，就同时校验其 arm64 appcast；即使 AutoBuild 已创建
 但为空或只留下未完成的检查点，也不能跳过旧入口的时间顺序。
 新发布同秒或时钟倒退直接拒绝，不补造计数。没有历史入口才允许首次发布；已有 ZIP
 却缺失 feed、损坏 feed 或时间身份不一致均拒绝发布。同一次发布的恢复由下述检查点约束，
 不能仅凭相同时间或 tag 源码放行。
 
-发布器在全部输入与双架构基线验证后，先上传 `autobuild-publication.json`：包含仓库、
+发布器在全部输入与 arm64 基线验证后，先上传 `autobuild-publication.json`：包含仓库、
 源码 SHA、版本、build、ISO 时间及按名称排序的全部目标文件大小与 SHA-256。
 重跑只有在本地生成的检查点与远端逐字节一致时，才允许继续同一次发布；当前 feed
 必须与本地逐字节一致，否则仍走严格递增校验。该恢复允许补齐被中断替换删除的 feed
@@ -253,10 +258,11 @@ macOS 的稳定版与 AutoBuild 共用 75 分钟 job、35 分钟打包、30 分�
 插件继续由各自的发布流程和市场管理；独立发布及客户端安装的签名、哈希和兼容性校验不变。
 这不是把未经验证的插件上传到 AutoBuild，而是将插件从应用发布目标清单中移除。
 
-发布器验证全部本地输入与基线后，先持久化检查点，再上传所有数据，最后替换两个 XML；通过 GitHub asset
+发布器验证全部本地输入与基线后，先持久化检查点，再上传所有数据，最后替换 arm64 appcast；通过 GitHub asset
 SHA-256 digest（缺失时重新下载校验）验证所有目标资源后，显式 force PATCH
 `git/refs/tags/AutoBuild` 到源码 SHA，更新并复查 release 元数据，最后按完整目标
-清单删除所有过期资产，包括旧版本 DMG、Windows 安装包和插件。任何下载、哈希、
+清单删除所有过期资产，包括旧版本 DMG、Windows 安装包、插件，以及停止构建前留下的
+Intel DMG、ZIP、delta 和 `appcast-preview-x86_64.xml`。任何下载、哈希、
 上传或完整性验证失败均不会触发过期资产清理。GitHub 固定 tag 的多文件替换不是
 原子操作，失败可能留下部分新文件；保留相同构建 artifacts 重跑 publish 可恢复，
 不需要给原字节另造时间。检查点本身也参与最终完整性验证并保留到下次发布。
@@ -400,18 +406,6 @@ Windows Build 本机选项位于平台 app-data 的 `build-options/<canonical-wo
 可变状态，没有版本/平台/架构/工具链构建 identity stamp，归入 `build-project-preferences`
 拒绝路由。任何校验或复制阶段均不得跨 worktree 复用，不从安装目录推导写入目标；
 本机保存检查两层原始版本并回读，不改变插件包、代码签名或 Sparkle delta 基线。
-编辑器快捷键导入插件的源码和锁文件随 Git 获取；构建时从锁定的 SDK Git 提交及
-Cargo registry 获取依赖，按当前 rustc、平台和目标架构在本工作树的
-`.artifacts/editor-keymap-provider-target/` 重新编译。此目录登记为
-`editor-keymap-provider-build`，没有可跨工作树复用的封存身份，所有复用阶段均拒绝复制；
-直接运行插件 Cargo 测试生成的 `Plugins/mac/Official/EditorKeymapImport/target/` 也是
-工作树独占的可变状态。
-本地装配验证副本 `.artifacts/keymap-plugin-assembly/` 同样不复用，验证后由当前任务清理。
-构建使用本工作树的 `.artifacts/cargo-home/`；registry crate 下载缓存可按包含插件
-`Cargo.lock` 的既有 Cargo 校验路由复用，Git checkout 则不跨工作树复制，Cargo 从固定
-SDK 提交重新获取。构建阶段将可执行文件和许可证复制到插件包，
-再随 app 签名；运行时只读该包，来源快照留在进程内并读取用户选择的目录，不能影响
-代码签名或 Sparkle delta 基线。
 
 CI 的 `Swatinem/rust-cache` 只复用 Cargo 依赖编译输出，按 OS、架构、rustc、
 Cargo 清单/锁文件、编译环境和 target 布局区分；Swift/plugin 共享一份 macOS Rust
@@ -691,7 +685,7 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   `<RUNNER_TEMP>/lithe-autobuild-<invocation>/{baselines,verification}/`。
   源码 SHA、应用 release/tag/asset、当前 build/ISO 时间与本次发布共同决定输入；
   根目录生成 `autobuild-publication.json`，`baselines/AutoBuild/` 保存当前入口的检查点与
-  双架构 appcast；旧入口仍存在时，`baselines/preview-0.3.0/` 另存其双架构 appcast。
+  arm64 appcast；旧入口仍存在时，`baselines/preview-0.3.0/` 另存其 arm64 appcast。
   两组基线用于本次严格时间排序，只有 AutoBuild 接受匹配检查点的精确恢复。
   检查点绑定全部目标字节，不是可跨工作树复制的构建缓存；远端发布资产仅供本次调用下载验证。
   应用产物的平台/架构由共享构建身份及 appcast 约束，保留现有签名，不在发布阶段重新构建。

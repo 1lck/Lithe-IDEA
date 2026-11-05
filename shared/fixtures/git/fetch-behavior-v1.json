@@ -1,0 +1,863 @@
+{
+  "cases": [
+    {
+      "name": "no remotes",
+      "request": {
+        "entries": [],
+        "options": {},
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "unavailable",
+          "source": null,
+          "basis": "git",
+          "reasonCode": "noRemotes"
+        }
+      }
+    },
+    {
+      "name": "Git auto-follow",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/fixture.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {},
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "reachable",
+          "source": null,
+          "basis": "git",
+          "reasonCode": null
+        }
+      }
+    },
+    {
+      "name": "remote disables tags",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/fixture.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.origin.tagopt",
+            "value": "--no-tags",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {},
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "none",
+          "source": {
+            "scope": "local",
+            "origin": "file:fixture.gitconfig"
+          },
+          "basis": "git",
+          "reasonCode": null
+        }
+      }
+    },
+    {
+      "name": "global prune tags",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/fixture.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "fetch.prunetags",
+            "value": "true",
+            "scope": "global",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {},
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "prune",
+          "source": {
+            "scope": "global",
+            "origin": "file:fixture.gitconfig"
+          },
+          "basis": "git",
+          "reasonCode": null
+        }
+      }
+    },
+    {
+      "name": "no-tags does not override prune-tags",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/fixture.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "fetch.prunetags",
+            "value": "true",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {
+          "prune": false,
+          "tags": "none"
+        },
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "all",
+          "source": {
+            "scope": "local",
+            "origin": "file:fixture.gitconfig"
+          },
+          "basis": "git",
+          "reasonCode": null
+        }
+      }
+    },
+    {
+      "name": "explicit refspec overrides no-tags",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/fixture.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.origin.fetch",
+            "value": "+refs/tags/*:refs/tags/*",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {
+          "prune": false,
+          "tags": "none"
+        },
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "all",
+          "source": {
+            "scope": "local",
+            "origin": "file:fixture.gitconfig"
+          },
+          "basis": "git",
+          "reasonCode": null
+        }
+      }
+    },
+    {
+      "name": "partial refspec is custom",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/fixture.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.origin.fetch",
+            "value": "+refs/tags/v*:refs/tags/v*",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {},
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "custom",
+          "source": {
+            "scope": "local",
+            "origin": "file:fixture.gitconfig"
+          },
+          "basis": "git",
+          "reasonCode": null
+        }
+      }
+    },
+    {
+      "name": "negative refspec prevents all-tags claim",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/fixture.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.origin.fetch",
+            "value": "+refs/tags/*:refs/tags/*",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.origin.fetch",
+            "value": "^refs/tags/private",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {},
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "custom",
+          "source": {
+            "scope": "local",
+            "origin": "file:fixture.gitconfig"
+          },
+          "basis": "git",
+          "reasonCode": null
+        }
+      }
+    },
+    {
+      "name": "explicit option without forced refspec",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/fixture.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {
+          "tags": "none"
+        },
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "none",
+          "source": null,
+          "basis": "lithe",
+          "reasonCode": null
+        }
+      }
+    },
+    {
+      "name": "mixed remotes",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/fixture.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.origin.tagopt",
+            "value": "--no-tags",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.upstream.url",
+            "value": "https://example.invalid/other.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.upstream.tagopt",
+            "value": "--tags",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {},
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "remoteDependent",
+          "source": null,
+          "basis": "multiple",
+          "reasonCode": null
+        }
+      }
+    },
+    {
+      "name": "skip disabled remote",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/fixture.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.origin.tagopt",
+            "value": "--no-tags",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.upstream.url",
+            "value": "https://example.invalid/other.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.upstream.tagopt",
+            "value": "--tags",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.upstream.skipfetchall",
+            "value": "true",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {},
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "none",
+          "source": {
+            "scope": "local",
+            "origin": "file:fixture.gitconfig"
+          },
+          "basis": "git",
+          "reasonCode": null
+        }
+      }
+    },
+    {
+      "name": "invalid boolean prevents fetch",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/fixture.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.origin.prunetags",
+            "value": "invalid",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {},
+        "invalidKeys": [
+          "remote.origin.prunetags"
+        ]
+      },
+      "expected": {
+        "tags": {
+          "value": "unavailable",
+          "source": null,
+          "basis": "git",
+          "reasonCode": "invalidConfiguration"
+        }
+      }
+    },
+    {
+      "name": "invalid unrelated remote still prevents Git fetch",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/fixture.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.other.prunetags",
+            "value": "invalid",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {},
+        "invalidKeys": [
+          "remote.other.prunetags"
+        ]
+      },
+      "expected": {
+        "tags": {
+          "value": "unavailable",
+          "source": null,
+          "basis": "git",
+          "reasonCode": "invalidConfiguration"
+        }
+      }
+    },
+    {
+      "name": "remote false overrides global true",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/fixture.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "fetch.prunetags",
+            "value": "true",
+            "scope": "global",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.origin.prunetags",
+            "value": "false",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.origin.tagopt",
+            "value": "--no-tags",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {},
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "none",
+          "source": {
+            "scope": "local",
+            "origin": "file:fixture.gitconfig"
+          },
+          "basis": "git",
+          "reasonCode": null
+        }
+      }
+    },
+    {
+      "name": "selected remote is included despite skipFetchAll",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/fixture.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.upstream.url",
+            "value": "https://example.invalid/other.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.upstream.tagopt",
+            "value": "--tags",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.upstream.skipfetchall",
+            "value": "true",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {
+          "remote": "upstream"
+        },
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "all",
+          "source": {
+            "scope": "local",
+            "origin": "file:fixture.gitconfig"
+          },
+          "basis": "git",
+          "reasonCode": null
+        }
+      }
+    },
+    {
+      "name": "explicit all with no forced config",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/fixture.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {
+          "tags": "all"
+        },
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "all",
+          "source": null,
+          "basis": "lithe",
+          "reasonCode": null
+        }
+      }
+    },
+    {
+      "name": "false global uses reachable default",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/fixture.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "fetch.prunetags",
+            "value": "false",
+            "scope": "global",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {},
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "reachable",
+          "source": null,
+          "basis": "git",
+          "reasonCode": null
+        }
+      }
+    },
+    {
+      "name": "all remotes skipped",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/fixture.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.origin.skipfetchall",
+            "value": "true",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {},
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "unavailable",
+          "source": null,
+          "basis": "git",
+          "reasonCode": "noRemotes"
+        }
+      }
+    },
+    {
+      "name": "empty fetch refspec clears earlier entries",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/repo.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.origin.fetch",
+            "value": "+refs/tags/*:refs/tags/*",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": false
+          },
+          {
+            "key": "remote.origin.fetch",
+            "value": "",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {
+          "tags": "none"
+        },
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "none",
+          "source": null,
+          "basis": "lithe",
+          "reasonCode": null
+        }
+      }
+    },
+    {
+      "name": "empty remote URL clears the remote",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {},
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "unavailable",
+          "source": null,
+          "basis": "git",
+          "reasonCode": "noRemotes"
+        }
+      }
+    },
+    {
+      "name": "explicit prune records the Lithe source",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/repo.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "fetch.prunetags",
+            "value": "true",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "lithe.fetch.tags",
+            "value": "prune",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {
+          "tags": "prune"
+        },
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "prune",
+          "source": {
+            "scope": "local",
+            "origin": "file:fixture.gitconfig"
+          },
+          "basis": "lithe",
+          "reasonCode": null
+        }
+      }
+    },
+    {
+      "name": "broad negative can exclude tags",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/repo.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.origin.fetch",
+            "value": "^refs/*",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {
+          "tags": "none"
+        },
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "custom",
+          "source": {
+            "scope": "local",
+            "origin": "file:fixture.gitconfig"
+          },
+          "basis": "git",
+          "reasonCode": null
+        }
+      }
+    },
+    {
+      "name": "broad mapping can include tags",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/repo.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.origin.fetch",
+            "value": "+refs/*:refs/*",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {
+          "tags": "none"
+        },
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "custom",
+          "source": {
+            "scope": "local",
+            "origin": "file:fixture.gitconfig"
+          },
+          "basis": "git",
+          "reasonCode": null
+        }
+      }
+    },
+    {
+      "name": "same behavior from different sources",
+      "request": {
+        "entries": [
+          {
+            "key": "remote.origin.url",
+            "value": "https://example.invalid/fixture.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.origin.tagopt",
+            "value": "--no-tags",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.upstream.url",
+            "value": "https://example.invalid/other.git",
+            "scope": "local",
+            "origin": "file:fixture.gitconfig",
+            "effective": true
+          },
+          {
+            "key": "remote.upstream.tagopt",
+            "value": "--no-tags",
+            "scope": "global",
+            "origin": "file:other.gitconfig",
+            "effective": true
+          }
+        ],
+        "options": {},
+        "invalidKeys": []
+      },
+      "expected": {
+        "tags": {
+          "value": "none",
+          "source": null,
+          "basis": "multiple",
+          "reasonCode": null
+        }
+      }
+    }
+  ]
+}

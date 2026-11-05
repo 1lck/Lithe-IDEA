@@ -46,6 +46,7 @@ extension LitheWorkspaceModule.WorkspaceFeatureModel {
         notifyWorkspaceFileChanges: @escaping @MainActor @Sendable ([WorkspaceFileChange]) -> Void = { _ in },
         reloadProjectServices: @escaping @MainActor @Sendable () async -> Void,
         refreshGit: @escaping @MainActor @Sendable () async -> Void,
+        refreshGitIndexOnly: (@MainActor @Sendable () async -> Void)? = nil,
         updateHistoryVisibilityRules: @escaping @MainActor @Sendable (FileVisibilityRules) async -> Void,
         onSnapshotLoaded: @escaping @MainActor @Sendable (URL, WorkspaceSnapshot, Bool) async -> Void
     ) {
@@ -76,6 +77,7 @@ extension LitheWorkspaceModule.WorkspaceFeatureModel {
             notifyWorkspaceFileChanges: notifyWorkspaceFileChanges,
             reloadProjectServices: reloadProjectServices,
             refreshGit: refreshGit,
+            refreshGitIndexOnly: refreshGitIndexOnly,
             updateHistoryVisibilityRules: updateHistoryVisibilityRules,
             onSnapshotLoaded: { snapshot, isInitialLoad in
                 await onSnapshotLoaded(snapshot.root.url, snapshot, isInitialLoad)

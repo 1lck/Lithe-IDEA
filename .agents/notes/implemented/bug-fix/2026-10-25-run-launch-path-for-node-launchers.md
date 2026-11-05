@@ -60,10 +60,10 @@ Node 版本管理器目录的额外探测；这份探测结果从来没有进入
   文件位于项目根内时（例如 `mvnw`、`gradlew`），它所在的目录也不注入。仓库内容
   不可信，把项目根放到 `PATH` 前部会让仓库里的同名文件劫持脚本后续调用的系统
   命令。这与语言服务器侧 `languageToolProcessEnvironment` 的既有规则一致。
-- Windows 的运行入口 `prepend_runtime_paths` 早就在把“运行时目录 + 可执行文件
-  目录”加进 `PATH`（Windows 是前置）。macOS 这次补上同类能力，但使用追加顺序，
-  因为当前实现里没有和 Windows 运行时映射等价的可信来源，追加更不容易覆盖用户
-  的显式配置。
+- 两端把平台发现的目录事实交给 Core `execution.resolveSearchPath`，保留已有路径在前，
+  再按显式优先级、候选 ID 和路径排序并去重。Windows 不再把发现的运行时目录前置，
+  避免覆盖用户显式配置；macOS 仍排除项目内解释器和启动器目录。路径分隔和候选
+  发现仍由各平台负责，Windows 候选来源可能不同，不推测为完全相同的工具集。
 
 正确做法：
 
@@ -98,9 +98,8 @@ pnpm 在 /opt/homebrew/bin，node 在 fnm 的默认别名目录
 - 收益：从 Finder 启动也能运行 `pnpm` / `npm` / `yarn` / `tsx` 等脚本；脚本内部
   再调用 `node` / `npm` 也能解析到同一套工具；与 Windows 的启动环境方向一致。
 - 代价：每次运行解析多一次 `node` 候选发现（PATH 和各版本管理器目录的只读
-  探测），单次毫秒级；子进程 `PATH` 的内容和顺序与 0.6.2 不同。macOS 与 Windows
-  的排序不同：Windows 前置，macOS 追加；macOS 还会排除项目内的 wrapper 目录，
-  Windows 不排除。
+  探测），单次毫秒级；子进程 `PATH` 的内容和顺序与 0.6.2 不同。两端都保留原有
+  PATH 优先级；macOS 排除项目内的 wrapper 目录，Windows 沿用其既有候选发现范围。
 - 例外：系统里完全没有 `node` 时不注入任何目录，失败表现与修复前相同；项目里
   只有自带 `node` 时也不注入，仍然按系统环境处理。只能覆盖 Lithe 发现器已知的
   安装位置（PATH、Homebrew、volta、fnm 默认别名、nvm 版本目录）；fnm 为单个
@@ -125,4 +124,4 @@ pnpm 在 /opt/homebrew/bin，node 在 fnm 的默认别名目录
 - `macos/Sources/Lithe/Services/Java/RunLaunchEnvironment.swift`
 - `macos/Sources/Lithe/Services/Java/RunExecutableResolver.swift`
 - `macos/Tests/LitheTests/RunLaunchEnvironmentTests.swift`
-- 对照实现：`windows/tauri/src-tauri/src/run.rs` 中的 `prepend_runtime_paths`
+- 对照实现：`windows/tauri/src-tauri/src/run.rs` 中的 `append_runtime_paths`

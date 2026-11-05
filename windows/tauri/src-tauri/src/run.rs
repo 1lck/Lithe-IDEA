@@ -691,7 +691,7 @@ fn resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, String> {
     .environment
     .into_iter()
     .collect();
-    prepend_runtime_paths(
+    append_runtime_paths(
         &mut environment,
         &args.runtime_executable_paths,
         &executable,
@@ -2053,43 +2053,56 @@ fn selected_runtime_directory(
     }
 }
 
-fn selected_runtime_directories(
-    runtime_executable_paths: &HashMap<String, String>,
-) -> Vec<PathBuf> {
-    runtime_executable_paths
-        .values()
-        .filter_map(|value| {
-            let path = PathBuf::from(value.trim());
-            if path.is_dir() {
-                Some(path)
-            } else {
-                path.parent().map(Path::to_path_buf)
-            }
-        })
-        .collect()
-}
-
-fn prepend_runtime_paths(
+fn append_runtime_paths(
     environment: &mut HashMap<String, String>,
     runtime_executable_paths: &HashMap<String, String>,
     resolved_executable: &str,
 ) -> Result<(), String> {
-    let mut directories = selected_runtime_directories(runtime_executable_paths);
+    let mut candidates: Vec<lithe_core::execution::SearchPathCandidate> = runtime_executable_paths
+        .iter()
+        .filter_map(|(id, value)| {
+            let value = value.trim();
+            if value.is_empty() {
+                return None;
+            }
+            let path = PathBuf::from(value);
+            let directory = if path.is_dir() {
+                path
+            } else {
+                path.parent()?.to_path_buf()
+            };
+            Some(lithe_core::execution::SearchPathCandidate {
+                priority: 0,
+                id: id.clone(),
+                path: directory.to_string_lossy().into_owned(),
+            })
+        })
+        .collect();
     if let Some(parent) = Path::new(resolved_executable).parent() {
-        directories.push(parent.to_path_buf());
+        candidates.push(lithe_core::execution::SearchPathCandidate {
+            priority: 1,
+            id: String::new(),
+            path: parent.to_string_lossy().into_owned(),
+        });
     }
-    if directories.is_empty() {
+    if candidates.is_empty() {
         return Ok(());
     }
-    if let Some(existing) = environment
+    let existing = environment
         .iter()
         .find(|(key, _)| key.eq_ignore_ascii_case("PATH"))
-        .map(|(_, value)| value.clone())
-    {
-        directories.extend(std::env::split_paths(&existing));
-    }
-    let mut seen = std::collections::HashSet::new();
-    directories.retain(|path| seen.insert(path.to_string_lossy().to_ascii_lowercase()));
+        .map(|(_, value)| {
+            std::env::split_paths(value)
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    let directories =
+        lithe_core::execution::resolve_search_path(lithe_core::execution::SearchPathRequest {
+            existing,
+            candidates,
+            case_insensitive: cfg!(windows),
+        });
     let joined = std::env::join_paths(directories).map_err(|error| error.to_string())?;
     environment.retain(|key, _| !key.eq_ignore_ascii_case("PATH"));
     environment.insert("PATH".to_string(), joined.to_string_lossy().into_owned());
@@ -3437,11 +3450,28 @@ mod tests {
     }
 
     #[test]
-    fn selected_runtime_directories_are_prepended_to_launch_path() {
+    fn selected_runtime_directories_follow_the_existing_launch_path() {
         let root = temp_project();
-        let node = root.join("node/node.exe");
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
         let package_manager = root.join("tools/npm.cmd");
         let original = root.join("existing");
+        let paths = HashMap::from([
+            (
+                "z-tool".to_string(),
+                root.join("z/node.exe").to_string_lossy().into_owned(),
+            ),
+            (
+                "a-tool".to_string(),
+                root.join("a/node.exe").to_string_lossy().into_owned(),
+            ),
+            ("blank".to_string(), String::new()),
+        ]);
         let mut environment = HashMap::from([(
             "PATH".to_string(),
             std::env::join_paths([&original])
@@ -3449,24 +3479,18 @@ mod tests {
                 .to_string_lossy()
                 .into_owned(),
         )]);
-        let paths = HashMap::from([(
-            "project-node".to_string(),
-            node.to_string_lossy().into_owned(),
-        )]);
-
-        prepend_runtime_paths(
+        append_runtime_paths(
             &mut environment,
             &paths,
             package_manager.to_string_lossy().as_ref(),
         )
         .unwrap();
-        let launch_path = environment.get("PATH").unwrap();
-        let directories = std::env::split_paths(launch_path).collect::<Vec<_>>();
+        let directories =
+            std::env::split_paths(environment.get("PATH").unwrap()).collect::<Vec<_>>();
         assert_eq!(
             directories,
-            vec![root.join("node"), root.join("tools"), original]
+            vec![original, root.join("a"), root.join("z"), root.join("tools")]
         );
-        fs::remove_dir_all(root).ok();
     }
 
     #[test]

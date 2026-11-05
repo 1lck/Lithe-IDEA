@@ -435,6 +435,13 @@ impl LspProcessHandle for RemoteProcess {
     fn terminate(&self) {
         self.cleanup();
     }
+    /// The backend owns the remote process tree, so the bounded forced kill
+    /// request is the final local receipt; it also records the exit. Without
+    /// it a failed session that never terminated could not be destroyed.
+    fn dispose(&self, _timeout: Duration) -> Result<(), CoreError> {
+        self.cleanup();
+        Ok(())
+    }
 }
 
 pub(super) fn launch(host: Host, spec: LspProcessSpec) -> Result<LspProcessStreams, CoreError> {

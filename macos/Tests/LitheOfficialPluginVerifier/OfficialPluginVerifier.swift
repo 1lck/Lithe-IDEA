@@ -118,17 +118,24 @@ struct OfficialPluginVerifier {
         }
     }
 
+    /// Paths inside the package, relative to its root. Resolving the root drops
+    /// a leading `/private` (for example under `TMPDIR`), while a URL
+    /// enumerator reports the `/private` form, so trimming the root from
+    /// enumerated URLs would not yield a relative path. The path enumerator
+    /// returns relative paths directly.
+    private static func relativePaths(in packageURL: URL) throws -> [String] {
+        guard let enumerator = FileManager.default.enumerator(atPath: packageURL.path) else {
+            throw VerificationError.unreadablePackage
+        }
+        return enumerator.compactMap { $0 as? String }
+    }
+
     /// The contract forbids symbolic links anywhere in a package.
     private static func rejectSymbolicLinks(in packageURL: URL) throws {
-        guard let enumerator = FileManager.default.enumerator(
-            at: packageURL,
-            includingPropertiesForKeys: [.isSymbolicLinkKey]
-        ) else { throw VerificationError.unreadablePackage }
-        for case let fileURL as URL in enumerator
-        where (try? fileURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
-            throw VerificationError.symbolicLink(
-                fileURL.path.replacingOccurrences(of: packageURL.path + "/", with: "")
-            )
+        for relativePath in try relativePaths(in: packageURL)
+        where (try? packageURL.appendingPathComponent(relativePath)
+            .resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+            throw VerificationError.symbolicLink(relativePath)
         }
     }
 
@@ -138,18 +145,14 @@ struct OfficialPluginVerifier {
     private static func rejectNativeCode(in packageURL: URL, exceptIn runtimeDirectories: [String],
                                          exceptFiles: Set<String>) throws {
         let machOMagics: Set<UInt32> = [0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe, 0xbebafeca]
-        guard let enumerator = FileManager.default.enumerator(
-            at: packageURL,
-            includingPropertiesForKeys: [.isRegularFileKey]
-        ) else { throw VerificationError.unreadablePackage }
-        for case let fileURL as URL in enumerator {
+        for relativePath in try relativePaths(in: packageURL) {
+            let fileURL = packageURL.appendingPathComponent(relativePath)
             guard (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
                   let handle = try? FileHandle(forReadingFrom: fileURL) else { continue }
             defer { try? handle.close() }
             guard let header = try handle.read(upToCount: 4), header.count == 4 else { continue }
             let magic = header.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
             if machOMagics.contains(magic) || machOMagics.contains(magic.byteSwapped) {
-                let relativePath = fileURL.path.replacingOccurrences(of: packageURL.path + "/", with: "")
                 if exceptFiles.contains(relativePath)
                     || runtimeDirectories.contains(where: { relativePath.hasPrefix($0 + "/") }) { continue }
                 throw VerificationError.nativeCode(relativePath)

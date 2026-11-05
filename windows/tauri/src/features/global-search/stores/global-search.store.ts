@@ -21,7 +21,7 @@ interface GlobalSearchSessionSnapshot {
   results: FileSearchResult[];
   error: ContentSearchFailure | null;
   searchWarning: string | null;
-  nextFileOffset: number;
+  nextFileOffset: number | string;
   hasMoreResults: boolean;
   searchedFiles: number;
   searchableFiles: number;

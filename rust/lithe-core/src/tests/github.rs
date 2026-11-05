@@ -223,3 +223,32 @@ fn github_http_failures_use_stable_error_categories_without_response_bodies_in_d
     assert_eq!(response["error"]["code"], "permission_denied");
     assert_eq!(response["error"]["details"], "httpStatus=403");
 }
+
+#[test]
+fn device_authorization_transition_shared_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/github/device-authorization-transition-v1.json"
+    ))
+    .expect("device authorization fixture must be valid JSON");
+    for case in fixture["cases"].as_array().expect("fixture cases") {
+        let response = execute(
+            "github.deviceAuthorizationTransition",
+            case["request"].clone(),
+        );
+        assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+        assert_eq!(response["data"], case["expected"], "{}", case["name"]);
+    }
+}
+
+#[test]
+fn pull_request_checkout_plan_shared_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/github/pr-checkout-plan-v1.json"
+    ))
+    .expect("checkout fixture must be valid JSON");
+    for case in fixture["cases"].as_array().expect("fixture cases") {
+        let response = execute("github.pullRequestCheckoutPlan", case["request"].clone());
+        assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+        assert_eq!(response["data"], case["expected"], "{}", case["name"]);
+    }
+}

@@ -2517,10 +2517,11 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
     let uses_maven_toolchain = config["toolchains"]["maven"]
         .as_str()
         .is_some_and(|value| !value.is_empty());
-    let is_direct_java_project_launch = uses_maven_toolchain
-        && (is_java_main
-            || (provider == "spring-boot.maven"
-                && config["extensions"]["java"]["source"].is_string()));
+    let is_direct_java_project_launch = (is_java_main && request.java_launch.is_some())
+        || (uses_maven_toolchain
+            && (is_java_main
+                || (provider == "spring-boot.maven"
+                    && config["extensions"]["java"]["source"].is_string())));
     let goal = framework_goal(provider);
     // A framework that owns its own debug agent takes a port instead of raw JVM
     // flags, so JDWP must not also be forced into `jvmArguments`: two agents on
@@ -2608,10 +2609,9 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
                 "Java project launch is missing its main class",
             )
         })?;
-        // The Java project model already built the workspace and resolved the
-        // exact target module paths. Maven remains the project model, but it no
-        // longer receives a reactor-wide Java launch goal that would try the
-        // same main class in parent and dependency projects.
+        // JDT already built and resolved the target's paths. This applies to
+        // unmanaged and Gradle projects too; never compile the one source again
+        // with javac and discard upstream dependency/module paths.
         plan_classpath.extend(java_launch.class_paths.iter().cloned().map(Value::String));
         plan_modulepath.extend(java_launch.module_paths.iter().cloned().map(Value::String));
         arguments.extend(jvm_arguments);
@@ -2623,7 +2623,10 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         }
         arguments.push(json!(java_launch.main_class));
         arguments.extend(program_arguments);
-        if !java_launch.build_prepared {
+        // Only Maven owns a resource-processing phase; unmanaged and Gradle
+        // targets launch directly from the JDT paths. A host receipt that the
+        // provider task already prepared resources also skips the Maven step.
+        if uses_maven_toolchain && !java_launch.build_prepared {
             // JDT's incremental build is not Maven's resource-processing phase.
             // Maven owns filtering, custom resource roots and reactor dependencies.
             let reactor_path = maven["reactorPath"].as_str().unwrap_or(".");

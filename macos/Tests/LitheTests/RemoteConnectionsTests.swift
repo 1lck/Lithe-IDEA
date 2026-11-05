@@ -505,13 +505,60 @@ struct RemoteWorkspaceRoutingTests {
     }
 
     @Test
-    func theTreeListsFoldersFirstAndHidesConfiguredNames() throws {
+    func remoteTreeUsesTheWorkspaceListingAdapter() throws {
+        final class Listing: WorkspaceOperations, @unchecked Sendable {
+            var requested: [String] = []
+            var rootRequests: [String] = []
+            func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? { nil }
+            func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
+            func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
+            func rootRows(at rootURL: URL, visibilityRules: FileVisibilityRules) -> [FileNode]? {
+                rootRequests.append(rootURL.path)
+                return [FileNode(url: rootURL.appendingPathComponent("from-core.txt"), isDirectory: false, children: nil)]
+            }
+            func childRows(of rows: [FileNode], at rootURL: URL, visibilityRules: FileVisibilityRules) -> [String: [FileNode]]? {
+                requested.append(contentsOf: rows.map(\.url.path))
+                return Dictionary(uniqueKeysWithValues: rows.map { row in
+                    (row.url.standardizedFileURL.path, [FileNode(url: row.url.appendingPathComponent("from-core.txt"), isDirectory: false, children: nil)])
+                })
+            }
+        }
+        let (_, _, transport, registry) = routing()
+        let listing = Listing()
+        let tree = RemoteRoutingWorkspaceOperations(local: listing, registry: registry, transport: transport)
+        let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [])
+        let snapshot = try #require(try tree.snapshot(at: root, visibilityRules: rules))
+        #expect(snapshot.root.children?.map(\.url.lastPathComponent) == ["from-core.txt"])
+        #expect(listing.rootRequests == [root.path])
+        #expect(tree.rootRows(at: root, visibilityRules: rules)?.map(\.url.lastPathComponent) == ["from-core.txt"])
+        #expect(listing.rootRequests == [root.path, root.path])
+        let folder = FileNode(url: root.appendingPathComponent("src"), isDirectory: true, children: nil)
+        let children = tree.childRows(of: [folder], at: root, visibilityRules: rules)
+        #expect(children?[folder.url.standardizedFileURL.path]?.map(\.url.lastPathComponent) == ["from-core.txt"])
+        #expect(listing.requested == [folder.url.path])
+    }
+
+    @Test
+    func failedRemoteWorkspaceListingDoesNotFallBackToRawTransport() throws {
         let (_, tree, transport, _) = routing()
         transport.directories["/srv/app"] = [entry("b.txt", "file"), entry("src", "directory"), entry(".git", "directory"), entry("A.md", "file")]
         let rules = FileVisibilityRules(hiddenDirectoryNames: [".git"], hiddenFilePatterns: [])
-        let snapshot = try #require(try tree.snapshot(at: root, visibilityRules: rules))
-        #expect(snapshot.root.children?.map(\.url.lastPathComponent) == ["src", "A.md", "b.txt"])
-        #expect(snapshot.root.children?.first?.children == nil)
+        #expect(try tree.snapshot(at: root, visibilityRules: rules) == nil)
+    }
+
+    @Test
+    func unavailableRemoteCoreNeverReadsTheLocalPlaceholder() throws {
+        let placeholder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: placeholder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: placeholder) }
+        try "local sentinel".write(to: placeholder.appendingPathComponent("local.txt"), atomically: true, encoding: .utf8)
+        let registry = RemoteWorkspaceRegistry()
+        registry.register(RemoteWorkspaceBinding(root: placeholder, remoteRoot: "/srv/app", sessionID: "missing-session", connectionID: UUID()))
+        let core = RustCoreBridge(remoteWorkspaces: registry)
+        try #require(core.isAvailable)
+        let tree = RemoteRoutingWorkspaceOperations(local: RustWorkspaceOperations(core: core), registry: registry, transport: FakeTransport())
+        let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [])
+        #expect(try tree.snapshot(at: placeholder, visibilityRules: rules) == nil)
     }
 
     // Two files with equal bytes have different versions; saving the first

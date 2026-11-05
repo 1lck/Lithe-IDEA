@@ -194,6 +194,17 @@ capability → Rust 以 LSP request ID 关联 deadline，用不透明 operation
 ID 投影 terminal result。停止 session 时先 `shutdown` 后 `exit`，服务器
 无响应则由超时路径强制停止，不直接用 `terminate()` 代替。
 
+进程创建后启动失败（initialize 出错、索引被替换或取消）时，进程必须在有界期限内
+确认退出才算清理完成，不能只发信号就丢弃会话。普通 `lsp.startServer` 调用方拿不到
+会话 ID，因此 Core 把未完成清理的会话记在内部待清理列表，下一次显式启动前最多重试
+一次有界释放，仍未完成就拒绝再启动新进程，并保留原始启动错误。进程内原生调用方
+（`start_lsp_owned`）在注册回调里先拿到会话 ID，启动返回错误时仍持有该 ID，自行重试
+`lsp.destroyServer`。macOS 等非 Windows 平台的释放在期限内轮询根进程退出，因为发出
+SIGKILL 后子进程是异步回收的；Windows 等待整个进程树退出。回归见 `engine.rs` 中的
+`native_owner_keeps_failed_initialize_identity_until_verified_disposal`、
+`wire_owner_retries_failed_initialize_disposal_before_another_start` 和
+`wire_owner_cleans_at_most_one_failed_start_before_rejecting_a_backlog`。
+
 ### Java 导入安静期与 Windows 跳转缓存
 
 #1052 的两次导入在 Maven 23% 时因连续约 45 秒没有变化的进度通知而被

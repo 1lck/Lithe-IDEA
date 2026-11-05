@@ -11,38 +11,6 @@ import Testing
 /// No fixture process executes, and all files belong to this test's root.
 @MainActor
 struct PluginBundledPublisherTrustTests {
-    @Test
-    func bundledNonLanguageImporterUsesOnlyThePinnedHostSeal() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-importer-trust-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let host = root.appendingPathComponent("Lithe.app")
-        let bundled = host.appendingPathComponent("Contents/Resources/OfficialPlugins/dev.lithe.plugin.editor-keymap-import")
-        let manifestURL = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("Plugins/mac/Official/EditorKeymapImport/plugin.json")
-        let manifest = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any])
-        try DeclarativePluginTestSupport.writePackage(at: bundled, manifest: manifest)
-        let executable = bundled.appendingPathComponent("bin/editor-keymap-import")
-        try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data("#!/bin/sh\n".utf8).write(to: executable)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
-        let verifier = MacOfficialPluginSignatureVerifier(allowsLocalDevelopmentPackages: false, hostBundleURL: host)
-        let store = MacPluginPackageStore(rootURL: root.appendingPathComponent("installed"),
-            bundledRootURL: bundled.deletingLastPathComponent(),
-            stateDirectories: MacPluginStateDirectories(rootURL: root.appendingPathComponent("state")),
-            validator: DeclarativePluginTestSupport.operations, verifier: verifier)
-        let scan = try store.scanInstalledPlugins()
-        #expect(scan.issues.isEmpty)
-        let package = try #require(scan.packages.first)
-        #expect(package.descriptor.id == OfficialPluginCatalog.editorKeymapImportPluginID)
-        #expect(package.installation.origin == .bundled)
-        #expect(OfficialPluginCatalog.entry(for: package.descriptor.id) == nil)
-        let outside = root.appendingPathComponent("download")
-        try FileManager.default.copyItem(at: bundled, to: outside)
-        #expect(throws: PluginPackageStoreError.missingPackageSignature) {
-            try verifier.verify(packageAt: outside, manifest: package.descriptor.pluginManifest, origin: .marketplace)
-        }
-    }
-
     @Test(arguments: [true, false], ["direct", "marketplace", "disk"])
     func installingOverBundledCopyPreservesDefaultOrDisabledChoice(enabled: Bool, source: String) async throws {
         let fixture = try Fixture()
@@ -326,7 +294,7 @@ struct PluginBundledPublisherTrustTests {
             bundled = host.appendingPathComponent("Contents/Resources/OfficialPlugins/dev.lithe.plugin.java-support")
             download = root.appendingPathComponent("download/dev.lithe.plugin.java-support")
             privateKey = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 9, count: 32))
-            let url = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/publisher-bundled.plugin.json")
+            let url = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/package-trust/publisher-bundled.plugin.json")
             var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
             object["id"] = OfficialPluginCatalog.javaPluginID.rawValue
             manifest = object

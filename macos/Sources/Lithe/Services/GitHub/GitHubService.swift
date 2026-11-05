@@ -30,7 +30,13 @@ actor GitHubService {
 
     private enum Constants {
         static let tokenKey = "oauth-token"
-        static let slowDownSeconds: UInt64 = 5
+        private static let deviceClockEpoch = ContinuousClock.now
+
+        static func deviceNowMilliseconds() -> UInt64 {
+            let elapsed = deviceClockEpoch.duration(to: .now).components
+            return UInt64(max(elapsed.seconds, 0)) * 1_000
+                + UInt64(max(elapsed.attoseconds, 0) / 1_000_000_000_000_000)
+        }
     }
 
     private let core: any GitHubCorePlanning
@@ -38,20 +44,27 @@ actor GitHubService {
     private let configuration: any GitHubConfiguration
     private let secureStore: any SecureStore
     private let git: any GitHubGitOperations
+    private let deviceNowMilliseconds: @Sendable () -> UInt64
+    private let deviceSleep: @Sendable (UInt64) async throws -> Void
     private var token: String?
+    private var deviceAuthorizationStarted: (code: String, milliseconds: UInt64)?
 
     init(
         core: any GitHubCorePlanning,
         transport: any GitHubHTTPTransport,
         configuration: any GitHubConfiguration,
         secureStore: any SecureStore,
-        git: any GitHubGitOperations
+        git: any GitHubGitOperations,
+        deviceNowMilliseconds: @escaping @Sendable () -> UInt64 = { Constants.deviceNowMilliseconds() },
+        deviceSleep: @escaping @Sendable (UInt64) async throws -> Void = { try await Task.sleep(for: .milliseconds(Int64($0))) }
     ) {
         self.core = core
         self.transport = transport
         self.configuration = configuration
         self.secureStore = secureStore
         self.git = git
+        self.deviceNowMilliseconds = deviceNowMilliseconds
+        self.deviceSleep = deviceSleep
     }
 
     var canUseDeviceFlow: Bool { configuration.oauthClientID != nil }
@@ -75,6 +88,8 @@ actor GitHubService {
         guard let clientID = configuration.oauthClientID else {
             throw ServiceError.oauthClientNotConfigured
         }
+        // Count request latency too: the server may issue the code before its response arrives.
+        let started = deviceNowMilliseconds()
         let response = try await perform(
             GitHubRequest(operation: "deviceCode", clientID: clientID),
             token: nil
@@ -82,6 +97,7 @@ actor GitHubService {
         guard case .deviceAuthorization(let authorization) = response else {
             throw ServiceError.invalidResponse
         }
+        deviceAuthorizationStarted = (authorization.deviceCode, started)
         return authorization
     }
 
@@ -89,45 +105,54 @@ actor GitHubService {
         guard let clientID = configuration.oauthClientID else {
             throw ServiceError.oauthClientNotConfigured
         }
-        let expirationSeconds = min(max(authorization.expiresIn, 1), 86_400)
-        let deadline = ContinuousClock.now + .seconds(Int64(expirationSeconds))
-        var interval = min(max(authorization.interval, 1), 60)
-        while ContinuousClock.now < deadline {
+        guard let saved = deviceAuthorizationStarted, saved.code == authorization.deviceCode else {
+            throw ServiceError.authorizationExpired
+        }
+        let started = saved.milliseconds
+        defer {
+            if deviceAuthorizationStarted?.code == authorization.deviceCode { deviceAuthorizationStarted = nil }
+        }
+        var interval = authorization.interval
+        var event = "start"
+        var result: GitHubDeviceTokenResponse?
+        while true {
             try Task.checkCancellation()
-            try await Task.sleep(for: .seconds(Int64(interval)))
-            let response = try await perform(
-                GitHubRequest(
-                    operation: "deviceToken",
-                    clientID: clientID,
-                    deviceCode: authorization.deviceCode
-                ),
-                token: nil
+            let now = deviceNowMilliseconds()
+            let transition = try core.deviceAuthorizationTransition(
+                GitHubDeviceTransitionRequest(
+                    event: event,
+                    expiresIn: authorization.expiresIn,
+                    interval: interval,
+                    elapsedMilliseconds: now >= started ? now - started : 0,
+                    suggestedInterval: result?.interval
+                )
             )
-            guard case .deviceToken(let result) = response else {
-                throw ServiceError.invalidResponse
-            }
-            switch result.status {
-            case "authorized":
-                guard let accessToken = result.accessToken, !accessToken.isEmpty else {
+            interval = transition.intervalSeconds
+            switch transition.action {
+            case "wait":
+                try await deviceSleep(transition.waitMilliseconds)
+                event = "tick"
+            case "poll":
+                let response = try await perform(
+                    GitHubRequest(operation: "deviceToken", clientID: clientID, deviceCode: authorization.deviceCode),
+                    token: nil
+                )
+                guard case .deviceToken(let next) = response else { throw ServiceError.invalidResponse }
+                result = next
+                event = next.status
+            case "authorize":
+                guard let accessToken = result?.accessToken, !accessToken.isEmpty else {
                     throw ServiceError.invalidResponse
                 }
                 return try await saveAndValidate(accessToken)
-            case "pending":
-                continue
-            case "slowDown":
-                interval = min(
-                    max(result.interval ?? interval, interval) + Constants.slowDownSeconds,
-                    60
-                )
             case "expired":
                 throw ServiceError.authorizationExpired
             case "denied":
                 throw ServiceError.authorizationDenied
             default:
-                throw ServiceError.authorizationFailed(result.message ?? result.error ?? "Unknown error")
+                throw ServiceError.authorizationFailed(result?.message ?? result?.error ?? L10n.string("Unknown error"))
             }
         }
-        throw ServiceError.authorizationExpired
     }
 
     func connect(personalAccessToken: String) async throws -> GitHubUser {
@@ -320,9 +345,14 @@ actor GitHubService {
         guard case .metadata = response else { throw ServiceError.invalidResponse }
     }
 
-    func checkout(_ pullRequest: GitHubPullRequest, at workspaceURL: URL?) throws {
+    func checkoutPreview(_ pullRequest: GitHubPullRequest, repository: GitHubRepository, at workspaceURL: URL?) throws -> GitHubCheckoutIntent {
         guard let workspaceURL else { throw ServiceError.noWorkspace }
-        try git.checkoutPullRequest(pullRequest, at: workspaceURL)
+        let preview = try git.previewCheckout(pullRequest, repository: repository, at: workspaceURL)
+        return GitHubCheckoutIntent(workspaceURL: workspaceURL, request: pullRequest, repository: repository, preview: preview)
+    }
+
+    func checkout(_ intent: GitHubCheckoutIntent) throws {
+        try git.checkoutPullRequest(intent.request, repository: intent.repository, at: intent.workspaceURL, preview: intent.preview)
     }
 
     private func saveAndValidate(_ accessToken: String) async throws -> GitHubUser {

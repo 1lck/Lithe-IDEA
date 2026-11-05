@@ -1383,7 +1383,7 @@ fn refusal(category: ErrorCode, message: &str, code: &str) -> CoreError {
 
 #[cfg(test)]
 mod tests {
-    //! Golden cases from `shared/contracts/plugins/v1/fixtures/function-protocol.json`.
+    //! Golden cases from `shared/contracts/plugins/v1/fixtures/backend/function-protocol.json`.
     //! Timing behavior (cancellation, deadlines, late replies, revocation of a
     //! running call) is covered against a scripted backend in the engine tests.
 
@@ -1391,7 +1391,7 @@ mod tests {
 
     const FIXTURE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../shared/contracts/plugins/v1/fixtures/function-protocol.json"
+        "/../../shared/contracts/plugins/v1/fixtures/backend/function-protocol.json"
     ));
 
     fn fixture() -> Value {

@@ -549,7 +549,7 @@ mod tests {
     #[test]
     fn import_provider_manifest_is_generic_bounded_and_permission_checked() {
         let plugin: Value = serde_json::from_str(include_str!(
-            "../../../../shared/contracts/plugins/v1/fixtures/keymap-import-provider.plugin.json"
+            "../../../../shared/contracts/plugins/v1/fixtures/keymap-import/keymap-import-provider.plugin.json"
         ))
         .unwrap();
         let validate = crate::plugins::declarative::validate_manifest_value;
@@ -639,7 +639,7 @@ mod tests {
     #[test]
     fn source_plans_only_expose_inputs_of_the_requested_provider() {
         let plugin: Value = serde_json::from_str(include_str!(
-            "../../../../shared/contracts/plugins/v1/fixtures/keymap-import-provider.plugin.json"
+            "../../../../shared/contracts/plugins/v1/fixtures/keymap-import/keymap-import-provider.plugin.json"
         ))
         .unwrap();
         let fixture: Value = serde_json::from_str(include_str!(
@@ -664,7 +664,7 @@ mod tests {
             plan_sources_command(json!({"manifest": invalid, "providerID": "second"})).is_err()
         );
         let mut invalid: Value = serde_json::from_str(include_str!(
-            "../../../../shared/contracts/plugins/v1/fixtures/keymap-import-provider.plugin.json"
+            "../../../../shared/contracts/plugins/v1/fixtures/keymap-import/keymap-import-provider.plugin.json"
         ))
         .unwrap();
         invalid["keymapImportProviders"][1]["recognition"][0]["path"] = json!("../private");

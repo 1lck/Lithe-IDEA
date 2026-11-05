@@ -575,6 +575,7 @@
 "Cannot be used: %@" = "无法使用：%@";
 "Cannot copy a directory into itself" = "不能将目录复制到其自身或子目录中";
 "Cannot create a new conversation: %@" = "无法新建对话：%@";
+"Cannot determine; check Git configuration" = "无法确定；请检查 Git 配置";
 "Cannot encode Hook configuration." = "无法编码 Hook 配置。";
 "Cannot encode the Hook library." = "无法编码 Hook 资源库。";
 "Cannot locate the Agent user directory." = "无法定位 Agent 的用户目录。";
@@ -614,6 +615,7 @@
 "Check failed." = "检查失败。";
 "Check for Updates" = "检查更新";
 "Check for Updates…" = "检查更新…";
+"Check out pull request?" = "检出拉取请求？";
 "Check the Hook name, command, event, Agents and timeout (1–86400 seconds)." = "请检查 Hook 名称、命令、事件、Agent 和超时（1–86400 秒）。";
 "Check the MCP command, URL and headers." = "请检查 MCP 命令、URL 和请求头。";
 "Check the configuration format, API URL and model. Each configuration must be under 64 KiB." = "请检查配置格式、API 地址和模型，每份配置不得超过 64 KiB。";
@@ -628,6 +630,7 @@
 "Checking Node.js and npm…" = "正在检测 Node.js 和 npm…";
 "Checking for updates…" = "正在检查更新…";
 "Checking out pull request…" = "正在检出拉取请求…";
+"Checking pull request checkout…" = "正在检查拉取请求检出…";
 "Checking selected commits and repository state…" = "正在检查所选提交和仓库状态…";
 "Checking the branch and affected commits…" = "正在检查分支及受影响的提交…";
 "Checking…" = "检测中…";
@@ -1048,6 +1051,7 @@
 "Could not change the log directory. Try again." = "无法修改日志目录，请重试。";
 "Could not check for updates" = "无法检查更新";
 "Could not check for updates." = "无法检查更新。";
+"Could not check the pull request checkout. Check the repository and try again." = "无法检查拉取请求检出操作。请检查仓库后重试。";
 "Could not clear logs. Try again." = "无法清理日志，请重试。";
 "Could not clear this project's local history. Check storage permissions and try again." = "无法清空此项目的本地历史。请检查存储目录权限后重试。";
 "Could not compare the local adapter with the verified version." = "无法比较本地适配器与已核验版本。";
@@ -1610,6 +1614,7 @@
 "Fetch submodules on demand" = "按需获取子模块";
 "Fetch tags" = "获取标签";
 "Fetch tags that point to fetched commits" = "获取指向已获取提交的标签";
+"Fetch the pull request and create a local branch. Existing branches will not be reset." = "获取拉取请求并创建本地分支。现有分支不会被重置。";
 "Fetch this Agent's local configuration in the panel settings." = "请在设置窗口的 Agent 页面中获取该 Agent 的本机配置。";
 "Fetch web pages and convert their content to Markdown. Requires uv and Python 3.10 or later." = "抓取网页并转换为 Markdown。需要 uv 和 Python 3.10 或更高版本。";
 "Fetch when needed" = "按需获取";
@@ -2266,6 +2271,7 @@
 "Local Package" = "本地插件包";
 "Local Repository" = "本地仓库";
 "Local Variables" = "局部变量";
+"Local branch: " = "本地分支：";
 "Local changes" = "本地更改";
 "Local changes were restored with conflicts" = "本地更改已恢复，但存在冲突";
 "Local changes would be overwritten" = "本地更改将被覆盖";
@@ -2461,6 +2467,7 @@
 "Moved" = "移动";
 "Moved from %@" = "从 %@ 移动";
 "Moving…" = "正在移动…";
+"Multiple sources" = "多个来源";
 "Mute Camera" = "暂停摄像头";
 "Mute Line Breakpoints" = "暂停行断点";
 "Mute Microphone" = "静音麦克风";
@@ -2669,6 +2676,7 @@
 "No remembered choices. Check “Remember my choice” in the quit dialog to skip the question for a kind of service next time." = "暂无已记住的选择。在退出对话框中勾选“记住对这类服务的选择”后，下次遇到同类服务就不再询问。";
 "No remote" = "无远程仓库";
 "No remote URL" = "没有远程地址";
+"No remote is available for Fetch" = "没有可用于获取的远程仓库";
 "No resolver is registered for toolchain %@." = "没有为工具链 %@ 注册解析器。";
 "No revisions" = "没有修订版本";
 "No run services configured" = "未配置运行服务";
@@ -4230,6 +4238,7 @@
 "The bundled palette is an approximation; custom theme colors are not imported." = "将近似映射为 Lithe 内置配色，不导入自定义主题颜色。";
 "The call chain lists records sharing an operation ID in time order. +N ms is the offset from the first record, not its execution duration. The bar shows that offset across the operation span. Click a record to locate it in the log table." = "调用链按时间顺序列出同一操作 ID 的日志。+N ms 是距离首条日志的时间差，不是该事件的执行耗时；右侧条形表示它在整个操作时间跨度中的位置。点击记录可定位到上方表格。";
 "The checkout directory no longer exists. Repair moved worktree metadata or prune the stale Git record." = "检出目录已不存在。你可以修复移动后的工作树元数据，或清理失效的 Git 记录。";
+"The checkout or origin remote changed. Review the pull request checkout again." = "当前检出状态或 origin 远程仓库已更改。请重新检查拉取请求检出操作。";
 "The checkout path does not exist" = "检出路径不存在";
 "The chosen file is missing or not executable." = "所选文件不存在或不可执行。";
 "The clipboard image could not be read" = "无法读取剪贴板中的图片";
@@ -4397,6 +4406,7 @@
 "The proxy server's host name or IP address, for example 127.0.0.1." = "代理服务器的主机名或 IP 地址，例如 127.0.0.1。";
 "The proxy server's port, for example 7890." = "代理服务器的端口，例如 7890。";
 "The published update manifest is invalid and cannot be trusted. Open the Release page and download the update manually." = "已发布的更新清单无效，无法信任。请打开 Release 页面手动下载更新。";
+"The pull request branch already exists. Rename or remove it before retrying." = "拉取请求分支已存在。请重命名或删除该分支后重试。";
 "The pull request will return to the open list and can receive new reviews." = "该拉取请求将回到打开列表，并可继续接收审查。";
 "The rebase was aborted. Inspect the branch and working files before continuing your work." = "变基已中止。继续工作前请检查分支和工作文件。";
 "The remote plugin package changes approved commands or permissions. Install and approve that version first." = "远程插件包更改了已批准的命令或权限，请先安装并批准该版本。";
@@ -4867,6 +4877,7 @@
 "User-facing sentence for release notes" = "适合发布说明的面向用户句子";
 "User-unhandled" = "用户未处理";
 "Username" = "用户名";
+"Uses a custom tag refspec" = "使用自定义标签 refspec";
 "Uses the claude.ai account signed in to Claude Code. Sign in with /login in Claude Code if the Agent asks." = "使用 Claude Code 中登录的 claude.ai 账号；如提示未登录，请在 Claude Code 中用 /login 登录。";
 "Uses your local ChatGPT account." = "使用本机 ChatGPT 账号。";
 "Using the PATH saved last time" = "仍在使用上次保存的 PATH";
@@ -5169,6 +5180,16 @@
 "git.changelists.invalidName" = "请输入不重名、非空且不超过 100 个字符的名称。";
 "git.diff.repositoryPreviewEmptyTitle" = "仓库差异";
 "git.diff.repositoryPreviewTitle" = "仓库差异: %1$@";
+"git.fetch.behavior.custom" = "使用自定义标签 refspec";
+"git.fetch.behavior.noRemotes" = "没有可用于获取的远程仓库";
+"git.fetch.behavior.source.multiple" = "多个来源";
+"git.fetch.behavior.unavailable" = "无法确定；请检查 Git 配置";
+"git.log.branchNameAlreadyExists" = "分支名称 %1$@ 已存在";
+"git.log.branchNameClashesWithBranchPrefix" = "分支名称 %1$@ 与现有本地分支 %2$@ 冲突";
+"git.log.branchNameClashesWithDirectory" = "分支名称 %1$@ 与同名的本地分支目录冲突";
+"git.log.branchNameClashesWithRemote" = "分支名称 %1$@ 与同名的远程分支冲突";
+"git.log.branchNameEmpty" = "请指定新分支的名称";
+"git.log.branchNameHead" = "HEAD 是保留关键字";
 "git.log.olderCommitsFailed" = "无法加载更早的提交，点击刷新历史";
 "git.rollback.confirm" = "回滚";
 "git.rollback.deleteAdded" = "删除新增文件的本地副本";
@@ -5184,6 +5205,13 @@
 "git.status.partialRefresh" = "部分仓库无法刷新，显示的更改可能已过期。";
 "git.status.refreshFailed" = "无法刷新 Git 状态。请刷新以确认更改结果。";
 "git.unifiedView" = "统一视图";
+"github.prCheckoutBranchLabel" = "本地分支：";
+"github.prCheckoutChanged" = "当前检出状态或 origin 远程仓库已更改。请重新检查拉取请求检出操作。";
+"github.prCheckoutChecking" = "正在检查拉取请求检出…";
+"github.prCheckoutConfirmDescription" = "获取拉取请求并创建本地分支。现有分支不会被重置。";
+"github.prCheckoutConfirmTitle" = "检出拉取请求？";
+"github.prCheckoutConflict" = "拉取请求分支已存在。请重命名或删除该分支后重试。";
+"github.prCheckoutInspectFailed" = "无法检查拉取请求检出操作。请检查仓库后重试。";
 "history.clearFailed" = "无法清空此项目的本地历史。请检查存储目录权限后重试。";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "ide.build.busy" = "已有构建操作正在运行";

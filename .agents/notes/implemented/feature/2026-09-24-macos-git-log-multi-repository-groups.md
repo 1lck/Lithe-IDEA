@@ -123,16 +123,16 @@ rename / delete）都只针对一个活动仓库，闭包直接从活动 `gitRep
 `macos/Sources/Lithe/Views/Git/GitRepositoryColor.swift`），该仓库下的每条引用行左侧
 有一条 2.5px 色条，方便一眼看出某条引用属于哪个仓库。
 
-颜色按仓库在 `feature.availableRepositoryRoots` 里的**位置**取
-`palette[index % 8]`，按标准化路径匹配，而不是按“当前可见的仓库”重新编号。原因是
-`availableRepositoryRoots` 是**工作树过滤之前**的完整顺序列表：如果按可见集合编号，
-隐藏工作树时剩余仓库的颜色会整体前移、颜色跟着行漂移，用户会以为引用换了仓库。正确做法
-是把完整列表传给 `GitRepositoryColor.index(for:in:)`；错误做法是用
-`GitRepositoryHierarchy.visibleRepositoryRoots(...)` 的结果去定色。
+颜色槽位由 Core 的 `git.repositoryColorAssignments` 基于工作树过滤前的完整有序仓库
+身份计算，两端只保留色板和已返回的槽位。隐藏工作树时，不能把过滤后的列表交给 Core，
+否则剩余仓库会重新编号。单仓库时 Core 标记无需显示色点；不认识的仓库使用 Core 返回
+的回退槽位。
 
-颜色只在可见仓库数 `> 1` 时出现：仓库节点判断 `GitRepositoryColor.isVisible(for:)`
-（即完整列表 `count > 1`），单仓库布局把 `repositoryColorIndex` 传 `nil`，因此单仓库
-工作区的渲染和改动前完全一样，没有色点也没有色条。
+工作区仓库身份在发现和手动添加时已经去重。平台按每页最多 128 个身份请求槽位，保留
+全局偏移，并在仓库列表更换或视图关闭后丢弃迟到的结果；不在列表行、滚动或每次视图
+重绘时调用 Core。加载失败时暂用中性色，而不是在平台重新实现分配规则。
+共享 fixture 覆盖工作树隐藏、跨页偏移、色板回绕和未知仓库，双端桥接与视图测试覆盖
+结果的实际使用。完整原生界面和滚动性能仍需实机验收。
 
 `GitReferenceRowView`（`GitLogView.swift`）因此新增 `repositoryColorIndex: Int?` 入参，
 并且**必须纳入它的自定义 `==`**：只有把色号纳入相等比较，隐藏 / 显示工作树导

@@ -153,7 +153,7 @@ macOS 的声明式路线由 `MacToolchainDiscovery` 执行，宿主不认识任�
 
 阶段 3 清理 `ProjectRuntimeService` 的专属选择链和 `project-jdk`、`project-maven` 等被替代引用前，须按 [Java/Maven 迁移清单](2026-10-26-maven-java-domain-plugin-migration.md)核对真实消费者和数据迁移。Node、Go、Python 等在其插件声明定义之前保持当前实现，不新增特判；不能在本次提案删除仍在生产使用的代码，或用永久兼容别名伪装迁移完成。
 
-契约草案位于 `shared/contracts/plugins/v1/proposals/toolchains/`，其中尚未实现的消费者启动、查询客户端和界面行为继续保留未支持标记。Core 已实现的清单贡献和命令由本次正式契约单独说明，不把草案全集直接当作能力承诺；旧 `local-v1` schema 与 Run 配置读写路径保持不变，新 Core 固定解析入口只处理调用方传入的 JSON，不打开文件或保存忽略规则。合并后在插件文档仓库按合并的 `preview` 提交执行 `node scripts/contract.mjs sync --revision <commit>`；实际插件后端协议接入时同步 Node/Java SDK，并在合并前执行 SDK 端到端验证。每阶段的功能矩阵只记录实际实现和目标平台运行证据，不把本提案或 Core 单元测试当作 Windows 已完成。
+契约草案位于 `shared/contracts/plugins/v1/toolchains/proposal/`，其中尚未实现的消费者启动、查询客户端和界面行为继续保留未支持标记。Core 已实现的清单贡献和命令由本次正式契约单独说明，不把草案全集直接当作能力承诺；旧 `local-v1` schema 与 Run 配置读写路径保持不变，新 Core 固定解析入口只处理调用方传入的 JSON，不打开文件或保存忽略规则。合并后在插件文档仓库按合并的 `preview` 提交执行 `node scripts/contract.mjs sync --revision <commit>`；实际插件后端协议接入时同步 Node/Java SDK，并在合并前执行 SDK 端到端验证。每阶段的功能矩阵只记录实际实现和目标平台运行证据，不把本提案或 Core 单元测试当作 Windows 已完成。
 
 ## 风险
 

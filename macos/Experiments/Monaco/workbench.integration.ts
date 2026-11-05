@@ -27,7 +27,7 @@ import { contextMenuCases } from "./context-menu.integration";
 import { IContextMenuService } from "monaco-editor/esm/vs/platform/contextview/browser/contextView.js";
 import { installPluginGrammar } from "@lithe/editor/plugin-grammar-tokenizer";
 import { attachPluginEditorActions } from "@lithe/editor/plugin-editor-actions";
-import httpGrammarSource from "../../../shared/contracts/plugins/v1/fixtures/grammars/http.monarch.json" with { type: "text" };
+import httpGrammarSource from "../../../shared/contracts/plugins/v1/fixtures/languages/grammars/http.monarch.json" with { type: "text" };
 import { imeInputCases } from "./ime-input.integration";
 import basicHighlighting from "../../../shared/fixtures/editor/basic-file-highlighting-v1.json";
 import { toMonacoLanguageId } from "@lithe/editor/language";

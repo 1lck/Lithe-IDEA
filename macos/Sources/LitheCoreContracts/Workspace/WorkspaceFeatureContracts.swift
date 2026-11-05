@@ -90,6 +90,8 @@ package protocol WorkspaceOperations: Sendable {
         at rootURL: URL,
         visibilityRules: FileVisibilityRules
     ) -> [String: [FileNode]]?
+    /// Loads the workspace root's immediate tree rows.
+    func rootRows(at rootURL: URL, visibilityRules: FileVisibilityRules) -> [FileNode]?
 }
 
 extension WorkspaceOperations {
@@ -100,6 +102,11 @@ extension WorkspaceOperations {
     package func releaseIndexing(at rootURL: URL, revision: UInt64, ownerID: String?) {}
     package func configureIndexing(at rootURL: URL, policy: WorkspaceIndexingPolicy, refresh: Bool, ownerID: String?) throws -> WorkspaceIndexingStatus { WorkspaceIndexingStatus() }
     package func invalidateDirectoryListings() {}
+
+    package func rootRows(at rootURL: URL, visibilityRules: FileVisibilityRules) -> [FileNode]? {
+        let row = FileNode(url: rootURL, isDirectory: true, children: nil)
+        return childRows(of: [row], at: rootURL, visibilityRules: visibilityRules)?[rootURL.standardizedFileURL.path]
+    }
 
     /// Operations whose snapshots already carry the whole tree never leave a
     /// directory unloaded, so they have nothing to list.

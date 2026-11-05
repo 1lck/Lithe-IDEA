@@ -6,14 +6,15 @@
   "macos": {
     "evidence": [
       "rust/lithe-core/src/project_generators/",
-      "shared/contracts/plugins/v1/fixtures/project-generator.plugin.json",
-      "shared/contracts/plugins/v1/fixtures/project-plans.json",
+      "shared/contracts/plugins/v1/fixtures/project-generators/project-generator.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/project-generators/project-plans.json",
       "Plugins/mac/Official/JavaSupport/plugin.json",
       "macos/Sources/Lithe/Views/Workspace/NewProjectView.swift",
       "macos/Sources/Lithe/Application/Features/NewProjectFeatureModel.swift",
       "macos/Sources/Lithe/Services/ProjectGeneration/ProjectGenerationService.swift",
       "macos/Sources/Lithe/Platform/MacOS/ProjectGeneration/MacProjectGenerationPlatform.swift",
-      "macos/Tests/LitheTests/ProjectGenerationTests.swift"
+      "macos/Tests/LitheTests/ProjectGenerationTests.swift",
+      "rust/lithe-core/src/project_generators/archive.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -26,5 +27,6 @@
     "verificationStatus": "not-applicable"
   },
   "owner": "Plugin Platform",
-  "verification": "macOS：从欢迎页和项目切换器点“新建项目”，确认左栏有“新建项目”（Java、空项目）和“生成器”（Maven Archetype、Spring Boot）两组且可搜索。Java 选 Maven、默认 JDK 创建，确认生成 pom.xml（maven.compiler.release 等于所选 JDK 主版本）、.gitignore 和 src/main/java/org/example/Main.java，项目打开后 Main.java 已打开、Build 工具窗口识别 Maven 项目。勾选“创建 Git 仓库”时项目根目录有 .git。Spring Boot 选几个依赖创建，确认从 start.spring.io 下载并解压、mvnw 可执行；把服务器 URL 改成不可达地址时报错且目标目录下没有残留的 .*.lithe-creating-* 临时目录。Maven Archetype 在已安装 mvn 时生成 quickstart 项目，未安装时提示找不到 mvn。停用 Java Support 后，三个条目变灰、创建按钮不可用，只出现一条“启用 Java Support”，点击后条目恢复可用；未安装 Maven 插件时出现“在插件市场中查找”并跳到市场搜索 maven。目标目录已存在时拒绝创建且不改动原目录。Windows：宿主不声明 projectGenerators，需要它的插件在市场中隐藏。"
+  "verification": "macOS：从欢迎页和项目切换器点“新建项目”，确认左栏有“新建项目”（Java、空项目）和“生成器”（Maven Archetype、Spring Boot）两组且可搜索。Java 选 Maven、默认 JDK 创建，确认生成 pom.xml（maven.compiler.release 等于所选 JDK 主版本）、.gitignore 和 src/main/java/org/example/Main.java，项目打开后 Main.java 已打开、Build 工具窗口识别 Maven 项目。勾选“创建 Git 仓库”时项目根目录有 .git。Spring Boot 选几个依赖创建，确认从 start.spring.io 下载并解压、mvnw 可执行；把服务器 URL 改成不可达地址时报错且目标目录下没有残留的 .*.lithe-creating-* 临时目录。Maven Archetype 在已安装 mvn 时生成 quickstart 项目，未安装时提示找不到 mvn。停用 Java Support 后，三个条目变灰、创建按钮不可用，只出现一条“启用 Java Support”，点击后条目恢复可用；未安装 Maven 插件时出现“在插件市场中查找”并跳到市场搜索 maven。目标目录已存在时拒绝创建且不改动原目录。Windows：宿主不声明 projectGenerators，需要它的插件在市场中隐藏。",
+  "notes": "#1478 拆分（Core）：生成器归档解压先预检全部条目（条目数、展开字节、目录深度 64 层、路径总字节 16 MiB），只经过真实目录（不跟随符号链接，Windows 还拒绝 reparse point），按 32 KiB 分块复制并在块间检查取消；违反约定报 plugin.project.archiveInvalid，取消或超时作为 Core 错误返回且不再写入。Windows 额外拒绝设备名、ADS 和非法字符。macOS 的 project.extractArchive 没有取消作用域，只受预检和上限影响。"
 }

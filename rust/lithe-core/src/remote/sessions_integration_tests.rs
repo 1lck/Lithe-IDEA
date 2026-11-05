@@ -104,7 +104,7 @@ fn remote_build_detects_host_models_normalizes_diagnostics_and_invalidates_sync(
     .unwrap();
     let manifest: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../shared/contracts/plugins/v1/fixtures/build-static-file.plugin.json"
+        "/../../shared/contracts/plugins/v1/fixtures/build-systems/build-static-file.plugin.json"
     )))
     .unwrap();
     let detection = host.request(
@@ -161,6 +161,42 @@ fn remote_build_detects_host_models_normalizes_diagnostics_and_invalidates_sync(
     assert_eq!(std::fs::read_dir(placeholder).unwrap().count(), 0);
 }
 
+/// A remote root opened through a host symbolic link resolves outside the
+/// local placeholder; the empty-root boundary must ask the host, not the
+/// unmaterialized local projection, before scanning.
+#[test]
+fn remote_build_detects_a_root_opened_through_a_host_symbolic_link() {
+    let host = HostFixture::new();
+    let root = host.root.join("host");
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"linked-host\"\nversion = \"1.0.0\"\n",
+    )
+    .unwrap();
+    let link = host.root.join("opened-link");
+    std::os::unix::fs::symlink(&root, &link).unwrap();
+    let manifest: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../shared/contracts/plugins/v1/fixtures/build-systems/build-static-file.plugin.json"
+    )))
+    .unwrap();
+    let detection = host.request_at(
+        &link,
+        "build.detect",
+        json!({"workspaceRoot": host.root.join("placeholder"),
+        "plugins": [{"manifest": manifest}], "options": {}}),
+    );
+    assert_eq!(detection["status"], "ok", "{detection}");
+    let instance = &detection["detection"]["instances"][0];
+    assert_eq!(instance["id"], "cargo:.", "{detection}");
+    assert_eq!(
+        instance["model"]["projects"][0]["name"], "linked-host",
+        "{detection}"
+    );
+}
+
 #[test]
 fn remote_maven_build_reads_reactor_and_current_host_test_reports() {
     let host = HostFixture::new();
@@ -172,7 +208,7 @@ fn remote_maven_build_reads_reactor_and_current_host_test_reports() {
     std::fs::write(root.join("child/target/surefire-reports/TEST-Fixture.xml"), "<testsuite name=\"Fixture\" tests=\"1\"><testcase classname=\"Fixture\" name=\"hostTest\" time=\"0.25\"/></testsuite>").unwrap();
     let manifest: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../shared/contracts/plugins/v1/fixtures/build-host-integration.plugin.json"
+        "/../../shared/contracts/plugins/v1/fixtures/build-systems/build-host-integration.plugin.json"
     )))
     .unwrap();
     let detected = host.request(
@@ -222,6 +258,70 @@ impl Drop for HostFixture {
         }
         let _ = std::fs::remove_dir_all(&self.root);
     }
+}
+
+#[test]
+fn remote_directory_listing_uses_host_paths_visibility_and_natural_order() {
+    let host = HostFixture::new();
+    let root = host.root.join("host");
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::create_dir(root.join("hidden")).unwrap();
+    std::fs::create_dir_all(root.join(".git/worktrees/nested")).unwrap();
+    std::fs::create_dir(root.join("nested")).unwrap();
+    std::fs::write(
+        root.join("nested/.git"),
+        "gitdir: ../.git/worktrees/nested\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("src/remote.txt"), "remote").unwrap();
+    std::fs::write(root.join("v0.1.12.md"), "").unwrap();
+    std::fs::write(root.join("v0.1.4.md"), "").unwrap();
+    std::fs::write(host.root.join("placeholder/local-only.txt"), "sentinel").unwrap();
+
+    let response = host.call(
+        "workspace.listDirectories",
+        json!({"paths": ["", "src", "nested"], "hiddenDirectoryNames": ["hidden"]}),
+    );
+    let directories = response["directories"].as_array().unwrap();
+    let names = |index: usize| -> Vec<&str> {
+        directories[index]["children"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["name"].as_str().unwrap())
+            .collect()
+    };
+    assert_eq!(names(0), ["src", "v0.1.4.md", "v0.1.12.md"]);
+    assert_eq!(names(1), ["remote.txt"]);
+    assert_eq!(directories.len(), 2, "nested worktrees cannot be expanded");
+    assert_eq!(directories[0]["nestedWorktrees"], json!(["nested"]));
+    assert_eq!(
+        std::fs::read_to_string(host.root.join("placeholder/local-only.txt")).unwrap(),
+        "sentinel"
+    );
+    // File type already arrives with readDir. Growing the number of regular
+    // files must not add one network round trip per file.
+    let count = crate::remote::workspace_io::stat_requests_for_test;
+    let before = count();
+    host.call("workspace.listDirectories", json!({"paths": [""]}));
+    let baseline_stats = count() - before;
+    assert!(
+        baseline_stats > 0,
+        "the test must observe remote metadata requests"
+    );
+    for index in 0..64 {
+        std::fs::write(root.join(format!("additional-{index}.txt")), "").unwrap();
+    }
+    let before = count();
+    host.call("workspace.listDirectories", json!({"paths": [""]}));
+    let expanded_stats = count() - before;
+    eprintln!(
+        "remote directory stat requests: baseline={baseline_stats}, plus 64 files={expanded_stats}"
+    );
+    assert_eq!(
+        expanded_stats, baseline_stats,
+        "regular files must not add stat RPCs"
+    );
 }
 
 #[test]

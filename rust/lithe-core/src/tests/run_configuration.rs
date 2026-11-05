@@ -1734,6 +1734,14 @@ fn maven_test_source_main_uses_the_test_classpath() {
 #[test]
 fn plain_java_main_uses_the_jdk_without_maven() {
     let root = temporary_root("run-config-plain-java-main");
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            crate::execution::generated_layer::forget(&self.0);
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
     let source = "src/com/example/WorkerMain.java";
     fs::create_dir_all(root.join("src/com/example")).unwrap();
     fs::write(
@@ -1775,11 +1783,7 @@ fn plain_java_main_uses_the_jdk_without_maven() {
             "command": "runConfig.createLaunchPlan",
             "payload": {
                 "root": root,
-                "configurationId": "java-main:com.example.WorkerMain",
-                "javaLaunch": {
-                    "mainClass": "injected.Main",
-                    "classPaths": ["/untrusted/classes"]
-                }
+                "configurationId": "java-main:com.example.WorkerMain"
             }
         })
         .to_string(),
@@ -1787,8 +1791,9 @@ fn plain_java_main_uses_the_jdk_without_maven() {
     .unwrap();
     assert_eq!(plan["ok"], true, "{plan}");
     assert_eq!(plan["data"]["executable"]["toolchain"], "project-jdk");
-    // Non-Maven java.main also compiles then runs by its recorded main class;
-    // project-model metadata is accepted only for Maven-owned sources.
+    // Without a prepared JDT target, standalone Java compiles then runs by its
+    // recorded main class. The JDT-path regression separately covers prepared
+    // unmanaged projects, which must retain upstream dependency/module paths.
     let output_dir = ".lithe/run/classes/java-main-com.example.WorkerMain";
     assert_eq!(
         plan["data"]["preLaunchSteps"],
@@ -1802,8 +1807,6 @@ fn plain_java_main_uses_the_jdk_without_maven() {
         plan["data"]["arguments"],
         serde_json::json!(["com.example.WorkerMain"])
     );
-
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -2050,6 +2053,53 @@ fn stale_plain_java_main_is_rejected_when_the_source_belongs_to_maven() {
     );
 
     fs::remove_dir_all(root).unwrap();
+}
+
+/// Prepared targets from JDT keep their upstream paths without a Maven marker.
+/// No tool is executed: the request already carries the shared launch result.
+#[test]
+fn java_launch_without_maven_consumes_jdt_paths_without_recompiling_one_file() {
+    let root = temporary_root("run-config-jdt-non-maven");
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            crate::execution::generated_layer::forget(&self.0);
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join("src/main/java/example")).unwrap();
+    fs::write(
+        root.join("src/main/java/example/Main.java"),
+        "package example; class Main { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+    seed_generated(&root, serde_json::json!({
+        "version": 2,
+        "configurations": [{
+            "id": "java-main:example.Main", "name": "Main", "provider": "java.main",
+            "execution": "application", "cwd": ".", "toolchains": {"java": "selected-jdk"},
+            "extensions": {"java": {"source": "src/main/java/example/Main.java"},
+                "maven": {"mainClass": "example.Main", "jvmArguments": [], "programArguments": []}}
+        }]
+    }).to_string());
+    let response: Value = serde_json::from_str(&execute_json(&serde_json::json!({
+        "id": "jdt-non-maven", "command": "runConfig.createLaunchPlan",
+        "payload": {"root": root, "configurationId": "java-main:example.Main",
+            "javaLaunch": {"mainClass": "example.Main", "classPaths": ["upstream/classes", "upstream/dependency.jar"],
+                "modulePaths": ["upstream/modules"]}}
+    }).to_string())).unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    let plan = &response["data"];
+    assert_eq!(plan["executable"]["toolchain"], "selected-jdk");
+    assert_eq!(plan["arguments"], serde_json::json!(["example.Main"]));
+    assert_eq!(
+        plan["classpath"],
+        serde_json::json!(["upstream/classes", "upstream/dependency.jar"])
+    );
+    assert_eq!(plan["modulepath"], serde_json::json!(["upstream/modules"]));
+    assert!(plan["preLaunchSteps"].as_array().is_none_or(Vec::is_empty));
 }
 
 #[test]

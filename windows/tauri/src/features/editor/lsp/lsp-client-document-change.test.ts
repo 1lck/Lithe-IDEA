@@ -21,15 +21,15 @@ function clientWith(content: string) {
 
 test("ranges that lead to the editor's text are sent without the document", async () => {
   const { client, documents } = clientWith("abcd");
-  const invoke = spyOn(adapter, "invokeLsp").mockResolvedValue(undefined);
+  const invoke = spyOn(adapter, "invokeLsp").mockResolvedValue({ documentVersion: 17, changed: true } as never);
   try {
     const changes = [insert(2, "X"), insert(3, "Y")];
     await client.synchronizeDocument(filePath, "abXYcd", changes);
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(invoke).toHaveBeenCalledWith("lsp_document_change", {
-      filePath, version: 2, contentChanges: changes, attachmentId: "first",
+      filePath, contentChanges: changes, attachmentId: "first",
     });
-    expect(documents.get(key)).toMatchObject({ content: "abXYcd", version: 2 });
+    expect(documents.get(key)).toMatchObject({ content: "abXYcd", version: 17 });
   } finally {
     invoke.mockRestore();
   }
@@ -37,12 +37,12 @@ test("ranges that lead to the editor's text are sent without the document", asyn
 
 test("ranges already covered by an earlier full sync are not replayed on top of it", async () => {
   const { client } = clientWith("abXcd");
-  const invoke = spyOn(adapter, "invokeLsp").mockResolvedValue(undefined);
+  const invoke = spyOn(adapter, "invokeLsp").mockResolvedValue({ documentVersion: 17, changed: true } as never);
   try {
     await client.synchronizeDocument(filePath, "abXYcd", [insert(2, "X"), insert(3, "Y")]);
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(invoke).toHaveBeenCalledWith("lsp_document_change", {
-      filePath, content: "abXYcd", version: 2, attachmentId: "first",
+      filePath, content: "abXYcd", attachmentId: "first",
     });
   } finally {
     invoke.mockRestore();
@@ -53,14 +53,26 @@ test("a rejected ranged change is retried with the full text", async () => {
   const { client, documents } = clientWith("ab");
   const invoke = spyOn(adapter, "invokeLsp")
     .mockRejectedValueOnce(new Error("documentNotSynchronized"))
-    .mockResolvedValue(undefined);
+    .mockResolvedValue({ documentVersion: 17, changed: true } as never);
   try {
     await client.synchronizeDocument(filePath, "abX", [insert(2, "X")]);
     expect(invoke).toHaveBeenCalledTimes(2);
     expect(invoke).toHaveBeenLastCalledWith("lsp_document_change", {
-      filePath, content: "abX", version: 2, attachmentId: "first",
+      filePath, content: "abX", attachmentId: "first",
     });
-    expect(documents.get(key)).toMatchObject({ content: "abX", version: 2 });
+    expect(documents.get(key)).toMatchObject({ content: "abX", version: 17 });
+  } finally {
+    invoke.mockRestore();
+  }
+}, 1000);
+
+
+test("a Core no-op keeps its document version instead of inventing another", async () => {
+  const { client, documents } = clientWith("old");
+  const invoke = spyOn(adapter, "invokeLsp").mockResolvedValue({ documentVersion: 1, changed: false } as never);
+  try {
+    await client.synchronizeDocument(filePath, "already synced");
+    expect(documents.get(key)).toMatchObject({ content: "already synced", version: 1 });
   } finally {
     invoke.mockRestore();
   }

@@ -38,6 +38,29 @@ pub fn execute_json(request: &str) -> String {
     runtime::execute_json(request)
 }
 
+/// Starts the existing LSP engine with a native resource owner attached before
+/// initialization. The callback only records the ID; it must not call Core.
+/// Unlike a wire request, this also preserves ownership when the first write
+/// fails and the ordinary start command returns an error.
+pub fn start_lsp_owned(
+    mut payload: serde_json::Value,
+    registered: impl FnOnce(&str),
+) -> Result<serde_json::Value, CoreError> {
+    lsp::resolve_request_paths("lsp.startServer", &mut payload)?;
+    let request = serde_json::from_value(payload).map_err(|error| {
+        CoreError::new(ErrorCode::InvalidRequest, "Invalid language-server launch.")
+            .with_details(error.to_string())
+    })?;
+    let response = lsp::interface::start_server_owned(request, registered)?;
+    serde_json::to_value(response).map_err(|error| {
+        CoreError::new(
+            ErrorCode::Unknown,
+            "Could not encode language-server launch.",
+        )
+        .with_details(error.to_string())
+    })
+}
+
 /// Requests cooperative cancellation of an active operation.
 ///
 /// Native Rust hosts use this entry point while the Swift and C++ clients keep
@@ -80,6 +103,12 @@ pub fn git_askpass_main(prompt: &str) -> i32 {
 
 /// Shared classification for ordinary project watcher events after root resolution.
 pub use project::is_workspace_event_relevant;
+
+/// Shared, IO-free classification for coalesced native Git watcher events.
+pub use git::{
+    classify_git_metadata_change, GitMetadataChangeKind, GitMetadataEventClassification,
+    GitMetadataWatchContext,
+};
 
 /// Rewrites `<localRepository>` in a Maven settings document while keeping
 /// every other element and comment, so hosts editing the user's own
