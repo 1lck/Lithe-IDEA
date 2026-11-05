@@ -1314,6 +1314,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.diff` | Produce a structured working-tree, index, reference, commit, or stash patch |
 | `git.parsePatch` | Parse a complete saved patch into Core-owned per-file documents |
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
+| `git.planDiffBlocks` | Plan commit-review blocks for one file; Core owns every block patch |
+| `git.applyDiffBlock` | Include, exclude or roll back one planned block under the write lease |
+| `git.stageGutterChange` | Stage one editor gutter change with its original bytes |
 | `git.history` | Return the legacy combined reference snapshot and first bounded commit page |
 | `git.references` | Return deterministic refs, recent local branches, ahead/behind state, and effective Git identity without scanning commit history |
 | `git.remotes` | Return configured fetch remote names and URLs |
@@ -2284,7 +2287,33 @@ already applies, so Shelf restoration can be retried after a partial failure.
 It returns the normal Git process result. `restoreIndex` applies a saved
 index patch to both the index and worktree; `worktree` applies only to the
 worktree. Pathspecs must be workspace-relative and must not contain absolute
-paths or `..` components.
+paths or `..` components. A `discard` patch is refused with
+`GIT_HUNK_ROLLBACK_UNSAFE` when Git's attributes for any touched path name a
+`filter` or `working-tree-encoding`, because those can rewrite bytes the patch
+never saw.
+
+`git.diff` with `includeFileSections` and a complete-file context splits each
+file's single hunk into Git-default (3 context line) hunks. Each hunk carries
+its own byte-faithful `patch` plus `lineStart` / `lineEnd` (end-exclusive
+indices into the file's `lines`); a section that cannot be split yields no
+hunks, so no writable hunk is offered. Hosts never build patch text.
+
+`git.planDiffBlocks` accepts `{root, path, originalPath?, staged?}` and returns
+`{token, blocks, worktree, index}`. `worktree` is the HEAD to worktree (or, with
+`staged`, HEAD to index) complete-file section and `index` is HEAD to index,
+both without patch text. Each block is `{id, checked, indeterminate, canToggle,
+canRollback, wholeFile?}`; `id` is `line-<index>` into the section's unified
+lines. `token` identifies the read. `git.applyDiffBlock` accepts the same
+target plus `{blockId, action, token}` where `action` is `include`, `exclude`
+or `rollback`. Core rebuilds the plan under the repository write lease and
+refuses with `GIT_DIFF_BLOCK_STALE` when the token no longer matches,
+`GIT_DIFF_BLOCK_UNAVAILABLE` for a block that cannot take the action, and
+`GIT_HUNK_ROLLBACK_UNSAFE` for a rollback blocked by attributes.
+`git.stageGutterChange` accepts `{root, path, originalStart, originalEnd,
+modifiedStart, modifiedEnd, originalLines, modifiedLines}` (one-based,
+end-exclusive) and stages exactly that change from the original bytes, or fails
+with `GIT_GUTTER_CHANGE_STALE` when the index or saved file no longer shows the
+compared lines. See `shared/fixtures/git/diff-blocks-v1.json`.
 
 `git.remotes` returns `{remotes: [{name, url}]}` for fetch entries. `git.tags`
 returns `{tags: [{name, objectId, targetId, message, date, isAnnotated}]}`;

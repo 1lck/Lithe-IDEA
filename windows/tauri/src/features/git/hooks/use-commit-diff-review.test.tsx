@@ -9,6 +9,7 @@ import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import * as dialog from "@/ui/dialog";
 import * as statusApi from "../api/git-status-api";
 import * as diffApi from "../api/git-diff-api";
+import * as blockApi from "../api/git-diff-block-api";
 import * as repoApi from "../api/git-repo-api";
 import { emitGitChanged } from "../events/git-events";
 import { createSingleFileWorkingTreeDiff } from "../utils/working-tree-multi-diff";
@@ -22,6 +23,31 @@ const diff = fullDiff(head, work);
 let current = createSingleFileWorkingTreeDiff({ repoPath: target.repoPath, fileKey,
   diff, target, commitPreview: true });
 let indexed = head;
+// A fake Core: it owns the worktree, the index, the planned blocks and the token.
+let planWork = work, version = 0;
+let planMode: "normal" | "index-only" | "binary" | "renamed" = "normal";
+const blockIDs: Record<number, string> = { 1: "line-2", 3: "line-5" };
+const fakePlan = async (request: blockApi.CommitDiffBlockTarget): Promise<blockApi.CommitDiffBlockPlan> => {
+  const index = fullDiff(head, indexed);
+  const base = request.staged ? index : fullDiff(head, planWork);
+  const flags = planMode === "binary" ? { is_binary: true } : planMode === "renamed" ? { is_renamed: true } : {};
+  const shown = planMode === "index-only" ? { ...base, lines: [] } : { ...base, ...flags };
+  const blocks = planMode === "normal" ? head.flatMap((_, at) => planWork[at] === head[at] ? [] : [{
+    id: blockIDs[at], checked: indexed[at] === planWork[at], indeterminate: false, canToggle: true,
+    canRollback: indexed[at] !== planWork[at], leftStart: 0, rightStart: 0 }]) : [];
+  return { diff: shown, staged: index, blocks, token: `t${version}` };
+};
+const fakeApply = async (request: blockApi.CommitDiffBlockTarget, blockID: string,
+  action: blockApi.CommitDiffBlockAction, token: string): Promise<blockApi.CommitDiffBlockWriteResult> => {
+  if (token !== `t${version}`) return "stale";
+  const at = blockID === blockIDs[1] ? 1 : 3;
+  if (action === "include") indexed = indexed.map((value, k) => k === at ? planWork[k] : value);
+  else if (action === "exclude") indexed = indexed.map((value, k) => k === at ? head[k] : value);
+  else planWork = planWork.map((value, k) => k === at ? indexed[k] : value);
+  version++;
+  emitGitChanged({ repoPath: request.repoPath, filePath: request.filePath, source: "stage-hunk" });
+  return "applied";
+};
 let review: ReturnType<typeof useCommitDiffReview>;
 let restore: () => void, root: Root, container: HTMLElement;
 let stage: ReturnType<typeof spyOn>, status: ReturnType<typeof spyOn>, workingDiff: ReturnType<typeof spyOn>;
@@ -44,6 +70,7 @@ beforeEach(() => {
   document.body.append(container);
   root = createRoot(container);
   indexed = head;
+  planWork = work; version = 0; planMode = "normal";
   current = createSingleFileWorkingTreeDiff({ repoPath: target.repoPath, fileKey, diff, target, commitPreview: true });
   const state = useBufferStore.getState();
   spies.push(spyOn(useBufferStore, "getState").mockImplementation(() => ({ ...state,
@@ -53,11 +80,8 @@ beforeEach(() => {
   } as ReturnType<typeof useBufferStore.getState>)));
   status = spyOn(statusApi, "getGitStatus").mockImplementation(async () => ({ branch: "main", ahead: 0, behind: 0,
     files: [{ path: "file.txt", status: "modified", staged: indexed !== head, worktree: true }] }));
-  stage = spyOn(statusApi, "stageHunk").mockImplementation(async () => {
-    indexed = ["a", "B", "c", "d"];
-    emitGitChanged({ repoPath: target.repoPath, filePath: target.filePath, source: "stage-hunk" });
-    return true;
-  });
+  stage = spyOn(blockApi, "applyCommitDiffBlock").mockImplementation(fakeApply);
+  spies.push(spyOn(blockApi, "planCommitDiffBlocks").mockImplementation(fakePlan));
   workingDiff = spyOn(diffApi, "getWorkingTreePathDiff").mockResolvedValue(diff);
   spies.push(status, stage, workingDiff,
     spyOn(diffApi, "getFullContextFileDiff").mockImplementation(async () => fullDiff(head, indexed)));
@@ -80,7 +104,8 @@ test("Commit preview uses the owning repository, writes one block, retains other
   expect(review.blocks).toHaveLength(2);
   await act(async () => { await review.toggle(review.blocks[0].id, true); });
   expect(stage).toHaveBeenCalledTimes(1);
-  expect(stage.mock.calls[0][0]).toBe(target.repoPath);
+  expect(stage.mock.calls[0][0].repoPath).toBe(target.repoPath);
+  expect(stage.mock.calls[0].slice(1)).toEqual(["line-2", "include", "t0"]);
   expect(review.blocks.map(block => block.checked)).toEqual([true, false]);
   expect(current.files[0].lines).toEqual(diff.lines);
   expect(current.workingTreeTargets![fileKey].hasStagedChanges).toBe(true);
@@ -90,11 +115,8 @@ test("Commit preview uses the owning repository, writes one block, retains other
 test("block rollback confirms once when discard confirmation is enabled and retains included changes", async () => {
   const settings = useSettingsStore.getState();
   const confirm = spyOn(dialog, "showConfirmDialog").mockResolvedValue(true);
-  const rollback = spyOn(statusApi, "discardHunk").mockImplementation(async () => {
-    workingDiff.mockResolvedValue(fullDiff(head, indexed));
-    return true;
-  });
-  spies.push(confirm, rollback, spyOn(useSettingsStore, "getState").mockReturnValue({
+  const rollback = stage;
+  spies.push(confirm, spyOn(useSettingsStore, "getState").mockReturnValue({
     ...settings, settings: { ...settings.settings, confirmBeforeDiscard: true },
   }));
   await act(async () => { root.render(<LocaleProvider language="en-US"><Harness /></LocaleProvider>); });
@@ -104,9 +126,10 @@ test("block rollback confirms once when discard confirmation is enabled and reta
   await act(async () => { result = await review.rollback(unselected); });
   expect(result).toBe("applied");
   expect(confirm).toHaveBeenCalledTimes(1);
-  expect(rollback).toHaveBeenCalledTimes(1);
-  expect(rollback.mock.calls[0][0]).toBe(target.repoPath);
-  expect(rollback.mock.calls[0][1].file_path).toBe(target.filePath);
+  expect(rollback).toHaveBeenCalledTimes(2);
+  expect(rollback.mock.calls[1][0].repoPath).toBe(target.repoPath);
+  expect(rollback.mock.calls[1][0].filePath).toBe(target.filePath);
+  expect(rollback.mock.calls[1][2]).toBe("rollback");
   expect(review.blocks.map(block => block.checked)).toEqual([true]);
   expect(indexed).toEqual(["a", "B", "c", "d"]);
   expect(commitDiffWritePending()).toBe(false);
@@ -115,8 +138,8 @@ test("block rollback confirms once when discard confirmation is enabled and reta
 test("block rollback cancellation skips the discard entirely", async () => {
   const settings = useSettingsStore.getState();
   const confirm = spyOn(dialog, "showConfirmDialog").mockResolvedValue(false);
-  const rollback = spyOn(statusApi, "discardHunk");
-  spies.push(confirm, rollback, spyOn(useSettingsStore, "getState").mockReturnValue({
+  const rollback = stage;
+  spies.push(confirm, spyOn(useSettingsStore, "getState").mockReturnValue({
     ...settings, settings: { ...settings.settings, confirmBeforeDiscard: true },
   }));
   await act(async () => { root.render(<LocaleProvider language="en-US"><Harness /></LocaleProvider>); });
@@ -130,11 +153,8 @@ test("block rollback cancellation skips the discard entirely", async () => {
 test("block rollback applies immediately when discard confirmation is disabled", async () => {
   const settings = useSettingsStore.getState();
   const confirm = spyOn(dialog, "showConfirmDialog");
-  const rollback = spyOn(statusApi, "discardHunk").mockImplementation(async () => {
-    workingDiff.mockResolvedValue(fullDiff(head, indexed));
-    return true;
-  });
-  spies.push(confirm, rollback, spyOn(useSettingsStore, "getState").mockReturnValue({
+  const rollback = stage;
+  spies.push(confirm, spyOn(useSettingsStore, "getState").mockReturnValue({
     ...settings, settings: { ...settings.settings, confirmBeforeDiscard: false },
   }));
   await act(async () => { root.render(<LocaleProvider language="en-US"><Harness /></LocaleProvider>); });
@@ -151,8 +171,8 @@ test("a confirmed rollback does not survive a snapshot refresh during the dialog
   const confirm = spyOn(dialog, "showConfirmDialog").mockImplementation(
     () => new Promise<boolean>((resolve) => { releaseDialog = resolve; }),
   );
-  const rollback = spyOn(statusApi, "discardHunk");
-  spies.push(confirm, rollback, spyOn(useSettingsStore, "getState").mockReturnValue({
+  const rollback = stage;
+  spies.push(confirm, spyOn(useSettingsStore, "getState").mockReturnValue({
     ...settings, settings: { ...settings.settings, confirmBeforeDiscard: true },
   }));
   await act(async () => { root.render(<LocaleProvider language="en-US"><Harness /></LocaleProvider>); });
@@ -177,8 +197,8 @@ test("a confirmation from the previous owner does not publish stale error onto t
   const confirm = spyOn(dialog, "showConfirmDialog").mockImplementation(
     () => new Promise<boolean>((resolve) => { releaseDialog = resolve; }),
   );
-  const rollback = spyOn(statusApi, "discardHunk");
-  spies.push(confirm, rollback, spyOn(useSettingsStore, "getState").mockReturnValue({
+  const rollback = stage;
+  spies.push(confirm, spyOn(useSettingsStore, "getState").mockReturnValue({
     ...settings, settings: { ...settings.settings, confirmBeforeDiscard: true },
   }));
   const nextKey = "unstaged:next.txt";
@@ -212,11 +232,8 @@ test("repeat clicks while the confirmation is open stay on one dialog", async ()
   const confirm = spyOn(dialog, "showConfirmDialog").mockImplementation(
     () => new Promise<boolean>((resolve) => { releaseDialog = resolve; }),
   );
-  const rollback = spyOn(statusApi, "discardHunk").mockImplementation(async () => {
-    workingDiff.mockResolvedValue(fullDiff(head, indexed));
-    return true;
-  });
-  spies.push(confirm, rollback, spyOn(useSettingsStore, "getState").mockReturnValue({
+  const rollback = stage;
+  spies.push(confirm, spyOn(useSettingsStore, "getState").mockReturnValue({
     ...settings, settings: { ...settings.settings, confirmBeforeDiscard: true },
   }));
   await act(async () => { root.render(<LocaleProvider language="en-US"><Harness /></LocaleProvider>); });
@@ -244,7 +261,7 @@ test("automatic refresh ignores events belonging to a different repository", asy
 
 test("index-only changes retain a file, index title and whole-file inclusion without inventing worktree blocks", async () => {
   indexed = ["a", "B", "c", "d"];
-  workingDiff.mockResolvedValue({ ...diff, lines: [] });
+  planMode = "index-only";
   const include = spyOn(statusApi, "setFilesStaged").mockImplementation(async () => { indexed = head; return true; });
   spies.push(include);
   await act(async () => { root.render(<LocaleProvider language="en-US"><Harness /></LocaleProvider>); });
@@ -258,10 +275,9 @@ test("index-only changes retain a file, index title and whole-file inclusion wit
   expect(stage).not.toHaveBeenCalled();
 });
 
-test.each(["binary", "renamed", "lossy"])("%s file inclusion stays mixed with staged and worktree changes", async kind => {
+test.each(["binary", "renamed"] as const)("%s file inclusion stays mixed with staged and worktree changes", async kind => {
   indexed = ["a", "B", "c", "d"];
-  workingDiff.mockResolvedValue({ ...diff, ...(kind === "binary" ? { is_binary: true }
-    : kind === "renamed" ? { is_renamed: true } : { has_lossy_line_endings: true }) });
+  planMode = kind;
   const include = spyOn(statusApi, "setFilesStaged").mockResolvedValue(true);
   spies.push(include);
   await act(async () => { root.render(<LocaleProvider language="en-US"><Harness /></LocaleProvider>); });
@@ -372,15 +388,15 @@ test("acceptance: refresh and confirm in the same batch must not roll back the r
   const confirm = spyOn(dialog, "showConfirmDialog").mockImplementation(
     () => new Promise<boolean>((resolve) => { releaseDialog = resolve; }),
   );
-  const rollback = spyOn(statusApi, "discardHunk").mockResolvedValue(true);
-  spies.push(confirm, rollback, spyOn(useSettingsStore, "getState").mockReturnValue({
+  const rollback = stage;
+  spies.push(confirm, spyOn(useSettingsStore, "getState").mockReturnValue({
     ...settings, settings: { ...settings.settings, confirmBeforeDiscard: true },
   }));
   await act(async () => { root.render(<LocaleProvider language="en-US"><Harness /></LocaleProvider>); });
   const pending = review.rollback(review.blocks[0].id);
   let result: unknown;
   try {
-    workingDiff.mockResolvedValue(fullDiff(head, ["a", "NEW-UNCONFIRMED", "c", "D"]));
+    planWork = ["a", "NEW-UNCONFIRMED", "c", "D"]; version++;
     await act(async () => {
       await review.refresh();
       releaseDialog?.(true);

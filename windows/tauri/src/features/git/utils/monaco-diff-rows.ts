@@ -1,13 +1,8 @@
 import type { ReviewRow } from "@lithe/editor/diff-review";
 import type { GitDiff, GitDiffLine, GitHunk } from "../types/git.types";
 import { parseDiffHunkRange } from "./git-diff-helpers";
-import { buildByteFaithfulHunk, buildFaithfulHunkFromRange } from "./lossy-rollback-patch";
 
-/** Context kept around each change when a full-file patch is split back into
- * stageable hunks. Matches Git's default `--unified=3`. */
-const FULL_CONTEXT_HUNK_CONTEXT_LINES = 3;
-
-/** A stageable range of a full-context patch, as indices into `diff.lines`. */
+/** A Core-split Git-default hunk of a complete-file patch, as indices into `diff.lines`. */
 interface FullContextHunk {
   id: string;
   /** First changed line; the hunk's action band is rendered above it. */
@@ -15,49 +10,29 @@ interface FullContextHunk {
   start: number;
   /** Exclusive end index. */
   end: number;
+  header: string;
+  patch: string;
 }
 
 const isChange = (line: GitDiffLine) => line.line_type === "added" || line.line_type === "removed";
 
-/** Splits a full-context patch the way Git would at three context lines, so
- * staging granularity does not grow to the whole file. Returns null for sparse
- * patches, which keep the host's own hunks. */
+/** Reads the stageable hunks Core split from a complete-file patch. Core owns
+ * both the split and each hunk's patch bytes; this only locates them in the
+ * display lines. Returns null for sparse patches, which keep the host's own
+ * hunks, and an empty list when Core offered no writable hunk. */
 function fullContextHunks(diff: GitDiff): FullContextHunk[] | null {
   const { lines } = diff;
   if (!diff.is_full_context || lines[0]?.line_type !== "header"
     || lines.some((line, index) => index > 0 && line.line_type === "header")) return null;
-  const context = FULL_CONTEXT_HUNK_CONTEXT_LINES;
   const hunks: FullContextHunk[] = [];
-  for (let index = 1; index < lines.length; index++) {
-    if (!isChange(lines[index])) continue;
-    let last = index;
-    // Like Git, changes whose surrounding context would touch share one hunk.
-    for (let next = index + 1; next < lines.length && next - last - 1 <= 2 * context; next++) {
-      if (isChange(lines[next])) last = next;
-    }
-    hunks.push({
-      id: `hunk-${index}`,
-      anchor: index,
-      start: Math.max(1, index - context),
-      end: Math.min(lines.length, last + context + 1),
-    });
-    index = last;
+  for (const core of diff.core_hunks ?? []) {
+    const { lineStart: start, lineEnd: end } = core;
+    if (start === undefined || end === undefined || !core.patch) continue;
+    const anchor = lines.findIndex((line, index) => index >= start && index < end && isChange(line));
+    if (anchor < 0) continue;
+    hunks.push({ id: core.id, anchor, start, end, header: core.header, patch: core.patch });
   }
   return hunks;
-}
-
-function hunkHeader(lines: GitDiffLine[], start: number, end: number): string {
-  const range = (key: "old_line_number" | "new_line_number") => {
-    const numbers = lines.slice(start, end).flatMap(line => line[key] ?? []);
-    if (numbers.length > 0) return `${numbers[0]},${numbers.length}`;
-    // Git names the line before an empty range, or 0 at the start of the file.
-    for (let index = start - 1; index >= 0; index--) {
-      const previous = lines[index][key];
-      if (previous !== undefined) return `${previous},0`;
-    }
-    return "0,0";
-  };
-  return `@@ -${range("old_line_number")} +${range("new_line_number")} @@`;
 }
 
 const rowKind = (line: GitDiffLine): ReviewRow["kind"] =>
@@ -108,53 +83,31 @@ export function monacoDiffRows(diff: GitDiff, options: { hideHunkHeaders?: boole
 
 /** Resolve the host's patch identity, never Monaco's aligned display ranges. */
 export function monacoDiffHunk(diff: GitDiff, hunkID: string): GitHunk | null {
-  if (diff.is_truncated || !/^hunk-(0|[1-9]\d*)$/.test(hunkID)) return null;
+  if (diff.is_truncated) return null;
   const derived = fullContextHunks(diff);
   if (derived) {
     const hunk = derived.find(candidate => candidate.id === hunkID);
     if (!hunk) return null;
-    // When the diff carries a byte-faithful writePatch, slice the target
-    // hunk from the raw patch so the host receives original bytes; fall
-    // back to display lines for non-lossy diffs.
-    if (diff.writePatch) {
-      const changed = diff.lines
-        .slice(hunk.start, hunk.end)
-        .filter(line => line.line_type === "added" || line.line_type === "removed");
-      if (changed.length > 0) {
-        // Collect the full range of old-side and new-side line numbers from
-        // all changed lines in this hunk; slice each contiguous run and
-        // concatenate into one patch covering the entire selection.
-        const oldNumbers = changed
-          .map(line => line.old_line_number)
-          .filter((n): n is number => n !== undefined && n !== null);
-        const newNumbers = changed
-          .map(line => line.new_line_number)
-          .filter((n): n is number => n !== undefined && n !== null);
-        const oldStart = oldNumbers.length > 0 ? Math.min(...oldNumbers) : Math.min(...newNumbers);
-        const newStart = newNumbers.length > 0 ? Math.min(...newNumbers) : oldStart;
-        const oldEnd = oldNumbers.length > 0 ? Math.max(...oldNumbers) : newStart;
-        const newEnd = newNumbers.length > 0 ? Math.max(...newNumbers) : oldEnd;
-        // Try the contiguous-run slicer first (handles single-run cases
-        // correctly); when its result doesn't cover the full target range
-        // (separated changes), fall through to the range-based builder.
-        const faithful = buildByteFaithfulHunk(diff, oldStart, newStart, oldEnd, newEnd)
-          ?? buildFaithfulHunkFromRange(diff, oldStart, newStart, oldEnd, newEnd);
-        if (faithful) return faithful;
-      }
-    }
+    // The patch is Core's, with original bytes; display lines only label it.
     return {
       file_path: diff.file_path,
       lines: [
-        { line_type: "header", content: hunkHeader(diff.lines, hunk.start, hunk.end) },
+        { line_type: "header", content: hunk.header },
         ...diff.lines.slice(hunk.start, hunk.end),
       ],
+      rawPatch: hunk.patch,
     };
   }
+  if (!/^hunk-(0|[1-9]\d*)$/.test(hunkID)) return null;
   const start = Number(hunkID.slice(5));
   const header = diff.lines[start];
   if (header?.line_type !== "header" || !parseDiffHunkRange(header.content)) return null;
   let end = start + 1;
   while (end < diff.lines.length && diff.lines[end].line_type !== "header") end++;
   if (end === start + 1) return null;
-  return { file_path: diff.file_path, lines: diff.lines.slice(start, end) };
+  // Sparse hunks are Core's own; the patch is found by its header, and a
+  // missing or ambiguous match leaves the hunk without a writable patch.
+  const matches = (diff.core_hunks ?? []).filter(core => core.header === header.content && core.patch);
+  return { file_path: diff.file_path, lines: diff.lines.slice(start, end),
+    ...(matches.length === 1 ? { rawPatch: matches[0].patch } : {}) };
 }

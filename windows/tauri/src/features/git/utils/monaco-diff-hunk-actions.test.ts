@@ -15,6 +15,10 @@ const diff: GitDiff = {
     { line_type: "removed", content: "oldTail", old_line_number: 502 },
     { line_type: "added", content: "newTail", new_line_number: 502 },
   ],
+  core_hunks: [
+    { id: "hunk-0", header: "@@ -91,2 +91,2 @@", patch: "core patch 0\n" },
+    { id: "hunk-1", header: "@@ -501,2 +501,2 @@", patch: "core patch 1\n" },
+  ],
 };
 const context = { repoPath: "C:/workspace/nested-repo", isStaged: false };
 function operations() {
@@ -37,7 +41,7 @@ function deferred() {
 }
 
 // A full-context review of a CRLF file whose display lines lost their CR:
-// discard is sliced from the raw writePatch into a zero-context hunk (`rawPatch`).
+// every action writes Core's byte-faithful hunk patch verbatim.
 const lossyDiff: GitDiff = {
   file_path: "f.txt", is_new: false, is_deleted: false, is_renamed: false, has_lossy_line_endings: true,
   is_full_context: true,
@@ -48,55 +52,41 @@ const lossyDiff: GitDiff = {
     { line_type: "added", content: "B", new_line_number: 2 },
     { line_type: "context", content: "c", old_line_number: 3, new_line_number: 3 },
   ],
-  writePatch: "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1,3 +1,3 @@\n a\r\n-b\r\n+B\r\n c\r\n",
+  core_hunks: [{
+    id: "hunk-0", header: "@@ -1,3 +1,3 @@", lineStart: 1, lineEnd: 5,
+    patch: "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1,3 +1,3 @@\n a\r\n-b\r\n+B\r\n c\r\n",
+  }],
 };
 
-describe("zero-context discard probe", () => {
-  const discardHeader = (target: GitDiff) => {
+describe("Core-owned hunk patches", () => {
+  const hunkID = (target: GitDiff) => {
     const rows = monacoDiffRows(target);
     return (rows.find(row => row.actionAnchor) ?? rows.find(row => row.hunkID))!.hunkID!;
   };
 
-  // Regression: ordinary hunks keep their context lines for git apply; probing
-  // them re-read a differently shaped diff and refused every rollback.
-  test("an ordinary context hunk discards without running the probe", async () => {
-    const api = { ...rollbackOperations(), validate: mock(async () => false) };
+  test("a sparse hunk is written with the patch Core returned for its header", async () => {
+    const api = rollbackOperations();
     const owner = createMonacoDiffHunkActions(diff, discardContext, api);
-    expect(await owner.apply(discardHeader(diff), "discard")).toBe("applied");
-    expect(api.validate).not.toHaveBeenCalled();
-    expect(api.discard.mock.calls[0]![1].rawPatch).toBeUndefined();
+    expect(await owner.apply("hunk-4", "discard")).toBe("applied");
+    expect(api.discard.mock.calls[0]![1].rawPatch).toBe("core patch 1\n");
   });
 
-  test("a confirmed zero-context hunk is written with its raw patch", async () => {
-    const api = { ...rollbackOperations(), validate: mock(async (_hunk: GitHunk) => true) };
+  test("a complete-file hunk of a CRLF file keeps its original bytes for every action", async () => {
+    const api = rollbackOperations();
     const owner = createMonacoDiffHunkActions(lossyDiff, discardContext, api);
-    expect(await owner.apply(discardHeader(lossyDiff), "discard")).toBe("applied");
-    const written = api.discard.mock.calls[0]![1];
-    expect(written.rawPatch).toContain("-b\r\n+B\r\n");
-    expect(api.validate.mock.calls[0]![0]).toBe(written);
+    expect(owner.actions).toEqual(["stage", "discard"]);
+    expect(await owner.apply(hunkID(lossyDiff), "discard")).toBe("applied");
+    expect(api.discard.mock.calls[0]![1].rawPatch).toContain("-b\r\n+B\r\n");
   });
 
-  for (const [name, validate, expected] of [
-    ["a failed probe", async () => false, "stale"],
-    ["a missing probe", undefined, "stale"],
-    ["a throwing probe", async () => { throw new Error("git unavailable"); }, "failed"],
-  ] as const) {
-    test(`${name} refuses the zero-context write`, async () => {
-      const api = { ...rollbackOperations(), ...(validate ? { validate } : {}) };
-      const owner = createMonacoDiffHunkActions(lossyDiff, discardContext, api);
-      expect(await owner.apply(discardHeader(lossyDiff), "discard")).toBe(expected);
-      expect(api.discard).not.toHaveBeenCalled();
-    });
-  }
-
-  test("a stale refusal does not lock the owner against a retry", async () => {
-    let current = false;
-    const api = { ...rollbackOperations(), validate: mock(async () => current) };
-    const owner = createMonacoDiffHunkActions(lossyDiff, discardContext, api);
-    expect(await owner.apply(discardHeader(lossyDiff), "discard")).toBe("stale");
-    current = true;
-    expect(await owner.apply(discardHeader(lossyDiff), "discard")).toBe("applied");
-    expect(api.discard).toHaveBeenCalledTimes(1);
+  test("a hunk Core offered no patch for is never written", async () => {
+    const api = rollbackOperations();
+    const bare = { ...diff, core_hunks: undefined };
+    const owner = createMonacoDiffHunkActions(bare, discardContext, api);
+    expect(await owner.apply("hunk-0", "stage")).toBe("ignored");
+    expect(await owner.apply("hunk-0", "discard")).toBe("ignored");
+    expect(api.stage).not.toHaveBeenCalled();
+    expect(api.discard).not.toHaveBeenCalled();
   });
 });
 
@@ -123,7 +113,7 @@ describe("Windows Monaco diff hunk actions", () => {
       expect(owner.action).toBe(action);
       expect(await owner.apply(header.hunkID!, action)).toBe("applied");
       expect(api[action]).toHaveBeenCalledWith(context.repoPath, {
-        file_path: "src/Sample.java", lines: diff.lines.slice(4),
+        file_path: "src/Sample.java", lines: diff.lines.slice(4), rawPatch: "core patch 1\n",
       });
       expect(api[other]).not.toHaveBeenCalled();
       owner.dispose();
@@ -148,7 +138,7 @@ describe("Windows Monaco diff hunk actions", () => {
     const refreshed = createMonacoDiffHunkActions({ ...diff, lines: diff.lines.slice(4) }, context, api);
     expect(await refreshed.apply("hunk-0", "stage")).toBe("applied");
     expect(api.stage).toHaveBeenLastCalledWith(context.repoPath, {
-      file_path: diff.file_path, lines: diff.lines.slice(4),
+      file_path: diff.file_path, lines: diff.lines.slice(4), rawPatch: "core patch 1\n",
     });
     refreshed.dispose();
   });
@@ -179,7 +169,7 @@ describe("Windows Monaco diff hunk actions", () => {
       expect(await inFlight).toBe("ignored");
       expect(await current.apply("hunk-4", "unstage")).toBe("applied");
       expect(api.stage).toHaveBeenCalledTimes(1);
-      expect(api.unstage).toHaveBeenCalledWith("D:/other", { file_path: diff.file_path, lines: diff.lines.slice(4) });
+      expect(api.unstage).toHaveBeenCalledWith("D:/other", { file_path: diff.file_path, lines: diff.lines.slice(4), rawPatch: "core patch 1\n" });
       current.dispose();
       expect(await current.apply("hunk-0", "unstage")).toBe("ignored");
       expect(api.unstage).toHaveBeenCalledTimes(1);
@@ -209,7 +199,7 @@ describe("Windows Monaco diff hunk actions", () => {
     const owner = createMonacoDiffHunkActions(diff, discardContext, api);
     expect(owner.actions).toEqual(["stage", "discard"]);
     expect(await owner.apply("hunk-4", "discard")).toBe("applied");
-    const hunk = { file_path: "src/Sample.java", lines: diff.lines.slice(4) };
+    const hunk = { file_path: "src/Sample.java", lines: diff.lines.slice(4), rawPatch: "core patch 1\n" };
     expect(api.discard).toHaveBeenCalledWith(context.repoPath, hunk);
     expect(api.stage).not.toHaveBeenCalled();
     // The patch is stale until the Git change event replaces it.
@@ -223,6 +213,8 @@ describe("Windows Monaco diff hunk actions", () => {
     const full: GitDiff = {
       ...diff,
       is_full_context: true,
+      core_hunks: [{ id: "hunk-0", header: "@@ -7,6 +7,6 @@", patch: "core patch full\n",
+        lineStart: 7, lineEnd: 14 }],
       lines: [
         { line_type: "header", content: "@@ -1,12 +1,12 @@" },
         ...Array.from({ length: 12 }, (_, index) => index === 9
@@ -239,6 +231,7 @@ describe("Windows Monaco diff hunk actions", () => {
     expect(api.discard).toHaveBeenCalledWith(context.repoPath, {
       file_path: "src/Sample.java",
       lines: [{ line_type: "header", content: "@@ -7,6 +7,6 @@" }, ...full.lines.slice(7, 14)],
+      rawPatch: "core patch full\n",
     });
     owner.dispose();
   });
@@ -346,7 +339,6 @@ describe("Windows Monaco diff hunk actions", () => {
     for (const disabled of [
       createMonacoDiffHunkActions(diff, undefined, api),
       createMonacoDiffHunkActions({ ...diff, is_truncated: true }, context, api),
-      createMonacoDiffHunkActions({ ...diff, has_lossy_line_endings: true }, context, api),
     ]) {
       expect(disabled.action).toBeNull();
       expect(await disabled.apply("hunk-0", "stage")).toBe("ignored");

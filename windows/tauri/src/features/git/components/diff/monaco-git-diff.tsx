@@ -16,7 +16,6 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import { useTranslation } from "@/i18n/locale-provider";
 import { joinPath } from "@/utils/path-helpers";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { isWorktreeWritePatchCurrent } from "@/features/git/api/git-diff-api";
 import { showConfirmDialog } from "@/ui/dialog";
 import { discardHunk, stageHunk, unstageHunk } from "../../api/git-status-api";
 import {
@@ -359,10 +358,7 @@ export default function MonacoGitDiff({
 
   useEffect(() => {
     const owner = createMonacoDiffHunkActions(diff, repoPath ? { repoPath, isStaged, canDiscard } : undefined,
-      { stage: stageHunk, unstage: unstageHunk, discard: discardHunk, confirmDiscard: confirmDiscardRef.current,
-        // Zero-context hunks are sliced from `writePatch`; confirm that raw
-        // patch, not the display diff, is still current before writing.
-        validate: () => isWorktreeWritePatchCurrent(repoPath, sourcePath, diff.writePatch) });
+      { stage: stageHunk, unstage: unstageHunk, discard: discardHunk, confirmDiscard: confirmDiscardRef.current });
     hunkActions.current = owner;
     setActionError(null);
     return () => {

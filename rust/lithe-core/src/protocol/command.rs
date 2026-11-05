@@ -652,6 +652,12 @@ pub enum CoreCommand {
     GitParsePatch,
     /// Applies a patch to the index or working tree (`git.apply`).
     GitApply,
+    /// Plans commit-review blocks and their Core-owned patches (`git.planDiffBlocks`).
+    GitPlanDiffBlocks,
+    /// Includes, excludes or rolls back one planned block (`git.applyDiffBlock`).
+    GitApplyDiffBlock,
+    /// Stages one editor gutter change with its original bytes (`git.stageGutterChange`).
+    GitStageGutterChange,
     /// Lists references and bounded commit history (`git.history`).
     GitHistory,
     /// Filters commit dates against explicit absolute bounds (`git.historyQuery`).
@@ -1056,6 +1062,9 @@ impl CoreCommand {
             "git.diff" => Some(Self::GitDiff),
             "git.parsePatch" => Some(Self::GitParsePatch),
             "git.apply" => Some(Self::GitApply),
+            "git.planDiffBlocks" => Some(Self::GitPlanDiffBlocks),
+            "git.applyDiffBlock" => Some(Self::GitApplyDiffBlock),
+            "git.stageGutterChange" => Some(Self::GitStageGutterChange),
             "git.history" => Some(Self::GitHistory),
             "git.historyQuery" => Some(Self::GitHistoryQuery),
             "git.references" => Some(Self::GitReferences),

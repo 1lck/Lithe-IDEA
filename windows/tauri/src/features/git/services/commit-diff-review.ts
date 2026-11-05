@@ -1,12 +1,14 @@
-import equal from "fast-deep-equal";
-import type { GitDiff, GitFile, GitHunk } from "../types/git.types";
-import type { CommitDiffBlock } from "../utils/commit-diff-blocks";
-import { planCommitDiffBlocks } from "../utils/commit-diff-blocks";
+import type { GitDiff, GitFile } from "../types/git.types";
+import type { CommitDiffBlock, CommitDiffBlockAction, CommitDiffBlockWriteResult } from "../api/git-diff-block-api";
 
+/** One Core read: both comparisons, the planned blocks and the token that
+ * identifies the read. Core refuses any write planned from another read. */
 export interface CommitDiffSnapshot {
   diff: GitDiff;
   staged: GitDiff;
   file: GitFile;
+  blocks: CommitDiffBlock[];
+  token: string;
 }
 export interface CommitDiffReviewState {
   snapshot: CommitDiffSnapshot | null;
@@ -30,9 +32,9 @@ export function commitDiffPresentation(snapshot: CommitDiffSnapshot, stagedView:
 }
 interface Dependencies {
   read: () => Promise<CommitDiffSnapshot | null>;
-  stage: (hunk: GitHunk) => Promise<boolean>;
-  unstage: (hunk: GitHunk) => Promise<boolean>;
-  rollback: (hunk: GitHunk) => Promise<boolean>;
+  /** Core re-plans under its write lock and refuses a stale token. */
+  writeBlock: (snapshot: CommitDiffSnapshot, blockId: string, action: CommitDiffBlockAction)
+    => Promise<CommitDiffBlockWriteResult>;
   includeFile: (included: boolean) => Promise<boolean>;
   changed: (state: CommitDiffReviewState) => void;
   beginWrite?: () => () => void;
@@ -41,8 +43,8 @@ interface Dependencies {
 }
 
 /** One live file review owns reads and block writes, including direct rollback.
- * Git index state is the only source of selection. Re-read before writing;
- * stale controls must never apply an old snapshot. */
+ * Git index state is the only source of selection. Core validates the snapshot
+ * token under its write lock; stale controls never apply an old snapshot. */
 export function createCommitDiffReview(dependencies: Dependencies) {
   let state: CommitDiffReviewState = { snapshot: null, blocks: [], busy: false };
   let closed = false, generation = 0, dirty = false;
@@ -53,7 +55,7 @@ export function createCommitDiffReview(dependencies: Dependencies) {
     dependencies.changed(state);
   };
   const accept = (snapshot: CommitDiffSnapshot | null, error?: CommitDiffReviewState["error"]) => {
-    publish({ snapshot, blocks: snapshot ? planCommitDiffBlocks(snapshot.diff, snapshot.staged) ?? [] : [],
+    publish({ snapshot, blocks: snapshot?.blocks ?? [],
       busy: state.busy, ...(error ? { error } : {}) });
   };
   async function refresh(): Promise<void> {
@@ -83,23 +85,22 @@ export function createCommitDiffReview(dependencies: Dependencies) {
       || dependencies.writeAvailable?.() === false) return "ignored";
     if (id !== null && (!block || (action === "rollback" ? !block.canRollback : !block.canToggle))) return "ignored";
     if (id === null && action === "rollback") return "ignored";
-    const hunk = action === "include" ? block?.stage : action === "exclude" ? block?.unstage : block?.rollback;
-    if (id !== null && !hunk && !block?.wholeFile) return "ignored";
     const endWrite = dependencies.beginWrite?.();
     publish({ ...state, busy: true, error: undefined });
     try {
       if (closed || dependencies.canWrite?.() === false) return "ignored";
-      const request = generation;
-      const fresh = await dependencies.read();
-      if (closed || dependencies.canWrite?.() === false) return "ignored";
-      if (request !== generation || !equal(fresh, snapshot)) {
-        accept(fresh, "stale");
-        return "stale";
+      let result: boolean;
+      if (id === null || block?.wholeFile) {
+        result = await dependencies.includeFile(action === "include");
+      } else {
+        const outcome = await dependencies.writeBlock(snapshot, id, action);
+        if (outcome === "stale") {
+          // The file moved after the user saw the block: show what is there now.
+          publish({ ...state, error: "stale" });
+          return "stale";
+        }
+        result = outcome === "applied";
       }
-      const result = id === null || block?.wholeFile
-        ? await dependencies.includeFile(action === "include")
-        : await (action === "include" ? dependencies.stage : action === "exclude"
-          ? dependencies.unstage : dependencies.rollback)(hunk!);
       if (!closed && !result) publish({ ...state, error: "write" });
       return result ? "applied" : "failed";
     } catch {

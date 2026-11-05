@@ -1048,6 +1048,13 @@ pub struct GitDiffHunkResponse {
     /// A rename's content-only patch preserves its file identity when applied.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_patch: Option<String>,
+    /// First unified line (index into the file's `lines`) this hunk covers.
+    /// Present for complete-file diffs, which Core splits into Git-default hunks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line_start: Option<usize>,
+    /// End-exclusive unified line index; paired with `line_start`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line_end: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize)]

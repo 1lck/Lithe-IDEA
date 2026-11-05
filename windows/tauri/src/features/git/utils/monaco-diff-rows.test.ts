@@ -13,7 +13,7 @@ const fileLines = (from: number, to: number) =>
 
 // Both patches are real `git diff` output for one edit of a 40-line file:
 // `--unified=1073741823` for the review, and Git's default `--unified=3`.
-const fullContext: GitDiff = {
+const fullContextBase: GitDiff = {
   ...parse([
     "@@ -1,40 +1,40 @@",
     " line 1", "-line 2", "+line 2 changed", ...fileLines(3, 12), "+inserted after 12",
@@ -21,6 +21,16 @@ const fullContext: GitDiff = {
     ...fileLines(39, 40), "",
   ].join("\n")),
   is_full_context: true,
+};
+// Core splits the complete-file patch at Git's default context and owns each
+// patch; this mirrors only the line ranges Core reports for this fixture.
+const coreRanges = [[1, 7], [11, 25], [37, 45]] as const;
+const fullContext: GitDiff = {
+  ...fullContextBase,
+  core_hunks: ["@@ -1,5 +1,5 @@", "@@ -10,13 +10,13 @@", "@@ -35,6 +35,6 @@"].map((header, index) => ({
+    id: `hunk-${index}`, header, patch: `core patch ${index}\n`,
+    lineStart: coreRanges[index][0], lineEnd: coreRanges[index][1],
+  })),
 };
 const gitDefaultHunks = parse([
   "@@ -1,5 +1,5 @@", " line 1", "-line 2", "+line 2 changed", ...fileLines(3, 5),
@@ -74,7 +84,7 @@ describe("full-context Monaco diff rows", () => {
   test("anchor one action band per hunk and leave distant context unowned", () => {
     const rows = monacoDiffRows(fullContext);
     const anchors = rows.filter(row => row.actionAnchor);
-    expect(anchors.map(row => row.hunkID)).toEqual(["hunk-2", "hunk-14", "hunk-40"]);
+    expect(anchors.map(row => row.hunkID)).toEqual(["hunk-0", "hunk-1", "hunk-2"]);
     expect(rows.find(row => row.oldLine === 30)?.hunkID).toBeNull();
   });
 
@@ -90,13 +100,17 @@ describe("full-context Monaco diff rows", () => {
         ? { line_type: "header" as const, content: line.content.replace(/ @@.*$/, " @@") }
         : line),
     };
-    expect(derived).toEqual(expected.map(withoutHint));
+    expect(derived.map(hunk => hunk && { ...hunk, rawPatch: undefined })).toEqual(
+      expected.map(withoutHint).map(hunk => hunk && { ...hunk, rawPatch: undefined }));
+    expect(derived.map(hunk => hunk?.rawPatch)).toEqual(["core patch 0\n", "core patch 1\n", "core patch 2\n"]);
   });
 
   test("name the preceding line for a hunk with an empty side", () => {
     const added = parse("@@ -0,0 +1,2 @@\n+first\n+second\n");
-    const hunk = monacoDiffHunk({ ...added, is_full_context: true }, "hunk-1");
+    const hunk = monacoDiffHunk({ ...added, is_full_context: true, core_hunks: [{
+      id: "hunk-0", header: "@@ -0,0 +1,2 @@", patch: "core patch\n", lineStart: 1, lineEnd: 3 }] }, "hunk-0");
     expect(hunk?.lines[0]).toEqual({ line_type: "header", content: "@@ -0,0 +1,2 @@" });
+    expect(hunk?.rawPatch).toBe("core patch\n");
   });
 
   test("keep sparse-patch hunks when the patch is not marked full-context", () => {
@@ -106,9 +120,9 @@ describe("full-context Monaco diff rows", () => {
   });
 
   test("reject identities that do not start a derived hunk", () => {
-    for (const id of ["hunk-0", "hunk-3", "hunk-30", "line-2"]) {
+    for (const id of ["hunk-3", "hunk-30", "line-2"]) {
       expect(monacoDiffHunk(fullContext, id)).toBeNull();
     }
-    expect(monacoDiffHunk({ ...fullContext, is_truncated: true }, "hunk-2")).toBeNull();
+    expect(monacoDiffHunk({ ...fullContext, is_truncated: true }, "hunk-0")).toBeNull();
   });
 });

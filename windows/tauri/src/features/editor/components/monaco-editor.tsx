@@ -217,10 +217,10 @@ function gitGutterControllerOptions(
     }),
     markerTooltip: (kind) => translate(`git.gutter.${kind}`),
     canStage: () => !!context()?.base && !!context()?.canStage,
-    stage: async (change, baseLines) => {
+    stage: async (change) => {
       const base = context()?.base;
       if (!base) return false;
-      const staged = await stageGitGutterChange(base, baseLines, change);
+      const staged = await stageGitGutterChange(base, change);
       if (!staged) toast.error(translate("git.operationFailed"));
       return staged;
     },

@@ -10,6 +10,7 @@ mod commit_message_context;
 mod commit_selection;
 mod commit_state;
 mod deleted_selection;
+mod diff_blocks;
 pub(crate) mod workspace_commit;
 pub(crate) mod workspace_status;
 pub use commit_state::{inspect as commit_state, GitCommitGitlink, GitCommitState};
@@ -59,6 +60,11 @@ pub(crate) use changelists::changelists_command;
 pub(crate) use commit_message_context::commit_message_context_command;
 pub(crate) use commit_selection::prepare_commit_selection_command;
 pub(crate) use deleted_selection::reconcile_deleted_selection_command;
+#[cfg(test)]
+pub(crate) use diff_blocks::fixture_support as diff_blocks_fixture;
+pub(crate) use diff_blocks::{
+    apply_diff_block_command, plan_diff_blocks_command, stage_gutter_change_command,
+};
 pub use github_checkout::{
     checkout as checkout_pull_request, preview as checkout_pull_request_preview,
     PullRequestCheckoutPreviewRequest, PullRequestCheckoutRequest,
@@ -790,10 +796,6 @@ pub struct GitApplyRequest {
     pub patch: String,
     /// Patch target or validation mode, including `stage`, `unstage`, and `worktree`.
     pub mode: String,
-    /// True when the patch carries zero context lines from the byte-faithful
-    /// raw-slicing channel; only then may git apply bypass the context check.
-    #[serde(default)]
-    pub unidiff_zero: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2055,10 +2057,22 @@ fn git_process_creation_flags() -> u32 {
 /// Builds a structured working-tree, staged, untracked, or commit diff.
 pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     let omit_file_patch = request.include_file_sections && request.omit_file_patch;
+    // A complete-file review prints one hunk per file. Staging that hunk would
+    // write the whole file, so Core splits it into Git-default hunks.
+    let complete_file = request.include_file_sections
+        && request.context_lines >= FULL_FILE_CONTEXT_LINES
+        && request.stash_reference.is_none();
     let mut response = diff_impl(request)?;
-    if omit_file_patch {
-        if let Some(files) = &mut response.files {
-            for file in files {
+    if let Some(files) = &mut response.files {
+        for file in files {
+            if complete_file && !file.is_binary && !file.hunks.is_empty() {
+                // Fail closed: an unsplittable section offers no writable hunk.
+                file.hunks = diff_blocks::stageable_hunks(&file.patch).unwrap_or_default();
+                if file.status == "R" {
+                    attach_rename_content_patches(&file.patch, &mut file.hunks);
+                }
+            }
+            if omit_file_patch {
                 file.patch = String::new();
             }
         }
@@ -2537,6 +2551,35 @@ fn structured_diff_from_output(output: GitProcessOutput) -> GitDiffResponse {
     }
 }
 
+/// Adds a content-only patch to every hunk of a rename section, so applying
+/// one hunk changes the target file's text without reversing the rename.
+fn attach_rename_content_patches(section: &str, hunks: &mut [GitDiffHunkResponse]) {
+    let target = section
+        .lines()
+        .take_while(|line| !line.starts_with("@@"))
+        .find(|line| line.starts_with("+++ b/") || line.starts_with("+++ \"b/"));
+    let Some(target) = target else {
+        return;
+    };
+    let old = target
+        .strip_prefix("+++ b/")
+        .map(|path| format!("--- a/{path}"))
+        .or_else(|| {
+            target
+                .strip_prefix("+++ \"b/")
+                .map(|path| format!("--- \"a/{path}"))
+        });
+    let Some(old) = old else {
+        return;
+    };
+    for hunk in hunks {
+        let marker = format!("\n{}", hunk.header);
+        if let Some(offset) = hunk.patch.find(&marker) {
+            hunk.content_patch = Some(format!("{old}\n{target}\n{}", &hunk.patch[offset + 1..]));
+        }
+    }
+}
+
 // Git owns filename decoding. Pair its ordered NUL-delimited metadata with
 // byte-preserving section boundaries, then parse each document once.
 fn structured_patch_sections(
@@ -2585,29 +2628,7 @@ fn structured_patch_sections(
                 });
             let (rows, mut hunks, lines) = parse_diff(section);
             if status == "R" {
-                let target = section
-                    .lines()
-                    .take_while(|line| !line.starts_with("@@"))
-                    .find(|line| line.starts_with("+++ b/") || line.starts_with("+++ \"b/"));
-                if let Some(target) = target {
-                    let old = target
-                        .strip_prefix("+++ b/")
-                        .map(|path| format!("--- a/{path}"))
-                        .or_else(|| {
-                            target
-                                .strip_prefix("+++ \"b/")
-                                .map(|path| format!("--- \"a/{path}"))
-                        });
-                    if let Some(old) = old {
-                        for hunk in &mut hunks {
-                            let marker = format!("\n{}", hunk.header);
-                            if let Some(offset) = hunk.patch.find(&marker) {
-                                hunk.content_patch =
-                                    Some(format!("{old}\n{target}\n{}", &hunk.patch[offset + 1..]));
-                            }
-                        }
-                    }
-                }
+                attach_rename_content_patches(section, &mut hunks);
             }
             files.push(GitDiffFileResponse {
                 path: identity.path,
@@ -2723,18 +2744,24 @@ pub fn apply(request: GitApplyRequest) -> Result<GitCommandResponse, CoreError> 
             "--whitespace=nowarn".to_string(),
         ],
         "discard" => {
-            let mut args = vec![
+            // A hunk rollback rewrites worktree bytes; a clean/smudge filter or
+            // working-tree encoding could change bytes the patch never saw.
+            let mut paths = Vec::new();
+            for file in patch_exchange::ordered_patch_files(&root, &request.patch)? {
+                paths.extend(file.original_path);
+                paths.push(file.path);
+            }
+            if !diff_blocks::worktree_attributes_safe(&root, &paths)? {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    diff_blocks::HUNK_ROLLBACK_UNSAFE,
+                ));
+            }
+            vec![
                 "apply".to_string(),
                 "--reverse".to_string(),
                 "--whitespace=nowarn".to_string(),
-            ];
-            // Only the byte-faithful channel produces zero-context hunks;
-            // applying the flag universally would weaken the context safety
-            // check for every well-formed discard patch too.
-            if request.unidiff_zero {
-                args.push("--unidiff-zero".to_string());
-            }
-            args
+            ]
         }
         // Reconstruct a saved index snapshot and its worktree in one step.
         // `--cached` alone would leave the worktree at HEAD, which makes a
@@ -8364,6 +8391,8 @@ fn parse_diff(
                 header: record.header,
                 patch,
                 content_patch: None,
+                line_start: None,
+                line_end: None,
             }
         })
         .collect();

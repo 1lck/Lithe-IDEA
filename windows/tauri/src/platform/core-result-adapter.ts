@@ -100,7 +100,9 @@ function adaptDiff(command: string, args: JsonRecord | undefined, value: unknown
       core_hunks: decodingLoss ? undefined : (Array.isArray(file.hunks) ? file.hunks : []).map((entry: unknown) => {
         const hunk = asRecord(entry);
         return { id: String(hunk.id ?? ""), header: String(hunk.header ?? ""),
-          patch: String((status === "R" ? hunk.contentPatch : hunk.patch) ?? "") };
+          patch: String((status === "R" ? hunk.contentPatch : hunk.patch) ?? ""),
+          ...(typeof hunk.lineStart === "number" && typeof hunk.lineEnd === "number"
+            ? { lineStart: hunk.lineStart, lineEnd: hunk.lineEnd } : {}) };
       }),
     };
   });
@@ -303,6 +305,14 @@ export function adaptCoreResult<T>(
     case "git_working_tree_ref_diff":
     case "git_stash_diff":
       return adaptDiff(command, args, value) as T;
+    case "git.planDiffBlocks": {
+      // Core plans blocks and owns every patch; only display sections adapt.
+      const section = (key: string) => (adaptDiff("git.diff", args, data[key]) as GitDiff[])[0]
+        ?? { file_path: String(args?.path ?? ""), is_new: false, is_deleted: false,
+          is_renamed: false, lines: [] };
+      return { token: String(data.token ?? ""), blocks: Array.isArray(data.blocks) ? data.blocks : [],
+        diff: section("worktree"), staged: section("index") } as T;
+    }
     case "git_status_diff_stats":
       return adaptDiffStats(args, value) as T;
     case "git_discover_repo":

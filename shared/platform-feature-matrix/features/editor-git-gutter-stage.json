@@ -16,6 +16,8 @@
     "verificationStatus": "pending",
     "evidence": [
       "windows/tauri/src/features/git/services/git-gutter-actions.ts",
+      "windows/tauri/src/features/git/api/git-diff-block-api.ts",
+      "rust/lithe-core/src/git/diff_blocks.rs",
       "windows/tauri/src/features/git/utils/git-gutter-changes.test.ts"
     ]
   },
