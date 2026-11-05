@@ -51,4 +51,18 @@ struct GitMetadataClassificationTests {
             }
         }
     }
+    @Test
+    func invalidCoreBatchForcesConservativeWatcherRecovery() {
+        let root = URL(fileURLWithPath: "/in-memory/lithe-watch-invalid")
+        let watcher = MacDirectoryWatcher(
+            configuration: DirectoryWatchConfiguration(workspaceRoot: root, gitContext: nil)) { _ in }
+        let oversized = root.appendingPathComponent(String(repeating: "a", count: 131_069)).path
+        let result = watcher.classify(paths: [oversized], eventFlags: [0])
+        #expect(result.requiresFullRescan)
+        #expect(result.gitStateMayHaveChanged)
+        #expect(result.gitMetadataMayHaveChanged)
+        #expect(result.watchRootsChanged)
+        #expect(!result.gitIndexOnly)
+    }
+
 }
