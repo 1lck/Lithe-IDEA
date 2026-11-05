@@ -7,6 +7,7 @@ use super::client::{
 use super::engine_logging::{
     EngineLog, EngineLogInput, SessionLogIdentity, SessionRole, StderrFact, StderrLines,
 };
+use super::plugin_server::{self, Admission, Arrival, PluginServerState};
 use super::process::{LspProcessHandle, LspProcessLauncher, LspProcessSpec, SystemProcessLauncher};
 use super::{
     client_change_document, client_close_document, client_feature_request_canonical,
@@ -50,6 +51,10 @@ use crate::lsp::languages::jdt_build::{JavaBuildMarkerScope, JavaBuildRecovery};
 use crate::lsp::languages::jdt_navigation::{JavaNavigationMarkerBatch, MAX_JAVA_NAVIGATION_TASKS};
 use crate::lsp::languages::jdt_progress::JavaPreparationDiagnostics;
 use crate::lsp::languages::{prepare_jdt_configuration_area, prepare_jdt_workspace};
+use crate::plugins::language_server_sessions::{
+    RemoteSupport, DEFAULT_REQUEST_TIMEOUT_MILLISECONDS, DID_CHANGE_CONFIGURATION,
+    MAX_REQUEST_TIMEOUT_MILLISECONDS,
+};
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -148,6 +153,12 @@ pub struct StartServerRequest {
     /// Shortcut import providers declared by this plugin's verified manifest.
     #[serde(default)]
     pub keymap_import_providers: Vec<String>,
+    /// What the plugin backend may do with this plugin-owned language server
+    /// (plan API-25): the requests it may send, the gates they wait for, and
+    /// the notifications it receives. Only a plugin-owned session has one;
+    /// without it the backend cannot reach the server through the host.
+    #[serde(default)]
+    pub session_policy: Option<super::plugin_server::SessionPolicy>,
     pub executable_path: String,
     #[serde(default)]
     pub arguments: Vec<String>,
@@ -628,6 +639,54 @@ fn empty_object() -> Value {
     json!({})
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One request a plugin backend sent to its own language server through the
+/// host (plan API-25). The reply arrives as a `requestCompleted` event whose
+/// `result.value` is the server's result; failures carry a `plugin.host.*`
+/// code as `error.code`.
+pub struct PluginServerRequest {
+    /// The plugin-owned language-server session the host resolved.
+    pub session_id: String,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    /// The plugin and server the backend named. Core checks that the
+    /// session really is that contribution, so a stale or mistaken
+    /// resolution can never reach another plugin's server.
+    pub plugin_id: String,
+    #[serde(rename = "serverID")]
+    pub server_id: String,
+    /// An LSP request method the plugin declared in `requestMethods`.
+    pub method: String,
+    #[serde(default = "empty_object")]
+    pub params: Value,
+    /// Deadline in milliseconds, 60000 when absent and at most 300000.
+    #[serde(default)]
+    pub timeout_milliseconds: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One notification a plugin backend sent to its own language server.
+pub struct PluginServerNotify {
+    pub session_id: String,
+    pub plugin_id: String,
+    #[serde(rename = "serverID")]
+    pub server_id: String,
+    pub method: String,
+    #[serde(default = "empty_object")]
+    pub params: Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Whether the notification reached the server. `false` means the server
+/// was not initialized yet and will receive the stored configuration with
+/// its `initialized` notification instead.
+pub struct PluginServerNotifyResponse {
+    pub delivered: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Correlation identifier used to receive or cancel an asynchronous result.
@@ -762,6 +821,11 @@ pub struct LspRuntimeError {
     /// passed through for the plugin's own UI; Lithe never branches on it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plugin_error_code: Option<String>,
+    /// Structured facts of a failed plugin-server request, such as the
+    /// server's own error `code` and `message`, passed to the backend as the
+    /// failure's details. Only `lsp.pluginServerRequest` sets it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
 }
 
 #[cfg(test)]
@@ -807,6 +871,9 @@ enum PendingKind {
     /// Java Debug Server workspace build shared by the callers that
     /// `JavaBuildCoordinator` tracks; it carries no operation ID of its own.
     JavaBuild,
+    /// Request a plugin backend sent to its own language server through
+    /// `lsp.pluginServerRequest`; the answer reaches the backend verbatim.
+    PluginServer,
     /// Shutdown handshake after which the engine sends `exit`.
     Shutdown,
 }
@@ -903,6 +970,9 @@ struct SessionState {
     deadline_cancellations: Vec<String>,
     /// Bounds an outbound maintenance write independently of caller deadlines.
     maintenance_write_deadline: Option<Instant>,
+    /// Policy and waiting requests of a plugin-owned language server; `None`
+    /// for every other session.
+    plugin_server: Option<PluginServerState>,
     /// Bounds one write the function relay's lane makes to this session, so a
     /// backend that stops reading its stdin cannot hold the lane forever.
     relay_write_deadline: Option<Instant>,
@@ -1747,6 +1817,28 @@ pub fn plugin_function_request(
     Ok(OperationResponse { operation_id })
 }
 
+/// Sends one request of a plugin backend to the plugin's own language server.
+pub fn plugin_server_request(request: PluginServerRequest) -> Result<OperationResponse, CoreError> {
+    let operation_id = request
+        .operation_id
+        .clone()
+        .unwrap_or_else(|| engine().next_operation_id());
+    engine()
+        .session(&request.session_id)?
+        .plugin_server_request(request, operation_id.clone())?;
+    Ok(OperationResponse { operation_id })
+}
+
+/// Sends one notification of a plugin backend to the plugin's own language server.
+pub fn plugin_server_notify(
+    request: PluginServerNotify,
+) -> Result<PluginServerNotifyResponse, CoreError> {
+    let delivered = engine()
+        .session(&request.session_id)?
+        .plugin_server_notify(request)?;
+    Ok(PluginServerNotifyResponse { delivered })
+}
+
 /// Replaces the host's view of the enabled plugins and live workspace
 /// contexts that the cross-plugin function relay checks calls against. Calls
 /// in flight that the new view forbids end with an error.
@@ -1988,6 +2080,17 @@ impl LspEngine {
                 "Remote Java language servers require a host-compatible plugin launch plan",
             ));
         }
+        if crate::remote::workspace::is_remote()
+            && request
+                .session_policy
+                .as_ref()
+                .is_some_and(|policy| policy.remote == RemoteSupport::Unsupported)
+        {
+            return Err(CoreError::new(
+                ErrorCode::NotSupported,
+                "The plugin's language server does not support remote workspaces",
+            ));
+        }
         // Initial provider settings must include native Git decisions even when
         // no session or inventory warm-up has run. Never scan under registry locks.
         let indexing_root = canonical_workspace_path(&request.root_uri);
@@ -2208,6 +2311,7 @@ impl LspEngine {
         let java_startup_detail = java_preparation
             .as_ref()
             .map(JavaPreparationDiagnostics::startup_detail);
+        let plugin_server = request.session_policy.map(PluginServerState::new);
         let session = Arc::new(RuntimeSession {
             startup_attempt: Arc::clone(attempt),
             id: session_id.clone(),
@@ -2285,6 +2389,7 @@ impl LspEngine {
                 java_build_timeout,
                 deadline_cancellations: Vec::new(),
                 maintenance_write_deadline: None,
+                plugin_server,
                 relay_write_deadline: None,
                 host_requests: BTreeMap::new(),
                 next_host_request_id: 1,
@@ -3544,6 +3649,94 @@ impl RuntimeSession {
         Ok(true)
     }
 
+    /// Admits a backend's request to its language server: it is sent now,
+    /// held behind a gate, or joined to a command that already runs.
+    fn plugin_server_request(
+        &self,
+        request: PluginServerRequest,
+        operation_id: String,
+    ) -> Result<(), CoreError> {
+        let outbound_order = self.lock_outbound_order()?;
+        let (messages, request_id) = {
+            let mut state = self.lock_state()?;
+            if state.request_by_operation.contains_key(&operation_id) {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "The language-server operation ID is already pending.",
+                ));
+            }
+            let server = plugin_server_target(
+                &mut state,
+                self.plugin_id.as_deref(),
+                &request.plugin_id,
+                &request.server_id,
+            )?;
+            let now = Instant::now();
+            let deadline = now + plugin_server_timeout(request.timeout_milliseconds);
+            let admission = server.admit_request(Arrival {
+                operation_id: &operation_id,
+                method: &request.method,
+                params: &request.params,
+                now,
+                deadline,
+            })?;
+            if admission != Admission::Send {
+                // Held and joined requests are written later, or never.
+                return Ok(());
+            }
+            match register_plugin_server_request(
+                &mut state,
+                &operation_id,
+                &request.method,
+                request.params,
+                now,
+                deadline,
+            ) {
+                Ok(registered) => registered,
+                Err(error) => {
+                    if let Some(server) = state.plugin_server.as_mut() {
+                        server.finish(&operation_id);
+                    }
+                    return Err(error);
+                }
+            }
+        };
+        self.send_request_or_fail(&outbound_order, messages, &request_id)
+    }
+
+    /// Sends a backend's notification to its language server. Returns whether
+    /// it was sent now.
+    fn plugin_server_notify(&self, request: PluginServerNotify) -> Result<bool, CoreError> {
+        {
+            let mut state = self.lock_state()?;
+            let server = plugin_server_target(
+                &mut state,
+                self.plugin_id.as_deref(),
+                &request.plugin_id,
+                &request.server_id,
+            )?;
+            server.admit_notification(&request.method, &request.params)?;
+        }
+        if request.method == DID_CHANGE_CONFIGURATION {
+            // The settings also answer the server's own `workspace/configuration`
+            // requests, so they go through the plugin configuration.
+            let settings = request
+                .params
+                .get("settings")
+                .filter(|settings| settings.is_object())
+                .cloned()
+                .ok_or_else(|| {
+                    CoreError::new(ErrorCode::InvalidRequest, "settings must be an object.")
+                        .with_details(super::plugin_function::codes::HOST_INVALID_PARAMS)
+                })?;
+            return Ok(self.update_plugin_configuration(settings)?.sent);
+        }
+        let message = json_rpc_notification(&request.method, request.params)?;
+        let outbound_order = self.lock_outbound_order()?;
+        self.send_messages_or_fail(&outbound_order, vec![message], "pluginServerNotify")?;
+        Ok(true)
+    }
+
     fn request_with_kind(
         &self,
         request: SemanticRequest,
@@ -3917,6 +4110,14 @@ impl RuntimeSession {
                     java_build_cancellation(departure),
                     "requestCancel",
                 );
+            }
+            if state
+                .plugin_server
+                .as_ref()
+                .is_some_and(|server| server.is_unsent(operation_id))
+            {
+                cancel_unsent_plugin_server_request(self, &mut state, operation_id);
+                return Ok(());
             }
             let request_id = state
                 .request_by_operation
@@ -4612,10 +4813,30 @@ impl RuntimeSession {
                                         None,
                                     )
                                 });
-                            let result = normalize_provider_navigation_result(
-                                &self.provider_id,
-                                event.and_then(|event| event.result.clone()),
+                            let result = event.and_then(|event| event.result.clone());
+                            // A plugin-owned server has no provider-specific
+                            // rule; it only marks locations that are not files.
+                            let result = if state.plugin_server.is_some() {
+                                plugin_server::normalize_navigation_result(result)
+                            } else {
+                                normalize_provider_navigation_result(&self.provider_id, result)
+                            };
+                            push_request_event(
+                                self,
+                                &mut state,
+                                operation_id,
+                                &pending.method,
+                                result,
+                                error,
                             );
+                        }
+                    }
+                }
+                Some(PendingKind::PluginServer) => {
+                    if let Some(pending) = pending_before.as_ref() {
+                        if let Some(operation_id) = &pending.operation_id {
+                            let (result, error) =
+                                plugin_server_answer(self, &pending.method, &value);
                             push_request_event(
                                 self,
                                 &mut state,
@@ -5231,6 +5452,14 @@ impl RuntimeSession {
             }
 
             for event in reduced.events {
+                if event.kind == "notification" {
+                    outbound.extend(observe_plugin_server_notification(
+                        self,
+                        &mut state,
+                        event.method.as_deref(),
+                        event.result.as_ref(),
+                    ));
+                }
                 if event.kind == "semanticTokensRefresh" {
                     push_semantic_tokens_refresh_event(self, &mut state);
                 } else if event.kind == "functionsChanged" {
@@ -6147,6 +6376,7 @@ impl RuntimeSession {
                             | PendingKind::JavaNavigationMarkers
                             | PendingKind::JavaNavigationMarkerResolve
                             | PendingKind::JavaResolveNavigation
+                            | PendingKind::PluginServer
                     ) && now >= pending.deadline
                 })
                 .map(|(id, _)| id.clone())
@@ -6182,6 +6412,32 @@ impl RuntimeSession {
                     );
                 }
                 cancellations.push(request_id);
+            }
+            let held_expired = state
+                .plugin_server
+                .as_ref()
+                .map(|server| server.expired_held(now))
+                .unwrap_or_default();
+            for waiter in held_expired {
+                // Nothing was sent, so there is nothing to cancel on the wire.
+                let error = runtime_error(
+                    self,
+                    "requestTimeout",
+                    "request",
+                    Some(&waiter.method),
+                    None,
+                    "Language-server request timed out waiting for the server to become ready.",
+                    None,
+                    None,
+                );
+                push_request_event(
+                    self,
+                    &mut state,
+                    &waiter.operation_id,
+                    &waiter.method,
+                    None,
+                    Some(error),
+                );
             }
             let maven_profiles_running =
                 state.maven_profile_status == MavenProfileTaskStatus::Running;
@@ -6699,6 +6955,9 @@ fn validate_start_request(request: &StartServerRequest) -> Result<(), CoreError>
                 .any(|service| !super::plugin_function::is_host_grant(service)))
     {
         return Err(invalid_field("hostServices"));
+    }
+    if let Some(policy) = &request.session_policy {
+        policy.validate(request.plugin_id.as_deref())?;
     }
     if !request.host_options.is_empty()
         && (request.plugin_id.is_none()
@@ -7352,6 +7611,14 @@ fn push_request_event(
     result: Option<Value>,
     error: Option<LspRuntimeError>,
 ) {
+    if state
+        .plugin_server
+        .as_ref()
+        .is_some_and(|server| server.owns(operation_id))
+    {
+        complete_plugin_server_request(session, state, operation_id, method, result, error);
+        return;
+    }
     // No host operation waits for a relayed call: the relay answers the
     // calling plugin, so the event never reaches the host.
     if relay_hub::is_relayed_operation(operation_id, method) {
@@ -7443,6 +7710,51 @@ fn push_request_event(
     } else {
         (result, error)
     };
+    enqueue_request_completed(session, state, operation_id, method, result, error);
+}
+
+/// Ends a request the backend sent to its plugin-owned language server. This
+/// is the only place where the session policy releases such an operation, so
+/// every way a request can end (answer, cancel, timeout, session failure)
+/// leaves the policy consistent. Requests that joined a running command
+/// finish with the same result or error.
+fn complete_plugin_server_request(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    operation_id: &str,
+    method: &str,
+    result: Option<Value>,
+    mut error: Option<LspRuntimeError>,
+) {
+    if let Some(error) = error.as_mut() {
+        error.code = plugin_server::host_error_code(&error.code).to_string();
+    }
+    let joined = state
+        .plugin_server
+        .as_mut()
+        .map(|server| server.finish(operation_id))
+        .unwrap_or_default();
+    for waiter in joined {
+        enqueue_request_completed(
+            session,
+            state,
+            &waiter.operation_id,
+            &waiter.method,
+            result.clone(),
+            error.clone(),
+        );
+    }
+    enqueue_request_completed(session, state, operation_id, method, result, error);
+}
+
+fn enqueue_request_completed(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    operation_id: &str,
+    method: &str,
+    result: Option<Value>,
+    error: Option<LspRuntimeError>,
+) {
     let sequence = take_sequence(state);
     enqueue_runtime_event(
         session,
@@ -7942,6 +8254,200 @@ fn function_runtime_error(
     );
     error.plugin_error_code = failure.plugin_error_code;
     error
+}
+
+/// The plugin-owned server a call targets, after checking that the session
+/// is that contribution and can take requests now.
+fn plugin_server_target<'a>(
+    state: &'a mut SessionState,
+    session_plugin_id: Option<&str>,
+    plugin_id: &str,
+    server_id: &str,
+) -> Result<&'a mut PluginServerState, CoreError> {
+    let ready = state.lifecycle == LspLifecycleState::Ready && state.client.initialized;
+    let server = state
+        .plugin_server
+        .as_mut()
+        .ok_or_else(plugin_server::foreign_contribution)?;
+    server.check_owner(session_plugin_id, plugin_id, server_id)?;
+    if !ready {
+        return Err(plugin_server::unavailable());
+    }
+    Ok(server)
+}
+
+fn plugin_server_timeout(requested: Option<u64>) -> Duration {
+    let milliseconds = requested
+        .unwrap_or(DEFAULT_REQUEST_TIMEOUT_MILLISECONDS)
+        .clamp(1, MAX_REQUEST_TIMEOUT_MILLISECONDS);
+    Duration::from_millis(milliseconds)
+}
+
+/// Allocates the JSON-RPC request of an admitted operation and records it as
+/// pending. Returns the messages to write and the request ID.
+fn register_plugin_server_request(
+    state: &mut SessionState,
+    operation_id: &str,
+    method: &str,
+    params: Value,
+    created_at: Instant,
+    deadline: Instant,
+) -> Result<(Vec<String>, String), CoreError> {
+    let response = allocate_raw_request(state.client.clone(), method, params)?;
+    let request_id = (response.state.next_request_id - 1).to_string();
+    state.client = response.state;
+    state.pending.insert(
+        request_id.clone(),
+        PendingRequest {
+            kind: PendingKind::PluginServer,
+            operation_id: Some(operation_id.to_string()),
+            method: method.to_string(),
+            document_uri: None,
+            document_version: None,
+            created_at,
+            deadline,
+        },
+    );
+    state
+        .request_by_operation
+        .insert(operation_id.to_string(), request_id.clone());
+    Ok((response.messages, request_id))
+}
+
+/// Applies a notification the server sent to a plugin-owned session: it may
+/// open gates, and the backend may have asked to receive it. Returns the
+/// messages of the requests that waited for those gates.
+fn observe_plugin_server_notification(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    method: Option<&str>,
+    params: Option<&Value>,
+) -> Vec<String> {
+    let (Some(method), Some(server)) = (method, state.plugin_server.as_mut()) else {
+        return Vec::new();
+    };
+    let observation = server.observe(method, params.unwrap_or(&Value::Null));
+    if let Some(forwarded) = observation.forward {
+        push_negotiated_provider_event(session, state, forwarded, "pluginServerNotification");
+    }
+    observation
+        .released
+        .into_iter()
+        .flat_map(|held| release_held_plugin_server_request(session, state, held))
+        .collect()
+}
+
+/// Sends a request whose gates opened. It keeps the deadline it was
+/// admitted with, so the time spent waiting counts against its timeout.
+fn release_held_plugin_server_request(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    held: plugin_server::HeldRequest,
+) -> Vec<String> {
+    let registered = register_plugin_server_request(
+        state,
+        &held.operation_id,
+        &held.method,
+        held.params,
+        held.created_at,
+        held.deadline,
+    );
+    match registered {
+        Ok((messages, _)) => messages,
+        Err(error) => {
+            let failure = runtime_error(
+                session,
+                "transportFailed",
+                "request",
+                Some(&held.method),
+                None,
+                "Could not encode the language-server request.",
+                Some(&error.message),
+                None,
+            );
+            push_request_event(
+                session,
+                state,
+                &held.operation_id,
+                &held.method,
+                None,
+                Some(failure),
+            );
+            Vec::new()
+        }
+    }
+}
+
+/// Cancels a plugin-server request that never reached the server, because it
+/// waits behind a gate or joined a running command. Nothing is written.
+fn cancel_unsent_plugin_server_request(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    operation_id: &str,
+) {
+    let method = state
+        .plugin_server
+        .as_ref()
+        .and_then(|server| server.method_of(operation_id))
+        .unwrap_or_default()
+        .to_string();
+    let error = runtime_error(
+        session,
+        "requestCancelled",
+        "request",
+        Some(&method),
+        None,
+        "Language-server request was cancelled.",
+        None,
+        None,
+    );
+    push_request_event(session, state, operation_id, &method, None, Some(error));
+}
+
+/// What the backend receives for a plugin-owned server's reply: the result
+/// untouched, so no Lithe normalizer reinterprets the server's own protocol,
+/// or the server's error code and message as details of
+/// `plugin.host.languageServerError`.
+fn plugin_server_answer(
+    session: &RuntimeSession,
+    method: &str,
+    reply: &Value,
+) -> (Option<Value>, Option<LspRuntimeError>) {
+    use super::plugin_function::{bounded_host_message, codes, MAX_RESULT_BYTES};
+    let failure = |code: &str, message: &str| {
+        runtime_error(
+            session,
+            code,
+            "request",
+            Some(method),
+            None,
+            message,
+            None,
+            None,
+        )
+    };
+    if let Some(upstream) = reply.get("error") {
+        let mut error = failure(
+            codes::HOST_LANGUAGE_SERVER_ERROR,
+            "The language server returned an error.",
+        );
+        let message = upstream
+            .get("message")
+            .and_then(Value::as_str)
+            .map(bounded_host_message);
+        error.details = Some(json!({ "code": upstream.get("code"), "message": message }));
+        return (None, Some(error));
+    }
+    let result = reply.get("result").cloned().unwrap_or(Value::Null);
+    let size = serde_json::to_vec(&result).map_or(usize::MAX, |bytes| bytes.len());
+    if size > MAX_RESULT_BYTES {
+        let error = failure(
+            codes::HOST_LIMIT_EXCEEDED,
+            "The language server's result is too large.",
+        );
+        return (None, Some(error));
+    }
+    (Some(json!({ "value": result })), None)
 }
 
 fn normalize_provider_navigation_result(
@@ -8498,6 +9004,7 @@ fn runtime_error(
         process_exit_code,
         java_build_report: None,
         plugin_error_code: None,
+        details: None,
     }
 }
 
@@ -8543,6 +9050,7 @@ fn fail_feature_requests(
                     | PendingKind::JavaNavigationMarkers
                     | PendingKind::JavaNavigationMarkerResolve
                     | PendingKind::JavaResolveNavigation
+                    | PendingKind::PluginServer
             )
         })
         .map(|(request_id, pending)| (request_id.clone(), pending.clone()))
@@ -8574,6 +9082,32 @@ fn fail_feature_requests(
                 Some(error),
             );
         }
+    }
+    // Requests held behind a gate have no pending entry, so they end here.
+    let held = state
+        .plugin_server
+        .as_ref()
+        .map(|server| server.all_held())
+        .unwrap_or_default();
+    for waiter in held {
+        let error = runtime_error(
+            session,
+            code,
+            stage,
+            Some(&waiter.method),
+            None,
+            message,
+            None,
+            exit_code,
+        );
+        push_request_event(
+            session,
+            state,
+            &waiter.operation_id,
+            &waiter.method,
+            None,
+            Some(error),
+        );
     }
     let (build_operation_ids, build_request_id) = state.java_builds.drain();
     if let Some(request_id) = build_request_id {
@@ -8795,6 +9329,7 @@ mod tests {
             host_options: Default::default(),
             toolchain_providers: Vec::new(),
             keymap_import_providers: Vec::new(),
+            session_policy: None,
             executable_path: "/usr/bin/scripted-server".to_string(),
             arguments: vec!["--stdio".to_string()],
             environment: BTreeMap::new(),
@@ -14292,6 +14827,7 @@ public class Main {
                 host_options: Default::default(),
                 toolchain_providers: Vec::new(),
                 keymap_import_providers: Vec::new(),
+                session_policy: None,
                 executable_path,
                 arguments: Vec::new(),
                 environment: BTreeMap::from([(
@@ -15057,6 +15593,7 @@ public class Main {
             host_options: Default::default(),
             toolchain_providers: Vec::new(),
             keymap_import_providers: Vec::new(),
+            session_policy: None,
             executable_path: "/bin/server".to_string(),
             arguments: Vec::new(),
             environment: BTreeMap::new(),
@@ -18089,5 +18626,550 @@ public class Main {
             harness.written_request(&request_id)["params"]["context"],
             json!({ "contextID": "w1", "generation": 2 })
         );
+    }
+
+    /// Requests and notifications of a plugin backend to its own language
+    /// server (plan API-25). The stub servers are Metals-like (a gate and a
+    /// command that runs one at a time) and rust-analyzer-like (neither), so
+    /// no case depends on one language.
+    mod plugin_owned_server {
+        use super::*;
+
+        const PLUGIN: &str = "dev.lithe.metals";
+        const SERVER: &str = "metals";
+        const STATUS: &str = "metals/status";
+
+        /// The policy of the Metals-like server. `gated` adds the gate that
+        /// holds requests until the server reports it is ready.
+        fn metals_policy(gated: bool) -> Value {
+            let mut policy = json!({
+                "serverID": SERVER,
+                "requestMethods": [
+                    "textDocument/definition",
+                    "workspace/executeCommand",
+                    "metals/slow",
+                    "metals/didFocus"
+                ],
+                "commands": ["build-import", "build-connect"],
+                "serializedCommands": ["build-import"],
+                "forwardNotifications": [STATUS],
+            });
+            if gated {
+                policy["gates"] = json!([{
+                    "id": "imported",
+                    "until": "notification",
+                    "method": STATUS,
+                    "match": { "text": "ready" }
+                }]);
+            }
+            policy
+        }
+
+        /// A rust-analyzer-like server: no gate, no serialized command.
+        fn rust_analyzer_policy() -> Value {
+            json!({
+                "serverID": SERVER,
+                "requestMethods": ["experimental/runnables"],
+            })
+        }
+
+        fn start(policy: Value) -> Harness {
+            let mut harness = Harness::start(move |request| {
+                request.plugin_id = Some(PLUGIN.to_string());
+                request.session_policy =
+                    Some(serde_json::from_value(policy).expect("the policy should decode"));
+            });
+            harness.server.complete_initialize(ready_capabilities());
+            harness.await_state(LspLifecycleState::Ready);
+            harness
+        }
+
+        /// The `lsp.pluginServerRequest` payload the host sends.
+        fn wire(harness: &Harness, operation_id: &str, method: &str, params: Value) -> Value {
+            json!({
+                "sessionId": harness.session_id,
+                "operationId": operation_id,
+                "pluginId": PLUGIN,
+                "serverID": SERVER,
+                "method": method,
+                "params": params,
+            })
+        }
+
+        fn send(harness: &Harness, wire: Value) -> Result<(), CoreError> {
+            let operation_id = wire["operationId"].as_str().unwrap().to_string();
+            let request: PluginServerRequest =
+                serde_json::from_value(wire).expect("documented wire shape");
+            harness
+                .session()
+                .plugin_server_request(request, operation_id)
+        }
+
+        fn call(
+            harness: &Harness,
+            operation_id: &str,
+            method: &str,
+            params: Value,
+        ) -> Result<(), CoreError> {
+            send(harness, wire(harness, operation_id, method, params))
+        }
+
+        fn run_command(
+            harness: &Harness,
+            operation_id: &str,
+            command: &str,
+        ) -> Result<(), CoreError> {
+            call(
+                harness,
+                operation_id,
+                "workspace/executeCommand",
+                json!({ "command": command, "arguments": [] }),
+            )
+        }
+
+        fn notify(harness: &Harness, method: &str, params: Value) -> Result<bool, CoreError> {
+            let request: PluginServerNotify = serde_json::from_value(json!({
+                "sessionId": harness.session_id,
+                "pluginId": PLUGIN,
+                "serverID": SERVER,
+                "method": method,
+                "params": params,
+            }))
+            .expect("documented wire shape");
+            harness.session().plugin_server_notify(request)
+        }
+
+        /// The server reports `text` through its status notification.
+        fn report_status(harness: &Harness, text: &str) {
+            harness.server.send(json!({
+                "jsonrpc": "2.0",
+                "method": STATUS,
+                "params": { "text": text }
+            }));
+        }
+
+        /// Waits until Core has applied the status notification of `text`. The
+        /// notification is forwarded to the backend, so the forwarded event
+        /// proves the engine already processed it.
+        fn await_status_seen(harness: &mut Harness, text: &str) {
+            harness.await_event(|event| {
+                event.kind == "pluginServerNotification"
+                    && event
+                        .result
+                        .as_ref()
+                        .is_some_and(|result| result["params"]["text"] == text)
+            });
+        }
+
+        fn reply(harness: &Harness, request_id: &str, result: Value) {
+            harness.server.send(json!({
+                "jsonrpc": "2.0", "id": request_id, "result": result
+            }));
+        }
+
+        fn completed(harness: &mut Harness, operation_id: &str) -> LspRuntimeEvent {
+            harness
+                .await_event(|event| {
+                    event.kind == "requestCompleted"
+                        && event.operation_id.as_deref() == Some(operation_id)
+                })
+                .clone()
+        }
+
+        fn error_code(event: &LspRuntimeEvent) -> &str {
+            &event.error.as_ref().expect("the request failed").code
+        }
+
+        fn written(harness: &Harness, method: &str) -> usize {
+            harness
+                .server
+                .messages()
+                .iter()
+                .filter(|message| message["method"] == method)
+                .count()
+        }
+
+        fn refusal_code(error: CoreError) -> String {
+            error.details.expect("a refusal names its plugin.host code")
+        }
+
+        /// The server's result reaches the backend untouched, even for a
+        /// method whose result Lithe normalizes for its own editor.
+        #[test]
+        fn a_declared_request_returns_the_servers_own_result() {
+            let mut harness = start(metals_policy(false));
+            call(
+                &harness,
+                "def-1",
+                "textDocument/definition",
+                json!({ "textDocument": { "uri": "file:///workspace/A.scala" } }),
+            )
+            .expect("a declared method is sent");
+            let request_id = harness
+                .server
+                .await_request("textDocument/definition")
+                .expect("the request should reach the server");
+            let location = json!({
+                "uri": "jar:file:///cache/lib.jar!/Lib.scala",
+                "range": {
+                    "start": { "line": 1, "character": 2 },
+                    "end": { "line": 1, "character": 5 }
+                }
+            });
+            reply(&harness, &request_id, json!([location]));
+
+            let event = completed(&mut harness, "def-1");
+            assert_eq!(event.result, Some(json!({ "value": [location] })));
+            assert!(event.error.is_none());
+        }
+
+        #[test]
+        fn a_server_without_gates_or_commands_sends_at_once() {
+            let mut harness = start(rust_analyzer_policy());
+            call(&harness, "run-1", "experimental/runnables", json!({}))
+                .expect("a declared method is sent");
+            let request_id = harness
+                .server
+                .await_request("experimental/runnables")
+                .expect("nothing holds the request");
+            reply(&harness, &request_id, json!([]));
+            assert_eq!(
+                completed(&mut harness, "run-1").result,
+                Some(json!({ "value": [] }))
+            );
+        }
+
+        #[test]
+        fn a_server_error_keeps_its_code_and_message_as_details() {
+            let mut harness = start(metals_policy(false));
+            call(&harness, "slow-1", "metals/slow", json!({})).unwrap();
+            let request_id = harness.server.await_request("metals/slow").unwrap();
+            harness.server.send(json!({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": { "code": -32001, "message": "Build server is not connected." }
+            }));
+
+            let event = completed(&mut harness, "slow-1");
+            assert_eq!(error_code(&event), "plugin.host.languageServerError");
+            assert_eq!(
+                event.error.unwrap().details,
+                Some(json!({ "code": -32001, "message": "Build server is not connected." }))
+            );
+        }
+
+        #[test]
+        fn a_method_the_plugin_did_not_declare_never_reaches_the_server() {
+            let harness = start(metals_policy(false));
+            let error = call(&harness, "bad-1", "textDocument/rename", json!({}))
+                .expect_err("an undeclared method is refused");
+            assert_eq!(refusal_code(error), "plugin.host.methodNotDeclared");
+
+            let error = run_command(&harness, "bad-2", "wipe-workspace")
+                .expect_err("an undeclared command is refused");
+            assert_eq!(refusal_code(error), "plugin.host.methodNotDeclared");
+            assert_eq!(written(&harness, "textDocument/rename"), 0);
+            assert_eq!(written(&harness, "workspace/executeCommand"), 0);
+        }
+
+        /// The host resolves the session, so a call that names another plugin
+        /// or server, or a session without a policy, is the host's mistake and
+        /// must not reach any server.
+        #[test]
+        fn a_session_of_another_contribution_is_refused() {
+            let harness = start(metals_policy(false));
+            for (plugin_id, server_id) in [("dev.lithe.other", SERVER), (PLUGIN, "other-server")] {
+                let mut foreign = wire(&harness, "foreign-1", "metals/slow", json!({}));
+                foreign["pluginId"] = json!(plugin_id);
+                foreign["serverID"] = json!(server_id);
+                let error = send(&harness, foreign).expect_err("a foreign contribution is refused");
+                assert_eq!(refusal_code(error), "plugin.host.foreignContribution");
+            }
+            assert_eq!(written(&harness, "metals/slow"), 0);
+
+            let plain = Harness::ready();
+            let error = call(&plain, "plain-1", "metals/slow", json!({}))
+                .expect_err("a session without a policy is no plugin server");
+            assert_eq!(refusal_code(error), "plugin.host.foreignContribution");
+        }
+
+        #[test]
+        fn requests_wait_for_the_gate_and_are_sent_in_order() {
+            let mut harness = start(metals_policy(true));
+            call(&harness, "first", "metals/slow", json!({ "n": 1 })).unwrap();
+            call(
+                &harness,
+                "second",
+                "textDocument/definition",
+                json!({ "n": 2 }),
+            )
+            .unwrap();
+            assert_eq!(written(&harness, "metals/slow"), 0);
+
+            // A status that does not match the gate leaves it closed.
+            report_status(&harness, "importing");
+            await_status_seen(&mut harness, "importing");
+            assert_eq!(written(&harness, "metals/slow"), 0);
+            assert_eq!(written(&harness, "textDocument/definition"), 0);
+
+            report_status(&harness, "ready");
+            let first = harness.server.await_request("metals/slow").unwrap();
+            let second = harness
+                .server
+                .await_request("textDocument/definition")
+                .unwrap();
+            let messages = harness.server.messages();
+            let position = |id: &str| messages.iter().position(|message| message["id"] == id);
+            assert!(
+                position(&first) < position(&second),
+                "arrival order is kept"
+            );
+
+            reply(&harness, &first, json!("one"));
+            assert_eq!(
+                completed(&mut harness, "first").result,
+                Some(json!({ "value": "one" }))
+            );
+        }
+
+        #[test]
+        fn a_held_request_can_be_cancelled_without_touching_the_server() {
+            let mut harness = start(metals_policy(true));
+            call(&harness, "held-1", "metals/slow", json!({})).unwrap();
+            harness
+                .session()
+                .cancel_operation("held-1")
+                .expect("a held request can be cancelled");
+
+            let event = completed(&mut harness, "held-1");
+            assert_eq!(error_code(&event), "plugin.host.cancelled");
+
+            // Opening the gate afterwards sends nothing: the request is gone.
+            report_status(&harness, "ready");
+            await_status_seen(&mut harness, "ready");
+            assert_eq!(written(&harness, "metals/slow"), 0);
+            assert_eq!(written(&harness, "$/cancelRequest"), 0);
+        }
+
+        #[test]
+        fn a_held_request_times_out_while_it_waits() {
+            let mut harness = start(metals_policy(true));
+            let mut held = wire(&harness, "held-1", "metals/slow", json!({}));
+            held["timeoutMilliseconds"] = json!(1);
+            send(&harness, held).unwrap();
+
+            let event = completed(&mut harness, "held-1");
+            assert_eq!(error_code(&event), "plugin.host.timeout");
+            assert_eq!(written(&harness, "metals/slow"), 0);
+        }
+
+        #[test]
+        fn a_sent_request_times_out_and_is_cancelled_on_the_server() {
+            let mut harness = start(metals_policy(false));
+            let mut slow = wire(&harness, "slow-1", "metals/slow", json!({}));
+            slow["timeoutMilliseconds"] = json!(1);
+            send(&harness, slow).unwrap();
+            let request_id = harness.server.await_request("metals/slow").unwrap();
+
+            let event = completed(&mut harness, "slow-1");
+            assert_eq!(error_code(&event), "plugin.host.timeout");
+            let cancel = harness
+                .server
+                .await_notification_at("$/cancelRequest", 0)
+                .expect("the server is told to stop");
+            assert_eq!(cancel["params"]["id"], json!(request_id));
+        }
+
+        /// A second request for a serialized command does not start a second
+        /// run; both finish with the answer of the one that runs.
+        #[test]
+        fn a_serialized_command_joins_the_one_that_runs() {
+            let mut harness = start(metals_policy(false));
+            run_command(&harness, "import-1", "build-import").unwrap();
+            let request_id = harness
+                .server
+                .await_request("workspace/executeCommand")
+                .unwrap();
+            run_command(&harness, "import-2", "build-import").unwrap();
+            // A command that is not serialized is independent of the first.
+            run_command(&harness, "connect-1", "build-connect").unwrap();
+            harness
+                .server
+                .await_request_at("workspace/executeCommand", 1)
+                .expect("an independent command is sent");
+            assert_eq!(written(&harness, "workspace/executeCommand"), 2);
+
+            reply(&harness, &request_id, json!({ "imported": 3 }));
+            for operation_id in ["import-1", "import-2"] {
+                let event = completed(&mut harness, operation_id);
+                assert_eq!(event.result, Some(json!({ "value": { "imported": 3 } })));
+            }
+            assert!(!harness
+                .events
+                .iter()
+                .any(|event| event.operation_id.as_deref() == Some("connect-1")));
+
+            // The command can run again once the first run is over.
+            run_command(&harness, "import-3", "build-import").unwrap();
+            harness
+                .server
+                .await_request_at("workspace/executeCommand", 2)
+                .expect("a finished command can run again");
+        }
+
+        #[test]
+        fn cancelling_a_joiner_leaves_the_running_command_alone() {
+            let mut harness = start(metals_policy(false));
+            run_command(&harness, "import-1", "build-import").unwrap();
+            let request_id = harness
+                .server
+                .await_request("workspace/executeCommand")
+                .unwrap();
+            run_command(&harness, "import-2", "build-import").unwrap();
+            harness.session().cancel_operation("import-2").unwrap();
+            assert_eq!(
+                error_code(&completed(&mut harness, "import-2")),
+                "plugin.host.cancelled"
+            );
+            assert_eq!(written(&harness, "$/cancelRequest"), 0);
+
+            reply(&harness, &request_id, json!(null));
+            assert_eq!(
+                completed(&mut harness, "import-1").result,
+                Some(json!({ "value": null }))
+            );
+        }
+
+        #[test]
+        fn only_declared_server_notifications_are_forwarded() {
+            let mut harness = start(metals_policy(false));
+            harness.server.send(json!({
+                "jsonrpc": "2.0",
+                "method": "metals/unlisted",
+                "params": { "text": "private" }
+            }));
+            report_status(&harness, "indexing");
+            await_status_seen(&mut harness, "indexing");
+
+            let forwarded: Vec<_> = harness
+                .events
+                .iter()
+                .filter(|event| event.kind == "pluginServerNotification")
+                .collect();
+            assert_eq!(forwarded.len(), 1);
+            assert_eq!(
+                forwarded[0].result,
+                Some(json!({
+                    "serverID": SERVER,
+                    "method": STATUS,
+                    "params": { "text": "indexing" }
+                }))
+            );
+        }
+
+        #[test]
+        fn a_declared_notification_is_sent_and_a_command_is_not_a_notification() {
+            let harness = start(metals_policy(false));
+            let sent = notify(
+                &harness,
+                "metals/didFocus",
+                json!({ "uri": "file:///A.scala" }),
+            );
+            assert!(sent.expect("a declared notification is sent"));
+            let message = harness
+                .server
+                .await_notification_at("metals/didFocus", 0)
+                .expect("the server receives it");
+            assert_eq!(message["params"], json!({ "uri": "file:///A.scala" }));
+
+            let error = notify(&harness, "workspace/executeCommand", json!({}))
+                .expect_err("commands run as requests only");
+            assert_eq!(refusal_code(error), "plugin.host.methodNotDeclared");
+            let error = notify(&harness, "metals/unlisted", json!({}))
+                .expect_err("an undeclared notification is refused");
+            assert_eq!(refusal_code(error), "plugin.host.methodNotDeclared");
+        }
+
+        /// New settings replace the stored configuration, so they also answer
+        /// the server's own `workspace/configuration` requests.
+        #[test]
+        fn changed_configuration_goes_through_the_plugin_configuration() {
+            let harness = start(metals_policy(false));
+            let settings = json!({ "metals": { "scalafmt": true } });
+            let sent = notify(
+                &harness,
+                "workspace/didChangeConfiguration",
+                json!({ "settings": settings }),
+            );
+            assert!(sent.expect("the change is accepted"));
+            let change = harness
+                .server
+                .await_notification_at("workspace/didChangeConfiguration", 0)
+                .expect("the server receives the change");
+            assert_eq!(change["params"]["settings"], settings);
+
+            let error = notify(
+                &harness,
+                "workspace/didChangeConfiguration",
+                json!({ "settings": 1 }),
+            )
+            .expect_err("settings must be an object");
+            assert_eq!(refusal_code(error), "plugin.host.invalidParams");
+        }
+
+        #[test]
+        fn a_stopped_server_fails_what_is_in_flight_and_refuses_new_calls() {
+            let mut harness = start(metals_policy(false));
+            call(&harness, "slow-1", "metals/slow", json!({})).unwrap();
+            call(&harness, "focus-1", "metals/didFocus", json!({})).unwrap();
+            harness.server.await_request("metals/slow").unwrap();
+            harness.server.await_request("metals/didFocus").unwrap();
+
+            harness.server.exit(Some(1));
+            harness.await_state(LspLifecycleState::Failed);
+            for operation_id in ["slow-1", "focus-1"] {
+                let event = completed(&mut harness, operation_id);
+                assert_eq!(error_code(&event), "plugin.host.languageServerUnavailable");
+            }
+
+            let error = call(&harness, "late-1", "metals/slow", json!({}))
+                .expect_err("a stopped server takes no requests");
+            assert_eq!(refusal_code(error), "plugin.host.languageServerUnavailable");
+        }
+
+        #[test]
+        fn a_gated_request_still_waiting_fails_when_the_server_stops() {
+            let mut harness = start(metals_policy(true));
+            call(&harness, "held-1", "metals/slow", json!({})).unwrap();
+
+            harness.server.exit(Some(1));
+            harness.await_state(LspLifecycleState::Failed);
+            let event = completed(&mut harness, "held-1");
+            assert_eq!(error_code(&event), "plugin.host.languageServerUnavailable");
+        }
+
+        #[test]
+        fn an_invalid_policy_is_refused_at_start() {
+            let refused = |plugin_id: Option<&str>, policy: Value| {
+                let server = ScriptedServer::new();
+                let engine = LspEngine::with_launcher(server.launcher());
+                let mut request = start_request(&server);
+                request.plugin_id = plugin_id.map(ToString::to_string);
+                request.session_policy = Some(serde_json::from_value(policy).unwrap());
+                match engine.start_server(request) {
+                    Err(error) => matches!(error.code, ErrorCode::InvalidRequest),
+                    Ok(_) => false,
+                }
+            };
+            // The server ID is no protocol name.
+            assert!(refused(Some(PLUGIN), json!({ "serverID": "" })));
+            // A serialized command must also be a declared command.
+            assert!(refused(
+                Some(PLUGIN),
+                json!({ "serverID": SERVER, "serializedCommands": ["build-import"] })
+            ));
+            // A host-owned server has no backend, so it cannot have a policy.
+            assert!(refused(None, metals_policy(false)));
+        }
     }
 }

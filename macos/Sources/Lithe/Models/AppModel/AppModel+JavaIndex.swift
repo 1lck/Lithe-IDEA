@@ -31,6 +31,7 @@ extension AppModel {
 
     func bindLanguageIntelligenceCapability(_ capability: LanguageIntelligenceCapability) {
         languageToolingFeature.bindProjectPreparation(capability.sessions)
+        bindPluginLanguageServers(capability.sessions.pluginServers)
         cacheModuleCapability(
             capability,
             id: .languageIntelligence,

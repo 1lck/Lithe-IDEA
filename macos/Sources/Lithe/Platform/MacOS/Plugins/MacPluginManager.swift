@@ -172,10 +172,12 @@ final class MacPluginManager: PluginManaging {
         switch server.launch {
         case .packaged, .systemCommand:
             executableNames = server.executableNames
-        case .runtime:
-            // A runtime such as java/node is not the server's name. Reuse the
-            // descriptive launch metadata already associated with this language;
-            // it supplies a name only after the enabled plugin supplies the row.
+        case .runtime, .backend:
+            // A runtime such as java/node is not the server's name, and a
+            // backend names its executable only when the server starts. Reuse
+            // the descriptive launch metadata already associated with this
+            // language; it supplies a name only after the enabled plugin
+            // supplies the row.
             executableNames = catalog.descriptors.first { $0.id == server.languageID }?
                 .languageServerLaunch?.executableNames ?? []
         }

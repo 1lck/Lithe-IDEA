@@ -1888,6 +1888,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let toolchainProviders: [String]?
         /// Shortcut import providers offered to a plugin backend; omitted when none.
         let keymapImportProviders: [String]?
+        /// What the plugin backend may do with this server through the host
+        /// (plan API-25), exactly as `plugins.declarative.languageServerLaunchPlan`
+        /// returned it. Omitted when the plugin declares none.
+        let sessionPolicy: ToolingJSONValue?
         let runtimeExecutablePath: String?
         let jdtlsLaunchResources: LspJdtlsLaunchResourcesRequest?
         let cacheDirectory: String?
@@ -2083,6 +2087,25 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let context: Context?
     }
 
+    /// A request the plugin backend sent to its own language server.
+    private struct LspPluginServerRequest: Encodable {
+        let sessionId: String
+        let pluginId: String
+        let serverID: String
+        let method: String
+        let params: ToolingJSONValue
+        /// Omitted when nil, so Core applies its default deadline.
+        let timeoutMilliseconds: Int?
+    }
+
+    private struct LspPluginServerNotifyRequest: Encodable {
+        let sessionId: String
+        let pluginId: String
+        let serverID: String
+        let method: String
+        let params: ToolingJSONValue
+    }
+
     private struct LspHostResponseRequest: Encodable {
         struct Failure: Encodable {
             let message: String
@@ -2157,6 +2180,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let processExitCode: Int?
         let javaBuildReport: JavaBuildReport?
         let pluginErrorCode: String?
+        /// Facts of a failed plugin-server request, such as the server's own
+        /// error code and message.
+        let details: ToolingJSONValue?
     }
 
     struct LspServerInfoPayload: Decodable, Sendable {
@@ -3853,6 +3879,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         editorOptions: PluginEditorHostOptions? = nil,
         toolchainProviders: [String] = [],
         keymapImportProviders: [String] = [],
+        sessionPolicy: ToolingJSONValue? = nil,
         runtimeExecutableURL: URL? = nil,
         jdtlsLaunchResources: JDTLSLaunchResources? = nil,
         cacheDirectoryURL: URL? = nil,
@@ -3881,6 +3908,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 hostOptions: editorOptions.map(LspHostOptions.init),
                 toolchainProviders: toolchainProviders.isEmpty ? nil : toolchainProviders,
                 keymapImportProviders: keymapImportProviders.isEmpty ? nil : keymapImportProviders,
+                sessionPolicy: sessionPolicy,
                 runtimeExecutablePath: runtimeExecutableURL?.standardizedFileURL.path,
                 jdtlsLaunchResources: jdtlsLaunchResources.map {
                     LspJdtlsLaunchResourcesRequest(
@@ -4244,6 +4272,48 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 context: context.map { .init(contextID: $0.contextID, generation: $0.generation) }
             )
         )
+    }
+
+    /// Sends one LSP request of a plugin backend to its own server. Core
+    /// applies the plugin's whitelist, gates and timeout; the answer arrives as
+    /// the `requestCompleted` event of the returned operation.
+    func lspPluginServerRequest(
+        sessionID: String,
+        pluginID: String,
+        serverID: String,
+        method: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval?
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.pluginServerRequest",
+            payload: LspPluginServerRequest(
+                sessionId: sessionID, pluginId: pluginID, serverID: serverID, method: method, params: params,
+                timeoutMilliseconds: timeout.map { max(1, Self.milliseconds($0)) }
+            )
+        )
+    }
+
+    private struct LspPluginServerNotifyResponse: Decodable {
+        let delivered: Bool
+    }
+
+    /// Sends one LSP notification of a plugin backend to its own server.
+    /// `false` when the server is not initialized yet and will read the stored
+    /// configuration with its `initialized` notification instead.
+    func lspPluginServerNotify(
+        sessionID: String,
+        pluginID: String,
+        serverID: String,
+        method: String,
+        params: ToolingJSONValue
+    ) -> Result<Bool, CoreCallError> {
+        executeResult(
+            command: "lsp.pluginServerNotify",
+            payload: LspPluginServerNotifyRequest(
+                sessionId: sessionID, pluginId: pluginID, serverID: serverID, method: method, params: params
+            )
+        ).map { (response: LspPluginServerNotifyResponse) in response.delivered }
     }
 
     /// Answers one `hostRequest` event of a plugin backend.

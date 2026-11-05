@@ -10,15 +10,20 @@ package struct ResolvedLanguageServerLaunch: Equatable, Sendable {
     /// What the server reads through `workspace/configuration`; plugin
     /// settings with `effect: immediate` change it without a restart.
     package let workspaceConfiguration: ToolingJSONValue?
+    /// What the plugin lets its backend ask of the running server. Rust Core
+    /// built it and enforces it; the host passes it to `lsp.startServer`.
+    package let sessionPolicy: ToolingJSONValue?
 
     package init(
         arguments: [String],
         initializationOptions: ToolingJSONValue?,
-        workspaceConfiguration: ToolingJSONValue? = nil
+        workspaceConfiguration: ToolingJSONValue? = nil,
+        sessionPolicy: ToolingJSONValue? = nil
     ) {
         self.arguments = arguments
         self.initializationOptions = initializationOptions
         self.workspaceConfiguration = workspaceConfiguration
+        self.sessionPolicy = sessionPolicy
     }
 }
 
@@ -52,6 +57,15 @@ package typealias LanguageServerLaunchResolver = @MainActor (
     URL
 ) throws -> ResolvedLanguageServerLaunch
 
+/// Asks the plugin that owns a server what to start for one workspace root,
+/// when its backend names the process (`serverProcess` 3). The answer is a
+/// complete process with the resources that must outlive it, like the one
+/// the remote preparer returns.
+package typealias BackendLanguageServerLaunchPreparer = @MainActor (
+    DeclarativeLanguageServerLaunchSource,
+    URL
+) async throws -> PreparedLanguageServerProcess
+
 @MainActor
 package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
     package let descriptor: LanguageProviderDescriptor
@@ -63,6 +77,7 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
     private let languageServerLaunchResolver: LanguageServerLaunchResolver?
     private let languageServerCacheDirectory: URL?
     private let workspaceSessionFactory: WorkspaceLanguageServerSessionFactory?
+    private let backendLaunchPreparer: BackendLanguageServerLaunchPreparer?
     private weak var processRegistry: (any LanguageServerProcessRegistry)?
     private let moduleID: ModuleID
     private var runtimeUnavailableMessage: String?
@@ -87,6 +102,7 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         languageServerLaunchResolver: LanguageServerLaunchResolver? = nil,
         languageServerCacheDirectory: URL? = nil,
         workspaceSessionFactory: WorkspaceLanguageServerSessionFactory? = nil,
+        backendLaunchPreparer: BackendLanguageServerLaunchPreparer? = nil,
         processRegistry: (any LanguageServerProcessRegistry)? = nil,
         moduleID: ModuleID = .languageIntelligence
     ) {
@@ -99,6 +115,7 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         self.languageServerLaunchResolver = languageServerLaunchResolver
         self.languageServerCacheDirectory = languageServerCacheDirectory
         self.workspaceSessionFactory = workspaceSessionFactory
+        self.backendLaunchPreparer = backendLaunchPreparer
         self.processRegistry = processRegistry
         self.moduleID = moduleID
     }
@@ -106,6 +123,9 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
     package func makeLanguageServerSession() -> (any LanguageServerSession)? {
         runtimeUnavailableMessage = nil
         guard let languageServerLaunch else { return nil }
+        if let source = languageServerLaunch.launchSource, source.resolvesLaunchWithBackend {
+            return makeBackendLaunchedSession(source)
+        }
         let executableURL = if let languageServerExecutableResolver {
             languageServerExecutableResolver(descriptor)
         } else if let pinned = languageServerLaunch.executableURL {
@@ -171,9 +191,43 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
     package func makeLanguageServerSession(rootURL: URL) -> (any LanguageServerSession)? {
         if languageServerCore.requiresBackgroundLanguageServerStart(rootURL: rootURL),
            let workspaceSessionFactory, let languageServerLaunch {
+            // A remote workspace is prepared from the package on the remote
+            // host, which has no backend to answer the launch question.
+            if languageServerLaunch.launchSource?.resolvesLaunchWithBackend == true {
+                runtimeUnavailableMessage = L10n.string(
+                    "\(descriptor.displayName) cannot start in a remote workspace yet."
+                )
+                return nil
+            }
             return workspaceSessionFactory(languageServerLaunch, rootURL)
         }
         return makeLanguageServerSession()
+    }
+
+    /// The session of a server whose plugin backend names the process. No
+    /// executable exists to look up beforehand, so the session starts with a
+    /// placeholder that `prepareProcess` replaces on every start.
+    private func makeBackendLaunchedSession(
+        _ source: DeclarativeLanguageServerLaunchSource
+    ) -> (any LanguageServerSession)? {
+        guard let backendLaunchPreparer else {
+            runtimeUnavailableMessage = L10n.string(
+                "\(descriptor.displayName) needs a launch this build of Lithe cannot resolve."
+            )
+            return nil
+        }
+        return LanguageServerRuntimeSession(
+            providerID: descriptor.id,
+            executableURL: source.packageURL,
+            arguments: [],
+            environment: [:],
+            prepareProcess: { rootURL in try await backendLaunchPreparer(source, rootURL) },
+            core: languageServerCore,
+            processRegistry: processRegistry,
+            moduleID: moduleID,
+            pluginID: source.pluginID,
+            role: .languageServer
+        )
     }
 
 }
@@ -187,6 +241,7 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
     private let languageServerLaunchResolver: LanguageServerLaunchResolver?
     private let languageServerCacheDirectory: URL?
     private let workspaceSessionFactory: WorkspaceLanguageServerSessionFactory?
+    private let backendLaunchPreparer: BackendLanguageServerLaunchPreparer?
     private weak var processRegistry: (any LanguageServerProcessRegistry)?
     private let moduleID: ModuleID
 
@@ -198,6 +253,7 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
         languageServerLaunchResolver: LanguageServerLaunchResolver? = nil,
         languageServerCacheDirectory: URL? = nil,
         workspaceSessionFactory: WorkspaceLanguageServerSessionFactory? = nil,
+        backendLaunchPreparer: BackendLanguageServerLaunchPreparer? = nil,
         processRegistry: (any LanguageServerProcessRegistry)? = nil,
         moduleID: ModuleID = .languageIntelligence
     ) {
@@ -208,6 +264,7 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
         self.languageServerLaunchResolver = languageServerLaunchResolver
         self.languageServerCacheDirectory = languageServerCacheDirectory
         self.workspaceSessionFactory = workspaceSessionFactory
+        self.backendLaunchPreparer = backendLaunchPreparer
         self.processRegistry = processRegistry
         self.moduleID = moduleID
     }
@@ -229,6 +286,7 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
             languageServerLaunchResolver: languageServerLaunchResolver,
             languageServerCacheDirectory: languageServerCacheDirectory,
             workspaceSessionFactory: workspaceSessionFactory,
+            backendLaunchPreparer: backendLaunchPreparer,
             processRegistry: processRegistry,
             moduleID: moduleID
         )
@@ -249,6 +307,7 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
             languageServerLaunchResolver: languageServerLaunchResolver,
             languageServerCacheDirectory: languageServerCacheDirectory,
             workspaceSessionFactory: workspaceSessionFactory,
+            backendLaunchPreparer: backendLaunchPreparer,
             processRegistry: processRegistry,
             moduleID: ownerModuleID
         )

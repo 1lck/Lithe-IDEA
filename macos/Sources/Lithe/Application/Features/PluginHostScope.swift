@@ -122,9 +122,13 @@ protocol PluginHostWindowPort: AnyObject {
     var hostMessages: PluginHostMessageFeatureModel { get }
     /// Tells the user that `pluginName` sent more messages than the host shows.
     func hostNoteMessageLimit(pluginName: String)
+    /// The window's language server sessions; nil while the language
+    /// capability is not loaded, when no server can be running.
+    var hostLanguageServers: (any PluginLanguageServerRouting)? { get }
 }
 
 extension PluginHostWindowPort {
+    var hostLanguageServers: (any PluginLanguageServerRouting)? { nil }
     var hostDocumentService: (any EditorDocumentServicing)? { nil }
     var hostVisibilityRules: FileVisibilityRules { .default }
     func hostSetHTMLPresentation(at url: URL, previewOnly: Bool) throws { throw PluginHostError.unsupportedOption }

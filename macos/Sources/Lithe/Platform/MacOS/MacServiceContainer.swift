@@ -220,6 +220,12 @@ final class MacServiceContainer {
                 try logStore?.pluginFilesDirectory(pluginID: pluginID)
             }
         )
+        // What the plugins' language servers keep per workspace: pruned by
+        // each plugin's own retention, and discarded on the user's request.
+        let pluginWorkspaceState = MacPluginLanguageServerWorkspaceState(
+            directories: MacPluginStateDirectories(fileStorage: fileStorage),
+            planner: declarativePluginOperations
+        )
         let debugExecutableResolver = MacPluginDebugExecutableResolver(
             planner: declarativePluginOperations,
             settings: pluginSettings
@@ -476,9 +482,12 @@ final class MacServiceContainer {
                 fileStorage: fileStorage, baseEnvironment: { runtimeService.processEnvironment() }
             )
             hostDispatcher.register(runHost)
+            hostDispatcher.register(PluginLanguageServerHostService(contexts: .shared))
             let editorActions = PluginEditorActionHostService(
                 contexts: .shared, decoder: declarativePluginOperations, host: .macOS)
             hostDispatcher.register(editorActions)
+            let contentProviders = PluginContentProviderHostService(contexts: .shared, decoder: declarativePluginOperations)
+            hostDispatcher.register(contentProviders)
             let editorProviders = PluginEditorProviderHostService(
                 contexts: .shared, decoder: declarativePluginOperations, host: .macOS, logSink: logSink)
             hostDispatcher.register(editorProviders)
@@ -516,6 +525,7 @@ final class MacServiceContainer {
             )
             sessions.editorActions = editorActions
             runHost.backends = sessions
+            sessions.contentProviders = contentProviders
             sessions.editorProviders = editorProviders
             sessions.onActivationFailure = { pluginID, error in
                 if let plugin = LogSegment(pluginID) { logSink?.emit(PluginsBackendActivationFailed(error: error, plugin: plugin)) }
@@ -575,6 +585,14 @@ final class MacServiceContainer {
                         settingsStore: MacLanguageToolSettingsStore(store: store),
                         versionChecker: declarativePluginOperations
                     )
+                    // Servers whose plugin backend names the process each
+                    // start; the preparer asks that backend, so it shares
+                    // the application's backends.
+                    let backendLaunches = MacPluginBackendLaunchPreparer(
+                        backends: pluginBackends, contexts: .shared, resolver: pluginLaunchResolver,
+                        tools: providerTools, runtime: runtimeService, core: rustCore,
+                        workspaceState: pluginWorkspaceState
+                    )
                     let runtimeFactory = StdioLanguageProviderRuntimeFactory(
                         runtimeService: runtimeService,
                         languageServerCore: rustCore,
@@ -590,6 +608,9 @@ final class MacServiceContainer {
                                     try await remotePluginLaunches.prepareLanguage(descriptor, workspaceURL: workspace,
                                         tools: providerTools, versionChecker: declarativePluginOperations)
                                 }, core: rustCore, processRegistry: processRegistry, pluginID: descriptor.launchSource?.pluginID, role: .languageServer)
+                        },
+                        backendLaunchPreparer: { source, root in
+                            try await backendLaunches.prepare(source, workspaceURL: root)
                         },
                         processRegistry: processRegistry
                     )
@@ -626,6 +647,13 @@ final class MacServiceContainer {
                         },
                         workspaceStateResetter: { descriptor, workspaceRootURL, fingerprint in
                             guard !remoteWorkspaces.contains(workspaceRootURL) else { throw CocoaError(.featureUnsupported) }
+                            // A server without a native integration keeps its
+                            // state where the host created it for the plugin.
+                            if let launch = descriptor.languageServerLaunch, launch.hostIntegrationID == nil,
+                               let source = launch.launchSource {
+                                try pluginWorkspaceState.reset(source, workspaceRootURL: workspaceRootURL)
+                                return
+                            }
                             try languageServerHostIntegrations.resetWorkspaceState(
                                 for: descriptor,
                                 workspaceRootURL: workspaceRootURL,
@@ -1229,6 +1257,7 @@ final class MacServiceContainer {
             }
         }
         services.pluginEditorActions = pluginBackends.editorActions
+        services.pluginContentProviders = pluginBackends.contentProviders
         services.pluginEditorProviders = pluginBackends.editorProviders
         let isModuleUsable: @MainActor (ModuleID) -> Bool = { [weak moduleRuntime] id in
             guard let snapshot = try? moduleRuntime?.snapshot(for: id) else { return false }
@@ -1494,7 +1523,9 @@ final class MacServiceContainer {
                         pluginID: descriptor.id.rawValue,
                         languageID: server.languageID,
                         manifest: descriptor.normalizedManifest,
-                        packageURL: installed.packageURL
+                        packageURL: installed.packageURL,
+                        resolvesLaunchWithBackend: server.backendLaunch != nil,
+                        stateRetention: server.stateRetention
                     )
                     : nil
                 // An unexpandable probe is left empty, so the server is found

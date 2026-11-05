@@ -29234,6 +29234,22 @@
       }
     },
     {
+      "id": "native.cannotStartInARemoteWorkspaceYet",
+      "description": "Native UI: %@ cannot start in a remote workspace yet.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ cannot start in a remote workspace yet.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.cannotUseUsingTheProjectJDKInstead",
       "description": "Native UI: Cannot use %@; using the project JDK instead.",
       "platforms": [
@@ -31472,6 +31488,22 @@
       "macos": {
         "key": "Command",
         "arguments": []
+      }
+    },
+    {
+      "id": "native.commandChosenBy",
+      "description": "Native UI: Command chosen by: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Command chosen by: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
       }
     },
     {
@@ -42167,6 +42199,22 @@
       }
     },
     {
+      "id": "native.languageServerStartedByThePlugin",
+      "description": "Native UI: %@ language server (started by the plugin)",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ language server (started by the plugin)",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.languageServers",
       "description": "Native UI: Language servers",
       "platforms": [
@@ -46062,6 +46110,22 @@
       }
     },
     {
+      "id": "native.needsALaunchThisBuildOfLitheCannotResolve",
+      "description": "Native UI: %@ needs a launch this build of Lithe cannot resolve.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ needs a launch this build of Lithe cannot resolve.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.needsNoExtraPermissions",
       "description": "Native UI: Needs no extra permissions.",
       "platforms": [
@@ -47267,6 +47331,17 @@
       ],
       "macos": {
         "key": "No notifications",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noOpenWindowShowsThisWorkspaceSoThePluginCannotChooseHowToStartItsLanguageServer",
+      "description": "Native UI: No open window shows this workspace, so the plugin cannot choose how to start its language server.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No open window shows this workspace, so the plugin cannot choose how to start its language server.",
         "arguments": []
       }
     },
@@ -50193,6 +50268,17 @@
       ],
       "macos": {
         "key": "Preparing download…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.preparingTheLanguageServer",
+      "description": "Native UI: Preparing the language server",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Preparing the language server",
         "arguments": []
       }
     },
@@ -53545,6 +53631,22 @@
       }
     },
     {
+      "id": "native.resolvesToAProgramInsideTheProjectWhichALanguageServerCannotStart",
+      "description": "Native UI: %@ resolves to a program inside the project, which a language server cannot start.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ resolves to a program inside the project, which a language server cannot start.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.resolvingDependencies",
       "description": "Native UI: Resolving dependencies...",
       "platforms": [
@@ -55999,6 +56101,17 @@
       }
     },
     {
+      "id": "native.sendRequestsAndCommandsToItsLanguageServerForYourProject",
+      "description": "Native UI: Send requests and commands to its language server for your project",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Send requests and commands to its language server for your project",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.sending",
       "description": "Native UI: Sending…",
       "platforms": [
@@ -57882,6 +57995,17 @@
       }
     },
     {
+      "id": "native.startedByThePlugin",
+      "description": "Native UI: Started by the plugin",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Started by the plugin",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.starting",
       "description": "Native UI: Starting",
       "platforms": [
@@ -58534,6 +58658,17 @@
       ],
       "macos": {
         "key": "Supplementary message cancelled.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.supplyTheTextOfReadOnlyDocumentsItOpensInTheEditor",
+      "description": "Native UI: Supply the text of read-only documents it opens in the editor",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Supply the text of read-only documents it opens in the editor",
         "arguments": []
       }
     },
@@ -59658,6 +59793,39 @@
       }
     },
     {
+      "id": "native.theLanguageServerCouldNotGetReady",
+      "description": "Native UI: The language server could not get ready",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The language server could not get ready",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theLanguageServerIsNotRunning",
+      "description": "Native UI: The language server is not running.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The language server is not running.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theLanguageServerRunsWithLimitedFeatures",
+      "description": "Native UI: The language server runs with limited features",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The language server runs with limited features",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.theLatestStableReleaseWillBeDownloadedInFullAndReplaceThisAutoBuildAfterYouConbfd63f6a8e",
       "description": "Native UI: The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.",
       "platforms": [
@@ -60542,6 +60710,17 @@
       ],
       "macos": {
         "key": "This computer · This project",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisContentSchemeAlreadyHasAProvider",
+      "description": "Native UI: This content scheme already has a provider.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This content scheme already has a provider.",
         "arguments": []
       }
     },

@@ -34,7 +34,7 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | API-09 | 已公开 | documents/list/getSnapshot、editor/getActive/getSelections，含 dirty/版本/编码/EOL |
 | API-10 | 已公开 | applyEdits/replaceSelections/insertText；版本校验、IME/只读拒绝、一次 Undo |
 | API-11 | 未做 | 公共 save/saveAs/close 与工作区文件变更接口未接入 |
-| API-12 | 未做 | 公共多文件 edit、content provider、showDiff 未接入；Java 拆分计划（C-LS）：先交付按 URI scheme 注册的只读 content provider，承载 `jdt://` |
+| API-12 | 部分完成 | 已公开 `documents/registerContentProvider`（只读内容，≤1 MiB，每窗口每 scheme 一个，仅 macOS）；公共多文件 edit、showDiff 未接入 |
 | API-13 | 部分完成 | 既有 ui:3 原生 Tree/List/Form；通用独立后端数据源/懒加载未做 |
 | API-14 | 部分完成 | 既有包内网页 bridge、状态/生命周期；通用双向页面消息未做 |
 | API-15 | 部分完成 | editor/open/reveal 返回 documentID/version；range 只起点光标，替换预览标签未做 |
@@ -42,12 +42,12 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | API-17 | 部分完成 | 三类窗口消息和按钮/取消；通用 QuickPick/InputBox/授权文件句柄未做 |
 | API-18 | 未做 | 通用剪贴板与 revealInFinder API 未开放 |
 | API-19 | 部分完成 | 已有声明式设置 1/2；通用 settings.get/inspect/update/events 未做；Java 拆分计划（M1、D1）：Maven 插件按真实配置读取、回显、写回 settings |
-| API-20 | 部分完成 | global/backend/workspace 可写目录与网页状态；统一 KV/配额/session API 未做；Java 拆分计划（C-LS）：复用现有可写目录，仅新增 temporaryDirectory |
+| API-20 | 部分完成 | global/backend/workspace 可写目录与网页状态；语言服务器的按工作区状态目录按 `state.retention` 后台回收（Core 决定，仅 macOS，无用户可见重置入口）；统一 KV/配额/session API 未做 |
 | API-21 | 既有能力 | 协议 2 credentials/get/set/delete；权限与插件隔离不变 |
-| API-22 | 部分完成 | 既有函数进度与取消；新增 `outputLinkMatchers:1`，插件声明的匹配器让 Run 与测试控制台出现链接（macOS）；独立 output channel、通用 log/progress API 未做；Java 拆分计划（C-LS）：语言服务器准备状态 setStatus |
+| API-22 | 部分完成 | 既有函数进度与取消；语言服务器准备状态 `languageServer/setStatus`（仅百分比，无 actions，仅 macOS）；新增 `outputLinkMatchers:1`，插件声明的匹配器让 Run 与测试控制台出现链接（macOS）；独立 output channel、通用 log/progress API 未做 |
 | API-23 | 部分完成 | 已有进程声明与运行时解析；新增 `serverProcess:4` 的工具 ID 引用（清单 `requiresTools`）与后端发起的 `run/start`、`run/stop`、`run/didExit`（macOS，工具 ID 未找到或不可用时返回 -32025）；通用 toolchains/process 服务未开放 |
 | API-24 | 部分完成 | 已公开插件自有原生终端 create/show/close/reopen/dispose/onExit（macOS、本机）；不开放 sendText/输出读取，Windows 待接入 |
-| API-25 | 部分完成 | 既有语言/LSP 贡献；`languages:2` 的清单与包内 JSON 语法/编辑配置，仅支持 Monarch；新增宿主方法 `lithe/host/editor/registerProviders`（权限 `editor.providers`，macOS，待运行验收）把 definition/hover/completion/codeLens/foldingRange/semanticTokens/documentLink 绑定到普通插件函数，语言服务器优先、插件只补充；符号、格式化、重命名、Code Action、签名帮助、内联提示和运行期传入 JSON 动态注册高亮未做，详见下方范围说明；Java 拆分计划（C-LS、C-EDIT）：后端启动解析器，以及向自己声明的语言服务器 request、notify、setStatus；Spring、MyBatis 只补上游缺失的 Provider |
+| API-25 | 部分完成 | 既有语言/LSP 贡献；`languages:2` 的清单与包内 JSON 语法/编辑配置，仅支持 Monarch；新增 `languageServers:3` 与 `serverProcess:3`：后端经 `languageServer/request\|notify\|setStatus` 使用自己的服务器、后端启动（`launch.kind:"backend"`），会话策略由 Core 执行（仅 macOS，远程后端启动未支持，见 Agent Note 2026-11-04-plugin-owned-language-server-sessions）；新增宿主方法 `lithe/host/editor/registerProviders`（权限 `editor.providers`，macOS，待运行验收）把 definition/hover/completion/codeLens/foldingRange/semanticTokens/documentLink 绑定到普通插件函数，语言服务器优先、插件只补充；符号、格式化、重命名、Code Action、签名帮助、内联提示和运行期传入 JSON 动态注册高亮未做，详见下方范围说明；Java 拆分计划（C-EDIT）：Spring、MyBatis 只补上游缺失的 Provider |
 | API-26 | 未做 | 公共诊断 collection/events API 未开放；既有 LSP 诊断不等于该 API；`registerProviders` 不接受 `diagnostics` 类型（返回 unsupportedOption），推送式诊断集合另行设计；Java 拆分计划（C-EDIT）：推送式 collection，带文档版本 |
 | API-27 | 部分完成 | 独立 `editor/registerActions` 绑定普通函数与文档范围，不依赖 LSP/Build/Run；版本 2 增加行首多图标（run/run-all/debug/test 与 test-passed/test-failed/test-skipped 结果态、navigate-super/navigate-implementations 导航）、同一标记的 `alternatives`（至多 4 个）和点击结果的 `reveal`（宿主展示位置）；通用主题、片段、其他装饰未做；Java 拆分计划（C-EDIT）：图标、alternatives、reveal、CodeLens、运行与测试标记 |
 | API-28 | 未做 | 公共 custom editor 文档 owner/保存/撤销/恢复未开放 |

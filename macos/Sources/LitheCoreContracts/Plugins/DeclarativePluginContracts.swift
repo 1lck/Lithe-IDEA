@@ -44,6 +44,11 @@ public struct DeclarativeLanguageServer: Equatable, Sendable {
         /// runtime the plugin ships, for example `runtime/${arch}/bin/java`;
         /// `nil` means the host discovers the tool.
         case runtime(tool: String, entryRelativePath: String, packagedRuntime: String?)
+        /// The plugin's backend chooses the executable and arguments each
+        /// time the server starts (`serverProcess` 3). `function` is the
+        /// backend function the host calls; the host waits at most
+        /// `timeoutMilliseconds` for its answer.
+        case backend(function: String, timeoutMilliseconds: Int)
     }
 
     public let languageID: String
@@ -60,6 +65,21 @@ public struct DeclarativeLanguageServer: Equatable, Sendable {
     /// enables that integration for this server instead of matching on its
     /// language ID.
     public let hostIntegrationID: String?
+    /// How long the server's per-workspace state is kept (`languageServers`
+    /// 3), or nil when the plugin declares none and the host keeps its own
+    /// bounds.
+    public let stateRetention: StateRetention?
+
+    /// The bounds a plugin puts on the per-workspace state of its server.
+    public struct StateRetention: Hashable, Sendable {
+        public let maxEntries: Int
+        public let maxAgeDays: Int
+
+        public init(maxEntries: Int, maxAgeDays: Int) {
+            self.maxEntries = maxEntries
+            self.maxAgeDays = maxAgeDays
+        }
+    }
 
     /// Tool of a runtime launch, such as `node`. The executable the host
     /// starts for this server is that runtime, and the server's own child
@@ -86,6 +106,20 @@ public struct DeclarativeLanguageServer: Equatable, Sendable {
             // The runtime is the process the host starts; the entry file is
             // an argument of the expanded launch plan.
             [tool]
+        case .backend:
+            // The backend names the executable at start time, so there is
+            // nothing to look up or display beforehand.
+            []
+        }
+    }
+
+    /// The backend function and timeout of a server whose launch the plugin
+    /// resolves, or nil for every other launch.
+    public var backendLaunch: (function: String, timeoutMilliseconds: Int)? {
+        if case .backend(let function, let timeoutMilliseconds) = launch {
+            (function, timeoutMilliseconds)
+        } else {
+            nil
         }
     }
 }
@@ -99,12 +133,27 @@ public struct DeclarativeLanguageServerLaunchSource: Hashable, Sendable {
     public let manifest: Data
     /// Root of the installed, read-only plugin package.
     public let packageURL: URL
+    /// True when the plugin's backend names the process at each start
+    /// (`serverProcess` 3), so the host has no executable to look up first.
+    public let resolvesLaunchWithBackend: Bool
+    /// How long the server's per-workspace state is kept, or nil when the
+    /// plugin declares no bounds and the host deletes nothing.
+    public let stateRetention: DeclarativeLanguageServer.StateRetention?
 
-    public init(pluginID: String, languageID: String, manifest: Data, packageURL: URL) {
+    public init(
+        pluginID: String,
+        languageID: String,
+        manifest: Data,
+        packageURL: URL,
+        resolvesLaunchWithBackend: Bool = false,
+        stateRetention: DeclarativeLanguageServer.StateRetention? = nil
+    ) {
         self.pluginID = pluginID
         self.languageID = languageID
         self.manifest = manifest
         self.packageURL = packageURL
+        self.resolvesLaunchWithBackend = resolvesLaunchWithBackend
+        self.stateRetention = stateRetention
     }
 }
 
@@ -151,6 +200,9 @@ public struct DeclarativeLanguageServerLaunchRequest: Equatable, Sendable {
     public let settings: [String: ToolingJSONValue]
     /// The workspace's overrides of project-scoped settings.
     public let projectSettings: [String: ToolingJSONValue]
+    /// Scratch directory of one start of the server. Only a launch the
+    /// plugin backend resolves needs it; Core refuses that launch without.
+    public let temporaryDirectory: URL?
 
     public init(
         pluginDirectory: URL,
@@ -159,8 +211,10 @@ public struct DeclarativeLanguageServerLaunchRequest: Equatable, Sendable {
         architecture: String,
         settings: [String: ToolingJSONValue] = [:],
         projectSettings: [String: ToolingJSONValue] = [:],
-        logDirectory: URL? = nil
+        logDirectory: URL? = nil,
+        temporaryDirectory: URL? = nil
     ) {
+        self.temporaryDirectory = temporaryDirectory
         self.logDirectory = logDirectory
         self.pluginDirectory = pluginDirectory
         self.stateDirectory = stateDirectory
@@ -423,6 +477,7 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
         case log
         case state
         case workspaceState
+        case temporary
     }
 
     public struct RuntimeRequirement: Equatable, Sendable {
@@ -478,6 +533,52 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
     public var backend: Backend? = nil
     /// Set when the plan was selected by debug adapter.
     public var debugAdapter: DebugAdapter? = nil
+    /// Set on the first step of a server whose backend resolves the launch.
+    public var backendResolution: BackendResolution? = nil
+    /// Set on the second step: what the backend's answer asks the host to
+    /// start, already checked by Rust Core.
+    public var resolvedLaunch: ResolvedLaunch? = nil
+    /// The session policy Rust Core enforces for a plugin-owned server,
+    /// passed to `lsp.startServer` unchanged. The host never reads it.
+    public var sessionPolicy: ToolingJSONValue? = nil
+
+    /// The question of the first step: which backend function to call and
+    /// with what, before the host knows what to start (`serverProcess` 3).
+    public struct BackendResolution: Equatable, Sendable {
+        public let function: String
+        public let timeoutMilliseconds: Int
+        /// Params of the function apart from `context` and `tools`, which
+        /// the host attaches.
+        public let resolveParams: [String: ToolingJSONValue]
+
+        public init(function: String, timeoutMilliseconds: Int, resolveParams: [String: ToolingJSONValue]) {
+            self.function = function
+            self.timeoutMilliseconds = timeoutMilliseconds
+            self.resolveParams = resolveParams
+        }
+    }
+
+    /// The answer of the backend's launch function after Rust Core bounded
+    /// and checked it.
+    public struct ResolvedLaunch: Equatable, Sendable {
+        public enum Program: Equatable, Sendable {
+            /// File inside the plugin package, relative to its root.
+            case packaged(String)
+            /// One of the plugin's tool definitions; the host resolves it.
+            case tool(String)
+        }
+
+        public let program: Program
+        public let environment: [String: String]
+        /// Absolute paths inside the host directories the process may write.
+        public let writablePaths: [String]
+
+        public init(program: Program, environment: [String: String], writablePaths: [String]) {
+            self.program = program
+            self.environment = environment
+            self.writablePaths = writablePaths
+        }
+    }
 
     /// What the host needs besides the process: the identity the adapter
     /// registers under and the DAP `adapterID` its requests carry.
@@ -709,7 +810,10 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 validationArguments: server.validationArguments,
                 runtimeTools: server.runtimeDependencies.map(\.tool),
                 expandsLaunchTemplates: decoded.pluginAPIVersion >= 2,
-                hostIntegrationID: server.hostIntegration?.id
+                hostIntegrationID: server.hostIntegration?.id,
+                stateRetention: server.state?.retention.map {
+                    DeclarativeLanguageServer.StateRetention(maxEntries: $0.maxEntries, maxAgeDays: $0.maxAgeDays)
+                }
             )
         }
         executionProviders = decoded.executionProviders.map { provider in
@@ -955,6 +1059,10 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             && modules.allSatisfy { live.contains($0.manifest.id) && $0.contributions.isEmpty }
     }
 
+    /// How long the host waits for a backend launch function when the
+    /// manifest names no timeout; the same default Rust Core applies.
+    private static let defaultBackendLaunchTimeoutMilliseconds = 30_000
+
     private static func launch(_ launch: NormalizedManifest.Launch) -> DeclarativeLanguageServer.Launch {
         switch launch.kind {
         case "packaged":
@@ -964,6 +1072,11 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 tool: launch.tool ?? "",
                 entryRelativePath: launch.entry ?? "",
                 packagedRuntime: launch.packagedRuntime
+            )
+        case "backend":
+            .backend(
+                function: launch.function ?? "",
+                timeoutMilliseconds: launch.timeoutMilliseconds ?? Self.defaultBackendLaunchTimeoutMilliseconds
             )
         default:
             .systemCommand(launch.commands ?? [])
@@ -1033,6 +1146,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let tool: String?
             let entry: String?
             let packagedRuntime: String?
+            let function: String?
+            let timeoutMilliseconds: Int?
         }
         struct RuntimeDependency: Decodable {
             let tool: String
@@ -1049,6 +1164,17 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let validationArguments: [String]
             let runtimeDependencies: [RuntimeDependency]
             let hostIntegration: HostIntegration?
+            let state: SessionState?
+
+            /// `state` of a plugin-owned session (`languageServers` 3).
+            struct SessionState: Decodable {
+                struct Retention: Decodable {
+                    let maxEntries: Int
+                    let maxAgeDays: Int
+                }
+
+                let retention: Retention?
+            }
 
             init(from decoder: Decoder) throws {
                 let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -1059,11 +1185,12 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 validationArguments = try values.decodeIfPresent([String].self, forKey: .validationArguments) ?? []
                 runtimeDependencies = try values.decodeIfPresent([RuntimeDependency].self, forKey: .runtimeDependencies) ?? []
                 hostIntegration = try values.decodeIfPresent(HostIntegration.self, forKey: .hostIntegration)
+                state = try values.decodeIfPresent(SessionState.self, forKey: .state)
             }
 
             private enum CodingKeys: String, CodingKey {
                 case languageID, languageIdentifier, launch, arguments, validationArguments, runtimeDependencies
-                case hostIntegration
+                case hostIntegration, state
             }
         }
         struct Setting: Decodable {
@@ -1738,6 +1865,23 @@ public protocol DeclarativeLanguageServerLaunchPlanning: Sendable {
         languageID: String,
         request: DeclarativeLanguageServerLaunchRequest
     ) throws -> DeclarativeLanguageServerLaunchPlan
+    /// The second step of a server whose backend resolves its launch: Rust
+    /// Core bounds and checks the backend function's answer and returns the
+    /// plan the host starts, with `resolvedLaunch` and `sessionPolicy` set.
+    func decodeLaunch(
+        manifest: Data,
+        languageID: String,
+        request: DeclarativeLanguageServerLaunchRequest,
+        result: ToolingJSONValue
+    ) throws -> DeclarativeLanguageServerLaunchPlan
+    /// Names of the per-workspace state directories of a server that its
+    /// retention bounds say to delete. Active directories are never named.
+    func expiredLanguageServerStateNames(
+        retention: DeclarativeLanguageServer.StateRetention,
+        nowUnixSeconds: Int,
+        entries: [LanguageServerStateEntry],
+        activeNames: [String]
+    ) throws -> [String]
     /// The launch plan of a build system's provider. A provider that shares
     /// a language server gets that server's plan with
     /// `buildProvider.languageServer` set.
@@ -1782,7 +1926,42 @@ public protocol DeclarativeLanguageServerLaunchPlanning: Sendable {
     ) throws -> DeclarativeDebugExecutablePlan?
 }
 
+/// One per-workspace state directory and when it was last used.
+public struct LanguageServerStateEntry: Equatable, Sendable {
+    public let name: String
+    public let lastModifiedUnixSeconds: Int
+
+    public init(name: String, lastModifiedUnixSeconds: Int) {
+        self.name = name
+        self.lastModifiedUnixSeconds = lastModifiedUnixSeconds
+    }
+}
+
 public extension DeclarativeLanguageServerLaunchPlanning {
+    func decodeLaunch(
+        manifest _: Data,
+        languageID _: String,
+        request _: DeclarativeLanguageServerLaunchRequest,
+        result _: ToolingJSONValue
+    ) throws -> DeclarativeLanguageServerLaunchPlan {
+        throw DeclarativePluginRejection(
+            code: "plugin.launch.unavailable",
+            message: "This host cannot decode plugin-resolved launches."
+        )
+    }
+
+    func expiredLanguageServerStateNames(
+        retention _: DeclarativeLanguageServer.StateRetention,
+        nowUnixSeconds _: Int,
+        entries _: [LanguageServerStateEntry],
+        activeNames _: [String]
+    ) throws -> [String] {
+        throw DeclarativePluginRejection(
+            code: "plugin.launch.unavailable",
+            message: "This host cannot select expired language server state."
+        )
+    }
+
     func buildProviderLaunchPlan(
         manifest _: Data,
         buildSystemID _: String,

@@ -54,10 +54,18 @@ package final class LanguageToolingSessionManager: ObservableObject,
     private var javaDependencyRefreshTask: Task<Void, Never>?
     private var javaDependencyChangeTask: Task<Void, Never>?
     @Published package private(set) var mavenProfileProjectResults: [URL: MavenProfileProjectResult] = [:]
-    @Published package private(set) var languageServerStates: [String: LanguageServerSessionState] = [:]
+    @Published package private(set) var languageServerStates: [String: LanguageServerSessionState] = [:] {
+        // Every start, crash, stop and restart passes through this one
+        // property, so the plugin relay cannot miss a transition.
+        didSet { relayPluginServerStates(from: oldValue) }
+    }
     @Published package private(set) var languageServerInfos: [String: LanguageServerInfo] = [:]
     @Published package private(set) var languageServerOperationIDs: [String: UUID] = [:]
     package var onLanguageServerStateChange: ((String, LanguageServerSessionState, UUID?) -> Void)?
+    /// What plugin backends learn about the servers their plugins own (API-25).
+    package let pluginServers = PluginLanguageServerRelay()
+    /// The preparation status each plugin reported for its running server.
+    @Published package private(set) var pluginServerStatuses: [String: PluginServerStatus] = [:]
     private let logSink: (any LogSink)?
     private let resolveLogSubject: (String) throws -> LogSegment?
     // Cache both success and failure; diagnostics must not change startup behavior.
@@ -131,6 +139,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             BuiltinLanguageFeatureProvider(core: builtinCore ?? UnavailableBuiltinLanguageFeatureCore())
         ]
         runtimesByID = Dictionary(uniqueKeysWithValues: runtimes.map { ($0.descriptor.id, $0) })
+        pluginServers.onStatusesChange = { [weak self] statuses in self?.pluginServerStatuses = statuses }
     }
 
     package var activeLanguageServerIDs: Set<String> {
@@ -297,7 +306,10 @@ package final class LanguageToolingSessionManager: ObservableObject,
         let configuration = provider.configuration
         guard configuration.languageID == support.id,
               let ownerModuleID = support.languageServerModuleID,
-              !configuration.executableNames.isEmpty,
+              // A server its plugin backend launches names no executable
+              // until it starts.
+              !configuration.executableNames.isEmpty
+                  || configuration.launchSource?.resolvesLaunchWithBackend == true,
               // The module that owns this provider already stopped it.
               !provider.lifecycle.isRetired,
               let runtimeFactory else { return false }
@@ -1603,6 +1615,60 @@ package final class LanguageToolingSessionManager: ObservableObject,
         return await session.updateWorkspaceConfigurationAsync(configuration)
     }
 
+    // MARK: Plugin-owned language servers (API-25)
+
+    /// Sends one request of `pluginID`'s backend to the language server
+    /// `serverID`. Rust Core decides whether the server belongs to the plugin
+    /// and whether the method is declared; this only finds the session.
+    package func requestPluginServer(
+        pluginID: String,
+        serverID: String,
+        method: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval?
+    ) async -> Result<ToolingJSONValue, PluginHostRequestFailure> {
+        guard let session = languageServers[serverID] else { return .failure(.languageServerUnavailable) }
+        return await session.requestPluginServer(
+            pluginID: pluginID, serverID: serverID, method: method, params: params, timeout: timeout
+        )
+    }
+
+    /// Sends one notification of `pluginID`'s backend to the language server
+    /// `serverID`; `true` when it was written.
+    package func notifyPluginServer(
+        pluginID: String,
+        serverID: String,
+        method: String,
+        params: ToolingJSONValue
+    ) async -> Result<Bool, PluginHostRequestFailure> {
+        guard let session = languageServers[serverID] else { return .failure(.languageServerUnavailable) }
+        return await session.notifyPluginServer(
+            pluginID: pluginID, serverID: serverID, method: method, params: params
+        )
+    }
+
+    /// Records the preparation status `pluginID` reports for its server.
+    /// Core never sees this call, so ownership is checked by the relay.
+    package func setPluginServerStatus(
+        _ status: PluginServerStatus,
+        serverID: String,
+        pluginID: String
+    ) -> Result<Void, PluginHostRequestFailure> {
+        pluginServers.setStatus(status, serverID: serverID, pluginID: pluginID)
+    }
+
+    private func relayPluginServerStates(from previous: [String: LanguageServerSessionState]) {
+        for serverID in Set(previous.keys).union(languageServerStates.keys) {
+            let state = languageServerStates[serverID]
+            guard state != previous[serverID] else { continue }
+            pluginServers.serverStateChanged(
+                serverID: serverID,
+                owner: runtimesByID[serverID]?.descriptor.languageServerLaunch?.pluginID,
+                to: state
+            )
+        }
+    }
+
     package func resolveVirtualDocument(
         providerID: String,
         uri: URL,
@@ -2182,6 +2248,14 @@ package final class LanguageToolingSessionManager: ObservableObject,
             guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
             self.recordLogIssue(providerID, operationID ?? self.languageServerOperationIDs[providerID]?.uuidString,
                 warning, stage, code, exitCode)
+        }
+        // The relay raised the generation when this session's state first
+        // became `startingProcess`, just before these callbacks are bound.
+        if let generation = pluginServers.liveGeneration(of: providerID) {
+            session.onPluginServerNotification = { [weak self] notification in
+                guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
+                self.pluginServers.receive(notification, serverID: providerID, generation: generation)
+            }
         }
         session.onStateChange = { [weak self] state in
             self?.handleLanguageServerState(

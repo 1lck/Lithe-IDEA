@@ -17,6 +17,7 @@
 "%@ already exists. Choose another name or location." = "%@ already exists. Choose another name or location.";
 "%@ answered with status %lld. %@" = "%@ answered with status %lld. %@";
 "%@ build files changed" = "%@ build files changed";
+"%@ cannot start in a remote workspace yet." = "%@ cannot start in a remote workspace yet.";
 "%@ could not be reached. Check your internet, proxy, or VPN connection and try again." = "%@ could not be reached. Check your internet, proxy, or VPN connection and try again.";
 "%@ debug adapter is unavailable." = "%@ debug adapter is unavailable.";
 "%@ did not answer: %@" = "%@ did not answer: %@";
@@ -46,12 +47,15 @@
 "%@ keeps no workspace state that Lithe can reset." = "%@ keeps no workspace state that Lithe can reset.";
 "%@ language server (inside the plugin)" = "%@ language server (inside the plugin)";
 "%@ language server (installed on this Mac)" = "%@ language server (installed on this Mac)";
+"%@ language server (started by the plugin)" = "%@ language server (started by the plugin)";
 "%@ memory" = "%@ memory";
+"%@ needs a launch this build of Lithe cannot resolve." = "%@ needs a launch this build of Lithe cannot resolve.";
 "%@ now follows your local %@ configuration." = "%@ now follows your local %@ configuration.";
 "%@ of %@ is handled by %@." = "%@ of %@ is handled by %@.";
 "%@ options" = "%@ options";
 "%@ provider (inside the plugin)" = "%@ provider (inside the plugin)";
 "%@ provider (installed on this Mac)" = "%@ provider (installed on this Mac)";
+"%@ resolves to a program inside the project, which a language server cannot start." = "%@ resolves to a program inside the project, which a language server cannot start.";
 "%@ returned HTTP %@." = "%@ returned HTTP %@.";
 "%@ returned an invalid language-server provider." = "%@ returned an invalid language-server provider.";
 "%@ returned an unexpected response." = "%@ returned an unexpected response.";
@@ -864,6 +868,7 @@
 "Comma-separated glob patterns. Empty searches every file." = "Comma-separated glob patterns. Empty searches every file.";
 "Command" = "Command";
 "Command Palette Actions" = "Command Palette Actions";
+"Command chosen by: %@" = "Command chosen by: %@";
 "Command details" = "Command details";
 "Commands an AI Agent started that are still running, for example a deployment, a database migration or a dev server. Each one is asked about separately because ending one halfway can leave data or services inconsistent. What the Agent needs for itself, such as its MCP servers, always ends with the Agent." = "Commands an AI Agent started that are still running, for example a deployment, a database migration or a dev server. Each one is asked about separately because ending one halfway can leave data or services inconsistent. What the Agent needs for itself, such as its MCP servers, always ends with the Agent.";
 "Comment" = "Comment";
@@ -2660,6 +2665,7 @@
 "No navigation results" = "No navigation results";
 "No new commits. Pushing creates the remote branch." = "No new commits. Pushing creates the remote branch.";
 "No notifications" = "No notifications";
+"No open window shows this workspace, so the plugin cannot choose how to start its language server." = "No open window shows this workspace, so the plugin cannot choose how to start its language server.";
 "No paths" = "No paths";
 "No paths resolved for this service" = "No paths resolved for this service";
 "No place to look yet. Open the file you want to debug, or choose the program yourself." = "No place to look yet. Open the file you want to debug, or choose the program yourself.";
@@ -3034,6 +3040,7 @@
 "Preflight" = "Preflight";
 "Preparing conversation…" = "Preparing conversation…";
 "Preparing download…" = "Preparing download…";
+"Preparing the language server" = "Preparing the language server";
 "Preparing…" = "Preparing…";
 "Preserves every commit and adds a merge commit to the base branch." = "Preserves every commit and adds a merge commit to the base branch.";
 "Press shortcut…" = "Press shortcut…";
@@ -3734,6 +3741,7 @@
 "Send a message to %@" = "Send a message to %@";
 "Send input to debuggee" = "Send input to debuggee";
 "Send program input" = "Send program input";
+"Send requests and commands to its language server for your project" = "Send requests and commands to its language server for your project";
 "Sending…" = "Sending…";
 "Sensitive files are not sent to an AI provider." = "Sensitive files are not sent to an AI provider.";
 "Separate arguments with spaces; quote an argument that contains spaces." = "Separate arguments with spaces; quote an argument that contains spaces.";
@@ -3997,6 +4005,7 @@
 "Start this configuration to see its output here." = "Start this configuration to see its output here.";
 "Start time" = "Start time";
 "Start with an action verb, without a type prefix" = "Start with an action verb, without a type prefix";
+"Started by the plugin" = "Started by the plugin";
 "Started in Claude Desktop" = "Started in Claude Desktop";
 "Starting" = "Starting";
 "Starting Interactive Rebase" = "Starting Interactive Rebase";
@@ -4075,6 +4084,7 @@
 "Suggested" = "Suggested";
 "Suggested replies" = "Suggested replies";
 "Supplementary message cancelled." = "Supplementary message cancelled.";
+"Supply the text of read-only documents it opens in the editor" = "Supply the text of read-only documents it opens in the editor";
 "Supported keyboard commands are mapped; unknown keymaps, mouse shortcuts and chords are skipped." = "Supported keyboard commands are mapped; unknown keymaps, mouse shortcuts and chords are skipped.";
 "Supported placeholders: {summary}, {changes}, {testing}, {risks}." = "Supported placeholders: {summary}, {changes}, {testing}, {risks}.";
 "Svelte Support" = "Svelte Support";
@@ -4338,7 +4348,10 @@
 "The interface language changes immediately. English is the default." = "The interface language changes immediately. English is the default.";
 "The item can be recovered from the macOS Trash." = "The item can be recovered from the macOS Trash.";
 "The language server could not apply this setting. Restart it to use the new value." = "The language server could not apply this setting. Restart it to use the new value.";
+"The language server could not get ready" = "The language server could not get ready";
+"The language server is not running." = "The language server is not running.";
 "The language server is still stopping. Try again after it has stopped." = "The language server is still stopping. Try again after it has stopped.";
+"The language server runs with limited features" = "The language server runs with limited features";
 "The language server this build system uses is not available. Open a file of the language and try again." = "The language server this build system uses is not available. Open a file of the language and try again.";
 "The language service that hosts the debug adapter is unavailable." = "The language service that hosts the debug adapter is unavailable.";
 "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release." = "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.";
@@ -4575,6 +4588,7 @@
 "This configuration contains unsupported or invalid settings." = "This configuration contains unsupported or invalid settings.";
 "This configuration has no supported explicit editor settings to import." = "This configuration has no supported explicit editor settings to import.";
 "This configuration is larger than 1 MiB and is not edited by Lithe." = "This configuration is larger than 1 MiB and is not edited by Lithe.";
+"This content scheme already has a provider." = "This content scheme already has a provider.";
 "This conversation is no longer available. Choose another conversation." = "This conversation is no longer available. Choose another conversation.";
 "This debug session requires an external terminal, which is not supported." = "This debug session requires an external terminal, which is not supported.";
 "This debug session requires shell-interpreted terminal arguments." = "This debug session requires shell-interpreted terminal arguments.";
@@ -5820,6 +5834,7 @@
 "native.cannotEncodeHookConfiguration" = "Cannot encode Hook configuration.";
 "native.cannotEncodeTheHookLibrary" = "Cannot encode the Hook library.";
 "native.cannotLocateTheAgentUserDirectory" = "Cannot locate the Agent user directory.";
+"native.cannotStartInARemoteWorkspaceYet" = "%1$@ cannot start in a remote workspace yet.";
 "native.cannotUseUsingTheProjectJDKInstead" = "Cannot use %1$@; using the project JDK instead.";
 "native.category" = "Category";
 "native.changeTheValuesStoredInTheSelectedScopeChooseInheritToRemoveAnOverride" = "Change the values stored in the selected scope. Choose Inherit to remove an override.";
@@ -6080,6 +6095,7 @@
 "native.commaSeparatedGlobPatternsEGJavaKt" = "Comma-separated glob patterns, e.g. *.java, *.kt";
 "native.commaSeparatedGlobPatternsEmptySearchesEveryFile" = "Comma-separated glob patterns. Empty searches every file.";
 "native.command" = "Command";
+"native.commandChosenBy" = "Command chosen by: %1$@";
 "native.commandDetails" = "Command details";
 "native.commandPaletteActions" = "Command Palette Actions";
 "native.commandsAnAIAgentStartedThatAreStillRunningForExampleADeploymentADatabaseMigradd876f8a4a" = "Commands an AI Agent started that are still running, for example a deployment, a database migration or a dev server. Each one is asked about separately because ending one halfway can leave data or services inconsistent. What the Agent needs for itself, such as its MCP servers, always ends with the Agent.";
@@ -7341,6 +7357,7 @@
 "native.languageServerReturnedOverlappingTextEdits" = "Language server returned overlapping text edits.";
 "native.languageServerSessionStoppedBeforeTheRequestCompleted" = "Language server session stopped before the request completed.";
 "native.languageServerSettingsAction" = "Language Server Settings...";
+"native.languageServerStartedByThePlugin" = "%1$@ language server (started by the plugin)";
 "native.languageServerStillStopping" = "The language server is still stopping. Try again after it has stopped.";
 "native.languageServerToolConfigurationChanged" = "Language server tool configuration changed";
 "native.languageServers" = "Language servers";
@@ -7765,6 +7782,7 @@
 "native.navigateToTheNextEditorLocation" = "Navigate to the next editor location";
 "native.navigateToThePreviousEditorLocation" = "Navigate to the previous editor location";
 "native.navigation" = "Navigation";
+"native.needsALaunchThisBuildOfLitheCannotResolve" = "%1$@ needs a launch this build of Lithe cannot resolve.";
 "native.needsNoExtraPermissions" = "Needs no extra permissions.";
 "native.needsRestart" = "Needs restart";
 "native.nestedException" = "Nested exception";
@@ -7908,6 +7926,7 @@
 "native.noNavigationResults" = "No navigation results";
 "native.noNewCommitsPushingCreatesTheRemoteBranch" = "No new commits. Pushing creates the remote branch.";
 "native.noNotifications" = "No notifications";
+"native.noOpenWindowShowsThisWorkspaceSoThePluginCannotChooseHowToStartItsLanguageServer" = "No open window shows this workspace, so the plugin cannot choose how to start its language server.";
 "native.noPaths" = "No paths";
 "native.noPathsResolvedForThisService" = "No paths resolved for this service";
 "native.noPlaceToLookYetOpenTheFileYouWantToDebugOrChooseTheProgramYourself" = "No place to look yet. Open the file you want to debug, or choose the program yourself.";
@@ -8242,6 +8261,7 @@
 "native.preparing" = "Preparing…";
 "native.preparingConversation" = "Preparing conversation…";
 "native.preparingDownload" = "Preparing download…";
+"native.preparingTheLanguageServer" = "Preparing the language server";
 "native.preservesEveryCommitAndAddsAMergeCommitToTheBaseBranch" = "Preserves every commit and adds a merge commit to the base branch.";
 "native.pressShortcut" = "Press shortcut…";
 "native.previewBackgroundImage" = "Preview background image";
@@ -8606,6 +8626,7 @@
 "native.resizeDialog" = "Resize dialog, %1$@";
 "native.resolveLldConflictedFileSStageTheResultThenContinue" = "Resolve %1$lld conflicted file(s), stage the result, then continue.";
 "native.resolveLldConflictedFileSStageThemThenContinue" = "Resolve %1$lld conflicted file(s), stage them, then continue.";
+"native.resolvesToAProgramInsideTheProjectWhichALanguageServerCannotStart" = "%1$@ resolves to a program inside the project, which a language server cannot start.";
 "native.resolvingDependencies" = "Resolving dependencies...";
 "native.resolvingPushDestination" = "Resolving push destination…";
 "native.resolvingServicePaths" = "Resolving service paths...";
@@ -8882,6 +8903,7 @@
 "native.sendAMessageTo" = "Send a message to %1$@";
 "native.sendInputToDebuggee" = "Send input to debuggee";
 "native.sendProgramInput" = "Send program input";
+"native.sendRequestsAndCommandsToItsLanguageServerForYourProject" = "Send requests and commands to its language server for your project";
 "native.sending" = "Sending…";
 "native.sensitiveFilesAreNotSentToAnAIProvider" = "Sensitive files are not sent to an AI provider.";
 "native.separateArgumentsWithSpacesQuoteAnArgumentThatContainsSpaces" = "Separate arguments with spaces; quote an argument that contains spaces.";
@@ -9112,6 +9134,7 @@
 "native.startThisConfigurationToSeeItsOutputHere" = "Start this configuration to see its output here.";
 "native.startWithAnActionVerbWithoutATypePrefix" = "Start with an action verb, without a type prefix";
 "native.startedATaskThatIsStillRunning" = "%1$@ started a task that is still running";
+"native.startedByThePlugin" = "Started by the plugin";
 "native.startedInClaudeDesktop" = "Started in Claude Desktop";
 "native.starting" = "Starting";
 "native.startingCommitOptional" = "Starting commit (optional)";
@@ -9183,6 +9206,7 @@
 "native.suggested" = "Suggested";
 "native.suggestedReplies" = "Suggested replies";
 "native.supplementaryMessageCancelled" = "Supplementary message cancelled.";
+"native.supplyTheTextOfReadOnlyDocumentsItOpensInTheEditor" = "Supply the text of read-only documents it opens in the editor";
 "native.supportedPlaceholdersSummaryChangesTestingRisks" = "Supported placeholders: {summary}, {changes}, {testing}, {risks}.";
 "native.svelteSupport" = "Svelte Support";
 "native.svgViewMode" = "SVG view mode";
@@ -9387,9 +9411,12 @@
 "native.theJavaTestResultListenerDidNotBecome" = "The Java test result listener did not become ready in time.";
 "native.theLanguageProviderIsNotInstalled" = "The %1$@ language provider is not installed.";
 "native.theLanguageServerCouldNotApplyThisSetting" = "The language server could not apply this setting. Restart it to use the new value.";
+"native.theLanguageServerCouldNotGetReady" = "The language server could not get ready";
 "native.theLanguageServerIsDisabledInThisWorkspace" = "The %1$@ language server is disabled in this workspace. Enable it in Settings > LSP.";
+"native.theLanguageServerIsNotRunning" = "The language server is not running.";
 "native.theLanguageServerOfThisPluginIsNotAvailable" = "The %1$@ language server of this plugin is not available.";
 "native.theLanguageServerReturnedAnInvalidTcpPortForItsDebugAdapter" = "The %1$@ language server returned an invalid TCP port for its debug adapter.";
+"native.theLanguageServerRunsWithLimitedFeatures" = "The language server runs with limited features";
 "native.theLanguageServerThisBuildSystemUsesIsNotAvailable" = "The language server this build system uses is not available. Open a file of the language and try again.";
 "native.theLanguageServiceThatHostsTheDebugAdapterIsUnavailable" = "The language service that hosts the debug adapter is unavailable.";
 "native.theLatestStableReleaseWillBeDownloadedInFullAndReplaceThisAutoBuildAfterYouConbfd63f6a8e" = "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.";
@@ -9585,6 +9612,7 @@
 "native.thisComputer" = "This computer";
 "native.thisComputerThisProject" = "This computer · This project";
 "native.thisConfigurationIsLargerThan1MibAnd" = "This configuration is larger than 1 MiB and is not edited by Lithe.";
+"native.thisContentSchemeAlreadyHasAProvider" = "This content scheme already has a provider.";
 "native.thisConversationIsNoLongerAvailableChooseAnotherConversation" = "This conversation is no longer available. Choose another conversation.";
 "native.thisDebugSessionRequiresAnExternalTerminalWhich" = "This debug session requires an external terminal, which is not supported.";
 "native.thisDebugSessionRequiresShellInterpretedTerminalArguments" = "This debug session requires shell-interpreted terminal arguments.";
