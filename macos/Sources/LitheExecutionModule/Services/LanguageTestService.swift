@@ -27,6 +27,7 @@ package final class LanguageTestService: ObservableObject {
     @Published package private(set) var runID: UUID?
     @Published package private(set) var processID: Int32?
 
+    private let outcomeResolver: any TestRunOutcomeResolving
     private let catalog: LanguageProviderCatalog
     private let registry: LanguageTestProviderRegistry
     private let executableResolver: any RunExecutableResolving
@@ -45,12 +46,14 @@ package final class LanguageTestService: ObservableObject {
     private static let javaTestTimeoutMilliseconds = 120_000
 
     package init(
+        outcomeResolver: any TestRunOutcomeResolving,
         catalog: LanguageProviderCatalog = .compatibilityFallback,
         registry: LanguageTestProviderRegistry? = nil,
         executableResolver: any RunExecutableResolving,
         processFactory: @escaping () -> any StreamingProcess,
         extensionRequiredLanguageIDs: Set<String> = []
     ) {
+        self.outcomeResolver = outcomeResolver
         self.catalog = catalog
         self.registry = registry ?? .standard(catalog: catalog)
         self.executableResolver = executableResolver
@@ -311,7 +314,11 @@ package final class LanguageTestService: ObservableObject {
                     }
                 }
                 testOutcomesByProviderID[providerID] = outcomes + report.tests
-                state = result.exitCode == 0 ? .passed : .failed(exitCode: result.exitCode)
+                applyVerdict(
+                    termination: .exited(result.exitCode),
+                    scope: scope,
+                    summary: result.reports.isEmpty ? nil : report.summary
+                )
             } catch is CancellationError {
                 if activeOperationID == id.uuidString { state = .cancelled }
             } catch {
@@ -511,7 +518,13 @@ package final class LanguageTestService: ObservableObject {
             errorMessage = message
             append(message + "\n")
         }
-        state = timedOut ? .timedOut : (exitCode == 0 ? .passed : .failed(exitCode: exitCode))
+        // Process-backed providers report no structured results; the verdict
+        // then rests on how the process ended.
+        applyVerdict(
+            termination: timedOut ? .timedOut : .exited(exitCode),
+            scope: lastRun?.scope,
+            summary: nil
+        )
         activeOperationID = nil
         processID = nil
         timedOutOperationID = nil
@@ -522,6 +535,58 @@ package final class LanguageTestService: ObservableObject {
 
     private func testTimeoutMessage() -> String {
         L10n.string("The build tool timed out.")
+    }
+
+    /// Shows Core's tool-neutral verdict. A run that executed no selected test
+    /// is a failure with its own reason, never a pass on exit code 0.
+    private func applyVerdict(
+        termination: TestRunTermination,
+        scope: LanguageTestScope?,
+        summary: BuildTestResults.Summary?
+    ) {
+        let verdict: TestRunVerdict
+        do {
+            verdict = try outcomeResolver.resolveTestRunOutcome(
+                termination: termination,
+                scope: Self.scopeKind(scope),
+                summary: summary.map {
+                    TestRunSummaryCounts(
+                        total: $0.total,
+                        passed: $0.passed,
+                        failed: $0.failed,
+                        errors: $0.errors,
+                        skipped: $0.skipped
+                    )
+                }
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+            append(error.localizedDescription + "\n")
+            state = .failed(exitCode: -1)
+            return
+        }
+        switch verdict.outcome {
+        case .passed: state = .passed
+        case .timedOut: state = .timedOut
+        case .cancelled: state = .cancelled
+        case .testsFailed, .exitedWithError: state = .failed(exitCode: verdict.exitCode ?? -1)
+        case .noTestsMatched, .noTestsFound:
+            let message = verdict.outcome == .noTestsMatched
+                ? L10n.string("No tests matched the selection.")
+                : L10n.string("No tests were found.")
+            errorMessage = message
+            append(message + "\n")
+            state = .failed(exitCode: verdict.exitCode ?? 0)
+        }
+    }
+
+    private static func scopeKind(_ scope: LanguageTestScope?) -> TestRunScopeKind {
+        switch scope {
+        case .none, .workspace: return .workspace
+        case .file: return .suite
+        case .testCase(_, _, let reference?) where reference.testCase == nil: return .suite
+        case .testCase: return .case
+        }
     }
 
     private static func testTimeoutMilliseconds(for frameworkID: String?) -> Int? {

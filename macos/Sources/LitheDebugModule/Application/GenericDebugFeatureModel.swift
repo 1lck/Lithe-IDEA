@@ -93,35 +93,6 @@ public struct GenericDebugStackFrameRow: Identifiable, Equatable, Sendable {
     public var isHiddenGroup: Bool { frame == nil }
 }
 
-private struct GenericDebugVariablePageSegment: Equatable, Sendable {
-    let filter: DebugVariableFilter?
-    var nextStart: Int
-    let totalCount: Int?
-}
-
-private struct GenericDebugVariablePageState: Equatable, Sendable {
-    let reference: Int
-    var segments: [GenericDebugVariablePageSegment]
-    var loadedPageFingerprints: Set<[GenericDebugVariablePageItemFingerprint]>
-
-    var remainingCount: Int? {
-        var remaining = 0
-        for segment in segments {
-            guard let totalCount = segment.totalCount else { return nil }
-            remaining += max(0, totalCount - segment.nextStart)
-        }
-        return remaining
-    }
-}
-
-private struct GenericDebugVariablePageItemFingerprint: Hashable, Sendable {
-    let name: String
-    let value: String
-    let type: String?
-    let evaluateName: String?
-    let variablesReference: Int
-}
-
 /// The variable tree of the previous stop, kept on screen while the next stop's tree is read.
 ///
 /// A step must not blank the Variables panel, so the tree being replaced is frozen here and the
@@ -132,7 +103,7 @@ private struct GenericDebugVariableSnapshot {
     let variables: [DebugVariable]
     let children: [String: [DebugVariable]]
     let expanded: Set<String>
-    let pageStates: [String: GenericDebugVariablePageState]
+    let pageStates: [String: DebugVariablePageCursor]
     let expandedPaths: Set<[String]>
 }
 
@@ -409,7 +380,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     @Published public private(set) var variableChildren: [String: [DebugVariable]] = [:]
     @Published public private(set) var expandedVariableIDs: Set<String> = []
     @Published public private(set) var loadingVariableIDs: Set<String> = []
-    @Published private var variablePageStates: [String: GenericDebugVariablePageState] = [:]
+    /// Core-owned paging cursors; a container without one has nothing more to load.
+    @Published private var variablePageStates: [String: DebugVariablePageCursor] = [:]
     @Published private var loadingVariablePageIDs: Set<String> = []
     @Published public private(set) var watches: [GenericDebugWatch] = []
     @Published public private(set) var selectedThreadID: Int?
@@ -483,6 +455,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     public var onSessionStateChanged: ((DebugSessionID, DebugAdapterState) -> Void)?
 
     private let sessions: DebugAdapterSessionManager
+    private let paging: any DebugPagingPlanning
     private let breakpointPersistence: (any DebugBreakpointPersisting)?
     private let breakpointRelocator: (any DebugBreakpointRelocating)?
     private let steppingFilterResolver: (any DebugSteppingFilterResolving)?
@@ -515,6 +488,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     private let logSink: (any LogSink)?
 
     public init(
+        paging: any DebugPagingPlanning,
         logSink: (any LogSink)? = nil,
         sessions: DebugAdapterSessionManager,
         breakpointPersistence: (any DebugBreakpointPersisting)? = nil,
@@ -522,6 +496,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         steppingFilterResolver: (any DebugSteppingFilterResolving)? = nil,
         steppingFilterPersistence: (any DebugSteppingFilterPersisting)? = nil
     ) {
+        self.paging = paging
         self.logSink = logSink
         self.sessions = sessions
         self.breakpointPersistence = breakpointPersistence
@@ -532,6 +507,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             self?.requestConsoleCompletions(text: text, caret: caret, completion: completion)
         }
         disassembly.environment = GenericDebugDisassemblyModel.Environment(
+            paging: paging,
             session: { [weak self] in self?.activeSession },
             capabilities: { [weak self] in self?.capabilities ?? .unknown },
             selectedFrameID: { [weak self] in self?.selectedFrameID },
@@ -1749,7 +1725,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         let sessionID = activeSessionID
         let frameID = selectedFrameID
         let scopeID = selectedScopeID
-        let partial = !(variablePageStates[Self.rootVariablePageID]?.segments.isEmpty ?? true)
+        let partial = variablePageStates[Self.rootVariablePageID]?.next != nil
         let loader = DebugVariableJSONSnapshot(logSink: logSink) { reference, count in
             try await DebugVariableJSONRequest.read(session: session, reference: reference, count: count)
         }
@@ -1770,13 +1746,14 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             expandedVariableIDs.insert(variable.id)
             return
         }
-        guard !loadingVariableIDs.contains(variable.id), activeSession != nil else { return }
+        guard !loadingVariableIDs.contains(variable.id), activeSession != nil,
+              let cursor = makeVariablePageState(
+                  reference: variable.variablesReference,
+                  namedVariables: variable.namedVariables,
+                  indexedVariables: variable.indexedVariables
+              ) else { return }
         loadingVariableIDs.insert(variable.id)
-        variablePageStates[variable.id] = makeVariablePageState(
-            reference: variable.variablesReference,
-            namedVariables: variable.namedVariables,
-            indexedVariables: variable.indexedVariables
-        )
+        variablePageStates[variable.id] = cursor
         requestVariablePage(
             parentVariableID: variable.id,
             frameID: selectedFrameID,
@@ -2734,38 +2711,24 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         dataBreakpoints.sort { ($0.label, $0.id) < ($1.label, $1.id) }
     }
 
+    /// Asks Core for the first page of a container. A failure is shown and the
+    /// container stays unloaded rather than falling back to an unbounded request.
     private func makeVariablePageState(
         reference: Int,
         namedVariables: Int,
         indexedVariables: Int
-    ) -> GenericDebugVariablePageState {
-        var segments: [GenericDebugVariablePageSegment] = []
-        if namedVariables > 0 {
-            segments.append(GenericDebugVariablePageSegment(
-                filter: .named,
-                nextStart: 0,
-                totalCount: namedVariables
-            ))
+    ) -> DebugVariablePageCursor? {
+        do {
+            return try paging.planVariablePage(
+                variablesReference: reference,
+                namedVariables: namedVariables,
+                indexedVariables: indexedVariables,
+                pageSize: variablePageSize
+            )
+        } catch {
+            record(error)
+            return nil
         }
-        if indexedVariables > 0 {
-            segments.append(GenericDebugVariablePageSegment(
-                filter: .indexed,
-                nextStart: 0,
-                totalCount: indexedVariables
-            ))
-        }
-        if segments.isEmpty {
-            segments.append(GenericDebugVariablePageSegment(
-                filter: nil,
-                nextStart: 0,
-                totalCount: nil
-            ))
-        }
-        return GenericDebugVariablePageState(
-            reference: reference,
-            segments: segments,
-            loadedPageFingerprints: []
-        )
     }
 
     private func requestVariablePage(
@@ -2777,17 +2740,14 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         let pageID = variablePageID(parentVariableID)
         guard !loadingVariablePageIDs.contains(pageID),
               let state = variablePageStates[pageID],
-              let segment = state.segments.first,
+              let next = state.next,
               let session = activeSession else { return }
-        let remaining = segment.totalCount.map { max(0, $0 - segment.nextStart) }
-        let requestedCount = min(variablePageSize, remaining ?? variablePageSize)
-        guard requestedCount > 0 else { return }
         loadingVariablePageIDs.insert(pageID)
         session.requestVariables(
-            reference: state.reference,
-            filter: segment.filter,
-            start: segment.nextStart,
-            count: requestedCount
+            reference: state.variablesReference,
+            filter: next.filter,
+            start: next.start,
+            count: next.count
         ) { [weak self] result in
             guard let self,
                   self.inspectionGeneration == generation,
@@ -2801,9 +2761,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 let additions = self.mergeVariablePage(
                     values,
                     parentVariableID: parentVariableID,
-                    requestedFilter: segment.filter,
-                    requestedStart: segment.nextStart,
-                    requestedCount: requestedCount
+                    requested: next
                 )
                 if expandsParent, let parentVariableID {
                     self.expandedVariableIDs.insert(parentVariableID)
@@ -2827,13 +2785,14 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             guard stale.expandedPaths.contains(path),
                   variable.isExpandable,
                   variableChildren[variable.id] == nil,
-                  !loadingVariableIDs.contains(variable.id) else { continue }
+                  !loadingVariableIDs.contains(variable.id),
+                  let cursor = makeVariablePageState(
+                      reference: variable.variablesReference,
+                      namedVariables: variable.namedVariables,
+                      indexedVariables: variable.indexedVariables
+                  ) else { continue }
             loadingVariableIDs.insert(variable.id)
-            variablePageStates[variable.id] = makeVariablePageState(
-                reference: variable.variablesReference,
-                namedVariables: variable.namedVariables,
-                indexedVariables: variable.indexedVariables
-            )
+            variablePageStates[variable.id] = cursor
             requestVariablePage(
                 parentVariableID: variable.id,
                 frameID: selectedFrameID,
@@ -2885,67 +2844,46 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         return expandedVariableIDs.contains(variableID)
     }
 
-    private func displayedPageState(_ pageID: String) -> GenericDebugVariablePageState? {
+    private func displayedPageState(_ pageID: String) -> DebugVariablePageCursor? {
         if let staleVariables { return staleVariables.pageStates[pageID] }
         return variablePageStates[pageID]
     }
 
+    /// Shows the children Core accepts and advances the container's cursor.
     @discardableResult
     private func mergeVariablePage(
         _ page: [DebugVariable],
         parentVariableID: String?,
-        requestedFilter: DebugVariableFilter?,
-        requestedStart: Int,
-        requestedCount: Int
+        requested: DebugVariablePageCursor.Request
     ) -> [DebugVariable] {
         let pageID = variablePageID(parentVariableID)
-        guard var state = variablePageStates[pageID],
-              let currentSegment = state.segments.first,
-              currentSegment.filter == requestedFilter,
-              currentSegment.nextStart == requestedStart else { return [] }
-
-        let pageFingerprint = page.map {
-            GenericDebugVariablePageItemFingerprint(
-                name: $0.name,
-                value: $0.value,
-                type: $0.type,
-                evaluateName: $0.evaluateName,
-                variablesReference: $0.variablesReference
-            )
-        }
-        if !page.isEmpty, !state.loadedPageFingerprints.insert(pageFingerprint).inserted {
-            variablePageStates.removeValue(forKey: pageID)
-            return []
-        }
-
+        guard let state = variablePageStates[pageID] else { return [] }
         let existing = parentVariableID.map { variableChildren[$0] ?? [] } ?? variables
         var knownIDs = Set(existing.map(\.id))
         let additions = page.filter { knownIDs.insert($0.id).inserted }
+        let reduction: DebugVariablePageReduction
+        do {
+            reduction = try paging.reduceVariablePage(
+                state,
+                requested: requested,
+                page: page.map(DebugVariablePageItem.init),
+                newItemCount: additions.count
+            )
+        } catch {
+            record(error)
+            variablePageStates.removeValue(forKey: pageID)
+            return []
+        }
+        if reduction.state.next == nil {
+            variablePageStates.removeValue(forKey: pageID)
+        } else {
+            variablePageStates[pageID] = reduction.state
+        }
+        guard reduction.accept else { return [] }
         if let parentVariableID {
             variableChildren[parentVariableID] = existing + additions
         } else {
             variables = existing + additions
-        }
-
-        if page.count > requestedCount || (!page.isEmpty && additions.isEmpty) {
-            state.segments = []
-        } else {
-            var segment = state.segments.removeFirst()
-            segment.nextStart = requestedStart + page.count
-            let reachedReportedTotal = segment.totalCount.map {
-                segment.nextStart >= $0
-            } ?? false
-            let shouldContinue = !page.isEmpty
-                && !reachedReportedTotal
-                && (segment.totalCount != nil || page.count == requestedCount)
-            if shouldContinue {
-                state.segments.insert(segment, at: 0)
-            }
-        }
-        if state.segments.isEmpty {
-            variablePageStates.removeValue(forKey: pageID)
-        } else {
-            variablePageStates[pageID] = state
         }
         return additions
     }
@@ -3048,14 +2986,13 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         to rows: inout [GenericDebugVariableRow]
     ) {
         let pageID = variablePageID(parentVariableID)
-        guard let pageState = displayedPageState(pageID),
-              !pageState.segments.isEmpty else { return }
+        guard let next = displayedPageState(pageID)?.next else { return }
         rows.append(GenericDebugVariableRow(
             id: "\(parentPath)/load-more",
             content: .loadMore(
                 parentVariableID: parentVariableID,
-                nextCount: min(variablePageSize, pageState.remainingCount ?? variablePageSize),
-                remainingCount: pageState.remainingCount
+                nextCount: min(variablePageSize, next.remainingCount ?? variablePageSize),
+                remainingCount: next.remainingCount
             ),
             depth: depth
         ))

@@ -36,6 +36,7 @@ mod select;
 mod stored_options;
 mod template;
 mod test_discovery;
+mod test_outcome;
 
 pub(crate) use commands::*;
 pub(crate) use invocation::host_runtime_version_arguments;
@@ -46,3 +47,4 @@ pub(crate) use manifest::{
 pub(crate) use project_options::project_options_command;
 pub(crate) use run_start::run_decode_start_command;
 pub(crate) use stored_options::resolve_stored_options_command;
+pub(crate) use test_outcome::resolve_test_run_outcome;

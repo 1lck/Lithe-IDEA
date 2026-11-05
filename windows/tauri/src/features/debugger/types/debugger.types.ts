@@ -1,3 +1,4 @@
+import type { VariablePageRequest } from "../api/variable-paging-api";
 export type DebuggerRuntime = "bun" | "node" | "python" | "rust" | "go" | "custom";
 
 type DebugSessionStatus = "idle" | "running" | "paused";
@@ -96,6 +97,15 @@ export interface DebugStackFrame {
   id: number;
   name: string;
   sourcePath?: string;
+  /**
+   * The adapter serves this frame's source itself (a decompiled class or a
+   * disassembly); `sourcePath` then names no file on disk.
+   */
+  sourceReference?: number;
+  /** Address of the frame's current instruction, for frames without a file. */
+  instructionPointerReference?: string;
+  /** The active stepping policy skips this frame. */
+  isFiltered?: boolean;
   line: number;
   column: number;
 }
@@ -104,13 +114,18 @@ export interface DebugScope {
   name: string;
   variablesReference: number;
   expensive?: boolean;
+  namedVariables?: number;
+  indexedVariables?: number;
 }
 
 export interface DebugVariable {
   name: string;
   value: string;
   type?: string;
+  evaluateName?: string;
   variablesReference: number;
+  namedVariables?: number;
+  indexedVariables?: number;
 }
 
 export interface DebugStoppedState {
@@ -138,5 +153,10 @@ export type DebugRequestContext =
   | { command: "threads" }
   | { command: "stackTrace"; threadId: number }
   | { command: "scopes"; frameId: number }
-  | { command: "variables"; variablesReference: number }
+  | {
+      command: "variables";
+      variablesReference: number;
+      /** The page this request asked for; absent for unpaged requests. */
+      requested?: VariablePageRequest;
+    }
   | { command: "evaluate"; expressionId: string };

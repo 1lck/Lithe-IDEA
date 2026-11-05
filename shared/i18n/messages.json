@@ -8383,6 +8383,20 @@
       }
     },
     {
+      "id": "debugger.loadMoreVariables",
+      "description": "Debugger variables panel: Load more",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "debugger.loadScopeVariables",
+      "description": "Debugger variables panel: Load variables",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "debugger.loadingVariable",
       "description": "Windows UI: debugger.loadingVariable",
       "platforms": [
@@ -95461,6 +95475,30 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "tests.outcome.noTestsFound",
+      "description": "Verdict shown when a test run executed no test",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "No tests were found.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "tests.outcome.noTestsMatched",
+      "description": "Verdict shown when a test run executed no test",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "No tests matched the selection.",
+        "arguments": []
+      }
     },
     {
       "id": "titleProject.addProject",

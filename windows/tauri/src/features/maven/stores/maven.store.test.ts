@@ -186,6 +186,26 @@ const updateJavaMavenConfiguration = mock(
   ): Promise<JavaMavenConfigurationUpdate> => ({ kind: "noSession" }),
 );
 
+// Stands in for Core's verdict reducer; the reducer's own cases live in the shared fixture.
+const resolveTestRunOutcome = mock(
+  async (request: {
+    termination: { kind: string; exitCode?: number };
+    scope: string;
+    summary: { total: number; failed: number; errors: number } | null;
+  }) => {
+    const exitCode = request.termination.exitCode ?? null;
+    const executed = request.summary?.total ?? 0;
+    const failed = (request.summary?.failed ?? 0) + (request.summary?.errors ?? 0) > 0;
+    if (exitCode === 0 && executed === 0) {
+      const outcome = request.scope === "case" || request.scope === "suite" ? "noTestsMatched" : "noTestsFound";
+      return { outcome, success: false, exitCode } as const;
+    }
+    return failed || exitCode !== 0
+      ? ({ outcome: "testsFailed", success: false, exitCode } as const)
+      : ({ outcome: "passed", success: true, exitCode } as const);
+  },
+);
+
 const dependencies = {
   createMavenPomWatchOperations,
   createMavenDependencyOutput,
@@ -196,6 +216,7 @@ const dependencies = {
   parseMavenTestResults,
   readMavenDependencies,
   removeMavenDependencyOutput,
+  resolveTestRunOutcome,
   resolveEffectiveMavenExecutable,
   resolveMavenLaunch,
   resolveJavaTestClass,
@@ -1379,6 +1400,10 @@ describe("Maven workspace state", () => {
   });
 
   test("reports a successful Maven launch with no matching tests as a failure", async () => {
+    // The message is localized; pin English so the assertion does not follow the machine locale.
+    const { useSettingsStore } = await import("@/features/settings/stores/settings.store");
+    const previous = useSettingsStore.getState().settings;
+    useSettingsStore.setState({ settings: { ...previous, displayLanguage: "en-US" } });
     parseMavenTestResults.mockResolvedValueOnce({
       testsRun: 0,
       failures: 0,
@@ -1400,12 +1425,12 @@ describe("Maven workspace state", () => {
       .actions.runGoals(["test", "-Dtest=com.example.MissingTest"], null, testRun.title, testRun);
     const sessionId = store.getState().activeSessionId;
     store.getState().actions.finishProcess(sessionId!, 0);
-    await Promise.resolve();
-    await Promise.resolve();
+    for (let tick = 0; tick < 6; tick += 1) await Promise.resolve();
 
     expect(store.getState().taskStatus).toBe("failed");
-    expect(store.getState().taskError).toBe('No tests matched selector "com.example.MissingTest".');
+    expect(store.getState().taskError).toBe("No tests matched the selection.");
     expect(store.getState().testResults?.success).toBe(false);
+    useSettingsStore.setState({ settings: previous });
   });
 
   test("parses test results after completion and drops a stale result after a newer run", async () => {

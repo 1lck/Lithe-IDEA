@@ -27,7 +27,7 @@ struct DebugDisassemblyLayoutTests {
     func scrollingLoadsBothEdgesAndPreservesTheVisibleInstructions(dark: Bool) async throws {
         let session = LayoutDebugSession(longInstructions: false, pages: true)
         let model = GenericDebugDisassemblyModel()
-        model.environment = .init(session: { session }, capabilities: { session.capabilities },
+        model.environment = .init(paging: RustCoreBridge(), session: { session }, capabilities: { session.capabilities },
                                   selectedFrameID: { 1 }, breakpointsChanged: { _, _ in })
         model.frameSelected(frame(at: 40))
         defer { model.invalidate(); session.stop() }
@@ -73,7 +73,7 @@ struct DebugDisassemblyLayoutTests {
         let session = LayoutDebugSession(longInstructions: false, pages: true)
         session.initialRows = 2
         let model = GenericDebugDisassemblyModel()
-        model.environment = .init(session: { session }, capabilities: { session.capabilities },
+        model.environment = .init(paging: RustCoreBridge(), session: { session }, capabilities: { session.capabilities },
                                   selectedFrameID: { 1 }, breakpointsChanged: { _, _ in })
         model.frameSelected(frame(at: 1))
         defer { model.invalidate(); session.stop() }
@@ -104,7 +104,7 @@ struct DebugDisassemblyLayoutTests {
         defer { app.accessibilitySetValue(enhanced, forAttribute: attribute) }
         let session = LayoutDebugSession(longInstructions: longInstructions, pages: pageFailure)
         let model = GenericDebugDisassemblyModel()
-        model.environment = .init(session: { session }, capabilities: { session.capabilities },
+        model.environment = .init(paging: RustCoreBridge(), session: { session }, capabilities: { session.capabilities },
                                   selectedFrameID: { 1 }, breakpointsChanged: { _, _ in })
         model.frameSelected(frame(at: 40))
         defer { model.invalidate(); session.stop() }

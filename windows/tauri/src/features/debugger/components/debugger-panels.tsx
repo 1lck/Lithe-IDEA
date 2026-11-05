@@ -151,6 +151,7 @@ export function DebugStackFrames({
             className={cn(
               "font-sans flex w-full items-start gap-2 px-3 py-1.5 text-left ui-text-sm hover:bg-accent/70",
               isSelected && "bg-selected/70",
+              frame.isFiltered && "opacity-60",
             )}
             onClick={() => void onSelect(frame.id, frame.sourcePath, frame.line)}
           >

@@ -2718,6 +2718,8 @@
 "No tasks yet" = "暂无任务";
 "No test runner is configured for %@." = "没有为 %@ 配置测试运行器。";
 "No tests discovered." = "未发现测试。";
+"No tests matched the selection." = "没有测试匹配所选范围。";
+"No tests were found." = "没有找到任何测试。";
 "No textual diff available" = "没有可用的文本 Diff";
 "No textual difference" = "没有文本差异";
 "No tools running" = "暂无工具运行";
@@ -10340,6 +10342,8 @@
 "system Maven" = "系统 Maven";
 "test Java" = "测试代码";
 "test resources" = "测试资源";
+"tests.outcome.noTestsFound" = "没有找到任何测试。";
+"tests.outcome.noTestsMatched" = "没有测试匹配所选范围。";
 "the project root" = "项目根目录";
 "ui.browse" = "浏览";
 "ui.cancel" = "取消";

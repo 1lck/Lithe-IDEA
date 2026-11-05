@@ -528,6 +528,34 @@
         }
       ],
       "gaps": []
+    },
+    {
+      "id": "core-variable-page-cursor",
+      "behavior": "variable containers page by the adapter's named/indexed counts, drop repeated pages and stop when exhausted (Core-owned cursor)",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/variable_paging.rs",
+          "test": "variable_page_plan_matches_the_shared_fixture",
+          "fixture": "shared/fixtures/debug/variable-page-plan-v1.json"
+        }
+      ],
+      "gaps": []
+    },
+    {
+      "id": "core-disassembly-page-recovery",
+      "behavior": "disassembly windows shrink on rejection, retry negative first offsets from the instruction pointer and end a direction only at a readable edge",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/disassembly_paging.rs",
+          "test": "disassembly_paging_matches_the_shared_fixture",
+          "fixture": "shared/fixtures/debug/disassembly-paging-v1.json"
+        }
+      ],
+      "gaps": []
     }
   ]
 }

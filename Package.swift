@@ -227,13 +227,13 @@ let package = Package(
         ),
         .testTarget(
             name: "LitheDebugModuleTests",
-            dependencies: ["LitheDebugModule", "LitheApplicationKernel", .product(name: "Testing", package: "swift-testing")],
+            dependencies: ["LitheDebugModule", "LitheApplicationKernel", "LitheRustCore", .product(name: "Testing", package: "swift-testing")],
             path: "macos/Tests/LitheDebugModuleTests",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
             name: "LitheExecutionModuleTests",
-            dependencies: ["LitheExecutionModule", "LitheApplicationKernel", "LitheCoreContracts", .product(name: "Testing", package: "swift-testing")],
+            dependencies: ["LitheExecutionModule", "LitheApplicationKernel", "LitheCoreContracts", "LitheRustCore", .product(name: "Testing", package: "swift-testing")],
             path: "macos/Tests/LitheExecutionModuleTests",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
