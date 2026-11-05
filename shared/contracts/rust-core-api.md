@@ -1156,7 +1156,6 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `editor.parseNavigationInput` | Parse a bounded line or line:column input into zero-based editor coordinates |
 | `editor.navigationHistory.reduce` | Reduce one bounded back/forward navigation history event and return the next state plus the location to open |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
-| `editor.workbenchState.reduce` | Reduce editor tab group membership, split/collapse, selection and focus for one tab action |
 | `workspace.releaseIndexing` | Retire a policy and clear index/cache data at project close; accepts `root`, optional `ownerId`, and that owner's last observed `revision`, returns `released`; an old close must not retire a new generation |
 | `workspace.refreshIndexing` | Refresh external Git decisions for a live `root`, `ownerId`, `revision` lease without changing preferences or release tokens; returns lazy `IndexingStatus` |
 | `workspace.configureIndexing` | Install a process-local, canonical-root indexing policy before workspace consumers run; returns a monotonic revision, effective directory reasons and Git failure state; see `shared/fixtures/workspace/indexing-policy-v1.json` |
@@ -2780,38 +2779,6 @@ implementations (`comment-toggle.ts`, `line-operations.ts`) and is expected
 to adopt the same contract in a follow-up change; the fixture pins the
 canonical behavior for that migration. Deterministic cases are pinned by
 `shared/fixtures/editor/line-edit-v1.json`.
-
-`editor.workbenchState.reduce` accepts `{ "state": WorkbenchState, "action":
-Action }` and returns `{ "applied": boolean, "state": WorkbenchState }`.
-`WorkbenchState` is `{ "layout": Layout, "tabs": [{ "id", "group" }],
-"selections": [{ "group", "tab" }], "focusedGroup": string | null }` where
-`Layout` is `{ "group": id }` or `{ "split": { "id", "orientation":
-"horizontal" | "vertical", "first": Layout, "second": Layout } }`
-(`horizontal` places children side by side, `vertical` stacks them). `tabs`
-is the host's presentation order; a group presents its tabs in that relative
-order. All IDs are opaque host strings. Actions are `sync { tabs }` (the new
-set and order of open tabs), `drop { tab, group, side, newGroup?, newSplit? }`,
-`canDrop { tab, group, side }`, `insert { tab, group | null, side, newGroup?,
-newSplit? }`, `move { tab, target, position: "before" | "after" }` and
-`focus { tab }`, with `side` one of `center`, `left`, `right`, `top` and
-`bottom`. Edge sides require host-generated `newGroup` and `newSplit` IDs that
-are not in the layout. After every action Core removes duplicate tabs (first
-wins), places tabs without a valid group in the focused group (else the first
-group), removes empty groups and collapses their splits (keeping one empty
-group when nothing is open), moves a vanished focus to the first remaining
-group, and keeps each group's selected tab while it stays in the group,
-otherwise selecting the tab that now occupies the former selection's index
-(or the new last tab). `drop` and `insert` then focus the tab. Rejected or
-no-op actions, and `canDrop`, return `applied: false` (`canDrop` returns
-`true` when the matching drop would apply) with the normalized input state.
-Malformed payloads, layouts that repeat a group or split ID, more than 10,000
-tabs, and edge sides without fresh identities return `invalid_request`. Split
-ratios, pixel geometry and drag hit testing stay in the host. macOS consumes
-the command; Windows still keeps its pane tree in TypeScript
-(`windows/tauri/src/features/panes/utils/pane-tree.ts`), whose synchronous
-store, buffer sharing across panes, preview, pinned and locked panes and the
-bottom pane tree must move together in a follow-up. Cases are pinned by
-`shared/fixtures/editor/workbench-state-v1.json`.
 
 `network.proxyPolicy` normalizes the stored proxy settings into the policy a
 network stack must apply. It accepts `{ "mode": "system" | "direct" |

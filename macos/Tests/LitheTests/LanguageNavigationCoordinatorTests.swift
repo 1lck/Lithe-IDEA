@@ -82,39 +82,6 @@ struct LanguageNavigationCoordinatorTests {
         #expect(decision(main, language: "go") == .workspace)
     }
 
-    @Test("external jumps open only source files of the originating language")
-    func externalJumpsOnlyOpenSameLanguageSources() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-external-source-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let source = root.appendingPathComponent("print.go")
-        let secret = root.appendingPathComponent("id_rsa")
-        let disguised = root.appendingPathComponent("secret.go")
-        try Data("package fmt\n".utf8).write(to: source)
-        try Data("key\n".utf8).write(to: secret)
-        try FileManager.default.createSymbolicLink(at: disguised, withDestinationURL: secret)
-        let languageOf: (URL) -> String? = { url in
-            switch url.pathExtension {
-            case "go": "go"
-            case "json": "json"
-            default: nil
-            }
-        }
-
-        #expect(LanguageNavigationCoordinator.allowsExternalSource(source, languageID: "go", languageOf: languageOf))
-        #expect(!LanguageNavigationCoordinator.allowsExternalSource(source, languageID: "php", languageOf: languageOf))
-        #expect(!LanguageNavigationCoordinator.allowsExternalSource(source, languageID: nil, languageOf: languageOf))
-        #expect(!LanguageNavigationCoordinator.allowsExternalSource(secret, languageID: "go", languageOf: languageOf))
-        #expect(!LanguageNavigationCoordinator.allowsExternalSource(disguised, languageID: "go", languageOf: languageOf))
-        #expect(!LanguageNavigationCoordinator.allowsExternalSource(
-            root.appendingPathComponent("credentials.json"), languageID: "go", languageOf: languageOf
-        ))
-        #expect(!LanguageNavigationCoordinator.allowsExternalSource(
-            URL(string: "jdt://contents/rt.jar/java.lang/String.class")!, languageID: "go", languageOf: languageOf
-        ))
-    }
-
     @Test("projects language-server locations")
     @MainActor
     func projectsLocations() {

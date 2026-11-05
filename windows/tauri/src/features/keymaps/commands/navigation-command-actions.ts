@@ -18,6 +18,7 @@ import {
 } from "@/features/editor/lsp/language-server-navigation";
 import { resolveJavaSyntaxDefinitions } from "@/features/editor/lsp/java-syntax-definition";
 import { resolveLombokAccessorDefinition } from "@/features/editor/lsp/lombok-accessor-navigation";
+import { classifyLspNavigationTarget } from "@/features/editor/lsp/navigation-classification";
 import { openLspNavigationLocation } from "@/features/editor/lsp/navigation-target";
 import {
   lspDocumentTargetForEditor,
@@ -565,6 +566,7 @@ async function goToActiveLspLocation(
     getVirtualDocument: (filePath, virtualUri) =>
       lspClient.getVirtualDocument(filePath, virtualUri),
     readFileContent,
+    classifyTarget: classifyLspNavigationTarget,
   });
   if (!openedBufferId) {
     toast.info(
