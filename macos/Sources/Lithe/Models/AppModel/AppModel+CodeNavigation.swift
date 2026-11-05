@@ -29,10 +29,7 @@ extension AppModel {
                 )
                 return
             }
-            if isJavaLanguageServerPreparing(for: document.url) {
-                showJavaLanguageServerPreparingNotification()
-                return
-            }
+            if languageServerIsPreparing(for: document.url) { return }
             // The command asks the same plugin providers a modifier click does.
             if let pluginDefinitions = pluginDefinitionQuery(
                 for: document, line: caret.line, utf16Column: caret.utf16Column
@@ -390,15 +387,19 @@ extension AppModel {
         _ feature: LanguageServerFeatureSet,
         unsupportedMessage: String
     ) -> Bool {
-        guard let document = focusedEditorDocument else { return false }
-        if isJavaLanguageServerPreparing(for: document.url) {
-            showJavaLanguageServerPreparingNotification()
-            return false
-        }
+        guard let document = focusedEditorDocument, !languageServerIsPreparing(for: document.url) else { return false }
         guard supportsLanguageServerFeature(feature) else {
             showNotification(unsupportedMessage, logReference: notificationRejection(operation: "navigation", reason: "unsupported"))
             return false
         }
+        return true
+    }
+
+    /// Whether the language server for the file is still preparing. Tells the
+    /// user so, rather than letting navigation report a spurious "not found".
+    private func languageServerIsPreparing(for fileURL: URL) -> Bool {
+        guard isJavaLanguageServerPreparing(for: fileURL) else { return false }
+        showJavaLanguageServerPreparingNotification()
         return true
     }
 
