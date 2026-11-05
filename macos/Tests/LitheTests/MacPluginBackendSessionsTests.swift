@@ -462,7 +462,7 @@ private struct BackendFixture {
     /// fixture's own, with a placeholder backend executable.
     func installFunctionPlugin(_ fixtureName: String) throws {
         let fixtureURL = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/\(fixtureName).plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/backend/\(fixtureName).plugin.json")
         let manifest = try #require(
             try JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any]
         )
