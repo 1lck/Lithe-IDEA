@@ -60,7 +60,8 @@ does not add a built-in tool-definition table or interpret version-manager
 configuration formats.
 
 The [implemented Core contract](toolchains/README.md) now accepts `toolDefinitions: 1`
-and `toolchainProviders: 1` declarations and provides six `toolchains.*` commands.
+and `toolchainProviders: 1` declarations and provides the `toolchains.*` commands
+listed there.
 `executableResolution: 2` applies to tool-definition candidates only; it does not
 admit new sources into existing Build candidate sets. Definitions are entirely
 plugin-owned, with reserved short IDs checked against host-verified official
@@ -3060,8 +3061,10 @@ Current runtime behavior is recorded in the [first-stage workbench UI Note](http
 ### Current Windows availability
 Windows advertises `ui` 1 and 2: it renders host tool windows, commands and
 package web content. It does not advertise `ui` 3 (native controls) or 4
-(backend-only commands), so Core refuses packages that require them there, and
-its marketplace must filter them.
+(backend-only commands), so Core refuses packages that require them there.
+Windows installs declarative packages from disk only and has no marketplace
+browser yet. Core's `plugins.marketplace.validateIndex` marks level 2 versions
+without `requires` available only on `darwin-*` platforms.
 
 ### Existing community store and Lua template
 
@@ -3079,8 +3082,9 @@ remain valid. To add a host-rendered view to that template:
    existing package checksum, user install review and content digest still
    apply; UI does not bypass them.
 5. Set the new Store version entry's `pluginAPIVersion` to 2. The index schema,
-   release archive format and SHA-256 rules stay unchanged. Only list platforms
-   with an implemented API level 2 UI host (currently macOS and Windows).
+   release archive format and SHA-256 rules stay unchanged. Only list `darwin-*`
+   platforms: `plugins.marketplace.validateIndex` marks a level 2 version without
+   `requires` unsupported on every other platform.
 
 `fixtures/manifest/hello-lithe.plugin.json` is a contract fixture in the reserved test
 namespace, not a ready-to-publish community package. Change its ID and all
