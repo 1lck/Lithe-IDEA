@@ -1,0 +1,29 @@
+{
+  "cases": [
+    {"name":"posix reserved characters", "platform":"posix", "path":"/work/A#B?.java", "uri":"file:///work/A%23B%3F.java"},
+    {"name":"posix percent and unicode", "platform":"posix", "path":"/work/百分%/main.go", "uri":"file:///work/%E7%99%BE%E5%88%86%25/main.go"},
+    {"name":"posix backslash is a filename", "platform":"posix", "path":"/work/a\\b", "uri":"file:///work/a%5Cb"},
+    {"name":"posix dot segments", "platform":"posix", "path":"/work/a/../b/./Main.java", "uri":"file:///work/b/Main.java"},
+    {"name":"posix directory", "platform":"posix", "path":"/work/project/", "uri":"file:///work/project/"},
+    {"name":"windows drive and reserved characters", "platform":"windows", "path":"C:\\work\\A#B?.java", "uri":"file:///C:/work/A%23B%3F.java"},
+    {"name":"windows percent and spaces", "platform":"windows", "path":"d:\\a b\\100%.java", "uri":"file:///d:/a%20b/100%25.java"},
+    {"name":"windows drive root", "platform":"windows", "path":"C:\\", "uri":"file:///C:/"},
+    {"name":"windows network share", "platform":"windows", "path":"\\\\server\\share\\A#B.java", "uri":"file://server/share/A%23B.java"},
+    {"name":"network parent stays in share", "platform":"windows", "path":"\\\\server\\share\\dir\\..\\..\\Main.java", "uri":"file://server/share/Main.java"},
+    {"name":"windows extended drive", "platform":"windows", "path":"\\\\?\\C:\\work\\A.java", "uri":"file:///C:/work/A.java"},
+    {"name":"windows extended network share", "platform":"windows", "path":"\\\\?\\UNC\\server\\share\\A.java", "uri":"file://server/share/A.java"},
+    {"name":"auto detects windows drive", "platform":"auto", "path":"C:\\work\\A#B.java", "uri":"file:///C:/work/A%23B.java"},
+    {"name":"auto detects posix path", "platform":"auto", "path":"/work/A#B.java", "uri":"file:///work/A%23B.java"},
+    {"name":"posix relative rejected", "platform":"posix", "path":"work/main.go", "uri":null},
+    {"name":"windows drive relative rejected", "platform":"windows", "path":"C:work\\Main.java", "uri":null},
+    {"name":"windows incomplete network share rejected", "platform":"windows", "path":"\\\\server", "uri":null}
+  ],
+  "identityCases": [
+    {"name":"encoded drive colon and drive case", "opened":"file:///D:/project/main.php", "published":"file:///d%3A/project/main.php", "same":true},
+    {"name":"unreserved escape", "opened":"file:///work/A.java", "published":"file:///work/%41.java", "same":true},
+    {"name":"unicode escapes ignore hex case", "opened":"file:///work/%E7%9B%AE.java", "published":"file:///work/%e7%9b%ae.java", "same":true},
+    {"name":"encoded hash differs from fragment", "opened":"file:///work/A%23B.java", "published":"file:///work/A#B.java", "same":false},
+    {"name":"encoded question differs from query", "opened":"file:///work/A%3FB.java", "published":"file:///work/A?B.java", "same":false},
+    {"name":"encoded slash differs from separator", "opened":"file:///work/A%2FB.java", "published":"file:///work/A/B.java", "same":false}
+  ]
+}

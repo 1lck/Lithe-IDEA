@@ -379,7 +379,7 @@ private struct Fixture {
 
         let operations = DeclarativePluginTestSupport.operations
         let manifestData = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/languages")
             .appendingPathComponent(manifest))
         let descriptor = try operations.validate(manifest: manifestData)
         let directories = MacPluginStateDirectories(

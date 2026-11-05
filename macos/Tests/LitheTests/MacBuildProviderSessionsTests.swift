@@ -936,7 +936,7 @@ private struct ProviderFixture {
         try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
 
         let fixtureURL = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-provider.plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-providers/build-provider.plugin.json")
         var object = try #require(
             try JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any]
         )

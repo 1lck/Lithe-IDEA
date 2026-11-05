@@ -14,7 +14,7 @@
       "macos/Sources/Lithe/Views/App/PluginSettingsSection.swift",
       "macos/Tests/LitheTests/PluginSettingsTests.swift",
       "Plugins/mac/Official/JavaSupport/plugin.json",
-      "shared/contracts/plugins/v1/fixtures/node-runtime.plugin.json"
+      "shared/contracts/plugins/v1/fixtures/languages/node-runtime.plugin.json"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -24,7 +24,7 @@
       "windows/tauri/src-tauri/src/plugin_host/settings.rs",
       "windows/tauri/src-tauri/src/plugin_host/tests.rs",
       "windows/tauri/src/features/plugins/declarative-plugin-settings-editor.tsx",
-      "shared/contracts/plugins/v1/fixtures/settings-v2.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/settings/settings-v2.plugin.json",
       "windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.ts",
       "windows/tauri/src/platform/lsp-core-adapter.ts",
       "windows/tauri/src/platform/lsp-core-adapter.test.ts"

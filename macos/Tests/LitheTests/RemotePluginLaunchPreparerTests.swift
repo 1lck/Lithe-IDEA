@@ -88,7 +88,7 @@ private struct LaunchFixture {
 
     init() throws {
         let data = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/node-runtime.plugin.json"))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/languages/node-runtime.plugin.json"))
         let validated = try DeclarativePluginTestSupport.operations.validate(manifest: data)
         let settings = InMemoryPluginSettings()
         settings.setValue(.integer(4096), forSetting: "heapMB", plugin: validated.id.rawValue)

@@ -294,7 +294,7 @@ struct PluginBundledPublisherTrustTests {
             bundled = host.appendingPathComponent("Contents/Resources/OfficialPlugins/dev.lithe.plugin.java-support")
             download = root.appendingPathComponent("download/dev.lithe.plugin.java-support")
             privateKey = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 9, count: 32))
-            let url = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/publisher-bundled.plugin.json")
+            let url = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/package-trust/publisher-bundled.plugin.json")
             var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
             object["id"] = OfficialPluginCatalog.javaPluginID.rawValue
             manifest = object

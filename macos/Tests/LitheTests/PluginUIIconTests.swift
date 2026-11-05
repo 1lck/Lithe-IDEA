@@ -13,7 +13,7 @@ import LitheSearchModule
 struct PluginUIIconTests {
     private func manifest(icon: [String: Any]?) throws -> Data {
         let data = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/hello-lithe.plugin.json"))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/manifest/hello-lithe.plugin.json"))
         var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         var ui = try #require(object["ui"] as? [String: Any])
         for key in ["toolWindows", "commands"] {

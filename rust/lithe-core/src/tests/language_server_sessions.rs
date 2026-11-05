@@ -21,10 +21,10 @@ macro_rules! contract_file {
 }
 
 const BACKEND_LAUNCH_FIXTURE: &str =
-    contract_file!("fixtures/language-server-backend-launch.plugin.json");
+    contract_file!("fixtures/languages/language-server-backend-launch.plugin.json");
 const PACKAGED_SERVER_FIXTURE: &str =
-    contract_file!("fixtures/language-packaged-server.plugin.json");
-const LAUNCH_RESOLUTION: &str = contract_file!("fixtures/language-server-launch-resolution.json");
+    contract_file!("fixtures/languages/language-packaged-server.plugin.json");
+const LAUNCH_RESOLUTION: &str = contract_file!("fixtures/languages/language-server-launch-resolution.json");
 
 fn parse(source: &str) -> Value {
     serde_json::from_str(source).expect("fixture is valid JSON")

@@ -35,7 +35,7 @@ struct RustKeymapImportOperationsTests {
     @Test
     func plansOnlyTheSelectedProvidersDeclaredSources() throws {
         let manifest = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/keymap-import-provider.plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/keymap-import/keymap-import-provider.plugin.json")
         let operations = RustKeymapImportOperations(core: RustCoreBridge())
         let plan = try operations.planSources(manifest: Data(contentsOf: manifest), providerID: "second")
         #expect(plan.inputs == [

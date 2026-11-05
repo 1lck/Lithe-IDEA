@@ -220,7 +220,7 @@ contextExpired 必须重新解析原目标，不能换成活动窗口。新协�
   - `workspace_backend_is_planned_with_its_version_and_workspace_service`
   - `host_notifications_follow_the_fixture`、`host_notifications_are_bounded`、`host_notifications_reach_a_version_3_backend`、`host_notifications_skip_a_version_2_backend`
   - `host_failure_details_are_a_bounded_object`、`host_failure_details_reach_a_version_3_backend`
-  - 以及 `fixtures/invalid-manifests.json` 新增的 6 个拒绝用例
+  - 以及 `fixtures/manifest/invalid-manifests.json` 新增的 6 个拒绝用例
 - `./scripts/macos/test/test-macos.sh --filter "PluginHostServiceDispatchTests|MacPluginBackendSessionsTests|PluginWebBridgeTests"`：上下文 generation 与换工作区发新 ID、按插件的 rootID 与密钥文件、`listContexts` 不建目录、授权核验、本地与远程描述、过期与格式错误、订阅的三条释放路径与 sequence、错误码与 details 透传、命令和订阅通知按顺序送达运行中的后端、`backend: 1` 与未运行的后端不收命令。
 - `zsh scripts/architecture/verify-shared-contracts.sh`：契约 schema、fixture 与 README。
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：运行时不向发行目录写入。

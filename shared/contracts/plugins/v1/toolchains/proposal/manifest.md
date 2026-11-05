@@ -1,7 +1,7 @@
 # Toolchain manifest contributions (proposal)
 
 **Status: full proposal, not a claim of native host support.** The implemented
-Core subset is specified by [the active contract](../../toolchains.md). This
+Core subset is specified by [the active contract](../README.md). This
 document follows the
 [final scope of PR #1581](https://github.com/1lck/Lithe-IDEA/pull/1581#issuecomment-6541366112).
 It is a host contract draft, not a plugin author tutorial. The current manifest
@@ -63,7 +63,7 @@ pretend that an unimplemented launch adapter supports the draft.
 
 ## Tool definitions
 
-The [Java-support-style projection](fixtures/java-tool-definition.json) supplies
+The [Java-support-style projection](../../fixtures/toolchains/proposal/java-tool-definition.json) supplies
 the tool name and every executable policy. Its short ID is valid only in an
 independently official installation context; the fixture itself is not signed.
 
@@ -144,7 +144,7 @@ rejected candidate never leak into the next candidate's environment.
 ## One candidate resolver, four product layers
 
 The draft extends the
-[existing candidate model](../../README.md#shared-executable-candidates-executableresolution-1)
+[existing candidate model](../../README.md#shared-executable-candidates-executableresolution-12)
 rather than building a second runtime resolver:
 
 - `setting` gains mandatory `layer: "project" | "global"` in this projection.
@@ -194,7 +194,7 @@ query results and reason shapes; no current `skip` consumer changes in this stag
 
 ## Providers, file watching, and bootstrap
 
-The [mise projection](fixtures/mise-provider.json) declares `id`, `displayName`,
+The [mise projection](../../fixtures/toolchains/proposal/mise-provider.json) declares `id`, `displayName`,
 `tools`, and `watchFiles`. `watchFiles` is optional: without it a provider reports
 installations only and any returned statement is rejected. That shape lets the
 plugin defining a tool answer for its own installations when declarative
@@ -301,7 +301,7 @@ usage. The native host separately proves verified signature provenance, package
 containment, canonical paths, executable status, workspace exclusion, cancellation
 and limits. None of those checks can be replaced by JSON Schema.
 
-[`manifest-rejections.json`](fixtures/manifest-rejections.json) separates these
+[`manifest-rejections.json`](../../fixtures/toolchains/proposal/manifest-rejections.json) separates these
 phases. Each case applies RFC 6902 `patch` to its `base`; `context` is **host test
 input**, never a plugin field. `phase: "schema"` must fail schema validation;
 `registry` and `hostTrust` cases intentionally remain valid JSON shape and describe

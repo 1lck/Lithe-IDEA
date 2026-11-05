@@ -169,7 +169,7 @@ struct MacPluginLanguageServerWorkspaceStateTests {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             let operations = DeclarativePluginTestSupport.operations
             let manifest = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-                .appendingPathComponent("shared/contracts/plugins/v1/fixtures/language-server-backend-launch.plugin.json"))
+                .appendingPathComponent("shared/contracts/plugins/v1/fixtures/languages/language-server-backend-launch.plugin.json"))
             let descriptor = try operations.validate(manifest: manifest)
             let directories = MacPluginStateDirectories(
                 rootURL: root.appendingPathComponent("state", isDirectory: true),

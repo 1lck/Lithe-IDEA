@@ -66,7 +66,7 @@ struct PluginDebugAdapterTests {
         let program = instance.appendingPathComponent("main")
         try Data("#!/bin/sh\nexit 0\n".utf8).write(to: program)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: program.path)
-        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-provider-debug-preparation.plugin.json")
+        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-providers/build-provider-debug-preparation.plugin.json")
         let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: Data(contentsOf: fixture))
         let package = InstalledPluginPackage(descriptor: descriptor, installation: PluginInstallationRecord(
             pluginID: descriptor.id, activeVersion: descriptor.pluginManifest.version, origin: .marketplace, status: .installed),
@@ -326,7 +326,7 @@ struct PluginDebugAdapterTests {
         editLaunch: (inout [String: Any]) -> Void = { _ in }
     ) throws -> MacPluginLanguageServerLaunchResolver.DebugAdapterLaunch {
         let url = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/\(fixture).plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/debug-adapters/\(fixture).plugin.json")
         var manifest = try #require(
             try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
         )

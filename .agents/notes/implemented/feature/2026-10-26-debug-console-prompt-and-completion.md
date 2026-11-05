@@ -22,7 +22,7 @@
 
 - **输入行归宿主，补全内容归适配器和插件。** `DebugConsolePane`（`macos/Sources/Lithe/Views/Debug/DebugConsolePromptView.swift`）画输入行和弹层，不认识任何具体调试器。候选来自 `GenericDebugFeatureModel.requestConsoleCompletions`，只在会话处于 `paused` 时发请求，否则返回空列表。
 - **补全请求走 Rust Core。** `debug.inspect` 的 `completions` 类型由 Core 校验并转成 DAP `completions`：适配器没有协商 `supportsCompletionsRequest` 时直接拒绝；`text` 不能为空；`column` 是 1 起算的 UTF-16 单位，越界会被拒绝。Swift 侧的光标是 0 起算，由 `CoreDebugAdapterProtocolSession` 统一加 1，其他地方不要再换算。
-- **插件声明命令用 `debugAdapters[].console.commands[]`。** 每项只有 `name` 和可选 `description`，按名称排序、不重复、数量和长度有上限，违反时安装校验直接拒绝（`shared/contracts/plugins/v1/fixtures/debug-adapter-rejections.json` 有对应用例）。清单按“整行前缀”匹配，已经完整输入的命令不再提示。适配器会实时补全时（如 lldb-dap）清单只用来补它没覆盖的命令，同名候选只显示一次，适配器的顺序在前。
+- **插件声明命令用 `debugAdapters[].console.commands[]`。** 每项只有 `name` 和可选 `description`，按名称排序、不重复、数量和长度有上限，违反时安装校验直接拒绝（`shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter-rejections.json` 有对应用例）。清单按“整行前缀”匹配，已经完整输入的命令不再提示。适配器会实时补全时（如 lldb-dap）清单只用来补它没覆盖的命令，同名候选只显示一次，适配器的顺序在前。
 - **候选替换哪一段，规则固定。** 适配器给了 `start` / `length` 就照它的；没给（lldb-dap 就不给）时，替换“输入末尾与候选开头重合的最长一段”，忽略大小写；一点都不重合则在光标处插入。这条规则在 `DebugConsoleCompletion.swift`，有 10 条测试固定。改它要同时改 `DebugConsoleCompletionTests.swift`。
 - **插件可以声明命令前缀，宿主只搬运不理解。** lldb-dap 在行首会把 C++ 关键字和类型（`long`、`int16_t`、`const`）和命令混在一起，这些词一执行就是 `evaluate` 失败；在行首加反引号它才只返回命令。这个差异属于适配器，所以由插件在 `debugAdapters[].console.commandPrefix` 里声明（1–8 个字符，不含空白和控制字符，可以和 `commands` 同时出现，两者至少有一个）。宿主只在发补全请求时把前缀拼到整行前面（行首已有就不拼），光标按前缀的 UTF-16 长度后移，适配器回来的 `start` / `length` 再减回去（`DebugConsoleCompletion.adapterRequest` / `restoring`）。用户看到和执行的行永远不带前缀。代价是行首位置拿不到变量名补全，`p to` 这类带命令的输入不受影响。
 - **候选说明只取第一行。** lldb-dap 把整段帮助文字拼进标签，弹层一行放不下；`DebugConsoleCompletion` 取第一个非空行作为说明，完整文字不进弹层。

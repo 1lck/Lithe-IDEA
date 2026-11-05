@@ -34,7 +34,7 @@ struct ProviderWorkflowPresentationTests {
         let model = AppModel(settings: settings, services: container.services)
         let core = RustCoreBridge()
         let descriptor = try RustDeclarativePluginOperations(core: core).validate(manifest: Data(contentsOf:
-            DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-provider-debug-preparation.plugin.json")))
+            DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-providers/build-provider-debug-preparation.plugin.json")))
         let source = BuildSystemPluginSource(pluginID: descriptor.id.rawValue, manifest: descriptor.normalizedManifest,
             packageURL: root, buildSystems: descriptor.buildSystems)
         let service = BuildSystemService(planner: RustBuildSystemOperations(core: core), tools: PresentationBuildTools(),

@@ -12,7 +12,7 @@ struct RustBuildSystemOperationsTests {
 
     @Test
     func descriptorPreservesGenericPreparationWithoutPrescribingTaskIDs() throws {
-        let source = try Self.source("build-provider-preparation")
+        let source = try Self.source("build-providers/build-provider-preparation")
         let tasks = try #require(source.buildSystems.first?.tasks)
         #expect(tasks.map(\.id) == ["prepare-assets", "prepare-specs"])
         #expect(tasks.map(\.preparation) == [
@@ -23,7 +23,7 @@ struct RustBuildSystemOperationsTests {
 
     @Test
     func providerReportsTravelInlineAndKeepRepeatedCasesInTheirProject() throws {
-        let source = try Self.source("build-provider-reports")
+        let source = try Self.source("build-providers/build-provider-reports")
         let target = BuildSystemTarget(manifest: source.manifest, buildSystemID: "gradle")
         #expect(source.buildSystems.first?.providerTestReports == true)
         let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("provider-reports-" + UUID().uuidString)
@@ -45,7 +45,7 @@ struct RustBuildSystemOperationsTests {
 
     @Test
     func descriptorDeclaresBuildSystemsAndTheirModule() throws {
-        let descriptor = try Self.descriptor("build-static-file")
+        let descriptor = try Self.descriptor("build-systems/build-static-file")
         let cargo = try #require(descriptor.buildSystems.first)
 
         #expect(cargo.id == "cargo")
@@ -59,7 +59,7 @@ struct RustBuildSystemOperationsTests {
         #expect(descriptor.pluginManifest.modules.map(\.manifest.id)
             .contains(.buildSystemsExtension(descriptor.id.rawValue)))
 
-        let maven = try #require(Self.descriptor("build-host-integration").buildSystems.first)
+        let maven = try #require(Self.descriptor("build-systems/build-host-integration").buildSystems.first)
         #expect(maven.modelSource == .hostIntegration)
         // A host-integration dependency source declares no scopes of its own.
         #expect(maven.dependencyScopes == [.workspace, .project])
@@ -69,7 +69,7 @@ struct RustBuildSystemOperationsTests {
     func detectionReadsStaticModelAndResolvesOptions() throws {
         let workspace = try Self.cargoWorkspace()
         defer { try? FileManager.default.removeItem(at: workspace) }
-        let source = try Self.source("build-static-file")
+        let source = try Self.source("build-systems/build-static-file")
 
         let detection = try operations.detect(
             workspaceURL: workspace,
@@ -103,7 +103,7 @@ struct RustBuildSystemOperationsTests {
 
     @Test
     func invocationUsesTheGlobalExecutableSetting() throws {
-        let target = try Self.target("build-tool-path", "fixture")
+        let target = try Self.target("build-systems/build-tool-path", "fixture")
         let custom = try operations.invocationPlan(target, root: ".", settings: ["toolPath": .string("/opt/custom tools/build")])
         #expect(custom.executables.first == .setting(id: "toolPath", path: "/opt/custom tools/build"))
         #expect(try operations.invocationPlan(target, root: ".").executables.first == .setting(id: "toolPath", path: nil))
@@ -111,7 +111,7 @@ struct RustBuildSystemOperationsTests {
 
     @Test
     func invocationAndVersionProbe() throws {
-        let target = try Self.target("build-static-file", "cargo")
+        let target = try Self.target("build-systems/build-static-file", "cargo")
 
         let invocation = try operations.invocationPlan(target, root: ".")
         #expect(invocation.executables == [.command("cargo")])
@@ -123,7 +123,7 @@ struct RustBuildSystemOperationsTests {
         let old = try operations.checkToolVersion(target, runtime: nil, output: "cargo 1.60.0 (d1fd9fe 2022-03-01)\n")
         #expect(old.satisfied == false)
 
-        let go = try Self.target("build-command-stdout", "go")
+        let go = try Self.target("build-systems/build-command-stdout", "go")
         let goInvocation = try operations.invocationPlan(go, root: ".")
         #expect(goInvocation.executables == [.runtime("go")])
         #expect(goInvocation.runtimeDependencies.first?.hostManaged == true)
@@ -134,7 +134,7 @@ struct RustBuildSystemOperationsTests {
 
     @Test
     func providerTaskPlanCarriesSelectionWithoutHostArguments() throws {
-        let target = try Self.target("build-provider-execution", "gradle")
+        let target = try Self.target("build-providers/build-provider-execution", "gradle")
         let plan = try operations.taskPlan(
             target, context: BuildPlanContext(root: ".", options: ["offline": .bool(true)]),
             request: BuildTaskRequest(task: "build", project: BuildSelection(name: "app", path: "app"))
@@ -155,15 +155,15 @@ struct RustBuildSystemOperationsTests {
 
     @Test
     func providerServiceOptionsRoundTripThroughRealCoreAndRejectMissingChoices() throws {
-        let descriptor = try Self.descriptor("build-provider-run-options")
+        let descriptor = try Self.descriptor("build-providers/build-provider-run-options")
         #expect(descriptor.buildSystems.first?.providerRuns.first?.execution == .service)
-        let target = try Self.target("build-provider-run-options", "gradle")
+        let target = try Self.target("build-providers/build-provider-run-options", "gradle")
         let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: workspace) }
         for path in ["app", "tools"] { try FileManager.default.createDirectory(at: workspace.appendingPathComponent(path), withIntermediateDirectories: true) }
         struct Fixture: Decodable { let launchOptions: BuildLaunchOptions; let result: ToolingJSONValue }
         let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-run-options.json")))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-providers/build-run-options.json")))
         let planner: any BuildSystemPlanning = operations
         let project = BuildSelection(name: "app", path: "app")
         let selected = BuildSelection(name: "Main", path: "app", tags: ["application"])
@@ -188,9 +188,9 @@ struct RustBuildSystemOperationsTests {
 
     @Test
     func providerRunPreparationRoundTripsThroughRealCore() throws {
-        let descriptor = try Self.descriptor("build-provider-run-preparation")
+        let descriptor = try Self.descriptor("build-providers/build-provider-run-preparation")
         #expect(descriptor.buildSystems.first?.providerRuns.map(\.id) == ["application"])
-        let target = try Self.target("build-provider-run-preparation", "gradle")
+        let target = try Self.target("build-providers/build-provider-run-preparation", "gradle")
         let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: workspace) }
         try FileManager.default.createDirectory(at: workspace.appendingPathComponent("app"), withIntermediateDirectories: true)
@@ -224,7 +224,7 @@ struct RustBuildSystemOperationsTests {
         let arguments = try #require(inputs.opaqueReferenceArguments)
         let options = inputs.opaqueReferenceArguments == nil ? inputs.launchOptions : nil
         #expect((options != nil) == fixture.expected.applicationReferenceUsesLaunchOptions)
-        let target = try Self.target("build-provider-run-preparation", "gradle")
+        let target = try Self.target("build-providers/build-provider-run-preparation", "gradle")
         let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: workspace) }
         try FileManager.default.createDirectory(at: workspace.appendingPathComponent("app"), withIntermediateDirectories: true)
@@ -244,7 +244,7 @@ struct RustBuildSystemOperationsTests {
         let inputs = ProviderLaunchInputs(buildSystemID: "gradle", provider: "application", projectPath: "app",
             launchOptions: BuildLaunchOptions(execution: .application, runtimeArguments: ["-Xmx64m"], arguments: reference.userArguments), reference: reference)
         #expect(inputs.opaqueReferenceArguments == nil)
-        let target = try Self.target("build-provider-run-preparation", "gradle")
+        let target = try Self.target("build-providers/build-provider-run-preparation", "gradle")
         #expect(throws: (any Error).self) {
             try operations.prepareRunPlan(target, context: BuildPlanContext(root: ".", options: [:]), run: "application",
                 project: BuildSelection(name: "app", path: "app"), selectedTarget: BuildSelection(name: "Main", path: "app", tags: ["application"]),
@@ -254,9 +254,9 @@ struct RustBuildSystemOperationsTests {
 
     @Test
     func providerDebugPreparationRoundTripsThroughRealCore() throws {
-        let descriptor = try Self.descriptor("build-provider-debug-preparation")
+        let descriptor = try Self.descriptor("build-providers/build-provider-debug-preparation")
         #expect(descriptor.buildSystems.first?.providerRuns.first?.debugAdapter == "native")
-        let target = try Self.target("build-provider-debug-preparation", "gradle")
+        let target = try Self.target("build-providers/build-provider-debug-preparation", "gradle")
         let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: workspace) }
         let directory = workspace.appendingPathComponent("app", isDirectory: true)
@@ -280,7 +280,7 @@ struct RustBuildSystemOperationsTests {
 
     @Test
     func providerTestPlanKeepsTypedFiltersAndReportPatterns() throws {
-        let target = try Self.target("build-provider-tests", "gradle")
+        let target = try Self.target("build-providers/build-provider-tests", "gradle")
         let plan = try operations.testPlan(
             target, context: BuildPlanContext(root: ".", options: ["offline": .bool(true)]),
             request: BuildTestRequest(project: BuildSelection(name: "app", path: "app"),
@@ -298,15 +298,15 @@ struct RustBuildSystemOperationsTests {
 
     @Test
     func discoveredSelectorsRoundTripThroughTheRealCore() throws {
-        let descriptor = try Self.descriptor("build-provider-tests")
+        let descriptor = try Self.descriptor("build-providers/build-provider-tests")
         #expect(descriptor.buildSystems.first?.testDiscovery == true)
-        #expect(try Self.descriptor("build-static-file").buildSystems.first?.testDiscovery == false)
-        let target = try Self.target("build-provider-tests", "gradle")
+        #expect(try Self.descriptor("build-systems/build-static-file").buildSystems.first?.testDiscovery == false)
+        let target = try Self.target("build-providers/build-provider-tests", "gradle")
         let context = BuildPlanContext(root: ".", options: ["offline": .bool(true)])
         let plan = try operations.testDiscoveryPlan(target, context: context)
         #expect(plan.method == "lithe/build/discoverTests")
         let fixture = try JSONDecoder().decode(ToolingJSONValue.self, from: Data(contentsOf:
-            DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-test-discovery.json")))
+            DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-providers/build-test-discovery.json")))
         guard case .object(let object) = fixture, let result = object["result"] else {
             Issue.record("Missing discovery result"); return
         }
@@ -325,7 +325,7 @@ struct RustBuildSystemOperationsTests {
 
     @Test
     func taskAndTestPlansCarryOptionsAndSelection() throws {
-        let target = try Self.target("build-static-file", "cargo")
+        let target = try Self.target("build-systems/build-static-file", "cargo")
         let project = BuildModel.Project(id: "cargo:demo", path: "crates/demo", name: "demo")
         let context = BuildPlanContext(root: "crates/demo", options: ["release": .bool(true)])
 
@@ -370,7 +370,7 @@ struct RustBuildSystemOperationsTests {
     /// `refresh` and `tool` fields Core copies into the provider params.
     @Test
     func providerPlansCarryTheReloadReasonAndTheResolvedTool() throws {
-        let target = try Self.target("build-provider", "gradle")
+        let target = try Self.target("build-providers/build-provider", "gradle")
         let context = BuildPlanContext(root: ".", options: [:])
         let executable = URL(fileURLWithPath: "/opt/tools/gradle/bin/gradle")
 
@@ -395,7 +395,7 @@ struct RustBuildSystemOperationsTests {
 
     @Test
     func commandModelPlansAndDecodesStandardOutput() throws {
-        let target = try Self.target("build-command-stdout", "go")
+        let target = try Self.target("build-systems/build-command-stdout", "go")
         let workspace = URL(fileURLWithPath: "/tmp/lithe-go-workspace")
 
         let plan = try operations.modelPlan(
@@ -425,7 +425,7 @@ struct RustBuildSystemOperationsTests {
     func diagnosticsAndSyncFingerprint() throws {
         let workspace = try Self.cargoWorkspace()
         defer { try? FileManager.default.removeItem(at: workspace) }
-        let target = try Self.target("build-static-file", "cargo")
+        let target = try Self.target("build-systems/build-static-file", "cargo")
 
         let diagnostics = try operations.decodeDiagnostics(
             target,
@@ -459,7 +459,7 @@ struct RustBuildSystemOperationsTests {
             to: workspace.appendingPathComponent("gradle/wrapper/gradle-wrapper.properties")
         )
         for kind in ["maven", "gradle"] {
-            var manifest = try #require(JSONSerialization.jsonObject(with: Self.fixtureData("build-host-integration")) as? [String: Any])
+            var manifest = try #require(JSONSerialization.jsonObject(with: Self.fixtureData("build-systems/build-host-integration")) as? [String: Any])
             var systems = try #require(manifest["buildSystems"] as? [[String: Any]])
             systems[0]["languageImport"] = kind == "maven"
                 ? ["kind": kind, "options": ["profiles": "profiles", "settingsFile": "settingsFile", "localRepository": "localRepository"]]
@@ -487,14 +487,14 @@ struct RustBuildSystemOperationsTests {
             }
         }
         #expect(try operations.languageImport(
-            Self.target("build-static-file", "cargo"), workspaceURL: workspace, root: ".", options: [:], executableURL: nil
+            Self.target("build-systems/build-static-file", "cargo"), workspaceURL: workspace, root: ".", options: [:], executableURL: nil
         ) == nil)
     }
 
     @Test
     func modelInputsCrossTheRealCoreBridgeWithoutPrivatePlans() throws {
-        let producer = try Self.source("build-model-producer")
-        let consumer = try Self.source("build-model-consumer")
+        let producer = try Self.source("build-systems/build-model-producer")
+        let consumer = try Self.source("build-systems/build-model-consumer")
         #expect(producer.buildSystems.first?.sharesModel == true)
         #expect(consumer.buildSystems.first?.modelInputs == [.init(pluginID: producer.pluginID, buildSystemID: "source")])
         let model = try JSONDecoder().decode(BuildModel.self, from: Data("""

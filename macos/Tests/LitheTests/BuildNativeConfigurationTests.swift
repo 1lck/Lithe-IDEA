@@ -238,7 +238,7 @@ private struct NativeConfigurationFixture {
         file = root.appendingPathComponent("settings.xml")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let manifest = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent(
-            "shared/contracts/plugins/v1/fixtures/build-provider-configuration.plugin.json"))
+            "shared/contracts/plugins/v1/fixtures/build-providers/build-provider-configuration.plugin.json"))
         target = BuildSystemTarget(manifest: manifest, buildSystemID: "gradle")
         try Data(original.utf8).write(to: file)
     }

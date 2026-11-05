@@ -88,7 +88,7 @@ struct LanguageToolEnvironmentTests {
     @Test
     func aRuntimeLaunchWithoutDependenciesStillNamesItsLaunchRuntime() throws {
         let manifest = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/node-runtime.plugin.json"))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/languages/node-runtime.plugin.json"))
         let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: manifest)
         let server = try #require(descriptor.languageServers.first)
 
