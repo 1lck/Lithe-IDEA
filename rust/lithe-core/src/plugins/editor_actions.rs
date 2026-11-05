@@ -4,7 +4,8 @@
 //! their business facts; hosts own document versions, session leases, icon
 //! resources and clicks. Version 1 keeps the original two icons and 128 KiB
 //! source bound; version 2 takes the icons and bound the host declared in
-//! [`EditorHostOptions`] and adds alternatives and reveal results.
+//! [`EditorHostOptions`](crate::plugins::editor_actions::EditorHostOptions) and adds
+//! alternatives and reveal results.
 
 use crate::lsp::interface::plugin_function::is_function_id;
 use crate::protocol::{CoreError, ErrorCode};

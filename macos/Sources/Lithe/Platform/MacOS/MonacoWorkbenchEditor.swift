@@ -1431,7 +1431,8 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                             self?.model?.services.logSink?.emit(event)
                             reference = event.reference
                         }
-                        self?.model?.showNotification("The plugin host request could not be completed.", logReference: reference)
+                        self?.model?.showNotification(
+                            L10n.string("The plugin host request could not be completed."), logReference: reference)
                         reply(["ok": false], nil)
                     }
                 }
@@ -1889,7 +1890,9 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 reply(["available": false], nil); return
             }
             let revision = revisions[id]
-            model.requestDefinitionAvailability(for: document, line: line, utf16Column: column) { [weak self] result in
+            model.requestDefinitionAvailability(
+                for: document, line: line, utf16Column: column, askPlugins: !isReadOnlyPreview
+            ) { [weak self] result in
                 guard let self, self.isCurrent(context), self.revisions[id] == revision else {
                     reply(["available": false], nil); return
                 }
@@ -1904,7 +1907,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 reply(["cancelled": true], nil); return
             }
             model.editorDidFocus(document)
-            model.navigateToSymbol(line: line, utf16Column: column, in: document.url)
+            model.navigateToSymbol(line: line, utf16Column: column, in: document.url, askPlugins: !isReadOnlyPreview)
             reply(["ok": true], nil)
         default: reply(nil, "Unknown editor message")
         }

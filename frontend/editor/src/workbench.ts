@@ -1663,6 +1663,13 @@ export function mountWorkbench(host: WorkbenchHost) {
       .monaco-editor .lithe-debug-value{color:var(--vscode-editor-inlineValuesForeground,#888);background:var(--vscode-editor-inlineValuesBackground,transparent);font-style:italic}`;
     document.head.append(debugStyle);
     textmate = await installJavaTextMate();
+    // The language server answers first; plugin providers only add to what it
+    // gave. Monaco puts the later of two equally matching providers first, so
+    // these register before the host's own hover and completion providers.
+    pluginProviders = attachPluginEditorProviders({
+      entries: () => entries, request: languageRequest,
+      current: (id, entry) => documentCheckpoint(id, entry),
+    });
     if (host.foldJavaImportsByDefault) monaco.languages.registerFoldingRangeProvider("java", {
       async provideFoldingRanges(model, _context, token) {
         const pair = [...entries].find(([, entry]) => entry.model === model);
@@ -1928,11 +1935,6 @@ export function mountWorkbench(host: WorkbenchHost) {
           kind: mapCompletionKind(reply.item.kind),
           insertTextRules: reply.item.insertTextFormat === 2 ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined };
       },
-    });
-    // The language server answers first; these providers only add to what it gave.
-    pluginProviders = attachPluginEditorProviders({
-      entries: () => entries, request: languageRequest,
-      current: (id, entry) => documentCheckpoint(id, entry),
     });
     addEventListener("pagehide", () => {
       clearTimeout(markdownScrollTimer);

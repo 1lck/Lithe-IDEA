@@ -259,7 +259,7 @@ final class MonacoPluginEditorProviders {
                     model?.services.logSink?.emit(event)
                     reference = event.reference
                 }
-                model?.showNotification("The plugin host request could not be completed.", logReference: reference)
+                model?.showNotification(L10n.string("The plugin host request could not be completed."), logReference: reference)
                 reply(["ok": false], nil)
             }
         }

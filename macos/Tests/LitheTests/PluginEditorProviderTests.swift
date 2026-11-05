@@ -319,6 +319,41 @@ struct PluginEditorProviderTests {
         }
     }
 
+    // MARK: Modifier hover
+
+    @Test
+    func aNewerHoverCancelsTheRunningDefinitionQueryAndRetiresTheOlderTicket() async {
+        let hover = PluginDefinitionHover()
+        let first = hover.begin()
+        // Stands in for providers still inside their budget; cancellation ends the sleep at once.
+        let slow = Task<[LanguageServerLocation], Never> {
+            try? await Task.sleep(for: .seconds(30))
+            return []
+        }
+        hover.run(slow)
+
+        let second = hover.begin()
+
+        #expect(slow.isCancelled)
+        #expect(!hover.isLatest(first), "the older hover's server reply can no longer start providers")
+        #expect(hover.isLatest(second))
+        _ = await slow.value
+    }
+
+    @Test
+    func aFinishedDefinitionQueryIsNotCancelledByTheNextHover() async {
+        let hover = PluginDefinitionHover()
+        _ = hover.begin()
+        let done = Task<[LanguageServerLocation], Never> { [] }
+        hover.run(done)
+        _ = await done.value
+        hover.finished(done)
+
+        _ = hover.begin()
+
+        #expect(!done.isCancelled)
+    }
+
     // MARK: Contract
 
     @Test
