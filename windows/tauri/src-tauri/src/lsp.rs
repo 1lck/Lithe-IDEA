@@ -192,7 +192,7 @@ fn resolve_java_launch(
         .transpose()?;
     let cache_directory = language_server_cache_directory(app);
     let active_workspace_key =
-        lithe_core::jdt_workspace_key(&workspace, workspace_fingerprint.as_deref());
+        lithe_legacy_java::jdt_workspace_key(&workspace, workspace_fingerprint.as_deref());
     log_manager.emit_json(
         "info",
         "windows.java.jdt_cache".to_string(),
@@ -1310,8 +1310,9 @@ mod tests {
         let workspace = temp_dir();
         let cache = temp_dir();
         let current_fingerprint = "build=pom.xml@1:1|modules=core|jdtls=1.38.0";
-        let current_key = lithe_core::jdt_workspace_key(&workspace, Some(current_fingerprint));
-        let sibling_key = lithe_core::jdt_workspace_key(&workspace, Some("older-structure"));
+        let current_key =
+            lithe_legacy_java::jdt_workspace_key(&workspace, Some(current_fingerprint));
+        let sibling_key = lithe_legacy_java::jdt_workspace_key(&workspace, Some("older-structure"));
         let current = cache.join("jdtls").join(current_key);
         let sibling = cache.join("jdtls").join(sibling_key);
         fs::create_dir_all(&current).expect("current state directory");

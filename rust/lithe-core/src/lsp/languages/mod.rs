@@ -26,6 +26,6 @@ pub(crate) use java_workspace::{
     java_workspace_policy, jdt_cache_retention, jdt_workspace_fingerprint,
     JavaWorkspacePolicyRequest, JdtCacheRetentionRequest, JdtWorkspaceFingerprintRequest,
 };
-pub(crate) use jdt::{resolve_workspace_key, workspace_key, JdtWorkspaceKeyRequest};
+pub(crate) use jdt::{resolve_workspace_key, JdtWorkspaceKeyRequest};
 pub(crate) use jdt_configuration::prepare_configuration_area as prepare_jdt_configuration_area;
 pub(crate) use jdt_project_metadata::prepare_workspace as prepare_jdt_workspace;

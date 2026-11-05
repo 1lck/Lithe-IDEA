@@ -1,13 +1,11 @@
 //! Maven reactor inspection, profile discovery, and source diagnostics.
 
-use super::maven_dependency_tree;
 use super::maven_test_reports::{self, MavenTestReportsRequest};
 use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
-    MavenDiagnosticResponse, MavenDiagnosticsResponse, MavenLaunchExecutableResponse,
-    MavenLaunchPlanResponse, MavenModuleResponse, MavenProfileResponse, MavenScanResponse,
-    MavenSourceRootKind, MavenSourceRootResponse, MavenTestFailureResponse,
-    MavenTestResultsResponse,
+    MavenLaunchExecutableResponse, MavenLaunchPlanResponse, MavenModuleResponse,
+    MavenProfileResponse, MavenScanResponse, MavenSourceRootKind, MavenSourceRootResponse,
+    MavenTestFailureResponse, MavenTestResultsResponse,
 };
 use crate::remote::workspace_io as fs;
 use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
@@ -16,7 +14,7 @@ use regex::Regex;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
@@ -26,14 +24,6 @@ pub struct MavenScanRequest {
     pub root: String,
     #[serde(default)]
     pub paths: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-/// Maven process output to normalize into workspace diagnostics.
-pub struct MavenDiagnosticsRequest {
-    pub root: String,
-    pub output: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,33 +63,6 @@ pub struct MavenLaunchContextRequest {
     pub java_home_path: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-/// Ordered Maven invocation tokens selected by a tool-window consumer.
-///
-/// The first token is a lifecycle or custom goal. Remaining tokens are passed
-/// directly to Maven as arguments without shell interpretation.
-pub struct MavenLaunchPlanRequest {
-    pub root: String,
-    pub context: MavenLaunchContextRequest,
-    #[serde(default)]
-    pub module: Option<String>,
-    pub goals: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-/// One bounded dependency-tree invocation for a validated Maven module.
-pub struct MavenDependencyPlanRequest {
-    pub root: String,
-    pub context: MavenLaunchContextRequest,
-    #[serde(default)]
-    pub module: Option<String>,
-    /// Absolute platform-owned file the plugin writes the tree to. The same
-    /// path is later passed to `maven.dependencies`.
-    pub output_file: String,
-}
-
 #[derive(Debug, Clone)]
 /// Validated Maven import settings consumed by the JDT LS adapter.
 pub(crate) struct MavenJdtConfiguration {
@@ -134,54 +97,11 @@ struct ValidatedMavenContext {
     java_home_path: Option<String>,
 }
 
-/// Produces a deterministic Maven plan without resolving a native executable.
-pub fn launch_plan(request: MavenLaunchPlanRequest) -> Result<MavenLaunchPlanResponse, CoreError> {
-    let arguments = normalized_tool_window_arguments(request.goals)?;
-    launch_plan_with_arguments(
-        request.root,
-        request.context,
-        request.module,
-        arguments,
-        true,
-    )
-}
-
-/// Produces a fixed invocation that writes one module's tree to a file.
-///
-/// Exactly one project runs, because every project in the session would
-/// overwrite the same file: a module is selected with `-pl`, and the reactor
-/// root with `-N` so its modules are not visited.
-pub fn dependency_plan(
-    request: MavenDependencyPlanRequest,
-) -> Result<MavenLaunchPlanResponse, CoreError> {
-    let output_file = maven_dependency_tree::validated_output_file(&request.output_file)?;
-    let selects_root = request
-        .module
-        .as_deref()
-        .map(|module| normalized_project_path(module, "Maven module"))
-        .transpose()?
-        .is_none_or(|module| module == ".");
-    let mut arguments = Vec::new();
-    if selects_root {
-        arguments.push("-N".to_string());
-    }
-    arguments.extend(maven_dependency_tree::dependency_tree_arguments(
-        &output_file,
-    ));
-    launch_plan_with_arguments(
-        request.root,
-        request.context,
-        request.module,
-        arguments,
-        false,
-    )
-}
-
 /// Applies a validated Maven context to Core-owned run/debug arguments.
 ///
-/// Unlike the public tool-window command, the trailing arguments may contain
-/// properties such as `-Dexec.mainClass`: those values were generated and
-/// validated by the run-configuration domain rather than entered as goals.
+/// The trailing arguments may contain properties such as `-Dexec.mainClass`:
+/// those values were generated and validated by the run-configuration domain
+/// rather than entered by a user as goals.
 pub(crate) fn launch_plan_with_arguments(
     root: String,
     context: MavenLaunchContextRequest,
@@ -295,7 +215,7 @@ pub(crate) fn jdt_configuration(
 /// has to keep the mirrors, servers, and proxies the workspace already builds
 /// with. Dropping them would send project import to the default remote
 /// repositories instead of the ones Maven resolves through.
-pub fn settings_with_local_repository(
+pub(crate) fn settings_with_local_repository(
     source: &str,
     local_repository: &str,
 ) -> Result<String, CoreError> {
@@ -638,40 +558,6 @@ fn normalized_profiles(values: Vec<String>) -> Result<Vec<String>, CoreError> {
         profiles.insert(profile.to_string());
     }
     Ok(profiles.into_iter().collect())
-}
-
-fn normalized_tool_window_arguments(values: Vec<String>) -> Result<Vec<String>, CoreError> {
-    if values.is_empty() {
-        return Err(CoreError::new(
-            ErrorCode::InvalidRequest,
-            "At least one Maven goal is required",
-        ));
-    }
-
-    let mut arguments = Vec::with_capacity(values.len());
-    for (index, value) in values.into_iter().enumerate() {
-        let argument = value.trim();
-        if argument.is_empty() || argument.chars().any(char::is_control) {
-            return Err(
-                CoreError::new(ErrorCode::InvalidRequest, "Maven argument is invalid")
-                    .with_details(argument),
-            );
-        }
-        if index == 0 {
-            let valid_goal = !argument.starts_with('-')
-                && argument.chars().all(|character| {
-                    character.is_ascii_alphanumeric() || ".:_-".contains(character)
-                });
-            if !valid_goal {
-                return Err(
-                    CoreError::new(ErrorCode::InvalidRequest, "Maven goal is invalid")
-                        .with_details(argument),
-                );
-            }
-        }
-        arguments.push(argument.to_string());
-    }
-    Ok(arguments)
 }
 
 pub(super) fn normalized_project_path(value: &str, label: &str) -> Result<String, CoreError> {
@@ -1222,45 +1108,6 @@ pub(crate) fn maven_root(
         Some(error) => Err(error),
         None => Ok(None),
     }
-}
-
-/// Parses Maven compiler output into stable workspace-relative diagnostics.
-pub fn diagnostics(
-    request: MavenDiagnosticsRequest,
-) -> Result<MavenDiagnosticsResponse, CoreError> {
-    existing_root(&request.root)?;
-    let expression = Regex::new(r"\[(ERROR|WARNING)]\s+(.*?):\[(\d+)(?:,(\d+))?]\s+(.*)")
-        .expect("static Maven diagnostic expression is valid");
-    let mut seen = HashSet::new();
-    let issues = request
-        .output
-        .lines()
-        .filter_map(|line| {
-            let captures = expression.captures(line)?;
-            let path = captures.get(2)?.as_str().trim().to_string();
-            let line_number = captures.get(3)?.as_str().parse().ok()?;
-            let column = captures
-                .get(4)
-                .and_then(|value| value.as_str().parse().ok());
-            let severity = captures.get(1)?.as_str().to_lowercase();
-            let message = captures.get(5)?.as_str().trim().to_string();
-            let key = (
-                path.clone(),
-                line_number,
-                column,
-                severity.clone(),
-                message.clone(),
-            );
-            seen.insert(key).then_some(MavenDiagnosticResponse {
-                path,
-                line: line_number,
-                column,
-                severity,
-                message,
-            })
-        })
-        .collect();
-    Ok(MavenDiagnosticsResponse { issues })
 }
 
 #[derive(Clone, Copy)]

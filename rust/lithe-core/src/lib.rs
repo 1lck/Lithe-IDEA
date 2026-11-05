@@ -1,7 +1,5 @@
 //! Deterministic application services shared by the macOS and Windows hosts.
 
-use std::path::Path;
-
 mod action_search;
 mod agent;
 pub mod ai;
@@ -33,6 +31,11 @@ mod vcs;
 pub use protocol::{
     CoreCommand, CoreError, CoreEvent, CoreRequest, CoreResponse, ErrorCode, ResponseData,
 };
+
+/// The cancellation scope of one request, for a host crate that answers some
+/// commands itself and still has to honour `cancel_operation` and timeouts the
+/// way Core's own dispatcher does.
+pub use protocol::cancellation::{check as check_cancellation, Scope as CancellationScope};
 
 /// Executes one versioned application command and returns a JSON response.
 pub fn execute_json(request: &str) -> String {
@@ -70,14 +73,6 @@ pub fn cancel_operation(operation_id: &str) -> bool {
     protocol::cancellation::cancel(operation_id)
 }
 
-/// Derives the shared directory key for one JDT LS workspace state.
-///
-/// Platform hosts use this when clearing the same cache directory that the
-/// Rust-owned language-server runtime selected during startup.
-pub fn jdt_workspace_key(workspace_root: &Path, workspace_fingerprint: Option<&str>) -> String {
-    lsp::workspace_key(workspace_root, workspace_fingerprint)
-}
-
 #[cfg(test)]
 mod tests;
 
@@ -110,11 +105,6 @@ pub use git::{
     classify_git_metadata_change, GitMetadataChangeKind, GitMetadataEventClassification,
     GitMetadataWatchContext,
 };
-
-/// Rewrites `<localRepository>` in a Maven settings document while keeping
-/// every other element and comment, so hosts editing the user's own
-/// `settings.xml` share the writer JDT LS settings generation already uses.
-pub use project::settings_with_local_repository;
 
 /// Connects an authorized native window to the local IDE broker's request notifications.
 /// The host retains the callback until close; receivers claim IDs through `ideHost.control`

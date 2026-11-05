@@ -359,24 +359,6 @@ pub struct MavenDependenciesResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-/// One normalized issue parsed from Maven process output.
-pub struct MavenDiagnosticResponse {
-    pub path: String,
-    pub line: usize,
-    pub column: Option<usize>,
-    pub severity: String,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-/// Maven diagnostics in stable source order.
-pub struct MavenDiagnosticsResponse {
-    pub issues: Vec<MavenDiagnosticResponse>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 /// One failed or errored JUnit test reported by Maven Surefire/Failsafe.
 pub struct MavenTestFailureResponse {
     /// Provider-reported test name, usually `method(Class)` or `Class.method`.

@@ -2942,6 +2942,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "lithe-legacy-java"
+version = "0.1.0"
+dependencies = [
+ "lithe-core",
+ "quick-xml 0.37.5",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tree-sitter",
+ "tree-sitter-java",
+ "zip 2.4.2",
+]
+
+[[package]]
 name = "lithe-project"
 version = "0.1.0"
 dependencies = [
@@ -2995,6 +3010,7 @@ dependencies = [
  "lithe-agent-host",
  "lithe-core",
  "lithe-git-host",
+ "lithe-legacy-java",
  "lithe-project",
  "lithe-terminal",
  "quick-xml 0.37.5",

@@ -16,8 +16,8 @@
   "windows": {
     "evidence": [
       "windows/tauri/src-tauri/src/run/launch_arguments.rs",
-      "rust/lithe-core/src/execution/launch_command.rs",
-      "rust/lithe-core/src/execution/classpath_jar.rs",
+      "windows/tauri/crates/lithe-legacy-java/src/launch_command.rs",
+      "windows/tauri/crates/lithe-legacy-java/src/classpath_jar.rs",
       "windows/tauri/src-tauri/src/run.rs"
     ],
     "implementationStatus": "implemented",
