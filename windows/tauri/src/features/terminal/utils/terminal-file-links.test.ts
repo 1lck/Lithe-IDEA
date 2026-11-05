@@ -11,7 +11,8 @@ mock.module("@tauri-apps/plugin-fs", () => ({
 }));
 mock.module("@tauri-apps/api/path", () => ({ homeDir: async () => "/Users/me" }));
 
-const { findTerminalFileLinks } = await import("./terminal-file-links");
+const { findTerminalFileLinks, createTerminalFileLinkFinder, defaultTerminalLinkDeps } =
+  await import("./terminal-file-links");
 
 type FixtureCase = (typeof fixture.cases)[number];
 const byName = (name: string) => fixture.cases.find((item) => item.name === name) as FixtureCase;
@@ -69,14 +70,67 @@ describe("terminal file links", () => {
     ]);
   });
 
-  test("provider files that cannot be checked need an explicit line", async () => {
-    answerFromFixture(byName("provider-workspace-keeps-paths-inside-the-provider"));
+  test("remote and WSL files are found by listing their parent, with or without a line", async () => {
+    const item = byName("provider-workspace-keeps-paths-inside-the-provider");
+    const listed: string[] = [];
+    const find = createTerminalFileLinkFinder({
+      ...defaultTerminalLinkDeps,
+      resolveTargets: async () => item.expected as never,
+      listDirectory: async (provider) => {
+        listed.push(provider);
+        return provider === "wsl://Ubuntu/home/me"
+          ? [{ name: "b.rs", is_dir: false }]
+          : [
+              { name: "a.rs", is_dir: false },
+              { name: "c.rs", is_dir: false },
+              { name: "src", is_dir: true },
+            ];
+      },
+    });
 
-    const links = await findTerminalFileLinks("src/a.rs:3 /etc/hosts wsl://Ubuntu/home/me/b.rs:1 ../c.rs", "remote://conn1/home/me/app");
+    const links = await find("src/a.rs:3 /etc/hosts wsl://Ubuntu/home/me/b.rs:1 ../c.rs", "remote://conn1/home/me/app");
 
+    // /etc/hosts is absent from its listing, so it is not a link; ../c.rs needs no line.
     expect(links.map((link) => link.path)).toEqual([
       "remote://conn1/home/me/app/src/a.rs",
       "wsl://Ubuntu/home/me/b.rs",
+      "remote://conn1/home/me/c.rs",
     ]);
+    expect(listed.sort()).toEqual([
+      "remote://conn1/etc",
+      "remote://conn1/home/me",
+      "remote://conn1/home/me/app/src",
+      "wsl://Ubuntu/home/me",
+    ]);
+  });
+
+  test("repeated hovers share in-flight work and expire on a deterministic clock", async () => {
+    let clock = 0;
+    let resolves = 0;
+    let stats = 0;
+    const find = createTerminalFileLinkFinder({
+      now: () => clock,
+      resolveTargets: async () => {
+        resolves++;
+        return [{ kind: "file", path: "/w/a/b.txt", line: null, column: null, explicit: true }];
+      },
+      statFile: async () => {
+        stats++;
+        return true;
+      },
+      listDirectory: async () => [],
+    });
+
+    const [first, second] = await Promise.all([find("a/b.txt", "/w"), find("a/b.txt", "/w")]);
+    expect(first).toBe(second);
+    clock = 1999;
+    await find("a/b.txt", "/w");
+    expect([resolves, stats]).toEqual([1, 1]);
+    // Same line under another working directory is a different key.
+    await find("a/b.txt", "/other");
+    expect([resolves, stats]).toEqual([2, 2]);
+    clock = 2000;
+    await find("a/b.txt", "/w");
+    expect([resolves, stats]).toEqual([3, 3]);
   });
 });
