@@ -1,6 +1,8 @@
 import { configureWorkspaceIndexing } from "@/features/file-explorer/stores/workspace-indexing";
 import { executeCore } from "@/core/lithe-core-client";
 import { getFilenameFromPath } from "@/features/file-system/controllers/file-utils";
+import { hiddenPathRules } from "@/features/settings/lib/hidden-path-rules";
+import { rankNames } from "./rank-names";
 import { joinPath, getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 
 export interface SearchMatchRange {
@@ -164,6 +166,7 @@ export async function searchFilesContent(
       excludePathPatterns: request.exclude_patterns ?? [],
       pathFilterPrefix: getRelativePath(root, request.filter_root ?? root).replace(/\\/g, "/"),
       includeContentRanges: true,
+      ...hiddenPathRules(),
     },
   });
   const page = coreData(response);
@@ -239,11 +242,16 @@ export async function fffSearchFiles(
   workspaceId?: string,
 ): Promise<FffSearchHit[]> {
   const files = await fffListFiles(rootPaths, workspaceId);
-  const normalizedQuery = query.toLocaleLowerCase();
-  return files
-    .filter((file) => file.relative_path.toLocaleLowerCase().includes(normalizedQuery))
+  // Scoring belongs to Core; the inventory is the only thing this adapter contributes.
+  const ranked = await rankNames(
+    query.trim(),
+    files.map((file) => ({ name: file.name, path: file.relative_path })),
+    {},
+    limit,
+  );
+  return ranked
     .slice(0, limit)
-    .map((file, index) => ({ ...file, score: limit - index }));
+    .map((hit) => ({ ...files[hit.index], score: hit.degree }));
 }
 
 export async function fffListFiles(
@@ -282,7 +290,7 @@ async function listWorkspaceFiles(
   }>({
     id: crypto.randomUUID(),
     command: "workspace.snapshot",
-    payload: { root, workspaceRoots, includeTree: false },
+    payload: { root, workspaceRoots, includeTree: false, ...hiddenPathRules() },
   });
   const data = coreData(response);
   if (data.incompleteDirectories?.length)

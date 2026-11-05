@@ -1308,6 +1308,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `workspace.recentProjects.reduce` | Apply one record, remove, pin, import, or normalize action to the recent project list and return the retained order |
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
+| `workspace.rankNames` | Pure ranking of host-listed candidate names (`{ query, candidates: [{ name, path? }], context: { openPaths, recentPaths }, limitPerTier? }`) with the matcher behind Search Everywhere; returns `matches: [{ index, degree, tier, nameMatchRanges }]` ordered by degree, open/recent tier, recency, then file-name order (fixture `shared/fixtures/search/rank-names-v1.json`) |
 | `workspace.replacePreview` | Return deterministic replacement lines and complete replacement text |
 | `workspace.replaceText` | Plan replacement against a host-captured text snapshot without writing |
 | `workspace.searchTextBatch` | Search provider-captured text snapshots using workspace matching rules |

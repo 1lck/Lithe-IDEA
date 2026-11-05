@@ -11,6 +11,7 @@ mod maven;
 mod maven_dependency_tree;
 mod maven_test_reports;
 mod name_matching;
+pub(crate) mod name_ranking;
 pub(crate) mod recent_projects;
 mod search_index;
 mod search_paging;

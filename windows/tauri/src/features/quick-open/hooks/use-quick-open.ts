@@ -72,7 +72,6 @@ export const useQuickOpen = () => {
   const { openBufferFiles, recentFilesInResults, otherFiles } = useFileSearch(
     files,
     isSymbolMode || isWorkspaceSymbolMode ? "" : debouncedQuery,
-    null,
     {
       hasLoadedFiles,
       rootFolderPath,

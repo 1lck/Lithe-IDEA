@@ -1,6 +1,10 @@
 import { expect, spyOn, test } from "bun:test";
 import * as core from "@/core/lithe-core-client";
 import * as indexing from "@/features/file-explorer/stores/workspace-indexing";
+import {
+  DEFAULT_HIDDEN_DIRECTORY_PATTERNS,
+  DEFAULT_HIDDEN_FILE_PATTERNS,
+} from "@/features/settings/config/default-settings";
 import { fffListFiles, searchFilesContent } from "./file-search-api";
 import { mergeSearchResults } from "@/features/global-search/utils/content-search-results";
 
@@ -129,7 +133,14 @@ test("workspace file listing asks Core for flat files without allocating a tree"
     expect(files.map((file) => file.relative_path)).toEqual(["src/a.ts", "src/b.ts"]);
     expect(requests).toHaveLength(1);
     expect(requests[0]?.command).toBe("workspace.snapshot");
-    expect(requests[0]?.payload).toEqual({root, workspaceRoots: [root], includeTree: false});
+    // The user's hidden-path settings travel with the request; Core adds and interprets the built-ins.
+    expect(requests[0]?.payload).toEqual({
+      root,
+      workspaceRoots: [root],
+      includeTree: false,
+      hiddenDirectoryNames: [...DEFAULT_HIDDEN_DIRECTORY_PATTERNS],
+      hiddenFilePatterns: [...DEFAULT_HIDDEN_FILE_PATTERNS],
+    });
   } finally {
     execute.mockRestore(); configure.mockRestore();
   }

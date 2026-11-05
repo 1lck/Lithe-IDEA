@@ -1125,7 +1125,7 @@ struct SearchEverywhereBehaviorTests {
             #expect(fragments.lowercased() == "name", "\(item.path)")
             #expect(String(selected.characters) == result.url.lastPathComponent)
             #expect(!SearchEverywhereNameText.highlighted(result, selected: false).runs.contains { $0.backgroundColor != nil })
-            #expect(SearchRelevance.score(result, query: "name") == 123)
+            #expect(result.matchingDegree == 123)
         }
     }
 

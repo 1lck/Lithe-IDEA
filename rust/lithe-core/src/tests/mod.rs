@@ -27,6 +27,7 @@ mod plugins;
 mod project;
 mod project_generators;
 mod protocol;
+mod rank_names;
 mod run_configuration;
 mod spring;
 pub(crate) mod support;
