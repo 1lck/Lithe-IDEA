@@ -5116,7 +5116,7 @@ struct DebugModuleTests {
     ) -> GenericDebugFeatureModel {
         let descriptor = DebugProviderDescriptor(id: "example-dap", displayName: "Example", fileExtensions: ["ex"])
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         let root = URL(fileURLWithPath: rootPath, isDirectory: true)
         precondition(feature.start(
             fileURL: root.appendingPathComponent("main.ex"),
