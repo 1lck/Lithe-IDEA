@@ -115,6 +115,13 @@
 - 修改 `shared/contracts/plugins/v1/` 下任何文件（README、schema、fixture）的 PR 合并后，在
   lithe-plugin-docs 运行 `node scripts/contract.mjs sync --revision <合并后的 preview commit>`
   并提交。不要在 lithe-plugin-docs 里直接改副本。
+- 新增或修改插件协议、能力版本或 API 功能的 PR（即改动 `shared/contracts/plugins/v1/`、
+  `rust/lithe-core/src/plugins/capabilities.rs` 或 `rust/lithe-core/src/lsp/interface/plugin_function.rs`
+  的 PR），合并后必须在 lithe-plugin-docs 的
+  [插件协议更新记录](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/reference/protocol-changelog.md)
+  登记：合入日期、PR、修改人（PR 作者）、改了哪个协议或 API；新版本号同时写进该页“按协议查首次出现”的表。
+  只改了后两个文件、契约目录没变时，同样要同步到合并后的 commit 并登记。登记和契约同步放在同一个
+  lithe-plugin-docs PR 里，PR 描述中直接 `@` 每个被登记 PR 的作者，请他们核对自己那一行。具体步骤见该页的“维护”一节。
 - 契约 README 里指向该目录以外的链接必须写成绝对 URL；`scripts/architecture/verify-shared-contracts.sh`
   会拒绝离开该目录的相对链接。
 - 面向插件开发者的新说明写进 lithe-plugin-docs，不写进本仓库或 Lithe Store。
