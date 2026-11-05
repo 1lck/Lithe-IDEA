@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { act, StrictMode, useEffect } from "react";
 import { create } from "zustand";
 import type { Root } from "react-dom/client";
-import type { DeclarativePluginSummary, PreparedDeclarativeInstall } from "./declarative-plugin-launch";
+import type { DeclarativePluginSummary, DeclarativeWebToolWindow, PreparedDeclarativeInstall } from "./declarative-plugin-launch";
 import type { PluginDetailsModel } from "./details/plugin-details.types";
 import type { DeclarativeMarketplaceService } from "./marketplace/marketplace-types";
 import { installHappyDom } from "@/test-utils/happy-dom";
@@ -12,6 +12,7 @@ afterAll(restoreDom);
 const workspace = create<{ projectTabs: Array<{ path: string; isActive: boolean }> }>(() => ({ projectTabs: [] }));
 const calls: Array<{ command: string; args: Record<string, unknown> }> = [];
 let catalog: DeclarativePluginSummary[] = [];
+let webWindows: DeclarativeWebToolWindow[] = [];
 let intercept: (command: string, args: Record<string, unknown>) => Promise<unknown> | undefined = () => undefined;
 let marketplaceMounts = 0;
 let marketplaceUnmounts = 0;
@@ -53,7 +54,8 @@ async function call(command: string, args: Record<string, unknown> = {}): Promis
   if (response) return response;
   if (command === "rescan") return catalog.length;
   if (command === "list") return catalog.map((plugin) => ({ ...plugin }));
-  if (command === "windows") return [];
+  if (command === "windows") return webWindows;
+  if (command === "open" || command === "close") return;
   if (command === "prepare") return review;
   if (command === "confirm") return catalog[0];
   if (command === "declarative_marketplace_confirm") return catalog[0];
@@ -96,8 +98,8 @@ mock.module("./declarative-plugin-launch", () => ({
   rescanDeclarativePlugins: () => call("rescan"),
   listDeclarativePlugins: () => call("list"),
   listDeclarativeWebWindows: () => call("windows"),
-  closeDeclarativeWebWindow: () => call("close"),
-  openDeclarativeWebWindow: () => call("open"),
+  closeDeclarativeWebWindow: (pluginId: string, windowId: string) => call("close", { pluginId, windowId }),
+  openDeclarativeWebWindow: (pluginId: string, windowId: string) => call("open", { pluginId, windowId }),
   prepareDeclarativeDiskInstall: (sourcePath: string) => call("prepare", { sourcePath }),
   confirmDeclarativeDiskInstall: (sessionId: string, manifestDigest: string) => call("confirm", { sessionId, manifestDigest }),
   cancelDeclarativeDiskInstall: (sessionId: string) => call("cancel", { sessionId }),
@@ -135,6 +137,7 @@ beforeEach(() => {
     summary("io.example.bundled", { displayName: "Bundled fixture", source: "bundled" }),
     summary("io.example.bad", { displayName: "Bad fixture", status: "rejected", enabled: false, rejection: { code: "fixture.rejected", message: "untrusted fixture", path: null } }),
   ];
+  webWindows = [];
   workspace.setState({ projectTabs: [{ path: "C:/fixtures/one", isActive: true }] });
   host = document.createElement("div");
   document.body.append(host);
@@ -439,4 +442,71 @@ test("native marketplace confirmation refreshes the installed parent only after 
     operationId: "market-review", manifestDigest: "market-digest", approved: true,
   });
   expect(marketplaceMounts).toBe(1);
+});
+
+function webWindowRow() {
+  return host.querySelector('[data-testid="declarative-web-window-list"] li')!;
+}
+
+function declareWebWindow() {
+  webWindows = [{ pluginId: "io.example.alpha", windowId: "alpha.web", packageIdentity: "fixture",
+    title: "Alpha web", placement: "right", order: null, entry: "ui/index.html" }];
+}
+
+test.each(["en-US", "zh-CN"] as const)("%s keeps native open/focus and close actions available after settings remount", async (locale) => {
+  language = locale;
+  declareWebWindow();
+  await mount();
+  await click(text("settings.declarativePlugins.openWindow"), webWindowRow());
+  await act(async () => root?.unmount());
+  root = createRoot(host);
+  await mount();
+  await click(text("settings.declarativePlugins.closeWindow"), webWindowRow());
+  // Native X-close may already have destroyed the window. Close is idempotent,
+  // and the same public open action can still create/focus its replacement.
+  await click(text("settings.declarativePlugins.closeWindow"), webWindowRow());
+  await click(text("settings.declarativePlugins.openWindow"), webWindowRow());
+  expect(calls.filter(({ command }) => command === "open" || command === "close")).toEqual([
+    { command: "open", args: { pluginId: "io.example.alpha", windowId: "alpha.web" } },
+    { command: "close", args: { pluginId: "io.example.alpha", windowId: "alpha.web" } },
+    { command: "close", args: { pluginId: "io.example.alpha", windowId: "alpha.web" } },
+    { command: "open", args: { pluginId: "io.example.alpha", windowId: "alpha.web" } },
+  ]);
+});
+
+test.each(["open", "close"] as const)("web window %s serializes clicks, reports failure and permits retry", async (command) => {
+  declareWebWindow();
+  const operation = deferred(undefined);
+  intercept = (name) => name === command ? operation.promise : undefined;
+  await mount(true);
+  const label = text(command === "open" ? "settings.declarativePlugins.openWindow" : "settings.declarativePlugins.closeWindow");
+  await act(async () => {
+    button(label, webWindowRow()).click();
+    button(label, webWindowRow()).click();
+  });
+  expect(calls.filter((call) => call.command === command)).toHaveLength(1);
+  expect(button(text("settings.declarativePlugins.openWindow"), webWindowRow()).disabled).toBe(true);
+  expect(button(text("settings.declarativePlugins.closeWindow"), webWindowRow()).disabled).toBe(true);
+  await act(async () => operation.reject(new Error("native window operation failed")));
+  expect(webWindowRow().querySelector('[role="alert"]')?.textContent).toBe("Error: native window operation failed");
+  intercept = () => undefined;
+  await click(label, webWindowRow());
+  expect(calls.filter((call) => call.command === command)).toHaveLength(2);
+  expect(webWindowRow().querySelector('[role="alert"]')).toBeNull();
+  expect(button(label, webWindowRow()).disabled).toBe(false);
+});
+
+test("late web window failure cannot overwrite a remounted settings owner", async () => {
+  declareWebWindow();
+  const opening = deferred(undefined);
+  intercept = (name) => name === "open" ? opening.promise : undefined;
+  await mount();
+  await click(text("settings.declarativePlugins.openWindow"), webWindowRow());
+  await act(async () => root?.unmount());
+  root = createRoot(host);
+  await mount();
+  await act(async () => opening.reject(new Error("old window operation failed")));
+  expect(host.textContent).not.toContain("old window operation failed");
+  expect(button(text("settings.declarativePlugins.openWindow"), webWindowRow()).disabled).toBe(false);
+  expect(button(text("settings.declarativePlugins.closeWindow"), webWindowRow()).disabled).toBe(false);
 });

@@ -222,9 +222,34 @@ async function discardReview(review: PreparedDeclarativeInstall): Promise<void> 
 
 function WebWindowRow({ window }: { window: DeclarativeWebToolWindow }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ownerRef = useRef<{ active: boolean; busy: boolean } | null>(null);
+  useEffect(() => {
+    const owner = { active: true, busy: false };
+    ownerRef.current = owner;
+    return () => { owner.active = false; };
+  }, []);
+  const run = async (action: "open" | "close") => {
+    const owner = ownerRef.current;
+    if (!owner?.active || owner.busy) return;
+    owner.busy = true;
+    setBusy(true);
+    setError(null);
+    try {
+      const operation = action === "open" ? openDeclarativeWebWindow : closeDeclarativeWebWindow;
+      await operation(window.pluginId, window.windowId);
+    } catch (reason) {
+      if (owner.active) setError(String(reason));
+    } finally {
+      owner.busy = false;
+      if (owner.active) setBusy(false);
+    }
+  };
+  // Native windows outlive this settings row and can be closed with X. Keep
+  // both idempotent host actions available instead of guessing native state.
   return (
-    <li className="flex items-center gap-3 rounded-md border border-border px-3 py-2">
+    <li className="flex flex-wrap items-center gap-3 rounded-md border border-border px-3 py-2">
       <div className="min-w-0 flex-1">
         <p className="truncate ui-text-sm">
           {window.title}
@@ -237,18 +262,15 @@ function WebWindowRow({ window }: { window: DeclarativeWebToolWindow }) {
       <Button
         variant="accent"
         size="sm"
-        onClick={() => {
-          if (open) {
-            void closeDeclarativeWebWindow(window.pluginId, window.windowId).then(() => setOpen(false));
-          } else {
-            void openDeclarativeWebWindow(window.pluginId, window.windowId).then(() => setOpen(true));
-          }
-        }}
+        disabled={busy}
+        onClick={() => void run("open")}
       >
-        {open
-          ? t("settings.declarativePlugins.closeWindow")
-          : t("settings.declarativePlugins.openWindow")}
+        {t("settings.declarativePlugins.openWindow")}
       </Button>
+      <Button size="sm" disabled={busy} onClick={() => void run("close")}>
+        {t("settings.declarativePlugins.closeWindow")}
+      </Button>
+      {error && <p role="alert" className="basis-full text-destructive ui-text-sm">{error}</p>}
     </li>
   );
 }
