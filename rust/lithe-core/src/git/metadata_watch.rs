@@ -2,7 +2,7 @@
 
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 /// Upper bound for a page sent over the JSON bridge. Native hosts can classify
@@ -93,10 +93,13 @@ pub fn classify_git_metadata_change(
         {
             return classified(Ignored, false);
         }
-        if !matches!(
-            first.as_deref(),
-            Some("objects" | "lfs" | "modules" | "worktrees")
-        ) {
+        // A submodule's Git directory lives under `modules`. Its HEAD and
+        // index affect the parent checkout's gitlink status, so retain those
+        // events conservatively until submodule roots can be identified.
+        if first.as_deref() == Some("modules") {
+            return classified(Metadata, false);
+        }
+        if !matches!(first.as_deref(), Some("objects" | "lfs" | "worktrees")) {
             let index_only = first
                 .as_deref()
                 .is_some_and(|name| matches!(name, "index" | "index.lock"))
@@ -110,7 +113,7 @@ pub fn classify_git_metadata_change(
             .map(|part| part.as_os_str().to_string_lossy())
             .collect();
         let relevant = match parts.first().map(|part| part.as_ref()) {
-            None | Some("refs" | "packed-refs" | "config" | "shallow" | "info") => true,
+            None | Some("refs" | "packed-refs" | "config" | "shallow" | "info" | "modules") => true,
             Some("logs") => parts.get(1).is_some_and(|part| part == "refs"),
             Some("worktrees") => {
                 parts.len() <= 2

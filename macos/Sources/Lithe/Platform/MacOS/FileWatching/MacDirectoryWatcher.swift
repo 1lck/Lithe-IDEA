@@ -152,6 +152,8 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
             return batch
         }
         var workspacePaths = Set<String>()
+        var sawIndex = false
+        var onlyIndex = true
         var revalidatesIgnoredDirectory = false
         for ((url, flags), decision) in zip(zip(urls, eventFlags), decisions) {
             if configuration.ignoredDirectoryRoot(containing: url) != nil {
@@ -166,19 +168,24 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
             case .ignored:
                 continue
             case .context:
+                onlyIndex = false
                 batch.gitStateMayHaveChanged = true
                 batch.gitMetadataMayHaveChanged = true
                 batch.watchRootsChanged = true
                 continue
             case .metadata:
+                sawIndex = sawIndex || decision.indexOnly
+                onlyIndex = onlyIndex && decision.indexOnly
                 batch.gitStateMayHaveChanged = true
                 batch.gitMetadataMayHaveChanged = true
                 continue
             case .ignoreRule:
+                onlyIndex = false
                 batch.gitStateMayHaveChanged = true
                 batch.gitMetadataMayHaveChanged = true
             case .other:
                 if configuration.containsRepositoryPath(url) {
+                    onlyIndex = false
                     batch.gitStateMayHaveChanged = true
                 }
             }
@@ -190,6 +197,7 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
                 workspacePaths.insert(url.path)
             }
         }
+        batch.gitIndexOnly = configuration.gitDirectory != nil && sawIndex && onlyIndex && !revalidatesIgnoredDirectory
         if revalidatesIgnoredDirectory {
             batch.requiresFullRescan = true
             batch.gitStateMayHaveChanged = true

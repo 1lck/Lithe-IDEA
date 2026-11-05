@@ -97,6 +97,8 @@ package struct DirectoryChangeBatch: Equatable, Sendable {
     package var gitStateMayHaveChanged: Bool
     /// Git metadata can change ignore/tracked membership even in a mixed file batch.
     package var gitMetadataMayHaveChanged: Bool
+    /// All Git-affecting events in this batch changed only this checkout's index.
+    package var gitIndexOnly: Bool
     package var requiresFullRescan: Bool
     package var watchRootsChanged: Bool
 
@@ -104,12 +106,14 @@ package struct DirectoryChangeBatch: Equatable, Sendable {
         workspacePaths: [String] = [],
         gitStateMayHaveChanged: Bool = false,
         gitMetadataMayHaveChanged: Bool = false,
+        gitIndexOnly: Bool = false,
         requiresFullRescan: Bool = false,
         watchRootsChanged: Bool = false
     ) {
         self.workspacePaths = workspacePaths
         self.gitStateMayHaveChanged = gitStateMayHaveChanged
         self.gitMetadataMayHaveChanged = gitMetadataMayHaveChanged
+        self.gitIndexOnly = gitIndexOnly
         self.requiresFullRescan = requiresFullRescan
         self.watchRootsChanged = watchRootsChanged
     }

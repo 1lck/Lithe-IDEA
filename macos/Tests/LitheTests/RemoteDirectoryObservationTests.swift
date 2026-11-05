@@ -28,11 +28,13 @@ struct RemoteDirectoryObservationTests {
         host.emit(.changed(paths: ["/srv/repo/.git/index"], overflow: false))
         #expect(batches.values.last?.gitStateMayHaveChanged == true)
         #expect(batches.values.last?.workspacePaths == [])
+        #expect(batches.values.last?.gitIndexOnly == true)
         host.emit(.changed(paths: ["/srv/repo/src/main.rs"], overflow: false))
         #expect(batches.values.last?.workspacePaths == [root.appendingPathComponent("main.rs").path])
         // Mixed batches must preserve the metadata signal alongside source changes.
         host.emit(.changed(paths: ["/srv/repo/.git/index", "/srv/repo/src/main.rs"], overflow: false))
         #expect(batches.values.last?.gitMetadataMayHaveChanged == true)
+        #expect(batches.values.last?.gitIndexOnly == false)
         #expect(batches.values.last?.workspacePaths == [root.appendingPathComponent("main.rs").path])
         let count = batches.values.count
         host.emit(.changed(paths: ["/srv/repo/.git/objects/aa/object"], overflow: false))

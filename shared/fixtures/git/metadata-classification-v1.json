@@ -22,6 +22,8 @@
     {"name":"main head", "context":"main", "path":"workspace/main/.git/HEAD", "kind":"metadata", "indexOnly":false},
     {"name":"object store", "context":"main", "path":"workspace/main/.git/objects/ab/abcdef", "kind":"ignored", "indexOnly":false},
     {"name":"lfs store", "context":"main", "path":"workspace/main/.git/lfs/objects/a", "kind":"ignored", "indexOnly":false},
+    {"name":"submodule head updates parent status", "context":"main", "path":"workspace/main/.git/modules/child/HEAD", "kind":"metadata", "indexOnly":false},
+    {"name":"shared submodule head updates linked status", "context":"linked", "path":"workspace/main/.git/modules/child/HEAD", "kind":"metadata", "indexOnly":false},
     {"name":"temporary commit context", "context":"main", "path":"workspace/main/.git/lithe-commit-4242-7/index", "kind":"ignored", "indexOnly":false},
     {"name":"other worktree index", "context":"main", "path":"workspace/main/.git/worktrees/other/index.lock", "kind":"ignored", "indexOnly":false},
     {"name":"other worktree logs", "context":"main", "path":"workspace/main/.git/worktrees/other/logs/HEAD", "kind":"ignored", "indexOnly":false},

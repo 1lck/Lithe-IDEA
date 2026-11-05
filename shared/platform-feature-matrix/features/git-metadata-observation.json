@@ -25,6 +25,6 @@
     ]
   },
   "owner": "Git",
-  "notes": "Git 路径分类由 Core 统一；原生宿主管理事件丢失、监听生命周期与工作区可见性。",
+  "notes": "Git 路径分类由 Core 统一；原生宿主管理事件丢失、监听生命周期与工作区可见性；仅 index 变更不会额外重拉历史与 worktree 列表；macOS 状态读取仍附带 stash 等查询，混入其他事件升级为完整元数据刷新。",
   "verification": "两端在普通及 linked worktree 中外部暂存、checkout、移动共享引用、修改 ignore 规则与其他 worktree 的状态，确认刷新范围正确且对象库高频写入不触发无关刷新；macOS 另验证远程工作区、混合事件与监听丢失恢复。共享 fixture 和宿主自动化覆盖分类，真实产品和远程端到端验收 pending。"
 }

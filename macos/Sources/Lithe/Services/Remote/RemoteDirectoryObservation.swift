@@ -98,6 +98,8 @@ final class RemoteDirectoryObservation: DirectoryChangeSource, @unchecked Sendab
                     return
                 }
                 var workspacePaths = Set<String>()
+                var sawIndex = false
+                var onlyIndex = !overflow
                 for (url, decision) in zip(urls, decisions) {
                     if configuration.revalidatesIgnoredDirectory(url, isStructuralChange: true) {
                         batch.requiresFullRescan = true
@@ -108,21 +110,29 @@ final class RemoteDirectoryObservation: DirectoryChangeSource, @unchecked Sendab
                     case .ignored:
                         continue
                     case .context:
+                        onlyIndex = false
                         batch.gitStateMayHaveChanged = true
                         batch.gitMetadataMayHaveChanged = true
                         batch.watchRootsChanged = true
                         continue
                     case .metadata:
+                        sawIndex = sawIndex || decision.indexOnly
+                        onlyIndex = onlyIndex && decision.indexOnly
                         batch.gitStateMayHaveChanged = true
                         batch.gitMetadataMayHaveChanged = true
                         continue
                     case .ignoreRule:
+                        onlyIndex = false
                         batch.gitStateMayHaveChanged = true
                         batch.gitMetadataMayHaveChanged = true
                     case .other:
-                        if configuration.containsRepositoryPath(url) { batch.gitStateMayHaveChanged = true }
+                        if configuration.containsRepositoryPath(url) {
+                            onlyIndex = false
+                            batch.gitStateMayHaveChanged = true
+                        }
                     }
                     if configuration.containsWorkspacePath(url) {
+                        onlyIndex = false
                         batch.gitStateMayHaveChanged = true
                         if !visibilityRules.isHiddenPath(url, relativeTo: configuration.workspaceRoot)
                             || visibilityRules.isWatchedDespiteHiding(url, relativeTo: configuration.workspaceRoot) {
@@ -130,6 +140,7 @@ final class RemoteDirectoryObservation: DirectoryChangeSource, @unchecked Sendab
                         }
                     }
                 }
+                batch.gitIndexOnly = configuration.gitDirectory != nil && sawIndex && onlyIndex && !batch.requiresFullRescan
                 batch.workspacePaths = workspacePaths.sorted()
             }
             if !batch.isEmpty { onChange(batch) }
