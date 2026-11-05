@@ -296,7 +296,7 @@
     "rust/lithe-core/src/tests/support.rs": {"words":1},
     "rust/lithe-core/src/tests/toolchain_pins.rs": {"words":33},
     "rust/lithe-core/src/tests/toolchain_queries.rs": {"words":15,"nameComparisons":1},
-    "rust/lithe-core/src/tests/toolchain_resolution.rs": {"words":90,"nameComparisons":1},
+    "rust/lithe-core/src/tests/toolchain_resolution.rs": {"words":89,"nameComparisons":1},
     "rust/lithe-core/src/tests/vcs.rs": {"words":1},
     "rust/lithe-core/src/toolchain/pins.rs": {"words":1},
     "rust/lithe-core/src/vcs/model.rs": {"words":1},
