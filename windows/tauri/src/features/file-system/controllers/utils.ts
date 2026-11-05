@@ -1,5 +1,4 @@
 import type { FileEntry } from "../types/app.types";
-import { sortFileEntries } from "./file-tree-utils";
 
 const OS_GENERATED_FILE_PATTERNS: string[] = [
   ".DS_Store",
@@ -236,9 +235,8 @@ export function updateDirectoryContents(
         );
       };
 
-      // Update children with new entries and sort them
-      item.children = sortFileEntries(
-        newEntries
+      // Keep the caller's order: entries arrive already ordered by Core.
+      item.children = newEntries
           .filter((entry: any) => {
             const entryName = entry.name || "Unknown";
             return !shouldHideFromFileTree(entryName);
@@ -249,8 +247,7 @@ export function updateDirectoryContents(
             return existingChild && canReuseEntry(existingChild, nextEntry)
               ? existingChild
               : nextEntry;
-          }),
-      );
+          });
 
       return true; // Directory was found and updated
     }

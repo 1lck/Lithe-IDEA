@@ -1,6 +1,5 @@
 import SwiftUI
 import LitheAgentConversationModule
-import LitheLocalHistoryModule
 import LitheGitModule
 
 /// Reuses the existing comparison builder and native diff surface. Each reported
@@ -53,8 +52,8 @@ private struct AgentReportedDiffView: View {
                 Text("The Agent diff is too large to display completely. Rollback is unavailable.")
                     .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.warning).padding(8)
             }
-            if withinComparisonBudget {
-                DiffPaneView(rows: LocalHistoryDiffBuilder.rows(old: diff.oldText ?? "", current: diff.newText).map(DiffRow.init),
+            if withinComparisonBudget, let rows = TextComparisonRows.rows(old: diff.oldText ?? "", current: diff.newText) {
+                DiffPaneView(rows: rows,
                              fileExtension: (diff.path as NSString).pathExtension, minimumWidth: 600,
                              fontFamily: fontFamily)
             } else {

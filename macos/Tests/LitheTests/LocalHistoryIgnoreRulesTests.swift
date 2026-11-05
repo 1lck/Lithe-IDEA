@@ -165,4 +165,5 @@ private final class ClearingHistoryOperations: LocalHistoryOperations, @unchecke
     func relocate(at storageURL: URL, sourcePath: String, destinationPath: String) -> Bool { false }
     func usage(at storageURL: URL, limitBytes: Int64?) -> LocalHistoryUsage? { nil }
     func ignorePreview(path: String?, rules: LocalHistoryVisibilityRules, workspaceURL: URL?) -> LocalHistoryIgnorePreview? { nil }
+    func compareTexts(old: String, current: String) -> [LocalHistoryDiffRow]? { [] }
 }

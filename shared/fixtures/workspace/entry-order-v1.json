@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "description": "workspace.orderEntries cases. Hosts that enumerate a directory themselves (Windows local, SSH and WSL trees, macOS plugin listings) send each sibling name with its kind and receive Core's order as indices into the request. Names compare with IDEA's FileNameComparator (see file-name-order-v1.json); directoriesFirst ranks directories before files without changing the name order inside each group. The old Windows order lowercased names and used localeCompare, which put v0.1.12 before v0.1.4 and depended on the WebView locale.",
+  "cases": [
+    {
+      "id": "release-notes-compare-digit-runs-by-value",
+      "request": {
+        "entries": [
+          {"name": "v0.1.12.md", "isDirectory": false},
+          {"name": "v0.1.4.md", "isDirectory": false},
+          {"name": "TEMPLATE.md", "isDirectory": false},
+          {"name": "v0.2.0.md", "isDirectory": false},
+          {"name": "v0.1.13.md", "isDirectory": false}
+        ]
+      },
+      "orderedNames": ["TEMPLATE.md", "v0.1.4.md", "v0.1.12.md", "v0.1.13.md", "v0.2.0.md"]
+    },
+    {
+      "id": "directories-first-is-the-default",
+      "request": {
+        "entries": [
+          {"name": "zeta.txt", "isDirectory": false},
+          {"name": "part10", "isDirectory": true},
+          {"name": "Alpha.txt", "isDirectory": false},
+          {"name": "part2", "isDirectory": true}
+        ]
+      },
+      "orderedNames": ["part2", "part10", "Alpha.txt", "zeta.txt"]
+    },
+    {
+      "id": "name-order-mixes-directories-and-files",
+      "request": {
+        "directoriesFirst": false,
+        "entries": [
+          {"name": "zeta.txt", "isDirectory": false},
+          {"name": "part10", "isDirectory": true},
+          {"name": "Alpha.txt", "isDirectory": false},
+          {"name": "part2", "isDirectory": true}
+        ]
+      },
+      "orderedNames": ["Alpha.txt", "part2", "part10", "zeta.txt"]
+    },
+    {
+      "id": "case-only-differences-keep-uppercase-first",
+      "request": {
+        "entries": [
+          {"name": "b.txt", "isDirectory": false},
+          {"name": "a.txt", "isDirectory": false},
+          {"name": "B.txt", "isDirectory": false},
+          {"name": "A.txt", "isDirectory": false}
+        ]
+      },
+      "orderedNames": ["A.txt", "a.txt", "B.txt", "b.txt"]
+    },
+    {
+      "id": "locale-independent-punctuation-and-non-ascii",
+      "request": {
+        "entries": [
+          {"name": "笔记", "isDirectory": false},
+          {"name": "fooa", "isDirectory": false},
+          {"name": "foo_bar", "isDirectory": false},
+          {"name": "foo-bar", "isDirectory": false},
+          {"name": "foo.bar", "isDirectory": false},
+          {"name": "Äpfel", "isDirectory": false},
+          {"name": "notes", "isDirectory": false}
+        ]
+      },
+      "orderedNames": ["foo.bar", "foo-bar", "foo_bar", "fooa", "notes", "Äpfel", "笔记"]
+    },
+    {
+      "id": "leading-zeros-sort-after-the-plain-number",
+      "request": {
+        "entries": [
+          {"name": "a2", "isDirectory": false},
+          {"name": "a001", "isDirectory": false},
+          {"name": "a01", "isDirectory": false},
+          {"name": "a1", "isDirectory": false}
+        ]
+      },
+      "orderedNames": ["a1", "a01", "a001", "a2"]
+    }
+  ],
+  "invalid": [
+    {
+      "id": "name-over-limit",
+      "reason": "Names longer than 4096 UTF-8 bytes are rejected with invalid_request instead of being truncated.",
+      "nameBytes": 4097
+    },
+    {
+      "id": "too-many-entries",
+      "reason": "More than 100000 entries (the plugin directory scan budget) are rejected with invalid_request; hosts send one directory per request.",
+      "entryCount": 100001
+    }
+  ]
+}

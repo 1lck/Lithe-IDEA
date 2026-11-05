@@ -8,7 +8,7 @@ import { useMemo } from "react";
 import { useRecentFoldersStore } from "@/features/file-system/stores/recent-folders.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import type { RecentFolder } from "@/features/file-system/types/recent-folders.types";
-import { MAX_RECENT_PROJECTS } from "@/features/file-system/utils/recent-folders";
+import { RECENT_PROJECT_MENU_LIMIT } from "@/features/file-system/utils/recent-folders";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Dropdown, type MenuItem } from "@/ui/dropdown";
@@ -52,7 +52,7 @@ export const ProjectNameMenu = () => {
     }
 
     const recentItems: MenuItem[] = recentFolders
-      .slice(0, MAX_RECENT_PROJECTS)
+      .slice(0, RECENT_PROJECT_MENU_LIMIT)
       .map((folder: RecentFolder) => ({
         id: `recent-${folder.path}`,
         label: folder.name,

@@ -82,6 +82,8 @@ public protocol LocalHistoryOperations: Sendable {
     func usage(at storageURL: URL, limitBytes: Int64?) -> LocalHistoryUsage?
     func clear(at storageURL: URL) -> Bool
     func ignorePreview(path: String?, rules: LocalHistoryVisibilityRules, workspaceURL: URL?) -> LocalHistoryIgnorePreview?
+    /// Shared line comparison; nil when the comparison could not be produced.
+    func compareTexts(old: String, current: String) -> [LocalHistoryDiffRow]?
 }
 
 public protocol LocalHistoryWorkspaceAccess: Sendable {

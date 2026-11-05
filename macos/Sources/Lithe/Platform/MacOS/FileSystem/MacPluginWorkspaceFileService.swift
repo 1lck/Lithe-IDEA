@@ -339,25 +339,10 @@ final class MacPluginWorkspaceFileService: PluginWorkspaceFileAccess, @unchecked
 
     // MARK: - Directory listing
 
-    private struct SortKey {
+    /// A listed sibling's identity; Core (`workspace.orderEntries`) owns the order.
+    private struct SortKey: Equatable {
         let isDirectory: Bool
         let name: String
-        let utf16: [UInt16]
-
-        init(isDirectory: Bool, name: String) {
-            self.isDirectory = isDirectory
-            self.name = name
-            utf16 = Array(name.utf16)
-        }
-
-        /// Project-view sibling order made total by a byte tie-break, so a
-        /// cursor names exactly one position.
-        func precedes(_ other: SortKey) -> Bool {
-            if isDirectory != other.isDirectory { return isDirectory }
-            let order = NaturalNameOrder.compare(utf16, other.utf16, ignoreCase: true, likeFileNames: true)
-            if order != 0 { return order < 0 }
-            return name.utf8.lexicographicallyPrecedes(other.name.utf8)
-        }
     }
 
     private struct ListedEntry {
@@ -410,10 +395,26 @@ final class MacPluginWorkspaceFileService: PluginWorkspaceFileAccess, @unchecked
             entries.append(ListedEntry(key: SortKey(isDirectory: isDirectory, name: name), kind: kind))
         }
         try cancellation.check()
-        entries.sort { $0.key.precedes($1.key) }
-
+        // The cursor key is ordered with the current entries, after any entry
+        // with the same name (Core keeps request order for identical names), so
+        // the page resumes right after it even if that entry was deleted. Names
+        // are unique after normalization, which makes the order total.
         let startKey = after.map { SortKey(isDirectory: $0.isDirectory, name: $0.name) }
-        var index = startKey.map { key in entries.firstIndex { key.precedes($0.key) } ?? entries.endIndex } ?? 0
+        let keys = entries.map(\.key) + (startKey.map { [$0] } ?? [])
+        guard let order = RustCoreBridge().orderEntries(
+            keys.map { RustCoreBridge.OrderedEntry(name: $0.name, isDirectory: $0.isDirectory) }
+        ) else { throw PluginWorkspaceFileError.searchUnavailable }
+        var ordered: [ListedEntry] = []
+        ordered.reserveCapacity(entries.count)
+        var index = 0
+        for position in order {
+            if position == entries.count {
+                index = ordered.count
+            } else {
+                ordered.append(entries[position])
+            }
+        }
+        entries = ordered
         let snapshotBuilder = FileSystemWorkspaceSnapshotBuilder()
         var page: [PluginWorkspaceDirectoryEntry] = []
         while index < entries.endIndex, page.count < pageSize {

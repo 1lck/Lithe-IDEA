@@ -849,6 +849,11 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::WorkspaceOrderEntries => plugin_response(
+            id,
+            parsed.payload,
+            crate::project::file_name_order::order_entries_command,
+        ),
         CoreCommand::WorkspaceRepositories => {
             match serde_json::from_value::<WorkspaceRepositoriesRequest>(parsed.payload)
                 .map_err(|error| {
@@ -867,6 +872,11 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::WorkspaceRecentProjectsReduce => plugin_response(
+            id,
+            parsed.payload,
+            crate::project::recent_projects::reduce_command,
+        ),
         CoreCommand::WorkspaceSearchIndexWarm => {
             match serde_json::from_value::<SearchIndexRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1197,6 +1207,9 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                 Ok(()) => CoreResponse::success(id, serde_json::json!({"cleared": true})),
                 Err(error) => CoreResponse::failure(id, error),
             }
+        }
+        CoreCommand::DiffCompareTexts => {
+            plugin_response(id, parsed.payload, crate::diff::compare_texts_command)
         }
         CoreCommand::MavenScan => match serde_json::from_value::<MavenScanRequest>(parsed.payload)
             .map_err(|error| {

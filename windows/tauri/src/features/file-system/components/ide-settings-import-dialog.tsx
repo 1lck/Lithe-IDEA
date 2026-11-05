@@ -203,7 +203,7 @@ function IdeSettingsImportContent({ onClose, onBack }: IdeSettingsImportContentP
     }
 
     if (selectedCapabilityIds.includes("recentProjects")) {
-      importRecentFolders(
+      void importRecentFolders(
         selectedSource.projects.map((project) => ({
           path: project.path,
           sourceId: project.sourceId,

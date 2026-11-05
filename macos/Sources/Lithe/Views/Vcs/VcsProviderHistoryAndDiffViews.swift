@@ -1,7 +1,6 @@
 import LitheModuleAPI
 import LitheCoreContracts
 import LitheGitModule // DiffRow, the shared diff row model
-import LitheLocalHistoryModule
 import SwiftUI
 
 // Note: 统一 VCS 模型见 .agents/notes/proposed/architecture/2026-10-22-unified-vcs-provider-model.md
@@ -270,14 +269,14 @@ struct VcsFileDiffContent: View {
         let base = diff.base ?? ""
         let current = diff.current ?? ""
         let limit = VcsFileDiffSheet.lineLimit
-        let built = await Task.detached(priority: .userInitiated) { () -> [LocalHistoryDiffRow]? in
+        let built = await Task.detached(priority: .userInitiated) { () -> [DiffRow]? in
             let lines = base.utf8.lazy.filter { $0 == 0x0A }.count + current.utf8.lazy.filter { $0 == 0x0A }.count
             guard lines <= limit else { return nil }
-            return LocalHistoryDiffBuilder.rows(old: base, current: current)
+            return TextComparisonRows.rows(old: base, current: current)
         }.value
         guard !Task.isCancelled else { return }
         if let built {
-            rows = built.map(DiffRow.init)
+            rows = built
         } else {
             isOverLimit = true
         }

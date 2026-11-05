@@ -1,4 +1,5 @@
 import type { FileEntry } from "@/features/file-system/types/app.types";
+import { partitionDirectoriesFirst } from "@/features/file-system/utils/entry-order";
 import type { FileIconSemanticKind } from "@/extensions/icon-themes/file-icon-semantics";
 import { getCompactFolderChild } from "@/features/file-system/controllers/file-tree-utils";
 import { buildMavenDirectorySemantics } from "@/features/file-explorer/lib/maven-file-tree-semantics";
@@ -121,17 +122,15 @@ export function collectFileTreeSearchHits(
   return hits;
 }
 
+/**
+ * Children are stored in Core's name order (`workspace.orderEntries`); rows only
+ * partition it, so rendering never compares names.
+ */
 function sortFileTreeEntriesForDisplay(
   entries: readonly FileEntry[],
   sortOrder: FileTreeSortOrder,
 ): FileEntry[] {
-  return [...entries].sort((left, right) => {
-    if (sortOrder === "folders-first" && left.isDir !== right.isDir) {
-      return left.isDir ? -1 : 1;
-    }
-
-    return left.name.toLowerCase().localeCompare(right.name.toLowerCase());
-  });
+  return sortOrder === "folders-first" ? partitionDirectoriesFirst(entries) : [...entries];
 }
 
 export function buildVisibleFileTreeRows(

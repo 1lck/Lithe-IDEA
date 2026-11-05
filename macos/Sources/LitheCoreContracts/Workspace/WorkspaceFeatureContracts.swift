@@ -92,6 +92,10 @@ package protocol WorkspaceOperations: Sendable {
     ) -> [String: [FileNode]]?
     /// Loads the workspace root's immediate tree rows.
     func rootRows(at rootURL: URL, visibilityRules: FileVisibilityRules) -> [FileNode]?
+    /// One directory's loaded rows in Core's Project-view order (directories
+    /// first, then `workspace.orderEntries` name order); nil when Core cannot
+    /// order them. Swift never compares file names itself.
+    func orderedTreeSiblings(_ rows: [FileNode]) -> [FileNode]?
 }
 
 extension WorkspaceOperations {
@@ -161,6 +165,9 @@ package extension WorkspaceOperations {
     func warmSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules) {}
     func updateSearchIndex(at rootURL: URL, changedPaths: [String], visibilityRules: FileVisibilityRules) {}
     func invalidateSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules) {}
+    /// Operations without Core (test doubles) cannot order rows, so an inserted
+    /// file reloads its directory listing instead.
+    func orderedTreeSiblings(_ rows: [FileNode]) -> [FileNode]? { nil }
 }
 
 package protocol DirectoryWatcherFactory {

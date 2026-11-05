@@ -1195,7 +1195,7 @@ final class MacServiceContainer {
             agentAccountSignIn: MacAgentAccountSignIn(runner: processRunner),
             agentProviderConfigurationParser: MacAgentProviderConfigurationParser(core: rustCore),
             aiConfigurationSources: aiConfigurationSources,
-            recentProjectsStore: RecentProjectsStore(store: store, excludes: { remoteWorkspaces.contains($0) }),
+            recentProjectsStore: RecentProjectsStore(store: store, core: rustCore, excludes: { remoteWorkspaces.contains($0) }),
             recentProjectBranchReader: MacRecentProjectBranchReader(storage: fileStorage),
             workspaceSessionStore: WorkspaceSessionStore(store: store),
             directoryMarkStore: directoryMarkStore,

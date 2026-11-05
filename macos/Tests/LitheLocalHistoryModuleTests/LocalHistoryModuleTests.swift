@@ -107,6 +107,7 @@ private struct TestOperations: LocalHistoryOperations {
     func usage(at storageURL: URL, limitBytes: Int64?) -> LocalHistoryUsage? { nil }
     func clear(at storageURL: URL) -> Bool { false }
     func ignorePreview(path: String?, rules: LocalHistoryVisibilityRules, workspaceURL: URL?) -> LocalHistoryIgnorePreview? { nil }
+    func compareTexts(old: String, current: String) -> [LocalHistoryDiffRow]? { [] }
 }
 
 private final class BatchOperations: LocalHistoryOperations, @unchecked Sendable {
@@ -129,4 +130,5 @@ private final class BatchOperations: LocalHistoryOperations, @unchecked Sendable
     func usage(at storageURL: URL, limitBytes: Int64?) -> LocalHistoryUsage? { nil }
     func clear(at storageURL: URL) -> Bool { false }
     func ignorePreview(path: String?, rules: LocalHistoryVisibilityRules, workspaceURL: URL?) -> LocalHistoryIgnorePreview? { nil }
+    func compareTexts(old: String, current: String) -> [LocalHistoryDiffRow]? { [] }
 }

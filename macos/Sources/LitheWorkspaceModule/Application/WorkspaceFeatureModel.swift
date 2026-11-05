@@ -1793,7 +1793,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
                       !visibilityRules.isHidden(url, relativeTo: workspaceURL, isDirectory: false)
                 else { continue }
                 files.append(url)
-                apply(root.inserting(file: url))
+                apply(root.inserting(file: url, order: operations.orderedTreeSiblings))
                 didChange = true
             } else if isKnownProjectFile(url) {
                 files.removeAll { $0 == url }

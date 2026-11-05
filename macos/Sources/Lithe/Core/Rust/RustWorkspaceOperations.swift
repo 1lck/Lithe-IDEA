@@ -64,6 +64,12 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         }.childRows(of: rows)
     }
 
+    func orderedTreeSiblings(_ rows: [FileNode]) -> [FileNode]? {
+        core.orderEntries(rows.map {
+            RustCoreBridge.OrderedEntry(name: $0.firstPathComponent, isDirectory: $0.isDirectory)
+        })?.map { rows[$0] }
+    }
+
     func rootRows(at rootURL: URL, visibilityRules: FileVisibilityRules) -> [FileNode]? {
         guard let entries = listDirectories([rootURL], at: rootURL, visibilityRules: visibilityRules)?[rootURL.standardizedFileURL.path] else {
             return nil
@@ -88,20 +94,14 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
             if path == rootPath { return "" }
             return path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : nil
         }
+        // Core owns visibility and order; a failed listing leaves the rows
+        // unloaded instead of falling back to a second Swift implementation.
         guard let payload = core.listDirectories(
             at: rootURL,
             relativePaths: relativePaths,
             hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
             hiddenFilePatterns: visibilityRules.hiddenFilePatterns
-        ) else {
-            // A remote placeholder is never a fallback filesystem when its host fails.
-            if core.remoteWorkspaces?.binding(forRoot: rootURL) != nil { return nil }
-            return FileSystemWorkspaceSnapshotBuilder().listDirectories(
-                directories,
-                at: rootURL,
-                visibilityRules: visibilityRules
-            )
-        }
+        ) else { return nil }
         func url(for relativePath: String) -> URL {
             relativePath.isEmpty ? rootURL : rootURL.appendingPathComponent(relativePath)
         }

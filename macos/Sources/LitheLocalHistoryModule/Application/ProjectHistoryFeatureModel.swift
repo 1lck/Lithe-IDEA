@@ -362,8 +362,9 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         do {
             let historicalText = try await localHistoryService.content(for: entry)
             let currentText = try currentText(for: request.fileURL)
+            let operations = localHistoryOperations
             let rows = await UserActionContext.detached(priority: .userInitiated) {
-                LocalHistoryDiffBuilder.rows(old: historicalText, current: currentText)
+                operations.compareTexts(old: historicalText, current: currentText) ?? []
             }.value
             guard selectedLocalHistoryEntry?.id == entry.id else { return }
             localHistoryDiffRows = rows
@@ -404,8 +405,9 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         do {
             let historicalText = try await localHistoryService.content(for: entry)
             let currentText = try currentText(for: fileURL)
+            let operations = localHistoryOperations
             let rows = await UserActionContext.detached(priority: .userInitiated) {
-                LocalHistoryDiffBuilder.rows(old: historicalText, current: currentText)
+                operations.compareTexts(old: historicalText, current: currentText) ?? []
             }.value
             guard selectedProjectLocalHistoryEntry?.id == entry.id else { return }
             projectLocalHistoryDiffRows = rows

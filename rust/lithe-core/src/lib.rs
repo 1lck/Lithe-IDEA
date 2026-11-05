@@ -9,6 +9,7 @@ mod build;
 mod community;
 mod debug;
 pub mod diagnostics;
+mod diff;
 mod editor;
 pub mod execution;
 mod git;

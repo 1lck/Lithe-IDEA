@@ -1,4 +1,5 @@
 import type React from "react";
+import { orderFileEntries, partitionDirectoriesFirst } from "@/features/file-system/utils/entry-order";
 import { CaretLeftIcon as ChevronLeft } from "@/ui/icons";
 import { useRef, useState } from "react";
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
@@ -97,13 +98,8 @@ export function FilePathBreadcrumb({
       children: undefined,
     }));
 
-    fileEntries.sort((a, b) => {
-      if (a.isDir && !b.isDir) return -1;
-      if (!a.isDir && b.isDir) return 1;
-      return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
-    });
-
-    return fileEntries;
+    // Core owns sibling order; the dropdown lists directories first like the tree.
+    return partitionDirectoriesFirst(await orderFileEntries(fileEntries));
   };
 
   const handleGoBack = async () => {

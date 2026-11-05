@@ -1,0 +1,197 @@
+{
+  "version": 1,
+  "command": "workspace.recentProjects.reduce",
+  "defaultCapacity": 20,
+  "cases": [
+    {
+      "name": "record into an empty list",
+      "request": {
+        "entries": [],
+        "action": { "kind": "record", "path": "/work/alpha", "openedAt": 1000 }
+      },
+      "expected": {
+        "entries": [{ "path": "/work/alpha", "lastOpenedAt": 1000, "pinned": false }],
+        "added": ["/work/alpha"],
+        "removed": []
+      }
+    },
+    {
+      "name": "recording an existing project moves it first and keeps its pin",
+      "request": {
+        "entries": [
+          { "path": "/work/beta", "lastOpenedAt": 3000, "pinned": false },
+          { "path": "/work/alpha", "lastOpenedAt": 2000, "pinned": true }
+        ],
+        "action": { "kind": "record", "path": "/work/beta", "openedAt": 4000 }
+      },
+      "expected": {
+        "entries": [
+          { "path": "/work/alpha", "lastOpenedAt": 2000, "pinned": true },
+          { "path": "/work/beta", "lastOpenedAt": 4000, "pinned": false }
+        ],
+        "added": [],
+        "removed": []
+      }
+    },
+    {
+      "name": "capacity evicts the oldest unpinned project and never a pinned one",
+      "request": {
+        "entries": [
+          { "path": "/work/pinned-old", "lastOpenedAt": 10, "pinned": true },
+          { "path": "/work/b", "lastOpenedAt": 300, "pinned": false },
+          { "path": "/work/a", "lastOpenedAt": 200, "pinned": false }
+        ],
+        "action": { "kind": "record", "path": "/work/c", "openedAt": 400 },
+        "capacity": 2
+      },
+      "expected": {
+        "entries": [
+          { "path": "/work/pinned-old", "lastOpenedAt": 10, "pinned": true },
+          { "path": "/work/c", "lastOpenedAt": 400, "pinned": false },
+          { "path": "/work/b", "lastOpenedAt": 300, "pinned": false }
+        ],
+        "added": ["/work/c"],
+        "removed": ["/work/a"]
+      }
+    },
+    {
+      "name": "pinning moves a project into the pinned group; unpinning returns it by time",
+      "request": {
+        "entries": [
+          { "path": "/work/new", "lastOpenedAt": 900, "pinned": false },
+          { "path": "/work/old", "lastOpenedAt": 100, "pinned": false }
+        ],
+        "action": { "kind": "togglePinned", "path": "/work/old" }
+      },
+      "expected": {
+        "entries": [
+          { "path": "/work/old", "lastOpenedAt": 100, "pinned": true },
+          { "path": "/work/new", "lastOpenedAt": 900, "pinned": false }
+        ],
+        "added": [],
+        "removed": []
+      }
+    },
+    {
+      "name": "unpinning beyond capacity evicts the oldest unpinned project",
+      "request": {
+        "entries": [
+          { "path": "/work/pinned", "lastOpenedAt": 50, "pinned": true },
+          { "path": "/work/recent", "lastOpenedAt": 500, "pinned": false }
+        ],
+        "action": { "kind": "togglePinned", "path": "/work/pinned" },
+        "capacity": 1
+      },
+      "expected": {
+        "entries": [{ "path": "/work/recent", "lastOpenedAt": 500, "pinned": false }],
+        "added": [],
+        "removed": ["/work/pinned"]
+      }
+    },
+    {
+      "name": "toggling an unknown path leaves the list unchanged",
+      "request": {
+        "entries": [{ "path": "/work/a", "lastOpenedAt": 5, "pinned": false }],
+        "action": { "kind": "togglePinned", "path": "/work/missing" }
+      },
+      "expected": {
+        "entries": [{ "path": "/work/a", "lastOpenedAt": 5, "pinned": false }],
+        "added": [],
+        "removed": []
+      }
+    },
+    {
+      "name": "remove drops every listed path, pinned or not",
+      "request": {
+        "entries": [
+          { "path": "/work/a", "lastOpenedAt": 3, "pinned": true },
+          { "path": "/work/b", "lastOpenedAt": 2, "pinned": false },
+          { "path": "/work/c", "lastOpenedAt": 1, "pinned": false }
+        ],
+        "action": { "kind": "remove", "paths": ["/work/a", "/work/c", "/work/unknown"] }
+      },
+      "expected": {
+        "entries": [{ "path": "/work/b", "lastOpenedAt": 2, "pinned": false }],
+        "added": [],
+        "removed": ["/work/a", "/work/c"]
+      }
+    },
+    {
+      "name": "import keeps existing projects, skips duplicates, and ranks imports below now in source order",
+      "request": {
+        "entries": [{ "path": "/work/existing", "lastOpenedAt": 50000, "pinned": false }],
+        "action": {
+          "kind": "import",
+          "paths": ["/work/first", "/work/existing", "/work/second", "/work/first"],
+          "openedAt": 40000
+        }
+      },
+      "expected": {
+        "entries": [
+          { "path": "/work/existing", "lastOpenedAt": 50000, "pinned": false },
+          { "path": "/work/first", "lastOpenedAt": 40000, "pinned": false },
+          { "path": "/work/second", "lastOpenedAt": 39999, "pinned": false }
+        ],
+        "added": ["/work/first", "/work/second"],
+        "removed": []
+      }
+    },
+    {
+      "name": "normalize sorts stored entries, keeps the newest duplicate, and treats a missing time as oldest",
+      "request": {
+        "entries": [
+          { "path": "/work/a", "lastOpenedAt": 10, "pinned": false },
+          { "path": "/work/undated", "pinned": false },
+          { "path": "/work/b", "lastOpenedAt": 30, "pinned": false },
+          { "path": "/work/a", "lastOpenedAt": 40, "pinned": false }
+        ],
+        "action": { "kind": "normalize" }
+      },
+      "expected": {
+        "entries": [
+          { "path": "/work/a", "lastOpenedAt": 40, "pinned": false },
+          { "path": "/work/b", "lastOpenedAt": 30, "pinned": false },
+          { "path": "/work/undated", "lastOpenedAt": 0, "pinned": false }
+        ],
+        "added": [],
+        "removed": []
+      }
+    },
+    {
+      "name": "equal times keep the caller's order",
+      "request": {
+        "entries": [
+          { "path": "/work/z", "lastOpenedAt": 7, "pinned": false },
+          { "path": "/work/a", "lastOpenedAt": 7, "pinned": false }
+        ],
+        "action": { "kind": "normalize" }
+      },
+      "expected": {
+        "entries": [
+          { "path": "/work/z", "lastOpenedAt": 7, "pinned": false },
+          { "path": "/work/a", "lastOpenedAt": 7, "pinned": false }
+        ],
+        "added": [],
+        "removed": []
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "empty path",
+      "request": { "entries": [], "action": { "kind": "record", "path": "", "openedAt": 1 } }
+    },
+    {
+      "name": "zero capacity",
+      "request": { "entries": [], "action": { "kind": "normalize" }, "capacity": 0 }
+    },
+    {
+      "name": "negative time",
+      "request": { "entries": [], "action": { "kind": "record", "path": "/a", "openedAt": -1 } }
+    },
+    {
+      "name": "unknown action",
+      "request": { "entries": [], "action": { "kind": "rename", "path": "/a" } }
+    }
+  ]
+}

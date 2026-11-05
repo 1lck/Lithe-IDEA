@@ -1164,6 +1164,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `workspace.filterChanges` | Filter an array of workspace-relative paths, or `{ paths, hiddenFilePatterns }` whose `!` entries turn default exclusions off, against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
 | `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation. Children list directories first, then names in IDEA's natural file-name order (digit runs compare by value, case-insensitive, `-` next to `_`; fixture `shared/fixtures/workspace/file-name-order-v1.json`) |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
+| `workspace.recentProjects.reduce` | Apply one record, remove, pin, import, or normalize action to the recent project list and return the retained order |
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
 | `workspace.replacePreview` | Return deterministic replacement lines and complete replacement text |
@@ -1183,6 +1184,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `history.ignorePreview` | Validate local history ignore rules and report which rule skips a sample path |
 | `history.usage` | Report one project's allocated history size and the storage cap |
 | `history.clear` | Delete every snapshot of one project's history |
+| `diff.compareTexts` | Compare two host-supplied texts line by line into paired side-by-side rows and unified lines |
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
 | `execution.resolveEnvironment` | Merge native `inherited` string values, selected `javaHome`/`mavenJavaHome` for the current `toolchain`, and `overrides` into `{ environment }`. `caseInsensitive: true` canonicalizes Windows keys to uppercase. Maven uses Maven JDK with project-JDK fallback; Java uses project JDK. String overrides win; structured `{ toolchain, property: "home" }` bindings use the current step's home for JAVA_HOME, and the named toolchain for other variables. Unknown bindings are omitted. |
@@ -1524,6 +1526,24 @@ are one-based. `git.status.repositoryRoot` may be an absolute path when the
 opened workspace is a subdirectory of the repository; all Git change paths are
 relative to that repository root. `git.status.ahead` and `behind` report the
 current branch's tracking counts and are zero when no upstream is configured.
+`workspace.recentProjects.reduce` accepts `{ entries, action, capacity? }` and
+returns `{ entries, added, removed }`. Entries are `{ path, lastOpenedAt, pinned }`
+where `path` is the host's normalized root identity compared byte for byte and
+`lastOpenedAt` is non-negative Unix milliseconds from the host clock (missing
+means oldest). `action.kind` is `record { path, openedAt }` (moves the project
+first and keeps its pin), `remove { paths }`, `togglePinned { path }` (unknown
+paths are ignored), `import { paths, openedAt }` (adds only unlisted paths, the
+first stamped `openedAt` and each later one a millisecond older), or `normalize`.
+Core keeps the newest record of duplicated paths, orders pinned projects first
+and then by descending `lastOpenedAt` with ties in caller order, and keeps at
+most `capacity` unpinned projects (default 20, range 1–200); pins never count
+against it. `added` and `removed` list paths the reduction introduced or dropped
+so hosts attach or discard their own metadata (names, icons, branches). Empty,
+NUL-containing or over-4,096-byte paths, negative times and out-of-range
+capacities return `invalid_request`. Hosts own persistence and which roots are
+worth recording; menus may show fewer rows than are retained. See
+`shared/fixtures/workspace/recent-projects-v1.json`.
+
 `workspace.repositories.repositories` is ordered with the containing workspace
 repository first when present, then repositories under the opened workspace by
 workspace containment, depth, and path. Each entry contains an absolute native
@@ -3948,6 +3968,23 @@ It is informational; local history does not follow Git ignore rules. `history.us
 reports back as `limitBytes`; usage rescans the disk and returns `{ usedBytes, limitBytes }` in
 allocated bytes, and clear removes every snapshot directory while keeping the
 storage root, returning `{ "cleared": true }`.
+
+`diff.compareTexts` accepts `{ oldText, newText }` (each at most 16 MiB of
+UTF-8; larger input is `invalid_request`) and never reads files: hosts pass the
+snapshot, buffer, or proposal they already hold. `\r\n`, `\r`, and `\n` all end
+a line and are not part of its content, one final terminator does not add an
+empty line, and empty text has no lines, so texts that differ only in line
+endings compare as identical. Lines are matched with the patience algorithm;
+each block of removed and added lines is then aligned by character-bigram
+similarity (the same pairing `git.diff` uses), so an unrelated delete and
+insert stay separate rows. The response is `{ rows, lines, oldLineCount,
+newLineCount, additions, deletions }`. `rows` are side-by-side
+`{ oldLine, newLine, left, right?, kind }` with one-based line numbers and
+`kind` of `context`, `changed`, `addition`, or `removal`; `context` rows omit
+`right` because both sides equal `left`. `lines` are unified
+`{ kind, content, oldLine, newLine }` with `kind` of `context`, `removed`, or
+`added`, each changed block listing its removals before its additions. See
+`shared/fixtures/diff/compare-texts-v1.json`.
 
 `maven.scan` accepts `{ "root": string, "paths"?: string[] }` and returns
 `null` when neither the root nor the supplied visible workspace-relative paths
