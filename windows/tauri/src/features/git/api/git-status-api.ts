@@ -379,7 +379,8 @@ export const unstageHunk = async (repoPath: string, hunk: GitHunk): Promise<bool
  * edits. The hunk must come from an index-to-worktree patch of `repoPath`;
  * Git rejects it without writing when the file no longer matches.
  */
-export const discardHunk = async (repoPath: string, hunk: GitHunk): Promise<boolean> => {
+/** `"unsafe"` means Core refused because a Git filter or working-tree-encoding applies. */
+export const discardHunk = async (repoPath: string, hunk: GitHunk): Promise<boolean | "unsafe"> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
     await tauriInvoke("git_discard_hunk", { repoPath: resolvedRepoPath, hunk });
@@ -391,6 +392,9 @@ export const discardHunk = async (repoPath: string, hunk: GitHunk): Promise<bool
     });
     return true;
   } catch (error) {
+    if ((error instanceof Error ? error.message : String(error)).includes("GIT_HUNK_ROLLBACK_UNSAFE")) {
+      return "unsafe";
+    }
     console.error("Failed to discard hunk:", error);
     return false;
   }

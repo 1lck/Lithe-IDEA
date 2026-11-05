@@ -9,6 +9,7 @@ mod declarative_plugins;
 mod detectors;
 mod file_name_order;
 mod git;
+mod git_diff_blocks;
 mod git_fetch;
 mod git_history_rewrite;
 mod git_patch_exchange;

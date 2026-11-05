@@ -3,8 +3,9 @@ import equal from "fast-deep-equal";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { getFullContextFileDiff, getWorkingTreePathDiff } from "../api/git-diff-api";
+import { applyCommitDiffBlock, planCommitDiffBlocks } from "../api/git-diff-block-api";
 import { resolveRepositoryForFile } from "../api/git-repo-api";
-import { discardHunk, getGitStatus, setFilesStaged, stageHunk, unstageHunk } from "../api/git-status-api";
+import { getGitStatus } from "../api/git-status-api";
 import { isGitChangeRelevant, subscribeToGitChanges } from "../events/git-events";
 import { commitDiffPresentation, createCommitDiffReview, type CommitDiffReviewState } from "../services/commit-diff-review";
 import { beginCommitDiffWrite, commitDiffWritePending } from "../runtime/commit-diff-write-state";
@@ -14,7 +15,7 @@ import { showConfirmDialog } from "@/ui/dialog";
 import { useTranslation } from "@/i18n/locale-provider";
 import type { MultiFileDiff, WorkingTreeDiffTarget } from "../types/git-diff.types";
 import { createSingleFileWorkingTreeDiff } from "../utils/working-tree-multi-diff";
-import { getGitFileRepositoryRelativePath, resolveGitFileMutationPaths } from "../utils/git-status-selection";
+import { getGitFileRepositoryRelativePath } from "../utils/git-status-selection";
 import { createRequestGeneration } from "../utils/request-generation";
 
 export function useCommitDiffReview(bufferId: string | null, fileKey: string,
@@ -73,7 +74,6 @@ export function useCommitDiffReview(bufferId: string | null, fileKey: string,
         && identity?.repoPath === repoPath && identity.filePath === filePath
         && Boolean(identity.staged) === stagedView ? data : null;
     };
-    let statusFile: Parameters<typeof resolveGitFileMutationPaths>[0][number] | undefined;
     const instance = createCommitDiffReview({
       beginWrite: beginCommitDiffWrite,
       writeAvailable: () => !commitDiffWritePending(),
@@ -90,30 +90,17 @@ export function useCommitDiffReview(bufferId: string | null, fileKey: string,
           if (!closed && current()) useBufferStore.getState().actions.closeBuffer(bufferId);
           return null;
         }
-        statusFile = file;
-        const [diff, indexed] = await Promise.all([
-          stagedView ? getFullContextFileDiff(repoPath, filePath, true)
-            : getWorkingTreePathDiff(repoPath, filePath, file.status === "untracked", file.originalPath, true),
-          file.staged ? getFullContextFileDiff(repoPath, filePath, true) : Promise.resolve(null),
-        ]);
-        if (!diff || (file.staged && !indexed)) throw new Error("Git diff unavailable");
-        // The rollback channel needs the index→worktree raw patch for lossy
-        // files; the display diff (HEAD→worktree) cannot carry it. Read it
-        // alongside so the block computation receives writePatch.
-        if (!stagedView && diff.has_lossy_line_endings) {
-          const faithful = await getFullContextFileDiff(repoPath, filePath, false);
-          if (faithful?.writePatch) {
-            return { diff: { ...diff, writePatch: faithful.writePatch },
-              staged: indexed ?? { ...diff, lines: [] }, file };
-          }
-        }
-        return { diff, staged: indexed ?? { ...diff, lines: [] }, file };
+        // Core reads both comparisons, plans the blocks and keeps their patches.
+        const target = { repoPath, filePath, ...(file.originalPath ? { originalPath: file.originalPath } : {}),
+          ...(stagedView ? { staged: true } : {}) };
+        const plan = await planCommitDiffBlocks(target);
+        return { diff: plan.diff, staged: plan.staged, file, blocks: plan.blocks, token: plan.token };
       },
-      stage: hunk => current() ? stageHunk(repoPath, hunk) : Promise.resolve(false),
-      unstage: hunk => current() ? unstageHunk(repoPath, hunk) : Promise.resolve(false),
-      rollback: hunk => current() ? discardHunk(repoPath, hunk) : Promise.resolve(false),
-      includeFile: included => current() && statusFile
-        ? setFilesStaged(repoPath, resolveGitFileMutationPaths([statusFile]), included) : Promise.resolve(false),
+      writeBlock: (snapshot, blockId, action) => current()
+        ? applyCommitDiffBlock({ repoPath, filePath,
+          ...(snapshot.file.originalPath ? { originalPath: snapshot.file.originalPath } : {}),
+          ...(stagedView ? { staged: true } : {}) }, blockId, action, snapshot.token)
+        : Promise.resolve("failed"),
       changed: next => {
         if (closed || !current()) return;
         setState(next);

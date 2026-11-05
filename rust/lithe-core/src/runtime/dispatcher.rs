@@ -3518,6 +3518,15 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
             ),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::GitPlanDiffBlocks => {
+            plugin_response(id, parsed.payload, crate::git::plan_diff_blocks_command)
+        }
+        CoreCommand::GitApplyDiffBlock => {
+            plugin_response(id, parsed.payload, crate::git::apply_diff_block_command)
+        }
+        CoreCommand::GitStageGutterChange => {
+            plugin_response(id, parsed.payload, crate::git::stage_gutter_change_command)
+        }
         CoreCommand::GitApply => match serde_json::from_value::<GitApplyRequest>(parsed.payload)
             .map_err(|error| {
                 CoreError::new(ErrorCode::InvalidRequest, "Invalid Git apply request")

@@ -7,7 +7,6 @@ import {
   type GitGutterChange,
   computeGitGutterChanges,
   gitGutterBaseFromDiff,
-  gitGutterChangeHunk,
   gitGutterChangeIndexAtLine,
   gitGutterMarkerLines,
   gitGutterPeekAnchorLine,
@@ -164,54 +163,6 @@ describe("Git gutter inline review rows", () => {
   });
 });
 
-describe("Git gutter staging patch", () => {
-  test("builds a hunk whose context comes from the index text", () => {
-    const base = ["1", "2", "3", "4", "5", "6", "7", "8"];
-    const [change] = changesOf(base, ["1", "2", "3", "4", "FIVE", "6", "7", "8"]);
-    const hunk = gitGutterChangeHunk("src/app.ts", base, change);
-
-    expect(hunk.file_path).toBe("src/app.ts");
-    expect(hunk.lines.map((line) => `${line.line_type}:${line.content}`)).toEqual([
-      "header:@@ -2,7 +2,7 @@",
-      "context:2",
-      "context:3",
-      "context:4",
-      "removed:5",
-      "added:FIVE",
-      "context:6",
-      "context:7",
-      "context:8",
-    ]);
-  });
-
-  test("uses index context even when a neighbouring unstaged change is nearby", () => {
-    // Line 2 and line 4 both changed; staging the second must not stage "B".
-    const base = ["a", "b", "c", "d", "e"];
-    const editor = ["a", "B", "c", "D", "e"];
-    const changes = changesOf(base, editor);
-    const hunk = gitGutterChangeHunk("f.txt", base, changes[1]);
-
-    expect(hunk.lines.map((line) => `${line.line_type}:${line.content}`)).toEqual([
-      "header:@@ -1,5 +1,5 @@",
-      "context:a",
-      "context:b",
-      "context:c",
-      "removed:d",
-      "added:D",
-      "context:e",
-    ]);
-  });
-
-  test("names Git's empty ranges for an insertion at the start and a full deletion", () => {
-    const [insertion] = changesOf([], ["x"]);
-    expect(gitGutterChangeHunk("f", [], insertion).lines[0].content).toBe("@@ -0,0 +1,1 @@");
-
-    const [deletion] = changesOf(["x"], []);
-    expect(gitGutterChangeHunk("f", ["x"], deletion).lines[0].content).toBe("@@ -1,1 +0,0 @@");
-  });
-});
-
-
 describe("Git gutter repository identity", () => {
   test("an untracked sibling path does not hide the tracked file's markers", () => {
     const files = [{
@@ -227,27 +178,5 @@ describe("Git gutter repository identity", () => {
     expect(isGitGutterFileUntracked([
       { path: "src/app.ts", status: "untracked", staged: false },
     ], "C:/workspace/a", "src/app.ts")).toBe(true);
-  });
-});
-
-describe("Git gutter isolated patch coordinates", () => {
-  test("earlier unstaged deletions do not make the selected patch start negative", () => {
-    const base = Array.from({ length: 10 }, (_, index) => String(index + 1));
-    // Exercise an isolated range directly: Monaco may coalesce nearby edits,
-    // but patch coordinates must remain valid for any selected range.
-    const change: GitGutterChange = {
-      kind: "modified", originalStart: 10, originalEnd: 11,
-      modifiedStart: 2, modifiedEnd: 3, originalLines: ["10"], modifiedLines: ["TEN"],
-    };
-    const hunk = gitGutterChangeHunk("f", base, change);
-    expect(hunk.lines[0].content).toBe("@@ -7,4 +7,4 @@");
-    expect(hunk.lines.slice(1).map((line) => line.content)).toEqual(["7", "8", "9", "10", "TEN"]);
-  });
-
-  test("earlier unstaged insertions do not shift the selected patch", () => {
-    const base = ["a", "b", "c", "d", "e", "f"];
-    const changes = changesOf(base, ["new", ...base.slice(0, -1), "F"]);
-    expect(changes).toHaveLength(2);
-    expect(gitGutterChangeHunk("f", base, changes[1]).lines[0].content).toBe("@@ -3,4 +3,4 @@");
   });
 });
