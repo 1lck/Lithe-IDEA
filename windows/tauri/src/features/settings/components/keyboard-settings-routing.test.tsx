@@ -6,6 +6,7 @@ import { installHappyDom } from "@/test-utils/happy-dom";
 import * as animation from "motion/react";
 import * as nativeDialog from "@tauri-apps/plugin-dialog";
 import * as nativeFs from "@tauri-apps/plugin-fs";
+import { installKeymapContextPlans } from "@/test-utils/keymap-context-plans";
 import * as toast from "@/features/layout/contexts/toast-context";
 import { useKeymapStore } from "@/features/keymaps/stores/keymaps.store";
 import { keymapRegistry } from "@/features/keymaps/utils/registry";
@@ -55,6 +56,14 @@ test("keyboard settings route supports searching, recording and resetting a comm
     updateToast: () => {},
     dismissToast: () => {},
     hasToast: () => false,
+  });
+  // Core's answer for this scenario (no other command owns alt+ctrl+b) is "no conflicts";
+  // binding-conflicts.native.integration.test.ts proves Core's side against the shared fixture.
+  const analyses: { platform: string; layers: { entries: { command: string; key: string }[] }[] }[] = [];
+  const contextPlans = installKeymapContextPlans((command, payload) => {
+    if (command !== "keymap.analyzeConflicts") return undefined;
+    analyses.push(payload as (typeof analyses)[number]);
+    return { conflicts: [], invalid: [] };
   });
   let importInput: HTMLInputElement | undefined;
   const chooseFile = spyOn(HTMLInputElement.prototype, "click").mockImplementation(
@@ -156,6 +165,14 @@ test("keyboard settings route supports searching, recording and resetting a comm
       },
     ]);
     expect(useKeymapStore.getState().recordingCommandId).toBeNull();
+    // The save asked Core about the final layered bindings: registry, preset, then user.
+    const saveAnalysis = analyses.find((analysis) =>
+      analysis.layers[2]?.entries.some((entry) => entry.key === "alt+ctrl+b"),
+    )!;
+    expect(saveAnalysis.platform).toBe("windows");
+    expect(saveAnalysis.layers[0]!.entries).toEqual([
+      expect.objectContaining({ command: "editor.goToImplementation", key: "ctrl+f12" }),
+    ]);
     await act(async () => button("Export").click());
     expect(writeFile).toHaveBeenCalledTimes(1);
     const [path, exported] = writeFile.mock.calls[0]!;
@@ -182,6 +199,7 @@ test("keyboard settings route supports searching, recording and resetting a comm
       await act(async () => root?.unmount());
     } finally {
       container.remove();
+      contextPlans.mockRestore();
       chooseFile.mockRestore();
       notifications.mockRestore();
       writeFile.mockRestore();

@@ -12,9 +12,12 @@ import { useKeybindingConflicts } from "../hooks/use-keybinding-conflicts";
 import { useKeymapStore } from "../stores/keymaps.store";
 import type { Command, Keybinding } from "../types/keymaps.types";
 import { localizeKeymapCommand } from "../utils/command-localization";
+import { keymapRegistry } from "../utils/registry";
 import { KeybindingInput } from "./keybinding-input";
 import { useToast } from "@/features/layout/contexts/toast-context";
 import { KeymapContextError } from "../utils/context";
+import { saveUserKeybinding } from "../utils/save-keybinding";
+import { KeybindingConflictError } from "../utils/binding-conflicts";
 
 export const keybindingTableMinWidth = cva("min-w-175");
 
@@ -27,33 +30,38 @@ export function KeybindingRow({ command, keybinding }: KeybindingRowProps) {
   const { t } = useTranslation();
   const { showToast } = useToast();
   const [isEditing, setIsEditing] = useState(false);
-  const { addKeybinding, updateKeybinding, removeKeybinding } = useKeymapStore.use.actions();
-  const { hasConflict, conflictingCommands } = useKeybindingConflicts(
-    keybinding?.key || "",
-    command.id,
-    keybinding?.when,
-  );
+  const { removeKeybinding } = useKeymapStore.use.actions();
+  const { hasConflict, conflictingCommands } = useKeybindingConflicts(command.id);
 
   const handleSave = async (newKey: string) => {
     try {
-      if (keybinding?.source === "user") {
-        await updateKeybinding(command.id, { key: newKey });
-      } else {
-        await addKeybinding({
-          key: newKey,
-          command: command.id,
-          source: "user",
-          enabled: true,
-          when: keybinding?.when,
-        });
-      }
+      await saveUserKeybinding(
+        keybinding?.source === "user"
+          ? { ...keybinding, key: newKey }
+          : {
+              key: newKey,
+              command: command.id,
+              source: "user",
+              enabled: true,
+              when: keybinding?.when,
+            },
+      );
       setIsEditing(false);
     } catch (error) {
       showToast({
         message:
-          error instanceof KeymapContextError
-            ? t("keybindings.invalidWhen")
-            : t("keybindings.saveFailed", { error: String(error) }),
+          error instanceof KeybindingConflictError
+            ? t("keybindings.conflictsWith", {
+                commands: error.commands
+                  .map((id) => {
+                    const other = keymapRegistry.getCommand(id);
+                    return other ? localizeKeymapCommand(other, t).title : id;
+                  })
+                  .join(", "),
+              })
+            : error instanceof KeymapContextError
+              ? t("keybindings.invalidWhen")
+              : t("keybindings.saveFailed", { error: String(error) }),
         type: "error",
       });
     }
