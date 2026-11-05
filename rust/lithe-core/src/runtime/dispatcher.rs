@@ -1208,11 +1208,9 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
-        CoreCommand::DiffCompareTexts => plugin_response(
-            id,
-            parsed.payload,
-            crate::diff::compare_texts_command,
-        ),
+        CoreCommand::DiffCompareTexts => {
+            plugin_response(id, parsed.payload, crate::diff::compare_texts_command)
+        }
         CoreCommand::MavenScan => match serde_json::from_value::<MavenScanRequest>(parsed.payload)
             .map_err(|error| {
                 CoreError::new(ErrorCode::InvalidRequest, "Invalid Maven scan request")

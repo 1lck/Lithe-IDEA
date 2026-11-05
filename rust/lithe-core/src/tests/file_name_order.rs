@@ -222,12 +222,7 @@ fn order_entries_matches_the_shared_fixture() {
             .iter()
             .map(|index| entries[index.as_u64().unwrap() as usize]["name"].clone())
             .collect::<Vec<_>>();
-        assert_eq!(
-            Value::Array(names),
-            case["orderedNames"],
-            "{}",
-            case["id"]
-        );
+        assert_eq!(Value::Array(names), case["orderedNames"], "{}", case["id"]);
     }
 }
 

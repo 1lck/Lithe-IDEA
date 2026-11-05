@@ -133,7 +133,11 @@ pub fn compare_texts(request: &CompareTextsRequest) -> Result<CompareTextsRespon
             } => {
                 builder.flush(&old, &new);
                 for offset in 0..len {
-                    builder.context(old_index + offset, new_index + offset, old[old_index + offset]);
+                    builder.context(
+                        old_index + offset,
+                        new_index + offset,
+                        old[old_index + offset],
+                    );
                 }
             }
             DiffOp::Delete {
@@ -253,7 +257,11 @@ fn split_lines(text: &str) -> Vec<&str> {
             }
             b'\r' => {
                 lines.push(&text[start..index]);
-                index += if bytes.get(index + 1) == Some(&b'\n') { 2 } else { 1 };
+                index += if bytes.get(index + 1) == Some(&b'\n') {
+                    2
+                } else {
+                    1
+                };
                 start = index;
             }
             _ => index += 1,

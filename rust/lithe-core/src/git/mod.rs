@@ -8772,10 +8772,9 @@ fn relative_or_absolute(path: &Path, root: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        annotation_message_from_tag_object, parse_commit,
-        parse_commit_lookup, parse_diff, pathspec_batches, simplified_canonical_path,
-        structured_diff_from_output, GitCommandInvocation, GitCommandResponse,
-        GitProcessOutput,
+        annotation_message_from_tag_object, parse_commit, parse_commit_lookup, parse_diff,
+        pathspec_batches, simplified_canonical_path, structured_diff_from_output,
+        GitCommandInvocation, GitCommandResponse, GitProcessOutput,
     };
     use crate::protocol::{
         CoreError, ErrorCode, GitCommitLookupResponse, GitCommitResponse, GitHistoryPageResponse,
