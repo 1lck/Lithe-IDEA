@@ -368,3 +368,51 @@ fn java_test_debug_launch_matches_the_shared_contract_fixture() {
         );
     }
 }
+
+fn call_fixture_command(command: &str, payload: Value) -> Value {
+    serde_json::from_str(&execute_json(
+        &serde_json::json!({"id": "fixture", "command": command, "payload": payload}).to_string(),
+    ))
+    .unwrap()
+}
+
+#[test]
+fn keymap_conflict_fixtures_cross_the_json_boundary() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/keymap/binding-conflicts-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let result = call_fixture_command(
+            "keymap.analyzeConflicts",
+            serde_json::json!({"platform": case["platform"], "layers": case["layers"]}),
+        );
+        assert_eq!(result["ok"], true, "{case}");
+        assert_eq!(result["data"], case["expected"], "{}", case["name"]);
+    }
+    let oversized: Vec<Value> = (0..20_001)
+        .map(|index| serde_json::json!({"command": format!("c{index}"), "key": "ctrl+a"}))
+        .collect();
+    let rejected = call_fixture_command(
+        "keymap.analyzeConflicts",
+        serde_json::json!({"platform": "windows", "layers": [{"entries": oversized}]}),
+    );
+    assert_eq!(rejected["ok"], false);
+}
+
+#[test]
+fn terminal_link_fixtures_cross_the_json_boundary() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/terminal/link-target-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let result = call_fixture_command("terminal.parseLinkTarget", case["request"].clone());
+        assert_eq!(result["ok"], true, "{case}");
+        assert_eq!(
+            result["data"]["targets"], case["expected"],
+            "{}",
+            case["name"]
+        );
+    }
+}

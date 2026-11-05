@@ -1487,6 +1487,36 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::KeymapAnalyzeConflicts => {
+            let result =
+                serde_json::from_value::<crate::keymap::AnalyzeConflictsRequest>(parsed.payload)
+                    .map_err(|_| {
+                        CoreError::new(ErrorCode::InvalidRequest, "Invalid keymap conflict request")
+                    })
+                    .and_then(crate::keymap::analyze_conflicts);
+            match result {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("conflict result should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::TerminalParseLinkTarget => {
+            let result =
+                serde_json::from_value::<crate::terminal::ParseLinkTargetsRequest>(parsed.payload)
+                    .map_err(|_| {
+                        CoreError::new(ErrorCode::InvalidRequest, "Invalid terminal link request")
+                    })
+                    .and_then(crate::terminal::parse_link_targets);
+            match result {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("terminal link result should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::MarkdownRender => {
             match serde_json::from_value::<MarkdownRenderRequest>(parsed.payload).map_err(|error| {
                 CoreError::new(ErrorCode::InvalidRequest, "Invalid Markdown render request")

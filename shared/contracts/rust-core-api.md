@@ -130,6 +130,44 @@ and native compilation to 16 outstanding requests. Cache limits, teardown and
 stale-store guards belong to the window adapter. macOS has no free-form
 `when` parser and is unchanged. See `shared/fixtures/keymap/context-v1.json`.
 
+## Shortcut binding conflicts
+
+`keymap.analyzeConflicts` accepts `{platform: "macos" | "windows", layers: [{entries: [{command, key, when?, enabled?}], disabledCommands?: string[]}]}`
+with layers ordered from the lowest priority (defaults) to the highest (user
+overrides) and returns `{conflicts: [{key, when, commands}], invalid: [{command, key, code}]}`.
+Within a layer, a command's entries replace every lower layer's entries for that
+command; `disabledCommands` unbind a command from lower layers first. An entry with
+`enabled: false` is in force but unbound. Conflicts are computed over the final
+effective bindings only: two different commands with the same canonical key sequence
+and whitespace-normalised `when` clause. Binding text is case-insensitive, modifier order
+and aliases do not matter (`cmd`/`command`/`mod` follow `platform`: Command on macOS, Control on
+Windows; `meta`/`super`/`win` are always Meta; `option`/`opt` are Alt; `return` is `enter`; `esc` is
+`escape`), chords are whitespace-separated steps, a trailing `+` is the plus key, and `doubleshift`
+is the double-tap Shift gesture. Parse failures are listed in `invalid` with `empty`, `empty_key`,
+`multiple_keys`, `too_long` or `too_many_steps` and never take part in conflicts; more than
+20000 entries is `invalid_request`. Hosts reject saving a binding when a conflict contains the edited
+command. Native key-event conversion and the synchronous matching path stay in the host.
+See `shared/fixtures/keymap/binding-conflicts-v1.json`.
+
+The double-Shift gesture state machine is intentionally not a Core command: it must
+run synchronously on every native key event. Both hosts keep a thin implementation and
+are tested step by step against `shared/fixtures/keymap/modifier-gesture-v1.json`.
+
+## Terminal link targets
+
+`terminal.parseLinkTarget` accepts `{texts: string[], baseDirectory?, homeDirectory?, providerSchemes?: string[]}`
+and returns `{targets: (Target | null)[]}` with one entry per text. A target is
+`{kind: "file", path, line, column, explicit}` or `{kind: "external", url}`. Core splits a trailing
+`:line[:column]` (positive integers), decodes `file://` URIs (percent escapes, `localhost`, Windows drive
+and UNC forms), expands `~` from `homeDirectory`, and resolves relative paths against `baseDirectory`
+lexically (`.` and `..`), keeping Windows drive/UNC separators. `providerSchemes` name host file
+providers (for example `remote`, `wsl`): such URIs are returned unchanged, and under a provider
+`baseDirectory` relative and rooted POSIX paths stay inside that provider. Other `scheme://` texts and
+`mailto:` are `external`; a bare `name:12` is a file, not a scheme. `explicit` is true when the text
+itself says it is a path (separator, `~`, `file://`, provider URI or line suffix). Core never inspects
+file extensions or touches the file system: the host checks existence, owns hit regions, and opens the
+target. At most 256 texts of 4096 bytes. See `shared/fixtures/terminal/link-target-v1.json`.
+
 The Rust core is the shared application runtime for macOS SwiftUI and Windows
 React/Tauri. macOS calls the stable C ABI while the Tauri host links the Rust
 crate directly. The C ABI remains:
