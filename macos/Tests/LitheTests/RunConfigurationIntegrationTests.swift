@@ -1234,6 +1234,7 @@ struct RunConfigurationIntegrationTests {
             }
         )
         let feature = GenericDebugFeatureModel(
+            paging: RustCoreBridge(),
             sessions: manager,
             breakpointPersistence: persistence
         )
@@ -1448,6 +1449,7 @@ struct RunConfigurationIntegrationTests {
         let processFactory = RecordingProcessFactory()
         let resolver = RecordingRunExecutableResolver()
         let service = LanguageTestService(
+            outcomeResolver: RustCoreBridge(),
             executableResolver: resolver,
             processFactory: { processFactory.make() }
         )
@@ -2832,7 +2834,7 @@ struct RunConfigurationIntegrationTests {
         let adapter = TestDebugAdapterSession()
         let manager = DebugAdapterSessionManager(providers: LanguageProviderCatalog.standard.debugProviders) { _, _ in adapter }
         defer { manager.stopAll() }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: RustCoreBridge(), sessions: manager)
         let root = URL(fileURLWithPath: "/workspace")
         let source = root.appendingPathComponent("Example.java")
         feature.toggleBreakpoint(fileURL: source, line: 3)

@@ -29,7 +29,7 @@ struct TCPDebugAdapterTests {
                 deadlineScheduler: deadlines, initializationTimeoutMilliseconds: 20_000
             )
         }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: RustCoreBridge(), sessions: manager)
         let source = root.appendingPathComponent("main.py")
         let configuration = DebugLaunchConfiguration(name: "TCP", request: .attach, arguments: [:], adapterEndpoint: endpoint)
         let finished = TCPTestEvent()

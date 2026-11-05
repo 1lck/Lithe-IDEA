@@ -26,7 +26,7 @@ struct DebugModuleCoordinatorTests {
         let sessions = DebugAdapterSessionManager(providers: [
             DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])
         ]) { _, _ in adapter }
-        let feature = GenericDebugFeatureModel(sessions: sessions)
+        let feature = GenericDebugFeatureModel(paging: RustCoreBridge(), sessions: sessions)
         let graph = DebugPresentationTestGraph(feature: feature)
         try runtime.register(ModuleFactory(manifest: DebugModule.moduleManifest,
             contributions: DebugModule.moduleContributions) { DebugModule(makeGraph: { graph }) })
@@ -98,7 +98,7 @@ struct DebugModuleCoordinatorTests {
 @MainActor
 private final class DebugPresentationTestGraph: DebugServiceGraph {
     let feature: GenericDebugFeatureModel
-    init(feature: GenericDebugFeatureModel = GenericDebugFeatureModel(sessions: DebugAdapterSessionManager(providers: []) { _, _ in nil })) {
+    init(feature: GenericDebugFeatureModel = GenericDebugFeatureModel(paging: RustCoreBridge(), sessions: DebugAdapterSessionManager(providers: []) { _, _ in nil })) {
         self.feature = feature
     }
     var genericFeatureTarget: any GenericDebugFeatureTarget { feature }

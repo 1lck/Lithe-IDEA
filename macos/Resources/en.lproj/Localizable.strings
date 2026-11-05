@@ -2718,6 +2718,8 @@
 "No tasks yet" = "No tasks yet";
 "No test runner is configured for %@." = "No test runner is configured for %@.";
 "No tests discovered." = "No tests discovered.";
+"No tests matched the selection." = "No tests matched the selection.";
+"No tests were found." = "No tests were found.";
 "No textual diff available" = "No textual diff available";
 "No textual difference" = "No textual difference";
 "No tools running" = "No tools running";
@@ -10340,6 +10342,8 @@
 "system Maven" = "system Maven";
 "test Java" = "test Java";
 "test resources" = "test resources";
+"tests.outcome.noTestsFound" = "No tests were found.";
+"tests.outcome.noTestsMatched" = "No tests matched the selection.";
 "the project root" = "the project root";
 "ui.browse" = "Browse";
 "ui.cancel" = "Cancel";

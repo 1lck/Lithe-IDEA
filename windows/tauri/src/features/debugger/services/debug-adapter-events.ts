@@ -14,6 +14,7 @@ import type {
   DebugVariable,
 } from "@/features/debugger/types/debugger.types";
 import { releaseDebugSessionResources } from "./debug-session-resources";
+import { acceptVariablePage, requestFirstVariablePage } from "./debug-variable-paging";
 
 let unsubscribeDebuggerEvents: (() => void) | null = null;
 let pendingSubscription: Promise<void> | null = null;
@@ -203,16 +204,21 @@ async function handleOperationCompleted(sessionId: string, event: Record<string,
       if (context.command !== "scopes" || context.frameId !== store.selectedFrameId) return;
       const scopes = toScopes(result?.scopes);
       store.actions.setScopes(scopes);
+      // Expensive scopes load only when the user expands them.
       await Promise.all(
         scopes
-          .filter((scope) => scope.variablesReference > 0)
-          .map((scope) => requestVariables(sessionId, scope.variablesReference)),
+          .filter((scope) => scope.variablesReference > 0 && !scope.expensive)
+          .map((scope) => requestFirstVariablePage(sessionId, scope)),
       );
       return;
     }
     case "variables": {
       if (context?.command === "variables") {
-        store.actions.setVariables(context.variablesReference, toVariables(result?.variables));
+        await acceptVariablePage(
+          context.variablesReference,
+          context.requested,
+          toVariables(result?.variables),
+        );
       }
       return;
     }
@@ -269,12 +275,6 @@ async function requestScopes(sessionId: string, frameId: number) {
   await sendDebugAdapterRequest(sessionId, "scopes", { frameId }, operationId);
 }
 
-async function requestVariables(sessionId: string, variablesReference: number) {
-  const operationId = createDebugOperationId();
-  registerContext(operationId, { command: "variables", variablesReference });
-  await sendDebugAdapterRequest(sessionId, "variables", { variablesReference }, operationId);
-}
-
 function registerContext(operationId: string, context: DebugRequestContext) {
   if (!operationId) return;
   useDebuggerStore.getState().actions.registerAdapterRequest(operationId, context);
@@ -309,7 +309,19 @@ function toStackFrames(value: unknown): DebugStackFrame[] {
       return {
         id: frame.id,
         name: typeof frame.name === "string" ? frame.name : `Frame ${frame.id}`,
-        sourcePath: typeof frame.sourcePath === "string" ? frame.sourcePath : undefined,
+        // An adapter-served source (decompiled class, disassembly) names no file on
+        // disk even when its path looks absolute, so it must never reach the editor.
+        sourcePath:
+          typeof frame.sourcePath === "string" && typeof frame.sourceReference !== "number"
+            ? frame.sourcePath
+            : undefined,
+        sourceReference:
+          typeof frame.sourceReference === "number" ? frame.sourceReference : undefined,
+        instructionPointerReference:
+          typeof frame.instructionPointerReference === "string"
+            ? frame.instructionPointerReference
+            : undefined,
+        isFiltered: frame.isFiltered === true ? true : undefined,
         line: typeof frame.line === "number" ? frame.line : 0,
         column: typeof frame.column === "number" ? frame.column : 0,
       };
@@ -328,6 +340,9 @@ function toScopes(value: unknown): DebugScope[] {
         name: typeof scope.name === "string" ? scope.name : "Scope",
         variablesReference: scope.variablesReference,
         expensive: typeof scope.expensive === "boolean" ? scope.expensive : undefined,
+        namedVariables: typeof scope.namedVariables === "number" ? scope.namedVariables : undefined,
+        indexedVariables:
+          typeof scope.indexedVariables === "number" ? scope.indexedVariables : undefined,
       };
     })
     .filter((scope): scope is DebugScope => Boolean(scope));
@@ -344,8 +359,13 @@ function toVariables(value: unknown): DebugVariable[] {
         name: variable.name,
         value: typeof variable.value === "string" ? variable.value : "",
         type: typeof variable.type === "string" ? variable.type : undefined,
+        evaluateName: typeof variable.evaluateName === "string" ? variable.evaluateName : undefined,
         variablesReference:
           typeof variable.variablesReference === "number" ? variable.variablesReference : 0,
+        namedVariables:
+          typeof variable.namedVariables === "number" ? variable.namedVariables : undefined,
+        indexedVariables:
+          typeof variable.indexedVariables === "number" ? variable.indexedVariables : undefined,
       };
     })
     .filter((variable): variable is DebugVariable => Boolean(variable));

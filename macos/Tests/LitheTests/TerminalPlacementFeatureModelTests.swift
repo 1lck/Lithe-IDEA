@@ -37,7 +37,7 @@ struct TerminalPlacementFeatureModelTests {
         let sessions = DebugAdapterSessionManager(providers: [
             DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])
         ]) { _, _ in InputTestDebugSession() }
-        let feature = GenericDebugFeatureModel(sessions: sessions)
+        let feature = GenericDebugFeatureModel(paging: RustCoreBridge(), sessions: sessions)
         let graph = InputTestDebugGraph(feature: feature)
         try runtime.register(ModuleFactory(manifest: DebugModule.moduleManifest, contributions: DebugModule.moduleContributions) { DebugModule(makeGraph: { graph }) })
         let store = TerminalPlacementTestStore()

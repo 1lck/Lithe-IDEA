@@ -3,6 +3,9 @@ import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-works
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { frontendTrace } from "@/utils/frontend-trace";
+import { createTranslator } from "@/i18n/locale";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { resolveTestRunOutcome } from "@/features/run/api/test-run-outcome-api";
 import {
   createMavenDependencyPlan,
   createMavenLaunchPlan,
@@ -75,6 +78,7 @@ export interface MavenStoreDependencies {
   parseMavenDiagnostics: typeof parseMavenDiagnostics;
   readMavenDependencies: typeof readMavenDependencies;
   parseMavenTestResults: typeof parseMavenTestResults;
+  resolveTestRunOutcome: typeof resolveTestRunOutcome;
   removeMavenDependencyOutput: typeof removeMavenDependencyOutput;
   resolveEffectiveMavenExecutable: typeof resolveEffectiveMavenExecutable;
   resolveMavenLaunch: typeof resolveMavenLaunch;
@@ -98,6 +102,7 @@ const defaultMavenStoreDependencies: MavenStoreDependencies = {
   parseMavenDiagnostics,
   readMavenDependencies,
   parseMavenTestResults,
+  resolveTestRunOutcome,
   removeMavenDependencyOutput,
   resolveEffectiveMavenExecutable,
   resolveMavenLaunch,
@@ -1421,20 +1426,41 @@ export const createMavenStore = (
                     ),
                   });
                 }
-                if (diagnosticsRevision === revision && get().root === root) {
-                  const noTestsMatched = exitCode === 0 && testResults.testsRun === 0;
-                  if (noTestsMatched && testRun) {
-                    const message = `No tests matched selector "${testRun.selector}".`;
+                if (diagnosticsRevision !== revision || get().root !== root) return;
+                set({ testResults });
+                // Core owns the verdict; a run that executed no selected test fails on
+                // both platforms instead of passing on exit code 0.
+                return dependencies
+                  .resolveTestRunOutcome({
+                    termination: { kind: "exited", exitCode },
+                    scope: testRun.selector.includes("#") ? "case" : "suite",
+                    summary: {
+                      total: testResults.testsRun,
+                      passed: testResults.passed,
+                      failed: testResults.failures,
+                      errors: testResults.errors,
+                      skipped: testResults.skipped,
+                    },
+                  })
+                  .then((verdict) => {
+                    if (diagnosticsRevision !== revision || get().root !== root) return;
+                    if (verdict.outcome !== "noTestsMatched" && verdict.outcome !== "noTestsFound") {
+                      if (!verdict.success) set({ taskStatus: "failed" });
+                      return;
+                    }
+                    const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+                    const message = t(
+                      verdict.outcome === "noTestsMatched"
+                        ? "tests.outcome.noTestsMatched"
+                        : "tests.outcome.noTestsFound",
+                    );
                     set({
                       testResults: { ...testResults, success: false },
                       taskStatus: "failed",
                       taskError: message,
                       output: trimOutput(`${get().output}${get().output.endsWith("\n") ? "" : "\n"}${message}\n`),
                     });
-                  } else {
-                    set({ testResults });
-                  }
-                }
+                  });
               })
               .catch((error) => {
                 if (diagnosticsRevision !== revision || get().root !== root) return;

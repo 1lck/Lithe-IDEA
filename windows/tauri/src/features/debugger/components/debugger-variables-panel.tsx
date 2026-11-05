@@ -3,9 +3,12 @@ import { useEffect, useState } from "react";
 import { Spinner } from "@/ui/spinner";
 import { useTranslation } from "@/i18n/locale-provider";
 import { cn } from "@/utils/cn";
-import { createDebugOperationId, sendDebugAdapterRequest } from "../services/debug-adapter-service";
-import { useDebuggerStore } from "../stores/debugger.store";
+import {
+  requestFirstVariablePage,
+  requestNextVariablePage,
+} from "../services/debug-variable-paging";
 import type { DebugRequestContext, DebugScope, DebugVariable } from "../types/debugger.types";
+import type { VariablePageCursor } from "../api/variable-paging-api";
 import { DebugEmptyState } from "./debugger-panels";
 
 interface DebugVariablesPanelProps {
@@ -13,6 +16,7 @@ interface DebugVariablesPanelProps {
   selectedFrameId: number | null;
   scopes: DebugScope[];
   variablesByReference: Record<number, DebugVariable[]>;
+  variablePageCursors: Record<number, VariablePageCursor>;
   pendingRequests: Record<string, DebugRequestContext>;
 }
 
@@ -21,9 +25,9 @@ export function DebugVariablesPanel({
   selectedFrameId,
   scopes,
   variablesByReference,
+  variablePageCursors,
   pendingRequests,
 }: DebugVariablesPanelProps) {
-  const debuggerActions = useDebuggerStore.use.actions();
   const [expandedVariableReferences, setExpandedVariableReferences] = useState<Set<number>>(
     () => new Set(),
   );
@@ -39,7 +43,8 @@ export function DebugVariablesPanel({
         request.command === "variables" && request.variablesReference === variablesReference,
     );
 
-  const toggleVariableExpansion = async (variablesReference: number) => {
+  const toggleVariableExpansion = async (container: DebugVariable) => {
+    const { variablesReference } = container;
     if (!activeSessionId || variablesReference <= 0) return;
 
     const shouldLoadChildren =
@@ -56,11 +61,7 @@ export function DebugVariablesPanel({
     if (!shouldLoadChildren) return;
 
     try {
-      const operationId = createDebugOperationId();
-      debuggerActions.registerAdapterRequest(operationId, { command: "variables", variablesReference });
-      await sendDebugAdapterRequest(activeSessionId, "variables", {
-        variablesReference,
-      }, operationId);
+      await requestFirstVariablePage(activeSessionId, container);
     } catch {
       setExpandedVariableReferences((current) => {
         const next = new Set(current);
@@ -69,6 +70,19 @@ export function DebugVariablesPanel({
       });
     }
   };
+
+  const renderLoadMore = (variablesReference: number, depth: number) =>
+    activeSessionId && variablePageCursors[variablesReference]?.next ? (
+      <button
+        type="button"
+        className="py-1 text-left ui-text-sm text-subtle-foreground hover:text-foreground"
+        style={{ paddingLeft: 18 + depth * 12 }}
+        disabled={isVariableReferencePending(variablesReference)}
+        onClick={() => void requestNextVariablePage(activeSessionId, variablesReference)}
+      >
+        {t("debugger.loadMoreVariables")}
+      </button>
+    ) : null;
 
   const renderVariables = (variables: DebugVariable[], parentReference: number, depth = 0) =>
     variables.map((variable, index) => {
@@ -90,7 +104,7 @@ export function DebugVariablesPanel({
                 canExpand && "hover:text-foreground",
               )}
               disabled={!canExpand}
-              onClick={() => void toggleVariableExpansion(variable.variablesReference)}
+              onClick={() => void toggleVariableExpansion(variable)}
             >
               <CaretRight
                 size={10}
@@ -113,6 +127,7 @@ export function DebugVariablesPanel({
           {isExpanded && childVariables.length > 0
             ? renderVariables(childVariables, variable.variablesReference, depth + 1)
             : null}
+          {isExpanded ? renderLoadMore(variable.variablesReference, depth + 1) : null}
         </div>
       );
     });
@@ -131,13 +146,23 @@ export function DebugVariablesPanel({
               <span className="font-medium text-foreground">{scope.name}</span>
               <span className="ui-text-sm text-subtle-foreground">{variables.length}</span>
             </div>
-            {variables.length === 0 ? (
+            {scope.expensive && variables.length === 0 && activeSessionId ? (
+              <button
+                type="button"
+                className="px-6 pb-1.5 text-left ui-text-sm text-subtle-foreground hover:text-foreground"
+                disabled={isVariableReferencePending(scope.variablesReference)}
+                onClick={() => void requestFirstVariablePage(activeSessionId, scope)}
+              >
+                {t("debugger.loadScopeVariables")}
+              </button>
+            ) : variables.length === 0 ? (
               <div className="px-6 pb-1.5 ui-text-sm text-subtle-foreground">
                 {t("debugger.empty")}
               </div>
             ) : (
               renderVariables(variables, scope.variablesReference)
             )}
+            {renderLoadMore(scope.variablesReference, 0)}
           </div>
         );
       })}

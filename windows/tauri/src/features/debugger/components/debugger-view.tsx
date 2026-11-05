@@ -115,6 +115,7 @@ export default function DebuggerView() {
   const selectedFrameId = useDebuggerStore.use.selectedFrameId();
   const scopes = useDebuggerStore.use.scopes();
   const variablesByReference = useDebuggerStore.use.variablesByReference();
+  const variablePageCursors = useDebuggerStore.use.variablePageCursors();
   const adapterOutput = useDebuggerStore.use.adapterOutput();
   const endedSessions = useDebuggerStore.use.endedSessions();
   const pendingRequests = useDebuggerStore.use.pendingRequests();
@@ -631,6 +632,7 @@ export default function DebuggerView() {
               selectedFrameId={selectedFrameId}
               scopes={scopes}
               variablesByReference={variablesByReference}
+              variablePageCursors={variablePageCursors}
               pendingRequests={pendingRequests}
             />
           </DebugSection>

@@ -560,7 +560,7 @@ private final class ProviderCapabilityExecutionFixture {
                 languageRunProviders: .standard(catalog: .compatibilityFallback))
             let runFeature = RunFeatureModel(service: run)
             self.execution = ExecutionFeatureAccess(runFeature: runFeature,
-                tests: LanguageTestService(executableResolver: resolver, processFactory: { CapabilityProcessFixture() }),
+                tests: LanguageTestService(outcomeResolver: RustCoreBridge(), executableResolver: resolver, processFactory: { CapabilityProcessFixture() }),
                 projectDevelopment: ProjectDevelopmentFeatureModel(runFeature: runFeature), buildSystems: nil)
         } catch {
             try? FileManager.default.removeItem(at: root)

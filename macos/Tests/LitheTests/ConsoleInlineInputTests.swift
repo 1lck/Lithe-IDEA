@@ -345,7 +345,7 @@ struct ConsoleInlineInputTests {
         let settings = AppSettings(store: store)
         let model = AppModel(settings: settings,
             services: MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
-        let feature = GenericDebugFeatureModel(sessions: DebugAdapterSessionManager(providers: []) { _, _ in nil })
+        let feature = GenericDebugFeatureModel(paging: RustCoreBridge(), sessions: DebugAdapterSessionManager(providers: []) { _, _ in nil })
         defer { feature.reset() }
         feature.appendDebuggeeOutput("retained console output\n")
         let host = NSHostingView(rootView: GenericDebugView(feature: feature).environmentObject(model)

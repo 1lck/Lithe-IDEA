@@ -14,7 +14,7 @@ struct DebugModuleTests {
         let manager = DebugAdapterSessionManager(providers: [provider]) { _, _ in
             let session = DeferredInspectionDebugSession(); created.append(session); return session
         }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         defer { feature.reset() }
         var ended: [DebugSessionID] = []
         feature.onSessionStateChanged = { id, state in if state == .failed { ended.append(id) } }
@@ -283,7 +283,7 @@ struct DebugModuleTests {
             created.append((descriptor.id, session))
             return session
         }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         defer { feature.reset() }
         let root = URL(fileURLWithPath: "/workspace/project", isDirectory: true)
         let configuration = DebugLaunchConfiguration(name: "example", request: .launch,
@@ -350,7 +350,7 @@ struct DebugModuleTests {
             fileExtensions: ["c"], selectsByFile: false)
         let session = DeferredInspectionDebugSession()
         let manager = DebugAdapterSessionManager(providers: [automatic, explicit]) { _, _ in session }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         defer { feature.reset() }
         let root = URL(fileURLWithPath: "/workspace/project", isDirectory: true)
         #expect(feature.start(fileURL: root, rootURL: root, configuration: DebugLaunchConfiguration(
@@ -391,7 +391,7 @@ struct DebugModuleTests {
             createdSessions.append(session)
             return session
         }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         defer { feature.reset() }
         let root = URL(fileURLWithPath: "/workspace/hot-update-multiple", isDirectory: true)
         let source = root.appendingPathComponent("src/Main.java")
@@ -422,7 +422,7 @@ struct DebugModuleTests {
             createdSessions.append(session)
             return session
         }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         defer { feature.reset() }
         let root = URL(fileURLWithPath: "/workspace/owned-sessions", isDirectory: true)
         let source = root.appendingPathComponent("src/main.zig")
@@ -559,7 +559,7 @@ struct DebugModuleTests {
     @Test
     func debuggeeOutputPreservesSGRButDiscardsTerminalControlSequences() {
         let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
 
         feature.appendDebuggeeOutput("\u{001B}[2J\u{001B}[31mready\u{001B}[0m\u{001B}]0;title\u{0007}\r\n")
 
@@ -569,7 +569,7 @@ struct DebugModuleTests {
     @Test
     func debuggeeOutputNormalizationPreservesStateAcrossOutputChunks() {
         let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
 
         feature.appendDebuggeeOutput("\u{001B}")
         feature.appendDebuggeeOutput("[31mready\u{001B}[0m\r")
@@ -588,7 +588,7 @@ struct DebugModuleTests {
             adapters.append(adapter)
             return adapter
         }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         defer { feature.reset() }
         let root = URL(fileURLWithPath: "/workspace/bounded-output")
         let source = root.appendingPathComponent("Main.java")
@@ -610,7 +610,7 @@ struct DebugModuleTests {
 
     @Test(arguments: ["31", "38;5;196", "38;2;4;5;6"])
     func boundedConsoleOutputRebuildsCombinedColorsAndHonorsResets(foreground: String) {
-        let feature = GenericDebugFeatureModel(sessions: DebugAdapterSessionManager(providers: []) { _, _ in nil })
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: DebugAdapterSessionManager(providers: []) { _, _ in nil })
         defer { feature.reset() }
         feature.appendDebuggeeOutput("\u{001B}[\(foreground)m\u{001B}[1m\u{001B}[48;2;1;2;3m" + String(repeating: "🙂", count: 400_000))
         #expect(feature.output.count <= 400_000)
@@ -626,7 +626,7 @@ struct DebugModuleTests {
     @Test
     func debuggeeOutputRejectsOversizedOrPrivateCSIAndPreservesFollowingText() {
         let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         feature.appendDebuggeeOutput("\u{001B}[" + String(repeating: "1;", count: 100))
         feature.appendDebuggeeOutput("mtext\u{001B}[?25mvisible\u{001B}[36mcyan\u{001B}[0m")
         #expect(feature.output == "textvisible\u{001B}[36mcyan\u{001B}[0m")
@@ -635,7 +635,7 @@ struct DebugModuleTests {
     @Test
     func debugConsolePresentationCoalescesChattyOutputUntilOneFlush() {
         let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
 
         feature.appendDebuggeeOutput("first")
         feature.appendDebuggeeOutput(" second")
@@ -661,7 +661,7 @@ struct DebugModuleTests {
     @Test
     func springPortConflictOutputProducesAnActionableDiagnostic() {
         let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
 
         feature.appendDebuggeeOutput("Web server failed to start. Port 8080 was already in use.\n")
 
@@ -808,7 +808,7 @@ struct DebugModuleTests {
             createdSessions.append(session)
             return session
         }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         let root = URL(fileURLWithPath: "/tmp/java-debug-console-history", isDirectory: true)
         let source = root.appendingPathComponent("src/Main.java")
         let configuration = DebugLaunchConfiguration(
@@ -849,7 +849,7 @@ struct DebugModuleTests {
             fileExtensions: ["c"]
         )
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         let root = URL(fileURLWithPath: "/tmp/c-debug-console-input", isDirectory: true)
         #expect(feature.start(
             fileURL: root.appendingPathComponent("main.c"),
@@ -900,7 +900,7 @@ struct DebugModuleTests {
             createdSessions.append(session)
             return session
         }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         let root = URL(fileURLWithPath: "/tmp/java-debug-feature-sessions", isDirectory: true)
         let source = root.appendingPathComponent("src/Main.java")
         let firstConfiguration = DebugLaunchConfiguration(
@@ -967,7 +967,7 @@ struct DebugModuleTests {
             createdSessions.append(session)
             return session
         }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         let root = URL(fileURLWithPath: "/tmp/java-debug-additional-failure", isDirectory: true)
         let source = root.appendingPathComponent("src/Main.java")
         let firstConfiguration = DebugLaunchConfiguration(
@@ -1016,7 +1016,7 @@ struct DebugModuleTests {
             createdSessions.append(session)
             return session
         }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         let root = URL(fileURLWithPath: "/tmp/java-debug-stop-promotion", isDirectory: true)
         let source = root.appendingPathComponent("src/Main.java")
         let firstConfiguration = DebugLaunchConfiguration(
@@ -1846,7 +1846,7 @@ struct DebugModuleTests {
         let core = RecordingDebugProtocolCore()
         let transport = RecordingTransport()
         let (manager, _) = makeChildCapableManager(core: core, parentTransport: transport)
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         defer { feature.reset() }
         var stopped: [DebugSessionID] = []
         feature.onSessionStopped = { stopped.append($0) }
@@ -1957,7 +1957,7 @@ struct DebugModuleTests {
                 deadlineScheduler: RecordingDebugDeadlineScheduler()
             )
         }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         let root = URL(fileURLWithPath: "/tmp/java-stopped-context", isDirectory: true)
         let source = root.appendingPathComponent("src/Main.java")
         var stoppedLocation: (URL, Int, Int)?
@@ -2165,6 +2165,7 @@ struct DebugModuleTests {
         let persistence = RecordingDebugSteppingFilterPersistence()
         let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
         let feature = GenericDebugFeatureModel(
+            paging: LinkedCoreDebugPaging(),
             sessions: manager,
             steppingFilterResolver: resolver,
             steppingFilterPersistence: persistence
@@ -2208,6 +2209,7 @@ struct DebugModuleTests {
         )
         let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
         let feature = GenericDebugFeatureModel(
+            paging: LinkedCoreDebugPaging(),
             sessions: manager,
             steppingFilterResolver: resolver,
             steppingFilterPersistence: FailingDebugSteppingFilterPersistence()
@@ -2240,6 +2242,7 @@ struct DebugModuleTests {
             )
         }
         let feature = GenericDebugFeatureModel(
+            paging: LinkedCoreDebugPaging(),
             sessions: manager,
             steppingFilterResolver: core
         )
@@ -2267,7 +2270,7 @@ struct DebugModuleTests {
         let manager = DebugAdapterSessionManager(providers: [
             DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])
         ]) { _, _ in session }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         defer { feature.reset() }
         let root = URL(fileURLWithPath: "/workspace/debug-empty-state", isDirectory: true)
         let source = root.appendingPathComponent("Main.java")
@@ -2332,7 +2335,7 @@ struct DebugModuleTests {
             fileExtensions: ["java"]
         )
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         let root = URL(fileURLWithPath: "/tmp/java-debug-retry", isDirectory: true)
         let source = root.appendingPathComponent("src/Main.java")
         let configuration = DebugLaunchConfiguration(
@@ -2361,7 +2364,7 @@ struct DebugModuleTests {
             fileExtensions: ["java"]
         )
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         let root = URL(fileURLWithPath: "/tmp/java-debug-restart-fallback", isDirectory: true)
         let source = root.appendingPathComponent("src/Main.java")
         let configuration = DebugLaunchConfiguration(
@@ -2391,7 +2394,7 @@ struct DebugModuleTests {
             fileExtensions: ["java"]
         )
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         let root = URL(fileURLWithPath: "/tmp/java-debug-execution-lock", isDirectory: true)
         let source = root.appendingPathComponent("src/Main.java")
         let configuration = DebugLaunchConfiguration(
@@ -2432,6 +2435,7 @@ struct DebugModuleTests {
             hideFilteredStackFrames: true
         )
         let feature = GenericDebugFeatureModel(
+            paging: LinkedCoreDebugPaging(),
             sessions: manager,
             steppingFilterResolver: RecordingDebugSteppingFilterResolver(
                 defaults: defaults,
@@ -2518,7 +2522,7 @@ struct DebugModuleTests {
             fileExtensions: ["java"]
         )
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         let root = URL(fileURLWithPath: "/tmp/java-preferred-frame", isDirectory: true)
         let source = root.appendingPathComponent("src/UserService.java")
         #expect(feature.start(
@@ -2568,7 +2572,7 @@ struct DebugModuleTests {
             fileExtensions: ["java"]
         )
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         let root = URL(fileURLWithPath: "/tmp/java-inspection-selection", isDirectory: true)
         let source = root.appendingPathComponent("src/Main.java")
         #expect(feature.start(
@@ -2996,7 +3000,7 @@ struct DebugModuleTests {
             fileExtensions: ["java"]
         )
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         let root = URL(fileURLWithPath: "/tmp/java-exception-info", isDirectory: true)
         let source = root.appendingPathComponent("src/Main.java")
         #expect(feature.start(
@@ -3108,7 +3112,7 @@ struct DebugModuleTests {
                 deadlineScheduler: RecordingDebugDeadlineScheduler()
             )
         }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         let root = URL(fileURLWithPath: "/tmp/java-breakpoints", isDirectory: true)
         let source = root.appendingPathComponent("Main.java")
 
@@ -3413,6 +3417,7 @@ struct DebugModuleTests {
         let service = root.appendingPathComponent("src/Service.java")
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in nil }
         let feature = GenericDebugFeatureModel(
+            paging: LinkedCoreDebugPaging(),
             sessions: manager,
             breakpointPersistence: persistence
         )
@@ -3443,6 +3448,7 @@ struct DebugModuleTests {
         ))
 
         let restored = GenericDebugFeatureModel(
+            paging: LinkedCoreDebugPaging(),
             sessions: DebugAdapterSessionManager(providers: [descriptor]) { _, _ in nil },
             breakpointPersistence: persistence
         )
@@ -3471,6 +3477,7 @@ struct DebugModuleTests {
         let root = URL(fileURLWithPath: "/tmp/relocated-java-breakpoints", isDirectory: true)
         let sourceURL = root.appendingPathComponent("src/Main.java")
         let feature = GenericDebugFeatureModel(
+            paging: LinkedCoreDebugPaging(),
             sessions: manager,
             breakpointPersistence: persistence,
             breakpointRelocator: relocator
@@ -3534,6 +3541,7 @@ struct DebugModuleTests {
         let root = URL(fileURLWithPath: "/tmp/inline-java-breakpoint-edit", isDirectory: true)
         let sourceURL = root.appendingPathComponent("src/Main.java")
         let feature = GenericDebugFeatureModel(
+            paging: LinkedCoreDebugPaging(),
             sessions: DebugAdapterSessionManager(providers: [descriptor]) { _, _ in nil },
             breakpointRelocator: relocator
         )
@@ -3573,6 +3581,7 @@ struct DebugModuleTests {
             )]
         ) { _, _ in nil }
         let feature = GenericDebugFeatureModel(
+            paging: LinkedCoreDebugPaging(),
             sessions: manager,
             breakpointPersistence: persistence
         )
@@ -4440,6 +4449,7 @@ struct DebugModuleTests {
         let sink = Sink()
         let model = GenericDebugDisassemblyModel()
         model.environment = GenericDebugDisassemblyModel.Environment(
+            paging: LinkedCoreDebugPaging(),
             session: { nil },
             capabilities: { Self.disassemblyCapabilities },
             selectedFrameID: { nil },
@@ -5085,7 +5095,7 @@ struct DebugModuleTests {
             fileExtensions: ["java"]
         )
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         let root = URL(fileURLWithPath: rootPath, isDirectory: true)
         let source = root.appendingPathComponent("src/Main.java")
         precondition(feature.start(
@@ -5106,7 +5116,7 @@ struct DebugModuleTests {
     ) -> GenericDebugFeatureModel {
         let descriptor = DebugProviderDescriptor(id: "example-dap", displayName: "Example", fileExtensions: ["ex"])
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
-        let feature = GenericDebugFeatureModel(sessions: manager)
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         let root = URL(fileURLWithPath: rootPath, isDirectory: true)
         precondition(feature.start(
             fileURL: root.appendingPathComponent("main.ex"),

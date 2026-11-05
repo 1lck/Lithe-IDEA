@@ -92,17 +92,21 @@ public struct GenericDebugMemoryDump: Equatable, Sendable {
 public final class GenericDebugDisassemblyModel: ObservableObject {
     /// What the model needs from the feature model that owns it.
     public struct Environment {
+        /// Core's bounded request sequence for each listing edge.
+        public var paging: any DebugPagingPlanning
         public var session: () -> (any DebugAdapterControllingSession)?
         public var capabilities: () -> DebugAdapterCapabilities
         public var selectedFrameID: () -> Int?
         public var breakpointsChanged: (DebugSessionID, [DebugInstructionBreakpoint]) -> Void
 
         public init(
+            paging: any DebugPagingPlanning,
             session: @escaping () -> (any DebugAdapterControllingSession)?,
             capabilities: @escaping () -> DebugAdapterCapabilities,
             selectedFrameID: @escaping () -> Int?,
             breakpointsChanged: @escaping (DebugSessionID, [DebugInstructionBreakpoint]) -> Void
         ) {
+            self.paging = paging
             self.session = session
             self.capabilities = capabilities
             self.selectedFrameID = selectedFrameID
@@ -292,7 +296,8 @@ public final class GenericDebugDisassemblyModel: ObservableObject {
         guard isPresented,
               let anchor = currentAddress,
               canDisassemble,
-              let session = environment?.session() else {
+              let environment,
+              let session = environment.session() else {
             rows = []
             isLoading = false
             return
@@ -304,21 +309,23 @@ public final class GenericDebugDisassemblyModel: ObservableObject {
         failedDirection = nil
         canLoadEarlier = true
         canLoadLater = true
-        request(
-            session: session,
-            generation: token,
+        fetch(
+            .around,
             reference: anchor,
-            offset: -Self.instructionsBefore,
             count: Self.initialInstructionCount,
-            retriesForward: true
-        ) { [weak self] instructions in
+            instructionsBefore: Self.instructionsBefore,
+            knownAddresses: [],
+            session: session,
+            paging: environment.paging,
+            generation: token
+        ) { [weak self] instructions, _ in
             guard let self, self.disassemblyGeneration == token else { return }
             self.rows = instructions
             self.isLoading = false
-        } onFailure: { [weak self] error in
+        } onFailure: { [weak self] message in
             guard let self, self.disassemblyGeneration == token else { return }
             self.rows = []
-            self.loadFailure = error.localizedDescription
+            self.loadFailure = message
             self.isLoading = false
         }
     }
@@ -328,122 +335,117 @@ public final class GenericDebugDisassemblyModel: ObservableObject {
         guard isPresented, currentAddress != nil, canDisassemble, !isLoading,
               direction == .before ? canLoadEarlier : canLoadLater,
               !automatically || loadFailure == nil,
-              let session = environment?.session(),
+              let environment,
+              let session = environment.session(),
               let edge = direction == .before ? rows.first : rows.last else { return }
         disassemblyGeneration &+= 1
         let token = disassemblyGeneration
         isLoading = true
         loadFailure = nil
         failedDirection = nil
-        requestPage(
-            session: session,
-            generation: token,
+        // Only rows within reach of the requested page can repeat in it.
+        let reach = Self.pageInstructionCount * 2
+        let known = (direction == .before ? Array(rows.prefix(reach)) : Array(rows.suffix(reach))).map(\.address)
+        fetch(
+            direction == .before ? .before : .after,
             reference: edge.address,
-            direction: direction,
-            count: Self.pageInstructionCount
-        ) { [weak self] instructions in
+            count: Self.pageInstructionCount,
+            instructionsBefore: 0,
+            knownAddresses: known,
+            session: session,
+            paging: environment.paging,
+            generation: token
+        ) { [weak self] fresh, exhausted in
             guard let self, self.disassemblyGeneration == token else { return }
-            var known = Set(self.rows.map { DebugAddressText.canonical($0.address) })
-            let fresh = instructions.filter { known.insert(DebugAddressText.canonical($0.address)).inserted }
-            // Some adapters repeat the edge forever at an unmapped boundary.
-            if fresh.isEmpty {
+            if exhausted {
                 if direction == .before { self.canLoadEarlier = false }
                 else { self.canLoadLater = false }
             }
             self.rows = direction == .before ? fresh + self.rows : self.rows + fresh
             self.isLoading = false
-        } onFailure: { [weak self] error in
+        } onFailure: { [weak self] message in
             guard let self, self.disassemblyGeneration == token else { return }
-            self.loadFailure = error.localizedDescription
+            self.loadFailure = message
             self.failedDirection = direction
             self.isLoading = false
         }
     }
 
-    /// A page can cross an unmapped boundary even though nearer instructions remain readable.
-    /// Ask the adapter for smaller windows; never infer instruction sizes or compute addresses.
-    private func requestPage(
-        session: any DebugAdapterControllingSession,
-        generation: Int,
+    /// Runs Core's bounded request sequence for one fetch. Core decides when to retry a
+    /// refused window, how far to shrink it and when an edge is exhausted; the host only
+    /// sends the requests and never computes an address or an instruction length.
+    private func fetch(
+        _ direction: DebugDisassemblyDirection,
         reference: String,
-        direction: Direction,
         count: Int,
-        onSuccess: @escaping ([DebugDisassembledInstruction]) -> Void,
-        onFailure: @escaping (Error) -> Void
+        instructionsBefore: Int,
+        knownAddresses: [String],
+        session: any DebugAdapterControllingSession,
+        paging: any DebugPagingPlanning,
+        generation: Int,
+        onPage: @escaping ([DebugDisassembledInstruction], Bool) -> Void,
+        onFailure: @escaping (String) -> Void
     ) {
-        request(
-            session: session, generation: generation, reference: reference,
-            offset: direction == .before ? -count : 1, count: count, retriesForward: false,
-            onSuccess: onSuccess
-        ) { [weak self] error in
-            guard let self, self.disassemblyGeneration == generation else { return }
-            guard case DebugAdapterProtocolError.requestFailed(command: "disassemble", message: _) = error else {
-                onFailure(error)
-                return
-            }
-            if count > 1 {
-                self.requestPage(
-                    session: session, generation: generation, reference: reference,
-                    direction: direction, count: count / 2, onSuccess: onSuccess, onFailure: onFailure
-                )
-                return
-            }
-            // LLDB reports an unmapped neighbour as a generic request failure. Only
-            // treat it as exhaustion if the known edge still disassembles in this stop.
-            self.request(
-                session: session, generation: generation, reference: reference,
-                offset: 0, count: 1, retriesForward: false
-            ) { instructions in
-                if instructions.contains(where: { DebugAddressText.areEqual($0.address, reference) }) {
-                    onSuccess([])
-                } else {
-                    onFailure(error)
-                }
-            } onFailure: { onFailure($0) }
+        do {
+            let plan = try paging.planDisassemblyWindow(
+                direction: direction,
+                reference: reference,
+                count: count,
+                instructionsBefore: instructionsBefore
+            )
+            send(plan, knownAddresses: knownAddresses, session: session, paging: paging,
+                 generation: generation, onPage: onPage, onFailure: onFailure)
+        } catch {
+            onFailure(error.localizedDescription)
         }
     }
 
-    /// An adapter may refuse a negative `instructionOffset`; the first window then starts
-    /// at the instruction pointer instead of failing the whole view.
-    private func request(
+    private func send(
+        _ plan: DebugDisassemblyFetch,
+        knownAddresses: [String],
         session: any DebugAdapterControllingSession,
+        paging: any DebugPagingPlanning,
         generation: Int,
-        reference: String,
-        offset: Int,
-        count: Int,
-        retriesForward: Bool,
-        onSuccess: @escaping ([DebugDisassembledInstruction]) -> Void,
-        onFailure: @escaping (Error) -> Void
+        onPage: @escaping ([DebugDisassembledInstruction], Bool) -> Void,
+        onFailure: @escaping (String) -> Void
     ) {
         session.requestDisassembly(
-            memoryReference: reference,
-            instructionOffset: offset,
-            instructionCount: count
+            memoryReference: plan.request.memoryReference,
+            instructionOffset: plan.request.instructionOffset,
+            instructionCount: plan.request.instructionCount
         ) { [weak self] result in
             guard let self, self.disassemblyGeneration == generation else { return }
+            let reply: DebugDisassemblyReply
+            var instructions: [DebugDisassembledInstruction] = []
             switch result {
-            case .success(let instructions):
-                // Adapters may pad a short window with empty invalid instructions. They
-                // are not addressable rows and must not become the next paging anchor.
-                onSuccess(instructions.filter {
-                    !$0.instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || !($0.instructionBytes ?? "").isEmpty
-                })
-            case .failure(let error):
-                if retriesForward, offset < 0 {
-                    self.request(
-                        session: session,
-                        generation: generation,
-                        reference: reference,
-                        offset: 0,
-                        count: count,
-                        retriesForward: false,
-                        onSuccess: onSuccess,
-                        onFailure: onFailure
-                    )
+            case .success(let values):
+                instructions = values
+                reply = .instructions(values)
+            case .failure(let error as DebugAdapterProtocolError):
+                if case .requestFailed(command: "disassemble", message: _) = error {
+                    reply = .rejected(error.localizedDescription)
                 } else {
-                    onFailure(error)
+                    reply = .failed(error.localizedDescription)
                 }
+            case .failure(let error):
+                // Transport failures, timeouts and cancellation keep their own message.
+                reply = .failed(error.localizedDescription)
+            }
+            let step: DebugDisassemblyStep
+            do {
+                step = try paging.reduceDisassemblyPage(plan, reply: reply, knownAddresses: knownAddresses)
+            } catch {
+                onFailure(error.localizedDescription)
+                return
+            }
+            switch step {
+            case .request(let next):
+                self.send(next, knownAddresses: knownAddresses, session: session, paging: paging,
+                          generation: generation, onPage: onPage, onFailure: onFailure)
+            case .page(let keep, let exhausted):
+                onPage(keep.compactMap { instructions.indices.contains($0) ? instructions[$0] : nil }, exhausted)
+            case .failed(let message):
+                onFailure(message)
             }
         }
     }

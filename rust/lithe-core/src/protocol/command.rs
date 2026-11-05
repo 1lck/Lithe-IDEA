@@ -234,6 +234,8 @@ pub enum CoreCommand {
     BuildSyncFingerprint,
     /// Maps build options to the Java language server's project import (`build.languageImport`).
     BuildLanguageImport,
+    /// Reduces a test run's termination and decoded summary to one verdict (`build.resolveTestRunOutcome`).
+    BuildResolveTestRunOutcome,
     /// Detects VCS roots and registered providers of a workspace (`vcs.detectRoots`).
     VcsDetectRoots,
     /// Assigns workspace paths to detected VCS roots (`vcs.ownerOf`).
@@ -366,6 +368,14 @@ pub enum CoreCommand {
     DebugSteppingFilters,
     /// Moves source breakpoints across one UTF-16 editor mutation (`debug.relocateBreakpoints`).
     DebugRelocateBreakpoints,
+    /// Plans the first page of one variable container (`debug.planVariablePage`).
+    DebugPlanVariablePage,
+    /// Merges one variable page into its paging cursor (`debug.reduceVariablePage`).
+    DebugReduceVariablePage,
+    /// Plans the first request of one disassembly fetch (`debug.planDisassemblyWindow`).
+    DebugPlanDisassemblyWindow,
+    /// Reduces one disassembly reply to the next bounded step (`debug.reduceDisassemblyPage`).
+    DebugReduceDisassemblyPage,
     /// Replaces breakpoints for one source file (`debug.setBreakpoints`).
     DebugSetBreakpoints,
     /// Replaces exception filters for one debug session (`debug.setExceptionBreakpoints`).
@@ -859,6 +869,7 @@ impl CoreCommand {
             "build.decodeDependencies" => Some(Self::BuildDecodeDependencies),
             "build.syncFingerprint" => Some(Self::BuildSyncFingerprint),
             "build.languageImport" => Some(Self::BuildLanguageImport),
+            "build.resolveTestRunOutcome" => Some(Self::BuildResolveTestRunOutcome),
             "vcs.detectRoots" => Some(Self::VcsDetectRoots),
             "vcs.ownerOf" => Some(Self::VcsOwnerOf),
             "vcs.decodeReply" => Some(Self::VcsDecodeReply),
@@ -926,6 +937,10 @@ impl CoreCommand {
             "debug.javaTestLaunch" => Some(Self::DebugJavaTestLaunch),
             "debug.steppingFilters" => Some(Self::DebugSteppingFilters),
             "debug.relocateBreakpoints" => Some(Self::DebugRelocateBreakpoints),
+            "debug.planVariablePage" => Some(Self::DebugPlanVariablePage),
+            "debug.reduceVariablePage" => Some(Self::DebugReduceVariablePage),
+            "debug.planDisassemblyWindow" => Some(Self::DebugPlanDisassemblyWindow),
+            "debug.reduceDisassemblyPage" => Some(Self::DebugReduceDisassemblyPage),
             "debug.setBreakpoints" => Some(Self::DebugSetBreakpoints),
             "debug.setExceptionBreakpoints" => Some(Self::DebugSetExceptionBreakpoints),
             "debug.setFunctionBreakpoints" => Some(Self::DebugSetFunctionBreakpoints),
@@ -1227,6 +1242,10 @@ mod tests {
             "debug.javaTestLaunch",
             "debug.steppingFilters",
             "debug.relocateBreakpoints",
+            "debug.planVariablePage",
+            "debug.reduceVariablePage",
+            "debug.planDisassemblyWindow",
+            "debug.reduceDisassemblyPage",
             "debug.setBreakpoints",
             "debug.setExceptionBreakpoints",
             "debug.setFunctionBreakpoints",

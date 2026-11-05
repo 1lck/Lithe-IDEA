@@ -89,6 +89,29 @@ fn agent_response<T: serde::de::DeserializeOwned>(
     }
 }
 
+/// Decodes a typed plan/reduce payload, runs the pure `operation` on it, and
+/// encodes its result; a payload that does not decode is `InvalidRequest`.
+fn reducer_response<T: serde::de::DeserializeOwned, R: serde::Serialize>(
+    id: Option<String>,
+    payload: serde_json::Value,
+    invalid_message: &str,
+    operation: fn(T) -> Result<R, CoreError>,
+) -> CoreResponse {
+    match serde_json::from_value::<T>(payload)
+        .map_err(|error| {
+            CoreError::new(ErrorCode::InvalidRequest, invalid_message)
+                .with_details(error.to_string())
+        })
+        .and_then(operation)
+    {
+        Ok(data) => CoreResponse::success(
+            id,
+            serde_json::to_value(data).expect("Reducer results always encode"),
+        ),
+        Err(error) => CoreResponse::failure(id, error),
+    }
+}
+
 /// Host detailed-diagnostics state; `roots: None` enables DEBUG for every root.
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -542,6 +565,12 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
             id,
             parsed.payload,
             crate::build::build_language_import_command,
+        ),
+        CoreCommand::BuildResolveTestRunOutcome => reducer_response(
+            id,
+            parsed.payload,
+            "Invalid test run outcome request",
+            crate::build::resolve_test_run_outcome,
         ),
         CoreCommand::VcsDetectRoots => {
             plugin_response(id, parsed.payload, crate::vcs::vcs_detect_roots_command)
@@ -1485,6 +1514,30 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::DebugPlanVariablePage => reducer_response(
+            id,
+            parsed.payload,
+            "Invalid debug variable page plan request",
+            crate::debug::plan_variable_page,
+        ),
+        CoreCommand::DebugReduceVariablePage => reducer_response(
+            id,
+            parsed.payload,
+            "Invalid debug variable page reduction request",
+            crate::debug::reduce_variable_page,
+        ),
+        CoreCommand::DebugPlanDisassemblyWindow => reducer_response(
+            id,
+            parsed.payload,
+            "Invalid debug disassembly window request",
+            crate::debug::plan_disassembly_window,
+        ),
+        CoreCommand::DebugReduceDisassemblyPage => reducer_response(
+            id,
+            parsed.payload,
+            "Invalid debug disassembly page reduction request",
+            crate::debug::reduce_disassembly_page,
+        ),
         CoreCommand::DebugRelocateBreakpoints => {
             match serde_json::from_value::<crate::debug::RelocateBreakpointsRequest>(parsed.payload)
                 .map_err(|error| {

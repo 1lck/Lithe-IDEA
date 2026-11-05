@@ -337,7 +337,7 @@ struct ExecutionModuleTests {
     @Test
     func backendTestsPreserveProjectIdentityAndRerunWithFreshFactsWithoutAHostProcess() async throws {
         var processes = 0
-        let service = LanguageTestService(executableResolver: TestExecutableResolver(), processFactory: {
+        let service = LanguageTestService(outcomeResolver: LinkedCoreTestRunOutcome(), executableResolver: TestExecutableResolver(), processFactory: {
             processes += 1; return TestStreamingProcess()
         })
         defer { service.reset() }
@@ -362,7 +362,7 @@ struct ExecutionModuleTests {
 
     @Test
     func backendReportsPreserveInvocationSummariesSourceLocationsAndOpaqueRerunReferences() async throws {
-        let service = LanguageTestService(executableResolver: TestExecutableResolver(), processFactory: { TestStreamingProcess() })
+        let service = LanguageTestService(outcomeResolver: LinkedCoreTestRunOutcome(), executableResolver: TestExecutableResolver(), processFactory: { TestStreamingProcess() })
         defer { service.reset() }
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -399,15 +399,17 @@ struct ExecutionModuleTests {
 
     @Test
     func genericReportHistoryNeverCrossesLanguageProviderBoundaries() async throws {
-        let service = LanguageTestService(executableResolver: TestExecutableResolver(), processFactory: { TestStreamingProcess() })
+        let service = LanguageTestService(outcomeResolver: LinkedCoreTestRunOutcome(), executableResolver: TestExecutableResolver(), processFactory: { TestStreamingProcess() })
         defer { service.reset() }
         func run(_ provider: String, status: BuildTestResults.TestCase.Status) async throws {
+            // RUN-03: a reported failure outranks exit code 0.
+            let expected: LanguageTestRunState = status == .passed ? .passed : .failed(exitCode: 0)
             let report = BuildTestResults(tests: [.init(suite: "Same", name: "checks", status: status)],
                 summary: .init(total: 1, passed: status == .passed ? 1 : 0, failed: status == .failed ? 1 : 0, errors: 0, skipped: 0), success: status == .passed)
             service.runUsingBackend(providerID: provider, scope: .workspace, workspaceURL: URL(fileURLWithPath: "/workspace"), label: "Tests") { _, _ in
                 LanguageTestBackendResult(exitCode: 0, reports: [report])
             }
-            try await awaitTestValue(service.$state) { $0 == .passed }
+            try await awaitTestValue(service.$state) { $0 == expected }
         }
         try await run("java", status: .failed)
         try await run("example", status: .passed)
@@ -420,16 +422,19 @@ struct ExecutionModuleTests {
 
     @Test
     func backendCoverageClearsRemovedClassMethodsButPreservesMethodSiblingsAndOtherProjects() async throws {
-        let service = LanguageTestService(executableResolver: TestExecutableResolver(), processFactory: { TestStreamingProcess() })
+        let service = LanguageTestService(outcomeResolver: LinkedCoreTestRunOutcome(), executableResolver: TestExecutableResolver(), processFactory: { TestStreamingProcess() })
         defer { service.reset() }
         func run(_ tests: [[String: String]], coverage: [[String: String]]? = nil) async throws {
+            // RUN-03: a run that executed no test is a failure, never a pass on exit code 0.
+            let expected: LanguageTestRunState = tests.isEmpty ? .failed(exitCode: 0) : .passed
             var json: [String: Any] = ["tests": tests, "summary": ["total": tests.count, "passed": tests.count, "failed": 0, "errors": 0, "skipped": 0], "success": true]
             if let coverage { json["coverage"] = coverage }
             let report = try JSONDecoder().decode(BuildTestResults.self, from: JSONSerialization.data(withJSONObject: json))
             service.runUsingBackend(providerID: "java", scope: .workspace, workspaceURL: URL(fileURLWithPath: "/workspace"), label: "Tests") { _, _ in
                 LanguageTestBackendResult(exitCode: 0, reports: [report])
             }
-            try await awaitTestValue(service.$state) { $0 == .passed }
+            try await awaitTestValue(service.$state) { $0 == expected }
+            #expect(service.errorMessage == (tests.isEmpty ? L10n.string("No tests were found.") : nil))
         }
         func test(_ project: String, _ method: String) -> [String: String] {
             ["project": project, "suite": "Same", "case": method, "status": "passed"]
@@ -445,7 +450,7 @@ struct ExecutionModuleTests {
 
     @Test
     func backendTestsIgnoreCancelledRequestsThatReturnAfterReplacement() async throws {
-        let service = LanguageTestService(executableResolver: TestExecutableResolver(), processFactory: { TestStreamingProcess() })
+        let service = LanguageTestService(outcomeResolver: LinkedCoreTestRunOutcome(), executableResolver: TestExecutableResolver(), processFactory: { TestStreamingProcess() })
         var observedProcesses: [Int32] = []
         let observation = service.$processID.sink { if let pid = $0 { observedProcesses.append(pid) } }
         defer { observation.cancel() }
@@ -1434,6 +1439,7 @@ struct ExecutionModuleTests {
         let builtInProcess = TestStreamingProcess()
         let extensionSession = TestLanguageExecutionSession()
         let service = LanguageTestService(
+            outcomeResolver: LinkedCoreTestRunOutcome(),
             catalog: .compatibilityFallback,
             registry: .standard(catalog: .compatibilityFallback),
             executableResolver: TestExecutableResolver(),
@@ -1492,7 +1498,7 @@ struct ExecutionModuleTests {
     @Test func testProcessIdentityRejectsOldRunsAndClearsOnStop() async throws {
         let root = URL(fileURLWithPath: "/workspace/test-performance")
         let process = TestStreamingProcess()
-        let service = LanguageTestService(executableResolver: TestExecutableResolver(), processFactory: { process })
+        let service = LanguageTestService(outcomeResolver: LinkedCoreTestRunOutcome(), executableResolver: TestExecutableResolver(), processFactory: { process })
         defer { service.reset() }
         #expect(service.run(providerID: "java", scope: .workspace, workspaceURL: root,
                             projectFiles: [root.appendingPathComponent("build.gradle")]))
@@ -1533,7 +1539,7 @@ struct ExecutionModuleTests {
             root.appendingPathComponent("package.json"), root.appendingPathComponent("sample.test.js"),
             root.appendingPathComponent("pyproject.toml"), root.appendingPathComponent("test_sample.py")]
         let report = try JSONDecoder().decode(BuildTestResults.self, from: Data(#"{"tests":[{"suite":"demo.FirstTest","case":"check","status":"passed"}],"summary":{"total":1,"passed":1,"failed":0,"errors":0,"skipped":0},"success":true}"#.utf8))
-        let service = LanguageTestService(executableResolver: TestExecutableResolver(), processFactory: { TestStreamingProcess() })
+        let service = LanguageTestService(outcomeResolver: LinkedCoreTestRunOutcome(), executableResolver: TestExecutableResolver(), processFactory: { TestStreamingProcess() })
         func run(_ scope: LanguageTestScope) {
             service.runUsingBackend(providerID: "java", scope: scope, workspaceURL: root, label: "Tests") { _, _ in
                 LanguageTestBackendResult(exitCode: 0, reports: [report])
@@ -1566,6 +1572,7 @@ struct ExecutionModuleTests {
         let files = [root.appendingPathComponent("build.gradle")]
         let process = TestStreamingProcess()
         let service = LanguageTestService(
+            outcomeResolver: LinkedCoreTestRunOutcome(),
             executableResolver: TestExecutableResolver(),
             processFactory: { process }
         )
@@ -1752,6 +1759,7 @@ struct ExecutionModuleTests {
         let graph = ExecutionFeatureGraph(
             run: service,
             tests: LanguageTestService(
+                outcomeResolver: LinkedCoreTestRunOutcome(),
                 catalog: .compatibilityFallback,
                 registry: LanguageTestProviderRegistry(providers: []),
                 executableResolver: resolver,
@@ -2141,6 +2149,7 @@ struct ExecutionModuleTests {
         let buildFile = root.appendingPathComponent("build.gradle")
         let process = TestStreamingProcess()
         let service = LanguageTestService(
+            outcomeResolver: LinkedCoreTestRunOutcome(),
             executableResolver: TestExecutableResolver(),
             processFactory: { process }
         )
@@ -2486,6 +2495,7 @@ private func makeTestGraph(
         languageRunProviders: .standard(catalog: .compatibilityFallback)
     )
     let tests = LanguageTestService(
+        outcomeResolver: LinkedCoreTestRunOutcome(),
         catalog: .compatibilityFallback,
         registry: LanguageTestProviderRegistry(providers: []),
         executableResolver: resolver,

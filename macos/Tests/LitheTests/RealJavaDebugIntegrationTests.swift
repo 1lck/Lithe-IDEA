@@ -117,7 +117,7 @@ struct RealJavaDebugIntegrationTests {
                 deadlineScheduler: MacDebugOperationDeadlineScheduler()
             )
         }
-        let feature = GenericDebugFeatureModel(sessions: debugManager)
+        let feature = GenericDebugFeatureModel(paging: RustCoreBridge(), sessions: debugManager)
         let debugTerminals = RealJavaDebugTerminalOwner(workspaceURL: rootURL)
         feature.onRunInTerminalRequest = debugTerminals.handle
         let portAllocator = MacJavaTestResultServer()
@@ -425,7 +425,7 @@ struct RealJavaDebugIntegrationTests {
                 deadlineScheduler: MacDebugOperationDeadlineScheduler()
             )
         }
-        let feature = GenericDebugFeatureModel(sessions: debugManager)
+        let feature = GenericDebugFeatureModel(paging: RustCoreBridge(), sessions: debugManager)
         let debugTerminals = RealJavaDebugTerminalOwner(workspaceURL: rootURL)
         feature.onRunInTerminalRequest = debugTerminals.handle
         let launchService = JavaTestDebugLaunchService(

@@ -761,6 +761,7 @@ final class MacServiceContainer {
                     let graph = ExecutionFeatureGraph(
                         run: runService,
                         tests: LanguageTestService(
+                            outcomeResolver: rustCore,
                             catalog: languagePackRegistry.catalog,
                             registry: languagePackRegistry.testProviders,
                             executableResolver: executableResolver,
@@ -924,6 +925,7 @@ final class MacServiceContainer {
                     debugAdapterSessionsBox.manager = adapterSessions
                     let graph = DebugFeatureGraph(
                         adapterSessions: adapterSessions,
+                        paging: rustCore,
                         logSink: logSink,
                         breakpointPersistence: debugBreakpointStore,
                         breakpointRelocator: rustCore,

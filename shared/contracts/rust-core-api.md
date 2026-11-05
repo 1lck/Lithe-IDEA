@@ -1198,6 +1198,10 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `debug.javaTestLaunch` | Normalize JUnit or TestNG launch metadata into Java DAP arguments |
 | `debug.steppingFilters` | Return adapter defaults or normalize portable stepping filters |
 | `debug.relocateBreakpoints` | Move source breakpoints across one exact UTF-16 editor replacement |
+| `debug.planVariablePage` | Plan the first bounded `variables` page of one scope or structured variable from its reported counts |
+| `debug.reduceVariablePage` | Merge one returned variable page into its cursor and decide whether the container is exhausted |
+| `debug.planDisassemblyWindow` | Plan the first `disassemble` request of the window around the instruction pointer or one listed edge |
+| `debug.reduceDisassemblyPage` | Reduce one `disassemble` reply to the next bounded recovery request, a deduplicated page, or the adapter's failure |
 | `debug.setBreakpoints` | Replace and deterministically order one source's DAP breakpoints |
 | `debug.setExceptionBreakpoints` | Replace and deterministically order one session's exception filters |
 | `debug.setFunctionBreakpoints` | Replace and deterministically order one session's named function breakpoints |
@@ -1419,6 +1423,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.decodeDependencies` | Decode dependency output or a provider result into one project's bounded tree |
 | `build.syncFingerprint` | Digest the files a build model depends on, to tell whether it is stale |
 | `build.languageImport` | Map a build system's options to the Java language server's Maven or Gradle project import |
+| `build.resolveTestRunOutcome` | Reduce a test run's termination, selected scope and decoded summary to one tool-neutral verdict |
 | `vcs.detectRoots` | Find the VCS roots of a workspace from static markers, with registered providers, ambiguous directories, and applied mappings |
 | `vcs.ownerOf` | Assign workspace paths to the detected root that owns each |
 | `vcs.decodeReply` | Validate a VCS provider's reply and return the normalized result |
@@ -6065,6 +6070,57 @@ versions are rejected without numeric narrowing. The native adapter owns bounded
 read-only package boundaries, optimistic comparison, metadata-preserving atomic replacement and
 read-back. No editor command discovers or executes tools. Global defaults and complete one-time
 legacy migration remain incomplete; these APIs alone do not complete Stage D.
+
+### Test run verdict
+
+`build.resolveTestRunOutcome` takes `{ termination, scope, summary? }`, where
+`termination` is `{ kind: "exited", exitCode }`, `{ kind: "timedOut" }` or
+`{ kind: "cancelled" }`, `scope` is `workspace`, `project`, `suite` or `case`,
+and `summary` is the `{ total, passed?, failed?, errors?, skipped? }` the
+provider's decoded results reported, or `null` when the run has no structured
+results. It returns `{ outcome, success, exitCode }` with `outcome` one of
+`passed`, `testsFailed`, `exitedWithError`, `noTestsMatched` (an explicit suite
+or case ran nothing), `noTestsFound` (a project or workspace scope ran nothing),
+`timedOut` or `cancelled`. Interruptions never claim a test outcome, reported
+failures outrank the exit code, a non-zero exit outranks an empty result, and a
+zero exit with decoded results but no executed test is not a pass. Counts that
+exceed `total` are `InvalidRequest`. No tool or selector syntax is interpreted.
+Hosts localize the outcome. Cases: `shared/fixtures/build/test-run-outcome-v1.json`.
+
+### Variable and disassembly paging
+
+`debug.planVariablePage { variablesReference, namedVariables?, indexedVariables?, pageSize }`
+returns a cursor `{ variablesReference, pageSize, segments, loadedPages, next? }`.
+Named children page before indexed ones; without counts the container pages
+unfiltered until a short page. `next` is the `{ filter?, start, count, remainingCount? }`
+to send as `debug.inspect` `variableFilter`/`start`/`count`; it is absent once the
+container is exhausted. `debug.reduceVariablePage { state, requested, page, newItemCount }`
+takes the page's `{ name, value, type?, evaluateName?, variablesReference }`
+identities and how many of them the host did not already show, and returns
+`{ accept, state }`. `accept: false` means the host drops the page: it answers an
+older cursor or repeats a page (an adapter that ignores `start`). Paging stops on
+an oversized page, a page of only known children, the reported count, or a short
+page without a count. Hosts keep the page size, expansion and child identity.
+Cases: `shared/fixtures/debug/variable-page-plan-v1.json`.
+
+`debug.planDisassemblyWindow { direction, reference, count, instructionsBefore? }`
+returns a fetch whose `request` is the exact DAP `disassemble` arguments;
+`direction` is `around` (the first window, `instructionsBefore` of `count` above
+the instruction pointer), `before` or `after` (one listed edge).
+`debug.reduceDisassemblyPage { fetch, reply, knownAddresses? }` takes the reply as
+`{ kind: "instructions", instructions: [{ address, instruction, instructionBytes? }] }`,
+`{ kind: "rejected", message }` (the adapter answered `success: false`) or
+`{ kind: "failed", message }` (transport, timeout, cancellation) and returns
+`{ kind: "request", fetch }`, `{ kind: "page", keep, exhausted }` or
+`{ kind: "failed", message }`. `keep` indexes the reply's addressable
+instructions (empty padding removed) not already in `knownAddresses`, compared
+as canonical address text. A refused first window with a negative offset is
+retried from the instruction pointer; a refused edge page is halved down to one
+instruction, then the known edge is probed: only an edge that still
+disassembles ends the direction (`exhausted`), otherwise the refused window's
+message is returned. Transport failures are never treated as a boundary.
+Addresses are never parsed or offset by Core or hosts. Hosts keep the viewport,
+scroll anchor and rendering. Cases: `shared/fixtures/debug/disassembly-paging-v1.json`.
 
 ### Windows source-breakpoint relocation
 

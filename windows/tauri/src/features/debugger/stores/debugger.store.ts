@@ -1,6 +1,7 @@
 import { debugSourcePathKey } from "../utils/debug-source-path";
 import { create } from "zustand";
 import { createSelectors } from "@/utils/zustand-selectors";
+import type { VariablePageCursor } from "../api/variable-paging-api";
 import type {
   DebugBreakpoint,
   DebugLaunchConfig,
@@ -40,6 +41,8 @@ interface DebuggerState {
   selectedFrameId: number | null;
   scopes: DebugScope[];
   variablesByReference: Record<number, DebugVariable[]>;
+  /** Core-owned paging cursors of containers that still have children to load. */
+  variablePageCursors: Record<number, VariablePageCursor>;
   stoppedState: DebugStoppedState | null;
   pendingRequests: Record<string, DebugRequestContext>;
   actions: {
@@ -70,6 +73,8 @@ interface DebuggerState {
     selectStackFrame: (frameId: number | null) => void;
     setScopes: (scopes: DebugScope[]) => void;
     setVariables: (variablesReference: number, variables: DebugVariable[]) => void;
+    appendVariables: (variablesReference: number, variables: DebugVariable[]) => void;
+    setVariablePageCursor: (variablesReference: number, cursor: VariablePageCursor | null) => void;
     setStoppedState: (stoppedState: DebugStoppedState | null) => void;
     clearAdapterTranscript: () => void;
     getBreakpointsForFile: (filePath: string) => DebugBreakpoint[];
@@ -171,6 +176,7 @@ export const useDebuggerStore = createSelectors(
     selectedFrameId: null,
     scopes: [],
     variablesByReference: {},
+    variablePageCursors: {},
     stoppedState: null,
     pendingRequests: {},
     actions: {
@@ -347,6 +353,7 @@ export const useDebuggerStore = createSelectors(
           selectedFrameId: null,
           scopes: [],
           variablesByReference: {},
+          variablePageCursors: {},
           watchResults: {},
           stoppedState: null,
           pendingRequests: {},
@@ -441,6 +448,27 @@ export const useDebuggerStore = createSelectors(
         }));
       },
 
+      appendVariables: (variablesReference, variables) => {
+        set((state) => ({
+          variablesByReference: {
+            ...state.variablesByReference,
+            [variablesReference]: [
+              ...(state.variablesByReference[variablesReference] ?? []),
+              ...variables,
+            ],
+          },
+        }));
+      },
+
+      setVariablePageCursor: (variablesReference, cursor) => {
+        set((state) => {
+          const { [variablesReference]: _dropped, ...rest } = state.variablePageCursors;
+          return {
+            variablePageCursors: cursor?.next ? { ...rest, [variablesReference]: cursor } : rest,
+          };
+        });
+      },
+
       setStoppedState: (stoppedState) => {
         set((state) => {
           const shouldClearInspection =
@@ -455,6 +483,7 @@ export const useDebuggerStore = createSelectors(
                 selectedFrameId: null,
                 scopes: [],
                 variablesByReference: {},
+                variablePageCursors: {},
                 watchResults: {},
                 pendingRequests: {},
               }
