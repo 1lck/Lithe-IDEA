@@ -6,22 +6,29 @@
 //! and a callee may call back into another plugin while serving, so a session
 //! thread must never write to a second session itself: two sessions doing that
 //! to each other would each wait for the other's write lock. Every effect on
-//! a session therefore goes through one worker thread that holds no session
-//! lock while it waits. The relay's own lock is a leaf: sessions may take it
+//! a session therefore goes through the relay's threads, which hold no session
+//! lock while they wait. The relay's own lock is a leaf: sessions may take it
 //! while holding their locks, and it never takes a session lock while held.
+//!
+//! The main worker only plans: it decides which action comes next and which
+//! session it concerns, but it never writes. Each session has its own lane, a
+//! thread that performs the writes to that session in order. A backend that
+//! stops reading its stdin therefore stalls only its own lane, and the write
+//! is bounded by the session's request timeout (`bounded_relay_write`), after
+//! which the session fails and its process is killed. One such backend cannot
+//! hold up the calls of other plugins.
 
 use super::super::function_relay::{
-    CalleeOutcome, DispatchPlan, FunctionRelay, RelayAction, RelayFailure, RelayRequest,
-    RelaySnapshot, OPERATION_PREFIX,
+    CallParent, CalleeOutcome, DispatchPlan, FunctionRelay, RelayAction, RelayFailure,
+    RelayRequest, RelaySnapshot, OPERATION_PREFIX,
 };
 use super::super::plugin_function::{
     bounded_host_message, codes, host_rpc_code, FunctionReference, FUNCTIONS_INVOKE,
     FUNCTIONS_PROVIDERS, INVOKE_METHOD,
 };
 use super::{
-    enqueue_runtime_event, json_rpc_error_with_data, json_rpc_result, take_sequence,
-    LspLifecycleState, LspRuntimeError, LspRuntimeEvent, PluginFunctionRequest, RuntimeSession,
-    SessionState,
+    json_rpc_error_with_data, json_rpc_result, push_negotiated_provider_event, LspLifecycleState,
+    LspRuntimeError, PluginFunctionRequest, RuntimeSession, SessionState,
 };
 use crate::protocol::{CoreError, ErrorCode};
 use serde_json::{json, Value};
@@ -67,9 +74,14 @@ impl RelayHub {
     /// Answers one request a plugin backend made with `lithe/host/functions/*`.
     /// Returns the messages to write to that backend now; an admitted call
     /// has none, because its answer comes when the callee finishes.
+    ///
+    /// `state` is that backend's session state, which the caller already holds
+    /// locked: it is how a call that names its parent is checked against the
+    /// calls this backend is serving, without locking the session again.
     pub(super) fn answer_request(
         &self,
         session: &RuntimeSession,
+        state: &SessionState,
         method: &str,
         request: &Value,
     ) -> Result<Vec<String>, CoreError> {
@@ -86,7 +98,7 @@ impl RelayHub {
         };
         let outcome = match method {
             FUNCTIONS_PROVIDERS => self.providers(caller_plugin, params),
-            FUNCTIONS_INVOKE => match self.admit(session, caller_plugin, &rpc_id, params) {
+            FUNCTIONS_INVOKE => match self.admit(session, state, caller_plugin, &rpc_id, params) {
                 Ok(()) => return Ok(Vec::new()),
                 Err(failure) => Err(failure),
             },
@@ -106,6 +118,7 @@ impl RelayHub {
     fn admit(
         &self,
         session: &RuntimeSession,
+        state: &SessionState,
         caller_plugin: &str,
         rpc_id: &Value,
         params: &Value,
@@ -122,6 +135,7 @@ impl RelayHub {
                 .get("timeoutMilliseconds")
                 .and_then(Value::as_u64)
                 .map(Duration::from_millis),
+            parent: call_parent(state, params),
         };
         let actions = self.lock().admit(request, Instant::now())?;
         self.send(actions);
@@ -182,39 +196,47 @@ impl RelayHub {
         }
         let sender = self.actions.lock().unwrap_or_else(PoisonError::into_inner);
         for action in actions {
-            // A closed queue means the worker ended with the engine.
+            // log-exempt: A closed queue means the worker ended with the engine, so nothing is left to carry out the action.
             let _ = sender.send(action);
         }
     }
 
-    fn perform(&self, sessions: &SessionMap, action: RelayAction) {
+    /// Ends a call the relay admitted but could not write to its provider.
+    fn dispatch_failed(&self, call_id: u64, failure: RelayFailure) {
+        let actions = self.lock().dispatch_failed(call_id, failure);
+        self.send(actions);
+    }
+
+    /// Carries out one action on the main worker. It plans only: every write
+    /// to a session is handed to that session's lane, so this thread never
+    /// waits on a backend's stdin.
+    fn perform(&self, sessions: &SessionMap, lanes: &mut Lanes, action: RelayAction) {
         match action {
             RelayAction::Reply {
                 session_id,
                 rpc_id,
                 outcome,
             } => {
-                // The caller may have stopped meanwhile; nobody is left to answer.
-                if let Some(session) = find_session(sessions, &session_id) {
-                    let _ = session.relay_reply(&rpc_id, &outcome);
-                }
+                // The caller may have stopped meanwhile; the lane drops the
+                // answer when nobody is left to receive it.
+                lanes.post(sessions, &session_id, LaneWork::Reply { rpc_id, outcome });
             }
             RelayAction::CancelCallee {
                 session_id,
                 operation_id,
             } => {
-                // The callee may already have finished the operation.
-                if let Some(session) = find_session(sessions, &session_id) {
-                    let _ = session.cancel_operation(&operation_id);
-                }
+                // The callee may already have finished the operation; the lane
+                // ignores a cancel that finds nothing to cancel.
+                lanes.post(sessions, &session_id, LaneWork::Cancel { operation_id });
             }
-            RelayAction::Dispatch { call_id } => self.dispatch(sessions, call_id),
+            RelayAction::Dispatch { call_id } => self.dispatch(sessions, lanes, call_id),
         }
     }
 
-    /// Sends one admitted call to a ready backend of the callee plugin, or
-    /// records that none exists yet.
-    fn dispatch(&self, sessions: &SessionMap, call_id: u64) {
+    /// Picks a ready backend of the callee plugin for one admitted call and
+    /// hands the invoke to that backend's lane, or records that no backend
+    /// exists yet.
+    fn dispatch(&self, sessions: &SessionMap, lanes: &mut Lanes, call_id: u64) {
         let Some(plan) = self.lock().dispatch_plan(call_id, Instant::now()) else {
             return;
         };
@@ -228,7 +250,7 @@ impl RelayHub {
             return;
         };
         let operation_id = format!("{OPERATION_PREFIX}{call_id}");
-        // Recorded before the request is written, so an answer that arrives
+        // Recorded before the request is posted, so an answer that arrives
         // at once still finds its call.
         if !self.lock().started(call_id, &provider.id, &operation_id) {
             return;
@@ -245,13 +267,15 @@ impl RelayHub {
             timeout_milliseconds: Some(milliseconds),
             context: Some(plan.context),
         };
-        let caller = Some(plan.caller_plugin.as_str());
-        if let Err(error) = provider.function_request(request, operation_id, caller) {
-            let actions = self
-                .lock()
-                .dispatch_failed(call_id, dispatch_failure(&error));
-            self.send(actions);
-        }
+        // The provider's lane writes the request. If that write fails, the
+        // lane ends the call.
+        let work = LaneWork::Invoke {
+            call_id,
+            request,
+            operation_id,
+            caller_plugin: plan.caller_plugin,
+        };
+        lanes.post(sessions, &provider.id, work);
     }
 
     /// Parks the call until a backend is ready, and asks the host to start
@@ -279,17 +303,159 @@ impl RelayHub {
     }
 }
 
-/// Runs relay actions in order until the engine is gone.
+/// Plans relay actions in order until the engine is gone. The worker owns the
+/// lanes, so its own thread is never the one that writes to a backend.
 fn run_worker(
     hub: Weak<RelayHub>,
     sessions: Weak<SessionMap>,
     actions: mpsc::Receiver<RelayAction>,
 ) {
+    let mut lanes = Lanes::new(hub.clone(), sessions.clone());
     for action in actions {
         let (Some(hub), Some(sessions)) = (hub.upgrade(), sessions.upgrade()) else {
             return;
         };
-        hub.perform(&sessions, action);
+        hub.perform(&sessions, &mut lanes, action);
+    }
+}
+
+/// Work the main relay worker hands to one session's lane. The lane performs
+/// it in the order it arrived, because later work may depend on earlier work:
+/// a cancel follows the invoke it cancels.
+enum LaneWork {
+    /// Answer a `lithe/host/functions/*` request that this session's plugin
+    /// backend made.
+    Reply {
+        rpc_id: Value,
+        outcome: Result<Value, RelayFailure>,
+    },
+    /// Cancel one relayed call this session is serving.
+    Cancel { operation_id: String },
+    /// Write one admitted call to this session, the provider that serves it.
+    Invoke {
+        /// The relay's ID of the call, to end it if the write fails.
+        call_id: u64,
+        request: PluginFunctionRequest,
+        /// The callee-side operation ID the relay recorded for the call.
+        operation_id: String,
+        /// The plugin whose call this is, which the provider sees as the caller.
+        caller_plugin: String,
+    },
+}
+
+impl LaneWork {
+    /// Drops work whose session is gone. A reply or cancel has nobody left to
+    /// tell, but an invoke has a caller waiting, so its call ends.
+    fn abandon(self, hub: &RelayHub) {
+        if let Self::Invoke { call_id, .. } = self {
+            hub.dispatch_failed(call_id, provider_unavailable());
+        }
+    }
+}
+
+/// The lanes the main worker owns, keyed by session ID. A lane ends after it
+/// drains its queue once its sender is dropped here.
+struct Lanes {
+    /// What a new lane needs to reach the hub and the sessions. Lanes hold
+    /// only weak references, so they end with the engine.
+    hub: Weak<RelayHub>,
+    sessions: Weak<SessionMap>,
+    senders: BTreeMap<String, mpsc::Sender<LaneWork>>,
+}
+
+impl Lanes {
+    fn new(hub: Weak<RelayHub>, sessions: Weak<SessionMap>) -> Self {
+        Self {
+            hub,
+            sessions,
+            senders: BTreeMap::new(),
+        }
+    }
+
+    /// Queues `work` on the lane of `session_id`, starting the lane the first
+    /// time the session needs one. Lanes of sessions that have left the
+    /// session map are released first, so their threads end.
+    fn post(&mut self, sessions: &SessionMap, session_id: &str, work: LaneWork) {
+        let session_present = {
+            let sessions = sessions.lock().unwrap_or_else(PoisonError::into_inner);
+            self.senders.retain(|id, _| sessions.contains_key(id));
+            sessions.contains_key(session_id)
+        };
+        if !session_present {
+            self.abandon(work);
+            return;
+        }
+        let (hub, lane_sessions) = (&self.hub, &self.sessions);
+        let sender = self
+            .senders
+            .entry(session_id.to_string())
+            .or_insert_with(|| {
+                let (sender, receiver) = mpsc::channel();
+                let (hub, sessions) = (hub.clone(), lane_sessions.clone());
+                let session_id = session_id.to_string();
+                thread::spawn(move || run_lane(hub, sessions, session_id, receiver));
+                sender
+            });
+        if let Err(mpsc::SendError(work)) = sender.send(work) {
+            // The lane ended without its sender being dropped. Forget it, so
+            // the next post starts a new lane.
+            self.senders.remove(session_id);
+            self.abandon(work);
+        }
+    }
+
+    /// Handles work that cannot reach its session; see `LaneWork::abandon`.
+    fn abandon(&self, work: LaneWork) {
+        if let Some(hub) = self.hub.upgrade() {
+            work.abandon(&hub);
+        }
+    }
+}
+
+/// Performs the writes to one session in order. This thread alone waits on
+/// the session's stdin, and each write is bounded by `bounded_relay_write`.
+/// It ends once the engine is gone or the main worker released the lane.
+fn run_lane(
+    hub: Weak<RelayHub>,
+    sessions: Weak<SessionMap>,
+    session_id: String,
+    queue: mpsc::Receiver<LaneWork>,
+) {
+    for work in queue {
+        let (Some(hub), Some(sessions)) = (hub.upgrade(), sessions.upgrade()) else {
+            return;
+        };
+        let Some(session) = find_session(&sessions, &session_id) else {
+            work.abandon(&hub);
+            continue;
+        };
+        match work {
+            LaneWork::Invoke {
+                call_id,
+                request,
+                operation_id,
+                caller_plugin,
+            } => {
+                // The call may have ended while it waited behind earlier work.
+                if !hub.lock().is_running(call_id) {
+                    continue;
+                }
+                let written = session.bounded_relay_write(|| {
+                    session.function_request(request, operation_id, Some(caller_plugin.as_str()))
+                });
+                if let Err(error) = written {
+                    hub.dispatch_failed(call_id, dispatch_failure(&error));
+                }
+            }
+            LaneWork::Reply { rpc_id, outcome } => {
+                // log-exempt: A write failure is already recorded by send_messages_or_fail; any other failure means the caller session is unusable and nobody is left to answer.
+                let _ = session.bounded_relay_write(|| session.relay_reply(&rpc_id, &outcome));
+            }
+            LaneWork::Cancel { operation_id } => {
+                // log-exempt: The operation may already have finished; nothing is left to cancel.
+                let _ = session.bounded_relay_write(|| session.cancel_operation(&operation_id));
+            }
+        }
     }
 }
 
@@ -339,10 +505,49 @@ fn dispatch_failure(error: &CoreError) -> RelayFailure {
             codes::NOT_EXPORTED,
             "The plugin has not registered this function.",
         ),
-        _ => RelayFailure::new(
-            codes::PROVIDER_UNAVAILABLE,
-            "The plugin could not take the call.",
-        ),
+        _ => provider_unavailable(),
+    }
+}
+
+/// The failure of a call whose provider's session cannot take it, because the
+/// session is gone, not ready, or refused the write.
+fn provider_unavailable() -> RelayFailure {
+    RelayFailure::new(
+        codes::PROVIDER_UNAVAILABLE,
+        "The plugin could not take the call.",
+    )
+}
+
+/// Which call a new `lithe/host/functions/invoke` was made while serving, as
+/// the request's `parentOperationID` names it. The backend sends the wire
+/// `operationID` of the `lithe/function/invoke` the engine wrote to it. That
+/// ID is also the key of the invoke in `state.pending`, so the session's own
+/// table proves both that the call is still running and that this backend is
+/// the one serving it.
+fn call_parent(state: &SessionState, params: &Value) -> CallParent {
+    let Some(named) = params.get("parentOperationID") else {
+        return CallParent::Unstated;
+    };
+    // The request's shape was checked before it reached the relay, so a value
+    // that is not a string cannot name a call that is running.
+    let Some(wire_id) = named.as_str() else {
+        return CallParent::Ended;
+    };
+    let Some(pending) = state
+        .pending
+        .get(wire_id)
+        .filter(|pending| pending.method == INVOKE_METHOD)
+    else {
+        return CallParent::Ended;
+    };
+    match pending.operation_id.as_deref() {
+        // A relayed call: its operation ID carries the relay's call ID.
+        Some(operation_id) if is_relay_operation_id(operation_id) => operation_id
+            .strip_prefix(OPERATION_PREFIX)
+            .and_then(|call_id| call_id.parse::<u64>().ok())
+            .map_or(CallParent::Ended, CallParent::Relay),
+        // A call the host started, which is not part of a relay chain.
+        _ => CallParent::Root,
     }
 }
 
@@ -442,6 +647,22 @@ impl RuntimeSession {
             && state.client.plugin_functions.contains(function_id)
     }
 
+    /// Runs one write the relay's lane makes to this session, and bounds how
+    /// long it may take. The session monitor fails the session and kills its
+    /// process when the write is still running after the session's request
+    /// timeout, which releases a write blocked on a backend that stopped
+    /// reading its stdin. `write` runs with no session lock held.
+    fn bounded_relay_write<T>(&self, write: impl FnOnce() -> T) -> T {
+        if let Ok(mut state) = self.lock_state() {
+            state.relay_write_deadline = Some(Instant::now() + state.request_timeout);
+        }
+        let result = write();
+        if let Ok(mut state) = self.lock_state() {
+            state.relay_write_deadline = None;
+        }
+        result
+    }
+
     /// Writes the answer to a `lithe/host/functions/*` request this plugin
     /// backend made earlier.
     fn relay_reply(
@@ -464,38 +685,13 @@ impl RuntimeSession {
 }
 
 /// The `functionProviderStartRequired` event: a call waits for the plugin's
-/// backend, and the host should start it if it can.
+/// backend, and the host should start it if it can. Like the provider events
+/// it carries only its kind and a result, so it shares their builder.
 fn push_provider_start_event(session: &RuntimeSession, state: &mut SessionState, plugin_id: &str) {
-    let sequence = take_sequence(state);
-    enqueue_runtime_event(
+    push_negotiated_provider_event(
         session,
         state,
-        LspRuntimeEvent {
-            kind: "functionProviderStartRequired".to_string(),
-            channel: None,
-            plugin_id: None,
-            role: None,
-            event: None,
-            fields: None,
-            catalog_level: None,
-            sequence,
-            provider_id: session.provider_id.clone(),
-            session_id: session.id.clone(),
-            state: None,
-            operation_id: None,
-            method: None,
-            uri: None,
-            version: None,
-            diagnostics: None,
-            result: Some(json!({ "pluginID": plugin_id })),
-            error: None,
-            capabilities: None,
-            server_info: None,
-            level: None,
-            message: None,
-            detail: None,
-            maven_profile_project: None,
-            maven_profile_task: None,
-        },
+        json!({ "pluginID": plugin_id }),
+        "functionProviderStartRequired",
     );
 }

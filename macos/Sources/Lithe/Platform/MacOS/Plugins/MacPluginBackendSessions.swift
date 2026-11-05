@@ -577,6 +577,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
     }
 
     private static func pluginFunctionDeclaration(ofManifest manifest: Data) -> PluginFunctionDeclaration? {
+        // log-exempt: Core 已校验过清单；解码失败只会让该插件不进中转快照
         try? JSONDecoder().decode(PluginFunctionsManifest.self, from: manifest).pluginFunctions
     }
 

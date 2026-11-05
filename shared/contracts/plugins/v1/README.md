@@ -2879,13 +2879,17 @@ methods the session may call under the `functions` service.
 | Request | Params | Result |
 | --- | --- | --- |
 | `lithe/host/functions/providers` | `{ functionID }` | `{ providers: [{ pluginID, version }] }` |
-| `lithe/host/functions/invoke` | `{ pluginID, functionID, context: { contextID, generation }, params?, timeoutMilliseconds? }` | `{ value }` |
+| `lithe/host/functions/invoke` | `{ pluginID, functionID, context: { contextID, generation }, params?, timeoutMilliseconds?, parentOperationID? }` | `{ value }` |
 
 - `providers` lists the enabled plugins other than the caller that export
-  `functionID`, sorted by plugin ID, each with its exported `version`. It
-  reflects installs, updates, uninstalls and disabling at once. The caller
-  must have declared the function, otherwise `plugin.function.notDeclared`.
-  A listed provider's backend need not be running.
+  `functionID`, sorted by plugin ID, each with its exported `version`.
+  Disabling, enabling, replacing and uninstalling a plugin take effect for
+  the list at once; a host that registers backend plugins only when it
+  launches (macOS today) lists a newly installed or updated backend plugin
+  only after a restart of Lithe (see [Hot activation](#hot-activation)). The
+  caller must have declared the function, otherwise
+  `plugin.function.notDeclared`. A listed provider's backend need not be
+  running.
 - `invoke` calls one provider. `context` is required: a workspace context
   the caller learned from the [workspace service](#workspace-contexts-and-capability-discovery-protocol-version-3),
   checked like every call context. `params` is a JSON object and defaults
@@ -2893,6 +2897,15 @@ methods the session may call under the `functions` service.
   and is capped at 600 000. A field the method does not define is `-32018`,
   `plugin.host.unsupportedOption`. The reply is `{ value }`, where `value`
   is the provider's result (`null` is a result).
+- `parentOperationID` is optional: a string of 1 to 128 bytes, otherwise
+  `-32602`, `plugin.host.invalidParams`. A backend that makes a nested call
+  while it serves a relayed call sets it to the `operationID` of the
+  `lithe/function/invoke` it is serving (the field shown in
+  [The caller field](#the-caller-field)), so Core knows which call the new
+  one belongs to. Its effects are described in
+  [The call chain](#the-call-chain). A backend should always set it: without
+  it Core treats the new call as a child of every relayed call the backend is
+  serving.
 - The caller cancels a call with `$/cancelRequest` for its `invoke` request
   id; it fails with `plugin.host.cancelled`.
 
@@ -2908,6 +2921,7 @@ the provider; the first failing check wins:
 | The context is open, and has this generation | `plugin.host.contextExpired` |
 | The context is a local workspace | `plugin.host.authorityUnsupported` |
 | The params are at most 256 KiB | `plugin.function.payloadTooLarge` |
+| The call named by `parentOperationID` is still running | `plugin.host.cancelled` |
 | The provider is not on the call chain, the caller included | `plugin.function.callCycle` |
 | The chain has at most 4 calls | `plugin.function.depthExceeded` |
 | The caller has at most 8 relayed calls running | `plugin.function.tooManyCalls` |
@@ -2920,12 +2934,20 @@ provider's own `error.data.code`. A reply with no `result`, or with one over
 1 MiB serialized, is `plugin.function.invalidResult` (`-32071`); any other
 result over 256 KiB is `plugin.function.payloadTooLarge`. Neither number is
 `-32603`, which stays `plugin.host.failed`, a failure inside Core. The relay's deadline passing is
-`plugin.host.timeout`. A provider whose backend exits, or that withdraws
+`plugin.host.timeout`. A call that is running normally ends through the
+provider session's own timeout; if the provider has still not answered 2
+seconds after the deadline, the relay ends the call with
+`plugin.host.timeout` itself and cancels the provider's operation. A
+provider whose backend exits, or that withdraws
 the function, while the call runs ends it with
 `plugin.function.providerUnavailable`; a provider that is disabled or
 uninstalled, or whose update stops exporting the function or changes its
 version, ends it with `plugin.function.providerDisabled`. A caller whose
 update stops declaring the call ends it with `plugin.function.notDeclared`.
+A workspace context that the host closes, or replaces with a newer
+generation, ends the relayed calls that carry it with
+`plugin.host.contextExpired`: both the calls still waiting for a provider and
+the calls already running, whose provider also receives `$/cancelRequest`.
 Core never restarts a backend or retries a call to finish one.
 
 `fixtures/backend/function-protocol.json` holds the cases: the host requests
@@ -2934,17 +2956,41 @@ Core never restarts a backend or retries a call to finish one.
 
 #### The call chain
 
-Core records the chain a call belongs to: a call made by a provider while it
-serves a relayed call extends that call's chain. A call to a plugin already on
-the chain, including a plugin calling itself, is `plugin.function.callCycle`:
-the plugin on the chain is waiting for the call that would reach it. A chain
-has at most 4 calls. So a provider that is asked to apply values must not
-call back the plugin that asked inside that call; it records the values, or
-calls after the call ends.
+Core records the chain a call belongs to. A provider that makes a call while it
+serves a relayed call names that call in `parentOperationID`. The new call is
+then a child of that call only:
 
-Cancelling a call, or the end of its caller's session, cancels the calls the
-provider made while serving it, down the chain, and each provider receives
-`$/cancelRequest`. The relay never retries a call.
+- Its chain is the chain of that call plus the caller.
+- Cancelling that call, its timing out, or its ending cancels the new call.
+
+A call to a plugin already on the chain, including a plugin calling itself, is
+`plugin.function.callCycle`: the plugin on the chain is waiting for the call
+that would reach it. A chain has at most 4 calls. So a provider that is asked
+to apply values must not call back the plugin that asked inside that call; it
+records the values, or calls after the call ends.
+
+- If `parentOperationID` names a call the host started directly, not a relayed
+  one, the new call starts a new chain.
+- If it names a call this backend is not serving (one that has finished, or
+  one that never existed), the call is refused with `plugin.host.cancelled`
+  and the message "The call this request belongs to is not running."
+- If it is omitted, the call counts as a child of every relayed call the
+  backend is serving at that moment. This is kept for compatibility with
+  backends written before the field; SDKs should always fill it in.
+
+Cancelling a call, its timing out or ending, or the end of its caller's
+session, cancels the calls made as its children, down the chain, and each
+provider receives `$/cancelRequest`. The relay never retries a call.
+
+#### Isolation between backends
+
+Core writes to each backend session through a queue of its own. A backend
+that stops reading its standard
+input only delays the calls and replies sent to it; the relayed calls of other
+plugins continue. If a write to a backend stays blocked past the request
+timeout, Core ends that backend's session as a transport failure
+(`transportFailed`, stage `relayWrite`), and the calls of that session end like
+those of any session failure.
 
 #### The caller field
 
@@ -2995,12 +3041,17 @@ still run on the machine that runs Lithe.
 
 #### Hot activation
 
-Installing, updating, uninstalling, enabling or disabling a plugin changes
-`providers` immediately and needs no restart of Lithe or of any other plugin.
+Disabling, enabling, replacing and uninstalling a plugin take effect for the
+relay at once and need no restart of Lithe or of any other plugin.
 The host sends the plugin and workspace-context snapshot with the Core
 command `lsp.configureFunctionRelay`
 ([Rust Core API](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/rust-core-api.md)),
 and calls the new snapshot no longer allows end at once with the errors above.
+
+Installing or updating a plugin that has a backend is different on a host that
+registers backend plugins only when it launches (macOS today): that host lists
+a newly installed or updated backend plugin in `providers` only after a
+restart of Lithe.
 
 
 ### Compatibility

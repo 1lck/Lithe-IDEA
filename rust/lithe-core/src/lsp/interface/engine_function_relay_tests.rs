@@ -201,6 +201,17 @@ impl Drop for Backend {
     }
 }
 
+/// Kills a session's process when the test ends. A write held at the scripted
+/// server's barrier is released by the kill, so a failed assertion cannot leave
+/// an engine thread waiting on it.
+struct KillOnDrop(Arc<RuntimeSession>);
+
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        self.0.kill_process();
+    }
+}
+
 impl Backend {
     fn await_ready(&self) {
         await_until("the backend to become ready", || {
@@ -245,6 +256,15 @@ impl Backend {
         self.ask(id, INVOKE, call_params(plugin, function));
     }
 
+    /// Asks the host to call `function` of `plugin` while serving the relayed
+    /// call whose wire operation ID is `parent`, as a plugin that serves
+    /// several calls at once names the one this request belongs to.
+    fn call_within(&self, id: &str, parent: &str, plugin: &str, function: &str) {
+        let mut params = call_params(plugin, function);
+        params["parentOperationID"] = json!(parent);
+        self.ask(id, INVOKE, params);
+    }
+
     /// The plugin process cancels a request it sent earlier.
     fn cancel(&self, id: &str) {
         self.server.send(json!({
@@ -261,11 +281,18 @@ impl Backend {
 
     // The callee's side: calls the engine writes to the backend.
 
-    /// The relayed call as this backend received it: its wire ID and params.
+    /// The first relayed call as this backend received it: its wire ID and
+    /// params.
     fn await_invoke(&self) -> (String, Value) {
+        self.await_invoke_at(0)
+    }
+
+    /// The `index`-th relayed call this backend received, counted in the order
+    /// the engine wrote them.
+    fn await_invoke_at(&self, index: usize) -> (String, Value) {
         let wire_id = self
             .server
-            .await_request("lithe/function/invoke")
+            .await_request_at("lithe/function/invoke", index)
             .expect("the call should reach the callee");
         let request = self
             .server
@@ -298,6 +325,17 @@ impl Backend {
             .messages()
             .iter()
             .all(|message| message["method"] != "lithe/function/invoke"));
+    }
+
+    /// The IDs of the requests the engine has cancelled on this backend, in
+    /// the order it wrote the cancellations.
+    fn cancelled_request_ids(&self) -> Vec<Value> {
+        self.server
+            .messages()
+            .into_iter()
+            .filter(|message| message["method"] == "$/cancelRequest")
+            .map(|message| message["params"]["id"].clone())
+            .collect()
     }
 
     /// A call the host itself starts, as a host feature would.
@@ -366,6 +404,38 @@ fn standard_snapshot() -> Value {
         ],
         "local",
     )
+}
+
+/// Python calls Go, Go calls Rust, and Rust exports `symbols.list`: the
+/// plugins of a chain of two hops.
+fn chain_snapshot() -> Value {
+    snapshot(
+        vec![
+            plugin(PYTHON, &[], &[(FORMAT, 1)]),
+            plugin(GO, &[(FORMAT, 1)], &[(SYMBOLS, 1)]),
+            plugin(RUST, &[(SYMBOLS, 1)], &[]),
+        ],
+        "local",
+    )
+}
+
+/// The standard plugins with the workspace context as the host reports it
+/// after a change: `Some(generation)` is the generation it serves now, `None`
+/// means the context is closed.
+fn standard_snapshot_with_context(generation: Option<u64>) -> Value {
+    let contexts: Vec<Value> = generation
+        .map(|generation| {
+            json!({ "contextID": CONTEXT_ID, "generation": generation, "authority": "local" })
+        })
+        .into_iter()
+        .collect();
+    json!({
+        "plugins": [
+            plugin(PYTHON, &[], &[(FORMAT, 1)]),
+            plugin(GO, &[(FORMAT, 1)], &[]),
+        ],
+        "contexts": contexts
+    })
 }
 
 /// The failure a backend sees: the stable code in `error.data.code` and the
@@ -796,6 +866,163 @@ fn cancelling_a_call_cancels_the_calls_made_while_serving_it() {
     assert_error(&go.reply("inner"), "plugin.host.cancelled", -32800);
 }
 
+// A plugin that serves several calls at once says which one it is serving.
+
+/// A plugin serving two calls names the call a new request belongs to, so
+/// cancelling one call cancels only the calls made for it.
+#[test]
+fn a_named_parent_scopes_cancellation_to_its_own_children() {
+    let fixture = Fixture::new();
+    let python = fixture.start(Launch::new(PYTHON));
+    let alpha = fixture.start(Launch::new(ALPHA));
+    let go = fixture.start(Launch::new(GO).serving(&[FORMAT]));
+    let rust = fixture.start(Launch::new(RUST).serving(&[SYMBOLS]));
+    fixture.configure(snapshot(
+        vec![
+            plugin(PYTHON, &[], &[(FORMAT, 1)]),
+            plugin(ALPHA, &[], &[(FORMAT, 1)]),
+            plugin(GO, &[(FORMAT, 1)], &[(SYMBOLS, 1)]),
+            plugin(RUST, &[(SYMBOLS, 1)], &[]),
+        ],
+        "local",
+    ));
+
+    // Go serves two calls at once. Each is awaited before the next is made, so
+    // the order Go received them in is known.
+    python.call("from-python", GO, FORMAT);
+    let (python_wire_id, python_call) = go.await_invoke_at(0);
+    alpha.call("from-alpha", GO, FORMAT);
+    let (alpha_wire_id, alpha_call) = go.await_invoke_at(1);
+    assert_eq!(python_call["caller"], json!({ "pluginID": PYTHON }));
+    assert_eq!(alpha_call["caller"], json!({ "pluginID": ALPHA }));
+
+    // While serving each call Go calls Rust, naming the call it serves.
+    let python_operation = python_call["operationID"]
+        .as_str()
+        .expect("the call carries its wire operation ID");
+    let alpha_operation = alpha_call["operationID"]
+        .as_str()
+        .expect("the call carries its wire operation ID");
+    go.call_within("for-python", python_operation, RUST, SYMBOLS);
+    let (for_python_wire_id, for_python) = rust.await_invoke_at(0);
+    assert_eq!(for_python["caller"], json!({ "pluginID": GO }));
+    go.call_within("for-alpha", alpha_operation, RUST, SYMBOLS);
+    let (for_alpha_wire_id, for_alpha) = rust.await_invoke_at(1);
+    assert_eq!(for_alpha["caller"], json!({ "pluginID": GO }));
+
+    python.cancel("from-python");
+
+    // Python's call ends, and so does the call Go made for it.
+    assert_error(
+        &python.reply("from-python"),
+        "plugin.host.cancelled",
+        -32800,
+    );
+    assert_error(&go.reply("for-python"), "plugin.host.cancelled", -32800);
+    assert!(go
+        .server
+        .await_notification_at("$/cancelRequest", 0)
+        .is_some());
+    assert!(rust
+        .server
+        .await_notification_at("$/cancelRequest", 0)
+        .is_some());
+
+    // Alpha's call, and the call Go made for it, run to their answers.
+    rust.answer(&for_alpha_wire_id, json!({ "symbols": 2 }));
+    assert_eq!(
+        go.reply("for-alpha")["result"],
+        json!({ "value": { "symbols": 2 } })
+    );
+    go.answer(&alpha_wire_id, json!({ "edits": 5 }));
+    assert_eq!(
+        alpha.reply("from-alpha")["result"],
+        json!({ "value": { "edits": 5 } })
+    );
+    // Only the two calls that belonged to Python's call were cancelled.
+    assert_eq!(go.cancelled_request_ids(), vec![json!(python_wire_id)]);
+    assert_eq!(
+        rust.cancelled_request_ids(),
+        vec![json!(for_python_wire_id)]
+    );
+}
+
+/// A parent operation ID that names no running relayed call is refused, so a
+/// call cannot be attached to a call that was never there.
+#[test]
+fn an_unknown_parent_operation_is_refused() {
+    let fixture = Fixture::new();
+    let python = fixture.start(Launch::new(PYTHON));
+    let go = fixture.start(Launch::new(GO).serving(&[FORMAT]));
+    fixture.configure(standard_snapshot());
+
+    // The longest ID the host accepts is still an unknown call.
+    let longest = "1".repeat(128);
+    for (index, parent) in ["999999", longest.as_str()].into_iter().enumerate() {
+        let mut params = call_params(GO, FORMAT);
+        params["parentOperationID"] = json!(parent);
+        let id = format!("call-{index}");
+        python.ask(&id, INVOKE, params);
+        assert_error(&python.reply(&id), "plugin.host.cancelled", -32800);
+    }
+    go.assert_not_invoked();
+}
+
+/// A parent operation ID of the wrong type or length is a malformed request,
+/// not an unknown call.
+#[test]
+fn a_malformed_parent_operation_id_is_refused() {
+    let fixture = Fixture::new();
+    let python = fixture.start(Launch::new(PYTHON));
+    let go = fixture.start(Launch::new(GO).serving(&[FORMAT]));
+    fixture.configure(standard_snapshot());
+
+    let malformed = [
+        ("a number", json!(17)),
+        ("an empty string", json!("")),
+        ("a string above 128 bytes", json!("1".repeat(129))),
+    ];
+    for (index, (name, parent)) in malformed.into_iter().enumerate() {
+        let mut params = call_params(GO, FORMAT);
+        params["parentOperationID"] = parent;
+        let id = format!("call-{index}");
+        python.ask(&id, INVOKE, params);
+        let reply = python.reply(&id);
+        assert_eq!(
+            reply["error"]["data"]["code"], "plugin.host.invalidParams",
+            "{name}: {reply}"
+        );
+        assert_eq!(reply["error"]["code"], -32602, "{name}: {reply}");
+    }
+    go.assert_not_invoked();
+}
+
+/// Once the call a plugin was serving has ended, a late request that names it
+/// is refused instead of becoming a call nobody waits for.
+#[test]
+fn a_finished_parent_operation_is_refused() {
+    let fixture = Fixture::new();
+    let python = fixture.start(Launch::new(PYTHON));
+    let go = fixture.start(Launch::new(GO).serving(&[FORMAT]));
+    let rust = fixture.start(Launch::new(RUST).serving(&[SYMBOLS]));
+    fixture.configure(chain_snapshot());
+
+    python.call("outer", GO, FORMAT);
+    let (wire_id, received) = go.await_invoke();
+    let operation = received["operationID"]
+        .as_str()
+        .expect("the call carries its wire operation ID")
+        .to_string();
+    go.answer(&wire_id, json!({}));
+    // The caller's answer is written after the relay forgot the call.
+    assert_eq!(python.reply("outer")["result"], json!({ "value": {} }));
+
+    go.call_within("late", &operation, RUST, SYMBOLS);
+
+    assert_error(&go.reply("late"), "plugin.host.cancelled", -32800);
+    rust.assert_not_invoked();
+}
+
 // Time, loss of a participant, hot activation.
 
 #[test]
@@ -993,4 +1220,120 @@ fn a_call_goes_to_the_provider_of_the_callers_workspace() {
 
     assert_eq!(python.reply("call-1")["result"], json!({ "value": {} }));
     other_workspace.assert_not_invoked();
+}
+
+// A workspace context that closes or moves on.
+
+/// A call that waits for its provider's backend, then the host reports a
+/// different state of the workspace context the call was made in.
+fn assert_waiting_call_ends_when_context_changes(reconfigured: Value) {
+    let fixture = Fixture::new();
+    let mut python = fixture.start(Launch::new(PYTHON));
+    fixture.configure(standard_snapshot());
+
+    python.call("call-1", GO, FORMAT);
+    python.await_event("the start request", |event| {
+        event.kind == "functionProviderStartRequired"
+    });
+    fixture.configure(reconfigured);
+
+    assert_error(
+        &python.reply("call-1"),
+        "plugin.host.contextExpired",
+        -32011,
+    );
+}
+
+/// A call still waiting for its provider ends as soon as the host closes the
+/// workspace context it was made in, instead of lasting until its deadline.
+#[test]
+fn a_closed_context_ends_a_call_waiting_for_its_provider() {
+    assert_waiting_call_ends_when_context_changes(standard_snapshot_with_context(None));
+}
+
+/// A new generation of the context is a different context: a call made in the
+/// old generation and still waiting for its provider ends.
+#[test]
+fn a_newer_context_generation_ends_a_call_waiting_for_its_provider() {
+    assert_waiting_call_ends_when_context_changes(standard_snapshot_with_context(Some(2)));
+}
+
+/// A call that the callee is already running ends when its context closes, and
+/// the callee is told to stop working on it.
+#[test]
+fn a_closed_context_ends_a_running_call_and_cancels_its_callee() {
+    let fixture = Fixture::new();
+    let python = fixture.start(Launch::new(PYTHON));
+    let go = fixture.start(Launch::new(GO).serving(&[FORMAT]));
+    fixture.configure(standard_snapshot());
+
+    python.call("call-1", GO, FORMAT);
+    let (wire_id, _) = go.await_invoke();
+    fixture.configure(standard_snapshot_with_context(None));
+
+    assert_error(
+        &python.reply("call-1"),
+        "plugin.host.contextExpired",
+        -32011,
+    );
+    assert!(go.server.await_notification("$/cancelRequest"));
+    assert_eq!(go.cancelled_request_ids(), vec![json!(wire_id)]);
+}
+
+// A backend that stops reading its input.
+
+/// A backend that stops reading holds up only the writes to its own process.
+/// Its answer waits at the blocked write while another pair of plugins
+/// completes a call, and the blocked write fails its session once it has
+/// outlasted its own deadline.
+#[test]
+fn a_backend_that_stops_reading_does_not_hold_up_other_calls() {
+    let fixture = Fixture::new();
+    let mut python = fixture.start(Launch::new(PYTHON));
+    let go = fixture.start(Launch::new(GO).serving(&[FORMAT]));
+    let alpha = fixture.start(Launch::new(ALPHA));
+    let rust = fixture.start(Launch::new(RUST).serving(&[SYMBOLS]));
+    fixture.configure(snapshot(
+        vec![
+            plugin(PYTHON, &[], &[(FORMAT, 1)]),
+            plugin(GO, &[(FORMAT, 1)], &[]),
+            plugin(ALPHA, &[], &[(SYMBOLS, 1)]),
+            plugin(RUST, &[(SYMBOLS, 1)], &[]),
+        ],
+        "local",
+    ));
+    let _release = KillOnDrop(python.session.clone());
+
+    // Python's process stops reading. The one write left for it is the answer
+    // to its own call, so that is the write held at the barrier.
+    python.server.pause_input();
+    python.call("call-1", GO, FORMAT);
+    let (wire_id, _) = go.await_invoke();
+    go.answer(&wire_id, json!({}));
+    assert!(
+        python.server.await_input_pause(),
+        "the answer should reach the blocked write"
+    );
+
+    // The other pair is not held up behind it.
+    alpha.call("call-2", RUST, SYMBOLS);
+    let (other_wire_id, received) = rust.await_invoke();
+    assert_eq!(received["caller"], json!({ "pluginID": ALPHA }));
+    rust.answer(&other_wire_id, json!({ "symbols": 3 }));
+    assert_eq!(
+        alpha.reply("call-2")["result"],
+        json!({ "value": { "symbols": 3 } })
+    );
+
+    // The blocked write outlasts its deadline: the session fails, and killing
+    // the process releases the write.
+    python.session.lock_state().unwrap().relay_write_deadline = Some(Instant::now());
+    python.session.expire_deadlines_at(Instant::now());
+    let failed = python.await_event("python's session to fail", |event| {
+        event.kind == "stateChanged" && event.state == Some(LspLifecycleState::Failed)
+    });
+    let error = failed.error.expect("the failure carries its reason");
+    assert_eq!(error.code, "transportFailed");
+    assert_eq!(error.stage, "relayWrite");
+    assert!(python.server.await_input_resumed());
 }

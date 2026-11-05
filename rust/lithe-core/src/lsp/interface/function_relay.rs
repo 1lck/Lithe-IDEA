@@ -52,6 +52,12 @@ pub(crate) const MAX_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// function before it fails with `plugin.function.providerUnavailable`.
 pub(crate) const PROVIDER_START_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// How long after its deadline a running call may still wait for the callee's
+/// own timeout reply before the relay ends it. The callee session enforces the
+/// same deadline and normally answers first; this only ends calls whose callee
+/// never answers.
+pub(crate) const RUNNING_GRACE: Duration = Duration::from_secs(2);
+
 /// Operation IDs of relayed calls start with this. The engine keeps them out
 /// of the callee session's host events, because no host operation waits for
 /// them: the answer goes to the calling plugin.
@@ -140,6 +146,22 @@ impl RelayFailure {
     }
 }
 
+/// Which call a new request was made while serving, as the engine resolved
+/// the request's `parentOperationID`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CallParent {
+    /// The request named no parent: every relayed call the caller's session
+    /// is running counts as one.
+    Unstated,
+    /// The named operation is one the host started, not a relayed call, so
+    /// the new call starts a chain.
+    Root,
+    /// The named operation is this relayed call.
+    Relay(u64),
+    /// The named operation is not running in the caller's session.
+    Ended,
+}
+
 /// One request of a plugin to call an exported function.
 pub(crate) struct RelayRequest {
     pub caller_session: String,
@@ -153,6 +175,9 @@ pub(crate) struct RelayRequest {
     /// `{ contextID, generation }`.
     pub context: Value,
     pub timeout: Option<Duration>,
+    /// The call this request was made while serving; decides the new call's
+    /// plugin chain and which ended call cancels it.
+    pub parent: CallParent,
 }
 
 /// How the callee's side of a call ended.
@@ -231,8 +256,9 @@ struct Call {
     give_up_at: Option<Instant>,
     /// Plugins from the root call down to the caller, without repeats.
     chain: Vec<String>,
-    /// Calls the caller's session was serving when it made this one. When all
-    /// of them end this call is cancelled; a root call has none.
+    /// Calls the caller's session was serving when it made this one: the one
+    /// the request named, or every one when it named none. When all of them
+    /// end this call is cancelled; a root call has none.
     parents: BTreeSet<u64>,
     phase: Phase,
 }
@@ -328,7 +354,11 @@ impl FunctionRelay {
                 "The call's params exceed the relay limit.",
             ));
         }
-        let (chain, parents) = self.ancestry(&request.caller_session, &request.caller_plugin);
+        let (chain, parents) = self.ancestry(
+            &request.caller_session,
+            &request.caller_plugin,
+            request.parent,
+        )?;
         if chain.contains(&request.callee_plugin) {
             return Err(RelayFailure::new(
                 codes::CALL_CYCLE,
@@ -422,6 +452,14 @@ impl FunctionRelay {
         true
     }
 
+    /// Whether the call exists and its callee session has it. The engine asks
+    /// before writing the request, to skip a call that ended while it queued.
+    pub(crate) fn is_running(&self, call_id: u64) -> bool {
+        self.calls
+            .get(&call_id)
+            .is_some_and(|call| matches!(call.phase, Phase::Running { .. }))
+    }
+
     /// The call could not be sent to the callee's backend.
     pub(crate) fn dispatch_failed(
         &mut self,
@@ -511,33 +549,42 @@ impl FunctionRelay {
             .collect()
     }
 
-    /// Ends calls that have no running callee and are out of time. A running
-    /// call is bounded by the callee session's own deadline, which carries
-    /// the call's remaining time.
+    /// Ends calls that are out of time. A call with no running callee ends at
+    /// its deadline, or when its provider did not start in time. A running
+    /// call carries its remaining time to the callee session, whose own
+    /// timeout normally answers first; the relay ends it only `RUNNING_GRACE`
+    /// after the deadline, so a callee that never answers cannot leave the
+    /// call open, and it cancels the callee.
     pub(crate) fn expire(&mut self, now: Instant) -> Vec<RelayAction> {
         let mut due = Vec::new();
         for call in self.calls.values() {
-            if matches!(call.phase, Phase::Running { .. }) {
-                continue;
-            }
-            if now >= call.deadline {
+            let running = matches!(call.phase, Phase::Running { .. });
+            let out_of_time = if running {
+                call.deadline + RUNNING_GRACE
+            } else {
+                call.deadline
+            };
+            if now >= out_of_time {
+                // Only a running call has a callee to cancel.
                 due.push((
                     call.id,
                     RelayFailure::new(codes::HOST_TIMEOUT, "The plugin call timed out."),
+                    running,
                 ));
-            } else if call.give_up_at.is_some_and(|limit| now >= limit) {
+            } else if !running && call.give_up_at.is_some_and(|limit| now >= limit) {
                 due.push((
                     call.id,
                     RelayFailure::new(
                         codes::PROVIDER_UNAVAILABLE,
                         "The plugin did not start in time.",
                     ),
+                    false,
                 ));
             }
         }
         let mut actions = Vec::new();
-        for (call_id, failure) in due {
-            actions.extend(self.end_call(call_id, Some(Err(failure)), false));
+        for (call_id, failure, cancel_callee) in due {
+            actions.extend(self.end_call(call_id, Some(Err(failure)), cancel_callee));
         }
         actions
     }
@@ -582,28 +629,57 @@ impl FunctionRelay {
     }
 
     /// The plugin chain and the parent calls of a new call made from
-    /// `caller_session`. The parents are every relayed call that session is
-    /// running: the request does not say which of them caused it, so the
-    /// chain is their union. That can reject a call that is not really
-    /// cyclic, never accept one that is.
-    fn ancestry(&self, caller_session: &str, caller_plugin: &str) -> (Vec<String>, BTreeSet<u64>) {
+    /// `caller_session`, according to what the request said about its parent.
+    ///
+    /// A named relayed call must be running in `caller_session`; the new call
+    /// continues that call's chain and is cancelled with it. A named call that
+    /// is not running there is refused with `cancelled`. A host operation
+    /// starts a new chain. When the request names no parent, the parents are
+    /// every relayed call that session is running: the request does not say
+    /// which of them caused it, so the chain is their union. That can reject
+    /// a call that is not really cyclic, never accept one that is.
+    fn ancestry(
+        &self,
+        caller_session: &str,
+        caller_plugin: &str,
+        parent: CallParent,
+    ) -> Result<(Vec<String>, BTreeSet<u64>), RelayFailure> {
+        let not_running = || {
+            RelayFailure::new(
+                codes::HOST_CANCELLED,
+                "The call this request belongs to is not running.",
+            )
+        };
+        let served_here = |call: &Call| matches!(&call.phase, Phase::Running { session_id, .. } if session_id == caller_session);
         let mut chain: Vec<String> = Vec::new();
         let mut parents = BTreeSet::new();
-        let serving = self.calls.values().filter(|call| {
-            matches!(&call.phase, Phase::Running { session_id, .. } if session_id == caller_session)
-        });
-        for parent in serving {
-            parents.insert(parent.id);
-            for plugin in &parent.chain {
-                if !chain.contains(plugin) {
-                    chain.push(plugin.clone());
+        match parent {
+            CallParent::Root => {}
+            CallParent::Ended => return Err(not_running()),
+            CallParent::Relay(call_id) => {
+                let named = self
+                    .calls
+                    .get(&call_id)
+                    .filter(|call| served_here(*call))
+                    .ok_or_else(not_running)?;
+                parents.insert(named.id);
+                chain.extend(named.chain.iter().cloned());
+            }
+            CallParent::Unstated => {
+                for served in self.calls.values().filter(|call| served_here(*call)) {
+                    parents.insert(served.id);
+                    for plugin in &served.chain {
+                        if !chain.contains(plugin) {
+                            chain.push(plugin.clone());
+                        }
+                    }
                 }
             }
         }
         if !chain.iter().any(|plugin| plugin == caller_plugin) {
             chain.push(caller_plugin.to_string());
         }
-        (chain, parents)
+        Ok((chain, parents))
     }
 
     fn running_call(&self, session_id: &str, operation_id: &str) -> Option<u64> {
@@ -677,7 +753,9 @@ impl FunctionRelay {
 
     /// After a new snapshot: calls whose callee left, stopped exporting the
     /// function or changed its version end with `providerDisabled`; calls
-    /// whose caller no longer declares them end with `notDeclared`.
+    /// whose caller no longer declares them end with `notDeclared`; calls
+    /// whose workspace context closed, moved to a new generation or became
+    /// remote end with the context's failure.
     fn end_calls_the_snapshot_forbids(&mut self) -> Vec<RelayAction> {
         let mut doomed = Vec::new();
         for call in self.calls.values() {
@@ -703,6 +781,10 @@ impl FunctionRelay {
                         "The plugin that exports this function changed or was disabled.",
                     ),
                 ));
+            } else if let Err(failure) = self.check_context(&call.context) {
+                // Workspace contexts change only through `configure`, so
+                // checking here covers closed contexts and generation bumps.
+                doomed.push((call.id, failure));
             }
         }
         let mut actions = Vec::new();
@@ -791,6 +873,9 @@ mod tests {
 
     const PYTHON: &str = "dev.lithe.python";
     const GO: &str = "dev.lithe.go";
+    const ZIG: &str = "dev.lithe.zig";
+    /// A second plugin that calls Go, so Go can serve two callers at once.
+    const RUBY: &str = "dev.lithe.ruby";
     const FUNCTION: &str = "project.describe";
 
     fn plugin(id: &str, exports: &[(&str, u32)], calls: &[(&str, u32)]) -> RelayPlugin {
@@ -822,19 +907,75 @@ mod tests {
         }
     }
 
+    /// The snapshot of `relay()` with a different set of live contexts.
+    fn snapshot_with_contexts(contexts: Vec<RelayContext>) -> RelaySnapshot {
+        RelaySnapshot {
+            plugins: vec![
+                plugin(PYTHON, &[], &[(FUNCTION, 1)]),
+                plugin(GO, &[(FUNCTION, 1)], &[]),
+            ],
+            contexts,
+        }
+    }
+
     /// Python calls `project.describe` (version 1), Go exports it.
     fn relay() -> FunctionRelay {
+        let mut relay = FunctionRelay::default();
+        relay
+            .configure(snapshot_with_contexts(vec![local_context()]))
+            .expect("the snapshot is valid");
+        relay
+    }
+
+    /// Python and Ruby call Go; Go calls Zig, which exports the function too.
+    /// Go can serve a call from each caller at once and call Zig for both.
+    fn relay_with_two_callers_of_go() -> FunctionRelay {
         let mut relay = FunctionRelay::default();
         relay
             .configure(RelaySnapshot {
                 plugins: vec![
                     plugin(PYTHON, &[], &[(FUNCTION, 1)]),
-                    plugin(GO, &[(FUNCTION, 1)], &[]),
+                    plugin(RUBY, &[], &[(FUNCTION, 1)]),
+                    plugin(GO, &[(FUNCTION, 1)], &[(FUNCTION, 1)]),
+                    plugin(ZIG, &[(FUNCTION, 1)], &[]),
                 ],
                 contexts: vec![local_context()],
             })
             .expect("the snapshot is valid");
         relay
+    }
+
+    /// Six plugins in a line, each exporting and calling the function, with
+    /// `MAX_CALL_DEPTH` hops running. Hop `i` (call ID `i + 1`) is plugin `i`
+    /// calling plugin `i + 1` from `session-i` with RPC ID `i`; the session
+    /// `session-(i + 1)` serves it. One more hop, made by the last served
+    /// plugin `names[MAX_CALL_DEPTH]`, would be too deep.
+    fn relay_with_calls_down_a_line(now: Instant) -> (FunctionRelay, Vec<String>) {
+        let names: Vec<String> = (1..=6).map(|index| format!("dev.lithe.p{index}")).collect();
+        let mut relay = FunctionRelay::default();
+        relay
+            .configure(RelaySnapshot {
+                plugins: names
+                    .iter()
+                    .map(|name| plugin(name, &[(FUNCTION, 1)], &[(FUNCTION, 1)]))
+                    .collect(),
+                contexts: vec![local_context()],
+            })
+            .expect("the snapshot is valid");
+        for hop in 0..MAX_CALL_DEPTH {
+            running_call(
+                &mut relay,
+                request(
+                    &format!("session-{hop}"),
+                    &names[hop],
+                    &names[hop + 1],
+                    hop as i64,
+                ),
+                &format!("session-{}", hop + 1),
+                now,
+            );
+        }
+        (relay, names)
     }
 
     fn request(caller_session: &str, caller: &str, callee: &str, rpc_id: i64) -> RelayRequest {
@@ -847,7 +988,44 @@ mod tests {
             params: json!({ "project": "app" }),
             context: json!({ "contextID": "workspace-1", "generation": 3 }),
             timeout: None,
+            parent: CallParent::Unstated,
         }
+    }
+
+    /// `request`, made while serving the call `parent` names.
+    fn request_from(
+        parent: CallParent,
+        caller_session: &str,
+        caller: &str,
+        callee: &str,
+        rpc_id: i64,
+    ) -> RelayRequest {
+        RelayRequest {
+            parent,
+            ..request(caller_session, caller, callee, rpc_id)
+        }
+    }
+
+    /// The action that cancels the call `call_id` in its callee session.
+    fn cancel_of(callee_session: &str, call_id: u64) -> RelayAction {
+        RelayAction::CancelCallee {
+            session_id: callee_session.to_string(),
+            operation_id: format!("{OPERATION_PREFIX}{call_id}"),
+        }
+    }
+
+    /// The codes of the failed replies among `actions`, in order.
+    fn failed_reply_codes(actions: &[RelayAction]) -> Vec<&'static str> {
+        actions
+            .iter()
+            .filter_map(|action| match action {
+                RelayAction::Reply {
+                    outcome: Err(failure),
+                    ..
+                } => Some(failure.code),
+                _ => None,
+            })
+            .collect()
     }
 
     fn admitted_call(relay: &mut FunctionRelay, request: RelayRequest, now: Instant) -> u64 {
@@ -1098,31 +1276,7 @@ mod tests {
     /// many.
     #[test]
     fn nesting_is_limited() {
-        let names: Vec<String> = (1..=6).map(|index| format!("dev.lithe.p{index}")).collect();
-        let mut relay = FunctionRelay::default();
-        relay
-            .configure(RelaySnapshot {
-                plugins: names
-                    .iter()
-                    .map(|name| plugin(name, &[(FUNCTION, 1)], &[(FUNCTION, 1)]))
-                    .collect(),
-                contexts: vec![local_context()],
-            })
-            .unwrap();
-        let now = Instant::now();
-        for hop in 0..MAX_CALL_DEPTH {
-            running_call(
-                &mut relay,
-                request(
-                    &format!("session-{hop}"),
-                    &names[hop],
-                    &names[hop + 1],
-                    hop as i64,
-                ),
-                &format!("session-{}", hop + 1),
-                now,
-            );
-        }
+        let (mut relay, names) = relay_with_calls_down_a_line(Instant::now());
         let last = MAX_CALL_DEPTH;
         assert_eq!(
             refusal(
@@ -1136,6 +1290,53 @@ mod tests {
             ),
             codes::DEPTH_EXCEEDED
         );
+    }
+
+    /// A call made while serving a host operation starts a new chain, so the
+    /// calls the session is serving for other plugins neither make it a cycle
+    /// nor make it too deep, and ending them does not cancel it.
+    #[test]
+    fn a_call_made_for_a_host_operation_starts_a_new_chain() {
+        let now = Instant::now();
+        let (mut relay, names) = relay_with_calls_down_a_line(now);
+        let last = MAX_CALL_DEPTH;
+        let last_session = format!("session-{last}");
+
+        // With no named parent this is the depth error of `nesting_is_limited`.
+        let deeper = running_call(
+            &mut relay,
+            request_from(
+                CallParent::Root,
+                &last_session,
+                &names[last],
+                &names[last + 1],
+                98,
+            ),
+            "session-deeper",
+            now,
+        );
+        assert_eq!(relay.calls[&deeper].chain, [names[last].as_str()]);
+        assert!(relay.calls[&deeper].parents.is_empty());
+
+        // With no named parent this would re-enter the first plugin: a cycle.
+        let back = running_call(
+            &mut relay,
+            request_from(CallParent::Root, &last_session, &names[last], &names[0], 99),
+            "session-back",
+            now,
+        );
+        assert_eq!(relay.calls[&back].chain, [names[last].as_str()]);
+
+        // Ending the first hop (call 1) of the line cancels the hops made
+        // while serving it (call 4 is the last), but not the two calls that
+        // started their own chain.
+        let actions = relay.cancel_from_caller("session-0", &json!(0)).unwrap();
+        assert!(actions.contains(&cancel_of("session-1", 1)));
+        assert!(actions.contains(&cancel_of("session-4", 4)));
+        assert!(!actions.contains(&cancel_of("session-deeper", deeper)));
+        assert!(!actions.contains(&cancel_of("session-back", back)));
+        assert!(relay.is_running(deeper));
+        assert!(relay.is_running(back));
     }
 
     #[test]
@@ -1373,6 +1574,108 @@ mod tests {
         assert_eq!(replies, 2);
     }
 
+    /// Go serves a call from Python and one from Ruby at once and calls Zig
+    /// while serving each. Because each request names its parent, ending the
+    /// Python call must not cancel the Zig call made for the Ruby call.
+    #[test]
+    fn a_named_parent_scopes_the_chain_and_the_cancellation_to_that_call() {
+        let mut relay = relay_with_two_callers_of_go();
+        let now = Instant::now();
+        let from_python = running_call(&mut relay, request("py", PYTHON, GO, 1), "go", now);
+        let from_ruby = running_call(&mut relay, request("rb", RUBY, GO, 2), "go", now);
+        let zig_for_python = running_call(
+            &mut relay,
+            request_from(CallParent::Relay(from_python), "go", GO, ZIG, 3),
+            "zig-1",
+            now,
+        );
+        let zig_for_ruby = running_call(
+            &mut relay,
+            request_from(CallParent::Relay(from_ruby), "go", GO, ZIG, 4),
+            "zig-2",
+            now,
+        );
+
+        // Each chain is the named call's chain plus the caller, nothing from
+        // the sibling call.
+        assert_eq!(relay.calls[&zig_for_python].chain, [PYTHON, GO]);
+        assert_eq!(
+            relay.calls[&zig_for_python].parents,
+            BTreeSet::from([from_python])
+        );
+        assert_eq!(relay.calls[&zig_for_ruby].chain, [RUBY, GO]);
+        assert_eq!(
+            relay.calls[&zig_for_ruby].parents,
+            BTreeSet::from([from_ruby])
+        );
+
+        let actions = relay.cancel_from_caller("py", &json!(1)).unwrap();
+        assert!(actions.contains(&cancel_of("go", from_python)));
+        assert!(actions.contains(&cancel_of("zig-1", zig_for_python)));
+        assert!(!actions.contains(&cancel_of("zig-2", zig_for_ruby)));
+        // Python and Go were each answered once; Ruby's side saw nothing.
+        assert_eq!(
+            failed_reply_codes(&actions),
+            [codes::HOST_CANCELLED, codes::HOST_CANCELLED]
+        );
+        assert!(relay.is_running(from_ruby));
+        assert!(relay.is_running(zig_for_ruby));
+        assert!(!relay.is_running(zig_for_python));
+    }
+
+    /// Without a named parent a call belongs to every call its session serves,
+    /// so it ends only when all of them have ended.
+    #[test]
+    fn a_request_naming_no_parent_belongs_to_every_call_its_session_serves() {
+        let mut relay = relay_with_two_callers_of_go();
+        let now = Instant::now();
+        let from_python = running_call(&mut relay, request("py", PYTHON, GO, 1), "go", now);
+        let from_ruby = running_call(&mut relay, request("rb", RUBY, GO, 2), "go", now);
+        let zig = running_call(&mut relay, request("go", GO, ZIG, 3), "zig", now);
+
+        assert_eq!(relay.calls[&zig].chain, [PYTHON, RUBY, GO]);
+        assert_eq!(
+            relay.calls[&zig].parents,
+            BTreeSet::from([from_python, from_ruby])
+        );
+        let first = relay.cancel_from_caller("py", &json!(1)).unwrap();
+        assert!(!first.contains(&cancel_of("zig", zig)));
+        let second = relay.cancel_from_caller("rb", &json!(2)).unwrap();
+        assert!(second.contains(&cancel_of("zig", zig)));
+    }
+
+    /// A parent the caller's session is not running can no longer be what the
+    /// request belongs to: the request is refused instead of being tied to
+    /// some other call.
+    #[test]
+    fn a_parent_that_is_not_running_in_the_callers_session_is_refused() {
+        let mut relay = relay_with_two_callers_of_go();
+        let now = Instant::now();
+        let waiting = admitted_call(&mut relay, request("py", PYTHON, GO, 1), now);
+        relay.wait_for_provider(waiting, now);
+        let served = running_call(&mut relay, request("rb", RUBY, GO, 2), "go", now);
+
+        let ended = request_from(CallParent::Ended, "go", GO, ZIG, 3);
+        assert_eq!(refusal(&mut relay, ended), codes::HOST_CANCELLED);
+        let unknown = request_from(CallParent::Relay(99), "go", GO, ZIG, 4);
+        assert_eq!(refusal(&mut relay, unknown), codes::HOST_CANCELLED);
+        // The call is served by the session "go", not by another session of Go.
+        let elsewhere = request_from(CallParent::Relay(served), "go-2", GO, ZIG, 5);
+        assert_eq!(refusal(&mut relay, elsewhere), codes::HOST_CANCELLED);
+        // No session serves a call that still waits for its provider.
+        let not_started = request_from(CallParent::Relay(waiting), "go", GO, ZIG, 6);
+        assert_eq!(refusal(&mut relay, not_started), codes::HOST_CANCELLED);
+        // Refused requests leave no call behind.
+        assert_eq!(relay.calls.len(), 2);
+
+        // The same request from the session that serves the call is admitted.
+        admitted_call(
+            &mut relay,
+            request_from(CallParent::Relay(served), "go", GO, ZIG, 7),
+            now,
+        );
+    }
+
     #[test]
     fn a_caller_session_ending_cancels_its_callee_without_a_reply() {
         let mut relay = relay();
@@ -1484,12 +1787,66 @@ mod tests {
         }
     }
 
+    /// The callee session enforces the same deadline and answers with its own
+    /// timeout, so the relay must not end a running call before `RUNNING_GRACE`
+    /// after the deadline has passed.
     #[test]
-    fn a_running_call_is_left_to_its_session_deadline() {
+    fn a_running_call_is_left_to_its_session_until_the_grace_ends() {
         let mut relay = relay();
         let now = Instant::now();
-        running_call(&mut relay, request("py", PYTHON, GO, 7), "go", now);
+        let call_id = running_call(&mut relay, request("py", PYTHON, GO, 7), "go", now);
+        let deadline = now + DEFAULT_TIMEOUT;
+        assert!(relay.expire(deadline - Duration::from_secs(1)).is_empty());
+        assert!(relay.expire(deadline).is_empty());
+        assert!(relay
+            .expire(deadline + RUNNING_GRACE - Duration::from_millis(1))
+            .is_empty());
+        assert!(relay.is_running(call_id));
+    }
+
+    /// A callee that never answers, even with its own timeout, must not leave
+    /// the call open: the relay ends it and cancels the callee.
+    #[test]
+    fn a_running_call_whose_callee_never_answers_times_out_after_the_grace() {
+        let mut relay = relay();
+        let now = Instant::now();
+        let call_id = running_call(&mut relay, request("py", PYTHON, GO, 7), "go", now);
+        let actions = relay.expire(now + DEFAULT_TIMEOUT + RUNNING_GRACE);
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0], cancel_of("go", call_id));
+        assert_eq!(failed_reply_codes(&actions), [codes::HOST_TIMEOUT]);
+        assert!(!relay.is_running(call_id));
+        // The call is gone, so a later sweep has nothing left to end.
         assert!(relay.expire(now + MAX_TIMEOUT).is_empty());
+    }
+
+    /// The provider-start limit only applies while the call waits for a
+    /// backend; once the callee runs it, that older limit must not end it.
+    #[test]
+    fn a_call_that_waited_for_its_provider_is_not_ended_by_that_wait_once_running() {
+        let mut relay = relay();
+        let now = Instant::now();
+        let call_id = admitted_call(&mut relay, request("py", PYTHON, GO, 7), now);
+        relay.wait_for_provider(call_id, now);
+        assert!(relay.started(call_id, "go", &format!("{OPERATION_PREFIX}{call_id}")));
+        assert!(relay.expire(now + PROVIDER_START_TIMEOUT).is_empty());
+        assert!(relay.is_running(call_id));
+    }
+
+    #[test]
+    fn a_call_is_running_only_while_its_callee_session_has_it() {
+        let mut relay = relay();
+        let now = Instant::now();
+        assert!(!relay.is_running(1));
+        let call_id = admitted_call(&mut relay, request("py", PYTHON, GO, 7), now);
+        assert!(!relay.is_running(call_id));
+        relay.wait_for_provider(call_id, now);
+        assert!(!relay.is_running(call_id));
+        let operation_id = format!("{OPERATION_PREFIX}{call_id}");
+        assert!(relay.started(call_id, "go", &operation_id));
+        assert!(relay.is_running(call_id));
+        relay.callee_finished("go", &operation_id, CalleeOutcome::Succeeded(json!(1)));
+        assert!(!relay.is_running(call_id));
     }
 
     #[test]
@@ -1567,6 +1924,68 @@ mod tests {
             })
             .unwrap();
         assert!(actions.is_empty());
+    }
+
+    /// A snapshot that drops a workspace context, or replaces it with a newer
+    /// generation, ends the calls made in it even while they wait for a
+    /// backend, so they cannot be dispatched into a context that is gone.
+    #[test]
+    fn a_waiting_call_ends_when_its_context_closes_or_changes_generation() {
+        let new_contexts = [
+            ("closed", vec![]),
+            (
+                "new generation",
+                vec![RelayContext {
+                    generation: 4,
+                    ..local_context()
+                }],
+            ),
+        ];
+        for (label, contexts) in new_contexts {
+            let mut relay = relay();
+            let now = Instant::now();
+            let call_id = admitted_call(&mut relay, request("py", PYTHON, GO, 7), now);
+            relay.wait_for_provider(call_id, now);
+            let actions = relay.configure(snapshot_with_contexts(contexts)).unwrap();
+            // The callee never had the call, so there is nothing to cancel.
+            assert_eq!(actions.len(), 1, "{label}");
+            assert_eq!(
+                failed_reply_codes(&actions),
+                [codes::HOST_CONTEXT_EXPIRED],
+                "{label}"
+            );
+            assert!(relay.dispatch_plan(call_id, now).is_none(), "{label}");
+            assert!(relay.provider_changed(GO).is_empty(), "{label}");
+        }
+    }
+
+    /// The same snapshot also stops a call its callee is already running.
+    #[test]
+    fn a_running_call_ends_when_its_context_closes_or_changes_generation() {
+        let new_contexts = [
+            ("closed", vec![]),
+            (
+                "new generation",
+                vec![RelayContext {
+                    generation: 4,
+                    ..local_context()
+                }],
+            ),
+        ];
+        for (label, contexts) in new_contexts {
+            let mut relay = relay();
+            let now = Instant::now();
+            let call_id = running_call(&mut relay, request("py", PYTHON, GO, 7), "go", now);
+            let actions = relay.configure(snapshot_with_contexts(contexts)).unwrap();
+            assert_eq!(actions.len(), 2, "{label}");
+            assert_eq!(actions[0], cancel_of("go", call_id), "{label}");
+            assert_eq!(
+                failed_reply_codes(&actions),
+                [codes::HOST_CONTEXT_EXPIRED],
+                "{label}"
+            );
+            assert!(!relay.is_running(call_id), "{label}");
+        }
     }
 
     #[test]

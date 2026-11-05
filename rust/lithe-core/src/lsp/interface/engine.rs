@@ -899,6 +899,9 @@ struct SessionState {
     deadline_cancellations: Vec<String>,
     /// Bounds an outbound maintenance write independently of caller deadlines.
     maintenance_write_deadline: Option<Instant>,
+    /// Bounds one write the function relay's lane makes to this session, so a
+    /// backend that stops reading its stdin cannot hold the lane forever.
+    relay_write_deadline: Option<Instant>,
     /// Backend requests for a host service awaiting `lsp.hostResponse`, by
     /// the opaque ID the host sees, with the backend's own JSON-RPC ID.
     host_requests: BTreeMap<String, Value>,
@@ -2277,6 +2280,7 @@ impl LspEngine {
                 java_build_timeout,
                 deadline_cancellations: Vec::new(),
                 maintenance_write_deadline: None,
+                relay_write_deadline: None,
                 host_requests: BTreeMap::new(),
                 next_host_request_id: 1,
                 detailed_diagnostics: false,
@@ -5240,6 +5244,7 @@ impl RuntimeSession {
                 } else if event.kind == "functionRelayRequest" {
                     outbound.extend(self.relay.answer_request(
                         self,
+                        &state,
                         event.method.as_deref().unwrap_or_default(),
                         &event.result.unwrap_or_default(),
                     )?);
@@ -6061,12 +6066,19 @@ impl RuntimeSession {
         let mut maven_context_timeout = false;
         let mut shutdown_timeout = false;
         let mut maintenance_write_timeout = false;
+        let mut relay_write_timeout = false;
         if let Ok(mut state) = self.lock_state() {
             maintenance_write_timeout = state
                 .maintenance_write_deadline
                 .is_some_and(|deadline| now >= deadline);
             if maintenance_write_timeout {
                 state.maintenance_write_deadline = None;
+            }
+            relay_write_timeout = state
+                .relay_write_deadline
+                .is_some_and(|deadline| now >= deadline);
+            if relay_write_timeout {
+                state.relay_write_deadline = None;
             }
             if state.lifecycle == LspLifecycleState::Initializing
                 && state
@@ -6327,6 +6339,16 @@ impl RuntimeSession {
             self.fail(
                 "transportFailed",
                 "outboundMaintenance",
+                "Language-server stdin write timed out.",
+                None,
+                None,
+            );
+            self.kill_process();
+        } else if relay_write_timeout {
+            // Killing the process releases the relay lane's blocked stdin write.
+            self.fail(
+                "transportFailed",
+                "relayWrite",
                 "Language-server stdin write timed out.",
                 None,
                 None,
@@ -8628,6 +8650,7 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     state.java_launch_messages.clear();
     state.deadline_cancellations.clear();
     state.maintenance_write_deadline = None;
+    state.relay_write_deadline = None;
     state.pending_workspace_file_changes.clear();
     state.maven_profile_update_pending = false;
     state.maven_project_reload_pending = false;

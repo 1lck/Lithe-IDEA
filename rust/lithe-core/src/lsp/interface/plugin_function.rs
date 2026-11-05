@@ -1131,6 +1131,7 @@ fn check_host_params(
             "context",
             "params",
             "timeoutMilliseconds",
+            "parentOperationID",
         ],
         HostParams::KeymapSnapshot { chunk: false } => &["snapshotID", "providerID"],
         HostParams::KeymapSnapshot { chunk: true } => &[
@@ -1290,6 +1291,17 @@ fn check_function_invoke_params(
         .is_some_and(|value| !value.as_u64().is_some_and(|milliseconds| milliseconds >= 1))
     {
         return Err(invalid("A timeout is a positive number of milliseconds."));
+    }
+    // Only the shape is checked here. Whether the ID names a call this backend
+    // is serving needs the session's pending requests, so the relay decides.
+    if params.get("parentOperationID").is_some_and(|value| {
+        !value
+            .as_str()
+            .is_some_and(|id| (1..=128).contains(&id.len()))
+    }) {
+        return Err(invalid(
+            "A parent operation ID is the operationID of a call this backend is serving, 1-128 bytes.",
+        ));
     }
     Ok(())
 }

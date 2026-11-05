@@ -79,17 +79,25 @@ Issue #1351 要把 Maven、Gradle 这类插件从“只给声明”推进到“�
 
 **清单。** 新能力键 `requires.pluginFunctions: 1` 加顶层 `pluginFunctions {exports, calls}`（需要 `pluginAPIVersion` 3、`backend` 和 `serverProcess`）。导出是对象 `{id, version, context}`，`context` 是封闭集合，第一阶段只有 `"workspace"`；缺失或未知的 `context` 让整个清单以 `plugin.manifest.invalid` 失败，所以没写明调用上下文的导出一律不能被调用。调用方声明 `{id, version}`，只写函数 ID，不写被调方的插件 ID：被调方由运行时发现。导出只是选择加入，后端仍要用 `lithe/function/register` 注册；清单没导出的函数不管后端注册什么都仍是私有。
 
-**协议。** `litheFunctions` 的版本集合从 1、2、3 增加到 4。只有协商到 4 的后端、并且插件声明了至少一个调用时，才能用两个宿主请求：`lithe/host/functions/providers {functionID}` 返回 `{providers: [{pluginID, version}]}`（不含调用方，按插件 ID 排序），`lithe/host/functions/invoke {pluginID, functionID, context, params?, timeoutMilliseconds?}` 返回 `{value}`。协议 3 及以下调用得到 `plugin.host.unavailable`，未声明调用的插件得到 `plugin.host.permissionDenied`。
+**协议。** `litheFunctions` 的版本集合从 1、2、3 增加到 4。只有协商到 4 的后端、并且插件声明了至少一个调用时，才能用两个宿主请求：`lithe/host/functions/providers {functionID}` 返回 `{providers: [{pluginID, version}]}`（不含调用方，按插件 ID 排序），`lithe/host/functions/invoke {pluginID, functionID, context, params?, timeoutMilliseconds?, parentOperationID?}` 返回 `{value}`。协议 3 及以下调用得到 `plugin.host.unavailable`，未声明调用的插件得到 `plugin.host.permissionDenied`。
 
-**Core 的检查与顺序。** 所有逻辑在 Rust Core（`lsp/interface/function_relay.rs`、`engine_function_relay.rs`），写入被调方进程之前先同步检查，第一个失败的赢：调用方已声明 → 被调方已安装且启用 → 被调方导出 → 版本相等 → 上下文有效 → 本地工作区 → 参数不超过 256 KiB → 调用链无环 → 深度不超过 4 → 每个调用方最多 8 个并发中转。结果同样限 256 KiB，默认超时 60 秒、最多 10 分钟。每个新拒绝都有自己的字符串码和数值码，一个码只表示一个含义；超时、取消、上下文过期和远程工作区复用已有的宿主错误码，因为含义相同。
+**Core 的检查与顺序。** 所有逻辑在 Rust Core（`lsp/interface/function_relay.rs`、`engine_function_relay.rs`），写入被调方进程之前先同步检查，第一个失败的赢：调用方已声明 → 被调方已安装且启用 → 被调方导出 → 版本相等 → 上下文有效 → 本地工作区 → 参数不超过 256 KiB → `parentOperationID` 指向的调用仍在运行 → 调用链无环 → 深度不超过 4 → 每个调用方最多 8 个并发中转。结果同样限 256 KiB，默认超时 60 秒、最多 10 分钟。每个新拒绝都有自己的字符串码和数值码，一个码只表示一个含义；超时、取消、上下文过期和远程工作区复用已有的宿主错误码，因为含义相同。
 
-**调用链和取消。** Core 记录调用链，被调方在服务一个中转调用时发出的新调用继续扩展同一条链，调用到链上已有的插件（包括自己调自己）是 `plugin.function.callCycle`。取消一个调用，或调用方会话结束，会沿链向下给每个被调方发 `$/cancelRequest`。因此“Maven 通知 Java 配置变了”这类调用里，Java 不能在处理时再回调 Maven，要先记下新值，或等调用结束后再调。
+**调用链和取消。** Core 记录调用链。被调方在服务一个中转调用时再发出新调用，要在 `parentOperationID`（可选，1 到 128 字节的字符串）里填它正在服务的那个调用的 `operationID`，也就是 Core 转发 `lithe/function/invoke` 时写进去的编号。新调用只是那个调用的子调用：调用链是那个调用的链再加上发起方；那个调用被取消、超时或结束，新调用随之取消。调用到链上已有的插件（包括自己调自己）是 `plugin.function.callCycle`。因此“Maven 通知 Java 配置变了”这类调用里，Java 不能在处理时再回调 Maven，要先记下新值，或等调用结束后再调。三种特殊情况：
+
+- 填的是宿主直接发起（不是中转）的调用：新调用开始一条新链。
+- 填的是这个后端并不在服务的调用（已经结束，或根本不存在）：以 `plugin.host.cancelled` 拒绝，消息是 “The call this request belongs to is not running.”。这一项排在参数大小检查之后、成环和深度检查之前。
+- 不填：沿用旧规则，新调用算作后端当前正在服务的每一个中转调用的子调用，只为兼容旧后端保留，SDK 应当总是填。之所以要加这个字段，是因为后端同时服务多个中转调用时，Core 无法知道新调用属于哪一个，只能把它挂在全部调用下面，取消和成环、深度检查就会牵连无关的调用。
+
+取消一个调用、它超时或结束，或调用方会话结束，会沿链向下给每个子调用的被调方发 `$/cancelRequest`。
+
+**运行中的调用。** 一个正在运行的中转调用，正常情况下由被调方会话自己的超时结束。如果被调方一直不回答，中转在截止时间之后再宽限 2 秒，就以 `plugin.host.timeout` 结束该调用，并取消被调方的这个操作。
 
 **信任不传递。** 被调方用自己的权限、状态目录和凭据运行；调用方的权限不会借给它，被调方的权限也不属于调用方。Core 不把调用方的插件 ID 写进被调方的会话身份，只在转发的 `lithe/function/invoke` 里加一个由 Core 填写的顶层 `caller: {pluginID}`，仅在被调方协商到协议 4 时出现，宿主自己发起的调用没有这个字段（没有即宿主）；调用方在宿主请求里自带的同名顶层字段会被 `plugin.host.unsupportedOption` 拒绝，所以按调用方区分的状态可以放心以它为键。导出函数不得接受调用方传来的可执行文件路径或命令并据此启动进程，这条写进契约 README，由被调方自己负责。没有新增权限项：调用方的 `calls` 声明加被调方的 `exports` 就是双方的同意。
 
 **被调方没在运行。** Core 只发出运行时事件 `functionProviderStartRequired {pluginID}`；宿主（Swift）把它当作 I/O，按普通的插件启动流程启动那个后端，Core 等被调方协商并注册函数后再派发，最多等 30 秒，超时按 `plugin.function.providerUnavailable` 失败。Core 从不替宿主启动后端，也不自动重试。
 
-**热激活。** 宿主用 Core 命令 `lsp.configureFunctionRelay` 发布插件与工作区上下文的快照，Core 据此更新发现结果，并让快照已不允许的进行中调用立刻以明确的错误结束：被调方被禁用、卸载、更新后不再导出或改了版本是 `providerDisabled`，被调方后端退出或撤回函数是 `providerUnavailable`，调用方更新后不再声明是 `notDeclared`。
+**热激活。** 宿主用 Core 命令 `lsp.configureFunctionRelay` 发布插件与工作区上下文的快照，Core 据此更新发现结果，并让快照已不允许的进行中调用立刻以明确的错误结束：被调方被禁用、卸载、更新后不再导出或改了版本是 `providerDisabled`，被调方后端退出或撤回函数是 `providerUnavailable`，调用方更新后不再声明是 `notDeclared`。工作区上下文被宿主关闭，或 generation 被替换成更新的值时，携带该上下文的中转调用以 `plugin.host.contextExpired` 结束，既包括还在等被调方启动的调用，也包括已经在运行的调用，运行中的被调方同时收到取消。禁用、启用、替换和卸载对中转即时生效，不需要重启。但只在启动时注册带后端插件的宿主（目前是 macOS），要重启后才会在发现结果里列出新安装或更新的带后端插件。
 
 **远程工作区。** 中转只用于本地工作区（计划 API-40）；远程工作区的上下文得到 `plugin.host.authorityUnsupported`。
 
@@ -167,7 +175,8 @@ Maven 插件窗口的“刷新快照”按钮
 - 代价：本 Note 只覆盖 Core 一侧；宿主入口另见[宿主调用插件函数的入口](2026-10-20-host-plugin-function-invocation.md)，宿主能力仍未开放。
 - 后续：后端一侧的官方实现见 [官方插件后端 SDK（Node）](2026-10-20-plugin-backend-sdk.md)，它只实现本契约，不新增线上字段。
 - 收益：跨插件调用的所有判断（声明、导出、版本、调用链、深度、并发、字节上限、超时、取消）都在 Rust Core，macOS 与 Windows 以后共用；macOS 宿主只发布快照和启动被调方后端。
-- 代价：中转使用单个工作线程处理派发，被调方管道被写满时，后续中转调用会排队等待，直到各自的截止时间。
+- 收益：每个后端会话有自己的一条写入队列。某个后端不读它的 stdin（标准输入），只会拖慢发给它自己的调用和回复，其他插件的中转调用照常进行。
+- 代价：如果对某个后端的写入卡住超过请求超时，Core 会把这个会话按传输失败结束（`transportFailed`，阶段 `relayWrite`），它的调用和任何会话失败一样结束，不会再继续等。
 - 代价：macOS 对带后端的插件仍只在启动时注册，所以新安装或更新的后端插件要重启后才会出现在发现结果里；禁用、启用、替换和卸载是即时的。让带后端的插件免重启激活属于 #1515 的后续工作。
 - 代价：没有操作系统级沙盒，隔离仍只到进程和通信通道。
 
