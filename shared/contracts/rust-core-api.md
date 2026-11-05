@@ -1585,6 +1585,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.syncFingerprint` | Digest the files a build model depends on, to tell whether it is stale |
 | `build.languageImport` | Map a build system's options to the Java language server's Maven or Gradle project import |
 | `build.resolveTestRunOutcome` | Reduce a test run's termination, selected scope and decoded summary to one tool-neutral verdict |
+| `build.mergeTestOutcomes` | Merge a run's test result ids into the stored history inside the host-stated id/prefix scope |
 | `vcs.detectRoots` | Find the VCS roots of a workspace from static markers, with registered providers, ambiguous directories, and applied mappings |
 | `vcs.ownerOf` | Assign workspace paths to the detected root that owns each |
 | `vcs.decodeReply` | Validate a VCS provider's reply and return the normalized result |
@@ -6477,6 +6478,21 @@ failures outrank the exit code, a non-zero exit outranks an empty result, and a
 zero exit with decoded results but no executed test is not a pass. Counts that
 exceed `total` are `InvalidRequest`. No tool or selector syntax is interpreted.
 Hosts localize the outcome. Cases: `shared/fixtures/build/test-run-outcome-v1.json`.
+
+### Test history merge
+
+`build.mergeTestOutcomes` takes `{ previous, incoming, scope }`: `previous` and
+`incoming` are lists of result identifiers (strings) in display and report order,
+and `scope` is `{ ids?, prefixes? }`, the identifiers the run replaces. A result is
+covered when its id equals one of `ids` or starts with one of `prefixes`; an empty
+scope covers nothing and an empty prefix is `InvalidRequest`. It returns
+`{ entries: [{ source, index }] }` with `source` `previous` or `incoming` and
+`index` the position in that input: covered history entries are dropped, the
+others stay in place, then the run's covered results follow. Incoming results
+outside the scope are discarded, and for a repeated id the later entry wins.
+Core compares strings only: hosts keep the result payloads, and the provider
+adapter builds the scope (for example turning Java nested classes `Outer$Inner`
+into the prefix `Outer$`). Cases: `shared/fixtures/build/test-outcome-merge-v1.json`.
 
 ### Variable and disassembly paging
 

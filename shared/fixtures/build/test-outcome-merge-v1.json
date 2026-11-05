@@ -1,0 +1,264 @@
+{
+  "version": 1,
+  "description": "build.mergeTestOutcomes: the run's results replace the history only inside the scope the host states (exact ids and id prefixes). Hosts turn their own naming rules, such as Java nested classes, into prefixes before calling Core. Entries point at positions in `previous` or `incoming`.",
+  "cases": [
+    {
+      "name": "method run replaces only that method's result",
+      "request": {
+        "previous": [
+          "A#x",
+          "A#y",
+          "A$N#x",
+          "B#z"
+        ],
+        "incoming": [
+          "A#x"
+        ],
+        "scope": {
+          "ids": [
+            "A#x"
+          ]
+        }
+      },
+      "expected": {
+        "entries": [
+          {
+            "source": "previous",
+            "index": 1
+          },
+          {
+            "source": "previous",
+            "index": 2
+          },
+          {
+            "source": "previous",
+            "index": 3
+          },
+          {
+            "source": "incoming",
+            "index": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "class run replaces the class and its nested classes",
+      "request": {
+        "previous": [
+          "A#x",
+          "A#y",
+          "A$N#x",
+          "B#z"
+        ],
+        "incoming": [
+          "A#x",
+          "A$N#w"
+        ],
+        "scope": {
+          "prefixes": [
+            "A#",
+            "A$"
+          ]
+        }
+      },
+      "expected": {
+        "entries": [
+          {
+            "source": "previous",
+            "index": 3
+          },
+          {
+            "source": "incoming",
+            "index": 0
+          },
+          {
+            "source": "incoming",
+            "index": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "a test seen for the first time is appended",
+      "request": {
+        "previous": [
+          "A#x"
+        ],
+        "incoming": [
+          "A#x",
+          "A#new"
+        ],
+        "scope": {
+          "prefixes": [
+            "A#"
+          ]
+        }
+      },
+      "expected": {
+        "entries": [
+          {
+            "source": "incoming",
+            "index": 0
+          },
+          {
+            "source": "incoming",
+            "index": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "results outside the scope are kept and the run's out-of-scope results are dropped",
+      "request": {
+        "previous": [
+          "A#x",
+          "B#z"
+        ],
+        "incoming": [
+          "A#x",
+          "B#z"
+        ],
+        "scope": {
+          "ids": [
+            "A#x"
+          ]
+        }
+      },
+      "expected": {
+        "entries": [
+          {
+            "source": "previous",
+            "index": 1
+          },
+          {
+            "source": "incoming",
+            "index": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "a repeated identifier keeps the later entry",
+      "request": {
+        "previous": [
+          "A#x",
+          "A#x",
+          "B#z"
+        ],
+        "incoming": [
+          "A#y",
+          "A#y"
+        ],
+        "scope": {
+          "ids": [
+            "A#y"
+          ]
+        }
+      },
+      "expected": {
+        "entries": [
+          {
+            "source": "previous",
+            "index": 1
+          },
+          {
+            "source": "previous",
+            "index": 2
+          },
+          {
+            "source": "incoming",
+            "index": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "a covered stored result is replaced by the run's result",
+      "request": {
+        "previous": [
+          "A#x"
+        ],
+        "incoming": [
+          "A#x"
+        ],
+        "scope": {
+          "ids": [
+            "A#x"
+          ]
+        }
+      },
+      "expected": {
+        "entries": [
+          {
+            "source": "incoming",
+            "index": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "an empty scope keeps the history and discards the run",
+      "request": {
+        "previous": [
+          "A#x",
+          "B#z"
+        ],
+        "incoming": [
+          "A#x",
+          "C#q"
+        ],
+        "scope": {}
+      },
+      "expected": {
+        "entries": [
+          {
+            "source": "previous",
+            "index": 0
+          },
+          {
+            "source": "previous",
+            "index": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty history takes the covered results",
+      "request": {
+        "previous": [],
+        "incoming": [
+          "A#x"
+        ],
+        "scope": {
+          "ids": [
+            "A#x"
+          ]
+        }
+      },
+      "expected": {
+        "entries": [
+          {
+            "source": "incoming",
+            "index": 0
+          }
+        ]
+      }
+    }
+  ],
+  "rejected": [
+    {
+      "name": "an empty prefix would cover everything",
+      "request": {
+        "previous": [
+          "A#x"
+        ],
+        "incoming": [],
+        "scope": {
+          "prefixes": [
+            ""
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -258,6 +258,8 @@ pub enum CoreCommand {
     BuildLanguageImport,
     /// Reduces a test run's termination and decoded summary to one verdict (`build.resolveTestRunOutcome`).
     BuildResolveTestRunOutcome,
+    /// Merges a run's test results into the stored history inside the host-stated scope (`build.mergeTestOutcomes`).
+    BuildMergeTestOutcomes,
     /// Detects VCS roots and registered providers of a workspace (`vcs.detectRoots`).
     VcsDetectRoots,
     /// Assigns workspace paths to detected VCS roots (`vcs.ownerOf`).
@@ -953,6 +955,7 @@ impl CoreCommand {
             "build.syncFingerprint" => Some(Self::BuildSyncFingerprint),
             "build.languageImport" => Some(Self::BuildLanguageImport),
             "build.resolveTestRunOutcome" => Some(Self::BuildResolveTestRunOutcome),
+            "build.mergeTestOutcomes" => Some(Self::BuildMergeTestOutcomes),
             "vcs.detectRoots" => Some(Self::VcsDetectRoots),
             "vcs.ownerOf" => Some(Self::VcsOwnerOf),
             "vcs.decodeReply" => Some(Self::VcsDecodeReply),
