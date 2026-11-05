@@ -1727,7 +1727,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     private struct LspClientDiagnosticLocationRequest: Encodable {
-        let uri: String
+        let uri: LspDocumentURI
         let range: LspTextEditsRequest.TextEdit.Range
     }
 
@@ -1837,6 +1837,34 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let changes: [Change]
     }
 
+    /// File paths are converted by Core inside the existing LSP request. An
+    /// upstream virtual URI keeps its original identity and is never rewritten.
+    private enum LspDocumentURI: Encodable {
+        case path(String)
+        case literal(String)
+
+        init(_ url: URL) {
+            guard url.isFileURL else {
+                self = .literal(url.absoluteString)
+                return
+            }
+            let normalized = url.standardizedFileURL
+            let path = normalized.path
+            self = .path(normalized.hasDirectoryPath && !path.hasSuffix("/") ? path + "/" : path)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            switch self {
+            case .path(let path):
+                struct FilePath: Encodable { let path: String; let platform = "posix" }
+                try FilePath(path: path).encode(to: encoder)
+            case .literal(let uri):
+                var value = encoder.singleValueContainer()
+                try value.encode(uri)
+            }
+        }
+    }
+
     private struct LspStartServerRequest: Encodable {
         let role: String
         let logSubject: String?
@@ -1848,7 +1876,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let executablePath: String
         let arguments: [String]
         let environment: [String: String]
-        let rootUri: String
+        let rootUri: LspDocumentURI
         let workingDirectory: String
         let initializationOptions: ToolingJSONValue?
         let workspaceConfiguration: ToolingJSONValue?
@@ -1908,7 +1936,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let end: LspSyncDocumentRequest.Position
         }
         let sessionId: String
-        let uri: String
+        let uri: LspDocumentURI
         let languageId: String
         let text: String
         let contentChanges: [Change]
@@ -1916,7 +1944,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     private struct LspWorkspaceFilesChangedRequest: Encodable {
         struct Change: Encodable {
-            let uri: String
+            let uri: LspDocumentURI
             let kind: String
         }
 
@@ -1931,13 +1959,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     private struct JavaNavigationMarkersRequest: Encodable {
         let sessionId: String
-        let uri: String
+        let uri: LspDocumentURI
         let documentVersion: Int
     }
 
     private struct JavaResolveNavigationRequest: Encodable {
         let sessionId: String
-        let uri: String
+        let uri: LspDocumentURI
         let line: Int
         let utf16Column: Int
         let direction: String
@@ -1947,7 +1975,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     private struct LspCloseDocumentRequest: Encodable {
         let sessionId: String
-        let uri: String
+        let uri: LspDocumentURI
     }
 
     /// A semantic request names the operation it wants, not the LSP method that
@@ -1956,7 +1984,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let sessionId: String
         let operationId: String?
         let operation: String
-        let uri: String?
+        let uri: LspDocumentURI?
         let virtualUri: String?
         let position: LspTextEditsRequest.TextEdit.Range.Position?
         let newName: String?
@@ -1971,7 +1999,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             sessionId: String,
             operationId: String? = nil,
             operation: String,
-            uri: String? = nil,
+            uri: LspDocumentURI? = nil,
             virtualUri: String? = nil,
             position: LspTextEditsRequest.TextEdit.Range.Position? = nil,
             newName: String? = nil,
@@ -3836,7 +3864,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 executablePath: executableURL.standardizedFileURL.path,
                 arguments: arguments,
                 environment: environment,
-                rootUri: rootURL.standardizedFileURL.absoluteString,
+                rootUri: LspDocumentURI(rootURL),
                 workingDirectory: workingDirectoryURL.standardizedFileURL.path,
                 initializationOptions: initializationOptions,
                 workspaceConfiguration: workspaceConfiguration,
@@ -3922,11 +3950,11 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     func lspSaveDocument(sessionID: String, fileURL: URL, text: String) -> Result<Bool, CoreCallError> {
-        struct Request: Encodable { let sessionId: String; let uri: String; let text: String }
+        struct Request: Encodable { let sessionId: String; let uri: LspDocumentURI; let text: String }
         struct Response: Decodable { let sent: Bool }
         let result: Result<Response, CoreCallError> = executeResult(
             command: "lsp.saveDocument",
-            payload: Request(sessionId: sessionID, uri: fileURL.standardizedFileURL.absoluteString, text: text)
+            payload: Request(sessionId: sessionID, uri: LspDocumentURI(fileURL), text: text)
         )
         return result.map(\.sent)
     }
@@ -3944,7 +3972,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             command: "lsp.syncDocument",
             payload: LspSyncDocumentRequest(
                 sessionId: sessionID,
-                uri: fileURL.standardizedFileURL.absoluteString,
+                uri: LspDocumentURI(fileURL),
                 languageId: languageID,
                 // Keep the full snapshot for the initial didOpen and as a
                 // recovery source; Rust emits range-based didChange when safe.
@@ -4005,7 +4033,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 sessionId: sessionID,
                 changes: changes.map {
                     LspWorkspaceFilesChangedRequest.Change(
-                        uri: $0.fileURL.standardizedFileURL.absoluteString,
+                        uri: LspDocumentURI($0.fileURL),
                         kind: $0.kind.rawValue
                     )
                 }
@@ -4018,7 +4046,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             command: "lsp.closeDocument",
             payload: LspCloseDocumentRequest(
                 sessionId: sessionID,
-                uri: fileURL.standardizedFileURL.absoluteString
+                uri: LspDocumentURI(fileURL)
             )
         )
     }
@@ -4044,7 +4072,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             payload: LspSemanticRequest(
                 sessionId: sessionID,
                 operation: operation.rawValue,
-                uri: fileURL?.standardizedFileURL.absoluteString,
+                uri: fileURL.map(LspDocumentURI.init),
                 virtualUri: virtualURI,
                 position: position.map {
                     .init(line: $0.line, utf16Column: $0.utf16Column)
@@ -4085,7 +4113,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             command: "java.navigationMarkers",
             payload: JavaNavigationMarkersRequest(
                 sessionId: sessionID,
-                uri: fileURL.standardizedFileURL.absoluteString,
+                uri: LspDocumentURI(fileURL),
                 documentVersion: documentVersion
             )
         )
@@ -4101,7 +4129,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             command: "java.resolveNavigation",
             payload: JavaResolveNavigationRequest(
                 sessionId: sessionID,
-                uri: fileURL.standardizedFileURL.absoluteString,
+                uri: LspDocumentURI(fileURL),
                 line: marker.line,
                 utf16Column: marker.utf16Column,
                 direction: marker.direction.rawValue,
@@ -4331,7 +4359,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             relatedInformation: diagnostic.relatedInformation.map {
                 LspClientDiagnosticRelatedInformationRequest(
                     location: LspClientDiagnosticLocationRequest(
-                        uri: $0.fileURL.standardizedFileURL.absoluteString,
+                        uri: LspDocumentURI($0.fileURL),
                         range: makeRangeRequest($0.range)
                     ),
                     message: $0.message

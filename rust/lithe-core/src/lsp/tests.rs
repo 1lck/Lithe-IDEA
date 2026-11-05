@@ -437,6 +437,106 @@ fn file_uri_paths_decode_spaces_and_utf8_characters() {
 }
 
 #[test]
+fn document_uri_matches_shared_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/lsp/document-uri-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let response: Value = serde_json::from_str(&crate::execute_json(
+            &json!({"command":"lsp.documentUri", "payload":{
+                "path":case["path"], "platform":case["platform"]
+            }})
+            .to_string(),
+        ))
+        .unwrap();
+        if case["uri"].is_null() {
+            assert_eq!(response["ok"], false, "{}: {response}", case["name"]);
+        } else {
+            assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+            assert_eq!(response["data"]["uri"], case["uri"], "{}", case["name"]);
+        }
+    }
+}
+
+#[test]
+fn document_paths_resolve_inside_lsp_requests_without_changing_virtual_uris() {
+    let mut request = json!({"uri":{"path":"C:\\work\\A#B.java","platform":"auto"},
+        "virtualUri":"jdt://contents/A#B", "text":"unchanged",
+        "diagnostics":[{"relatedInformation":[{"location":{"uri":{"path":"/work/A#B.java","platform":"posix"}}},
+            {"location":{"uri":"jdt://contents/A#B"}}]}]});
+    resolve_request_paths("lsp.request", &mut request).unwrap();
+    assert_eq!(request["uri"], "file:///C:/work/A%23B.java");
+    assert_eq!(request["virtualUri"], "jdt://contents/A#B");
+    assert_eq!(
+        request["diagnostics"][0]["relatedInformation"][0]["location"]["uri"],
+        "file:///work/A%23B.java"
+    );
+    assert_eq!(
+        request["diagnostics"][0]["relatedInformation"][1]["location"]["uri"],
+        "jdt://contents/A#B"
+    );
+    let mut changes = json!({"changes":[
+        {"uri":{"path":"/work/A?.java","platform":"posix"},"kind":"changed"},
+        {"uri":"file:///already%20encoded","kind":"deleted"}
+    ]});
+    resolve_request_paths("lsp.workspaceFilesChanged", &mut changes).unwrap();
+    assert_eq!(changes["changes"][0]["uri"], "file:///work/A%3F.java");
+    assert_eq!(changes["changes"][1]["uri"], "file:///already%20encoded");
+    let mut invalid = json!({"uri":{"path":"relative","platform":"posix"}});
+    assert!(resolve_request_paths("lsp.syncDocument", &mut invalid).is_err());
+}
+
+#[test]
+fn document_uri_accepts_non_ascii_windows_extended_length_paths() {
+    let path = format!("C:\\{}\\Main.java", vec!["目".repeat(100); 120].join("\\"));
+    assert!(path.len() > 32_768);
+    assert!(path.encode_utf16().count() < 32_767);
+    let response: Value = serde_json::from_str(&crate::execute_json(
+        &json!({"command":"lsp.documentUri", "payload":{"path":path,"platform":"windows"}})
+            .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(response["ok"], true);
+    assert!(response["data"]["uri"]
+        .as_str()
+        .unwrap()
+        .starts_with("file:///C:/"));
+}
+
+#[test]
+fn document_uri_identity_keeps_reserved_characters_distinct() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/lsp/document-uri-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["identityCases"].as_array().unwrap() {
+        let opened_uri = case["opened"].as_str().unwrap();
+        let published_uri = case["published"].as_str().unwrap();
+        let opened = client_open_document(ClientOpenDocumentRequest {
+            state: LspClientState::default(),
+            uri: opened_uri.to_string(),
+            language_id: "fixture".into(),
+            text: "test".into(),
+        })
+        .unwrap();
+        let result = client_apply_server_message(ClientApplyServerMessageRequest {
+            state: opened.state,
+            message: json!({"jsonrpc":"2.0", "method":"textDocument/publishDiagnostics",
+                "params":{"uri":published_uri,"version":1,"diagnostics":[]}})
+            .to_string(),
+        })
+        .unwrap();
+        assert_eq!(
+            result.state.diagnostics.contains_key(opened_uri),
+            case["same"].as_bool().unwrap(),
+            "{}",
+            case["name"]
+        );
+    }
+}
+
+#[test]
 fn client_core_initializes_and_applies_server_capabilities() {
     let initialized = client_initialize(ClientInitializeRequest {
         state: LspClientState::default(),
