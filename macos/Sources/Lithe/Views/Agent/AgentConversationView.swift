@@ -53,6 +53,7 @@ struct AgentConversationView: View {
                     onFindFiles: { await model.agentFileMentions(matching: $0) },
                     fileMentionRevision: model.workspaceSnapshotID,
                     onSavePastedImage: { try model.saveAgentPastedImage($0) },
+                    onAttachmentsAccepted: { model.recordAcceptedAgentAttachments($0) },
                     availableAgents: selectableAgents,
                     historyOnly: !isEditor && model.agentChatsInEditor,
                     showsChatActions: !isEditor,
@@ -255,6 +256,7 @@ struct AgentConfiguredConversationView: View {
     var onFindFiles: ((String) async -> [AgentFileMention])? = nil
     var fileMentionRevision: UUID? = nil
     var onSavePastedImage: ((Data) throws -> URL)? = nil
+    var onAttachmentsAccepted: (([AgentFileReference]) -> Void)? = nil
     var availableAgents: [AgentOption]? = nil
     var historyOnly = false
     var showsChatActions = true
@@ -284,6 +286,7 @@ struct AgentConfiguredConversationView: View {
                 onFindFiles: onFindFiles,
                 fileMentionRevision: fileMentionRevision,
                 onSavePastedImage: onSavePastedImage,
+                onAttachmentsAccepted: onAttachmentsAccepted,
                 historyOnly: historyOnly, showsChatActions: showsChatActions, chatsInEditor: chatsInEditor,
                 onToggleLocation: onToggleLocation, onFocusEditor: onFocusEditor,
                 onOpenNewEditorTab: onOpenNewEditorTab, onSessionChanged: onSessionChanged,
@@ -390,6 +393,7 @@ private struct AgentConnectionView: View {
     var onFindFiles: ((String) async -> [AgentFileMention])? = nil
     var fileMentionRevision: UUID? = nil
     var onSavePastedImage: ((Data) throws -> URL)? = nil
+    var onAttachmentsAccepted: (([AgentFileReference]) -> Void)? = nil
     var historyOnly = false
     var showsChatActions = true
     var chatsInEditor = false
@@ -674,7 +678,7 @@ private struct AgentConnectionView: View {
             isBlocked: feature.isCreatingSession
                 || feature.selectedConversation?.isLoading == true
                 || feature.connectionState != .ready,
-            onSend: { try feature.send($0, files: $1) },
+            onSend: { try feature.send($0, files: $1); onAttachmentsAccepted?($1) },
             onCancel: { feature.cancel() },
             onSelectAgent: onSelectAgent,
             onOpenSettings: onOpenSettings,

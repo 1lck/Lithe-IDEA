@@ -244,6 +244,11 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
         CoreCommand::AgentHooksValidateDraft => {
             agent_response(id, parsed.payload, crate::agent::hooks::validate_draft)
         }
+        CoreCommand::AgentAttachmentsRetentionPlan => agent_response(
+            id,
+            parsed.payload,
+            crate::agent::attachments::retention_plan,
+        ),
         CoreCommand::McpParseConfiguration => {
             match crate::mcp::parse_configuration(parsed.payload) {
                 Ok(data) => CoreResponse::success(id, data),

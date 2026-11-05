@@ -1,5 +1,6 @@
 import { appCacheDir, join } from "@tauri-apps/api/path";
-import { mkdir, remove, writeFile } from "@tauri-apps/plugin-fs";
+import { exists, mkdir, readDir, readTextFile, remove, rename, stat, writeFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { invoke } from "./tauri-core";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_BATCH_BYTES = 32 * 1024 * 1024;
@@ -9,13 +10,91 @@ const EXTENSIONS: Record<string, string> = {
 };
 let prepare: Promise<string> | undefined;
 
+interface RetentionEntry { path: string; modifiedMs?: number; abandoned: boolean }
+interface RetentionPlan { delete: { path: string; reason: string }[]; keep: { path: string; reason: string }[]; seed: string[] }
+
+/** Ledger of images a conversation accepted; it sits beside the cache, never in the install directory. */
+async function ledgerPath(): Promise<string> {
+  return join(await appCacheDir(), "agent", "pasted-images-accepted.json");
+}
+
+/** `present` is the file's existence alone; Core never treats an empty ledger as a first run. */
+async function readLedger(): Promise<{ present: boolean; paths: string[] }> {
+  const path = await ledgerPath();
+  if (!(await exists(path))) return { present: false, paths: [] };
+  const parsed: unknown = JSON.parse(await readTextFile(path));
+  if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === "string")) {
+    throw new Error("agent.composer.imageCleanupFailed");
+  }
+  return { present: true, paths: parsed };
+}
+
+/** Publishes the ledger through a temporary sibling so a crash never leaves a partial file. */
+async function writeLedger(paths: string[]): Promise<void> {
+  const path = await ledgerPath();
+  const temporary = `${path}.tmp`;
+  await writeTextFile(temporary, JSON.stringify(paths));
+  await rename(temporary, path);
+}
+
+/**
+ * Core decides what may be deleted and, for a cache that predates the ledger, which images
+ * to seed as accepted. The seed is written before the caller deletes anything.
+ */
+async function retentionPlan(entries: RetentionEntry[]): Promise<RetentionPlan> {
+  const ledger = await readLedger();
+  const plan = await invoke<RetentionPlan>("agent.attachments.retentionPlan", {
+    nowMs: Date.now(),
+    entries,
+    acceptedReferences: ledger.paths,
+    ledgerPresent: ledger.present,
+    caseInsensitive: true,
+  });
+  if (!ledger.present) await writeLedger(plan.seed);
+  return plan;
+}
+
+function filePath(uri: string): string | null {
+  const match = /^file:\/\/\/(.+)$/.exec(uri);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+/** Remembers the cached images an accepted prompt refers to, so retention never deletes them. */
+export async function recordAcceptedPastedImages(uris: string[]): Promise<void> {
+  const root = (await directory()).replace(/\\/g, "/").toLowerCase() + "/";
+  const accepted = uris.map(filePath).filter((path): path is string =>
+    path !== null && path.replace(/\\/g, "/").toLowerCase().startsWith(root));
+  if (accepted.length === 0) return;
+  const ledger = await readLedger();
+  // Without a ledger the cache has not been migrated yet; the next sweep seeds it, accepted images included.
+  if (!ledger.present) return;
+  const known = new Set<string>();
+  const kept: string[] = [];
+  for (const path of [...ledger.paths, ...accepted]) {
+    if (known.has(path.toLowerCase()) || !(await exists(path))) continue;
+    known.add(path.toLowerCase());
+    kept.push(path);
+  }
+  await writeLedger(kept);
+}
+
+async function removePlanned(plan: RetentionPlan): Promise<void> {
+  const results = await Promise.allSettled(plan.delete.map((item) => remove(item.path)));
+  if (results.some((result) => result.status === "rejected")) throw new Error("agent.composer.imageCleanupFailed");
+}
+
 /** User cache owned by the Agent attachment adapter; never a packaged resource. */
 async function directory(): Promise<string> {
   prepare ??= (async () => {
     const root = await join(await appCacheDir(), "agent", "pasted-images");
     await mkdir(root, { recursive: true });
-    // Accepted attachments remain available to historical conversations. Only an
-    // abandoned paste owns deletion; age alone does not establish ownership.
+    const entries: RetentionEntry[] = [];
+    for (const item of await readDir(root)) {
+      if (!item.isFile) continue;
+      const path = await join(root, item.name);
+      entries.push({ path, modifiedMs: (await stat(path)).mtime?.getTime(), abandoned: false });
+    }
+    try { await removePlanned(await retentionPlan(entries)); } catch (cleanup) { console.warn("Agent paste retention failed", cleanup); }
     return root;
   })().catch((error) => { prepare = undefined; throw error; });
   return prepare;
@@ -27,7 +106,7 @@ export function validatePastedImage(file: Blob): void {
   }
 }
 
-/** Failed batches and stale paste operations remove their own files immediately. */
+/** Failed batches and stale paste operations are reported to Core as abandoned and removed at once. */
 export async function savePastedImages(files: File[]): Promise<{ paths: string[]; discard: () => Promise<void> }> {
   if (files.length > 32) throw new Error("agent.composer.tooManyImages");
   files.forEach(validatePastedImage);
@@ -35,9 +114,7 @@ export async function savePastedImages(files: File[]): Promise<{ paths: string[]
   const root = await directory();
   const paths: string[] = [];
   const discard = async () => {
-    const results = await Promise.allSettled(paths.map((path) => remove(path)));
-    const failures = results.filter((result) => result.status === "rejected");
-    if (failures.length) throw new Error("agent.composer.imageCleanupFailed");
+    await removePlanned(await retentionPlan(paths.map((path) => ({ path, abandoned: true }))));
   };
   try {
     for (const file of files) {
