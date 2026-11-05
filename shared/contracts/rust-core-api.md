@@ -1500,6 +1500,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.pullPreflight` | Report the configured upstream, ahead/behind counts, divergence, tracked local changes, and the strategy Git is configured for, without fetching |
 | `git.updatePlan` | Route a branch Update and gate a Pull from facts the host collected: blockers, strategy default, whether to ask, and the expected checkout |
 | `git.historyWindow` | Plan a history refresh window, page merge, and selection retention over commit identities |
+| `git.graphProjection` | Project a loaded history window into commit-graph lanes, color IDs, routes, print elements, and labels, optionally filtered |
 | `git.integrationPreflight` | Return local paths that block a merge, rebase, cherry-pick, or revert |
 | `git.conflictMarkers` | Return staged text files that still contain conflict markers |
 | `git.operationState` | Report an interrupted merge, rebase, cherry-pick, or revert and its conflicted paths |
@@ -2456,6 +2457,30 @@ page that are not yet in the window and whether `hasMore`, bounded to 5000
 commits. `reconcileSelection` returns the retained `selected` identities in
 window order plus `focused` and `anchor`, falling back to the first loaded
 commit. `shared/fixtures/git/history-window-v1.json` defines the rules.
+
+`git.graphProjection` is a pure projection of one loaded history window; it never
+starts Git. The request is `{ "commits": [{ "hash", "parentHashes", "decorations" }],
+"remoteNames"?, "repositoryCommits"?, "visibleHashes"?, "displayMode"?,
+"currentBranch"? }`: `commits` are in Git's child-before-parent order, `remoteNames`
+are the remote short names that type a bare remote-tracking decoration,
+`repositoryCommits` is the complete repository window that fixes the permanent layout
+(ignored unless it is unique and covers every scoped commit), `visibleHashes` applies
+a filter (omit it to show every commit), `displayMode` is `compact` (default) or
+`expanded`, and `currentBranch` asks for the ancestry of that local branch. Hosts call
+it once per loaded window, never per commit, and recompute the whole window when a page
+is appended or the history refreshes; lanes depend on every loaded edge, and a head
+fragment's color ID is the Java `String.hashCode` of its principal reference name, so a
+named branch keeps its color across pages. The response is `{ "version", "rows",
+"laneCount", "recommendedLaneCount", "hasMissingParents", "currentBranchHashes" }`.
+Each visible row carries `commitHash`, integer `lane` and `laneCount`, a signed
+`colorId`, `layoutIndex`, `incomingLaneColors`, `parentEdges` (`id`, `parentHash`,
+`targetLane`, `colorId`, `isMissing`, `isDotted`), typed `labels`, and
+`printElements` (the up and down half-edges with `position`, `adjacentPosition`,
+`colorId`, `isDotted`, `isMissing`, `hasArrow`, `isTerminal`, `targetHash`). Hosts own
+pixels, curves, and the mapping from a color ID to a theme color; `colorId` `0` means
+an unreferenced fragment. Requests over 20,000 commits fail with `invalid_request`.
+`shared/fixtures/git/graph-projection-v1.json` defines the rules and
+`shared/fixtures/git/graph-idea/` holds the pinned IntelliJ oracles.
 
 `git.integrationPreflight` accepts either `reference` or `gitReference` with
 `root` and `operation`, where `operation` is `merge`, `rebase`, `cherryPick`,

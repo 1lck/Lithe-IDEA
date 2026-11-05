@@ -3422,6 +3422,9 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
         CoreCommand::GitHistoryWindow => {
             plugin_response(id, parsed.payload, crate::git::history_window_command)
         }
+        CoreCommand::GitGraphProjection => {
+            plugin_response(id, parsed.payload, crate::git::graph_projection_command)
+        }
         CoreCommand::GitNormalizeChangeTargets => plugin_response(
             id,
             parsed.payload,

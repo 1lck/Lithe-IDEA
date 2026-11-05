@@ -198,7 +198,6 @@ let package = Package(
             name: "LitheGitModuleTests",
             dependencies: ["LitheGitTestSupport", "LitheGitModule", "LitheApplicationKernel", "LitheRustCore", .product(name: "Testing", package: "swift-testing")],
             path: "macos/Tests/LitheGitModuleTests",
-            resources: [.copy("Fixtures")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
