@@ -1,3 +1,4 @@
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { toast } from "sonner";
 import * as native from "@/platform/tauri-core";
@@ -11,6 +12,7 @@ import type { EditorContent } from "@/features/panes/types/pane-content.types";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { saveWorkspaceBeforeLaunch } from "../services/save-workspace-before-launch";
 import { LspClient } from "../lsp/lsp-client";
+import * as saveBatch from "../services/save-batch";
 import { getBufferById } from "../utils/buffer-index";
 import { useBufferStore } from "./buffer.store";
 import { createEditorAppStore, useEditorAppStore } from "./editor-app.store";
@@ -58,16 +60,39 @@ function getEditorBuffer(workspaceId: string, bufferId: string): EditorContent {
   return buffer;
 }
 
+const saveBatchSpies: Array<{ mockRestore(): void }> = [];
+
 beforeEach(() => {
+  // The webview has no Core in unit tests; these fakes follow the Core rules
+  // pinned by shared/fixtures/documents/save-batch-v1.json.
+  saveBatchSpies.push(
+    spyOn(saveBatch, "planSaveBatch").mockImplementation(async (buffers) =>
+      buffers.filter((b) => b.type === "editor" && b.isDirty && !b.readOnly).map((b) => b.id)),
+    spyOn(saveBatch, "reduceSaveBatch").mockImplementation(async (_members, outcomes) => ({
+      status: outcomes.includes("failed") ? "failed" : "saved",
+      savedCount: outcomes.filter((o) => o === "saved").length,
+    })),
+  );
   workspaceRuntimeRegistry.resetForTests();
   workspaceRuntimeRegistry.ensureWorkspace({ id: WORKSPACE_A, name: "Workspace A" }, "ready");
   workspaceRuntimeRegistry.ensureWorkspace({ id: WORKSPACE_B, name: "Workspace B" }, "ready");
 });
 
 afterEach(() => {
+  for (const spy of saveBatchSpies.splice(0)) spy.mockRestore();
   useEditorAppStore.getStore(WORKSPACE_A).getState().actions.cleanup();
   useEditorAppStore.getStore(WORKSPACE_B).getState().actions.cleanup();
 });
+
+/** Mirrors Core's `lsp.planWorkspaceEdit` for open documents inside the workspace. */
+function fakeWorkspaceEditPlan(args: unknown) {
+  const changes = (args as { changes: Record<string, unknown[]> }).changes;
+  return { rejection: null, targets: Object.entries(changes).map(([path, edits]) => ({ path, effect: "updateDocument", edits })) };
+}
+
+function useFixtureWorkspaceRoot() {
+  useFileSystemStore.getStore(WORKSPACE_A).setState({ rootFolderPath: "C:/fixture" });
+}
 
 describe("workspace-scoped editor actions", () => {
   test.each(["edited", "saved", "closed"] as const)(
@@ -121,12 +146,15 @@ describe("workspace-scoped editor actions", () => {
       workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_A, name: "Workspace A" }, "ready");
       const options = { caseSensitive: true, wholeWord: false, useRegex: false };
       const edit = { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } }, newText: "new" };
+      useFixtureWorkspaceRoot();
+      const planner = spyOn(native, "invoke").mockImplementation(async <T>(command: string, args?: unknown): Promise<T> =>
+        (command === "lsp.planWorkspaceEdit" ? fakeWorkspaceEditPlan(args) : undefined) as T);
       const task = operation === "rename"
         ? applyWorkspaceEdit({ changes: { "file:///C:/fixture/a.txt": [edit], "file:///C:/fixture/b.txt": [edit] } })
         : operation === "replace-all"
           ? replaceAllInSources([a.path, b.path], "old", "new", options)
           : replaceNextInSource({ filePath: b.path, line: 1, column: 1 }, "old", "new", options);
-      await expect(task).rejects.toThrow("b.txt");
+      try { await expect(task).rejects.toThrow("b.txt"); } finally { planner.mockRestore(); }
       expect(getEditorBuffer(WORKSPACE_A, a.id).content).toBe("old name");
       expect(getEditorBuffer(WORKSPACE_A, a.id).isDirty).toBe(false);
       expect(getEditorBuffer(WORKSPACE_A, b.id).content).toBe("");
@@ -160,7 +188,9 @@ describe("workspace-scoped editor actions", () => {
     setWorkspaceBuffers(WORKSPACE_A, [a, b], a.id);
     workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_A, name: "Workspace A" }, "ready");
     const failure = Object.assign(new Error("overlappingEdits"), { code: "invalid_request" });
+    useFixtureWorkspaceRoot();
     const invoke = spyOn(native, "invoke").mockImplementation(async <T>(command: string, args?: unknown): Promise<T> => {
+      if (command === "lsp.planWorkspaceEdit") return fakeWorkspaceEditPlan(args) as T;
       expect(command).toBe("lsp.applyTextEdits");
       if ((args as { text?: string } | undefined)?.text === "second") throw failure;
       return { text: "changed" } as T;
@@ -173,7 +203,7 @@ describe("workspace-scoped editor actions", () => {
       expect(getEditorBuffer(WORKSPACE_A, a.id).content).toBe("first");
       expect(getEditorBuffer(WORKSPACE_A, b.id).content).toBe("second");
       expect(getEditorBuffer(WORKSPACE_A, a.id).isDirty).toBe(false);
-      expect(invoke).toHaveBeenCalledTimes(2);
+      expect(invoke).toHaveBeenCalledTimes(3);
     } finally { invoke.mockRestore(); }
   });
 
@@ -181,13 +211,32 @@ describe("workspace-scoped editor actions", () => {
     const a = editorBuffer("a", "中文😀\r\n", { path: "C:/fixture/a.txt", isVirtual: false });
     setWorkspaceBuffers(WORKSPACE_A, [a], a.id);
     workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_A, name: "Workspace A" }, "ready");
-    const invoke = spyOn(native, "invoke").mockResolvedValue({ text: "中文🚀\r\n" });
+    useFixtureWorkspaceRoot();
+    const invoke = spyOn(native, "invoke").mockImplementation(async <T>(command: string, args?: unknown): Promise<T> =>
+      (command === "lsp.planWorkspaceEdit" ? fakeWorkspaceEditPlan(args) : { text: "中文🚀\r\n" }) as T);
     try {
       expect(await applyWorkspaceEdit({ changes: { "file:///C:/fixture/a.txt": [{
         range: { start: { line: 0, character: 2 }, end: { line: 0, character: 4 } }, newText: "🚀",
       }] } })).toEqual({ editedFiles: 1 });
       expect(getEditorBuffer(WORKSPACE_A, a.id).content).toBe("中文🚀\r\n");
       expect(getEditorBuffer(WORKSPACE_A, a.id).isDirty).toBe(true);
+    } finally { invoke.mockRestore(); }
+  });
+
+  test("workspace edits refuse a target Core rejects before touching any buffer", async () => {
+    const a = editorBuffer("a", "first", { path: "C:/fixture/a.txt", isVirtual: false });
+    setWorkspaceBuffers(WORKSPACE_A, [a], a.id);
+    workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_A, name: "Workspace A" }, "ready");
+    useFixtureWorkspaceRoot();
+    const invoke = spyOn(native, "invoke").mockResolvedValue({
+      rejection: { code: "outsideWorkspace", path: "D:/elsewhere/b.txt" }, targets: [],
+    });
+    const edit = { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: "new" };
+    try {
+      await expect(applyWorkspaceEdit({ changes: { "file:///C:/fixture/a.txt": [edit], "file:///D:/elsewhere/b.txt": [edit] } }))
+        .rejects.toThrow();
+      expect(invoke).toHaveBeenCalledTimes(1);
+      expect(getEditorBuffer(WORKSPACE_A, a.id).content).toBe("first");
     } finally { invoke.mockRestore(); }
   });
 
