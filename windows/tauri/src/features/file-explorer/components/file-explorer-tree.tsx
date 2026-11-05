@@ -1368,6 +1368,7 @@ function FileExplorerTreeComponent({
             if (targetDir) {
               void pasteIntoExplorerDirectory({
                 targetDirectory: targetDir,
+                workspaceRoots: workspaceRootPaths,
                 createFileInDirectory: onCreateNewFileInDirectory,
                 refreshDirectory: onRefreshDirectory,
                 onJavaClassCreated: (fileName) => {

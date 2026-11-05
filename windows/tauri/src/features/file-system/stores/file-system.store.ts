@@ -1,10 +1,11 @@
 import { bindWorkspaceIndexingRoots } from "@/features/file-explorer/stores/workspace-indexing";
 import { migrateWorkspaceDirectoryMarks } from "@/features/file-explorer/stores/directory-marks";
+import { relocateLocalHistory } from "@/features/local-history/api/local-history-api";
 import { loadFileContent } from "../controllers/workspace-session-restore";
 import { invoke } from "@/platform/tauri-core";
 import { LspOperationLog } from "@/platform/lsp-session-lifecycle";
 import { basename, dirname, extname, join } from "@tauri-apps/api/path";
-import { copyFile } from "@tauri-apps/plugin-fs";
+import { planDuplicateName } from "../utils/copy-names";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { immer } from "zustand/middleware/immer";
 import type { StoreApi } from "zustand";
@@ -2514,12 +2515,13 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         const { rootFolderPath } = get();
         if (rootFolderPath) {
           try {
-            migrateWorkspaceDirectoryMarks(getWorkspaceFolderPaths(get), oldPath, newPath);
+            await migrateWorkspaceDirectoryMarks(getWorkspaceFolderPaths(get), oldPath, newPath);
           } catch (error) {
             toast.error(getCurrentTranslator()("project.markFailed"), {
               description: String(error),
             });
           }
+          await relocateHistoryAfterMove(oldPath, newPath);
           gitDiffCache.invalidate(rootFolderPath, oldPath);
           gitDiffCache.invalidate(rootFolderPath, newPath);
         }
@@ -2771,7 +2773,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         const { rootFolderPath } = get();
         if (rootFolderPath) {
           try {
-            migrateWorkspaceDirectoryMarks(getWorkspaceFolderPaths(get), path);
+            await migrateWorkspaceDirectoryMarks(getWorkspaceFolderPaths(get), path);
           } catch (error) {
             toast.error(getCurrentTranslator()("project.markFailed"), {
               description: String(error),
@@ -2812,22 +2814,16 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           const pathParts = remotePath.split("/");
           const base = pathParts.pop() || "";
           const dir = pathParts.join("/") || "/";
-          const extMatch = base.match(/(\.[^.]*)$/);
-          const ext = extMatch?.[1] ?? "";
-          const nameWithoutExt = ext ? base.slice(0, -ext.length) : base;
-
-          let counter = 0;
-          let finalName = "";
-          let finalPath = "";
-
-          do {
-            finalName =
-              counter === 0
-                ? `${nameWithoutExt}_copy${ext}`
-                : `${nameWithoutExt}_copy_${counter}${ext}`;
-            finalPath = dir === "/" ? `/${finalName}` : `${dir}/${finalName}`;
-            counter++;
-          } while (findFileInTree(get().files, `remote://${remoteInfo.connectionId}${finalPath}`));
+          const finalName = await planDuplicateName({
+            name: base,
+            isDirectory: fileEntry.isDir,
+            exists: (name) =>
+              !!findFileInTree(
+                get().files,
+                `remote://${remoteInfo.connectionId}${dir === "/" ? `/${name}` : `${dir}/${name}`}`,
+              ),
+          });
+          const finalPath = dir === "/" ? `/${finalName}` : `${dir}/${finalName}`;
 
           await invoke("ssh_copy_path", {
             connectionId: remoteInfo.connectionId,
@@ -2862,24 +2858,15 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           const pathParts = wslInfo.linuxPath.split("/");
           const base = pathParts.pop() || "";
           const dir = pathParts.join("/") || "/";
-          const extMatch = base.match(/(\.[^.]*)$/);
-          const ext = extMatch?.[1] ?? "";
-          const nameWithoutExt = ext ? base.slice(0, -ext.length) : base;
-
-          let counter = 0;
-          let finalName = "";
-          let finalLinuxPath = "";
-          let finalPath = "";
-
-          do {
-            finalName =
-              counter === 0
-                ? `${nameWithoutExt}_copy${ext}`
-                : `${nameWithoutExt}_copy_${counter}${ext}`;
-            finalLinuxPath = dir === "/" ? `/${finalName}` : `${dir}/${finalName}`;
-            finalPath = buildWslPath(wslInfo.distro, finalLinuxPath);
-            counter++;
-          } while (findFileInTree(get().files, finalPath));
+          const linuxPathOf = (name: string) => (dir === "/" ? `/${name}` : `${dir}/${name}`);
+          const finalName = await planDuplicateName({
+            name: base,
+            isDirectory: fileEntry.isDir,
+            exists: (name) =>
+              !!findFileInTree(get().files, buildWslPath(wslInfo.distro, linuxPathOf(name))),
+          });
+          const finalLinuxPath = linuxPathOf(finalName);
+          const finalPath = buildWslPath(wslInfo.distro, finalLinuxPath);
 
           await invoke("wsl_copy_path", {
             distro: wslInfo.distro,
@@ -2904,37 +2891,20 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           return;
         }
 
-        const dir = await dirname(path);
-        const base = await basename(path);
-        const ext = await extname(path);
-
         const originalFile = findFileInTree(get().files, path);
         if (!originalFile) return;
 
-        const nameWithoutExt = base.slice(0, base.length - ext.length);
-        let counter = 0;
-        let finalName = "";
-        let finalPath = "";
-
-        const generateCopyName = () => {
-          if (counter === 0) {
-            return `${nameWithoutExt}_copy.${ext}`;
-          }
-          return `${nameWithoutExt}_copy_${counter}.${ext}`;
-        };
-
-        do {
-          finalName = generateCopyName();
-          finalPath = joinPath(dir, finalName);
-          counter++;
-        } while (findFileInTree(get().files, finalPath));
-
-        await copyFile(path, finalPath);
+        // The host plans the name with Core against the directory on disk and creates the
+        // copy without replacing anything, so a name taken meanwhile is planned again.
+        const finalPath = await invoke<string>("duplicate_path", { path });
+        const finalName = await basename(finalPath);
+        const dir = await dirname(finalPath);
 
         const newFile: FileEntry = {
           name: finalName,
           path: finalPath,
-          isDir: false,
+          isDir: originalFile.isDir,
+          children: originalFile.isDir ? [] : undefined,
         };
 
         set((state) => {
@@ -2982,13 +2952,14 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
 
             if (marksRoots.length > 0) {
               try {
-                migrateWorkspaceDirectoryMarks(marksRoots, path, targetPath);
+                await migrateWorkspaceDirectoryMarks(marksRoots, path, targetPath);
               } catch (error) {
                 toast.error(getCurrentTranslator()("project.markFailed"), {
                   description: String(error),
                 });
               }
             }
+            await relocateHistoryAfterMove(path, targetPath);
             set((state) => {
               state.files = updateFileInTree(state.files, path, (item) => ({
                 ...item,
@@ -3202,5 +3173,14 @@ scopedFileSystemStore = createWorkspaceScopedStore<ScopedFileSystemStoreState>(
   "file-system",
   createFileSystemStore,
 );
+
+/** Retained local history follows a file or directory that was renamed or moved. */
+async function relocateHistoryAfterMove(source: string, destination: string): Promise<void> {
+  try {
+    await relocateLocalHistory(source, destination);
+  } catch (error) {
+    console.warn("Failed to relocate local history:", error);
+  }
+}
 
 export const useFileSystemStore = scopedFileSystemStore;

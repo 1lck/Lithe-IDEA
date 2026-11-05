@@ -894,6 +894,26 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
             parsed.payload,
             crate::project::name_ranking::rank_names_command,
         ),
+        CoreCommand::WorkspacePlanDuplicate => plugin_response(
+            id,
+            parsed.payload,
+            crate::project::file_operations::plan_duplicate_command,
+        ),
+        CoreCommand::WorkspacePlanPaste => plugin_response(
+            id,
+            parsed.payload,
+            crate::project::file_operations::plan_paste_command,
+        ),
+        CoreCommand::WorkspaceReduceDirectoryAction => plugin_response(
+            id,
+            parsed.payload,
+            crate::project::directory_actions::reduce_command,
+        ),
+        CoreCommand::WorkspaceRelocateDirectoryRules => plugin_response(
+            id,
+            parsed.payload,
+            crate::project::directory_actions::relocate_command,
+        ),
         CoreCommand::WorkspaceRepositories => {
             match serde_json::from_value::<WorkspaceRepositoriesRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1160,6 +1180,9 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                 Ok(data) => CoreResponse::success(id, serde_json::json!({"text": data})),
                 Err(error) => CoreResponse::failure(id, error),
             }
+        }
+        CoreCommand::HistoryPlanEvent => {
+            plugin_response(id, parsed.payload, crate::project::plan_event_command)
         }
         CoreCommand::HistoryRelocate => {
             match serde_json::from_value::<HistoryRelocateRequest>(parsed.payload)

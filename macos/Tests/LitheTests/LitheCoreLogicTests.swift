@@ -6254,7 +6254,7 @@ private func makeWorkspaceObservationUnitModel(
     processExternalChanges: @escaping @MainActor ([URL]) -> Bool = { _ in false },
     notifyWorkspaceFileChanges: @escaping @MainActor ([WorkspaceFileChange]) -> Void = { _ in },
     reloadProjectServices: @escaping @MainActor () async -> Void = {},
-    recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void = { _, _ in },
+    recordHistory: @escaping @MainActor (URL, LocalHistoryEvent) async -> Void = { _, _ in },
     relocateHistory: @escaping @MainActor (URL, URL) async -> Void = { _, _ in },
     directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore(),
     observationDelay: (@Sendable (Duration) async throws -> Void)? = nil,
@@ -6722,7 +6722,7 @@ struct EditorSessionCoordinatorTests {
     }
 }
 
-private struct EmptyWorkspaceOperations: WorkspaceOperations {
+private struct EmptyWorkspaceOperations: WorkspaceOperations, CoreBackedWorkspaceRules {
     let readFileValue: String?
 
     init(readFileValue: String? = nil) {
@@ -6887,7 +6887,7 @@ private final class BlockingBinaryWorkspaceOperations: WorkspaceOperations, @unc
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
 }
 
-private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecked Sendable {
+private final class SequencedWorkspaceOperations: WorkspaceOperations, CoreBackedWorkspaceRules, @unchecked Sendable {
     func orderedTreeSiblings(_ rows: [FileNode]) -> [FileNode]? { coreTreeOrder(rows) }
     private let lock = NSLock()
     private var snapshotAvailability: [Bool]
@@ -7517,7 +7517,7 @@ private struct PreviewExternalChangeLifecycleDecider: DocumentLifecycleDeciding 
 
 /// Records how many copies and Trash moves had finished each time the tree
 /// was rescanned, to show when a batch refreshes the project tree.
-private final class BatchProgressScanOperations: WorkspaceOperations, @unchecked Sendable {
+private final class BatchProgressScanOperations: WorkspaceOperations, CoreBackedWorkspaceRules, @unchecked Sendable {
     private let files: RecordingBatchProjectFileOperations
     private let lock = NSLock()
     private var progress: [[Int]] = []

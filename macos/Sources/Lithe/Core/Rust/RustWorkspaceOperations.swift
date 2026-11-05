@@ -70,6 +70,22 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         })?.map { rows[$0] }
     }
 
+    func copyName(for name: String, isDirectory: Bool, existing: [String], duplicate: Bool) -> String? {
+        core.copyName(for: name, isDirectory: isDirectory, existing: existing, duplicate: duplicate)
+    }
+
+    func reduceDirectoryAction(
+        _ action: WorkspaceDirectoryAction, at path: String, rules: WorkspaceDirectoryRules
+    ) -> WorkspaceDirectoryReduction? {
+        core.reduceDirectoryAction(action, at: path, rules: rules)
+    }
+
+    func relocateDirectoryRules(
+        _ rules: WorkspaceDirectoryRules, moving source: String, to destination: String?
+    ) -> WorkspaceDirectoryRules? {
+        core.relocateDirectoryRules(rules, moving: source, to: destination)
+    }
+
     func rootRows(at rootURL: URL, visibilityRules: FileVisibilityRules) -> [FileNode]? {
         guard let entries = listDirectories([rootURL], at: rootURL, visibilityRules: visibilityRules)?[rootURL.standardizedFileURL.path] else {
             return nil

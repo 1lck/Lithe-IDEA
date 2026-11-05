@@ -308,6 +308,14 @@ pub enum CoreCommand {
     WorkspaceOrderEntries,
     /// Ranks host-supplied candidate names with the shared matcher (`workspace.rankNames`).
     WorkspaceRankNames,
+    /// Plans the name of a duplicated project item (`workspace.planDuplicate`).
+    WorkspacePlanDuplicate,
+    /// Plans the destination names of pasted project items (`workspace.planPaste`).
+    WorkspacePlanPaste,
+    /// Applies a directory role, exclusion or cancel action (`workspace.reduceDirectoryAction`).
+    WorkspaceReduceDirectoryAction,
+    /// Migrates directory rules after a move or delete (`workspace.relocateDirectoryRules`).
+    WorkspaceRelocateDirectoryRules,
     /// Filter ordinary workspace-relative event paths using shared defaults.
     WorkspaceFilterChanges,
     /// Finds Git repositories that belong to an opened workspace (`workspace.repositories`).
@@ -350,6 +358,8 @@ pub enum CoreCommand {
     HistoryContent,
     /// Moves history after a workspace path relocation (`history.relocate`).
     HistoryRelocate,
+    /// Plans which snapshots an editing event records (`history.planEvent`).
+    HistoryPlanEvent,
     /// Changes the optional label of a history snapshot (`history.rename`).
     HistoryRename,
     /// Deletes one history snapshot (`history.delete`).
@@ -967,6 +977,10 @@ impl CoreCommand {
             "workspace.listDirectories" => Some(Self::WorkspaceListDirectories),
             "workspace.orderEntries" => Some(Self::WorkspaceOrderEntries),
             "workspace.rankNames" => Some(Self::WorkspaceRankNames),
+            "workspace.planDuplicate" => Some(Self::WorkspacePlanDuplicate),
+            "workspace.planPaste" => Some(Self::WorkspacePlanPaste),
+            "workspace.reduceDirectoryAction" => Some(Self::WorkspaceReduceDirectoryAction),
+            "workspace.relocateDirectoryRules" => Some(Self::WorkspaceRelocateDirectoryRules),
             "workspace.repositories" => Some(Self::WorkspaceRepositories),
             "workspace.recentProjects.reduce" => Some(Self::WorkspaceRecentProjectsReduce),
             "workspace.searchIndex.warm" => Some(Self::WorkspaceSearchIndexWarm),
@@ -988,6 +1002,7 @@ impl CoreCommand {
             "history.entries" => Some(Self::HistoryEntries),
             "history.content" => Some(Self::HistoryContent),
             "history.relocate" => Some(Self::HistoryRelocate),
+            "history.planEvent" => Some(Self::HistoryPlanEvent),
             "history.rename" => Some(Self::HistoryRename),
             "history.delete" => Some(Self::HistoryDelete),
             "history.ignorePreview" => Some(Self::HistoryIgnorePreview),
