@@ -633,6 +633,7 @@ final class MacServiceContainer {
                         runtimes: registry.toolingRuntimes,
                         runtimeFactory: runtimeFactory,
                         builtinCore: rustCore,
+                        policyCore: rustCore,
                         extensionRequiredProviderIDs: pluginLanguageIDs,
                         isLanguageServerEnabled: { providerID, workspaceURL in
                             !workspaceLanguageServerPreferences.disabledProviderIDs(for: workspaceURL)

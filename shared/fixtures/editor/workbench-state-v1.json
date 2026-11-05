@@ -1,0 +1,2429 @@
+{
+  "description": "Editor tab group membership, selection, split and collapse rules owned by Rust Core (editor.workbenchState.reduce). Orientation horizontal places children side by side; vertical stacks them. Sizes and drag geometry stay in the platform.",
+  "cases": [
+    {
+      "name": "sync removes duplicate members and keeps the first occurrence",
+      "state": {
+        "layout": {
+          "group": "g1"
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "sync",
+        "tabs": [
+          "a",
+          "b",
+          "a"
+        ]
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "group": "g1"
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "sync places new and orphaned members in the focused group",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "x",
+            "group": "gone"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g2"
+      },
+      "action": {
+        "type": "sync",
+        "tabs": [
+          "a",
+          "b",
+          "x",
+          "n"
+        ]
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "x",
+            "group": "g2"
+          },
+          {
+            "id": "n",
+            "group": "g2"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g2"
+      }
+    },
+    {
+      "name": "sync without a focused group places new members in the first group",
+      "state": {
+        "layout": {
+          "group": "g1"
+        },
+        "tabs": [],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": null
+          }
+        ],
+        "focusedGroup": null
+      },
+      "action": {
+        "type": "sync",
+        "tabs": [
+          "a",
+          "b"
+        ]
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "group": "g1"
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          }
+        ],
+        "focusedGroup": null
+      }
+    },
+    {
+      "name": "closing the selected tab selects the tab that takes its place",
+      "state": {
+        "layout": {
+          "group": "g1"
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g1"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "sync",
+        "tabs": [
+          "a",
+          "c"
+        ]
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "group": "g1"
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "c"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "closing the selected last tab selects the new last tab",
+      "state": {
+        "layout": {
+          "group": "g1"
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g1"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "c"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "sync",
+        "tabs": [
+          "a",
+          "b"
+        ]
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "group": "g1"
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "closing the last tab of a focused split group collapses the split and focuses the first remaining group",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g2"
+      },
+      "action": {
+        "type": "sync",
+        "tabs": [
+          "a"
+        ]
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "group": "g1"
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "nested split collapse keeps the surviving split identity",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "split": {
+                "id": "s2",
+                "orientation": "vertical",
+                "first": {
+                  "group": "g2"
+                },
+                "second": {
+                  "group": "g3"
+                }
+              }
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g3"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          },
+          {
+            "group": "g3",
+            "tab": "c"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "sync",
+        "tabs": [
+          "a",
+          "c"
+        ]
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g3"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "c",
+            "group": "g3"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g3",
+            "tab": "c"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "closing every tab leaves one reusable empty group",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "sync",
+        "tabs": []
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "group": "g1"
+        },
+        "tabs": [],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": null
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "unchanged sync is not applied",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "sync",
+        "tabs": [
+          "a",
+          "b",
+          "c"
+        ]
+      },
+      "applied": false,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "center drop joins the target group after its last tab and collapses the empty source",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "drop",
+        "tab": "b",
+        "group": "g1",
+        "side": "center"
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "group": "g1"
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "leading edge drop puts the new group first",
+      "state": {
+        "layout": {
+          "group": "g1"
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "drop",
+        "tab": "b",
+        "group": "g1",
+        "side": "left",
+        "newGroup": "g2",
+        "newSplit": "s1"
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g2"
+            },
+            "second": {
+              "group": "g1"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g2",
+            "tab": "b"
+          },
+          {
+            "group": "g1",
+            "tab": "a"
+          }
+        ],
+        "focusedGroup": "g2"
+      }
+    },
+    {
+      "name": "bottom edge drop stacks the new group second",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "drop",
+        "tab": "c",
+        "group": "g2",
+        "side": "bottom",
+        "newGroup": "g3",
+        "newSplit": "s2"
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "split": {
+                "id": "s2",
+                "orientation": "vertical",
+                "first": {
+                  "group": "g2"
+                },
+                "second": {
+                  "group": "g3"
+                }
+              }
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g3"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          },
+          {
+            "group": "g3",
+            "tab": "c"
+          }
+        ],
+        "focusedGroup": "g3"
+      }
+    },
+    {
+      "name": "edge drop from a single-tab group onto itself is rejected",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "drop",
+        "tab": "b",
+        "group": "g2",
+        "side": "right",
+        "newGroup": "g3",
+        "newSplit": "s2"
+      },
+      "applied": false,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "center drop onto the owning group is rejected",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "drop",
+        "tab": "a",
+        "group": "g1",
+        "side": "center"
+      },
+      "applied": false,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "drop into an unknown group is rejected",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "drop",
+        "tab": "a",
+        "group": "missing",
+        "side": "center"
+      },
+      "applied": false,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "canDrop reports split eligibility without changing state",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "canDrop",
+        "tab": "a",
+        "group": "g1",
+        "side": "right"
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "canDrop rejects a self split of a single-tab group",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "canDrop",
+        "tab": "b",
+        "group": "g2",
+        "side": "top"
+      },
+      "applied": false,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "insert without a group joins the focused group at the end",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "insert",
+        "tab": "n",
+        "group": null,
+        "side": "right"
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          },
+          {
+            "id": "n",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "n"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "center insert follows the target group's last tab",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "insert",
+        "tab": "n",
+        "group": "g2",
+        "side": "center"
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "n",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "n"
+          }
+        ],
+        "focusedGroup": "g2"
+      }
+    },
+    {
+      "name": "edge insert splits even a single-tab group",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "insert",
+        "tab": "n",
+        "group": "g2",
+        "side": "top",
+        "newGroup": "g3",
+        "newSplit": "s2"
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "split": {
+                "id": "s2",
+                "orientation": "vertical",
+                "first": {
+                  "group": "g3"
+                },
+                "second": {
+                  "group": "g2"
+                }
+              }
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          },
+          {
+            "id": "n",
+            "group": "g3"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g3",
+            "tab": "n"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g3"
+      }
+    },
+    {
+      "name": "inserting an open tab is rejected",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "insert",
+        "tab": "a",
+        "group": "g2",
+        "side": "center"
+      },
+      "applied": false,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "move before a tab in another group adopts that group",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "move",
+        "tab": "c",
+        "target": "b",
+        "position": "before"
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "c",
+            "group": "g2"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "move of the only tab collapses its former group",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "move",
+        "tab": "b",
+        "target": "a",
+        "position": "after"
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "group": "g1"
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g1"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "move into an adjacent slot of another group still adopts that group",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "move",
+        "tab": "a",
+        "target": "b",
+        "position": "before"
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g2"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "c"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "move that changes neither order nor group is rejected",
+      "state": {
+        "layout": {
+          "group": "g1"
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "move",
+        "tab": "a",
+        "target": "b",
+        "position": "before"
+      },
+      "applied": false,
+      "expected": {
+        "layout": {
+          "group": "g1"
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "move relative to itself is rejected",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "move",
+        "tab": "a",
+        "target": "a",
+        "position": "after"
+      },
+      "applied": false,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "focus selects the tab and its group",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "focus",
+        "tab": "c"
+      },
+      "applied": true,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "c"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    },
+    {
+      "name": "focus of a missing tab is rejected",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "focus",
+        "tab": "missing"
+      },
+      "applied": false,
+      "expected": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "edge drop without new identities",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "drop",
+        "tab": "a",
+        "group": "g1",
+        "side": "left"
+      }
+    },
+    {
+      "name": "new group identity already in the layout",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "drop",
+        "tab": "a",
+        "group": "g1",
+        "side": "left",
+        "newGroup": "g2",
+        "newSplit": "s9"
+      }
+    },
+    {
+      "name": "duplicate group in the layout",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g1"
+            }
+          }
+        },
+        "tabs": [],
+        "selections": [],
+        "focusedGroup": null
+      },
+      "action": {
+        "type": "sync",
+        "tabs": []
+      }
+    },
+    {
+      "name": "unknown action",
+      "state": {
+        "layout": {
+          "split": {
+            "id": "s1",
+            "orientation": "horizontal",
+            "first": {
+              "group": "g1"
+            },
+            "second": {
+              "group": "g2"
+            }
+          }
+        },
+        "tabs": [
+          {
+            "id": "a",
+            "group": "g1"
+          },
+          {
+            "id": "b",
+            "group": "g2"
+          },
+          {
+            "id": "c",
+            "group": "g1"
+          }
+        ],
+        "selections": [
+          {
+            "group": "g1",
+            "tab": "a"
+          },
+          {
+            "group": "g2",
+            "tab": "b"
+          }
+        ],
+        "focusedGroup": "g1"
+      },
+      "action": {
+        "type": "explode"
+      }
+    }
+  ]
+}

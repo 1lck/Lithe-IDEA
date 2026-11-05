@@ -1,7 +1,11 @@
 import { editorAPI } from "@/features/editor/extensions/api";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
-import { useJumpListStore } from "@/features/editor/stores/jump-list.store";
+import {
+  type JumpListEntry,
+  type JumpListStep,
+  useJumpListStore,
+} from "@/features/editor/stores/jump-list.store";
 import { usePaneStore } from "@/features/panes/stores/pane.store";
 import { navigateToJumpEntry } from "@/features/editor/utils/jump-navigation";
 import { getLineTextFromContent, getLineTextsFromContent } from "@/features/editor/utils/position";
@@ -530,7 +534,7 @@ async function goToActiveLspLocation(
     return;
   }
 
-  useJumpListStore.getState().actions.pushEntry({
+  void useJumpListStore.getState().actions.record({
     bufferId: activeBuffer.id,
     filePath: activeBuffer.path,
     paneId: usePaneStore.getState().activePaneId,
@@ -836,50 +840,51 @@ function activeWebViewerNavigation() {
   return useWebViewerNavigationStore.getState().navigationByBufferId[activeBuffer.id] ?? {};
 }
 
+// A web page has no editor cursor to return to, so leaving it records no position.
+function currentJumpListPosition(): JumpListEntry | undefined {
+  if (activeWebViewerNavigation()) return undefined;
+  const bufferStore = useBufferStore.getState();
+  const activeBufferId = bufferStore.activeBufferId;
+  const activeBuffer = bufferStore.buffers.find((b) => b.id === activeBufferId);
+  if (!activeBufferId || !activeBuffer?.path) return undefined;
+  const editorState = useEditorStateStore.getState();
+  const cursorPosition = editorAPI.getCursorPosition();
+  return {
+    bufferId: activeBufferId,
+    filePath: activeBuffer.path,
+    paneId: usePaneStore.getState().activePaneId,
+    line: cursorPosition.line,
+    column: cursorPosition.column,
+    offset: cursorPosition.offset,
+    scrollTop: editorState.scrollTop,
+    scrollLeft: editorState.scrollLeft,
+  };
+}
+
+async function openJumpListStep(step: JumpListStep | null): Promise<void> {
+  if (step) {
+    if (!(await navigateToJumpEntry(step.entry))) {
+      useJumpListStore.getState().actions.rollback(step);
+    }
+    return;
+  }
+
+  // Repeated navigation at either end must not leave Monaco's input surface.
+  const activeBufferId = useBufferStore.getState().activeBufferId;
+  const paneId = usePaneStore.getState().activePaneId;
+  const ownerId = paneId && activeBufferId ? `${paneId}:${activeBufferId}` : undefined;
+  editorAPI.focusWhenReady(ownerId);
+  editorAPI.focus(ownerId);
+}
+
 export async function goBack(): Promise<void> {
   const webViewerNavigation = activeWebViewerNavigation();
   if (webViewerNavigation?.canGoBack && webViewerNavigation.goBack) {
     webViewerNavigation.goBack();
     return;
   }
-
-  const bufferStore = useBufferStore.getState();
-  const editorState = useEditorStateStore.getState();
-  const cursorPosition = editorAPI.getCursorPosition();
-  const activeBufferId = bufferStore.activeBufferId;
-  const activeBuffer = bufferStore.buffers.find((b) => b.id === activeBufferId);
-
-  const paneId = usePaneStore.getState().activePaneId;
-  // A web page has no editor cursor to return to, so leaving it records no position.
-  const currentPosition =
-    !webViewerNavigation && activeBufferId && activeBuffer?.path
-      ? {
-          bufferId: activeBufferId,
-          filePath: activeBuffer.path,
-          paneId,
-          line: cursorPosition.line,
-          column: cursorPosition.column,
-          offset: cursorPosition.offset,
-          scrollTop: editorState.scrollTop,
-          scrollLeft: editorState.scrollLeft,
-        }
-      : undefined;
-
-  const jumpList = useJumpListStore.getState();
-  const previousIndex = jumpList.currentIndex;
-  const entry = jumpList.actions.goBack(currentPosition);
-  if (entry) {
-    const didNavigate = await navigateToJumpEntry(entry);
-    if (!didNavigate) {
-      jumpList.actions.rollbackNavigation(entry, previousIndex, previousIndex === -1);
-    }
-    return;
-  }
-
-  // Repeated navigation at the beginning must not leave Monaco's input surface.
-  const ownerId = paneId && activeBufferId ? `${paneId}:${activeBufferId}` : undefined;
-  editorAPI.focusWhenReady(ownerId);
-  editorAPI.focus(ownerId);
+  const step = await useJumpListStore.getState().actions.goBack(currentJumpListPosition());
+  await openJumpListStep(step);
 }
 
 export async function goForward(): Promise<void> {
@@ -888,23 +893,6 @@ export async function goForward(): Promise<void> {
     webViewerNavigation.goForward();
     return;
   }
-
-  const jumpList = useJumpListStore.getState();
-  const previousIndex = jumpList.currentIndex;
-  const entry = jumpList.actions.goForward();
-  if (entry) {
-    const didNavigate = await navigateToJumpEntry(entry);
-    if (!didNavigate) {
-      jumpList.actions.rollbackNavigation(entry, previousIndex, false);
-    }
-    return;
-  }
-
-  // Repeated navigation at the end must not leave Monaco's input surface.
-  const bufferStore = useBufferStore.getState();
-  const activeBufferId = bufferStore.activeBufferId;
-  const paneId = usePaneStore.getState().activePaneId;
-  const ownerId = paneId && activeBufferId ? `${paneId}:${activeBufferId}` : undefined;
-  editorAPI.focusWhenReady(ownerId);
-  editorAPI.focus(ownerId);
+  const step = await useJumpListStore.getState().actions.goForward(currentJumpListPosition());
+  await openJumpListStep(step);
 }

@@ -1672,6 +1672,41 @@ fn document_lifecycle_matches_the_cross_platform_fixture() {
     }
 }
 
+// Save All and save-before-run share these membership and completion rules on
+// both platforms; the fixture pins the cases where macOS and Windows diverged.
+#[test]
+fn document_save_batch_matches_the_cross_platform_fixture() {
+    let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../shared/fixtures/documents/save-batch-v1.json");
+    let fixture: Value = serde_json::from_str(
+        &fs::read_to_string(fixture_path).expect("save batch fixture should be readable"),
+    )
+    .expect("save batch fixture should be valid JSON");
+    assert_eq!(
+        fixture["maxDocuments"],
+        crate::project::document_save_batch::MAX_SAVE_BATCH_DOCUMENTS
+    );
+    for (command, group) in [
+        ("document.planSaveBatch", "plan"),
+        ("document.reduceSaveBatch", "reduce"),
+    ] {
+        for case in fixture[group].as_array().expect("cases should be an array") {
+            let request = serde_json::json!({"command": command, "payload": case["request"]});
+            let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
+                .expect("save batch response should be valid JSON");
+            if let Some(code) = case.get("expectedError") {
+                assert_eq!(response["error"]["code"], *code, "{group} {}", case["name"]);
+            } else {
+                assert_eq!(
+                    response["data"], case["expected"],
+                    "{group} {}",
+                    case["name"]
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn search_everywhere_streams_names_before_content_index_and_preserves_the_final_response() {
     use std::sync::{Arc, Mutex};

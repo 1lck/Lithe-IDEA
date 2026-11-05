@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 
 struct EditorNavigationLocation: Hashable, Sendable {
     let url: URL
@@ -36,18 +37,20 @@ struct NavigationHistorySnapshot: Equatable, Sendable {
     let forwardLocations: [EditorNavigationLocation]
 }
 
-/// Owns bounded editor-location history independently from document tabs.
-/// A jump records the live departure location so caret movement since the last
-/// navigation is preserved when the user returns.
+/// Holds editor-location history independently from document tabs. Rust Core
+/// (`editor.navigationHistory.reduce`) owns the stack rules: departure
+/// recording, deduplication, branch truncation, capacity and skipping entries
+/// equal to the live location. A jump records the live departure location so
+/// caret movement since the last navigation is preserved when the user returns.
 @MainActor
 final class NavigationHistoryFeatureModel: ObservableObject {
     @Published private(set) var backLocations: [EditorNavigationLocation] = []
     @Published private(set) var forwardLocations: [EditorNavigationLocation] = []
 
-    private let maximumEntryCount: Int
+    private let logSink: (any LogSink)?
 
-    init(maximumEntryCount: Int = 100) {
-        self.maximumEntryCount = max(1, maximumEntryCount)
+    init(logSink: (any LogSink)?) {
+        self.logSink = logSink
     }
 
     var canNavigateBack: Bool { !backLocations.isEmpty }
@@ -57,25 +60,15 @@ final class NavigationHistoryFeatureModel: ObservableObject {
         from departure: EditorNavigationLocation?,
         to destination: EditorNavigationLocation
     ) {
-        guard let departure, departure != destination else { return }
-        append(departure, to: &backLocations)
-        forwardLocations.removeAll()
+        _ = reduce(.record(departure: departure.map(CoreLocation.init), destination: CoreLocation(destination)))
     }
 
     func navigateBack(from current: EditorNavigationLocation?) -> EditorNavigationLocation? {
-        guard let destination = backLocations.popLast() else { return nil }
-        if let current, current != destination {
-            append(current, to: &forwardLocations)
-        }
-        return destination
+        reduce(.back(current: current.map(CoreLocation.init)))
     }
 
     func navigateForward(from current: EditorNavigationLocation?) -> EditorNavigationLocation? {
-        guard let destination = forwardLocations.popLast() else { return nil }
-        if let current, current != destination {
-            append(current, to: &backLocations)
-        }
-        return destination
+        reduce(.forward(current: current.map(CoreLocation.init)))
     }
 
     func reset() {
@@ -95,15 +88,116 @@ final class NavigationHistoryFeatureModel: ObservableObject {
         forwardLocations = snapshot.forwardLocations
     }
 
-    private func append(
-        _ location: EditorNavigationLocation,
-        to locations: inout [EditorNavigationLocation]
-    ) {
-        if locations.last != location {
+    /// Applies one Core transition and returns the location to open, if any.
+    /// A Core failure leaves history unchanged and is logged.
+    private func reduce(_ event: CoreEvent) -> EditorNavigationLocation? {
+        struct Request: Encodable { let state: CoreState; let event: CoreEvent }
+        struct Response: Decodable { let state: CoreState; let destination: CoreLocation? }
+        let state = CoreState(
+            back: backLocations.map(CoreLocation.init),
+            forward: forwardLocations.map(CoreLocation.init)
+        )
+        let result: Result<Response, RustCoreBridge.CoreCallError> = RustCoreBridge().executeResult(
+            command: "editor.navigationHistory.reduce", payload: Request(state: state, event: event))
+        switch result {
+        case .success(let response):
+            guard let back = response.state.back.editorLocations,
+                  let forward = response.state.forward.editorLocations else {
+                logSink?.emit(AppCoreFallbackSelected(
+                    error: LogFailure(domain: "RustCore", code: "invalid_location"),
+                    stage: "editor.navigationHistory.reduce"))
+                return nil
+            }
+            backLocations = back
+            forwardLocations = forward
+            return response.destination?.editorLocation
+        case .failure(let error):
+            logSink?.emit(AppCoreFallbackSelected(
+                error: LogFailure(domain: "RustCore", code: error.code),
+                stage: "editor.navigationHistory.reduce"))
+            return nil
+        }
+    }
+}
+
+/// Wire form of one history location. Core compares `document`, `line` and
+/// `column`; `context` carries the macOS presentation fields unchanged.
+private struct CoreLocation: Codable {
+    struct Context: Codable {
+        let isReadOnly: Bool
+        let displayPath: String?
+        let virtualProviderID: String?
+        let selectsWholeLine: Bool
+    }
+
+    let document: String
+    let line: Int
+    let column: Int
+    let context: Context?
+
+    init(_ location: EditorNavigationLocation) {
+        document = location.url.absoluteString
+        line = location.line
+        column = location.utf16Column
+        context = Context(
+            isReadOnly: location.isReadOnly,
+            displayPath: location.displayPath,
+            virtualProviderID: location.virtualProviderID,
+            selectsWholeLine: location.selectsWholeLine
+        )
+    }
+
+    var editorLocation: EditorNavigationLocation? {
+        guard let url = URL(string: document) else { return nil }
+        return EditorNavigationLocation(
+            url: url,
+            line: line,
+            utf16Column: column,
+            isReadOnly: context?.isReadOnly ?? false,
+            displayPath: context?.displayPath,
+            virtualProviderID: context?.virtualProviderID,
+            selectsWholeLine: context?.selectsWholeLine ?? false
+        )
+    }
+}
+
+private struct CoreState: Codable {
+    let back: [CoreLocation]
+    let forward: [CoreLocation]
+}
+
+private enum CoreEvent: Encodable {
+    case record(departure: CoreLocation?, destination: CoreLocation)
+    case back(current: CoreLocation?)
+    case forward(current: CoreLocation?)
+
+    private enum CodingKeys: String, CodingKey { case type, departure, destination, current }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case let .record(departure, destination):
+            try container.encode("record", forKey: .type)
+            try container.encode(departure, forKey: .departure)
+            try container.encode(destination, forKey: .destination)
+        case let .back(current):
+            try container.encode("back", forKey: .type)
+            try container.encode(current, forKey: .current)
+        case let .forward(current):
+            try container.encode("forward", forKey: .type)
+            try container.encode(current, forKey: .current)
+        }
+    }
+}
+
+private extension Array where Element == CoreLocation {
+    var editorLocations: [EditorNavigationLocation]? {
+        var locations: [EditorNavigationLocation] = []
+        locations.reserveCapacity(count)
+        for element in self {
+            guard let location = element.editorLocation else { return nil }
             locations.append(location)
         }
-        if locations.count > maximumEntryCount {
-            locations.removeFirst(locations.count - maximumEntryCount)
-        }
+        return locations
     }
 }

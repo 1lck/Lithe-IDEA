@@ -39,7 +39,9 @@ final class EditorTabOrderFeatureModel: ObservableObject {
     @Published var documentPreviewModes: [UUID: DocumentPreviewMode] = [:]
     @Published private(set) var items: [EditorTabItem] = [] {
         didSet {
-            reconcileGroups()
+            if !isApplyingWorkbenchState {
+                reduceWorkbench(.sync(tabs: items.map(Self.workbenchID)), previousItems: oldValue)
+            }
             let open = Set(agentTabIDs)
             if agentSessionByTab.keys.contains(where: { !open.contains($0) }) {
                 agentSessionByTab = agentSessionByTab.filter { open.contains($0.key) }
@@ -58,6 +60,10 @@ final class EditorTabOrderFeatureModel: ObservableObject {
     @Published private(set) var agentSessionByTab: [UUID: AgentEditorConversation] = [:]
     private var placements: [EditorTabItem: UUID] = [:]
     private var focusedGroup: UUID?
+    private var isApplyingWorkbenchState = false
+    /// Drop eligibility per state; drags query it on every pointer move, so
+    /// Core answers each tab/group/side once until the state changes.
+    private var dropEligibility: [String: Bool] = [:]
     var groupDropRequestID = UUID()
 
     func items(in group: UUID) -> [EditorTabItem] {
@@ -122,85 +128,35 @@ final class EditorTabOrderFeatureModel: ObservableObject {
     func selectedItem(in group: UUID) -> EditorTabItem? { groupSelections[group] }
 
     func focus(_ item: EditorTabItem) {
-        guard let group = placements[item] else { return }
-        focusedGroup = group
-        if groupSelections[group] != item { groupSelections[group] = item }
+        guard let group = placements[item], focusedGroup != group || groupSelections[group] != item else { return }
+        reduceWorkbench(.focus(tab: Self.workbenchID(item)))
     }
 
     func canDrop(_ item: EditorTabItem, into group: UUID, side: EditorGroupDropSide) -> Bool {
-        guard items.contains(item), groupLayout.groups.contains(group) else { return false }
-        return placements[item] != group || (side != .center && items(in: group).count > 1)
+        let key = "\(Self.workbenchID(item))|\(group.uuidString)|\(side.rawValue)"
+        if let cached = dropEligibility[key] { return cached }
+        let allowed = reduceWorkbench(.canDrop(tab: Self.workbenchID(item), group: group, side: side))
+        dropEligibility[key] = allowed
+        return allowed
     }
 
     /// A drop moves membership only; it never closes or reopens the underlying resource.
     @discardableResult
     func drop(_ item: EditorTabItem, into group: UUID, side: EditorGroupDropSide) -> Bool {
-        guard canDrop(item, into: group, side: side) else { return false }
-        if side == .center {
-            placements[item] = group
-            var ordered = items.filter { $0 != item }
-            let last = ordered.lastIndex { placements[$0] == group }
-            ordered.insert(item, at: last.map { $0 + 1 } ?? ordered.count)
-            if ordered != items { items = ordered }
-        } else {
-            let created = UUID()
-            groupLayout = groupLayout.splitting(group, by: side, newGroup: created)
-            placements[item] = created
-        }
-        reconcileGroups()
-        focus(item)
-        return true
+        let split = side == .center ? nil : (group: UUID(), split: UUID())
+        return reduceWorkbench(.drop(
+            tab: Self.workbenchID(item), group: group, side: side,
+            newGroup: split?.group, newSplit: split?.split))
     }
 
     /// Adds a tab from outside the editor; an edge always splits because the target group does not own it yet.
     @discardableResult
     func insert(_ item: EditorTabItem, into group: UUID?, side: EditorGroupDropSide) -> Bool {
-        guard !items.contains(item) else { return false }
-        let groups = groupLayout.groups
-        guard let group else {
-            let destination = focusedGroup.flatMap { groups.contains($0) ? $0 : nil } ?? groups[0]
-            placements[item] = destination
-            var next = items
-            next.append(item)
-            items = next
-            focus(item)
-            return true
-        }
-        guard groups.contains(group) else { return false }
-        if side == .center {
-            placements[item] = group
-            var next = items
-            let last = next.lastIndex { placements[$0] == group }
-            next.insert(item, at: last.map { $0 + 1 } ?? next.count)
-            items = next
-        } else {
-            let created = UUID()
-            groupLayout = groupLayout.splitting(group, by: side, newGroup: created)
-            placements[item] = created
-            var next = items
-            next.append(item)
-            items = next
-        }
-        focus(item)
-        return true
-    }
-
-    private func reconcileGroups() {
-        let groups = groupLayout.groups
-        let destination = focusedGroup.flatMap { groups.contains($0) ? $0 : nil } ?? groups[0]
-        placements = placements.filter { items.contains($0.key) }
-        for item in items where placements[item] == nil { placements[item] = destination }
-        let occupied = Set(placements.values)
-        groupLayout = groupLayout.keeping(occupied) ?? .group(groups[0])
-        let remaining = groupLayout.groups
-        if !remaining.contains(destination) { focusedGroup = remaining[0] }
-        var selections: [UUID: EditorTabItem] = [:]
-        for group in remaining {
-            let tabs = items(in: group)
-            if let selected = groupSelections[group], tabs.contains(selected) { selections[group] = selected }
-            else { selections[group] = tabs.first }
-        }
-        if selections != groupSelections { groupSelections = selections }
+        let split = group == nil || side == .center ? nil : (group: UUID(), split: UUID())
+        return reduceWorkbench(
+            .insert(tab: Self.workbenchID(item), group: group, side: side,
+                    newGroup: split?.group, newSplit: split?.split),
+            adding: [item])
     }
 
     @Published var repositoryDiffSelected = false
@@ -337,14 +293,149 @@ final class EditorTabOrderFeatureModel: ObservableObject {
         relativeTo target: EditorTabItem,
         insertAfter: Bool
     ) -> Bool {
-        guard item != target, items.contains(target) else { return false }
-        var next = items
-        next.removeAll { $0 == item }
-        guard let targetIndex = next.firstIndex(of: target) else { return false }
-        next.insert(item, at: targetIndex + (insertAfter ? 1 : 0))
-        guard next != items || placements[item] != placements[target] else { return false }
-        if let destination = placements[target] { placements[item] = destination }
-        items = next
+        reduceWorkbench(
+            .move(tab: Self.workbenchID(item), target: Self.workbenchID(target),
+                  position: insertAfter ? "after" : "before"),
+            adding: [item])
+    }
+
+    // MARK: Core-owned group membership
+
+    /// Rust Core (`editor.workbenchState.reduce`) owns placement, split and
+    /// collapse, selection and focus; this model only stores the result.
+    private enum WorkbenchAction: Encodable {
+        case sync(tabs: [String])
+        case drop(tab: String, group: UUID, side: EditorGroupDropSide, newGroup: UUID?, newSplit: UUID?)
+        case canDrop(tab: String, group: UUID, side: EditorGroupDropSide)
+        case insert(tab: String, group: UUID?, side: EditorGroupDropSide, newGroup: UUID?, newSplit: UUID?)
+        case move(tab: String, target: String, position: String)
+        case focus(tab: String)
+
+        private enum CodingKeys: String, CodingKey {
+            case type, tabs, tab, group, side, newGroup, newSplit, target, position
+        }
+
+        func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            switch self {
+            case .sync(let tabs):
+                try container.encode("sync", forKey: .type)
+                try container.encode(tabs, forKey: .tabs)
+            case .drop(let tab, let group, let side, let newGroup, let newSplit):
+                try container.encode("drop", forKey: .type)
+                try container.encode(tab, forKey: .tab)
+                try container.encode(group, forKey: .group)
+                try container.encode(side, forKey: .side)
+                try container.encodeIfPresent(newGroup, forKey: .newGroup)
+                try container.encodeIfPresent(newSplit, forKey: .newSplit)
+            case .canDrop(let tab, let group, let side):
+                try container.encode("canDrop", forKey: .type)
+                try container.encode(tab, forKey: .tab)
+                try container.encode(group, forKey: .group)
+                try container.encode(side, forKey: .side)
+            case .insert(let tab, let group, let side, let newGroup, let newSplit):
+                try container.encode("insert", forKey: .type)
+                try container.encode(tab, forKey: .tab)
+                try container.encode(group, forKey: .group)
+                try container.encode(side, forKey: .side)
+                try container.encodeIfPresent(newGroup, forKey: .newGroup)
+                try container.encodeIfPresent(newSplit, forKey: .newSplit)
+            case .move(let tab, let target, let position):
+                try container.encode("move", forKey: .type)
+                try container.encode(tab, forKey: .tab)
+                try container.encode(target, forKey: .target)
+                try container.encode(position, forKey: .position)
+            case .focus(let tab):
+                try container.encode("focus", forKey: .type)
+                try container.encode(tab, forKey: .tab)
+            }
+        }
+    }
+
+    private struct WorkbenchState: Codable {
+        struct Tab: Codable { let id: String; let group: UUID? }
+        struct Selection: Codable { let group: UUID; let tab: String? }
+        let layout: EditorGroupLayout
+        let tabs: [Tab]
+        let selections: [Selection]
+        let focusedGroup: UUID?
+    }
+
+    private struct WorkbenchRequest: Encodable {
+        let state: WorkbenchState
+        let action: WorkbenchAction
+    }
+
+    private struct WorkbenchReduction: Decodable {
+        let applied: Bool
+        let state: WorkbenchState
+    }
+
+    private static func workbenchID(_ item: EditorTabItem) -> String {
+        switch item {
+        case .document(let id): "document:\(id.uuidString)"
+        case .terminal(let id): "terminal:\(id.uuidString)"
+        case .media(let id): "media:\(id.uuidString)"
+        case .repositoryDiff(let id): "repositoryDiff:\(id.uuidString)"
+        case .agentConversation(let id): "agentConversation:\(id.uuidString)"
+        case .languageLogs: "languageLogs"
+        }
+    }
+
+    /// Sends the current state and one action to Core and stores an applied
+    /// result. `previousItems` describes the state a `sync` started from;
+    /// `adding` names tabs the action may introduce.
+    @discardableResult
+    private func reduceWorkbench(
+        _ action: WorkbenchAction,
+        previousItems: [EditorTabItem]? = nil,
+        adding: [EditorTabItem] = []
+    ) -> Bool {
+        let source = previousItems ?? items
+        let state = WorkbenchState(
+            layout: groupLayout,
+            tabs: source.map { WorkbenchState.Tab(id: Self.workbenchID($0), group: placements[$0]) },
+            selections: groupLayout.groups.map {
+                WorkbenchState.Selection(group: $0, tab: groupSelections[$0].map(Self.workbenchID))
+            },
+            focusedGroup: focusedGroup)
+        let result: Result<WorkbenchReduction, RustCoreBridge.CoreCallError> = RustCoreBridge().executeResult(
+            command: "editor.workbenchState.reduce", payload: WorkbenchRequest(state: state, action: action))
+        guard case .success(let reduction) = result else {
+            // log-exempt: 同一次失败已经记录过：Core 请求轨迹已记录这次失败，标签分组保持原状态
+            return false
+        }
+        if case .canDrop = action { return reduction.applied }
+        guard reduction.applied else { return false }
+        var lookup: [EditorTabItem] = items
+        lookup.append(contentsOf: source)
+        lookup.append(contentsOf: adding)
+        applyWorkbench(reduction.state, lookup: Dictionary(
+            lookup.map { (Self.workbenchID($0), $0) }, uniquingKeysWith: { first, _ in first }))
         return true
+    }
+
+    private func applyWorkbench(_ state: WorkbenchState, lookup: [String: EditorTabItem]) {
+        var nextPlacements: [EditorTabItem: UUID] = [:]
+        var nextItems: [EditorTabItem] = []
+        for tab in state.tabs {
+            guard let item = lookup[tab.id] else { continue }
+            nextItems.append(item)
+            if let group = tab.group { nextPlacements[item] = group }
+        }
+        var selections: [UUID: EditorTabItem] = [:]
+        for selection in state.selections {
+            if let tab = selection.tab, let item = lookup[tab] { selections[selection.group] = item }
+        }
+        dropEligibility.removeAll()
+        placements = nextPlacements
+        focusedGroup = state.focusedGroup
+        if groupLayout != state.layout { groupLayout = state.layout }
+        if groupSelections != selections { groupSelections = selections }
+        if nextItems != items {
+            isApplyingWorkbenchState = true
+            defer { isApplyingWorkbenchState = false }
+            items = nextItems
+        }
     }
 }

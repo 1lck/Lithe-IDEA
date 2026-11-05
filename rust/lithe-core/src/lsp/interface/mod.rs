@@ -24,6 +24,7 @@ mod vcs_provider;
 pub(crate) use client::*;
 pub(crate) use document_uri::{
     document_uri_command, resolve_field as resolve_uri_field, resolve_request_paths,
+    DocumentPathPlatform,
 };
 pub(crate) use engine::*;
 pub(crate) use engine_logging::{resolve_engine_log_subject, ResolveEngineLogSubjectRequest};

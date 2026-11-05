@@ -6,94 +6,65 @@ private func at(_ line: Int, _ column: Int) -> EditorTextPosition { EditorTextPo
 private func edit(_ start: EditorTextPosition, _ end: EditorTextPosition, _ text: String) -> EditorTextEdit {
     EditorTextEdit(range: EditorTextRange(start: start, end: end), text: text)
 }
-private func applying(_ edits: [EditorTextEdit], to text: String) throws -> String {
-    EditorTextEditPlanner.apply(try EditorTextEditPlanner.plan(edits, in: EditorTextLineIndex(text)), to: text)
-}
 
+/// The shared fixture is the rule set; these tests pin the bridge mapping of
+/// Core's plan and rejection codes onto the host's service errors.
 @Suite("Plugin text edit planning")
 struct EditorTextEditPlannerTests {
-    @Test func emojiColumnsCountUTF16CodeUnits() throws {
-        // "😀" occupies columns 2 and 3; "b" is column 4.
-        #expect(try applying([edit(at(1, 2), at(1, 4), "X")], to: "a😀b") == "aXb")
-        #expect(EditorTextLineIndex("a😀b").offset(of: at(1, 5)) == 4)
-        #expect(throws: EditorDocumentServiceError.invalidRange(editIndex: 0, reason: .splitsSurrogatePair)) {
-            try EditorTextEditPlanner.plan([edit(at(1, 3), at(1, 4), "")], in: EditorTextLineIndex("a😀b"))
+    private struct Fixture: Decodable {
+        struct Position: Decodable { let line: Int; let column: Int }
+        struct Range: Decodable { let start: Position; let end: Position }
+        struct Edit: Decodable { let range: Range; let text: String }
+        struct Planned: Decodable { let index: Int; let utf16Offset: Int; let utf16Length: Int; let text: String; let normalizedText: String }
+        struct Rejection: Decodable { let reason: String; let editIndex: Int?; let otherEditIndex: Int?; let positionIndex: Int? }
+        struct Expected: Decodable { let lineEnding: String; let lineSeparator: String; let edits: [Planned]; let rejection: Rejection? }
+        struct Case: Decodable {
+            let name: String
+            let text: String
+            let edits: [Edit]
+            let positions: [Position]?
+            let expected: Expected
+            let expectedText: String?
         }
+        let cases: [Case]
     }
 
-    @Test func combiningMarksAreSeparateCodeUnits() throws {
-        // "é" written as e + U+0301 spans columns 1...2; the mark alone is addressable.
-        #expect(try applying([edit(at(1, 2), at(1, 3), "")], to: "e\u{301}x") == "ex")
-        #expect(try applying([edit(at(1, 1), at(1, 3), "E")], to: "e\u{301}x") == "Ex")
-    }
+    private static func position(_ value: Fixture.Position) -> EditorTextPosition { at(value.line, value.column) }
 
-    @Test func chineseCharactersAreOneColumnEach() throws {
-        #expect(try applying([edit(at(1, 1), at(1, 2), "英")], to: "中文") == "英文")
-        #expect(EditorTextLineIndex("中文").offset(of: at(1, 3)) == 2)
-        #expect(EditorTextLineIndex("中文").offset(of: at(1, 4)) == nil)
-    }
-
-    @Test func crlfIsOneLineBreakAndInsertedBreaksFollowTheDocument() throws {
-        let index = EditorTextLineIndex("a\r\nb")
-        #expect(index.lineEnding == .crlf)
-        #expect(index.lineCount == 2)
-        #expect(index.offset(of: at(2, 1)) == 3)
-        // Column 3 of line 1 would sit between CR and LF.
-        #expect(index.offset(of: at(1, 3)) == nil)
-        let plan = try EditorTextEditPlanner.plan([edit(at(2, 1), at(2, 1), "x\ny\r\n")], in: index)
-        #expect(plan.first?.normalizedText == "x\ny\n")
-        #expect(EditorTextEditPlanner.apply(plan, to: "a\r\nb") == "a\r\nx\r\ny\r\nb")
-        #expect(index.position(at: 3) == at(2, 1))
-    }
-
-    @Test func lineEndingDetection() {
-        #expect(EditorTextLineIndex("plain").lineEnding == .lf)
-        #expect(EditorTextLineIndex("a\rb").lineEnding == .cr)
-        let mixed = EditorTextLineIndex("a\nb\r\nc")
-        #expect(mixed.lineEnding == .mixed)
-        #expect(mixed.insertionSeparator == "\n")
-        #expect(mixed.lineCount == 3)
-    }
-
-    @Test func endOfLineAndEndOfDocumentAreValid() throws {
-        #expect(try applying([edit(at(1, 3), at(1, 3), "!"), edit(at(2, 1), at(2, 1), "?")], to: "ab\n") == "ab!\n?")
-    }
-
-    @Test func rejectsPositionsOutsideTheDocument() {
-        let index = EditorTextLineIndex("ab\ncd")
-        for position in [at(0, 1), at(3, 1), at(1, 0), at(1, 4)] {
-            #expect(throws: EditorDocumentServiceError.rangeOutOfBounds(editIndex: 1)) {
-                try EditorTextEditPlanner.plan([edit(at(1, 1), at(1, 1), ""), edit(position, position, "x")], in: index)
+    @Test func followsSharedFixture() throws {
+        let url = DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/fixtures/editor/text-edit-plan-v1.json")
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
+        for item in fixture.cases {
+            let edits = item.edits.map { edit(Self.position($0.range.start), Self.position($0.range.end), $0.text) }
+            let positions = (item.positions ?? []).map(Self.position)
+            if let rejection = item.expected.rejection {
+                let expected: EditorDocumentServiceError
+                switch (rejection.reason, rejection.editIndex) {
+                case ("rangeOutOfBounds", let index?): expected = .rangeOutOfBounds(editIndex: index)
+                case ("reversed", let index?): expected = .invalidRange(editIndex: index, reason: .reversed)
+                case ("splitsSurrogatePair", let index?): expected = .invalidRange(editIndex: index, reason: .splitsSurrogatePair)
+                case ("overlappingRanges", let index?):
+                    expected = .overlappingRanges(editIndex: index, otherEditIndex: try #require(rejection.otherEditIndex))
+                default: expected = .editorUnavailable
+                }
+                #expect(throws: expected, "\(item.name)") {
+                    try EditorTextEditPlanner.plan(edits, in: item.text, positions: positions)
+                }
+                continue
+            }
+            let plan = try EditorTextEditPlanner.plan(edits, in: item.text, positions: positions)
+            #expect(plan.lineEnding.rawValue == item.expected.lineEnding, "\(item.name)")
+            #expect(plan.lineSeparator == item.expected.lineSeparator, "\(item.name)")
+            #expect(plan.edits.map(\.index) == item.expected.edits.map(\.index), "\(item.name)")
+            #expect(plan.edits.map(\.utf16Offset) == item.expected.edits.map(\.utf16Offset), "\(item.name)")
+            #expect(plan.edits.map(\.utf16Length) == item.expected.edits.map(\.utf16Length), "\(item.name)")
+            #expect(plan.edits.map(\.text) == item.expected.edits.map(\.text), "\(item.name)")
+            #expect(plan.edits.map(\.normalizedText) == item.expected.edits.map(\.normalizedText), "\(item.name)")
+            #expect(plan.edits.map(\.range) == plan.edits.map { edits[$0.index].range }, "\(item.name)")
+            if let expectedText = item.expectedText {
+                #expect(EditorTextEditPlanner.apply(plan.edits, to: item.text) == expectedText, "\(item.name)")
             }
         }
-    }
-
-    @Test func rejectsReversedRanges() {
-        #expect(throws: EditorDocumentServiceError.invalidRange(editIndex: 0, reason: .reversed)) {
-            try EditorTextEditPlanner.plan([edit(at(1, 3), at(1, 1), "")], in: EditorTextLineIndex("abc"))
-        }
-    }
-
-    @Test func rejectsOverlapAndReportsCallerIndices() {
-        #expect(throws: EditorDocumentServiceError.overlappingRanges(editIndex: 0, otherEditIndex: 1)) {
-            try EditorTextEditPlanner.plan([edit(at(1, 3), at(1, 5), ""), edit(at(1, 1), at(1, 4), "")],
-                                           in: EditorTextLineIndex("abcdef"))
-        }
-        // An insertion strictly inside a replaced range also overlaps.
-        #expect(throws: EditorDocumentServiceError.overlappingRanges(editIndex: 0, otherEditIndex: 1)) {
-            try EditorTextEditPlanner.plan([edit(at(1, 1), at(1, 4), ""), edit(at(1, 2), at(1, 2), "x")],
-                                           in: EditorTextLineIndex("abcdef"))
-        }
-    }
-
-    @Test func adjacentRangesAndSamePositionInsertsAreAllowed() throws {
-        #expect(try applying([edit(at(1, 2), at(1, 3), "B"), edit(at(1, 1), at(1, 2), "A")], to: "ab") == "AB")
-        #expect(try applying([edit(at(1, 1), at(1, 1), "x"), edit(at(1, 1), at(1, 1), "y")], to: "z") == "xyz")
-    }
-
-    @Test func multiLineEditsInMultiSelectionBatch() throws {
-        let text = "one\ntwo\nthree"
-        let edits = [edit(at(3, 1), at(3, 6), "3"), edit(at(1, 1), at(1, 4), "1"), edit(at(1, 4), at(2, 4), "")]
-        #expect(try applying(edits, to: text) == "1\n3")
     }
 }

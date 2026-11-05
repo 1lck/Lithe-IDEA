@@ -87,8 +87,12 @@ package final class LanguageToolingSessionManager: ObservableObject,
     /// resource release. A timed-out close must not admit an overlapping start.
     private var stoppingServers: [String: (id: UUID, session: any LanguageServerSession, task: Task<Bool, Never>)] = [:]
     private var languageServerRoots: [String: URL] = [:]
-    private static let maximumStartupAttempts = 3
-    private var languageServerStartupAttempts: [String: (root: URL, count: Int)] = [:]
+    /// Core-owned startup failure history (`lsp.activationPolicy`) per provider
+    /// and workspace root; a different root starts without history.
+    private var languageServerActivation: [String: (root: URL, state: LanguageServerActivationState)] = [:]
+    private let policyCore: (any LanguageToolingPolicyCore)?
+    /// Monotonic milliseconds for the activation policy; tests inject a clock.
+    package var monotonicNowMs: () -> UInt64 = { DispatchTime.now().uptimeNanoseconds / 1_000_000 }
     /// Core can clear Maven settings only for a session launched with Maven
     /// inputs. Keep this with the session so a pure Gradle start stays nil.
     private var languageServerMavenContexts: [String: MavenLaunchContext] = [:]
@@ -118,6 +122,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         runtimes: [any LanguageProviderRuntime] = [],
         runtimeFactory: (any LanguageProviderRuntimeFactory)? = nil,
         builtinCore: (any BuiltinLanguageFeatureCore)? = nil,
+        policyCore: (any LanguageToolingPolicyCore)? = nil,
         languageFeatureProviders: [any LanguageFeatureProvider] = [],
         extensionRequiredProviderIDs: Set<String> = [],
         isLanguageServerEnabled: @escaping (String, URL) -> Bool = { _, _ in true },
@@ -126,6 +131,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         workspaceStateCleaner: ((LanguageProviderDescriptor, URL, String?) throws -> Int)? = nil
     ) {
         self.pluginOperations = pluginOperations
+        self.policyCore = policyCore
         self.logSink = logSink
         self.resolveLogSubject = resolveLogSubject
         self.catalog = catalog
@@ -1220,7 +1226,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
     private func removeLanguageServer(providerID: String, stopSession: Bool) {
-        languageServerStartupAttempts[providerID] = nil
+        languageServerActivation[providerID] = nil
         if providerID == "java" { projectPreparation = nil }
         if providerID == "java" {
             javaDependencyChangeTask?.cancel()
@@ -1282,7 +1288,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         languageServerSessionIdentities = [:]
         languageServerFeatureProviders = [:]
         languageServerStates = [:]
-        languageServerStartupAttempts = [:]
+        languageServerActivation = [:]
         languageServerOperationIDs = [:]
     }
 
@@ -1458,9 +1464,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             providers: providers,
             index: 0,
             context: context,
-            items: [],
-            isIncomplete: false,
-            seenLabels: [],
+            lists: [],
             completion: completion
         )
     }
@@ -1820,12 +1824,18 @@ package final class LanguageToolingSessionManager: ObservableObject,
             return active
         }
 
-        let previousAttempt = languageServerStartupAttempts[descriptor.id]
-        let attempts = previousAttempt?.root == rootURL ? previousAttempt?.count ?? 0 : 0
+        let previousActivation = languageServerActivation[descriptor.id]
+        let activationHistory = previousActivation?.root == rootURL ? previousActivation?.state : nil
         // Document synchronization must not turn a persistent startup failure
-        // into an unbounded process loop. Explicit stop/restart clears the budget.
-        if attempts >= Self.maximumStartupAttempts,
-           case .failed(let failure) = languageServerStates[descriptor.id] {
+        // into an unbounded process loop. Explicit stop/restart clears the history.
+        if let outcome = activationOutcome(.automaticStart, providerID: descriptor.id, history: activationHistory),
+           outcome.decision != .allow {
+            let failure: LanguageServerSessionFailure
+            if case .failed(let previous) = languageServerStates[descriptor.id] {
+                failure = previous
+            } else {
+                failure = LanguageServerSessionFailure(code: "start_failed", stage: "processStart", message: nil)
+            }
             throw LanguageServerSessionStartError(failure: failure)
         }
 
@@ -1852,7 +1862,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
         if languageServers[descriptor.id] != nil || languageServerRoots[descriptor.id] != nil {
             stopLanguageServer(providerID: descriptor.id)
         }
-        languageServerStartupAttempts[descriptor.id] = (rootURL, attempts + 1)
+        // Retiring the previous projection clears its history; this start keeps it.
+        languageServerActivation[descriptor.id] = activationHistory.map { (rootURL, $0) }
         let operationID = requestedOperationID ?? UUID()
         // Only a declarative launch has no plugin process to report its start;
         // a plugin API 1 server is one too, though it has no launch templates.
@@ -1874,6 +1885,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 message: message
             ))
             languageServerStates[descriptor.id] = state
+            recordActivation(.startFailed, providerID: descriptor.id, rootURL: rootURL)
             recordLogIssue(descriptor.id, operationID.uuidString, false, "discovery", "tool_not_found", nil)
             onLanguageServerStateChange?(descriptor.id, state, operationID)
             throw LanguageToolingSessionError.toolingUnavailable(message)
@@ -1893,6 +1905,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 message: error.localizedDescription
             ))
             languageServerStates[descriptor.id] = state
+            recordActivation(.startFailed, providerID: descriptor.id, rootURL: rootURL)
             recordLogIssue(descriptor.id, operationID.uuidString, false, "workspaceFingerprint", "workspace_fingerprint_failed", nil)
             onLanguageServerStateChange?(descriptor.id, state, operationID)
             throw error
@@ -1972,6 +1985,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                     )
                 let state = LanguageServerSessionState.failed(failure)
                 languageServerStates[descriptor.id] = state
+                recordActivation(.startFailed, providerID: descriptor.id, rootURL: rootURL)
                 recordLogIssue(descriptor.id, languageServerOperationIDs[descriptor.id]?.uuidString, false, failure.stage ?? "processStart", failure.code ?? "start_failed", failure.exitCode.map(Int.init))
                 onLanguageServerStateChange?(descriptor.id, state, operationID)
             }
@@ -1980,6 +1994,31 @@ package final class LanguageToolingSessionManager: ObservableObject,
 
         recordSessionStage(.registered, providerID: descriptor.id, operationID: operationID.uuidString)
         return created
+    }
+
+    /// Asks Core for the activation decision. A Core failure is logged and
+    /// leaves starts allowed so a policy fault never disables the language server.
+    private func activationOutcome(
+        _ event: LanguageServerActivationEvent,
+        providerID: String,
+        history: LanguageServerActivationState?
+    ) -> LanguageServerActivationOutcome? {
+        guard let policyCore else { return nil }
+        switch policyCore.languageServerActivation(state: history, event: event, nowMs: monotonicNowMs()) {
+        case .success(let outcome):
+            return outcome
+        case .failure(let failure):
+            logSink?.emit(AppCoreFallbackSelected(error: LogFailure(domain: "RustCore", code: failure.code),
+                                                  stage: "lsp.activationPolicy"))
+            return nil
+        }
+    }
+
+    private func recordActivation(_ event: LanguageServerActivationEvent, providerID: String, rootURL: URL) {
+        let previous = languageServerActivation[providerID]
+        let history = previous?.root == rootURL ? previous?.state : nil
+        guard let outcome = activationOutcome(event, providerID: providerID, history: history) else { return }
+        languageServerActivation[providerID] = outcome.state.map { (rootURL, $0) }
     }
 
     private func clearLanguageServerSession(
@@ -2080,31 +2119,22 @@ package final class LanguageToolingSessionManager: ObservableObject,
         providers: [any LanguageFeatureProvider],
         index: Int,
         context: LanguageFeatureRequestContext,
-        items: [LanguageServerCompletionItem],
-        isIncomplete: Bool,
-        seenLabels: Set<String>,
+        lists: [LanguageServerCompletionList],
         completion: @escaping (Result<LanguageServerCompletionList, Error>) -> Void
     ) {
         guard index < providers.count else {
-            completion(.success(LanguageServerCompletionList(items: items, isIncomplete: isIncomplete)))
+            completion(.success(mergeCompletionLists(lists)))
             return
         }
         do {
             try providers[index].completionList(in: context) { [self] result in
                 switch result {
                 case .success(let providerItems):
-                    var merged = items
-                    var labels = seenLabels
-                    for item in providerItems.items where labels.insert(item.label).inserted {
-                        merged.append(item)
-                    }
                     routeCompletions(
                         providers: providers,
                         index: index + 1,
                         context: context,
-                        items: merged,
-                        isIncomplete: isIncomplete || providerItems.isIncomplete,
-                        seenLabels: labels,
+                        lists: lists + [providerItems],
                         completion: completion
                     )
                 case .failure(let error):
@@ -2113,6 +2143,32 @@ package final class LanguageToolingSessionManager: ObservableObject,
             }
         } catch {
             completion(.failure(error))
+        }
+    }
+
+    /// Core decides which candidates survive across prioritized providers
+    /// (`lsp.mergeCompletions`); only labels cross the boundary.
+    private func mergeCompletionLists(_ lists: [LanguageServerCompletionList]) -> LanguageServerCompletionList {
+        let isIncomplete = lists.contains(where: \.isIncomplete)
+        // With at most one non-empty list nothing can be shadowed, and the shared
+        // rule keeps a provider's list whole, so the call is skipped.
+        guard lists.filter({ !$0.items.isEmpty }).count > 1 else {
+            return LanguageServerCompletionList(items: lists.flatMap(\.items), isIncomplete: isIncomplete)
+        }
+        guard let policyCore else {
+            return LanguageServerCompletionList(items: lists.flatMap(\.items), isIncomplete: isIncomplete)
+        }
+        switch policyCore.mergeCompletions(labels: lists.map { $0.items.map(\.label) },
+                                           incomplete: lists.map(\.isIncomplete)) {
+        case .success(let selection):
+            let items = zip(lists, selection.keep).flatMap { list, keep in
+                keep.compactMap { list.items.indices.contains($0) ? list.items[$0] : nil }
+            }
+            return LanguageServerCompletionList(items: items, isIncomplete: selection.isIncomplete)
+        case .failure(let failure):
+            logSink?.emit(AppCoreFallbackSelected(error: LogFailure(domain: "RustCore", code: failure.code),
+                                                  stage: "lsp.mergeCompletions"))
+            return LanguageServerCompletionList(items: lists.flatMap(\.items), isIncomplete: isIncomplete)
         }
     }
 
@@ -2294,6 +2350,9 @@ package final class LanguageToolingSessionManager: ObservableObject,
             state: state,
             rootURL: languageServerRoots[providerID]
         )
+        if case .failed = state, let rootURL = languageServerRoots[providerID] {
+            recordActivation(.startFailed, providerID: providerID, rootURL: rootURL)
+        }
         switch state {
         case .stopped, .failed:
             if providerID == "java" {
@@ -2316,7 +2375,9 @@ package final class LanguageToolingSessionManager: ObservableObject,
             languageServerFeatures[providerID] = nil
             languageServerInfos[providerID] = nil
         case .ready:
-            languageServerStartupAttempts[providerID] = nil
+            if let rootURL = languageServerRoots[providerID] {
+                recordActivation(.ready, providerID: providerID, rootURL: rootURL)
+            }
             languageServerFeatures[providerID] = session.features
             languageServerInfos[providerID] = session.serverInfo
             if providerID == "java" { refreshJavaDependenciesWhenReady() }

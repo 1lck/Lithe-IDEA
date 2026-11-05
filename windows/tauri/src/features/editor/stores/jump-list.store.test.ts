@@ -1,11 +1,12 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { useJumpListStore, type JumpListEntry } from "./jump-list.store";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import * as core_ from "@/platform/tauri-core";
+import {
+  type JumpListEntry,
+  type NavigationHistoryState,
+  useJumpListStore,
+} from "./jump-list.store";
 
-function cursorEntry(
-  line: number,
-  column: number,
-  paneId?: string,
-): Omit<JumpListEntry, "timestamp"> {
+function entry(line: number, column: number, paneId?: string): JumpListEntry {
   return {
     bufferId: "buffer-a",
     filePath: "C:/workspace/a.ts",
@@ -18,154 +19,106 @@ function cursorEntry(
   };
 }
 
-function clearJumpList() {
-  useJumpListStore.getState().actions.clear();
+function location(line: number, column: number, paneId?: string) {
+  const { filePath, line: entryLine, column: entryColumn, ...context } = entry(line, column, paneId);
+  return { document: filePath, line: entryLine, column: entryColumn, context };
 }
 
-beforeEach(clearJumpList);
-afterEach(clearJumpList);
+type Reduce = (args: { state: NavigationHistoryState; event: { type: string } }) => unknown;
 
-describe("jump list cursor history", () => {
-  test("keeps distinct positions in the same file, including their columns", () => {
-    const actions = useJumpListStore.getState().actions;
+function mockCore(reduce: Reduce) {
+  return spyOn(core_, "invoke").mockImplementation((async (command, args) => {
+    expect(command).toBe("editor.navigationHistory.reduce");
+    return reduce(args as Parameters<Reduce>[0]);
+  }) as typeof core_.invoke);
+}
 
-    actions.recordCursorEntry(cursorEntry(9, 19));
-    actions.recordCursorEntry(cursorEntry(9, 4));
-    actions.recordCursorEntry(cursorEntry(19, 4));
+afterEach(() => useJumpListStore.getState().actions.clear());
 
-    const positions = useJumpListStore
-      .getState()
-      .entries.map(({ line, column, offset }) => ({ line, column, offset }));
-    expect(positions).toEqual([
-      { line: 9, column: 19, offset: 919 },
-      { line: 9, column: 4, offset: 904 },
-      { line: 19, column: 4, offset: 1904 },
-    ]);
+describe("jump list backed by Core navigation history", () => {
+  test("records through Core and installs the returned state", async () => {
+    const core = mockCore(() => ({ state: { back: [location(9, 19, "left")], forward: [] }, destination: null }));
+    try {
+      await useJumpListStore.getState().actions.record(entry(9, 19, "left"), entry(30, 1, "left"));
+      expect(core.mock.calls[0]?.[1]).toEqual({
+        state: { back: [], forward: [] },
+        event: { type: "record", departure: location(9, 19, "left"), destination: location(30, 1, "left") },
+      });
+      expect(useJumpListStore.getState().history.back).toEqual([location(9, 19, "left")]);
+      expect(useJumpListStore.getState().actions.canGoBack()).toBe(true);
+      expect(useJumpListStore.getState().actions.canGoForward()).toBe(false);
+    } finally {
+      core.mockRestore();
+    }
   });
 
-  test("preserves an exact cursor entry before a nearby explicit navigation entry", () => {
-    const actions = useJumpListStore.getState().actions;
-    const cursorPosition = cursorEntry(10, 5);
-    const explicitNavigationPosition = cursorEntry(10, 20);
-    const destination = cursorEntry(30, 4);
-
-    actions.recordCursorEntry(cursorPosition);
-    actions.pushEntry(explicitNavigationPosition);
-
-    expect(
-      useJumpListStore
-        .getState()
-        .entries.map(({ line, column, offset }) => ({ line, column, offset })),
-    ).toEqual([
-      { line: 10, column: 5, offset: 1005 },
-      { line: 10, column: 20, offset: 1020 },
-    ]);
-
-    expect(actions.goBack(destination)).toMatchObject(explicitNavigationPosition);
-    expect(actions.goBack()).toMatchObject(cursorPosition);
-    expect(actions.goForward()).toMatchObject(explicitNavigationPosition);
-    expect(actions.goForward()).toMatchObject(destination);
-  });
-
-  test("navigates back and forward across normal cursor positions", () => {
-    const actions = useJumpListStore.getState().actions;
-    const first = cursorEntry(9, 19);
-    const second = cursorEntry(19, 4);
-    const third = cursorEntry(29, 11);
-
-    actions.recordCursorEntry(first);
-    actions.recordCursorEntry(second);
-
-    expect(actions.goBack(third)).toMatchObject(second);
-    expect(actions.goBack()).toMatchObject(first);
-    expect(actions.goForward()).toMatchObject(second);
-    expect(actions.goForward()).toMatchObject(third);
-  });
-
-  test("drops forward cursor positions after a new movement", () => {
-    const actions = useJumpListStore.getState().actions;
-    const first = cursorEntry(9, 19);
-    const second = cursorEntry(19, 4);
-    const third = cursorEntry(29, 11);
-
-    actions.recordCursorEntry(first);
-    actions.recordCursorEntry(second);
-    expect(actions.goBack(third)).toMatchObject(second);
-    expect(actions.goBack()).toMatchObject(first);
-
-    actions.recordCursorEntry(first);
-
-    expect(actions.goForward()).toBeNull();
-  });
-
-  test("keeps nearby explicit entries distinct in the same pane", () => {
-    const actions = useJumpListStore.getState().actions;
-    const paneId = "left-pane";
-
-    actions.pushEntry(cursorEntry(10, 5, paneId));
-    actions.pushEntry(cursorEntry(10, 20, paneId));
-
-    expect(
-      useJumpListStore
-        .getState()
-        .entries.map(({ line, column, paneId: entryPaneId }) => ({
-          line,
-          column,
-          paneId: entryPaneId,
-        })),
-    ).toEqual([
-      { line: 10, column: 5, paneId },
-      { line: 10, column: 20, paneId },
-    ]);
-  });
-
-  test("navigates chronologically across panes and preserves each destination pane", () => {
-    const actions = useJumpListStore.getState().actions;
-    const leftPaneId = "left-pane";
-    const rightPaneId = "right-pane";
-
-    actions.recordCursorEntry(cursorEntry(9, 1, leftPaneId));
-    actions.recordCursorEntry(cursorEntry(19, 1, leftPaneId));
-    actions.recordCursorEntry(cursorEntry(29, 1, rightPaneId));
-    actions.recordCursorEntry(cursorEntry(39, 1, rightPaneId));
-
-    expect(actions.goBack(cursorEntry(49, 1, rightPaneId))).toMatchObject({
-      line: 39,
-      paneId: rightPaneId,
+  test("applies events in order to the state produced by the previous event", async () => {
+    const seen: NavigationHistoryState[] = [];
+    const core = mockCore(({ state }) => {
+      seen.push(state);
+      return { state: { back: [...state.back, location(seen.length, 0)], forward: [] }, destination: null };
     });
-    expect(actions.goBack()).toMatchObject({ line: 29, paneId: rightPaneId });
-    expect(actions.goBack()).toMatchObject({ line: 19, paneId: leftPaneId });
-    expect(actions.goBack()).toMatchObject({ line: 9, paneId: leftPaneId });
-
-    expect(actions.goForward()).toMatchObject({ line: 19, paneId: leftPaneId });
-    expect(actions.goForward()).toMatchObject({ line: 29, paneId: rightPaneId });
-    expect(actions.goForward()).toMatchObject({ line: 39, paneId: rightPaneId });
-    expect(actions.goForward()).toMatchObject({ line: 49, paneId: rightPaneId });
+    try {
+      const actions = useJumpListStore.getState().actions;
+      await Promise.all([actions.record(entry(1, 0)), actions.record(entry(2, 0))]);
+      expect(seen).toEqual([
+        { back: [], forward: [] },
+        { back: [location(1, 0)], forward: [] },
+      ]);
+    } finally {
+      core.mockRestore();
+    }
   });
 
-  test("restores the present position when a back navigation fails", () => {
-    const actions = useJumpListStore.getState().actions;
-    actions.recordCursorEntry(cursorEntry(9, 1));
-    const previousIndex = useJumpListStore.getState().currentIndex;
-    const destination = actions.goBack(cursorEntry(19, 1));
-
-    expect(destination).not.toBeNull();
-    actions.rollbackNavigation(destination!, previousIndex, true);
-
-    expect(actions.goBack(cursorEntry(19, 1))).toMatchObject({ line: 9, column: 1 });
+  test("returns the Core destination with its pane and scroll context", async () => {
+    const core = mockCore(({ event }) => ({
+      state: { back: [], forward: event.type === "back" ? [location(49, 1, "right")] : [] },
+      destination: location(39, 1, "right"),
+    }));
+    try {
+      const step = await useJumpListStore.getState().actions.goBack(entry(49, 1, "right"));
+      expect(step?.entry).toEqual(entry(39, 1, "right"));
+      expect(core.mock.calls[0]?.[1]).toMatchObject({ event: { type: "back", current: location(49, 1, "right") } });
+    } finally {
+      core.mockRestore();
+    }
   });
 
-  test("restores the previous history index when a forward navigation fails", () => {
-    const actions = useJumpListStore.getState().actions;
-    actions.recordCursorEntry(cursorEntry(9, 1));
-    actions.recordCursorEntry(cursorEntry(19, 1));
-    const back = actions.goBack(cursorEntry(29, 1));
-    expect(back).toMatchObject({ line: 19 });
+  test("rolls a failed step back only while no newer event replaced it", async () => {
+    const original = { back: [location(9, 1)], forward: [] };
+    useJumpListStore.setState({ history: original });
+    let call = 0;
+    const core = mockCore(() => {
+      call += 1;
+      return call < 3
+        ? { state: { back: [], forward: [location(19, 1)] }, destination: location(9, 1) }
+        : { state: { back: [location(5, 0)], forward: [] }, destination: null };
+    });
+    try {
+      const actions = useJumpListStore.getState().actions;
+      const step = await actions.goBack(entry(19, 1));
+      expect(step).not.toBeNull();
+      actions.rollback(step!);
+      expect(useJumpListStore.getState().history).toBe(original);
 
-    const forward = actions.goForward();
-    expect(forward).toMatchObject({ line: 29 });
-    actions.rollbackNavigation(forward!, 1, false);
+      const repeated = await actions.goBack(entry(19, 1));
+      await actions.record(entry(5, 0));
+      actions.rollback(repeated!);
+      expect(useJumpListStore.getState().history).toEqual({ back: [location(5, 0)], forward: [] });
+    } finally {
+      core.mockRestore();
+    }
+  });
 
-    expect(actions.goForward()).toMatchObject({ line: 29, column: 1 });
+  test("keeps the history when Core rejects the event", async () => {
+    const original = { back: [location(9, 1)], forward: [] };
+    useJumpListStore.setState({ history: original });
+    const core = spyOn(core_, "invoke").mockRejectedValue(new Error("invalid_request"));
+    try {
+      expect(await useJumpListStore.getState().actions.goBack(entry(19, 1))).toBeNull();
+      expect(useJumpListStore.getState().history).toBe(original);
+    } finally {
+      core.mockRestore();
+    }
   });
 });

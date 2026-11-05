@@ -1531,6 +1531,62 @@ struct LanguageIntelligenceModuleTests {
         #expect(manager.languageServerStates["java"] == .failed(timeoutFailure))
     }
 
+    /// Regression for LSP-08: macOS used a private three-attempt counter while
+    /// Windows used a five-second cooldown. Both now apply Core's decision.
+    @Test
+    func automaticStartsApplyTheCoreActivationDecision() throws {
+        let root = URL(fileURLWithPath: "/workspace/java-activation", isDirectory: true)
+        let descriptor = try #require(
+            LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java"))
+        )
+        let session = WorkspaceStateLanguageServerSession()
+        let failure = LanguageServerSessionFailure(code: "start_failed", stage: "processStart", message: "boom")
+        session.startError = LanguageServerSessionStartError(failure: failure)
+        let history = LanguageServerActivationState(consecutiveFailures: 1, lastFailureAtMs: 1000)
+        let policy = ScriptedActivationPolicy(outcomes: [
+            .init(state: nil, decision: .allow, retryAfterMs: nil),
+            .init(state: history, decision: .wait, retryAfterMs: 5000),
+            .init(state: history, decision: .wait, retryAfterMs: 1),
+            .init(state: nil, decision: .allow, retryAfterMs: nil),
+            .init(state: nil, decision: .allow, retryAfterMs: nil),
+        ])
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)],
+            policyCore: policy
+        )
+        defer { manager.stopAllLanguageServers() }
+        var now: UInt64 = 1000
+        manager.monotonicNowMs = { now }
+
+        #expect(throws: LanguageServerSessionStartError.self) {
+            try manager.startLanguageServer(providerID: "java", rootURL: root)
+        }
+        now = 5999
+        // A waiting decision reports the previous failure without a new process.
+        let waiting = #expect(throws: LanguageServerSessionStartError.self) {
+            try manager.startLanguageServer(providerID: "java", rootURL: root)
+        }
+        #expect(waiting?.failure == failure)
+        #expect(session.startCallCount == 1)
+
+        // An explicit stop forgets the history, so the next start sends none.
+        manager.stopLanguageServer(providerID: "java")
+        session.startError = nil
+        now = 6000
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        session.publish(.ready)
+        #expect(session.startCallCount == 2)
+
+        #expect(policy.requests == [
+            .init(state: nil, event: .automaticStart, nowMs: 1000),
+            .init(state: nil, event: .startFailed, nowMs: 1000),
+            .init(state: history, event: .automaticStart, nowMs: 5999),
+            .init(state: nil, event: .automaticStart, nowMs: 6000),
+            .init(state: nil, event: .ready, nowMs: 6000),
+        ])
+    }
+
     @Test
     func workspaceCacheCleanupLogsTheLanguageServerOperationID() throws {
         let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
@@ -1902,6 +1958,35 @@ private final class TestLanguageProviderRuntimeFactory: LanguageProviderRuntimeF
         ))
         if let session { return WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session) }
         return TestLanguageProviderRuntime(descriptor: descriptor)
+    }
+}
+
+/// Records activation requests and answers with scripted Core outcomes; the
+/// policy itself is covered by the shared fixture in Rust Core.
+private final class ScriptedActivationPolicy: LanguageToolingPolicyCore, @unchecked Sendable {
+    struct Request: Equatable {
+        let state: LanguageServerActivationState?
+        let event: LanguageServerActivationEvent
+        let nowMs: UInt64
+    }
+
+    private(set) var requests: [Request] = []
+    private var outcomes: [LanguageServerActivationOutcome]
+
+    init(outcomes: [LanguageServerActivationOutcome]) { self.outcomes = outcomes }
+
+    func languageServerActivation(
+        state: LanguageServerActivationState?, event: LanguageServerActivationEvent, nowMs: UInt64
+    ) -> Result<LanguageServerActivationOutcome, LanguageToolingPolicyFailure> {
+        requests.append(Request(state: state, event: event, nowMs: nowMs))
+        guard !outcomes.isEmpty else { return .failure(LanguageToolingPolicyFailure(code: "unscripted")) }
+        return .success(outcomes.removeFirst())
+    }
+
+    func mergeCompletions(
+        labels _: [[String]], incomplete _: [Bool]
+    ) -> Result<CompletionMergeSelection, LanguageToolingPolicyFailure> {
+        .failure(LanguageToolingPolicyFailure(code: "unscripted"))
     }
 }
 

@@ -30,7 +30,7 @@ function pushActiveEditorToJumpList() {
   if (activeBuffer?.type !== "editor" || !activeBuffer.path) return;
 
   const editorState = useEditorStateStore.getState();
-  useJumpListStore.getState().actions.pushEntry({
+  void useJumpListStore.getState().actions.record({
     bufferId: activeBuffer.id,
     filePath: activeBuffer.path,
     paneId: usePaneStore.getState().activePaneId,

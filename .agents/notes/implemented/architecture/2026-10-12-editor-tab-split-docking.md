@@ -16,7 +16,7 @@ Git 的工作区、工作树、目录、分支、历史提交和 Stash/Shelf 比
 
 ## 决策
 
-编辑分组的二叉布局树（每次把一组拆成两组）与标签位置、选中项由已有 `EditorTabOrderFeatureModel` 管理。
+编辑分组的二叉布局树（每次把一组拆成两组）、标签归属、选中项和聚焦组的规则由 Rust Core 的 `editor.workbenchState.reduce` 统一持有（`rust/lithe-core/src/editor/workbench_state.rs`，样例 `shared/fixtures/editor/workbench-state-v1.json`）；`EditorTabOrderFeatureModel` 只保存 Core 返回的状态，新分组和分隔条 ID 由宿主生成后交给 Core。关闭或移走组内选中的标签后，该组选中接替原位置的标签（越过末尾则选新的末尾），不再回到第一个标签，与 Windows 窗格的既有规则一致。拖动时 `canDrop` 每次指针移动都会查询，宿主按当前状态缓存 Core 的结论，状态变化后清空，不逐帧跨 FFI。Windows 窗格树仍在 `pane-tree.ts`：它允许同一缓冲区同时出现在多个窗格，带预览、固定、锁定和底部窗格树，并由同步 zustand 调用链驱动打开与关闭流程，需要后续整体迁移到同一命令。
 普通分组编辑器的 Monaco 原生容器按项目及文档复用；同一个文档在组间移动时重新挂载原 WebView，不重建其 Monaco 模型，保留撤销/重做栈和视图状态。SwiftUI 内容身份也按文档固定，避免切换标签时继续持有另一文档的 StateObject。移动文件前通过原文档的同步屏障排空输入，失败保留原布局，较旧的待处理落点不能覆盖新请求；解绑时检查同步所有者，不能清除另一组已接管的保存回调。
 跨文件 Rename / Code Action 读取其他文档快照前，先调用目标文档原有同步屏障；注册编辑镜像只能观察文本变化，不能接管目标文档保存与关闭的同步回调。目标 WebView 继续通过已有 replace 的 pushEditOperations 接收修改，保留自身撤销栈。标签关闭菜单按所属组当前混合标签顺序计算 Other / Left / Right / All，仅关闭文档类型，忽略终端等其他类型。
 文档容器只绑定自己的文档，旧挂载退出不能移除目标容器中的编辑器。后台光标事件及没有原生 first responder 的迟到焦点事件不能切换活动组。分组选择变化后通过公开 DOM blur 和 Monaco focus 同步正文焦点，避免不同 WebView 同时保留闪烁光标。
@@ -128,6 +128,8 @@ Windows 的既有分栏实现不受此次 macOS 呈现改动影响，完整两�
 
 - `macos/Sources/Lithe/Application/Features/EditorTabOrderFeatureModel.swift`
 - `macos/Sources/Lithe/Application/Features/EditorGroupLayout.swift`
+- `rust/lithe-core/src/editor/workbench_state.rs`
+- `shared/fixtures/editor/workbench-state-v1.json`
 - `macos/Sources/Lithe/Models/AppModel/AppModel+EditorGroups.swift`
 - `macos/Sources/Lithe/Models/AppModel/AppModel+Terminal.swift`
 - `macos/Sources/Lithe/Views/Editor/EditorAreaView.swift`
