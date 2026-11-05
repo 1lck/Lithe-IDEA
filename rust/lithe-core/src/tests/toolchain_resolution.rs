@@ -1,6 +1,8 @@
 //! Exercises shared tool selection through production commands and inert native facts.
 
-use super::toolchain_vectors::{local_pins, query_request, query_response, HOME, WORKSPACE};
+use super::toolchain_vectors::{
+    local_pins, query_request, query_response, HOME, MANUAL_HOME, WORKSPACE,
+};
 use crate::toolchain::{
     candidates_command, check_version_command, discovery_plan_command, failure_reply_command,
     resolve_command,
@@ -202,7 +204,7 @@ fn consumer_fixed_choices_reject_ambiguous_relative_and_authority_smuggling_fiel
 #[test]
 fn toolchain_resolution_pins_inherit_nearest_ancestor_without_sibling_prefixes() {
     let mut value = input();
-    let manual = "/opt/lithe-fixtures/manual/java/17.0.12";
+    let manual = MANUAL_HOME;
     installation(&mut value, HOME, "21.0.4");
     installation(&mut value, manual, "17.0.12");
     value["local"] = local_pins();
