@@ -303,9 +303,10 @@ before its version); see `fixtures/runtime-versions.json`.
 
 #### Tool references (`serverProcess` 4)
 
-`serverProcess` 4 stops naming runtimes from the host's closed lists (`go`,
-`java`, `node`) and names them by [tool-definition ID](toolchains.md) instead,
-so a host never learns a tool from a name. The plugin lists every tool it starts
+`serverProcess` 4 stops naming runtimes from the host's closed lists (the
+`tool` values that versions 1 to 3 accept) and names them by
+[tool-definition ID](toolchains.md) instead, so a host never learns a tool from
+a name. The plugin lists every tool it starts
 a process with in the top-level `requiresTools`, and the definitions come from
 `toolDefinitions` of the plugin itself or of another enabled plugin.
 

@@ -256,6 +256,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     public var canUpdateJavaService: Bool {
         guard let id = activeSessionID else { return false }
         return providerID == "java" && canControl && javaUpdateTargets[id] != nil
+            && !adapterDeclaredCodeChanges
     }
 
     public func applyJavaServiceUpdate(
@@ -289,11 +290,14 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
 
     /// Whether the active session's adapter declared a way to apply changed code to the running
-    /// program (`features.hotCodeReplace`). A session that has the host's own build step for
-    /// updating a service keeps that one button instead.
+    /// program (`features.hotCodeReplace`). The declaration wins over the host's own service
+    /// update, which only remains for adapters that declared nothing, so one button shows.
     public var canApplyDeclaredCodeChanges: Bool {
-        guard canControl, !canUpdateJavaService else { return false }
-        return activeSession?.declaredBehavior.features?.hotCodeReplace != nil
+        canControl && adapterDeclaredCodeChanges
+    }
+
+    private var adapterDeclaredCodeChanges: Bool {
+        activeSession?.declaredBehavior.features?.hotCodeReplace != nil
     }
 
     /// Applies changed code through the request the adapter declared; Core sends it and reads

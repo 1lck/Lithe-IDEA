@@ -329,6 +329,10 @@ classify_path() {
         scripts/logging/*)
             # Catalog generation and usage checks run in verify-logging.yml.
             ;;
+        scripts/architecture/verify-no-host-language-specifics.mjs|scripts/architecture/verify-no-host-language-specifics.test.mjs|scripts/architecture/language-specifics-baseline.json|scripts/architecture/language-specifics-allowlist.json)
+            # The host language-specifics gate runs in
+            # verify-host-language-specifics.yml, not in a product lane.
+            ;;
         scripts/plugins/plugin-settings-schema.test.mjs)
             # Runs in the always-on Linux classification job, not a product lane.
             ;;

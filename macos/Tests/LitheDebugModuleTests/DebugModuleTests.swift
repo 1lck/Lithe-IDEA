@@ -511,6 +511,20 @@ struct DebugModuleTests {
     }
 
     @Test
+    func aDeclaredHotCodeReplaceReplacesTheHostServiceUpdateSoOneButtonShows() async {
+        let session = DeferredInspectionDebugSession()
+        session.declaredBehavior = DebugAdapterDeclaredBehavior(
+            features: .init(hotCodeReplace: .init(request: "script.reload"))
+        )
+        let feature = makeDeferredFeature(session: session, rootPath: "/workspace/declared-over-service")
+        defer { feature.stop() }
+        feature.registerJavaUpdateTarget(JavaDebugLaunchTarget(mainClass: "example.Main", projectName: "app"))
+
+        #expect(feature.canApplyDeclaredCodeChanges)
+        #expect(!feature.canUpdateJavaService)
+    }
+
+    @Test
     func anAdapterThatDeclaredNothingOffersNoApplyChangesAction() async {
         let session = DeferredInspectionDebugSession()
         let feature = makeDeclaredFeature(session: session, rootPath: "/workspace/undeclared-reload")
