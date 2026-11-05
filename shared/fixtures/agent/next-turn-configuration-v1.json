@@ -1,0 +1,1118 @@
+{
+  "version": 1,
+  "description": "Next-turn session settings. The product sends `applyNextTurnConfiguration` with its latest catalog and the user's choices after a turn ends; the Host applies one request at a time and answers with one `nextTurnConfigured` event. `answers` script the Agent's catalog after each request.",
+  "command": {
+    "kind": "applyNextTurnConfiguration",
+    "token": "config-2",
+    "sessionId": "session-1",
+    "catalog": [
+      {
+        "id": "model",
+        "category": "model",
+        "currentValue": "model-a",
+        "choices": [
+          "model-a",
+          "model-b"
+        ]
+      }
+    ],
+    "choices": [
+      {
+        "configId": "model",
+        "value": "model-b"
+      }
+    ]
+  },
+  "events": {
+    "configured": {
+      "kind": "nextTurnConfigured",
+      "token": "config-2",
+      "sessionId": "session-1",
+      "configOptions": [
+        {
+          "id": "model",
+          "name": "model",
+          "type": "select",
+          "currentValue": "model-b",
+          "options": [
+            {
+              "value": "model-a",
+              "name": "model-a"
+            },
+            {
+              "value": "model-b",
+              "name": "model-b"
+            }
+          ],
+          "category": "model"
+        }
+      ]
+    },
+    "failed": {
+      "kind": "nextTurnConfigured",
+      "token": "config-2",
+      "sessionId": "session-1",
+      "configOptions": [
+        {
+          "id": "model",
+          "name": "model",
+          "type": "select",
+          "currentValue": "model-b",
+          "options": [
+            {
+              "value": "model-a",
+              "name": "model-a"
+            },
+            {
+              "value": "model-b",
+              "name": "model-b"
+            }
+          ],
+          "category": "model"
+        }
+      ],
+      "failure": "requestFailed",
+      "message": "Rejected"
+    },
+    "unsupportedBeforeAnyRequest": {
+      "kind": "nextTurnConfigured",
+      "token": "config-2",
+      "sessionId": "session-1",
+      "failure": "unsupported"
+    }
+  },
+  "cases": [
+    {
+      "name": "modelFirstThenCatalogOrder",
+      "description": "Model choices apply first; the rest follow the Agent's catalog order, not the order the user chose them (Windows previously used choice order).",
+      "catalog": [
+        {
+          "id": "mode",
+          "name": "mode",
+          "type": "select",
+          "currentValue": "read-only",
+          "options": [
+            {
+              "value": "read-only",
+              "name": "read-only"
+            },
+            {
+              "value": "auto",
+              "name": "auto"
+            },
+            {
+              "value": "plan",
+              "name": "plan"
+            }
+          ],
+          "category": "mode"
+        },
+        {
+          "id": "model",
+          "name": "model",
+          "type": "select",
+          "currentValue": "model-a",
+          "options": [
+            {
+              "value": "model-a",
+              "name": "model-a"
+            },
+            {
+              "value": "model-b",
+              "name": "model-b"
+            }
+          ],
+          "category": "model"
+        },
+        {
+          "id": "reasoning_effort",
+          "name": "reasoning_effort",
+          "type": "select",
+          "currentValue": "medium",
+          "options": [
+            {
+              "value": "medium",
+              "name": "medium"
+            },
+            {
+              "value": "high",
+              "name": "high"
+            }
+          ],
+          "category": "thought_level"
+        }
+      ],
+      "choices": [
+        {
+          "configId": "reasoning_effort",
+          "value": "high"
+        },
+        {
+          "configId": "mode",
+          "value": "auto"
+        },
+        {
+          "configId": "model",
+          "value": "model-b"
+        }
+      ],
+      "answers": [
+        {
+          "configOptions": [
+            {
+              "id": "mode",
+              "name": "mode",
+              "type": "select",
+              "currentValue": "read-only",
+              "options": [
+                {
+                  "value": "read-only",
+                  "name": "read-only"
+                },
+                {
+                  "value": "auto",
+                  "name": "auto"
+                },
+                {
+                  "value": "plan",
+                  "name": "plan"
+                }
+              ],
+              "category": "mode"
+            },
+            {
+              "id": "model",
+              "name": "model",
+              "type": "select",
+              "currentValue": "model-b",
+              "options": [
+                {
+                  "value": "model-a",
+                  "name": "model-a"
+                },
+                {
+                  "value": "model-b",
+                  "name": "model-b"
+                }
+              ],
+              "category": "model"
+            },
+            {
+              "id": "reasoning_effort",
+              "name": "reasoning_effort",
+              "type": "select",
+              "currentValue": "medium",
+              "options": [
+                {
+                  "value": "medium",
+                  "name": "medium"
+                },
+                {
+                  "value": "high",
+                  "name": "high"
+                }
+              ],
+              "category": "thought_level"
+            }
+          ]
+        },
+        {
+          "configOptions": [
+            {
+              "id": "mode",
+              "name": "mode",
+              "type": "select",
+              "currentValue": "auto",
+              "options": [
+                {
+                  "value": "read-only",
+                  "name": "read-only"
+                },
+                {
+                  "value": "auto",
+                  "name": "auto"
+                },
+                {
+                  "value": "plan",
+                  "name": "plan"
+                }
+              ],
+              "category": "mode"
+            },
+            {
+              "id": "model",
+              "name": "model",
+              "type": "select",
+              "currentValue": "model-b",
+              "options": [
+                {
+                  "value": "model-a",
+                  "name": "model-a"
+                },
+                {
+                  "value": "model-b",
+                  "name": "model-b"
+                }
+              ],
+              "category": "model"
+            },
+            {
+              "id": "reasoning_effort",
+              "name": "reasoning_effort",
+              "type": "select",
+              "currentValue": "medium",
+              "options": [
+                {
+                  "value": "medium",
+                  "name": "medium"
+                },
+                {
+                  "value": "high",
+                  "name": "high"
+                }
+              ],
+              "category": "thought_level"
+            }
+          ]
+        },
+        {
+          "configOptions": [
+            {
+              "id": "mode",
+              "name": "mode",
+              "type": "select",
+              "currentValue": "auto",
+              "options": [
+                {
+                  "value": "read-only",
+                  "name": "read-only"
+                },
+                {
+                  "value": "auto",
+                  "name": "auto"
+                },
+                {
+                  "value": "plan",
+                  "name": "plan"
+                }
+              ],
+              "category": "mode"
+            },
+            {
+              "id": "model",
+              "name": "model",
+              "type": "select",
+              "currentValue": "model-b",
+              "options": [
+                {
+                  "value": "model-a",
+                  "name": "model-a"
+                },
+                {
+                  "value": "model-b",
+                  "name": "model-b"
+                }
+              ],
+              "category": "model"
+            },
+            {
+              "id": "reasoning_effort",
+              "name": "reasoning_effort",
+              "type": "select",
+              "currentValue": "high",
+              "options": [
+                {
+                  "value": "medium",
+                  "name": "medium"
+                },
+                {
+                  "value": "high",
+                  "name": "high"
+                }
+              ],
+              "category": "thought_level"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "requests": [
+          {
+            "configId": "model",
+            "value": "model-b"
+          },
+          {
+            "configId": "mode",
+            "value": "auto"
+          },
+          {
+            "configId": "reasoning_effort",
+            "value": "high"
+          }
+        ],
+        "failure": null
+      }
+    },
+    {
+      "name": "modelChangeRemovesAChosenValue",
+      "description": "Remaining choices are revalidated against the catalog the model change returned.",
+      "catalog": [
+        {
+          "id": "model",
+          "name": "model",
+          "type": "select",
+          "currentValue": "model-a",
+          "options": [
+            {
+              "value": "model-a",
+              "name": "model-a"
+            },
+            {
+              "value": "model-b",
+              "name": "model-b"
+            }
+          ],
+          "category": "model"
+        },
+        {
+          "id": "reasoning_effort",
+          "name": "reasoning_effort",
+          "type": "select",
+          "currentValue": "medium",
+          "options": [
+            {
+              "value": "medium",
+              "name": "medium"
+            },
+            {
+              "value": "high",
+              "name": "high"
+            }
+          ],
+          "category": "thought_level"
+        }
+      ],
+      "choices": [
+        {
+          "configId": "model",
+          "value": "model-b"
+        },
+        {
+          "configId": "reasoning_effort",
+          "value": "high"
+        }
+      ],
+      "answers": [
+        {
+          "configOptions": [
+            {
+              "id": "model",
+              "name": "model",
+              "type": "select",
+              "currentValue": "model-b",
+              "options": [
+                {
+                  "value": "model-a",
+                  "name": "model-a"
+                },
+                {
+                  "value": "model-b",
+                  "name": "model-b"
+                }
+              ],
+              "category": "model"
+            },
+            {
+              "id": "reasoning_effort",
+              "name": "reasoning_effort",
+              "type": "select",
+              "currentValue": "medium",
+              "options": [
+                {
+                  "value": "medium",
+                  "name": "medium"
+                }
+              ],
+              "category": "thought_level"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "requests": [
+          {
+            "configId": "model",
+            "value": "model-b"
+          }
+        ],
+        "failure": "unsupported"
+      }
+    },
+    {
+      "name": "modelChangeAlreadyAppliesAChoice",
+      "description": "A choice the new catalog already reports as current is not sent again.",
+      "catalog": [
+        {
+          "id": "model",
+          "name": "model",
+          "type": "select",
+          "currentValue": "model-a",
+          "options": [
+            {
+              "value": "model-a",
+              "name": "model-a"
+            },
+            {
+              "value": "model-b",
+              "name": "model-b"
+            }
+          ],
+          "category": "model"
+        },
+        {
+          "id": "reasoning_effort",
+          "name": "reasoning_effort",
+          "type": "select",
+          "currentValue": "medium",
+          "options": [
+            {
+              "value": "medium",
+              "name": "medium"
+            },
+            {
+              "value": "high",
+              "name": "high"
+            }
+          ],
+          "category": "thought_level"
+        }
+      ],
+      "choices": [
+        {
+          "configId": "model",
+          "value": "model-b"
+        },
+        {
+          "configId": "reasoning_effort",
+          "value": "high"
+        }
+      ],
+      "answers": [
+        {
+          "configOptions": [
+            {
+              "id": "model",
+              "name": "model",
+              "type": "select",
+              "currentValue": "model-b",
+              "options": [
+                {
+                  "value": "model-a",
+                  "name": "model-a"
+                },
+                {
+                  "value": "model-b",
+                  "name": "model-b"
+                }
+              ],
+              "category": "model"
+            },
+            {
+              "id": "reasoning_effort",
+              "name": "reasoning_effort",
+              "type": "select",
+              "currentValue": "high",
+              "options": [
+                {
+                  "value": "medium",
+                  "name": "medium"
+                },
+                {
+                  "value": "high",
+                  "name": "high"
+                }
+              ],
+              "category": "thought_level"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "requests": [
+          {
+            "configId": "model",
+            "value": "model-b"
+          }
+        ],
+        "failure": null
+      }
+    },
+    {
+      "name": "agentDoesNotConfirmTheChoice",
+      "description": "An answer that reports another current value stops the sequence (Windows previously accepted any answer).",
+      "catalog": [
+        {
+          "id": "mode",
+          "name": "mode",
+          "type": "select",
+          "currentValue": "read-only",
+          "options": [
+            {
+              "value": "read-only",
+              "name": "read-only"
+            },
+            {
+              "value": "auto",
+              "name": "auto"
+            },
+            {
+              "value": "plan",
+              "name": "plan"
+            }
+          ],
+          "category": "mode"
+        },
+        {
+          "id": "model",
+          "name": "model",
+          "type": "select",
+          "currentValue": "model-a",
+          "options": [
+            {
+              "value": "model-a",
+              "name": "model-a"
+            },
+            {
+              "value": "model-b",
+              "name": "model-b"
+            }
+          ],
+          "category": "model"
+        },
+        {
+          "id": "reasoning_effort",
+          "name": "reasoning_effort",
+          "type": "select",
+          "currentValue": "medium",
+          "options": [
+            {
+              "value": "medium",
+              "name": "medium"
+            },
+            {
+              "value": "high",
+              "name": "high"
+            }
+          ],
+          "category": "thought_level"
+        }
+      ],
+      "choices": [
+        {
+          "configId": "model",
+          "value": "model-b"
+        },
+        {
+          "configId": "mode",
+          "value": "auto"
+        }
+      ],
+      "answers": [
+        {
+          "configOptions": [
+            {
+              "id": "mode",
+              "name": "mode",
+              "type": "select",
+              "currentValue": "read-only",
+              "options": [
+                {
+                  "value": "read-only",
+                  "name": "read-only"
+                },
+                {
+                  "value": "auto",
+                  "name": "auto"
+                },
+                {
+                  "value": "plan",
+                  "name": "plan"
+                }
+              ],
+              "category": "mode"
+            },
+            {
+              "id": "model",
+              "name": "model",
+              "type": "select",
+              "currentValue": "model-a",
+              "options": [
+                {
+                  "value": "model-a",
+                  "name": "model-a"
+                },
+                {
+                  "value": "model-b",
+                  "name": "model-b"
+                }
+              ],
+              "category": "model"
+            },
+            {
+              "id": "reasoning_effort",
+              "name": "reasoning_effort",
+              "type": "select",
+              "currentValue": "medium",
+              "options": [
+                {
+                  "value": "medium",
+                  "name": "medium"
+                },
+                {
+                  "value": "high",
+                  "name": "high"
+                }
+              ],
+              "category": "thought_level"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "requests": [
+          {
+            "configId": "model",
+            "value": "model-b"
+          }
+        ],
+        "failure": "notConfirmed"
+      }
+    },
+    {
+      "name": "optionMissingFromTheCatalog",
+      "description": "Choices for options the Agent still offers apply first; a choice whose option disappeared then fails the sequence.",
+      "catalog": [
+        {
+          "id": "model",
+          "name": "model",
+          "type": "select",
+          "currentValue": "model-a",
+          "options": [
+            {
+              "value": "model-a",
+              "name": "model-a"
+            },
+            {
+              "value": "model-b",
+              "name": "model-b"
+            }
+          ],
+          "category": "model"
+        }
+      ],
+      "choices": [
+        {
+          "configId": "verbosity",
+          "value": "high"
+        },
+        {
+          "configId": "model",
+          "value": "model-b"
+        }
+      ],
+      "answers": [
+        {
+          "configOptions": [
+            {
+              "id": "model",
+              "name": "model",
+              "type": "select",
+              "currentValue": "model-b",
+              "options": [
+                {
+                  "value": "model-a",
+                  "name": "model-a"
+                },
+                {
+                  "value": "model-b",
+                  "name": "model-b"
+                }
+              ],
+              "category": "model"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "requests": [
+          {
+            "configId": "model",
+            "value": "model-b"
+          }
+        ],
+        "failure": "unsupported"
+      }
+    },
+    {
+      "name": "requestFailsMidway",
+      "description": "A failed request keeps the settings the Agent already confirmed and abandons the rest.",
+      "catalog": [
+        {
+          "id": "mode",
+          "name": "mode",
+          "type": "select",
+          "currentValue": "read-only",
+          "options": [
+            {
+              "value": "read-only",
+              "name": "read-only"
+            },
+            {
+              "value": "auto",
+              "name": "auto"
+            },
+            {
+              "value": "plan",
+              "name": "plan"
+            }
+          ],
+          "category": "mode"
+        },
+        {
+          "id": "model",
+          "name": "model",
+          "type": "select",
+          "currentValue": "model-a",
+          "options": [
+            {
+              "value": "model-a",
+              "name": "model-a"
+            },
+            {
+              "value": "model-b",
+              "name": "model-b"
+            }
+          ],
+          "category": "model"
+        },
+        {
+          "id": "reasoning_effort",
+          "name": "reasoning_effort",
+          "type": "select",
+          "currentValue": "medium",
+          "options": [
+            {
+              "value": "medium",
+              "name": "medium"
+            },
+            {
+              "value": "high",
+              "name": "high"
+            }
+          ],
+          "category": "thought_level"
+        }
+      ],
+      "choices": [
+        {
+          "configId": "model",
+          "value": "model-b"
+        },
+        {
+          "configId": "mode",
+          "value": "auto"
+        }
+      ],
+      "answers": [
+        {
+          "configOptions": [
+            {
+              "id": "mode",
+              "name": "mode",
+              "type": "select",
+              "currentValue": "read-only",
+              "options": [
+                {
+                  "value": "read-only",
+                  "name": "read-only"
+                },
+                {
+                  "value": "auto",
+                  "name": "auto"
+                },
+                {
+                  "value": "plan",
+                  "name": "plan"
+                }
+              ],
+              "category": "mode"
+            },
+            {
+              "id": "model",
+              "name": "model",
+              "type": "select",
+              "currentValue": "model-b",
+              "options": [
+                {
+                  "value": "model-a",
+                  "name": "model-a"
+                },
+                {
+                  "value": "model-b",
+                  "name": "model-b"
+                }
+              ],
+              "category": "model"
+            },
+            {
+              "id": "reasoning_effort",
+              "name": "reasoning_effort",
+              "type": "select",
+              "currentValue": "medium",
+              "options": [
+                {
+                  "value": "medium",
+                  "name": "medium"
+                },
+                {
+                  "value": "high",
+                  "name": "high"
+                }
+              ],
+              "category": "thought_level"
+            }
+          ]
+        },
+        {
+          "error": "Rejected"
+        }
+      ],
+      "expected": {
+        "requests": [
+          {
+            "configId": "model",
+            "value": "model-b"
+          },
+          {
+            "configId": "mode",
+            "value": "auto"
+          }
+        ],
+        "failure": "requestFailed"
+      }
+    },
+    {
+      "name": "laterChoiceReplacesEarlierChoice",
+      "description": "Only the latest choice for one option is applied.",
+      "catalog": [
+        {
+          "id": "mode",
+          "name": "mode",
+          "type": "select",
+          "currentValue": "read-only",
+          "options": [
+            {
+              "value": "read-only",
+              "name": "read-only"
+            },
+            {
+              "value": "auto",
+              "name": "auto"
+            },
+            {
+              "value": "plan",
+              "name": "plan"
+            }
+          ],
+          "category": "mode"
+        },
+        {
+          "id": "model",
+          "name": "model",
+          "type": "select",
+          "currentValue": "model-a",
+          "options": [
+            {
+              "value": "model-a",
+              "name": "model-a"
+            },
+            {
+              "value": "model-b",
+              "name": "model-b"
+            }
+          ],
+          "category": "model"
+        },
+        {
+          "id": "reasoning_effort",
+          "name": "reasoning_effort",
+          "type": "select",
+          "currentValue": "medium",
+          "options": [
+            {
+              "value": "medium",
+              "name": "medium"
+            },
+            {
+              "value": "high",
+              "name": "high"
+            }
+          ],
+          "category": "thought_level"
+        }
+      ],
+      "choices": [
+        {
+          "configId": "mode",
+          "value": "auto"
+        },
+        {
+          "configId": "mode",
+          "value": "plan"
+        }
+      ],
+      "answers": [
+        {
+          "configOptions": [
+            {
+              "id": "mode",
+              "name": "mode",
+              "type": "select",
+              "currentValue": "plan",
+              "options": [
+                {
+                  "value": "read-only",
+                  "name": "read-only"
+                },
+                {
+                  "value": "auto",
+                  "name": "auto"
+                },
+                {
+                  "value": "plan",
+                  "name": "plan"
+                }
+              ],
+              "category": "mode"
+            },
+            {
+              "id": "model",
+              "name": "model",
+              "type": "select",
+              "currentValue": "model-a",
+              "options": [
+                {
+                  "value": "model-a",
+                  "name": "model-a"
+                },
+                {
+                  "value": "model-b",
+                  "name": "model-b"
+                }
+              ],
+              "category": "model"
+            },
+            {
+              "id": "reasoning_effort",
+              "name": "reasoning_effort",
+              "type": "select",
+              "currentValue": "medium",
+              "options": [
+                {
+                  "value": "medium",
+                  "name": "medium"
+                },
+                {
+                  "value": "high",
+                  "name": "high"
+                }
+              ],
+              "category": "thought_level"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "requests": [
+          {
+            "configId": "mode",
+            "value": "plan"
+          }
+        ],
+        "failure": null
+      }
+    },
+    {
+      "name": "choiceEqualToCurrentValueSendsNothing",
+      "description": "Returning to the confirmed value needs no request.",
+      "catalog": [
+        {
+          "id": "mode",
+          "name": "mode",
+          "type": "select",
+          "currentValue": "read-only",
+          "options": [
+            {
+              "value": "read-only",
+              "name": "read-only"
+            },
+            {
+              "value": "auto",
+              "name": "auto"
+            },
+            {
+              "value": "plan",
+              "name": "plan"
+            }
+          ],
+          "category": "mode"
+        },
+        {
+          "id": "model",
+          "name": "model",
+          "type": "select",
+          "currentValue": "model-a",
+          "options": [
+            {
+              "value": "model-a",
+              "name": "model-a"
+            },
+            {
+              "value": "model-b",
+              "name": "model-b"
+            }
+          ],
+          "category": "model"
+        },
+        {
+          "id": "reasoning_effort",
+          "name": "reasoning_effort",
+          "type": "select",
+          "currentValue": "medium",
+          "options": [
+            {
+              "value": "medium",
+              "name": "medium"
+            },
+            {
+              "value": "high",
+              "name": "high"
+            }
+          ],
+          "category": "thought_level"
+        }
+      ],
+      "choices": [
+        {
+          "configId": "mode",
+          "value": "read-only"
+        }
+      ],
+      "answers": [],
+      "expected": {
+        "requests": [],
+        "failure": null
+      }
+    }
+  ]
+}

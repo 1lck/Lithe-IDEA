@@ -1,5 +1,5 @@
 import { useTranslation } from "@/i18n/locale-provider";
-import { modelCallTotals, type AgentModelCall, type AgentModelCallTotals } from "../types/agent-observations";
+import { latestContext, modelCallTotals, type AgentModelCall, type AgentModelCallTotals } from "../types/agent-observations";
 
 /** Provider observations and ACP counters have different scopes; never sum them. */
 export function AgentObservedStatistics({ calls, totals = modelCallTotals(calls) }: { calls: AgentModelCall[]; totals?: AgentModelCallTotals }) {
@@ -27,8 +27,8 @@ export function AgentObservedStatistics({ calls, totals = modelCallTotals(calls)
 
 export function AgentContextComposition({ calls }: { calls: AgentModelCall[] }) {
   const { t, language } = useTranslation();
-  // Only the latest request describes the current context; billing is cumulative.
-  const context = calls[calls.length - 1]?.context;
+  // The Host marks which request describes the current context; billing is cumulative.
+  const context = latestContext(calls);
   if (context == null) return <p className="text-subtle-foreground ui-text-caption">{t("agent.stats.noComposition")}</p>;
   const entries = [
     { key: "system", count: context.systemPromptTokens, color: "bg-primary" },

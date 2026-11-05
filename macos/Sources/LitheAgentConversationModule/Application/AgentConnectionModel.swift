@@ -757,16 +757,18 @@ public final class AgentConnectionModel: ObservableObject {
             applyConfiguration(event["configOptions"], to: sessionID)
             conversations[sessionID]?.pendingConfigToken = nil
             applyPendingModeNotice(in: sessionID)
-            if let id = conversations[sessionID]?.pendingQueuedConfigID {
-                let requested = conversations[sessionID]?.queuedConfigValues[id]
-                let confirmed = conversations[sessionID]?.configOptions.first { $0.id == id }?.currentValue
-                conversations[sessionID]?.pendingQueuedConfigID = nil
-                guard requested == confirmed else {
-                    failQueuedConfiguration(in: sessionID, message: "The Agent did not confirm the selected session setting.")
-                    return
-                }
-                conversations[sessionID]?.queuedConfigValues[id] = nil
-                applyQueuedConfiguration(in: sessionID)
+        case "nextTurnConfigured":
+            guard let sessionID, let token, conversations[sessionID]?.pendingConfigToken == token else { return }
+            // Settings the Agent confirmed before a failure stay applied.
+            if event["configOptions"] != nil { applyConfiguration(event["configOptions"], to: sessionID) }
+            conversations[sessionID]?.pendingConfigToken = nil
+            applyPendingModeNotice(in: sessionID)
+            if let failure = event["failure"] as? String {
+                failQueuedConfiguration(in: sessionID, message: Self.nextTurnFailureMessage(
+                    failure, upstream: event["message"] as? String))
+            } else {
+                conversations[sessionID]?.queuedConfigValues.removeAll()
+                resumeContinuation(in: sessionID)
             }
         case "turnRetrying":
             guard let sessionID,
@@ -823,7 +825,7 @@ public final class AgentConnectionModel: ObservableObject {
         case "modelCall":
             // Unattributed calls cannot be assigned to a session without guessing.
             guard let sessionID, conversations[sessionID] != nil,
-                  let call = AgentModelCall.parse(event["call"]) else { return }
+                  let call = AgentModelCall.parse(event["statistics"]) else { return }
             // A stream that outlived its turn must not count toward the next one.
             let afterTurn = event["afterTurnFinished"] as? Bool == true
             conversations[sessionID]?.recordModelCall(call, countsForActiveTurn: !afterTurn)
@@ -932,6 +934,11 @@ public final class AgentConnectionModel: ObservableObject {
             conversations[sessionID]?.pendingPermissions.removeAll()
             conversations[sessionID]?.errorMessage = message
             updateAttention()
+            // A failed turn never starts a deferred supplement as a new prompt;
+            // the user's next-turn settings still apply.
+            if let supplement = continuations.removeValue(forKey: sessionID) {
+                setDelivery(.failed(message), messageID: supplement.messageID, in: sessionID)
+            }
             applyQueuedConfiguration(in: sessionID)
         } else {
             errorMessage = message
@@ -1146,44 +1153,44 @@ public final class AgentConnectionModel: ObservableObject {
         applyNotice(notice, to: sessionID)
     }
 
-    /// Submit next-turn choices only after the Host has released this session's prompt.
+    /// Hand every next-turn choice to the Host once it has released this
+    /// session's prompt. The Host orders, revalidates, and confirms them.
     private func applyQueuedConfiguration(in sessionID: String) {
         guard let conversation = conversations[sessionID], conversation.isAttached,
               !conversation.isResponding, !conversation.isLoading,
               conversation.pendingConfigToken == nil else { return }
-        // A model acknowledgement can replace the available reasoning/speed choices.
-        // Revalidate each remaining choice against that latest complete option list.
-        let ordered = conversation.configOptions.filter { $0.category == "model" }
-            + conversation.configOptions.filter { $0.category != "model" }
-        for option in ordered {
-            guard let value = conversations[sessionID]?.queuedConfigValues[option.id] else { continue }
-            if option.currentValue == value {
-                conversations[sessionID]?.queuedConfigValues[option.id] = nil
-                continue
-            }
-            guard option.choices.contains(where: { $0.id == value }) else {
-                failQueuedConfiguration(in: sessionID, message: "The Agent no longer supports the selected session setting.")
-                return
-            }
-            let token = makeToken()
-            conversations[sessionID]?.pendingConfigToken = token
-            conversations[sessionID]?.pendingQueuedConfigID = option.id
-            if !sendCommand(["kind": "setConfigOption", "token": token, "sessionId": sessionID,
-                             "configId": option.id, "value": value]) {
-                conversations[sessionID]?.pendingConfigToken = nil
-                failQueuedConfiguration(in: sessionID, message: errorMessage ?? AgentConversationError.notConnected.localizedDescription)
-            }
+        guard !conversation.queuedConfigValues.isEmpty else {
+            resumeContinuation(in: sessionID)
             return
         }
-        if conversations[sessionID]?.queuedConfigValues.isEmpty == false {
-            failQueuedConfiguration(in: sessionID, message: "The Agent no longer supports the selected session setting.")
+        let catalog: [[String: Any]] = conversation.configOptions.map { option in
+            var entry: [String: Any] = ["id": option.id, "currentValue": option.currentValue,
+                                        "choices": option.choices.map(\.id)]
+            if let category = option.category { entry["category"] = category }
+            return entry
         }
-        resumeContinuation(in: sessionID)
+        let choices = conversation.queuedConfigValues.sorted { $0.key < $1.key }
+            .map { ["configId": $0.key, "value": $0.value] }
+        let token = makeToken()
+        conversations[sessionID]?.pendingConfigToken = token
+        if !sendCommand(["kind": "applyNextTurnConfiguration", "token": token, "sessionId": sessionID,
+                         "catalog": catalog, "choices": choices]) {
+            conversations[sessionID]?.pendingConfigToken = nil
+            failQueuedConfiguration(in: sessionID, message: errorMessage ?? AgentConversationError.notConnected.localizedDescription)
+        }
+    }
+
+    /// Localizes the Host's stable failure code; a failed request keeps the Agent's own message.
+    static func nextTurnFailureMessage(_ failure: String, upstream: String?) -> String {
+        switch failure {
+        case "notConfirmed": return L10n.string("The Agent did not confirm the selected session setting.")
+        case "requestFailed": return upstream ?? L10n.string("The Agent request failed.")
+        default: return L10n.string("The Agent no longer supports the selected session setting.")
+        }
     }
 
     private func failQueuedConfiguration(in sessionID: String, message: String) {
         conversations[sessionID]?.queuedConfigValues.removeAll()
-        conversations[sessionID]?.pendingQueuedConfigID = nil
         conversations[sessionID]?.configurationError = message
         resumeContinuation(in: sessionID)
     }
@@ -1556,7 +1563,6 @@ public final class AgentConnectionModel: ObservableObject {
             conversations[id]?.pendingSteeringToken = nil
             conversations[id]?.pendingConfigToken = nil
             conversations[id]?.queuedConfigValues.removeAll()
-            conversations[id]?.pendingQueuedConfigID = nil
             conversations[id]?.isLoading = false
             conversations[id]?.isAttached = false
             conversations[id]?.pendingPermissions.removeAll()

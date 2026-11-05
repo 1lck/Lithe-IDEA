@@ -23,17 +23,20 @@ export interface AgentNotice {
   description: string | null;
 }
 
+export interface AgentModelCallContext { systemPromptTokens: number; toolTokens: number; mcpToolTokens: number; messageTokens: number; toolCount: number; mcpToolCount: number; scaledToUsage: boolean }
+
+/**
+ * The Host's accounting of one observed provider request: the `statistics` of a
+ * `modelCall` event. The Host decides which requests are steps, failures,
+ * non-streaming answers or the current context; this product only adds them.
+ * Shape fixed by `shared/fixtures/agent/model-call-statistics-v1.json`.
+ */
 export interface AgentModelCall {
-  api: string;
-  model: string | null;
-  status: number;
-  streaming: boolean;
-  durationMs: number;
-  firstTokenMs: number | null;
-  usage: { inputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; outputTokens: number; reasoningTokens: number | null } | null;
-  context: { systemPromptTokens: number; toolTokens: number; mcpToolTokens: number; messageTokens: number; toolCount: number; mcpToolCount: number; scaledToUsage: boolean } | null;
-  /** A background request the Agent made for itself (Claude Code naming the session): its tokens count, it is not a step. */
-  auxiliary: boolean;
+  requests: number; steps: number; failedSteps: number; nonStreamingSteps: number; durationMs: number;
+  inputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; outputTokens: number; reasoningTokens: number | null;
+  callsWithUsage: number; firstTokenMs: number; firstTokenCount: number; generationMs: number; generatedTokens: number;
+  /** Present only when this request describes the conversation's current prompt. */
+  context: AgentModelCallContext | null;
 }
 
 export function record(value: unknown): value is Record<string, unknown> {
@@ -106,25 +109,29 @@ export function parseNotice(update: Record<string, unknown>): AgentNotice | null
   return { id: failure.id, revision: count(failure.revision) ?? 0, severity: String(failure.severity ?? "error"), title: failure.title, description: typeof failure.details === "string" ? failure.details : null };
 }
 
+const MODEL_CALL_COUNTERS = ["requests", "steps", "failedSteps", "nonStreamingSteps", "durationMs", "inputTokens", "cacheReadTokens", "cacheWriteTokens",
+  "outputTokens", "callsWithUsage", "firstTokenMs", "firstTokenCount", "generationMs", "generatedTokens"] as const;
+
 export function parseModelCall(value: unknown): AgentModelCall | null {
-  if (!record(value) || typeof value.api !== "string") return null;
-  const status = count(value.status), durationMs = count(value.durationMs);
-  if (status === null || durationMs === null) return null;
-  const usage = record(value.usage) ? value.usage : null;
+  if (!record(value) || MODEL_CALL_COUNTERS.some((key) => count(value[key]) === null)) return null;
   const context = record(value.context) ? value.context : null;
-  const validUsage = usage !== null && ["inputTokens", "cacheReadTokens", "cacheWriteTokens", "outputTokens"].every((key) => count(usage[key]) !== null);
   const validContext = context !== null && ["systemPromptTokens", "toolTokens", "mcpToolTokens", "messageTokens", "toolCount", "mcpToolCount"].every((key) => count(context[key]) !== null);
+  const counters = Object.fromEntries(MODEL_CALL_COUNTERS.map((key) => [key, value[key] as number])) as Record<(typeof MODEL_CALL_COUNTERS)[number], number>;
   return {
-    api: value.api, model: typeof value.model === "string" ? value.model : null, status,
-    streaming: value.streaming === true, durationMs, firstTokenMs: count(value.firstTokenMs), auxiliary: value.auxiliary === true,
-    usage: validUsage ? { inputTokens: usage.inputTokens as number, cacheReadTokens: usage.cacheReadTokens as number, cacheWriteTokens: usage.cacheWriteTokens as number, outputTokens: usage.outputTokens as number, reasoningTokens: count(usage.reasoningTokens) } : null,
+    ...counters, reasoningTokens: count(value.reasoningTokens),
     context: validContext ? { systemPromptTokens: context.systemPromptTokens as number, toolTokens: context.toolTokens as number, mcpToolTokens: context.mcpToolTokens as number, messageTokens: context.messageTokens as number, toolCount: context.toolCount as number, mcpToolCount: context.mcpToolCount as number, scaledToUsage: context.scaledToUsage === true } : null,
   };
 }
 
-/** No accounting is inferred for requests without a provider usage report. */
+/** Sums Host contributions; no accounting is inferred here. */
 export function modelCallTotals(calls: AgentModelCall[]) {
   return calls.reduce((total, call) => addModelCall(total, call), emptyModelCallTotals());
+}
+
+/** The Host marks the requests that describe the current prompt; the latest one wins. */
+export function latestContext(calls: AgentModelCall[]): AgentModelCallContext | null {
+  for (let index = calls.length - 1; index >= 0; index--) if (calls[index].context !== null) return calls[index].context;
+  return null;
 }
 
 export function emptyModelCallTotals() {
@@ -134,29 +141,18 @@ export function emptyModelCallTotals() {
 export type AgentModelCallTotals = ReturnType<typeof emptyModelCallTotals>;
 
 export function addModelCall(total: AgentModelCallTotals, call: AgentModelCall): AgentModelCallTotals {
-  if (call.auxiliary) {
-    return {
-      ...total,
-      input: total.input + (call.usage?.inputTokens ?? 0),
-      cacheRead: total.cacheRead + (call.usage?.cacheReadTokens ?? 0),
-      cacheWrite: total.cacheWrite + (call.usage?.cacheWriteTokens ?? 0),
-      output: total.output + (call.usage?.outputTokens ?? 0),
-      lowerBound: total.lowerBound || call.usage === null,
-    };
-  }
-  const measuredStream = call.streaming && call.usage !== null && call.firstTokenMs !== null && call.durationMs > call.firstTokenMs;
   return {
-    calls: total.calls + 1,
-    input: total.input + (call.usage?.inputTokens ?? 0),
-    cacheRead: total.cacheRead + (call.usage?.cacheReadTokens ?? 0),
-    cacheWrite: total.cacheWrite + (call.usage?.cacheWriteTokens ?? 0),
-    output: total.output + (call.usage?.outputTokens ?? 0),
-    lowerBound: total.lowerBound || call.usage === null,
+    calls: total.calls + call.steps,
+    input: total.input + call.inputTokens,
+    cacheRead: total.cacheRead + call.cacheReadTokens,
+    cacheWrite: total.cacheWrite + call.cacheWriteTokens,
+    output: total.output + call.outputTokens,
+    lowerBound: total.lowerBound || call.requests > call.callsWithUsage,
     durationMs: total.durationMs + call.durationMs,
-    latencyMs: total.latencyMs + (call.firstTokenMs ?? 0),
-    latencyCount: total.latencyCount + (call.firstTokenMs === null ? 0 : 1),
-    generatingMs: total.generatingMs + (measuredStream ? call.durationMs - call.firstTokenMs! : 0),
-    streamingOutput: total.streamingOutput + (measuredStream ? call.usage!.outputTokens : 0),
-    nonStreaming: total.nonStreaming + (call.streaming ? 0 : 1),
+    latencyMs: total.latencyMs + call.firstTokenMs,
+    latencyCount: total.latencyCount + call.firstTokenCount,
+    generatingMs: total.generatingMs + call.generationMs,
+    streamingOutput: total.streamingOutput + call.generatedTokens,
+    nonStreaming: total.nonStreaming + call.nonStreamingSteps,
   };
 }

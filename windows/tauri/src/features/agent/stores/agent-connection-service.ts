@@ -62,7 +62,7 @@ export function agentConnection(): AgentConnectionModel {
     write: (sessionID, statistics) => {
       if (workspacePath && connectionAgentID) writeAgentStatistics(workspacePath, connectionAgentID, sessionID, statistics);
     },
-  });
+  }, (key) => translator()(key));
   return model;
 }
 

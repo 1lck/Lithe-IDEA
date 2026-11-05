@@ -1,5 +1,6 @@
 import Foundation
 import LitheCoreContracts
+import LitheModuleAPI
 import Testing
 @testable import LitheAgentConversationModule
 
@@ -21,7 +22,8 @@ struct AgentNextTurnConfigurationTests {
             try receive(feature, "turnFinished", ["stopReason": "end_turn"])
             #expect(feature.selectedConversation?.isResponding == false)
             #expect(feature.hasPendingContinuation)
-            #expect(connection.commands.last?["configId"] as? String == "model")
+            #expect(connection.commands.last?["kind"] as? String == "applyNextTurnConfiguration")
+            #expect(choices(connection) == ["mode=auto", "model=model-b"])
             let configToken = feature.selectedConversation?.pendingConfigToken
             let count = connection.commands.count
 
@@ -37,9 +39,6 @@ struct AgentNextTurnConfigurationTests {
             }
             #expect(connection.commands.count == count)
             #expect(feature.selectedConversation?.pendingConfigToken == configToken)
-            try acknowledge(feature, connection, options(model: "model-b"))
-            #expect(connection.commands.last?["configId"] as? String == "mode")
-            #expect(feature.hasPendingContinuation == !cancel)
             try acknowledge(feature, connection, options(model: "model-b", mode: "auto"))
             #expect(!feature.hasPendingContinuation)
             #expect(feature.selectedConversation?.pendingConfigToken == nil)
@@ -80,23 +79,23 @@ struct AgentNextTurnConfigurationTests {
             #expect(connection.commands.count == count)
 
             try receive(feature, "turnFinished", ["stopReason": "end_turn"])
-            #expect(connection.commands.last?["configId"] as? String == "model")
+            // The Host orders, revalidates, and confirms; the latest catalog travels with the choices.
+            #expect(choices(connection) == ["mode=auto", "model=model-b", "reasoning_effort=high"])
+            let catalog = try #require(connection.commands.last?["catalog"] as? [[String: Any]])
+            #expect(catalog.compactMap { $0["currentValue"] as? String } == ["model-a", "plan", "medium"])
+            #expect(catalog.first?["category"] as? String == "model")
             #expect(throws: AgentConversationError.configurationPending) { try feature.send("Before confirmation") }
             let token = try #require(connection.commands.last?["token"] as? String)
-            try receive(feature, "sessionConfigured", ["token": "stale", "configOptions": options(model: "model-b")])
+            try receive(feature, "nextTurnConfigured", ["token": "stale", "configOptions": options(model: "model-b")])
             #expect(feature.selectedConversation?.pendingConfigToken == token)
-            try acknowledge(feature, connection, options(model: "model-b", mode: "plan"))
-            #expect(connection.commands.last?["configId"] as? String == "mode")
-            try acknowledge(feature, connection, options(model: "model-b", mode: "auto"))
-            #expect(connection.commands.last?["configId"] as? String == "reasoning_effort")
             #expect(throws: AgentConversationError.configurationPending) { try feature.send("Still confirming") }
             try acknowledge(feature, connection, options(model: "model-b", mode: "auto", effort: "high"))
             #expect(feature.selectedConversation?.pendingConfigToken == nil)
             #expect(feature.selectedConversation?.queuedConfigValues.isEmpty == true)
             #expect(values(feature.selectedConversation?.configOptions) == ["model-b", "auto", "high"])
             try feature.send("Next turn")
-            #expect(connection.commands.suffix(4).compactMap { $0["kind"] as? String } ==
-                    ["setConfigOption", "setConfigOption", "setConfigOption", "prompt"])
+            #expect(connection.commands.suffix(2).compactMap { $0["kind"] as? String } ==
+                    ["applyNextTurnConfiguration", "prompt"])
         }
     }
 
@@ -134,8 +133,7 @@ struct AgentNextTurnConfigurationTests {
             #expect(feature.selectedConversation?.isResponding == true)
             #expect(feature.selectedConversation?.isCancelling == true)
             try receive(feature, kind, ["stopReason": "cancelled", "message": "Turn failed"])
-            #expect(connection.commands.last?["kind"] as? String == "setConfigOption")
-            #expect(connection.commands.last?["value"] as? String == "plan")
+            #expect(choices(connection) == ["mode=plan"])
             #expect(feature.selectedConversation?.isResponding == false)
             try acknowledge(feature, connection, options(mode: "plan"))
             try feature.send("Next turn")
@@ -158,7 +156,7 @@ struct AgentNextTurnConfigurationTests {
             feature.selectSession("session-2")
             try receive(feature, "turnFinished")
             #expect(connection.commands.last?["sessionId"] as? String == "session-1")
-            #expect(connection.commands.last?["configId"] as? String == "mode")
+            #expect(choices(connection) == ["mode=auto"])
             try acknowledge(feature, connection, options(mode: "auto"))
             #expect(feature.selectedSessionID == "session-2")
             #expect(feature.selectedConversation?.isResponding == true)
@@ -166,7 +164,7 @@ struct AgentNextTurnConfigurationTests {
             #expect(values(feature.selectedConversation?.displayConfigOptions) == ["model-a", "read-only", "high"])
             try receive(feature, "turnFinished", ["sessionId": "session-2"])
             #expect(connection.commands.last?["sessionId"] as? String == "session-2")
-            #expect(connection.commands.last?["configId"] as? String == "reasoning_effort")
+            #expect(choices(connection) == ["reasoning_effort=high"])
             try acknowledge(feature, connection, options(effort: "high"))
         }
     }
@@ -183,9 +181,9 @@ struct AgentNextTurnConfigurationTests {
             case "requestFailed":
                 try receive(feature, "requestFailed", ["token": connection.commands.last?["token"] as Any, "message": "Rejected"])
             case "unconfirmed":
-                try acknowledge(feature, connection, options())
+                try acknowledge(feature, connection, options(), failure: "notConfirmed")
             case "removedChoice":
-                try acknowledge(feature, connection, Array(options(model: "model-b").prefix(2)))
+                try acknowledge(feature, connection, Array(options(model: "model-b").prefix(2)), failure: "unsupported")
             default:
                 break
             }
@@ -194,7 +192,35 @@ struct AgentNextTurnConfigurationTests {
             #expect(feature.selectedConversation?.pendingConfigToken == nil)
             #expect(feature.selectedConversation?.displayConfigOptions == feature.selectedConversation?.configOptions)
             #expect(connection.commands.filter { $0["kind"] as? String == "prompt" }.count == 1)
-            #expect(connection.commands.filter { $0["kind"] as? String == "setConfigOption" }.count == (failure == "sendFailed" ? 0 : 1))
+            #expect(connection.commands.filter { $0["kind"] as? String == "applyNextTurnConfiguration" }.count == (failure == "sendFailed" ? 0 : 1))
+            if failure == "unconfirmed" {
+                #expect(feature.selectedConversation?.configurationError ==
+                        L10n.string("The Agent did not confirm the selected session setting."))
+            }
+            if failure == "removedChoice" {
+                // Settings the Agent confirmed before the failure stay applied.
+                #expect(values(feature.selectedConversation?.configOptions) == ["model-b", "read-only"])
+            }
+        }
+    }
+
+    @Test
+    func failedTurnAppliesNextTurnSettingsWithoutReplayingDeferredInput() async throws {
+        try await withFeature { feature, connection in
+            try receive(feature, "ready", ["canSteer": true])
+            try feature.send("First turn")
+            feature.setConfigOption("model", value: "model-b")
+            try feature.send("Supplement")
+            let token = try #require(connection.commands.last?["token"] as? String)
+            let messageID = try #require(feature.selectedConversation?.messages.last?.id)
+            try receive(feature, "steeringResult", ["token": token, "outcome": "promptRequired"])
+            try receive(feature, "requestFailed", ["message": "Turn failed"])
+            #expect(!feature.hasPendingContinuation)
+            #expect(feature.selectedConversation?.messages.first { $0.id == messageID }?.delivery == .failed("Turn failed"))
+            #expect(choices(connection) == ["model=model-b"])
+            try acknowledge(feature, connection, options(model: "model-b"))
+            #expect(connection.commands.filter { $0["kind"] as? String == "prompt" }.count == 1)
+            #expect(values(feature.selectedConversation?.configOptions) == ["model-b", "read-only", "medium"])
         }
     }
 
@@ -206,7 +232,7 @@ struct AgentNextTurnConfigurationTests {
             try receive(feature, "turnFinished")
             let token = try #require(connection.commands.last?["token"])
             await feature.stop()
-            try receive(feature, "sessionConfigured", ["token": token, "configOptions": options(mode: "auto")])
+            try receive(feature, "nextTurnConfigured", ["token": token, "configOptions": options(mode: "auto")])
             #expect(feature.selectedConversation?.queuedConfigValues.isEmpty == true)
             #expect(feature.selectedConversation?.pendingConfigToken == nil)
             #expect(values(feature.selectedConversation?.displayConfigOptions) == ["model-a", "read-only", "medium"])
@@ -240,10 +266,21 @@ struct AgentNextTurnConfigurationTests {
         feature.receive(String(decoding: try JSONSerialization.data(withJSONObject: event), as: UTF8.self))
     }
 
-    private func acknowledge(_ feature: AgentConnectionModel, _ connection: NextTurnConnection, _ options: [[String: Any]]) throws {
+    /// Answers the last `applyNextTurnConfiguration` as the Host does.
+    private func acknowledge(_ feature: AgentConnectionModel, _ connection: NextTurnConnection, _ options: [[String: Any]],
+                             failure: String? = nil) throws {
         let command = try #require(connection.commands.last)
-        try receive(feature, "sessionConfigured", ["token": command["token"] as Any,
-                                                   "sessionId": command["sessionId"] as Any, "configOptions": options])
+        #expect(command["kind"] as? String == "applyNextTurnConfiguration")
+        var event: [String: Any] = ["token": command["token"] as Any, "sessionId": command["sessionId"] as Any,
+                                    "configOptions": options]
+        if let failure { event["failure"] = failure }
+        try receive(feature, "nextTurnConfigured", event)
+    }
+
+    private func choices(_ connection: NextTurnConnection) -> [String] {
+        guard connection.commands.last?["kind"] as? String == "applyNextTurnConfiguration" else { return [] }
+        return (connection.commands.last?["choices"] as? [[String: String]] ?? [])
+            .map { "\($0["configId"] ?? "")=\($0["value"] ?? "")" }
     }
 
     private func values(_ options: [AgentSessionConfigOption]?) -> [String]? { options?.map(\.currentValue) }

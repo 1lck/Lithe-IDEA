@@ -1,19 +1,11 @@
 import Foundation
 
-/// One provider request observed by the Host's opt-in loopback proxy.
-/// Shape fixed by the `modelCall` event in `shared/fixtures/agent/acp-events-v1.json`.
+/// The Host's accounting of one provider request observed by its opt-in
+/// loopback proxy: the `statistics` of a `modelCall` event. The Host decides
+/// which requests are steps, failures, non-streaming answers, or the current
+/// context; this product only adds contributions in event order.
+/// Shape fixed by `shared/fixtures/agent/model-call-statistics-v1.json`.
 public struct AgentModelCall: Decodable, Equatable, Sendable {
-    /// Provider counters normalized to disjoint input buckets.
-    public struct Usage: Codable, Equatable, Sendable {
-        public let inputTokens: UInt64
-        public let cacheReadTokens: UInt64
-        public let cacheWriteTokens: UInt64
-        public let outputTokens: UInt64
-        public let reasoningTokens: UInt64?
-
-        public var promptTokens: UInt64 { inputTokens + cacheReadTokens + cacheWriteTokens }
-    }
-
     /// Estimated split of the request prompt; see `scaledToUsage`.
     public struct Context: Codable, Equatable, Sendable {
         public let systemPromptTokens: UInt64
@@ -29,19 +21,23 @@ public struct AgentModelCall: Decodable, Equatable, Sendable {
         public var totalTokens: UInt64 { systemPromptTokens + toolTokens + mcpToolTokens + messageTokens }
     }
 
-    public let api: String
-    public let model: String?
-    public let status: Int
-    public let streaming: Bool
-    public let firstTokenMs: UInt64?
+    public let requests: Int
+    public let steps: Int
+    public let failedSteps: Int
+    public let nonStreamingSteps: Int
     public let durationMs: UInt64
-    public let usage: Usage?
+    public let inputTokens: UInt64
+    public let cacheReadTokens: UInt64
+    public let cacheWriteTokens: UInt64
+    public let outputTokens: UInt64
+    public let reasoningTokens: UInt64?
+    public let callsWithUsage: Int
+    public let firstTokenMs: UInt64
+    public let firstTokenCount: Int
+    public let generationMs: UInt64
+    public let generatedTokens: UInt64
+    /// Present only when this request describes the conversation's current prompt.
     public let context: Context?
-    /// Present only for a background request the Agent made for itself, such as
-    /// naming the session. Absent means an ordinary conversation step.
-    public var auxiliary: Bool? = nil
-
-    public var isAuxiliary: Bool { auxiliary == true }
 
     static func parse(_ value: Any?) -> Self? {
         guard let value, JSONSerialization.isValidJSONObject(value),
@@ -71,11 +67,8 @@ public struct AgentModelCallTotals: Codable, Equatable, Sendable {
     /// only these; the rest (e.g. interrupted streams) are missing from them.
     public private(set) var callsWithUsage = 0
     public var hasUsage: Bool { callsWithUsage > 0 }
-    /// Composition of the latest main conversation request.
+    /// Composition of the request the Host last reported as the current context.
     public private(set) var latestContext: AgentModelCall.Context?
-    /// Once an Agent sends tool definitions, only requests that carry them are
-    /// main conversation requests; tool-less ones are auxiliary (e.g. titles).
-    private var sendsTools = false
     private var firstTokenTotal: TimeInterval = 0
     private var firstTokenCount = 0
     /// Streaming time after the first token, and the output produced in it.
@@ -94,7 +87,7 @@ public struct AgentModelCallTotals: Codable, Equatable, Sendable {
     }
 
     /// Adds a later period's totals, e.g. this connection's calls onto the
-    /// persisted history of the session. The later composition wins.
+    /// persisted history of the session. A later composition replaces an earlier one.
     mutating func add(_ later: AgentModelCallTotals) {
         observedCallCount = requestCount + later.requestCount
         callCount += later.callCount
@@ -108,51 +101,29 @@ public struct AgentModelCallTotals: Codable, Equatable, Sendable {
         if let reasoning = later.reasoningTokens { reasoningTokens = (reasoningTokens ?? 0) + reasoning }
         callsWithUsage += later.callsWithUsage
         if let context = later.latestContext { latestContext = context }
-        sendsTools = sendsTools || later.sendsTools
         firstTokenTotal += later.firstTokenTotal
         firstTokenCount += later.firstTokenCount
         generationTime += later.generationTime
         generatedTokens += later.generatedTokens
     }
 
-    private mutating func recordUsage(_ usage: AgentModelCall.Usage?) {
-        guard let usage else { return }
-        callsWithUsage += 1
-        inputTokens += usage.inputTokens
-        cacheReadTokens += usage.cacheReadTokens
-        cacheWriteTokens += usage.cacheWriteTokens
-        outputTokens += usage.outputTokens
-        if let reasoning = usage.reasoningTokens { reasoningTokens = (reasoningTokens ?? 0) + reasoning }
-    }
-
+    /// Adds one Host contribution. Every rule about what counts lives in the Host.
     mutating func record(_ call: AgentModelCall) {
-        observedCallCount = requestCount + 1
-        if call.isAuxiliary {
-            // The tokens were really spent, but a title request is neither a step
-            // of the conversation nor a measure of its latency or generation speed.
-            recordUsage(call.usage)
-            return
-        }
-        callCount += 1
-        if call.status >= 400 { failedCount += 1 }
-        if !call.streaming && call.status < 400 { nonStreamingCount += 1 }
-        let duration = Double(call.durationMs) / 1000
-        self.duration += duration
-        recordUsage(call.usage)
-        if call.streaming, let firstToken = call.firstTokenMs.map({ Double($0) / 1000 }) {
-            firstTokenTotal += firstToken
-            firstTokenCount += 1
-            if let output = call.usage?.outputTokens, duration > firstToken {
-                generationTime += duration - firstToken
-                generatedTokens += output
-            }
-        }
-        // Agents that never send tools keep refreshing from every request, so
-        // a growing conversation is not frozen at its first composition.
-        if let context = call.context {
-            let carriesTools = context.toolCount + context.mcpToolCount > 0
-            if carriesTools { sendsTools = true }
-            if carriesTools || !sendsTools { latestContext = context }
-        }
+        observedCallCount = requestCount + call.requests
+        callCount += call.steps
+        failedCount += call.failedSteps
+        nonStreamingCount += call.nonStreamingSteps
+        duration += Double(call.durationMs) / 1000
+        inputTokens += call.inputTokens
+        cacheReadTokens += call.cacheReadTokens
+        cacheWriteTokens += call.cacheWriteTokens
+        outputTokens += call.outputTokens
+        if let reasoning = call.reasoningTokens { reasoningTokens = (reasoningTokens ?? 0) + reasoning }
+        callsWithUsage += call.callsWithUsage
+        if let context = call.context { latestContext = context }
+        firstTokenTotal += Double(call.firstTokenMs) / 1000
+        firstTokenCount += call.firstTokenCount
+        generationTime += Double(call.generationMs) / 1000
+        generatedTokens += call.generatedTokens
     }
 }

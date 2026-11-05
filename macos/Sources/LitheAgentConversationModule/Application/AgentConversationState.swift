@@ -135,7 +135,6 @@ public struct AgentConversation: Equatable, Sendable {
     public var pendingConfigToken: String?
     /// Choices for the next turn, separate from the Agent-confirmed configuration.
     var queuedConfigValues: [String: String] = [:]
-    var pendingQueuedConfigID: String?
     public var displayConfigOptions: [AgentSessionConfigOption] {
         configOptions.map { option in
             var displayed = option

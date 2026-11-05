@@ -42,6 +42,7 @@ import {
 import { parseTurnUsage, startTurn } from "../types/agent-turn-statistics";
 import { addModelCall, childSubtree, finishChildren, parseModelCall, parseNotice, retainSubagentHistory, terminalChild, updateChild, type AgentNotice } from "../types/agent-observations";
 import { contextModels, type AgentStatisticsStore } from "../types/agent-session-statistics";
+import { createTranslator, DEFAULT_DISPLAY_LANGUAGE } from "@/i18n/locale";
 import type {
   AgentLaunchConfiguration,
   AgentTransport,
@@ -93,6 +94,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function asString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+/** Localizes a Host next-turn failure code; a failed request keeps the Agent's own message. */
+function nextTurnFailureMessage(translate: (key: string) => string, failure: string, upstream: string | null): string {
+  switch (failure) {
+    case "notConfirmed": return translate("native.theAgentDidNotConfirmTheSelectedSessionSetting");
+    case "requestFailed": return upstream ?? translate("native.theAgentRequestFailed");
+    default: return translate("native.theAgentNoLongerSupportsTheSelectedSessionSetting");
+  }
 }
 
 function messageOf(error: unknown): string {
@@ -227,6 +237,8 @@ export class AgentConnectionModel {
     now: () => number = () => performance.now(),
     private readonly onSessionCreated?: (sessionID: string) => void,
     private readonly statisticsStore?: AgentStatisticsStore,
+    /** Localizes Host failure codes; the product passes the selected display language. */
+    private readonly translate: (key: string) => string = createTranslator(DEFAULT_DISPLAY_LANGUAGE),
   ) {
     this.transport = transport;
     this.scheduler = scheduler;
@@ -882,7 +894,7 @@ export class AgentConnectionModel {
       case "modelCall": {
         if (sessionID === null) return;
         const current = this.snapshot.conversations[sessionID];
-        const call = parseModelCall(event.call);
+        const call = parseModelCall(event.statistics);
         if (current === undefined || current.isLoading || call === null) return;
         this.editConversation(sessionID, (view) => ({ ...view,
           statistics: { ...view.statistics, calls: addModelCall(view.statistics.calls, call) },
@@ -1076,7 +1088,19 @@ export class AgentConnectionModel {
         this.applyConfiguration(event.configOptions, sessionID);
         this.editConversation(sessionID, (current) => ({ ...current, pendingConfigToken: null }));
         this.applyPendingNotice(sessionID);
-        this.applyStagedConfiguration(sessionID);
+        return;
+      }
+      case "nextTurnConfigured": {
+        if (sessionID === null || token === null) return;
+        const conversation = this.snapshot.conversations[sessionID];
+        if (conversation === undefined || conversation.pendingConfigToken !== token) return;
+        // Settings the Agent confirmed before a failure stay applied.
+        if (event.configOptions !== undefined) this.applyConfiguration(event.configOptions, sessionID);
+        const failure = asString(event.failure);
+        this.editConversation(sessionID, (current) => ({ ...current, pendingConfigToken: null, stagedConfig: {},
+          configurationError: failure === null ? null : nextTurnFailureMessage(this.translate, failure, asString(event.message)) }));
+        this.applyPendingNotice(sessionID);
+        this.resumeContinuation(sessionID);
         return;
       }
       case "turnCancelling":
@@ -1256,9 +1280,11 @@ export class AgentConnectionModel {
         isResponding: false,
         isCancelling: false,
         pendingPermissions: [],
-        quiet: false, retry: null, stagedConfig: {}, subagents: finishChildren(current.subagents),
+        quiet: false, retry: null, subagents: finishChildren(current.subagents),
         errorMessage: message,
       }));
+      // A failed turn does not withdraw the user's next-turn settings.
+      this.applyStagedConfiguration(sessionID);
       return;
     }
     this.update({ errorMessage: message });
@@ -1353,28 +1379,17 @@ export class AgentConnectionModel {
     if (this.retiredTurnIDs.size > 1024) this.retiredTurnIDs = new Set([...this.retiredTurnIDs].slice(-512));
   }
 
-  /** Apply one confirmed option at a time; model changes can replace the catalog. */
+  /** Hand every next-turn choice to the Host, which orders, revalidates and confirms them. */
   private applyStagedConfiguration(sessionID: string): void {
     const view = this.snapshot.conversations[sessionID];
-    if (view === undefined || view.isResponding || view.pendingConfigToken !== null) return;
-    const entries = Object.entries(view.stagedConfig).sort(([left], [right]) =>
-      Number(view.configOptions.find((option) => option.id === right)?.category === "model") - Number(view.configOptions.find((option) => option.id === left)?.category === "model"));
-    const entry = entries[0];
-    if (entry === undefined) { this.resumeContinuation(sessionID); return; }
-    const [id, value] = entry;
-    const option = view.configOptions.find((option) => option.id === id);
-    const stagedConfig = { ...view.stagedConfig };
-    delete stagedConfig[id];
-    if (!view.isAttached || option === undefined || !option.choices.some((choice) => choice.id === value)) {
-      this.editConversation(sessionID, (current) => ({ ...current, stagedConfig: {}, configurationError: "The Agent no longer offers the selected configuration. Select it again." }));
-      this.resumeContinuation(sessionID);
-      return;
-    }
-    this.editConversation(sessionID, (current) => ({ ...current, stagedConfig }));
-    if (option.currentValue === value) { this.applyStagedConfiguration(sessionID); return; }
+    if (view === undefined || !view.isAttached || view.isLoading || view.isResponding || view.pendingConfigToken !== null) return;
+    const choices = Object.entries(view.stagedConfig).sort(([left], [right]) => left.localeCompare(right))
+      .map(([configId, value]) => ({ configId, value }));
+    if (choices.length === 0) { this.resumeContinuation(sessionID); return; }
+    const catalog = view.configOptions.map((option) => ({ id: option.id, category: option.category, currentValue: option.currentValue, choices: option.choices.map((choice) => choice.id) }));
     const token = this.makeToken();
     this.editConversation(sessionID, (current) => ({ ...current, pendingConfigToken: token, configurationError: null }));
-    if (!this.sendCommand({ kind: "setConfigOption", token, sessionId: sessionID, configId: id, value })) this.requestFailed(token, sessionID, "The Agent is not connected.");
+    if (!this.sendCommand({ kind: "applyNextTurnConfiguration", token, sessionId: sessionID, catalog, choices })) this.requestFailed(token, sessionID, this.snapshot.errorMessage ?? "The Agent is not connected.");
   }
 
   private apply(update: Record<string, unknown>, sessionID: string): void {
