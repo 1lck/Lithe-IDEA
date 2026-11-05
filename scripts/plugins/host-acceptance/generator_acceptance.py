@@ -58,6 +58,40 @@ def same_home(left: str, right: str) -> bool:
     return left.replace("\\", "/").rstrip("/").casefold() == right.replace("\\", "/").rstrip("/").casefold()
 
 
+def assert_restored_jdk(runtime: dict, field_home: str, effective: str) -> None:
+    expected_home = runtime["homePath"]
+    mode_and_version, separator, resolved_home = effective.partition(" · ")
+    if (not same_home(field_home, expected_home) or not separator
+            or mode_and_version != f"Selected → JDK {runtime['version']}"
+            or not same_home(resolved_home, expected_home)):
+        raise AssertionError(f"restored project JDK differs: expected {expected_home!r}, field {field_home!r}, effective {effective!r}")
+
+
+def restored_project_jdk(page, project: Path, runtime: dict) -> dict:
+    # The product loads the saved toolchain into this Settings page and resolves
+    # its effective JDK. Passing an empty override directly to the native
+    # resolver would test automatic detection, which may pick the same home.
+    page.get_by_role("button", name="Settings", exact=True).first.click(timeout=10_000)
+    dialog = page.get_by_role("dialog", name="Settings", exact=True)
+    category = dialog.locator("[data-settings-category='project']")
+    if not category.is_visible():
+        dialog.get_by_role("button", name="Build, Execution, Deployment", exact=True).click(timeout=5000)
+    category.click(timeout=10_000)
+    panel = dialog.locator("[data-settings-content='project']")
+    project_label = panel.get_by_text(project.as_posix(), exact=True).or_(panel.get_by_text(str(project), exact=True))
+    project_label.wait_for(state="visible", timeout=10_000)
+    field = panel.get_by_role("combobox", name="JDK Home", exact=True)
+    field.wait_for(state="visible", timeout=20_000)
+    field_home = field.input_value(timeout=5000)
+    effective = field.locator("xpath=ancestor::label[1]").get_by_text(re.compile(r"^Selected → JDK "))
+    effective.wait_for(state="visible", timeout=20_000)
+    effective_text = effective.inner_text(timeout=5000)
+    assert_restored_jdk(runtime, field_home, effective_text)
+    dialog.get_by_role("button", name="Close", exact=True).click(timeout=5000)
+    dialog.wait_for(state="hidden", timeout=5000)
+    return {"projectPath": str(project), "selectedHome": field_home, "effective": effective_text}
+
+
 def assert_runtime_chain(runtime: dict, prepared: dict, document: dict) -> None:
     selections = [row for row in prepared["plan"]["runtimes"] if row["field"] == "jdk" and row["runtime"] == "java"]
     if (len(selections) != 1 or not runtime.get("version")
@@ -422,10 +456,8 @@ def run(args, driver, reporter, plan):
                             raise AssertionError("another workspace's editor tab leaked into the selected workspace")
                     if local_path.read_bytes() != local_bytes or (project_a / ".lithe/run/local.json").exists():
                         raise AssertionError("A/B switching changed or leaked the selected JDK")
-                    resolved = driver.invoke(page, "run_resolve_toolchains", {"args": {"root": str(project_b.resolve()), "javaHomePath": "", "mavenExecutablePath": "", "mavenJavaHomePath": ""}})
-                    if resolved["java"]["status"] != "resolved" or not same_home(resolved["java"]["path"], runtime["homePath"]):
-                        raise AssertionError("B no longer resolves its selected JDK after the roundtrip")
-                    write("workspace-roundtrip", {"visits": visits, "resolvedB": resolved, "localSha256": sha256(local_path)})
+                    restored_jdk = restored_project_jdk(page, project_b.resolve(strict=True), runtime)
+                    write("workspace-roundtrip", {"visits": visits, "projectJdk": restored_jdk, "localSha256": sha256(local_path)})
                     page.screenshot(path=str(evidence / "workspace-roundtrip.png"), timeout=5000)
                 with step("runtime-version-and-replacement-rejected"):
                     wizard("Missing Runtime", "Unsupported JDK")

@@ -64,6 +64,20 @@ class GeneratorHelperTests(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "differ"):
             acceptance.assert_runtime_chain(runtime, prepared, changed)
 
+    def test_restored_jdk_requires_the_saved_field_and_selected_effective_home(self):
+        runtime = {"homePath": "C:/Tools/JDK", "version": "21.0.8"}
+        selected = r"Selected → JDK 21.0.8 · C:\Tools\JDK"
+        acceptance.assert_restored_jdk(runtime, "c:/tools/jdk/", selected)
+        for field, effective in (
+            ("", selected),
+            ("C:/Other/JDK", selected),
+            (runtime["homePath"], "Automatic → JDK 21.0.8 · C:/Tools/JDK · from JAVA_HOME"),
+            (runtime["homePath"], "Selected → JDK 17.0.18 · C:/Tools/JDK"),
+            (runtime["homePath"], "Selected → JDK 21.0.8 · C:/Other/JDK"),
+        ):
+            with self.subTest(field=field, effective=effective), self.assertRaisesRegex(AssertionError, "restored project JDK differs"):
+                acceptance.assert_restored_jdk(runtime, field, effective)
+
     def runtime_choice_fixture(self, text, *, visible=True):
         page, driver = MagicMock(), MagicMock()
         field, parent, selected, body = MagicMock(), MagicMock(), MagicMock(), MagicMock()
