@@ -11,13 +11,11 @@ runs the definition's version probe on executables Core returns from
 whole snapshot. Nothing is saved by these pages. The pinned Stage D integration
 adds a separate fresh-resolution adapter for macOS Build and Provider Run;
 settings detections are never used as launch permits. Existing Java and
-language-server consumers still use their previous adapters. Windows now has
-native Build plumbing for directory pins, declared scans, shell candidates and
-operation-owned provider queries through Core's LSP transport. A window-bound
-cancellation owner covers preparation and backend cleanup; this does not provide
-a general background services host. Publisher signatures provide independent
-origin evidence when present; legacy unsigned records never do. Windows product
-capability admission remains closed.
+language-server consumers still use their previous adapters. Windows has no
+toolchain adapter and does not advertise `toolDefinitions` or
+`toolchainProviders`, so Core refuses packages that require them there.
+Publisher signatures provide independent origin evidence when present; legacy
+unsigned records never do.
 The [broader proposal](proposal/README.md) still describes unsupported
 consumer migration, native lifecycle, persistence and manager-plugin work.
 The active shape is [plugin-manifest.schema.json](../plugin-manifest.schema.json),
