@@ -47,7 +47,7 @@ import {
   shouldPresentRebaseSession,
   type GitRebaseAmendDraft,
 } from "../utils/git-rebase-session";
-import { prepareGitRebasePlan } from "../utils/git-rebase-plan";
+import { useGitRebasePlanPreview } from "../utils/git-rebase-plan";
 
 const actions: GitRebaseAction[] = ["pick", "reword", "edit", "squash", "fixup", "drop"];
 const terminalSession = (session: GitRebaseSession) =>
@@ -194,17 +194,11 @@ function GitRebaseDialog({
     setSteps((current) =>
       current.map((entry, offset) => (offset === index ? { ...entry, ...update } : entry)),
     );
-  const plan = prepareGitRebasePlan(steps, preview?.commits ?? []);
+  const plan = useGitRebasePlanPreview(steps, preview?.commits);
+  const messages = new Map(plan?.steps.map((step) => [step.hash, step.message]));
   const changeAction = (index: number, action: GitRebaseAction) => updateStep(index, { action });
-  let hasPriorCommit = false;
-  const invalidPlan = steps.some((step) => {
-    if ((step.action === "squash" || step.action === "fixup") && !hasPriorCommit) return true;
-    if (step.action !== "drop") hasPriorCommit = true;
-    return (
-      (step.action === "reword" || step.action === "squash") &&
-      !plan.messages.get(step.hash)?.trim()
-    );
-  });
+  // Core validates the draft; until it answers the plan cannot start.
+  const invalidPlan = !plan || plan.issue !== null;
   const run = async (operation: () => Promise<GitRebaseResult>) => {
     if (working.current) return;
     working.current = true;
@@ -330,7 +324,7 @@ function GitRebaseDialog({
                   {entry.message}
                 </p>
               ))}
-              {invalidPlan ? (
+              {plan?.issue ? (
                 <p role="alert" className="text-destructive">
                   {t("git.rebasePlan.invalidPlan")}
                 </p>
@@ -368,17 +362,17 @@ function GitRebaseDialog({
                     </div>
                     {step.action === "reword" || step.action === "squash" ? (
                       <MessageEditor
-                        message={plan.messages.get(step.hash) ?? ""}
+                        message={messages.get(step.hash) ?? ""}
                         onChange={(message) => updateStep(index, { message })}
                         disabled={status === "working"}
                       />
                     ) : (
                       <details>
                         <summary className="cursor-pointer break-words">
-                          {splitGitCommitMessage(plan.messages.get(step.hash) ?? "").title}
+                          {splitGitCommitMessage(messages.get(step.hash) ?? "").title}
                         </summary>
                         <pre className="whitespace-pre-wrap break-words pt-2 font-sans">
-                          {plan.messages.get(step.hash)}
+                          {messages.get(step.hash)}
                         </pre>
                       </details>
                     )}
@@ -505,7 +499,7 @@ function GitRebaseDialog({
               disabled={
                 status !== "ready" || !preview.allowed || !preview.expectedState || invalidPlan
               }
-              onClick={() => void run(() => startGitRebase(request.repoPath, preview, plan.steps))}
+              onClick={() => void run(() => startGitRebase(request.repoPath, preview, plan?.startSteps ?? []))}
             >
               {t("git.rebasePlan.start")}
             </Button>

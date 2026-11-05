@@ -4,6 +4,7 @@ import Foundation
 /// collects facts, Core decides, and the app executes and presents the result.
 package enum GitCorePlanCommand: String, Sendable {
     case normalizeChangeTargets = "git.normalizeChangeTargets"
+    case rebasePlanPreview = "git.rebasePlanPreview"
 }
 
 // MARK: - git.normalizeChangeTargets
@@ -26,4 +27,34 @@ package struct GitChangeTargetsRequest: Encodable, Sendable {
 
 package struct GitChangeTargetsPlan: Decodable, Sendable {
     package let indices: [Int]
+}
+
+// MARK: - git.rebasePlanPreview
+
+package struct GitRebasePreviewRequest: Encodable, Equatable, Sendable {
+    package struct Commit: Encodable, Equatable, Sendable {
+        package let hash: String
+        package let message: String
+    }
+    package let commits: [Commit]
+    package let steps: [GitRebaseStep]
+}
+
+/// Messages, start payload, and the first problem for one rebase draft.
+package struct GitRebasePlanPreview: Decodable, Sendable, Equatable {
+    package struct Issue: Decodable, Sendable, Equatable {
+        /// `missingPrecedingCommit`, `emptyRewordMessage`, `emptySquashMessage`, or `invalidMessage`.
+        package let code: String
+        package let hash: String?
+    }
+    package struct Row: Decodable, Sendable, Equatable {
+        package let hash: String
+        package let message: String
+    }
+    package let issue: Issue?
+    /// Draft rows with the message the editor shows for each.
+    package let steps: [Row]
+    /// Exact steps for `git.rebaseStart`.
+    package let startSteps: [GitRebaseStep]
+    package let outputCommitCount: Int
 }

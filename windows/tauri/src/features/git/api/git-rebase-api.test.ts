@@ -2,7 +2,6 @@ import { afterAll, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import fixture from "../../../../../../shared/fixtures/git/rebase-session-v1.json";
 import * as gitEvents from "../events/git-events";
 import type { GitRebasePreview, GitRebaseSession } from "../types/git-rebase.types";
-import { prepareGitRebasePlan } from "../utils/git-rebase-plan";
 
 const emitGitChanged = spyOn(gitEvents, "emitGitChanged");
 const invoke = mock(
@@ -66,42 +65,27 @@ test("continue never amends unless the user selects amend and preserves the dura
   });
 });
 
-test("squash previews stay out of the payload unless the user edits the final message", async () => {
+test("start sends the steps Core planned, and a squash message only when the user edited it", async () => {
   const preview = fixture.previewResponse as GitRebasePreview;
   const [first, second] = preview.commits;
-  const plan = prepareGitRebasePlan(
-    [
-      { hash: first.hash, action: "edit" },
-      { hash: second.hash, action: "squash" },
-    ],
-    preview.commits,
-  );
-  expect(plan.messages.get(second.hash)).toBe(
-    `${first.message.replace(/\n+$/, "")}\n\n${second.message}`,
-  );
-  await startGitRebase("C:/repo", preview, plan.steps);
+  const planned = [
+    { hash: first.hash, action: "edit" as const },
+    { hash: second.hash, action: "squash" as const },
+  ];
+  await startGitRebase("C:/repo", preview, planned);
   expect(invoke).toHaveBeenLastCalledWith("git.rebaseStart", {
     root: "C:/repo",
     expectedState: preview.expectedState,
-    steps: [
-      { hash: first.hash, action: "edit" },
-      { hash: second.hash, action: "squash" },
-    ],
+    steps: planned,
   });
-  const edited = prepareGitRebasePlan(
-    [
-      { hash: first.hash, action: "edit" },
-      { hash: second.hash, action: "squash", message: "Reviewed final title\n\nFull final body\n" },
-    ],
-    preview.commits,
-  );
-  await startGitRebase("C:/repo", preview, edited.steps);
+  const edited = [
+    planned[0],
+    { ...planned[1], message: "Reviewed final title\n\nFull final body\n" },
+  ];
+  await startGitRebase("C:/repo", preview, edited);
   expect(invoke).toHaveBeenLastCalledWith("git.rebaseStart", {
     root: "C:/repo",
     expectedState: preview.expectedState,
-    steps: [
-      { hash: first.hash, action: "edit" },
-      { hash: second.hash, action: "squash", message: "Reviewed final title\n\nFull final body\n" },
-    ],
+    steps: edited,
   });
 });

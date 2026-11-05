@@ -19551,6 +19551,50 @@
       ]
     },
     {
+      "id": "git.rebasePlan.issue.emptyReword",
+      "description": "macOS interactive rebase plan problem reported by Core",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Every Reword step needs a commit message.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rebasePlan.issue.emptySquash",
+      "description": "macOS interactive rebase plan problem reported by Core",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter a Squash message or use the default combined messages.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rebasePlan.issue.invalidMessage",
+      "description": "macOS interactive rebase plan problem reported by Core",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The commit messages in this plan are not valid.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.rebasePlan.issue.missingPreceding",
+      "description": "macOS interactive rebase plan problem reported by Core",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Squash and Fixup need a preceding commit that is not dropped.",
+        "arguments": []
+      }
+    },
+    {
       "id": "git.rebasePlan.noSession",
       "description": "Windows UI: git.rebasePlan.noSession",
       "platforms": [
