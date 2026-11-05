@@ -9,7 +9,7 @@
     "evidence": [
       "rust/lithe-core/src/lsp/interface/plugin_function.rs",
       "rust/lithe-core/src/lsp/interface/engine.rs",
-      "shared/contracts/plugins/v1/fixtures/function-protocol.json",
+      "shared/contracts/plugins/v1/fixtures/backend/function-protocol.json",
       "macos/Sources/Lithe/Application/Features/PluginWebBridge.swift",
       "macos/Sources/Lithe/Platform/MacOS/Build/MacBuildProviderSessions.swift",
       "macos/Sources/LitheLanguageIntelligenceModule/Runtime/LanguageServerSession.swift",

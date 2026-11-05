@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-插件后端进程（语言服务器或构建 Provider，插件自己启动、用 JSON-RPC 通信的进程）现在可以提供**插件函数**（Plugin Function）：只属于这个插件、参数和结果都可序列化的动作，例如插件自己窗口里一个按钮背后的步骤。协议名是 `litheFunctions` 版本 1，在 `initialize` 里协商，与 `litheBuild` 互不依赖；契约写在 `shared/contracts/plugins/v1/README.md` 的 “Plugin functions” 一节，标准答案在 `fixtures/function-protocol.json`。
+插件后端进程（语言服务器或构建 Provider，插件自己启动、用 JSON-RPC 通信的进程）现在可以提供**插件函数**（Plugin Function）：只属于这个插件、参数和结果都可序列化的动作，例如插件自己窗口里一个按钮背后的步骤。协议名是 `litheFunctions` 版本 1，在 `initialize` 里协商，与 `litheBuild` 互不依赖；契约写在 `shared/contracts/plugins/v1/README.md` 的 “Plugin functions” 一节，标准答案在 `fixtures/backend/function-protocol.json`。
 
 这次同时定下了能力的三个方向：插件提供**领域能力**（构建模型、依赖树，契约归 Lithe）、插件提供**插件函数**（契约归插件）、插件调用**宿主能力**（契约归宿主）。领域操作仍走类型化的 `lithe/build/*`，插件函数不能代替它；后端也不能请宿主再派发领域操作或函数，避免处理器绕回自己。
 
@@ -192,6 +192,6 @@ Maven 插件窗口的“刷新快照”按钮
 - `rust/lithe-core/src/protocol/command.rs`
 - `rust/lithe-core/src/runtime/dispatcher.rs`
 - `shared/contracts/plugins/v1/README.md`
-- `shared/contracts/plugins/v1/fixtures/function-protocol.json`
+- `shared/contracts/plugins/v1/fixtures/backend/function-protocol.json`
 - `shared/contracts/rust-core-api.md`
 - `scripts/architecture/verify-shared-contracts.sh`

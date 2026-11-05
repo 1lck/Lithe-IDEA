@@ -1651,7 +1651,7 @@ mod tests {
         assert!(page.contains("&lt;script&gt;"));
         assert!(page.contains("/__lithe_host__/bridge.js"));
         let manifest: Value = serde_json::from_str(include_str!(
-            "../../../../../shared/contracts/plugins/v1/fixtures/hello-lithe.plugin.json"
+            "../../../../../shared/contracts/plugins/v1/fixtures/manifest/hello-lithe.plugin.json"
         ))
         .unwrap();
         assert!(manifest["ui"]["toolWindows"][0]["text"].is_string());

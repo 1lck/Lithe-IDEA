@@ -8,7 +8,7 @@
 use super::scan::{self, build_catalog_from};
 use super::store::{self, DiscoveredPackage};
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const FIXTURES_DIR: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -35,8 +35,26 @@ const CAPABILITY_GATED_FIXTURES: [&str; 5] = [
     "build-host-integration.plugin.json",
 ];
 
+/// Finds a shared fixture by file name. Fixtures sit in one folder per
+/// contract area, and case files name their base manifest by file name only;
+/// `verify-shared-contracts.sh` keeps file names unique across the folders.
 fn fixture_path(name: &str) -> PathBuf {
-    PathBuf::from(FIXTURES_DIR).join(name)
+    fn find(directory: &Path, name: &str) -> Option<PathBuf> {
+        let mut entries: Vec<PathBuf> = std::fs::read_dir(directory)
+            .ok()?
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .collect();
+        entries.sort();
+        entries.into_iter().find_map(|path| {
+            if path.is_dir() {
+                find(&path, name)
+            } else {
+                (path.file_name()? == name).then_some(path)
+            }
+        })
+    }
+    find(Path::new(FIXTURES_DIR), name)
+        .unwrap_or_else(|| panic!("fixture {name} is missing under {FIXTURES_DIR}"))
 }
 
 fn read_fixture(name: &str) -> Value {

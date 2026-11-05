@@ -1,7 +1,7 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import { enableMapSet } from "immer";
 import { createRequire } from "node:module";
-import hello from "../../../../../shared/contracts/plugins/v1/fixtures/hello-lithe.plugin.json";
+import hello from "../../../../../shared/contracts/plugins/v1/fixtures/manifest/hello-lithe.plugin.json";
 import { useUIExtensionStore } from "@/extensions/ui/stores/ui-extension-store";
 enableMapSet();
 // Zustand's Bun CJS adapter loads the CommonJS Immer export. Enable its

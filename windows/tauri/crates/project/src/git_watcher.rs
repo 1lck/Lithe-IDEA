@@ -1,8 +1,11 @@
 use anyhow::{Context, Result};
+use lithe_core::{GitMetadataChangeKind, GitMetadataWatchContext, classify_git_metadata_change};
 use notify::RecursiveMode;
 use notify_debouncer_mini::{DebounceEventResult, Debouncer, new_debouncer};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -14,6 +17,18 @@ pub struct GitWatchContext {
     pub git_common_directory: PathBuf,
     #[serde(default)]
     pub rule_directories: Vec<PathBuf>,
+}
+
+impl GitWatchContext {
+    fn shared_context(&self) -> GitMetadataWatchContext {
+        GitMetadataWatchContext {
+            workspace_root: None,
+            repository_root: self.repository_root.clone(),
+            git_directory: self.git_directory.clone(),
+            git_common_directory: self.git_common_directory.clone(),
+            rule_directories: self.rule_directories.clone(),
+        }
+    }
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -168,14 +183,21 @@ impl GitMetadataWatcher {
                         .values()
                         .filter_map(|entry| entry.context.as_ref())
                     {
+                        let shared = context.shared_context();
                         for event in &events {
-                            if event.path == context.repository_root.join(".git") {
-                                roots.insert(context.repository_root.clone());
-                                metadata_link_changed = true;
-                                index_only = false;
-                            } else if is_relevant_metadata_change(context, &event.path) {
-                                roots.insert(context.repository_root.clone());
-                                index_only &= is_index_write(context, &event.path);
+                            let classification = classify_git_metadata_change(&shared, &event.path);
+                            match classification.kind {
+                                GitMetadataChangeKind::Context => {
+                                    roots.insert(context.repository_root.clone());
+                                    metadata_link_changed = true;
+                                    index_only = false;
+                                }
+                                GitMetadataChangeKind::Metadata
+                                | GitMetadataChangeKind::IgnoreRule => {
+                                    roots.insert(context.repository_root.clone());
+                                    index_only &= classification.index_only;
+                                }
+                                GitMetadataChangeKind::Ignored | GitMetadataChangeKind::Other => {}
                             }
                         }
                     }
@@ -236,79 +258,48 @@ impl GitMetadataWatcher {
     }
 }
 
-/// Lithe Core creates short-lived `<git-common-dir>/lithe-commit-<pid>-<seq>`
-/// directories (`TemporaryGitCommitContext`) for read-only snapshot diffs and
-/// isolated commits. They never change repository state, and reporting them
-/// makes every snapshot diff refresh the views that requested it.
-const LITHE_TEMPORARY_GIT_CONTEXT_PREFIX: &str = "lithe-commit-";
-
-/// The worktree's own index or its lock. A linked worktree keeps its index in
-/// its own `git_directory`; the common directory's `index` belongs to the main
-/// worktree and is not reported for linked worktrees at all.
+#[cfg(test)]
 fn is_index_write(context: &GitWatchContext, path: &Path) -> bool {
-    path.strip_prefix(&context.git_directory)
-        .ok()
-        .and_then(|relative| {
-            let mut components = relative.components();
-            let first = components.next()?;
-            components
-                .next()
-                .is_none()
-                .then(|| first.as_os_str().to_string_lossy().into_owned())
-        })
-        .is_some_and(|name| matches!(name.as_str(), "index" | "index.lock"))
+    classify_git_metadata_change(&context.shared_context(), path).index_only
 }
 
+#[cfg(test)]
 fn is_relevant_metadata_change(context: &GitWatchContext, path: &Path) -> bool {
-    if path == context.repository_root.join(".gitignore")
-        || context
-            .rule_directories
-            .iter()
-            .any(|directory| path == directory.join(".gitignore"))
-    {
-        return true;
-    }
-    if let Ok(relative) = path.strip_prefix(&context.git_directory) {
-        let first = relative
-            .components()
-            .next()
-            .map(|part| part.as_os_str().to_string_lossy());
-        if first
-            .as_deref()
-            .is_some_and(|part| part.starts_with(LITHE_TEMPORARY_GIT_CONTEXT_PREFIX))
-        {
-            return false;
-        }
-        if !matches!(
-            first.as_deref(),
-            Some("objects" | "lfs" | "modules" | "worktrees")
-        ) {
-            return true;
-        }
-    }
-    let Ok(relative) = path.strip_prefix(&context.git_common_directory) else {
-        return false;
-    };
-    let parts: Vec<_> = relative
-        .components()
-        .map(|part| part.as_os_str().to_string_lossy())
-        .collect();
-    match parts.first().map(|part| part.as_ref()) {
-        Some("refs" | "packed-refs" | "config" | "shallow" | "info") => true,
-        Some("logs") => parts.get(1).is_some_and(|part| part == "refs"),
-        Some("worktrees") => {
-            parts.len() <= 2
-                || parts.get(2).is_some_and(|part| {
-                    matches!(part.as_ref(), "HEAD" | "locked" | "gitdir" | "commondir")
-                })
-        }
-        _ => false,
-    }
+    matches!(
+        classify_git_metadata_change(&context.shared_context(), path).kind,
+        GitMetadataChangeKind::Metadata | GitMetadataChangeKind::IgnoreRule
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_metadata_cases_use_the_native_core_classifier() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../shared/fixtures/git/metadata-classification-v1.json"
+        ))
+        .unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let mut context = fixture["contexts"][case["context"].as_str().unwrap()].clone();
+            // The native watcher observes the repository pointer; workspace-only
+            // pointers belong to the workspace watcher rather than this host.
+            let workspace_root = context["workspaceRoot"].as_str().unwrap().to_string();
+            context.as_object_mut().unwrap().remove("workspaceRoot");
+            let native: GitWatchContext = serde_json::from_value(context).unwrap();
+            let path = PathBuf::from(case["path"].as_str().unwrap());
+            if path == PathBuf::from(workspace_root).join(".git")
+                && path != native.repository_root.join(".git")
+            {
+                continue;
+            }
+            let actual = classify_git_metadata_change(&native.shared_context(), &path);
+            let value = serde_json::to_value(actual).unwrap();
+            assert_eq!(value["kind"], case["kind"], "{}", case["name"]);
+            assert_eq!(value["indexOnly"], case["indexOnly"], "{}", case["name"]);
+        }
+    }
 
     fn receive_repository_change(
         receiver: &std::sync::mpsc::Receiver<Vec<PathBuf>>,

@@ -73,7 +73,7 @@ struct PluginDiskInstallationTests {
             signatureRequirement: PluginSignatureRequirement = .unsigned
         ) throws -> URL {
             let data = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-                .appendingPathComponent("shared/contracts/plugins/v1/fixtures/language-packaged-server.plugin.json"))
+                .appendingPathComponent("shared/contracts/plugins/v1/fixtures/languages/language-packaged-server.plugin.json"))
             var manifest = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
             manifest["id"] = id.rawValue
             manifest["displayName"] = "Disk Fixture"
@@ -368,7 +368,7 @@ struct PluginDiskInstallationTests {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         func webPackage(_ name: String, version: PluginVersion, content: String) throws -> URL {
             let data = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-                .appendingPathComponent("shared/contracts/plugins/v1/fixtures/web-panel.plugin.json"))
+                .appendingPathComponent("shared/contracts/plugins/v1/fixtures/ui/web-panel.plugin.json"))
             let json = String(decoding: data, as: UTF8.self)
                 .replacingOccurrences(of: "dev.lithe.fixture.web-panel", with: Self.pluginID.rawValue)
             var manifest = try #require(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])

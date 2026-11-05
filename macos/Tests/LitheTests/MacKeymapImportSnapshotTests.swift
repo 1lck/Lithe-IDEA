@@ -5,7 +5,7 @@ import Testing
 struct MacKeymapImportSnapshotTests {
     private func plan(_ providerID: String) throws -> KeymapImportSourcePlan {
         let fixture = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/keymap-import-provider.plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/keymap-import/keymap-import-provider.plugin.json")
         return try RustKeymapImportOperations(core: RustCoreBridge()).planSources(
             manifest: Data(contentsOf: fixture), providerID: providerID
         )

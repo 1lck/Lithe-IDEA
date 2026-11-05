@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/proposals/toolchains/resolution.schema.json",
+  "$id": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/toolchains/proposal/resolution.schema.json",
   "title": "Proposed shared toolchain resolution result v1 (not implemented)",
   "description": "Review-only normalized resolver output. Host-owned snapshots and native filesystem evidence are inputs; providers never produce this object directly.",
   "type": "object",

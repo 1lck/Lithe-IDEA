@@ -67,8 +67,9 @@ struct PluginLiveActivationTests {
     }
 
     @Test(arguments: [
-        "language-packaged-server", "language-system-command", "build-provider",
-        "vcs-provider", "hello-lithe", "project-generator"
+        "languages/language-packaged-server", "languages/language-system-command",
+        "build-providers/build-provider", "vcs/vcs-provider", "manifest/hello-lithe",
+        "project-generators/project-generator"
     ])
     func pluginsWithOtherContributionsStillNeedARestart(_ fixture: String) throws {
         let url = DeclarativePluginTestSupport.repositoryRoot

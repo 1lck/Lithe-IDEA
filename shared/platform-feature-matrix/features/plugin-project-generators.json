@@ -6,8 +6,8 @@
   "macos": {
     "evidence": [
       "rust/lithe-core/src/project_generators/",
-      "shared/contracts/plugins/v1/fixtures/project-generator.plugin.json",
-      "shared/contracts/plugins/v1/fixtures/project-plans.json",
+      "shared/contracts/plugins/v1/fixtures/project-generators/project-generator.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/project-generators/project-plans.json",
       "Plugins/mac/Official/JavaSupport/plugin.json",
       "macos/Sources/Lithe/Views/Workspace/NewProjectView.swift",
       "macos/Sources/Lithe/Application/Features/NewProjectFeatureModel.swift",

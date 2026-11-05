@@ -421,6 +421,8 @@ pub enum CoreCommand {
     /// Replaces the plugin settings a plugin-provided server reads
     /// (`lsp.updateWorkspaceConfiguration`).
     LspUpdateWorkspaceConfiguration,
+    /// Converts an absolute path to a file URI (`lsp.documentUri`).
+    LspDocumentUri,
     /// Opens or updates a synchronized document (`lsp.syncDocument`).
     LspSyncDocument,
     /// Reports a successful native document save (`lsp.saveDocument`).
@@ -514,6 +516,8 @@ pub enum CoreCommand {
     GitWorkspaceCommitPrepare,
     /// Executes one guarded workspace commit/push (`git.workspaceCommitStep`).
     GitWorkspaceCommitStep,
+    /// Classifies a bounded page of Git watcher paths (`git.classifyMetadataChanges`).
+    GitClassifyMetadataChanges,
     /// Resolves paths a Git-aware watcher must observe (`git.watchContext`).
     GitWatchContext,
     /// Lists worktrees registered for the repository (`git.worktrees`).
@@ -909,6 +913,7 @@ impl CoreCommand {
             "lsp.retryMavenProfiles" => Some(Self::LspRetryMavenProfiles),
             "lsp.updateMavenConfiguration" => Some(Self::LspUpdateMavenConfiguration),
             "lsp.updateWorkspaceConfiguration" => Some(Self::LspUpdateWorkspaceConfiguration),
+            "lsp.documentUri" => Some(Self::LspDocumentUri),
             "lsp.syncDocument" => Some(Self::LspSyncDocument),
             "lsp.saveDocument" => Some(Self::LspSaveDocument),
             "lsp.workspaceFilesChanged" => Some(Self::LspWorkspaceFilesChanged),
@@ -957,6 +962,7 @@ impl CoreCommand {
             "git.commitState" => Some(Self::GitCommitState),
             "git.workspaceCommitPrepare" => Some(Self::GitWorkspaceCommitPrepare),
             "git.workspaceCommitStep" => Some(Self::GitWorkspaceCommitStep),
+            "git.classifyMetadataChanges" => Some(Self::GitClassifyMetadataChanges),
             "git.watchContext" => Some(Self::GitWatchContext),
             "git.worktrees" => Some(Self::GitWorktrees),
             "git.pullRequestContext" => Some(Self::GitPullRequestContext),

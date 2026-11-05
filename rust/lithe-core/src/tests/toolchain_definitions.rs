@@ -222,7 +222,7 @@ fn a_definition_plugin_may_provide_installations_of_its_own_tool() {
 fn build_toolchain_consumers_keep_resolution_two_without_owning_definitions() {
     let mut plugin: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../shared/contracts/plugins/v1/fixtures/build-toolchains.plugin.json"
+        "/../../shared/contracts/plugins/v1/fixtures/build-systems/build-toolchains.plugin.json"
     )))
     .unwrap();
     assert!(validate_manifest_value(plugin.clone()).is_ok());
@@ -242,7 +242,7 @@ fn build_toolchain_consumers_keep_resolution_two_without_owning_definitions() {
 fn executable_resolution_two_does_not_enable_toolchain_fields_in_legacy_build_sets() {
     let mut plugin: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../shared/contracts/plugins/v1/fixtures/build-tool-path.plugin.json"
+        "/../../shared/contracts/plugins/v1/fixtures/build-systems/build-tool-path.plugin.json"
     )))
     .unwrap();
     plugin["requires"]["executableResolution"] = json!(2);
@@ -258,11 +258,11 @@ fn production_toolchain_fixtures_require_explicit_host_capabilities() {
     let sources = [
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../shared/contracts/plugins/v1/fixtures/tool-definition.plugin.json"
+            "/../../shared/contracts/plugins/v1/fixtures/toolchains/tool-definition.plugin.json"
         )),
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../shared/contracts/plugins/v1/fixtures/toolchain-provider.plugin.json"
+            "/../../shared/contracts/plugins/v1/fixtures/toolchains/toolchain-provider.plugin.json"
         )),
     ];
     let old_host = json!({"backend":[1,2],"serverProcess":[1],"executableResolution":[1]});

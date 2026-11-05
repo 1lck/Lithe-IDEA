@@ -627,11 +627,9 @@ export function normalizeSettings(settings: Settings): Settings {
     normalizedSettings.terminalDockPosition === "left"
       ? normalizedSettings.terminalDockPosition
       : "bottom";
-  normalizedSettings.terminalDockWidth = normalizeBoundedWidth(
+  normalizedSettings.terminalDockWidth = normalizeSettingValue(
+    "terminalDockWidth",
     normalizedSettings.terminalDockWidth,
-    defaultSettings.terminalDockWidth,
-    SIDEBAR_WIDTH_MIN,
-    SIDEBAR_WIDTH_MAX,
   );
   normalizedSettings.bottomPaneHeight = normalizeBoundedWidth(
     normalizedSettings.bottomPaneHeight,
@@ -789,9 +787,18 @@ export function normalizeSettingValue<K extends keyof Settings>(
     return normalizeBoundedWidth(value, defaultSettings.bottomPaneHeight, 200, 2000) as Settings[K];
   }
 
-  if (key === "sidebarWidth" || key === "rightToolWindowWidth" || key === "terminalDockWidth") {
-    const fallback =
-      defaultSettings[key as "sidebarWidth" | "rightToolWindowWidth" | "terminalDockWidth"];
+  if (key === "terminalDockWidth") {
+    // The dock clamps to available space; persistence must not shrink a valid drag result.
+    return normalizeBoundedWidth(
+      value,
+      defaultSettings.terminalDockWidth,
+      SIDEBAR_WIDTH_MIN,
+      Number.MAX_SAFE_INTEGER,
+    ) as Settings[K];
+  }
+
+  if (key === "sidebarWidth" || key === "rightToolWindowWidth") {
+    const fallback = defaultSettings[key as "sidebarWidth" | "rightToolWindowWidth"];
     return normalizeBoundedWidth(
       value,
       fallback,
