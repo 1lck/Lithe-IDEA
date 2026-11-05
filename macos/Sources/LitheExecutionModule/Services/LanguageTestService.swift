@@ -336,8 +336,8 @@ package final class LanguageTestService: ObservableObject {
     /// its suites, or (with a case name) exactly one test. `TestCase.id` is
     /// length-prefixed per part, so a shorter scope never matches another name.
     private static func coveragePrefix(_ scope: BuildTestResults.Coverage) -> String {
-        // A case name is only meaningful inside a suite.
-        [scope.project, scope.suite, scope.suite == nil ? nil : scope.testCase]
+        // Decoding rejects a case without its suite, so levels are contiguous.
+        [scope.project, scope.suite, scope.testCase]
             .compactMap { $0.map { "\($0.utf8.count):" + $0 } }
             .joined()
     }
