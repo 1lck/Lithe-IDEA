@@ -598,6 +598,109 @@
       }
     },
     {
+      "name": "tool form treats a release with fewer trailing zeros as the same release",
+      "manifest": "project-generator-tool-field.plugin.json",
+      "operation": "generatorForm",
+      "generatorID": "node-app",
+      "form": {
+        "projectName": "demo",
+        "tools": {
+          "node": [
+            {"home": "/opt/node-18", "executable": "/opt/node-18/bin/node", "version": "18"},
+            {"home": "/opt/node-18.0", "executable": "/opt/node-18.0/bin/node", "version": "18.0.0"}
+          ]
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "form": {
+          "projectName": {"problem": null},
+          "fields": [
+            {
+              "id": "node",
+              "visible": true,
+              "value": "/opt/node-18",
+              "installations": [
+                {"home": "/opt/node-18", "executable": "/opt/node-18/bin/node", "version": "18", "meetsMinimum": true},
+                {"home": "/opt/node-18.0", "executable": "/opt/node-18.0/bin/node", "version": "18.0.0", "meetsMinimum": true}
+              ]
+            }
+          ],
+          "activeRequirements": [],
+          "valid": true
+        }
+      }
+    },
+    {
+      "name": "tool form leaves an optional tool with only old installations empty",
+      "manifest": "project-generator-tool-field.plugin.json",
+      "operation": "generatorForm",
+      "generatorID": "node-app",
+      "form": {
+        "projectName": "demo",
+        "tools": {
+          "node": [
+            {"home": "/opt/node-16", "executable": "/opt/node-16/bin/node", "version": "16.20.2"}
+          ]
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "form": {
+          "projectName": {"problem": null},
+          "fields": [
+            {
+              "id": "node",
+              "visible": true,
+              "value": "",
+              "installations": [
+                {"home": "/opt/node-16", "executable": "/opt/node-16/bin/node", "version": "16.20.2", "meetsMinimum": false}
+              ]
+            }
+          ],
+          "activeRequirements": [],
+          "valid": true
+        }
+      }
+    },
+    {
+      "name": "plan leaves an optional tool with only old installations unpinned",
+      "manifest": "project-generator-tool-field.plugin.json",
+      "operation": "generationPlan",
+      "generatorID": "node-app",
+      "form": {
+        "projectName": "demo",
+        "tools": {
+          "node": [
+            {"home": "/opt/node-16", "executable": "/opt/node-16/bin/node", "version": "16.20.2"}
+          ]
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {"projectName": "demo", "steps": [], "openFiles": [], "runtimes": [], "toolPins": [], "usesNetwork": false}
+      }
+    },
+    {
+      "name": "plan refuses an old optional tool the user chose",
+      "manifest": "project-generator-tool-field.plugin.json",
+      "operation": "generationPlan",
+      "generatorID": "node-app",
+      "form": {
+        "projectName": "demo",
+        "values": {"node": "/opt/node-16"},
+        "tools": {
+          "node": [
+            {"home": "/opt/node-16", "executable": "/opt/node-16/bin/node", "version": "16.20.2"}
+          ]
+        }
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {"code": "plugin.project.invalidInput", "message": "The value of node is not accepted (toolTooOld).", "field": "values.node"}
+      }
+    },
+    {
       "name": "name accepted",
       "operation": "checkName",
       "projectName": "demo-app",

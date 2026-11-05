@@ -21,8 +21,9 @@ struct NewProjectEnvironment {
     let store: any KeyValueStore
     /// Installations of the tools `tool` fields pick, by tool definition ID and
     /// best first. A new project has no workspace yet, so this is the
-    /// machine-wide discovery; a tool nothing defines is simply absent.
-    var toolInstallations: @MainActor ([String]) async -> [String: [ProjectToolInstallation]] = { _ in [:] }
+    /// machine-wide discovery; a tool nothing defines is simply absent. Throws
+    /// when discovery could not run, which is not the same as nothing found.
+    var toolInstallations: @MainActor ([String]) async throws -> [String: [ProjectToolInstallation]] = { _ in [:] }
     /// Fires after the installed plugins or their enablement changed, so the
     /// entry list follows an install, update, or removal without reopening.
     var pluginChanges: AnyPublisher<Void, Never> = Empty<Void, Never>().eraseToAnyPublisher()
@@ -96,10 +97,14 @@ final class NewProjectFeatureModel: ObservableObject {
     /// True from the moment tool installations are requested until they arrive,
     /// so an empty list reads as "none installed" rather than "still looking".
     @Published private(set) var isListingTools = false
+    /// Why the installations of a tool could not be looked up, by tool
+    /// definition ID. Such a tool has no listing, so Create stays disabled.
+    @Published private(set) var toolListingFailures: [String: String] = [:]
 
     private let environment: NewProjectEnvironment
     /// Installations found per tool definition ID. A listing replaces the
-    /// entries it asked for; the others keep their last answer.
+    /// entries it asked for; the others keep their last answer until a plugin
+    /// change drops them all. A tool with no entry has not been listed yet.
     private var listedTools: [String: [ProjectToolInstallation]] = [:]
     private var toolListing: Task<Void, Never>?
     private var pluginChangeObservation: AnyCancellable?
@@ -151,9 +156,13 @@ final class NewProjectFeatureModel: ObservableObject {
         if case .generator(let id) = selection, !entries.contains(where: { $0.id == id }) {
             selection = .empty
         }
+        // A plugin change may add or remove the definition of any tool, not
+        // only the selected entry's, so every listing is dropped: an entry
+        // selected later is looked up again instead of offering a home the
+        // removed definition found.
+        listedTools = [:]
+        toolListingFailures = [:]
         evaluate()
-        // A plugin change may add or remove the definition of a tool, so the
-        // installations are looked up again rather than trusted.
         listToolInstallations()
     }
 
@@ -249,7 +258,10 @@ final class NewProjectFeatureModel: ObservableObject {
         guard !isCreating, nameProblem == nil, formError == nil,
               !location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         guard let entry = selectedEntry else { return selection == .empty }
+        // Until its tools are listed the form has judged an empty list, so an
+        // optional tool would read as "none" and be left out of the project.
         return entry.pluginEnabled && formState?.valid == true
+            && toolIDs(of: entry).allSatisfy { listedTools[$0] != nil }
     }
 
     private var parentURL: URL {
@@ -345,12 +357,28 @@ final class NewProjectFeatureModel: ObservableObject {
         formState?.field(field.id)?.installations ?? []
     }
 
+    /// The homes a tool field's picker lists. Core leaves an optional field
+    /// empty when every installation is too old, so "" comes first then and
+    /// the picker shows that rather than a blank control.
+    func toolOptions(for field: ProjectGeneratorField) -> [String] {
+        let homes = toolChoices(for: field).map(\.home)
+        guard case .string(let chosen) = value(of: field), !chosen.isEmpty else { return [""] + homes }
+        return homes
+    }
+
+    /// Whether the picker lets the user choose `home`: "no tool" and the
+    /// installations Core says are new enough. An older one stays listed so the
+    /// user sees why it is not used.
+    func isToolChoosable(_ home: String, for field: ProjectGeneratorField) -> Bool {
+        home.isEmpty || toolChoices(for: field).first { $0.home == home }?.meetsMinimum == true
+    }
+
     /// What to offer when a tool field found no installation because no enabled
     /// plugin defines its tool: enable the plugin that does, or look for one.
     /// Nil while listing, when installations exist, and when the defining
     /// plugin is already enabled (the tool is then just not installed).
     func toolNoticeAction(for field: ProjectGeneratorField) -> RequirementNotice.Action? {
-        guard !isListingTools, toolChoices(for: field).isEmpty,
+        guard !isListingTools, toolListingError(for: field) == nil, toolChoices(for: field).isEmpty,
               let tool = selectedEntry?.tools.first(where: { $0.fieldID == field.id }),
               !tool.providers.contains(where: \.enabled) else { return nil }
         if let provider = tool.providers.first {
@@ -371,6 +399,18 @@ final class NewProjectFeatureModel: ObservableObject {
             .filter { seen.insert($0).inserted }
     }
 
+    /// Why the installations of the field's tool could not be looked up, or
+    /// nil when they were (or are still being) looked up.
+    func toolListingError(for field: ProjectGeneratorField) -> String? {
+        guard !isListingTools else { return nil }
+        return field.tool.flatMap { toolListingFailures[$0] }
+    }
+
+    /// Looks the selected generator's tools up again after a failure.
+    func retryToolListing() {
+        listToolInstallations()
+    }
+
     /// Looks up the installations of the selected generator's tools and
     /// re-evaluates the form with them. A newer request replaces an older one.
     private func listToolInstallations() {
@@ -383,9 +423,23 @@ final class NewProjectFeatureModel: ObservableObject {
         isListingTools = true
         toolListing = Task { [weak self] in
             guard let self else { return }
-            let found = await environment.toolInstallations(tools)
-            guard !Task.isCancelled else { return }
-            for tool in tools { listedTools[tool] = found[tool] ?? [] }
+            do {
+                let found = try await environment.toolInstallations(tools)
+                guard !Task.isCancelled else { return }
+                for tool in tools {
+                    listedTools[tool] = found[tool] ?? []
+                    toolListingFailures[tool] = nil
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                // The tools stay unlisted, so the field says the lookup failed
+                // instead of "not installed", and Create waits for a retry.
+                // A tool listed before keeps that listing.
+                let message = String(
+                    format: L10n.string("Could not look for installed tools: %@"), error.localizedDescription
+                )
+                for tool in tools where listedTools[tool] == nil { toolListingFailures[tool] = message }
+            }
             isListingTools = false
             evaluate()
         }

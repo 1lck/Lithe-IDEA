@@ -1,5 +1,6 @@
 import Foundation
 import LitheCoreContracts
+import LitheModuleAPI
 import Testing
 @testable import Lithe
 
@@ -29,7 +30,7 @@ struct ProjectToolAdaptersTests {
             scratchParent: parent
         )
 
-        let found = await finder.installations(of: ["python", "node"], sources: [Self.source(enabled: true)])
+        let found = try await finder.installations(of: ["python", "node"], sources: [Self.source(enabled: true)])
 
         // A tool with nothing installed is listed with no installations.
         #expect(found == ["python": [Self.python], "node": []])
@@ -56,13 +57,70 @@ struct ProjectToolAdaptersTests {
             scratchParent: parent
         )
 
-        let withoutEnabledPlugin = await finder.installations(of: ["python"], sources: [Self.source(enabled: false)])
-        let withoutTools = await finder.installations(of: [], sources: [Self.source(enabled: true)])
+        let withoutEnabledPlugin = try await finder.installations(of: ["python"], sources: [Self.source(enabled: false)])
+        let withoutTools = try await finder.installations(of: [], sources: [Self.source(enabled: true)])
 
         #expect(withoutEnabledPlugin.isEmpty)
         #expect(withoutTools.isEmpty)
         #expect(await log.requests.isEmpty)
         #expect(try FileManager.default.contentsOfDirectory(atPath: parent.path).isEmpty)
+    }
+
+    @Test
+    func reportsAndThrowsWhenTheScratchDirectoryCannotBeCreated() async throws {
+        let parent = try Self.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let log = DiscoveryLog()
+        let events = TypedLogRecorder()
+        let finder = MacProjectToolInstallations(
+            discover: { request in
+                await log.record(request)
+                return Self.detection(of: "python", Self.python)
+            },
+            // The parent does not exist, so the scratch directory cannot be made.
+            scratchParent: parent.appendingPathComponent("missing", isDirectory: true),
+            report: { events.emit($0) }
+        )
+
+        // Not running discovery is not the same as finding nothing installed.
+        await #expect(throws: (any Error).self) {
+            try await finder.installations(of: ["python"], sources: [Self.source(enabled: true)])
+        }
+        #expect(await log.requests.isEmpty)
+        #expect(Self.stages(events) == ["new-project-tools-scratch-create"])
+    }
+
+    @Test
+    func reportsAScratchDirectoryItCouldNotRemove() async throws {
+        let parent = try Self.temporaryDirectory()
+        let locked = LockedValue<URL?>(nil)
+        defer {
+            // Make the directory removable again before cleaning up.
+            if let directory = locked.value {
+                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
+            }
+            try? FileManager.default.removeItem(at: parent)
+        }
+        let events = TypedLogRecorder()
+        let finder = MacProjectToolInstallations(
+            discover: { request in
+                // A read-only directory holding a file cannot be emptied.
+                let directory = request.workspace.appendingPathComponent("locked", isDirectory: true)
+                try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+                FileManager.default.createFile(atPath: directory.appendingPathComponent("file").path, contents: Data())
+                try? FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
+                locked.value = directory
+                return Self.detection(of: "python", Self.python)
+            },
+            scratchParent: parent,
+            report: { events.emit($0) }
+        )
+
+        let found = try await finder.installations(of: ["python"], sources: [Self.source(enabled: true)])
+
+        // The listing is still right; the leftover directory is recorded.
+        #expect(found == ["python": [Self.python]])
+        #expect(Self.stages(events) == ["new-project-tools-scratch-remove"])
     }
 
     // MARK: Pinning
@@ -131,11 +189,34 @@ struct ProjectToolAdaptersTests {
         MacToolchainPreferencesStore(core: RustCoreBridge(), storage: MacFileStorage(), immutableRoots: { [] })
     }
 
+    /// The `stage` of each storage event the adapter reported, in order.
+    private static func stages(_ recorder: TypedLogRecorder) -> [String] {
+        recorder.events.compactMap { event in
+            guard event is AppStorageMaintenanceFailed, case .token(let stage)? = event.fields["stage"] else {
+                return nil
+            }
+            return stage
+        }
+    }
+
     private static func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-project-tool-adapters-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+}
+
+/// A value the discovery stand-in sets off the main actor and the test reads.
+private final class LockedValue<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: Value
+
+    init(_ value: Value) { stored = value }
+
+    var value: Value {
+        get { lock.withLock { stored } }
+        set { lock.withLock { stored = newValue } }
     }
 }
 

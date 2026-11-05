@@ -90,16 +90,16 @@
 
 | 部分 | 负责方 | 做什么 |
 | --- | --- | --- |
-| 字段校验、默认选择、版本比较、`${field.<id>}` 与 `${field.<id>.executable}` 展开、`toolPins` | Rust Core | 在已有的 `project.generatorForm` 和 `project.generationPlan` 里；选择规则：用户的选择还在候选里就保留，否则取版本最新的，同版本保持宿主给的顺序；没有候选报 `required`（可选字段除外），低于 `minimumVersion` 报 `toolTooOld` |
-| 列出候选安装 | macOS 宿主（I/O） | `MacProjectToolInstallations` 复用设置页的工具发现；新建项目没有工作区，所以在一个空的临时目录里发现，用完删除 |
+| 字段校验、默认选择、版本比较、`${field.<id>}` 与 `${field.<id>.executable}` 展开、`toolPins` | Rust Core | 在已有的 `project.generatorForm` 和 `project.generationPlan` 里；选择规则：用户的选择还在候选里就保留，否则取版本最新的，同版本保持宿主给的顺序；没有候选报 `required`（可选字段除外），低于 `minimumVersion` 报 `toolTooOld`。版本按“发行号”比较，末尾的 0 不算（`3.11`、`3.11.0`、`3.11.0.0` 相同），和工具链解析一致。可选字段没有够新的候选时保持为空、不写 pin，和“完全没装”一样，机器上有旧版本不会反而挡住创建；用户明确选了旧版本仍报 `toolTooOld` |
+| 列出候选安装 | macOS 宿主（I/O） | `MacProjectToolInstallations` 复用设置页的工具发现；新建项目没有工作区，所以在一个空的临时目录里发现，用完删除。临时目录建不出来时记日志并抛错，窗口显示“无法查找已安装的工具”和“重试”，而不是“没有安装”；删不掉只记日志，列出的结果照常使用 |
 | 保存 pin | macOS 宿主（I/O） | `MacProjectToolPins` 通过设置页同一个 `ToolchainPreferencesStoring` 写 `.lithe/run/local.json`，不新增存储 |
 | 找不到工具时的提示 | Core 给出提供它的插件，宿主按已有方式显示 | 有定义但插件停用显示“启用”，没有定义显示“在插件市场中查找” |
 
-宿主不判断“这是哪种语言”，也不判断版本够不够：它把发现的安装交给 Core，按 Core 返回的 `installations[].meetsMinimum` 画下拉并把太旧的灰掉。
+宿主不判断“这是哪种语言”，也不判断版本够不够：它把发现的安装交给 Core，按 Core 返回的 `installations[].meetsMinimum` 画下拉：太旧的仍然列出（让用户看到为什么没用它），但灰掉且不能选；Core 把可选字段留空时，下拉第一项显示“无”。
 
 pin 写失败不会让项目创建失败：项目已经生成并移动到位，回滚没有意义。创建结果带一个 `toolPinWarning`，窗口提示“项目已创建，但无法保存你选择的工具”，用户可以到设置的工具页再选一次。
 
-**热激活。** 只含生成器、或只含工具定义的插件原来要重启才生效。生成器清单和工具定义都是宿主每次用到时才读的数据，所以它们加入了 `canActivateWithoutRestart`（见[插件热激活](../architecture/2026-10-26-plugin-live-activation.md)）。新建项目窗口监听插件变化，自动重新列出条目和工具候选；窗口打开时安装工具定义插件，下拉随即多出新的安装。含语言服务器、构建、界面等其他贡献的插件（例如 Java Support）仍然要重启。
+**热激活。** 只含生成器、或只含工具定义的插件原来要重启才生效。生成器清单和工具定义都是宿主每次用到时才读的数据，所以它们加入了 `canActivateWithoutRestart`（见[插件热激活](../architecture/2026-10-26-plugin-live-activation.md)）。新建项目窗口监听插件变化，自动重新列出条目和工具候选；窗口打开时安装工具定义插件，下拉随即多出新的安装。插件变化会丢掉所有条目已列出的工具候选，不只是当前条目的：之后切到别的条目会重新查找，不会沿用已停用定义找到的安装；工具重新列出之前“创建”不可用。含语言服务器、构建、界面等其他贡献的插件（例如 Java Support）仍然要重启。
 
 #### 正确做法
 

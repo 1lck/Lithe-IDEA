@@ -4047,6 +4047,7 @@
     "native.couldNotLoadSavedChanges": "无法加载已保存的更改",
     "native.couldNotLoadServiceDependencies": "无法加载服务依赖",
     "native.couldNotLoadTheChangedFiles": "无法加载更改的文件。",
+    "native.couldNotLookForInstalledTools": "无法查找已安装的工具：{arg1}",
     "native.couldNotMoveTheEditorTabItsContentCouldNotBeSynchronized": "无法移动编辑标签，未能同步其内容。",
     "native.couldNotOpenHTMLInBrowser": "无法在浏览器中打开 HTML",
     "native.couldNotRead": "无法读取 {arg1}：{arg2}",

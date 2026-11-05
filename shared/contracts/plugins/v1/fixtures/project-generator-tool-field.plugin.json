@@ -31,7 +31,8 @@
       "displayName": "Node App",
       "section": "generator",
       "fields": [
-        {"id": "node", "type": "tool", "title": "Node.js", "tool": "node", "pinAs": "project", "optional": true}
+        {"id": "node", "type": "tool", "title": "Node.js", "tool": "node",
+         "minimumVersion": "18.0.0", "pinAs": "project", "optional": true}
       ],
       "steps": [
         {"kind": "command", "command": "npm", "mayUseNetwork": true,

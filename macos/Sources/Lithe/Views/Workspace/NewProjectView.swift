@@ -384,22 +384,28 @@ struct NewProjectView: View {
     }
 
     /// Picks one installation of the tool the field names. Core marks the one
-    /// the form uses; when none is found the field says why and what to do.
+    /// the form uses and which are new enough; an older one is listed but
+    /// cannot be chosen. When none is found the field says why and what to do.
     @ViewBuilder private func toolControl(_ field: ProjectGeneratorField) -> some View {
         let choices = feature.toolChoices(for: field)
-        if !choices.isEmpty {
+        if let error = feature.toolListingError(for: field) {
+            toolListingFailure(error)
+        } else if !choices.isEmpty {
             LitheSettingsSelect(
                 selection: Binding(
                     get: { feature.value(of: field).stringValue },
                     set: { feature.setValue(.string($0), for: field) }
                 ),
-                options: choices.map(\.home),
+                options: feature.toolOptions(for: field),
                 width: 420,
                 accessibilityLabel: field.title,
                 title: { home in
-                    choices.first(where: { $0.home == home }).map(Self.toolChoiceTitle) ?? home
+                    if home.isEmpty { return L10n.string("None") }
+                    return choices.first(where: { $0.home == home }).map(Self.toolChoiceTitle) ?? home
                 },
-                localizesTitles: false
+                localizesTitles: false,
+                isAvailable: { feature.isToolChoosable($0, for: field) },
+                unavailableHelp: "This installation is older than the generator requires."
             )
         } else if feature.isListingTools {
             HStack(spacing: 6) {
@@ -438,6 +444,22 @@ struct NewProjectView: View {
             Text(LocalizedStringKey("No installation of this tool was found."))
                 .foregroundStyle(LitheTheme.secondaryText)
         }
+    }
+
+    /// Discovery could not run, which is not the same as nothing installed.
+    private func toolListingFailure(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(LitheTheme.error)
+            Text(verbatim: message)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            Spacer(minLength: 8)
+            Button(LocalizedStringKey("Try Again")) { feature.retryToolListing() }
+                .buttonStyle(LitheActionButtonStyle())
+                .fixedSize()
+        }
+        .modifier(NoticeChrome())
     }
 
     private static func toolChoiceTitle(_ choice: ProjectGeneratorFormState.ToolChoice) -> String {

@@ -4047,6 +4047,7 @@
     "native.couldNotLoadSavedChanges": "Could not load saved changes",
     "native.couldNotLoadServiceDependencies": "Could not load service dependencies",
     "native.couldNotLoadTheChangedFiles": "Could not load the changed files.",
+    "native.couldNotLookForInstalledTools": "Could not look for installed tools: {arg1}",
     "native.couldNotMoveTheEditorTabItsContentCouldNotBeSynchronized": "Could not move the editor tab. Its content could not be synchronized.",
     "native.couldNotOpenHTMLInBrowser": "Could not open HTML in browser",
     "native.couldNotRead": "Could not read {arg1}: {arg2}",

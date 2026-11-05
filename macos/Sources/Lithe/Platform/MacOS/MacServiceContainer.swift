@@ -1385,8 +1385,10 @@ final class MacServiceContainer {
         services.toolchainInputWatcher = MacToolchainInputWatcher()
         services.toolchainPreferences = toolchainPreferences
         services.projectToolInstallations = { tools in
-            await MacProjectToolInstallations(discover: { await toolchainDiscovery.discover($0) })
-                .installations(of: tools, sources: toolchainSources())
+            try await MacProjectToolInstallations(
+                discover: { await toolchainDiscovery.discover($0) },
+                report: { logSink?.emit($0) }
+            ).installations(of: tools, sources: toolchainSources())
         }
         services.projectGeneratorSources = {
             pluginsInEffect().map { plugin in

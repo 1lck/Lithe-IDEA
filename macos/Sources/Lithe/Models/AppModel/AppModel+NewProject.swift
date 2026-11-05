@@ -33,7 +33,7 @@ extension AppModel {
             openMarketplace: { [weak self] query in self?.showPluginMarketplace(searching: query) },
             openProject: { [weak self] project in self?.openCreatedProject(project) },
             store: services.store,
-            toolInstallations: { [weak self] tools in await self?.services.projectToolInstallations?(tools) ?? [:] },
+            toolInstallations: { [weak self] tools in try await self?.services.projectToolInstallations?(tools) ?? [:] },
             pluginChanges: services.pluginRegistrationChanges ?? Empty<Void, Never>().eraseToAnyPublisher()
         ))
     }

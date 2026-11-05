@@ -2094,14 +2094,17 @@ tool settings, exactly as the tool's own settings page does.
 | `tool` | Required. A tool definition ID: the short ID of a verified official definition, otherwise `<pluginID>:<id>`. There is no closed list; a tool nobody declares has no installations. |
 | `minimumVersion` | Optional, one to three dotted numbers. An installation below it is not selectable. |
 | `pinAs` | Optional. `project` saves the selection as the created project's own tool choice (the same per-directory pin the tool's settings page edits), so the project builds and runs with the installation picked here. Without it the selection only feeds the steps. |
-| `optional` | Optional. Without a usable installation an optional field stays empty and leaves no pin; otherwise the form reports `required`. |
+| `optional` | Optional. Without a usable installation an optional field stays empty and leaves no pin; otherwise the form reports `required`. An installation below `minimumVersion` is not usable. |
 
 A tool field has no `default`; the host chooses the initial value. Core picks,
 among the installations the host listed, the user's choice if it is still
 listed and otherwise the newest version (the host's first among equal
-versions). An installation below `minimumVersion` is reported as
-`toolTooOld` and is marked in the field's `installations`, so the host can
-show it disabled.
+versions). Versions compare as releases, so trailing zeros do not count:
+`3.11`, `3.11.0`, and `3.11.0.0` are equal. An installation below
+`minimumVersion` is marked in the field's `installations`, so the host can
+show it disabled. When the selection is below `minimumVersion` the form
+reports `toolTooOld`, except that an optional field the user has not set
+stays empty rather than picking an installation that is too old.
 
 A generator with `projectGenerators` 2 must not declare a `runtime` field, and
 a generator with `projectGenerators` 1 must not declare a `tool` field

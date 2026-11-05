@@ -1076,6 +1076,7 @@
 "Could not load service dependencies" = "Could not load service dependencies";
 "Could not load the changed files." = "Could not load the changed files.";
 "Could not load this image" = "Could not load this image";
+"Could not look for installed tools: %@" = "Could not look for installed tools: %@";
 "Could not move the editor tab. Its content could not be synchronized." = "Could not move the editor tab. Its content could not be synchronized.";
 "Could not open %@: %@" = "Could not open %@: %@";
 "Could not open %@: %@ %@" = "Could not open %@: %@ %@";
@@ -6228,6 +6229,7 @@
 "native.couldNotLoadServiceDependencies" = "Could not load service dependencies";
 "native.couldNotLoadTheChangedFiles" = "Could not load the changed files.";
 "native.couldNotLoadThisImage" = "Could not load this image";
+"native.couldNotLookForInstalledTools" = "Could not look for installed tools: %1$@";
 "native.couldNotMoveTheEditorTabItsContentCouldNotBeSynchronized" = "Could not move the editor tab. Its content could not be synchronized.";
 "native.couldNotOpenHTMLInBrowser" = "Could not open HTML in browser";
 "native.couldNotOpenTheRemoteFolder" = "Could not open the remote folder: %1$@";

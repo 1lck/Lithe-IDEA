@@ -47,7 +47,7 @@ final class AppServices {
     /// Installations of the tools a generator's `tool` fields pick, by tool
     /// definition ID, found without a workspace; `nil` when the platform
     /// cannot discover tools.
-    var projectToolInstallations: (@MainActor ([String]) async -> [String: [ProjectToolInstallation]])?
+    var projectToolInstallations: (@MainActor ([String]) async throws -> [String: [ProjectToolInstallation]])?
     /// Read-only plugin toolchain projection; absent until platform composition.
     var toolchainSettingsLoader: (any ToolchainSettingsLoading)?
     var toolchainPreferences: (any ToolchainPreferencesStoring)?

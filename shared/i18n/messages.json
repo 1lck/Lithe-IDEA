@@ -33338,6 +33338,22 @@
       }
     },
     {
+      "id": "native.couldNotLookForInstalledTools",
+      "description": "Native UI: Could not look for installed tools: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not look for installed tools: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.couldNotMoveTheEditorTabItsContentCouldNotBeSynchronized",
       "description": "Native UI: Could not move the editor tab. Its content could not be synchronized.",
       "platforms": [

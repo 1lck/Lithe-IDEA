@@ -475,11 +475,39 @@ struct ProjectGenerationTests {
         #expect(feature.toolChoices(for: python).map(\.meetsMinimum) == [false, true])
         #expect(feature.value(of: python) == .string(Self.python312.home))
         #expect(feature.canCreate)
+        // Both are listed; only the one new enough can be chosen.
+        #expect(feature.toolOptions(for: python) == [Self.python310.home, Self.python312.home])
+        #expect(!feature.isToolChoosable(Self.python310.home, for: python))
+        #expect(feature.isToolChoosable(Self.python312.home, for: python))
 
-        // An installation below the minimum can be picked, and blocks creating.
+        // The window does not offer an installation below the minimum; one set
+        // anyway is still judged by Core and blocks creating.
         feature.setValue(.string(Self.python310.home), for: python)
         #expect(feature.problem(of: python) == .toolTooOld)
         #expect(!feature.canCreate)
+    }
+
+    @Test
+    func anOptionalToolWithOnlyOldInstallationsOffersNone() async throws {
+        let node16 = ProjectToolInstallation(home: "/opt/node-16", executable: "/opt/node-16/bin/node", version: "16.20.2")
+        let feature = NewProjectFeatureModel(environment: try Self.environment(
+            plugins: PluginStates(enabled: [Self.toolFieldPluginID]),
+            sources: [try Self.toolFieldSource(enabled: true)],
+            toolInstallations: { _ in ["node": [node16]] }
+        ))
+        await feature.load()
+        let entry = try #require(feature.entries.first { $0.generator.id == "node-app" })
+        feature.selection = .generator(entry.id)
+        let node = try #require(entry.generator.fields.first { $0.id == "node" })
+        await Self.waitUntil("the node installations") { feature.toolChoices(for: node).count == 1 }
+
+        // Node.js is optional and 16 is below 18, so the project goes without it.
+        #expect(feature.value(of: node) == .string(""))
+        #expect(feature.toolOptions(for: node) == ["", node16.home])
+        #expect(feature.isToolChoosable("", for: node))
+        #expect(!feature.isToolChoosable(node16.home, for: node))
+        #expect(feature.problem(of: node) == nil)
+        #expect(feature.canCreate)
     }
 
     @Test
@@ -541,6 +569,71 @@ struct ProjectGenerationTests {
 
         #expect(feature.entries.first?.pluginEnabled == true)
         await Self.waitUntil("the second tool lookup") { requests.requested.count == 2 }
+    }
+
+    @Test
+    func aPluginChangeDropsTheToolsListedForOtherEntries() async throws {
+        let plugins = PluginStates(enabled: [Self.toolFieldPluginID, Self.toolDefinitionPluginID])
+        let changes = PassthroughSubject<Void, Never>()
+        let requests = ToolListingRequests()
+        let feature = NewProjectFeatureModel(environment: try Self.environment(
+            plugins: plugins,
+            sources: [try Self.toolFieldSource(tool: "java", enabled: true), try Self.toolDefinitionSource()],
+            toolInstallations: { tools in
+                requests.record(tools)
+                // Like discovery, only an enabled definition finds anything.
+                let defined = plugins.enabled.contains(Self.toolDefinitionPluginID)
+                return Dictionary(uniqueKeysWithValues: tools.map { ($0, defined ? [Self.python312] : []) })
+            },
+            pluginChanges: changes.eraseToAnyPublisher()
+        ))
+        await feature.load()
+        let entry = try #require(feature.selectedEntry)
+        let field = try #require(entry.generator.fields.first { $0.id == "python" })
+        await Self.waitUntil("the first tool lookup") { feature.toolChoices(for: field).count == 1 }
+
+        // The definition goes away while another entry is selected.
+        feature.selection = .empty
+        plugins.enabled.remove(Self.toolDefinitionPluginID)
+        changes.send()
+        await Self.mainQueueTurn()
+        feature.selection = .generator(entry.id)
+
+        // The installation the removed definition found is not offered again.
+        #expect(!feature.canCreate)
+        await Self.waitUntil("the tools to be looked up again") {
+            requests.requested.count == 2 && !feature.isListingTools
+        }
+        #expect(feature.toolChoices(for: field).isEmpty)
+        #expect(feature.toolNoticeAction(for: field) == .enable(Self.toolDefinitionPluginID, name: "Tool definition fixture"))
+        #expect(!feature.canCreate)
+    }
+
+    @Test
+    func aFailedToolLookupIsShownAndCanBeRetried() async throws {
+        let lookup = ToolLookupOutcome()
+        let feature = NewProjectFeatureModel(environment: try Self.environment(
+            plugins: PluginStates(enabled: [Self.toolFieldPluginID]),
+            sources: [try Self.toolFieldSource(enabled: true)],
+            toolInstallations: { _ in
+                if lookup.fails { throw CocoaError(.fileWriteNoPermission) }
+                return ["python": [Self.python312]]
+            }
+        ))
+        await feature.load()
+        let python = try #require(feature.selectedEntry?.generator.fields.first { $0.id == "python" })
+        await Self.waitUntil("the failed tool lookup") { !feature.isListingTools }
+
+        // A lookup that did not run is not "nothing installed".
+        #expect(feature.toolListingError(for: python) != nil)
+        #expect(feature.toolNoticeAction(for: python) == nil)
+        #expect(!feature.canCreate)
+
+        lookup.fails = false
+        feature.retryToolListing()
+        await Self.waitUntil("the retried tool lookup") { feature.toolChoices(for: python).count == 1 }
+        #expect(feature.toolListingError(for: python) == nil)
+        #expect(feature.canCreate)
     }
 
     // MARK: Helpers
@@ -707,7 +800,7 @@ struct ProjectGenerationTests {
     private static func environment(
         plugins: PluginStates,
         sources: [ProjectGeneratorPluginSource]? = nil,
-        toolInstallations: @escaping @MainActor ([String]) async -> [String: [ProjectToolInstallation]] = { _ in [:] },
+        toolInstallations: @escaping @MainActor ([String]) async throws -> [String: [ProjectToolInstallation]] = { _ in [:] },
         pluginChanges: AnyPublisher<Void, Never> = Empty<Void, Never>().eraseToAnyPublisher()
     ) throws -> NewProjectEnvironment {
         let split = try splitJavaSupport()
@@ -826,6 +919,11 @@ private final class PluginStates {
     var enabled: Set<PluginID>
 
     init(enabled: Set<PluginID>) { self.enabled = enabled }
+}
+
+/// Whether the stand-in tool lookup fails, switched by the test.
+private final class ToolLookupOutcome {
+    var fails = true
 }
 
 /// Stands in for a scaffolding tool: records the request and creates one
