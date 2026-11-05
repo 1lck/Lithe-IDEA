@@ -16,20 +16,24 @@ extension RustCoreBridge {
         }
         let delete: [Decision]
         let keep: [Decision]
+        /// Images to write to a new ledger before deleting anything (empty once a ledger exists).
+        let seed: [String]
     }
 
     func agentAttachmentRetentionPlan(
-        nowMs: Int64, entries: [AgentAttachmentEntry], acceptedReferences: [String]
+        nowMs: Int64, entries: [AgentAttachmentEntry], acceptedReferences: [String], ledgerPresent: Bool
     ) throws -> AgentAttachmentRetentionPlan {
         struct Request: Encodable {
             let nowMs: Int64
             let entries: [AgentAttachmentEntry]
             let acceptedReferences: [String]
+            let ledgerPresent: Bool
             let caseInsensitive = false
         }
         let result: Result<AgentAttachmentRetentionPlan, CoreCallError> = executeResult(
             command: "agent.attachments.retentionPlan",
-            payload: Request(nowMs: nowMs, entries: entries, acceptedReferences: acceptedReferences)
+            payload: Request(nowMs: nowMs, entries: entries, acceptedReferences: acceptedReferences,
+                           ledgerPresent: ledgerPresent)
         )
         return try result.get()
     }

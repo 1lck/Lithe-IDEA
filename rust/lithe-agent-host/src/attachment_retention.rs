@@ -35,6 +35,10 @@ pub struct Request {
     /// Paths a conversation has accepted, from the platform's ledger.
     #[serde(default)]
     pub accepted_references: Vec<String>,
+    /// Whether the platform's ledger file exists. Only its existence matters, never
+    /// its contents: a missing ledger means the cache predates the ledger, so every
+    /// image already cached is seeded as accepted instead of being expired.
+    pub ledger_present: bool,
     /// Compare paths without case (Windows); separators are always normalized.
     #[serde(default)]
     pub case_insensitive: bool,
@@ -64,6 +68,9 @@ pub struct Decision {
 pub struct Plan {
     pub delete: Vec<Decision>,
     pub keep: Vec<Decision>,
+    /// Paths the platform must write to a new ledger before deleting anything;
+    /// empty whenever the ledger already exists.
+    pub seed: Vec<String>,
 }
 
 fn key(path: &str, case_insensitive: bool) -> String {
@@ -77,15 +84,21 @@ fn key(path: &str, case_insensitive: bool) -> String {
 
 /// A referenced image is always kept, even when the paste was marked abandoned.
 pub fn plan(request: &Request) -> Plan {
+    let seeded = request
+        .entries
+        .iter()
+        .filter(|entry| !request.ledger_present && !entry.abandoned);
     let referenced: HashSet<String> = request
         .accepted_references
         .iter()
+        .chain(seeded.clone().map(|entry| &entry.path))
         .map(|path| key(path, request.case_insensitive))
         .collect();
     let cutoff = request.now_ms.saturating_sub(RETENTION_MILLISECONDS);
     let mut result = Plan {
         delete: Vec::new(),
         keep: Vec::new(),
+        seed: seeded.map(|entry| entry.path.clone()).collect(),
     };
     for entry in &request.entries {
         let reason = if referenced.contains(&key(&entry.path, request.case_insensitive)) {

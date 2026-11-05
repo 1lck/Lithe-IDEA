@@ -18,6 +18,7 @@ mock.module("@tauri-apps/plugin-fs", () => ({
   readDir: async () => listing,
   readTextFile: async (path: string) => files.get(path) ?? "[]",
   writeTextFile: async (path: string, text: string) => { files.set(path, text); },
+  rename: async (from: string, to: string) => { files.set(to, files.get(from)!); files.delete(from); },
   stat: async (path: string) => ({ mtime: new Date(modified.get(path) ?? Date.now()) }),
   writeFile: async (path: string) => { writes.push(path); if (writes.length === failWrite) throw new Error("write refused"); },
   remove: async (path: string) => { removals.push(path); if (failRemove && removals.length === 1) throw new Error("remove refused"); },
@@ -33,8 +34,8 @@ mock.module("../src/platform/tauri-core", () => ({
     const local = (path: string) => args.entries.find((entry: any) => entry.path.endsWith(path.slice(2))).path;
     const place = (items: any[]) => items.map((item) => ({ ...item, path: local(item.path) }));
     return args.entries.length === 0
-      ? { delete: [], keep: [] }
-      : { delete: place(planCase.expected.delete), keep: place(planCase.expected.keep) };
+      ? { delete: [], keep: [], seed: [] }
+      : { delete: place(planCase.expected.delete), keep: place(planCase.expected.keep), seed: planCase.expected.seed.map(local) };
   },
 }));
 const { savePastedImages, recordAcceptedPastedImages } = await import("../src/platform/agent-pasted-images");
@@ -61,8 +62,35 @@ describe("Agent pasted image storage", () => {
     expect(invocations[0].args.entries.every((entry: any) => entry.abandoned === false)).toBe(true);
     expect(removals).toEqual([`${root}/1.png`, `${root}/4.png`]);
   });
+  // A fresh module instance repeats the once-per-process first sweep.
+  const freshSweep = async (caseName: string, ledger: string | null) => {
+    const root = "C:/cache/agent/pasted-images";
+    planCase = retentionCase(caseName);
+    for (const entry of planCase.request.entries) {
+      listing.push({ name: entry.path.slice(3), isFile: true });
+      modified.set(`${root}/${entry.path.slice(3)}`, planCase.request.nowMs - 30 * 86_400_000);
+    }
+    if (ledger !== null) files.set("C:/cache/agent/pasted-images-accepted.json", ledger);
+    const module = await import(`../src/platform/agent-pasted-images?${caseName}`);
+    await module.savePastedImages([image()]);
+    return root;
+  };
+  test("a missing ledger seeds the existing images and deletes nothing", async () => {
+    const root = await freshSweep("missing ledger seeds every cached image and keeps old ones", null);
+    expect(invocations[0].args.ledgerPresent).toBe(false);
+    expect(removals).toEqual([]);
+    expect(JSON.parse(files.get("C:/cache/agent/pasted-images-accepted.json")!)).toEqual([`${root}/old.png`, `${root}/new.png`]);
+    expect(files.has("C:/cache/agent/pasted-images-accepted.json.tmp")).toBe(false);
+  });
+  test("an existing empty ledger never migrates again", async () => {
+    const root = await freshSweep("empty ledger that exists does not migrate again", "[]");
+    expect(invocations[0].args.ledgerPresent).toBe(true);
+    expect(removals).toEqual([`${root}/old.png`]);
+    expect(files.get("C:/cache/agent/pasted-images-accepted.json")).toBe("[]");
+  });
   test("an accepted prompt records only cached images in the ledger", async () => {
     const root = "C:/cache/agent/pasted-images";
+    files.set("C:/cache/agent/pasted-images-accepted.json", "[]");
     files.set(`${root}/5.png`, "x");
     files.set("C:/other/6.png", "x");
     await recordAcceptedPastedImages([`file:///${root}/5.png`, "file:///C:/other/6.png", "file:///C:/cache/agent/pasted-images/gone.png"]);

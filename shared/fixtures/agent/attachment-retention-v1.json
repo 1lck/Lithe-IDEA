@@ -11,7 +11,8 @@
             "path": "/c/a.png",
             "modifiedMs": 1799913600000
           }
-        ]
+        ],
+        "ledgerPresent": true
       },
       "expected": {
         "delete": [],
@@ -20,7 +21,8 @@
             "path": "/c/a.png",
             "reason": "recent"
           }
-        ]
+        ],
+        "seed": []
       }
     },
     {
@@ -35,7 +37,8 @@
         ],
         "acceptedReferences": [
           "/c/a.png"
-        ]
+        ],
+        "ledgerPresent": true
       },
       "expected": {
         "delete": [],
@@ -44,7 +47,8 @@
             "path": "/c/a.png",
             "reason": "referenced"
           }
-        ]
+        ],
+        "seed": []
       }
     },
     {
@@ -56,7 +60,8 @@
             "path": "/c/a.png",
             "modifiedMs": 1799308800000
           }
-        ]
+        ],
+        "ledgerPresent": true
       },
       "expected": {
         "delete": [
@@ -65,7 +70,8 @@
             "reason": "expired"
           }
         ],
-        "keep": []
+        "keep": [],
+        "seed": []
       }
     },
     {
@@ -77,7 +83,8 @@
             "path": "/c/a.png",
             "modifiedMs": 1799395200000
           }
-        ]
+        ],
+        "ledgerPresent": true
       },
       "expected": {
         "delete": [],
@@ -86,7 +93,8 @@
             "path": "/c/a.png",
             "reason": "recent"
           }
-        ]
+        ],
+        "seed": []
       }
     },
     {
@@ -99,7 +107,8 @@
             "modifiedMs": 1800000000000,
             "abandoned": true
           }
-        ]
+        ],
+        "ledgerPresent": true
       },
       "expected": {
         "delete": [
@@ -108,7 +117,8 @@
             "reason": "abandoned"
           }
         ],
-        "keep": []
+        "keep": [],
+        "seed": []
       }
     },
     {
@@ -124,7 +134,8 @@
         ],
         "acceptedReferences": [
           "/c/a.png"
-        ]
+        ],
+        "ledgerPresent": true
       },
       "expected": {
         "delete": [],
@@ -133,7 +144,8 @@
             "path": "/c/a.png",
             "reason": "referenced"
           }
-        ]
+        ],
+        "seed": []
       }
     },
     {
@@ -144,7 +156,8 @@
           {
             "path": "/c/a.png"
           }
-        ]
+        ],
+        "ledgerPresent": true
       },
       "expected": {
         "delete": [],
@@ -153,7 +166,8 @@
             "path": "/c/a.png",
             "reason": "recent"
           }
-        ]
+        ],
+        "seed": []
       }
     },
     {
@@ -169,7 +183,8 @@
         ],
         "acceptedReferences": [
           "c:/cache/pasted-1.png"
-        ]
+        ],
+        "ledgerPresent": true
       },
       "expected": {
         "delete": [],
@@ -178,7 +193,8 @@
             "path": "C:\\Cache\\Pasted-1.PNG",
             "reason": "referenced"
           }
-        ]
+        ],
+        "seed": []
       }
     },
     {
@@ -193,7 +209,8 @@
         ],
         "acceptedReferences": [
           "/c/a.png"
-        ]
+        ],
+        "ledgerPresent": true
       },
       "expected": {
         "delete": [
@@ -202,7 +219,8 @@
             "reason": "expired"
           }
         ],
-        "keep": []
+        "keep": [],
+        "seed": []
       }
     },
     {
@@ -229,7 +247,8 @@
         ],
         "acceptedReferences": [
           "/c/2.png"
-        ]
+        ],
+        "ledgerPresent": true
       },
       "expected": {
         "delete": [
@@ -251,7 +270,89 @@
             "path": "/c/3.png",
             "reason": "recent"
           }
+        ],
+        "seed": []
+      }
+    },
+    {
+      "name": "missing ledger seeds every cached image and keeps old ones",
+      "request": {
+        "nowMs": 1800000000000,
+        "ledgerPresent": false,
+        "entries": [
+          {
+            "path": "/c/old.png",
+            "modifiedMs": 1797408000000
+          },
+          {
+            "path": "/c/new.png",
+            "modifiedMs": 1799913600000
+          }
         ]
+      },
+      "expected": {
+        "delete": [],
+        "keep": [
+          {
+            "path": "/c/old.png",
+            "reason": "referenced"
+          },
+          {
+            "path": "/c/new.png",
+            "reason": "referenced"
+          }
+        ],
+        "seed": [
+          "/c/old.png",
+          "/c/new.png"
+        ]
+      }
+    },
+    {
+      "name": "empty ledger that exists does not migrate again",
+      "request": {
+        "nowMs": 1800000000000,
+        "ledgerPresent": true,
+        "acceptedReferences": [],
+        "entries": [
+          {
+            "path": "/c/old.png",
+            "modifiedMs": 1797408000000
+          }
+        ]
+      },
+      "expected": {
+        "delete": [
+          {
+            "path": "/c/old.png",
+            "reason": "expired"
+          }
+        ],
+        "keep": [],
+        "seed": []
+      }
+    },
+    {
+      "name": "missing ledger never seeds an abandoned paste",
+      "request": {
+        "nowMs": 1800000000000,
+        "ledgerPresent": false,
+        "entries": [
+          {
+            "path": "/c/gone.png",
+            "abandoned": true
+          }
+        ]
+      },
+      "expected": {
+        "delete": [
+          {
+            "path": "/c/gone.png",
+            "reason": "abandoned"
+          }
+        ],
+        "keep": [],
+        "seed": []
       }
     }
   ]

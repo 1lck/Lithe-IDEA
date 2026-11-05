@@ -218,18 +218,25 @@ extension AppModel {
         return paths
     }
 
+    /// `.atomic` writes a temporary sibling and renames it over the ledger.
+    private func writeAgentAcceptedAttachmentLedger(_ paths: [String]) throws {
+        let storage = services.fileStorage
+        try storage.createDirectory(at: agentAcceptedAttachmentLedger.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try storage.writeData(try JSONEncoder().encode(paths), to: agentAcceptedAttachmentLedger, options: .atomic)
+    }
+
     /// Remembers the cached images an accepted prompt refers to, so a later
     /// paste never deletes an image a conversation still points at.
     func recordAcceptedAgentAttachments(_ files: [AgentFileReference]) {
         let storage = services.fileStorage
         let directory = agentPastedImageDirectory.standardizedFileURL.path + "/"
         let accepted = files.map(\.url.path).filter { $0.hasPrefix(directory) }
-        guard !accepted.isEmpty else { return }
+        // Without a ledger the cache has not been migrated; the next paste seeds it, accepted images included.
+        guard !accepted.isEmpty, storage.fileExists(at: agentAcceptedAttachmentLedger) else { return }
         var paths = acceptedAgentAttachmentPaths().filter { storage.fileExists(at: URL(fileURLWithPath: $0)) }
         for path in accepted where !paths.contains(path) { paths.append(path) }
         do {
-            try storage.createDirectory(at: agentAcceptedAttachmentLedger.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try storage.writeData(try JSONEncoder().encode(paths), to: agentAcceptedAttachmentLedger, options: .atomic)
+            try writeAgentAcceptedAttachmentLedger(paths)
         } catch { services.logSink?.emit(AgentImagesCleanupFailed(count: 1, error: error)) }
     }
 
@@ -251,7 +258,10 @@ extension AppModel {
         do {
             let plan = try RustCoreBridge(coreLogSink: services.logSink).agentAttachmentRetentionPlan(
                 nowMs: Int64(Date().timeIntervalSince1970 * 1000), entries: entries,
-                acceptedReferences: acceptedAgentAttachmentPaths())
+                acceptedReferences: acceptedAgentAttachmentPaths(),
+                ledgerPresent: storage.fileExists(at: agentAcceptedAttachmentLedger))
+            // A cache that predates the ledger is seeded first; if that fails nothing is deleted.
+            if !storage.fileExists(at: agentAcceptedAttachmentLedger) { try writeAgentAcceptedAttachmentLedger(plan.seed) }
             for decision in plan.delete {
                 do { try storage.removeItem(at: URL(fileURLWithPath: decision.path)) }
                 catch where (error as NSError).domain == NSCocoaErrorDomain && [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains((error as NSError).code) {

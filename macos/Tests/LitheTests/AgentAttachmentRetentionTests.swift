@@ -14,6 +14,7 @@ struct AgentAttachmentRetentionTests {
                     let nowMs: Int64
                     let entries: [Entry]
                     let acceptedReferences: [String]?
+                    let ledgerPresent: Bool
                     let caseInsensitive: Bool?
                 }
                 let name: String
@@ -28,7 +29,9 @@ struct AgentAttachmentRetentionTests {
             let plan = try RustCoreBridge().agentAttachmentRetentionPlan(
                 nowMs: item.request.nowMs,
                 entries: item.request.entries.map { .init(path: $0.path, modifiedMs: $0.modifiedMs, abandoned: $0.abandoned ?? false) },
-                acceptedReferences: item.request.acceptedReferences ?? [])
+                acceptedReferences: item.request.acceptedReferences ?? [],
+                ledgerPresent: item.request.ledgerPresent)
+            #expect(plan.seed == item.expected.seed, "\(item.name)")
             #expect(plan.delete.map(\.path) == item.expected.delete.map(\.path), "\(item.name)")
             #expect(plan.delete.map(\.reason) == item.expected.delete.map(\.reason), "\(item.name)")
             #expect(plan.keep.map(\.path) == item.expected.keep.map(\.path), "\(item.name)")

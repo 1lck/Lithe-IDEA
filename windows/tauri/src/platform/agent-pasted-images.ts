@@ -1,5 +1,5 @@
 import { appCacheDir, join } from "@tauri-apps/api/path";
-import { exists, mkdir, readDir, readTextFile, remove, stat, writeFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { exists, mkdir, readDir, readTextFile, remove, rename, stat, writeFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { invoke } from "./tauri-core";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -11,31 +11,47 @@ const EXTENSIONS: Record<string, string> = {
 let prepare: Promise<string> | undefined;
 
 interface RetentionEntry { path: string; modifiedMs?: number; abandoned: boolean }
-interface RetentionPlan { delete: { path: string; reason: string }[]; keep: { path: string; reason: string }[] }
-
-/** Core decides what may be deleted; this adapter lists the cache and removes the files. */
-async function retentionPlan(entries: RetentionEntry[]): Promise<RetentionPlan> {
-  return invoke<RetentionPlan>("agent.attachments.retentionPlan", {
-    nowMs: Date.now(),
-    entries,
-    acceptedReferences: await acceptedReferences(),
-    caseInsensitive: true,
-  });
-}
+interface RetentionPlan { delete: { path: string; reason: string }[]; keep: { path: string; reason: string }[]; seed: string[] }
 
 /** Ledger of images a conversation accepted; it sits beside the cache, never in the install directory. */
 async function ledgerPath(): Promise<string> {
   return join(await appCacheDir(), "agent", "pasted-images-accepted.json");
 }
 
-async function acceptedReferences(): Promise<string[]> {
+/** `present` is the file's existence alone; Core never treats an empty ledger as a first run. */
+async function readLedger(): Promise<{ present: boolean; paths: string[] }> {
   const path = await ledgerPath();
-  if (!(await exists(path))) return [];
+  if (!(await exists(path))) return { present: false, paths: [] };
   const parsed: unknown = JSON.parse(await readTextFile(path));
   if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === "string")) {
     throw new Error("agent.composer.imageCleanupFailed");
   }
-  return parsed;
+  return { present: true, paths: parsed };
+}
+
+/** Publishes the ledger through a temporary sibling so a crash never leaves a partial file. */
+async function writeLedger(paths: string[]): Promise<void> {
+  const path = await ledgerPath();
+  const temporary = `${path}.tmp`;
+  await writeTextFile(temporary, JSON.stringify(paths));
+  await rename(temporary, path);
+}
+
+/**
+ * Core decides what may be deleted and, for a cache that predates the ledger, which images
+ * to seed as accepted. The seed is written before the caller deletes anything.
+ */
+async function retentionPlan(entries: RetentionEntry[]): Promise<RetentionPlan> {
+  const ledger = await readLedger();
+  const plan = await invoke<RetentionPlan>("agent.attachments.retentionPlan", {
+    nowMs: Date.now(),
+    entries,
+    acceptedReferences: ledger.paths,
+    ledgerPresent: ledger.present,
+    caseInsensitive: true,
+  });
+  if (!ledger.present) await writeLedger(plan.seed);
+  return plan;
 }
 
 function filePath(uri: string): string | null {
@@ -49,14 +65,17 @@ export async function recordAcceptedPastedImages(uris: string[]): Promise<void> 
   const accepted = uris.map(filePath).filter((path): path is string =>
     path !== null && path.replace(/\\/g, "/").toLowerCase().startsWith(root));
   if (accepted.length === 0) return;
+  const ledger = await readLedger();
+  // Without a ledger the cache has not been migrated yet; the next sweep seeds it, accepted images included.
+  if (!ledger.present) return;
   const known = new Set<string>();
   const kept: string[] = [];
-  for (const path of [...(await acceptedReferences()), ...accepted]) {
+  for (const path of [...ledger.paths, ...accepted]) {
     if (known.has(path.toLowerCase()) || !(await exists(path))) continue;
     known.add(path.toLowerCase());
     kept.push(path);
   }
-  await writeTextFile(await ledgerPath(), JSON.stringify(kept));
+  await writeLedger(kept);
 }
 
 async function removePlanned(plan: RetentionPlan): Promise<void> {
