@@ -1322,6 +1322,25 @@ final class MacServiceContainer {
             },
             servers: MacRemoteServerBundleLocator.locate()
         )
+        let installedPlugins = pluginStartup.registeredPlugins
+        // The plugins whose declarations apply right now. Ones registered at
+        // launch follow the plugin manager's enablement; ones that apply
+        // without a restart (generators, tool definitions) follow the live
+        // registry. It is read on every call, so a plugin installed, enabled or
+        // removed from the UI shows up in the next list at once.
+        let pluginsInEffect: @MainActor @Sendable () -> [(package: InstalledPluginPackage, isEnabled: Bool)] = { [pluginManager] in
+            let enabled = Set(pluginManager.snapshots.filter(\.isEnabled).map(\.id))
+            let registered = installedPlugins.map { (package: $0, isEnabled: enabled.contains($0.descriptor.id)) }
+            let live = liveSnapshotBox.snapshot.entries.values
+                .sorted { $0.package.manifest.id < $1.package.manifest.id }
+                .map { (package: $0.package, isEnabled: $0.isEnabled) }
+            return registered + live
+        }
+        let toolchainPreferences = MacToolchainPreferencesStore(core: rustCore, storage: fileStorage,
+            immutableRoots: { [pluginPackageStore] in
+                [Bundle.main.bundleURL] + pluginPackageStore.runtimeReadOnlyDirectories
+                    + pluginsInEffect().map(\.package.packageURL)
+            })
         // New Project window. Plugin packages are read-only; projects are
         // written into a staging directory inside the folder the user chose.
         services.projectGeneration = ProjectGenerationService(
@@ -1338,21 +1357,22 @@ final class MacServiceContainer {
             },
             recordJavaHome: { root, home in
                 try await runtimeService.presetJavaHome(home, for: root)
+            },
+            saveToolPin: { root, pin in
+                try await MacProjectToolPins.save(pin, in: root, using: toolchainPreferences)
             }
         )
-        let installedPlugins = pluginStartup.registeredPlugins
         services.loginShellEnvironmentInspector = MacLoginShellEnvironment.shared
-        let toolchainSources: @MainActor @Sendable () -> [ToolchainSettingsPluginSource] = { [pluginManager] in
-            let enabled = Set(pluginManager.snapshots.filter(\.isEnabled).map(\.id))
-            return installedPlugins.map { plugin in
+        let toolchainSources: @MainActor @Sendable () -> [ToolchainSettingsPluginSource] = {
+            pluginsInEffect().map { plugin in
                 ToolchainSettingsPluginSource(
-                    pluginID: plugin.descriptor.id.rawValue,
-                    name: plugin.manifest.displayName,
-                    manifest: plugin.descriptor.normalizedManifest,
-                    isEnabled: enabled.contains(plugin.descriptor.id),
+                    pluginID: plugin.package.descriptor.id.rawValue,
+                    name: plugin.package.manifest.displayName,
+                    manifest: plugin.package.descriptor.normalizedManifest,
+                    isEnabled: plugin.isEnabled,
                     // Short tool IDs need an official catalog entry installed through a verified channel.
-                    verifiedOfficial: OfficialPluginCatalog.trustPolicy(for: plugin.descriptor.id) != nil
-                        && [.bundled, .marketplace].contains(plugin.installation.origin)
+                    verifiedOfficial: OfficialPluginCatalog.trustPolicy(for: plugin.package.descriptor.id) != nil
+                        && [.bundled, .marketplace].contains(plugin.package.installation.origin)
                 )
             }
         }
@@ -1393,20 +1413,20 @@ final class MacServiceContainer {
             discover: { request in await toolchainDiscovery.discover(request) }
         )
         services.toolchainInputWatcher = MacToolchainInputWatcher()
-        services.toolchainPreferences = MacToolchainPreferencesStore(core: rustCore, storage: fileStorage,
-            immutableRoots: { [pluginPackageStore] in
-                [Bundle.main.bundleURL] + pluginPackageStore.runtimeReadOnlyDirectories + installedPlugins.map(\.packageURL)
-            })
-        services.projectGeneratorSources = { [pluginManager] in
-            // Enablement is read on every call, so a plugin enabled from the
-            // window shows its entries and satisfies requirements at once.
-            let enabled = Set(pluginManager.snapshots.filter(\.isEnabled).map(\.id))
-            return installedPlugins.map { plugin in
+        services.toolchainPreferences = toolchainPreferences
+        services.projectToolInstallations = { tools in
+            try await MacProjectToolInstallations(
+                discover: { await toolchainDiscovery.discover($0) },
+                report: { logSink?.emit($0) }
+            ).installations(of: tools, sources: toolchainSources())
+        }
+        services.projectGeneratorSources = {
+            pluginsInEffect().map { plugin in
                 ProjectGeneratorPluginSource(
-                    pluginID: plugin.descriptor.id,
-                    manifest: plugin.descriptor.normalizedManifest,
-                    packageURL: plugin.packageURL,
-                    isEnabled: enabled.contains(plugin.descriptor.id)
+                    pluginID: plugin.package.descriptor.id,
+                    manifest: plugin.package.descriptor.normalizedManifest,
+                    packageURL: plugin.package.packageURL,
+                    isEnabled: plugin.isEnabled
                 )
             }
         }

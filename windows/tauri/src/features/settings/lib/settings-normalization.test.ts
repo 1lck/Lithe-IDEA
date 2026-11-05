@@ -10,6 +10,25 @@ import {
 import type { Settings } from "@/features/settings/types/settings.types";
 
 describe("default settings", () => {
+  test("preserves wide terminal docks through saving and reloading on either side", () => {
+    for (const terminalDockPosition of ["left", "right"] as const) {
+      for (const width of [601, 900, 2400]) {
+        const terminalDockWidth = normalizeSettingValue("terminalDockWidth", width);
+        expect(terminalDockWidth).toBe(width);
+        const restored = normalizeSettings({
+          ...getDefaultSettingsSnapshot(),
+          terminalDockPosition,
+          terminalDockWidth,
+        });
+        expect(restored.terminalDockWidth).toBe(width);
+      }
+    }
+    for (const invalid of [Number.NaN, Infinity, -Infinity]) {
+      expect(normalizeSettingValue("terminalDockWidth", invalid)).toBe(400);
+    }
+    expect(normalizeSettingValue("terminalDockWidth", -1)).toBe(140);
+    expect(normalizeSettingValue("terminalDockWidth", 900.4)).toBe(900);
+  });
   test("restores terminal docking defaults for older or malformed settings", () => {
     const old = getDefaultSettingsSnapshot();
     for (const key of ["terminalDockPosition", "terminalDockWidth", "bottomPaneHeight"] as const) {

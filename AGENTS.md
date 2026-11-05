@@ -122,6 +122,17 @@
   登记：合入日期、PR、修改人（PR 作者）、改了哪个协议或 API；新版本号同时写进该页“按协议查首次出现”的表。
   只改了后两个文件、契约目录没变时，同样要同步到合并后的 commit 并登记。登记和契约同步放在同一个
   lithe-plugin-docs PR 里，PR 描述中直接 `@` 每个被登记 PR 的作者，请他们核对自己那一行。具体步骤见该页的“维护”一节。
+- 新增或修改宿主方法、宿主通知的 PR，即使只是给已有 API 加一个子方法，也要在 PR 描述里附一张
+  “原计划编号 | 方法 | 用途”表，每个方法占一行，格式参照
+  [#1653](https://github.com/1lck/Lithe-IDEA/pull/1653) 的描述。原计划编号只用
+  [API 实施计划](docs/development/macos-plugin-api-plan.md)里的 API-01–44，不得自编新号；
+  不属于任何编号的方法写 —。合并后登记时，每个方法在 lithe-plugin-docs 两处各加一行：
+  [API 总表](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/reference/api-catalog.md)的中英两张方法表
+  （API、方法、用途、权限、协议），以及更新记录的“宿主方法（按 API 编号）”索引（API、方法、协议、日期、PR）。
+  这个 PR 在时间线上的“API 编号”列也要填上。同一个 API 的方法分几个 PR 加入时，每个方法记自己的 PR。
+- 插件开发者只读 lithe-plugin-docs 就必须能开发对应插件。方法的参数、返回值、错误码、权限、生命周期和平台限制，
+  要写进契约 README，再经同步进入 lithe-plugin-docs 的 `contract/v1/`；面向开发者的用法说明写进
+  lithe-plugin-docs 的功能页。只写在实施计划、Agent Note、契约草案或宿主代码里的行为，不算已公开。
 - 契约 README 里指向该目录以外的链接必须写成绝对 URL；`scripts/architecture/verify-shared-contracts.sh`
   会拒绝离开该目录的相对链接。
 - 面向插件开发者的新说明写进 lithe-plugin-docs，不写进本仓库或 Lithe Store。

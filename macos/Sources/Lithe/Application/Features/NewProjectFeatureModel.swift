@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
@@ -18,6 +19,14 @@ struct NewProjectEnvironment {
     let openMarketplace: @MainActor (String) -> Void
     let openProject: @MainActor (CreatedProject) -> Void
     let store: any KeyValueStore
+    /// Installations of the tools `tool` fields pick, by tool definition ID and
+    /// best first. A new project has no workspace yet, so this is the
+    /// machine-wide discovery; a tool nothing defines is simply absent. Throws
+    /// when discovery could not run, which is not the same as nothing found.
+    var toolInstallations: @MainActor ([String]) async throws -> [String: [ProjectToolInstallation]] = { _ in [:] }
+    /// Fires after the installed plugins or their enablement changed, so the
+    /// entry list follows an install, update, or removal without reopening.
+    var pluginChanges: AnyPublisher<Void, Never> = Empty<Void, Never>().eraseToAnyPublisher()
 }
 
 /// State of the New Project window: the entry list, the host-owned name,
@@ -85,8 +94,20 @@ final class NewProjectFeatureModel: ObservableObject {
     @Published private(set) var progressOutput = ""
     @Published private(set) var errorMessage: String?
     @Published private(set) var enablingPluginID: PluginID?
+    /// True from the moment tool installations are requested until they arrive,
+    /// so an empty list reads as "none installed" rather than "still looking".
+    @Published private(set) var isListingTools = false
+    /// Why the installations of a tool could not be looked up, by tool
+    /// definition ID. Such a tool has no listing, so Create stays disabled.
+    @Published private(set) var toolListingFailures: [String: String] = [:]
 
     private let environment: NewProjectEnvironment
+    /// Installations found per tool definition ID. A listing replaces the
+    /// entries it asked for; the others keep their last answer until a plugin
+    /// change drops them all. A tool with no entry has not been listed yet.
+    private var listedTools: [String: [ProjectToolInstallation]] = [:]
+    private var toolListing: Task<Void, Never>?
+    private var pluginChangeObservation: AnyCancellable?
     /// Inputs per generator, so switching entries keeps what the user typed.
     private var inputs: [String: ProjectGeneratorFormInput] = [:]
     private var creation: Task<Void, Never>?
@@ -99,6 +120,11 @@ final class NewProjectFeatureModel: ObservableObject {
         self.environment = environment
         location = environment.store.string(forKey: Self.locationKey) ?? Self.defaultLocation
         createGitRepository = environment.store.object(forKey: Self.createGitKey) as? Bool ?? false
+        pluginChangeObservation = environment.pluginChanges
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                MainActor.assumeIsolated { self?.reloadCatalog() }
+            }
     }
 
     // MARK: Catalog
@@ -130,7 +156,14 @@ final class NewProjectFeatureModel: ObservableObject {
         if case .generator(let id) = selection, !entries.contains(where: { $0.id == id }) {
             selection = .empty
         }
+        // A plugin change may add or remove the definition of any tool, not
+        // only the selected entry's, so every listing is dropped: an entry
+        // selected later is looked up again instead of offering a home the
+        // removed definition found.
+        listedTools = [:]
+        toolListingFailures = [:]
         evaluate()
+        listToolInstallations()
     }
 
     var selectedEntry: ProjectGeneratorEntry? {
@@ -225,7 +258,10 @@ final class NewProjectFeatureModel: ObservableObject {
         guard !isCreating, nameProblem == nil, formError == nil,
               !location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         guard let entry = selectedEntry else { return selection == .empty }
+        // Until its tools are listed the form has judged an empty list, so an
+        // optional tool would read as "none" and be left out of the project.
         return entry.pluginEnabled && formState?.valid == true
+            && toolIDs(of: entry).allSatisfy { listedTools[$0] != nil }
     }
 
     private var parentURL: URL {
@@ -236,6 +272,11 @@ final class NewProjectFeatureModel: ObservableObject {
     private func input(for entry: ProjectGeneratorEntry) -> ProjectGeneratorFormInput {
         var input = inputs[entry.id] ?? ProjectGeneratorFormInput(projectName: projectName)
         input.projectName = projectName
+        // Core accepts only installations the host listed, so each tool field
+        // is sent what was found for its tool.
+        for field in entry.generator.fields where field.kind == .tool {
+            input.tools[field.id] = field.tool.flatMap { listedTools[$0] } ?? []
+        }
         // Every runtime field starts on the best JDK the generator accepts.
         for field in entry.generator.fields where field.kind == .runtime && input.runtimes[field.id] == nil {
             if let runtime = Self.preferredRuntime(javaRuntimes, minimum: field.minimumVersion) {
@@ -257,6 +298,10 @@ final class NewProjectFeatureModel: ObservableObject {
         errorMessage = nil
         showsAdvancedFields = false
         evaluate()
+        // Tools another generator already needed are not looked up again.
+        if toolIDs(of: selectedEntry).contains(where: { listedTools[$0] == nil }) {
+            listToolInstallations()
+        }
     }
 
     /// Asks Rust Core for the form after every change.
@@ -303,6 +348,101 @@ final class NewProjectFeatureModel: ObservableObject {
             manifest: source.manifest,
             packageURL: source.packageURL
         )
+    }
+
+    // MARK: Tool fields
+
+    /// The installations a tool field offers, with Core's verdict on each.
+    func toolChoices(for field: ProjectGeneratorField) -> [ProjectGeneratorFormState.ToolChoice] {
+        formState?.field(field.id)?.installations ?? []
+    }
+
+    /// The homes a tool field's picker lists. Core leaves an optional field
+    /// empty when every installation is too old, so "" comes first then and
+    /// the picker shows that rather than a blank control.
+    func toolOptions(for field: ProjectGeneratorField) -> [String] {
+        let homes = toolChoices(for: field).map(\.home)
+        guard case .string(let chosen) = value(of: field), !chosen.isEmpty else { return [""] + homes }
+        return homes
+    }
+
+    /// Whether the picker lets the user choose `home`: "no tool" and the
+    /// installations Core says are new enough. An older one stays listed so the
+    /// user sees why it is not used.
+    func isToolChoosable(_ home: String, for field: ProjectGeneratorField) -> Bool {
+        home.isEmpty || toolChoices(for: field).first { $0.home == home }?.meetsMinimum == true
+    }
+
+    /// What to offer when a tool field found no installation because no enabled
+    /// plugin defines its tool: enable the plugin that does, or look for one.
+    /// Nil while listing, when installations exist, and when the defining
+    /// plugin is already enabled (the tool is then just not installed).
+    func toolNoticeAction(for field: ProjectGeneratorField) -> RequirementNotice.Action? {
+        guard !isListingTools, toolListingError(for: field) == nil, toolChoices(for: field).isEmpty,
+              let tool = selectedEntry?.tools.first(where: { $0.fieldID == field.id }),
+              !tool.providers.contains(where: \.enabled) else { return nil }
+        if let provider = tool.providers.first {
+            return .enable(PluginID(provider.pluginID), name: provider.pluginName)
+        }
+        // A third-party definition is `<pluginID>:<id>`; the plugin is what the
+        // marketplace lists.
+        let query = tool.tool.split(separator: ":").first.map(String.init) ?? tool.tool
+        return .findInMarketplace(query)
+    }
+
+    /// The distinct tools the entry's tool fields pick, in declaration order.
+    private func toolIDs(of entry: ProjectGeneratorEntry?) -> [String] {
+        var seen = Set<String>()
+        return (entry?.generator.fields ?? [])
+            .filter { $0.kind == .tool }
+            .compactMap(\.tool)
+            .filter { seen.insert($0).inserted }
+    }
+
+    /// Why the installations of the field's tool could not be looked up, or
+    /// nil when they were (or are still being) looked up.
+    func toolListingError(for field: ProjectGeneratorField) -> String? {
+        guard !isListingTools else { return nil }
+        return field.tool.flatMap { toolListingFailures[$0] }
+    }
+
+    /// Looks the selected generator's tools up again after a failure.
+    func retryToolListing() {
+        listToolInstallations()
+    }
+
+    /// Looks up the installations of the selected generator's tools and
+    /// re-evaluates the form with them. A newer request replaces an older one.
+    private func listToolInstallations() {
+        toolListing?.cancel()
+        let tools = toolIDs(of: selectedEntry)
+        guard !tools.isEmpty else {
+            isListingTools = false
+            return
+        }
+        isListingTools = true
+        toolListing = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let found = try await environment.toolInstallations(tools)
+                guard !Task.isCancelled else { return }
+                for tool in tools {
+                    listedTools[tool] = found[tool] ?? []
+                    toolListingFailures[tool] = nil
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                // The tools stay unlisted, so the field says the lookup failed
+                // instead of "not installed", and Create waits for a retry.
+                // A tool listed before keeps that listing.
+                let message = String(
+                    format: L10n.string("Could not look for installed tools: %@"), error.localizedDescription
+                )
+                for tool in tools where listedTools[tool] == nil { toolListingFailures[tool] = message }
+            }
+            isListingTools = false
+            evaluate()
+        }
     }
 
     // MARK: Actions
