@@ -24,11 +24,13 @@ macro_rules! contract_file {
     };
 }
 
-const RUN_START: &str = contract_file!("fixtures/run-start.json");
-const DEBUG_START: &str = contract_file!("fixtures/debug-start.json");
-const OUTPUT_LINK_MATCHERS: &str = contract_file!("fixtures/output-link-matchers.json");
-const TOOL_REFERENCE_MANIFEST: &str = contract_file!("fixtures/tool-reference-launch.plugin.json");
-const DEBUG_FEATURES_MANIFEST: &str = contract_file!("fixtures/debug-adapter-features.plugin.json");
+const RUN_START: &str = contract_file!("fixtures/run/run-start.json");
+const DEBUG_START: &str = contract_file!("fixtures/debug-adapters/debug-start.json");
+const OUTPUT_LINK_MATCHERS: &str = contract_file!("fixtures/run/output-link-matchers.json");
+const TOOL_REFERENCE_MANIFEST: &str =
+    contract_file!("fixtures/run/tool-reference-launch.plugin.json");
+const DEBUG_FEATURES_MANIFEST: &str =
+    contract_file!("fixtures/debug-adapters/debug-adapter-features.plugin.json");
 
 fn parse(source: &str) -> Value {
     serde_json::from_str(source).expect("contract fixture is JSON")

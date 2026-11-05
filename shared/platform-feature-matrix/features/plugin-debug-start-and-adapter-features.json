@@ -6,8 +6,8 @@
   "macos": {
     "evidence": [
       "shared/contracts/plugins/v1/README.md",
-      "shared/contracts/plugins/v1/fixtures/debug-start.json",
-      "shared/contracts/plugins/v1/fixtures/debug-adapter-features.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/debug-adapters/debug-start.json",
+      "shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter-features.plugin.json",
       "rust/lithe-core/src/debug/backend_start.rs",
       "rust/lithe-core/src/debug/adapters.rs",
       "rust/lithe-core/src/debug/engine.rs",
@@ -29,8 +29,8 @@
   "windows": {
     "evidence": [
       "rust/lithe-core/src/debug/backend_start.rs",
-      "shared/contracts/plugins/v1/fixtures/debug-start.json",
-      "shared/contracts/plugins/v1/fixtures/debug-adapter-features.plugin.json"
+      "shared/contracts/plugins/v1/fixtures/debug-adapters/debug-start.json",
+      "shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter-features.plugin.json"
     ],
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"

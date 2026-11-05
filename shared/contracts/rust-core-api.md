@@ -1217,6 +1217,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.builtinCompletions` | Return lightweight current-file identifier completions |
 | `lsp.builtinHover` | Return lightweight current-symbol hover text |
 | `lsp.builtinNavigation` | Return lightweight current-file definition/reference locations |
+| `lsp.documentUri` | Convert a native absolute path into a canonical file URI |
 | `lsp.startServer` | Start one Rust-owned process/session and begin initialization |
 | `lsp.jdtWorkspaceKey` | Derive the deterministic JDT LS workspace-state directory key |
 | `java.workspacePolicy` | Decide Java workspace activation and classify changed paths |
@@ -1280,6 +1281,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.untrackedDirectory` | List one level of a summarized untracked directory: its files and subdirectory summaries |
 | `git.commitState` | Read exact HEAD, symbolic branch and index preconditions for a workspace commit |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
+| `git.classifyMetadataChanges` | Classify a bounded page of coalesced watcher paths without filesystem access |
 | `git.worktrees` | Return deterministic registered-worktree metadata without scanning each checkout |
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
 | `git.pullRequestCheckoutPreview` | Inspect and review a non-destructive PR checkout plan |
@@ -2282,6 +2284,18 @@ returns `{tags: [{name, objectId, targetId, message, date, isAnnotated}]}`;
 names come from full `refs/tags/` identities even when a branch has the same
 name, and `targetId` is the dereferenced object when Git reports one. These
 commands own Git output parsing and return errors for malformed output.
+`git.classifyMetadataChanges` accepts `{context, paths}` with at most 256 paths
+per call. The context contains `repositoryRoot`, `gitDirectory`,
+`gitCommonDirectory`, optional `workspaceRoot`, and optional `ruleDirectories`.
+Each non-empty path is at most 131,068 bytes. Paths use the host's native
+semantics and must already have the same resolved identity as the watch roots;
+Core performs no IO. The ordered `events` array returns `kind` (`context`,
+`ignoreRule`, `metadata`, `ignored`, or `other`) and `indexOnly`. Hosts retain
+ownership of native loss flags, watch lifetimes, and workspace visibility; on
+classification failure they must conservatively rescan. Native Rust callers can
+use the same typed classifier without JSON. The shared fixture is
+`shared/fixtures/git/metadata-classification-v1.json`.
+
 `git.parseCheckoutMetadata` and `git.parseGitdirPointer` each accept `{text}`
 of at most 4096 UTF-8 bytes and return `{branch}` or `{path}`, respectively;
 the host reads files and resolves relative paths. Examples live in
@@ -3284,6 +3298,24 @@ returns deterministically sorted `expiredWorkspaceKeys` older than the fixed
 enumeration, revalidation, deletion, and error logging; Core performs no cache
 filesystem I/O. See `shared/fixtures/lsp/jdt-cache-retention-v1.json`.
 
+`lsp.documentUri` accepts `{ path, platform }` and returns `{ uri }`. `platform`
+is `posix`, `windows`, or `auto`; `auto` recognizes drive and UNC paths and
+otherwise treats an absolute path as POSIX. Paths must be absolute, contain no
+NUL and fit within 131,068 UTF-8 bytes. Windows extended drive and UNC prefixes
+are accepted. Core resolves lexical dot segments, preserves a trailing directory
+separator, and percent-encodes reserved characters and UTF-8. Invalid paths
+return `invalid_request`. See `shared/fixtures/lsp/document-uri-v1.json`.
+
+The `rootUri` of `lsp.startServer` and the `uri` fields of `lsp.syncDocument`,
+`lsp.saveDocument`, `lsp.closeDocument`, `lsp.request`, `java.navigationMarkers`,
+`java.resolveNavigation`, and each `lsp.workspaceFilesChanged` change accept
+either an existing URI string or `{ path, platform }`. The related diagnostic
+location URIs in `lsp.request` accept the same shape. Core converts path inputs
+inside the existing request; virtual URI strings and opaque server data are not
+rewritten. This does not add an IPC request for each document edit. When
+matching published diagnostics, Core normalizes escape spelling and Windows
+drive letters without treating an encoded `#`, `?`, or `/` as a URI separator.
+
 `lsp.syncDocument` accepts `{ sessionId, uri, languageId, text?, contentChanges? }`.
 The first sync emits `didOpen` at version 1. Later syncs emit `didChange` with
 increasing versions. `contentChanges` follow LSP `didChange` semantics: they
@@ -3298,7 +3330,8 @@ incremental `textDocumentSync`, a successful replay is sent as range-based edits
 otherwise the replayed text is sent whole. Ranged edits without `text` fail with
 `InvalidRequest` when they cannot be replayed, and with details
 `documentNotSynchronized` when Core has never received the document; the host
-then resends the full text. The response is `{ documentVersion, changed }`;
+then resends the full text. The response is `{ documentVersion, changed, uri }`;
+`uri` is the exact resolved document identity used by the session.
 submitting identical full text returns `changed: false`, preserves the version,
 and emits no LSP notification.
 
@@ -4871,7 +4904,7 @@ contract's independent editor actions section.
 `toolchains.instantiateLaunch` accepts `{ registry, tool, executable, home?,
 entry?, runtimeArguments, arguments }` and returns `{ status: "ok", launch:
 { executable, arguments, versionArguments } }`. See
-[Launching a tool definition](plugins/v1/toolchains.md#launching-a-tool-definition).
+[Launching a tool definition](plugins/v1/toolchains/README.md#launching-a-tool-definition).
 
 `run.decodeStart` accepts `{ manifest, workspaceRoot, temporaryDirectory?,
 params }`, where `params` are those of `lithe/host/run/start` as the backend sent
@@ -5008,7 +5041,7 @@ file refuses a plan without it. Unlike the `plugins.declarative.*` commands,
 `build.detect`, `build.decodeModel`, `build.decodeTestResults`,
 `build.decodeDependencies`, and `build.syncFingerprint` read bounded files
 inside `workspaceRoot` (and the given `outputFile`); none of the commands
-writes anything or starts a process. `shared/contracts/plugins/v1/fixtures/build-plans.json`
+writes anything or starts a process. `shared/contracts/plugins/v1/fixtures/build-systems/build-plans.json`
 holds the golden plans and decoded outputs.
 
 ### VCS providers
@@ -5035,7 +5068,7 @@ detection cases, decoded snapshots, and reply validation cases.
 The `project.*` commands back the New Project window. Payloads, results, and
 problem codes are specified in the plugin contract's
 [Project generators](plugins/v1/README.md#project-generators) section, and
-`shared/contracts/plugins/v1/fixtures/project-plans.json` holds the golden
+`shared/contracts/plugins/v1/fixtures/project-generators/project-plans.json` holds the golden
 answers. Results use the `plugins.declarative.*` envelope: `catalog`, `form`,
 `plan`, `name`, and `extracted`. Commands that take a manifest revalidate it
 and answer `plugin.project.unavailable` for an undeclared generator.
@@ -6161,7 +6194,7 @@ legacy runtime detail. The four facts map to catalog INFO/ERROR/WARN/WARN,
 and a live wire request ID resolves to its original host `op`; no user content
 or backend-selected channel/level/message is accepted. See the
 [plugin logging contract](plugins/v1/README.md#structured-plugin-diagnostics-logging-protocol-1)
-and `plugins/v1/fixtures/plugin-logging.json`. Explicit upstream LSP message
+and `plugins/v1/fixtures/backend/plugin-logging.json`. Explicit upstream LSP message
 types retain their severity through separate catalog events; unclassified
 stderr is DEBUG and actual lifecycle failure is ERROR.
 

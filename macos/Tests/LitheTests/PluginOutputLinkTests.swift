@@ -244,7 +244,7 @@ struct PluginOutputLinkTests {
     /// The editor actions fixture: a backend 2 plugin that matchers with a `resolve` function can join.
     private static func editorActionsManifest(id: String, requiresMatchers: Bool = true) throws -> [String: Any] {
         var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf:
-            fixtures.appendingPathComponent("editor-actions.plugin.json"))) as? [String: Any])
+            fixtures.appendingPathComponent("editor/editor-actions.plugin.json"))) as? [String: Any])
         object["id"] = id
         if requiresMatchers {
             object["pluginAPIVersion"] = 4

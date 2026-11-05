@@ -39,7 +39,7 @@
       "macos/Tests/LitheTests/LogWindowTests.swift",
       "macos/Sources/Lithe/Views/Diagnostics/LogChannelList.swift",
       "rust/lithe-core/src/lsp/interface/plugin_logging.rs",
-      "shared/contracts/plugins/v1/fixtures/plugin-logging.json",
+      "shared/contracts/plugins/v1/fixtures/backend/plugin-logging.json",
       "rust/lithe-core/src/diagnostics/plugin_operations.rs",
       "macos/Tests/LitheTests/Support/RecordedPluginOperations.swift"
     ],

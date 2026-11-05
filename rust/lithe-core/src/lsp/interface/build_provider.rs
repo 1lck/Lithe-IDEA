@@ -312,7 +312,7 @@ mod tests {
     #[test]
     fn execution_replies_and_progress_match_the_shared_contract() {
         let fixture: Value = serde_json::from_str(include_str!(
-            "../../../../../shared/contracts/plugins/v1/fixtures/build-execution-protocol.json"
+            "../../../../../shared/contracts/plugins/v1/fixtures/build-providers/build-execution-protocol.json"
         ))
         .unwrap();
         assert_eq!(

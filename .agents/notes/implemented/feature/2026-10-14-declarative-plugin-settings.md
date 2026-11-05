@@ -77,7 +77,7 @@ cargo test --manifest-path rust/lithe-core/Cargo.toml jdt
 ./scripts/macos/test/test-macos.sh --filter PluginLanguageServerLaunchResolverTests
 ```
 
-契约夹具：`shared/contracts/plugins/v1/fixtures/node-runtime.plugin.json` 声明了三种类型的选项；`command-plans.json` 覆盖默认值、存储值、不合法存储值的回退和布尔类型保持；`invalid-manifests.json` 覆盖选项声明与引用的拒绝情形。
+契约夹具：`shared/contracts/plugins/v1/fixtures/languages/node-runtime.plugin.json` 声明了三种类型的选项；`command-plans.json` 覆盖默认值、存储值、不合法存储值的回退和布尔类型保持；`invalid-manifests.json` 覆盖选项声明与引用的拒绝情形。
 
 ## 适用范围
 

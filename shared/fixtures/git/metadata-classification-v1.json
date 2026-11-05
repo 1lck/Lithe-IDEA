@@ -1,0 +1,42 @@
+{
+  "contexts": {
+    "main": {
+      "workspaceRoot": "workspace/main",
+      "repositoryRoot": "workspace/main",
+      "gitDirectory": "workspace/main/.git",
+      "gitCommonDirectory": "workspace/main/.git",
+      "ruleDirectories": []
+    },
+    "linked": {
+      "workspaceRoot": "workspace/linked/src",
+      "repositoryRoot": "workspace/linked",
+      "gitDirectory": "workspace/main/.git/worktrees/linked",
+      "gitCommonDirectory": "workspace/main/.git",
+      "ruleDirectories": ["workspace/linked"]
+    }
+  },
+  "cases": [
+    {"name":"main index", "context":"main", "path":"workspace/main/.git/index", "kind":"metadata", "indexOnly":true},
+    {"name":"index lock", "context":"main", "path":"workspace/main/.git/index.lock", "kind":"metadata", "indexOnly":true},
+    {"name":"index descendant is not index-only", "context":"main", "path":"workspace/main/.git/index/nested", "kind":"metadata", "indexOnly":false},
+    {"name":"main head", "context":"main", "path":"workspace/main/.git/HEAD", "kind":"metadata", "indexOnly":false},
+    {"name":"object store", "context":"main", "path":"workspace/main/.git/objects/ab/abcdef", "kind":"ignored", "indexOnly":false},
+    {"name":"lfs store", "context":"main", "path":"workspace/main/.git/lfs/objects/a", "kind":"ignored", "indexOnly":false},
+    {"name":"submodule head updates parent status", "context":"main", "path":"workspace/main/.git/modules/child/HEAD", "kind":"metadata", "indexOnly":false},
+    {"name":"shared submodule head updates linked status", "context":"linked", "path":"workspace/main/.git/modules/child/HEAD", "kind":"metadata", "indexOnly":false},
+    {"name":"temporary commit context", "context":"main", "path":"workspace/main/.git/lithe-commit-4242-7/index", "kind":"ignored", "indexOnly":false},
+    {"name":"other worktree index", "context":"main", "path":"workspace/main/.git/worktrees/other/index.lock", "kind":"ignored", "indexOnly":false},
+    {"name":"other worktree logs", "context":"main", "path":"workspace/main/.git/worktrees/other/logs/HEAD", "kind":"ignored", "indexOnly":false},
+    {"name":"other worktree head", "context":"main", "path":"workspace/main/.git/worktrees/other/HEAD", "kind":"metadata", "indexOnly":false},
+    {"name":"other worktree lock", "context":"linked", "path":"workspace/main/.git/worktrees/other/locked", "kind":"metadata", "indexOnly":false},
+    {"name":"linked own index", "context":"linked", "path":"workspace/main/.git/worktrees/linked/index", "kind":"metadata", "indexOnly":true},
+    {"name":"main index is not linked index", "context":"linked", "path":"workspace/main/.git/index", "kind":"ignored", "indexOnly":false},
+    {"name":"shared reference", "context":"linked", "path":"workspace/main/.git/refs/heads/main", "kind":"metadata", "indexOnly":false},
+    {"name":"repository git pointer", "context":"linked", "path":"workspace/linked/.git", "kind":"context", "indexOnly":false},
+    {"name":"workspace git pointer", "context":"linked", "path":"workspace/linked/src/.git", "kind":"context", "indexOnly":false},
+    {"name":"root ignore rules", "context":"linked", "path":"workspace/linked/.gitignore", "kind":"ignoreRule", "indexOnly":false},
+    {"name":"nested ignore rules", "context":"linked", "path":"workspace/linked/src/nested/.gitignore", "kind":"ignoreRule", "indexOnly":false},
+    {"name":"ordinary source", "context":"linked", "path":"workspace/linked/src/Main.java", "kind":"other", "indexOnly":false},
+    {"name":"prefix is not containment", "context":"main", "path":"workspace/main/.git-other/index", "kind":"other", "indexOnly":false}
+  ]
+}

@@ -30,7 +30,7 @@
       "macos/Sources/Lithe/Platform/MacOS/WebMediaCapture.swift",
       "macos/Tests/LitheTests/PluginWebCaptureTests.swift",
       "macos/Tests/LitheTests/WebMediaCaptureTests.swift",
-      "shared/contracts/plugins/v1/fixtures/web-panel.plugin.json"
+      "shared/contracts/plugins/v1/fixtures/ui/web-panel.plugin.json"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -40,7 +40,7 @@
       "windows/tauri/src-tauri/src/plugin_host/web.rs",
       "windows/tauri/src-tauri/src/plugin_host/tests.rs",
       "windows/tauri/src/features/plugins/declarative-plugins-section.tsx",
-      "shared/contracts/plugins/v1/fixtures/web-panel.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/ui/web-panel.plugin.json",
       "windows/tauri/src/features/plugins/plugin-web-appearance.ts",
       "windows/tauri/src/features/plugins/plugin-web-appearance.test.ts",
       "windows/tauri/src/features/plugins/plugin-web-open-file.test.ts",

@@ -27,8 +27,8 @@
         {"buildSystemID": "maven", "when": {"field": "buildSystem", "equals": "maven"}}
       ],
       "steps": [
-        {"kind": "files", "source": "project-generator-templates/app"},
-        {"kind": "files", "source": "project-generator-templates/main",
+        {"kind": "files", "source": "templates/app"},
+        {"kind": "files", "source": "templates/main",
          "target": "src/${field.groupId|package|path}",
          "when": [{"field": "buildSystem", "equals": "maven"}, {"field": "sample", "equals": true}]}
       ],

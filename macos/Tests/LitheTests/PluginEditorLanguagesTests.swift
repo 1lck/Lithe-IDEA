@@ -10,8 +10,9 @@ import Testing
 @Suite("Plugin editor languages")
 @MainActor
 struct PluginEditorLanguagesTests {
-    private static let fixtures = DeclarativePluginTestSupport.repositoryRoot
+    private static let contractFixtures = DeclarativePluginTestSupport.repositoryRoot
         .appendingPathComponent("shared/contracts/plugins/v1/fixtures", isDirectory: true)
+    private static let fixtures = contractFixtures.appendingPathComponent("languages", isDirectory: true)
 
     @Test
     func browserGrammarFailuresKeepCppAndLongLanguageEvidence() throws {
@@ -82,7 +83,7 @@ struct PluginEditorLanguagesTests {
 
     @Test
     func aStandaloneToolBackendPassesTheCatalogWithoutFakeUIOrLSP() throws {
-        let descriptor = try Self.descriptor("editor-actions")
+        let descriptor = try Self.descriptor("editor-actions", in: Self.contractFixtures.appendingPathComponent("editor", isDirectory: true))
         #expect(descriptor.pluginManifest.modules.map(\.manifest.id) == [.backendExtension(descriptor.id.rawValue)])
         #expect(descriptor.languages.isEmpty)
         #expect(descriptor.languageServers.isEmpty)
@@ -190,9 +191,9 @@ struct PluginEditorLanguagesTests {
         #expect(messages.events.allSatisfy { type(of: $0).id == "plugins.grammar.rejected" })
     }
 
-    private static func descriptor(_ name: String) throws -> DeclarativePluginDescriptor {
+    private static func descriptor(_ name: String, in directory: URL = fixtures) throws -> DeclarativePluginDescriptor {
         try DeclarativePluginTestSupport.operations.validate(
-            manifest: Data(contentsOf: fixtures.appendingPathComponent("\(name).plugin.json"))
+            manifest: Data(contentsOf: directory.appendingPathComponent("\(name).plugin.json"))
         )
     }
 

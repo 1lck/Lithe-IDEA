@@ -125,7 +125,7 @@ fn execute(request: &str) -> CoreResponse {
     response
 }
 
-fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
+fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
     let id = parsed.id.clone();
     let response_id = id.clone();
     let operation_id = parsed.operation_id.clone().or_else(|| id.clone());
@@ -153,6 +153,10 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 .with_details(parsed.command),
         );
     };
+
+    if let Err(error) = crate::lsp::resolve_request_paths(&parsed.command, &mut parsed.payload) {
+        return CoreResponse::failure(id, error);
+    }
 
     let preserve_workspace_outcome = matches!(command, CoreCommand::GitWorkspaceCommitStep);
     let response = match command {
@@ -2089,7 +2093,15 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspDocumentUri => {
+            plugin_response(id, parsed.payload, crate::lsp::document_uri_command)
+        }
         CoreCommand::LspSyncDocument => {
+            let uri = parsed
+                .payload
+                .get("uri")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned);
             match serde_json::from_value::<crate::lsp::SyncDocumentRequest>(parsed.payload)
                 .map_err(|error| {
                     CoreError::new(
@@ -2100,10 +2112,12 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 })
                 .and_then(crate::lsp::sync_document)
             {
-                Ok(data) => CoreResponse::success(
-                    id,
-                    serde_json::to_value(data).expect("LSP sync-document response should encode"),
-                ),
+                Ok(data) => {
+                    let mut encoded = serde_json::to_value(data)
+                        .expect("LSP sync-document response should encode");
+                    encoded["uri"] = json!(uri);
+                    CoreResponse::success(id, encoded)
+                }
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
@@ -2256,13 +2270,18 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
             }
         }
         CoreCommand::JavaNavigationMarkers => {
-            match serde_json::from_value::<crate::lsp::JavaNavigationMarkersRequest>(parsed.payload)
-                .map_err(|error| {
-                    CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "Invalid Java navigation-markers request",
+            match crate::lsp::resolve_uri_field(&mut parsed.payload, "uri")
+                .and_then(|_| {
+                    serde_json::from_value::<crate::lsp::JavaNavigationMarkersRequest>(
+                        parsed.payload,
                     )
-                    .with_details(error.to_string())
+                    .map_err(|error| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Invalid Java navigation-markers request",
+                        )
+                        .with_details(error.to_string())
+                    })
                 })
                 .and_then(crate::lsp::java_navigation_markers)
             {
@@ -2275,13 +2294,18 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
             }
         }
         CoreCommand::JavaResolveNavigation => {
-            match serde_json::from_value::<crate::lsp::JavaResolveNavigationRequest>(parsed.payload)
-                .map_err(|error| {
-                    CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "Invalid Java resolve-navigation request",
+            match crate::lsp::resolve_uri_field(&mut parsed.payload, "uri")
+                .and_then(|_| {
+                    serde_json::from_value::<crate::lsp::JavaResolveNavigationRequest>(
+                        parsed.payload,
                     )
-                    .with_details(error.to_string())
+                    .map_err(|error| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Invalid Java resolve-navigation request",
+                        )
+                        .with_details(error.to_string())
+                    })
                 })
                 .and_then(crate::lsp::java_resolve_navigation)
             {
@@ -2797,6 +2821,9 @@ fn execute_parsed(parsed: CoreRequest) -> CoreResponse {
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
+        }
+        CoreCommand::GitClassifyMetadataChanges => {
+            plugin_response(id, parsed.payload, git::metadata_classification_command)
         }
         CoreCommand::GitWatchContext => {
             match serde_json::from_value::<GitWatchContextRequest>(parsed.payload)

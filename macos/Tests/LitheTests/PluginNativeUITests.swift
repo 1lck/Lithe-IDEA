@@ -45,7 +45,7 @@ struct PluginNativeUITests {
 
     private func formDeclaration(dynamic: Bool = false, disabled: Bool = false) throws -> PluginNativeUI {
         let data = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/native-form.plugin.json"))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/ui/native-form.plugin.json"))
         let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: data)
         let form = try #require(descriptor.pluginManifest.modules.flatMap(\.contributions).first { $0.nativeUI != nil }?.nativeUI)
         guard dynamic || disabled else { return form }
@@ -186,7 +186,7 @@ struct PluginNativeUITests {
 
     private func publicControlsDeclaration() throws -> PluginNativeUI {
         let data = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/native-controls.plugin.json"))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/ui/native-controls.plugin.json"))
         let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: data)
         return try #require(descriptor.pluginManifest.modules.flatMap(\.contributions).compactMap(\.nativeUI).first)
     }
@@ -298,7 +298,7 @@ struct PluginNativeUITests {
 
     @Test func sharedFixtureRegistersItsNativeRenderer() throws {
         let data = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/native-panel.plugin.json"))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/ui/native-panel.plugin.json"))
         let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: data)
         let window = try #require(descriptor.pluginManifest.modules.flatMap(\.contributions)
             .first(where: { $0.nativeUI != nil }))
