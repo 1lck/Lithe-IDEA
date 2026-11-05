@@ -227,8 +227,20 @@ fn lossy_line_endings_round_trip_byte_for_byte() {
             &b"one\r\nTWO\r\nthree\r\n"[..],
             &b"one\r\ntwo\r\nthree\r\n"[..],
         ),
-        ("crlf-only", vec![], b"one\ntwo\n", b"one\r\ntwo\n", b"one\ntwo\n"),
-        ("no-final-newline", vec![], b"one\ntwo", b"one\nTWO", b"one\ntwo"),
+        (
+            "crlf-only",
+            vec![],
+            b"one\ntwo\n",
+            b"one\r\ntwo\n",
+            b"one\ntwo\n",
+        ),
+        (
+            "no-final-newline",
+            vec![],
+            b"one\ntwo",
+            b"one\nTWO",
+            b"one\ntwo",
+        ),
         (
             // Git converts the worktree to its clean form and back, so the
             // restored line keeps the worktree's CRLF convention.
@@ -260,7 +272,11 @@ fn lossy_line_endings_round_trip_byte_for_byte() {
         applied(&repository.apply("file.txt", &plan, 0, "include"));
         repository.git(&["commit", "-qm", "block"]);
         let status = repository.git(&["status", "--porcelain"]);
-        assert!(status.is_empty(), "{label}: {}", String::from_utf8_lossy(&status));
+        assert!(
+            status.is_empty(),
+            "{label}: {}",
+            String::from_utf8_lossy(&status)
+        );
     }
 }
 
@@ -308,7 +324,9 @@ fn filtered_files_keep_inclusion_but_refuse_hunk_rollback() {
 #[test]
 fn complete_file_diff_hunks_equal_git_default_hunks_and_stage_alone() {
     let repository = Repository::new("diff-blocks-complete-hunks");
-    let before = (1..=40).map(|line| format!("line {line}\n")).collect::<String>();
+    let before = (1..=40)
+        .map(|line| format!("line {line}\n"))
+        .collect::<String>();
     let mut after = before.lines().map(str::to_string).collect::<Vec<_>>();
     after[5] = "first".into();
     after[19] = "second\r".into();
@@ -325,8 +343,8 @@ fn complete_file_diff_hunks_equal_git_default_hunks_and_stage_alone() {
     assert_eq!(response["ok"], true, "{response}");
     let file = &response["data"]["files"][0];
     let hunks = file["hunks"].as_array().unwrap();
-    let default = String::from_utf8(repository.git(&["diff", "--no-color", "--", "file.txt"]))
-        .unwrap();
+    let default =
+        String::from_utf8(repository.git(&["diff", "--no-color", "--", "file.txt"])).unwrap();
     // Default hunks carry Git's function-name hint after the range; compare
     // the range and every body byte.
     let default_hunks = default
@@ -346,8 +364,7 @@ fn complete_file_diff_hunks_equal_git_default_hunks_and_stage_alone() {
             .unwrap();
         assert_eq!(header, range);
         assert_eq!(body.trim_end_matches('\n'), expected.trim_end_matches('\n'));
-        let lines = &file["lines"].as_array().unwrap()[hunk["lineStart"].as_u64().unwrap()
-            as usize
+        let lines = &file["lines"].as_array().unwrap()[hunk["lineStart"].as_u64().unwrap() as usize
             ..hunk["lineEnd"].as_u64().unwrap() as usize];
         assert!(lines.iter().all(|line| line["lineType"] != "header"));
     }
@@ -381,11 +398,17 @@ fn gutter_changes_stage_original_bytes_and_refuse_moved_lines() {
 
     let response = repository.request("git.stageGutterChange", change("four", "FOUR", 4));
     applied(&response);
-    assert_eq!(repository.index("file.txt"), b"one\r\ntwo\r\nthree\r\nFOUR\r\n");
+    assert_eq!(
+        repository.index("file.txt"),
+        b"one\r\ntwo\r\nthree\r\nFOUR\r\n"
+    );
 
     // The editor still shows a line the file no longer has.
     repository.write("file.txt", b"Uno\r\ntwo\r\nthree\r\nFOUR\r\n");
     let response = repository.request("git.stageGutterChange", change("one", "ONE", 1));
     assert_eq!(failure(&response), "GIT_GUTTER_CHANGE_STALE");
-    assert_eq!(repository.index("file.txt"), b"one\r\ntwo\r\nthree\r\nFOUR\r\n");
+    assert_eq!(
+        repository.index("file.txt"),
+        b"one\r\ntwo\r\nthree\r\nFOUR\r\n"
+    );
 }

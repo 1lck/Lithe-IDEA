@@ -133,8 +133,7 @@ impl SingleHunkDocument {
             old_start,
             new_start,
         };
-        (document.old().len() == old_count && document.new().len() == new_count)
-            .then_some(document)
+        (document.old().len() == old_count && document.new().len() == new_count).then_some(document)
     }
 
     /// Parses a section whose hunk spans both complete files.
@@ -165,7 +164,10 @@ impl SingleHunkDocument {
     /// Minimal header that applies content only. Mode, rename and index lines
     /// are dropped so a block write never stages a mode change or a rename.
     fn content_header(&self) -> Option<[String; 3]> {
-        let diff = self.header.iter().find(|line| line.starts_with("diff --git "))?;
+        let diff = self
+            .header
+            .iter()
+            .find(|line| line.starts_with("diff --git "))?;
         let old = self.header.iter().find(|line| line.starts_with("--- "))?;
         let new = self.header.iter().find(|line| line.starts_with("+++ "))?;
         if old == "--- /dev/null" || new == "+++ /dev/null" {
@@ -574,13 +576,8 @@ pub(super) fn plan_blocks(
             let indeterminate = !checked && span != before;
             let include = replacement_patch(&header, &index_lines, start, end, after);
             let exclude = replacement_patch(&header, &index_lines, start, end, before);
-            let rollback = replacement_patch(
-                &header,
-                &worktree_lines,
-                run.new_start,
-                run.new_end,
-                span,
-            );
+            let rollback =
+                replacement_patch(&header, &worktree_lines, run.new_start, run.new_end, span);
             // The checkbox includes an unchecked or partial block and excludes a checked one.
             let toggle_patch = if checked {
                 exclude.is_some()
@@ -793,8 +790,8 @@ fn section_value(file: Option<GitDiffFileResponse>, decoding_loss: bool) -> Valu
 
 /// Plans commit-review blocks for one file (`git.planDiffBlocks`).
 pub(crate) fn plan_diff_blocks_command(payload: Value) -> Result<Value, CoreError> {
-    let target: BlockTarget = serde_json::from_value(payload)
-        .map_err(|_| invalid("Invalid Git diff block request"))?;
+    let target: BlockTarget =
+        serde_json::from_value(payload).map_err(|_| invalid("Invalid Git diff block request"))?;
     let root = validate_root(&target.root)?;
     let snapshot = BlockSnapshot::read(&target, &root)?;
     let blocks = snapshot.blocks();
@@ -823,8 +820,8 @@ struct ApplyBlockRequest {
 /// under the write lease; a different token means the file, the index or the
 /// attributes changed after the user saw the block, so nothing is written.
 pub(crate) fn apply_diff_block_command(payload: Value) -> Result<Value, CoreError> {
-    let request: ApplyBlockRequest = serde_json::from_value(payload)
-        .map_err(|_| invalid("Invalid Git diff block request"))?;
+    let request: ApplyBlockRequest =
+        serde_json::from_value(payload).map_err(|_| invalid("Invalid Git diff block request"))?;
     let root = validate_root(&request.target.root)?;
     let _lease = RewriteLease::acquire(&root)?;
     let snapshot = BlockSnapshot::read(&request.target, &root)?;
@@ -918,8 +915,8 @@ pub(crate) fn stage_gutter_change_command(payload: Value) -> Result<Value, CoreE
     if decoding_loss {
         return Err(invalid(DIFF_BLOCK_UNAVAILABLE));
     }
-    let document =
-        SingleHunkDocument::parse_complete(&file.patch).ok_or_else(|| invalid(GUTTER_CHANGE_STALE))?;
+    let document = SingleHunkDocument::parse_complete(&file.patch)
+        .ok_or_else(|| invalid(GUTTER_CHANGE_STALE))?;
     let (index_lines, worktree_lines) = (document.old(), document.new());
     if !displayed(
         &index_lines,
