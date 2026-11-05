@@ -232,9 +232,10 @@ extension AppModel {
     private func openTerminalLink(_ link: String, params: [String: String], sessionID: UUID) {
         guard let session = terminalSessions.first(where: { $0.id == sessionID }),
               let fallbackDirectory = session.currentDirectory ?? workspaceURL else { return }
-        guard let target = TerminalLinkResolver.resolve(
+        guard let target = RustCoreBridge().terminalLinkTarget(
             link,
             relativeTo: fallbackDirectory,
+            homeDirectory: services.fileStorage.homeDirectory(),
             fileExists: { [services] in services.fileStorage.fileExists(at: $0) }
         ) else { return }
         switch target {

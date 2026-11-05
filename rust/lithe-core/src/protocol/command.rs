@@ -390,6 +390,10 @@ pub enum CoreCommand {
     KeymapParseContext,
     /// Evaluates a precompiled shortcut context (`keymap.evaluateContext`).
     KeymapEvaluateContext,
+    /// Finds conflicts among the final layered shortcut bindings (`keymap.analyzeConflicts`).
+    KeymapAnalyzeConflicts,
+    /// Resolves terminal link candidates into file or external targets (`terminal.parseLinkTarget`).
+    TerminalParseLinkTarget,
     /// Creates one transport-neutral Debug Adapter Protocol session (`debug.createSession`).
     DebugCreateSession,
     /// Queues a launch or attach request for a debug session (`debug.launch`).
@@ -998,6 +1002,8 @@ impl CoreCommand {
             "markdown.render" => Some(Self::MarkdownRender),
             "keymap.parseContext" => Some(Self::KeymapParseContext),
             "keymap.evaluateContext" => Some(Self::KeymapEvaluateContext),
+            "keymap.analyzeConflicts" => Some(Self::KeymapAnalyzeConflicts),
+            "terminal.parseLinkTarget" => Some(Self::TerminalParseLinkTarget),
             "debug.createSession" => Some(Self::DebugCreateSession),
             "debug.launch" => Some(Self::DebugLaunch),
             "debug.javaTestLaunch" => Some(Self::DebugJavaTestLaunch),
