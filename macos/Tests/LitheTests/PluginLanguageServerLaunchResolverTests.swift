@@ -653,7 +653,7 @@ struct PluginLanguageServerLaunchResolverTests {
 
     private func fixtureManifest(_ name: String) throws -> Data {
         try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/languages")
             .appendingPathComponent(name))
     }
 

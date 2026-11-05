@@ -1,7 +1,7 @@
 # Plugin-injected toolchains (draft)
 
 > **Status: broader proposal; a Core-only foundation is now implemented.**
-> The implemented subset is specified in [the active contract](../../toolchains.md).
+> The implemented subset is specified in [the active contract](../README.md).
 > This directory remains a review artifact for
 > [PR #1581's replacement plan](https://github.com/1lck/Lithe-IDEA/pull/1581#issuecomment-6541366112).
 > It is not an extension of the currently accepted `plugin.json` format.
@@ -46,7 +46,7 @@ not authorize replacing unrelated host commands.
 | [query.schema.json](query.schema.json) | Query request/reply shapes |
 | [resolution.schema.json](resolution.schema.json) | Resolver outcomes and structured reasons |
 | [local.schema.json](local.schema.json) | Proposed extension of the machine-local document with directory pins |
-| `fixtures/` | Illustrative contributions, queries, resolution outcomes, pins, and rejections |
+| `fixtures/toolchains/proposal/` | Illustrative contributions, queries, resolution outcomes, pins, and rejections |
 
 Schemas describe JSON shape. Signature verification, duplicate-definition
 registration, enabled-plugin ownership, path containment, executable evidence,

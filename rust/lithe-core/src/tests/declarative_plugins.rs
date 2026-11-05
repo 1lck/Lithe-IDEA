@@ -15,34 +15,34 @@ macro_rules! contract_file {
     };
 }
 
-const PHP_FIXTURE: &str = contract_file!("fixtures/language-packaged-server.plugin.json");
-const HELLO_FIXTURE: &str = contract_file!("fixtures/hello-lithe.plugin.json");
-const WEB_PANEL_FIXTURE: &str = contract_file!("fixtures/web-panel.plugin.json");
-const GO_FIXTURE: &str = contract_file!("fixtures/language-system-command.plugin.json");
-const JAVA_FIXTURE: &str = contract_file!("fixtures/language-host-integration.plugin.json");
-const NODE_RUNTIME_FIXTURE: &str = contract_file!("fixtures/node-runtime.plugin.json");
-const PUBLISHER_BUNDLED_FIXTURE: &str = contract_file!("fixtures/publisher-bundled.plugin.json");
-const CARGO_BUILD_FIXTURE: &str = contract_file!("fixtures/build-static-file.plugin.json");
-const GO_BUILD_FIXTURE: &str = contract_file!("fixtures/build-command-stdout.plugin.json");
-const GRADLE_BUILD_FIXTURE: &str = contract_file!("fixtures/build-command-output-file.plugin.json");
-const MAVEN_BUILD_FIXTURE: &str = contract_file!("fixtures/build-host-integration.plugin.json");
-const GRADLE_PROVIDER_FIXTURE: &str = contract_file!("fixtures/build-provider.plugin.json");
+const PHP_FIXTURE: &str = contract_file!("fixtures/languages/language-packaged-server.plugin.json");
+const HELLO_FIXTURE: &str = contract_file!("fixtures/manifest/hello-lithe.plugin.json");
+const WEB_PANEL_FIXTURE: &str = contract_file!("fixtures/ui/web-panel.plugin.json");
+const GO_FIXTURE: &str = contract_file!("fixtures/languages/language-system-command.plugin.json");
+const JAVA_FIXTURE: &str = contract_file!("fixtures/languages/language-host-integration.plugin.json");
+const NODE_RUNTIME_FIXTURE: &str = contract_file!("fixtures/languages/node-runtime.plugin.json");
+const PUBLISHER_BUNDLED_FIXTURE: &str = contract_file!("fixtures/package-trust/publisher-bundled.plugin.json");
+const CARGO_BUILD_FIXTURE: &str = contract_file!("fixtures/build-systems/build-static-file.plugin.json");
+const GO_BUILD_FIXTURE: &str = contract_file!("fixtures/build-systems/build-command-stdout.plugin.json");
+const GRADLE_BUILD_FIXTURE: &str = contract_file!("fixtures/build-systems/build-command-output-file.plugin.json");
+const MAVEN_BUILD_FIXTURE: &str = contract_file!("fixtures/build-systems/build-host-integration.plugin.json");
+const GRADLE_PROVIDER_FIXTURE: &str = contract_file!("fixtures/build-providers/build-provider.plugin.json");
 const MIX_PROVIDER_FIXTURE: &str =
-    contract_file!("fixtures/build-provider-language-server.plugin.json");
-const SETTINGS_V2_FIXTURE: &str = contract_file!("fixtures/settings-v2.plugin.json");
-const BACKEND_FIXTURE: &str = contract_file!("fixtures/backend.plugin.json");
-const WORKSPACE_BACKEND_FIXTURE: &str = contract_file!("fixtures/backend-workspace.plugin.json");
-const DEBUG_ADAPTER_FIXTURE: &str = contract_file!("fixtures/debug-adapter.plugin.json");
+    contract_file!("fixtures/build-providers/build-provider-language-server.plugin.json");
+const SETTINGS_V2_FIXTURE: &str = contract_file!("fixtures/settings/settings-v2.plugin.json");
+const BACKEND_FIXTURE: &str = contract_file!("fixtures/backend/backend.plugin.json");
+const WORKSPACE_BACKEND_FIXTURE: &str = contract_file!("fixtures/backend/backend-workspace.plugin.json");
+const DEBUG_ADAPTER_FIXTURE: &str = contract_file!("fixtures/debug-adapters/debug-adapter.plugin.json");
 const DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE: &str =
-    contract_file!("fixtures/debug-adapter-language-server.plugin.json");
+    contract_file!("fixtures/debug-adapters/debug-adapter-language-server.plugin.json");
 const DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE: &str =
-    contract_file!("fixtures/debug-adapter-remote-attach.plugin.json");
-const DEBUG_ADAPTER_REJECTIONS: &str = contract_file!("fixtures/debug-adapter-rejections.json");
-const EDITOR_ACTIONS_FIXTURE: &str = contract_file!("fixtures/editor-actions.plugin.json");
-const GRAMMAR_FIXTURE: &str = contract_file!("fixtures/language-grammar.plugin.json");
-const INVALID_MANIFESTS: &str = contract_file!("fixtures/invalid-manifests.json");
-const COMMAND_PLANS: &str = contract_file!("fixtures/command-plans.json");
-const RUNTIME_VERSIONS: &str = contract_file!("fixtures/runtime-versions.json");
+    contract_file!("fixtures/debug-adapters/debug-adapter-remote-attach.plugin.json");
+const DEBUG_ADAPTER_REJECTIONS: &str = contract_file!("fixtures/debug-adapters/debug-adapter-rejections.json");
+const EDITOR_ACTIONS_FIXTURE: &str = contract_file!("fixtures/editor/editor-actions.plugin.json");
+const GRAMMAR_FIXTURE: &str = contract_file!("fixtures/languages/language-grammar.plugin.json");
+const INVALID_MANIFESTS: &str = contract_file!("fixtures/manifest/invalid-manifests.json");
+const COMMAND_PLANS: &str = contract_file!("fixtures/languages/command-plans.json");
+const RUNTIME_VERSIONS: &str = contract_file!("fixtures/languages/runtime-versions.json");
 const OFFICIAL_JAVA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../Plugins/mac/Official/JavaSupport/plugin.json"
@@ -880,7 +880,7 @@ fn native_ui_lab_package_manifest_is_installable() {
 #[test]
 fn native_ui_validates_version_ownership_actions_and_budgets() {
     let manifest: Value =
-        serde_json::from_str(contract_file!("fixtures/native-panel.plugin.json")).unwrap();
+        serde_json::from_str(contract_file!("fixtures/ui/native-panel.plugin.json")).unwrap();
     let result = validate(manifest.clone());
     assert_eq!(result["status"], "ok", "{result}");
     for icon in [json!({"host":"search"}), json!({"host":"reset"})] {
@@ -935,7 +935,7 @@ fn native_ui_validates_version_ownership_actions_and_budgets() {
 #[test]
 fn native_ui_forms_validate_controls_values_actions_and_budgets() {
     let manifest: Value =
-        serde_json::from_str(contract_file!("fixtures/native-form.plugin.json")).unwrap();
+        serde_json::from_str(contract_file!("fixtures/ui/native-form.plugin.json")).unwrap();
     assert_eq!(validate(manifest.clone())["status"], "ok");
     for (pointer, value) in [
         ("/ui/toolWindows/0/native/kind", json!("list")),
@@ -999,7 +999,7 @@ fn native_ui_forms_validate_controls_values_actions_and_budgets() {
 #[test]
 fn native_ui_form_grid_validates_columns_spans_and_scope() {
     let manifest: Value =
-        serde_json::from_str(contract_file!("fixtures/native-form.plugin.json")).unwrap();
+        serde_json::from_str(contract_file!("fixtures/ui/native-form.plugin.json")).unwrap();
     assert_eq!(validate(manifest.clone())["status"], "ok");
     for (pointer, value) in [
         ("/ui/toolWindows/0/native/layout/columns", json!(0)),
@@ -1033,7 +1033,7 @@ fn native_ui_form_grid_validates_columns_spans_and_scope() {
     styled["ui"]["toolWindows"][0]["native"]["layout"]["gap"] = json!(99);
     assert_eq!(validate(styled)["status"], "rejected");
     let mut tree: Value =
-        serde_json::from_str(contract_file!("fixtures/native-panel.plugin.json")).unwrap();
+        serde_json::from_str(contract_file!("fixtures/ui/native-panel.plugin.json")).unwrap();
     tree["ui"]["toolWindows"][0]["native"]["layout"] = json!({"columns":12});
     assert_eq!(validate(tree)["status"], "rejected");
 }
@@ -1041,7 +1041,7 @@ fn native_ui_form_grid_validates_columns_spans_and_scope() {
 #[test]
 fn native_public_controls_validate_types_ranges_info_and_buttons() {
     let manifest: Value =
-        serde_json::from_str(contract_file!("fixtures/native-controls.plugin.json")).unwrap();
+        serde_json::from_str(contract_file!("fixtures/ui/native-controls.plugin.json")).unwrap();
     assert_eq!(validate(manifest.clone())["status"], "ok");
     for (pointer, value) in [
         ("/ui/toolWindows/0/native/controls/0/info", json!(" ")),
@@ -2097,7 +2097,7 @@ fn debug_start_arguments_refuse_stale_registrations_and_missing_target_facts() {
 #[test]
 fn pure_backend_commands_require_ui_4_and_grant_methods_individually() {
     let manifest: Value =
-        serde_json::from_str(contract_file!("fixtures/command-backend.plugin.json")).unwrap();
+        serde_json::from_str(contract_file!("fixtures/backend/command-backend.plugin.json")).unwrap();
     assert_eq!(validate(manifest.clone())["status"], "ok");
     let mut old = manifest.clone();
     old["requires"]["ui"] = json!(3);
@@ -2118,7 +2118,7 @@ fn pure_backend_commands_require_ui_4_and_grant_methods_individually() {
 #[test]
 fn terminal_permission_grants_only_owned_terminal_methods_and_requires_backend_two() {
     let manifest: Value =
-        serde_json::from_str(contract_file!("fixtures/terminal-backend.plugin.json")).unwrap();
+        serde_json::from_str(contract_file!("fixtures/backend/terminal-backend.plugin.json")).unwrap();
     assert_eq!(validate(manifest.clone())["status"], "ok");
     let plan = language_server_launch_plan_command(json!({
         "manifest": manifest, "backend": true,

@@ -954,7 +954,7 @@ private enum VcsTestData {
     /// community plugin in its own repository.
     static func svnProviderManifest() throws -> Data {
         try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/vcs-provider.plugin.json"))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/vcs/vcs-provider.plugin.json"))
     }
 
     static func detection(

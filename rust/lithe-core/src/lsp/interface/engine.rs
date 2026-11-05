@@ -15567,7 +15567,7 @@ public class Main {
     #[test]
     fn provider_run_options_require_version_ten_before_wire_send() {
         let fixture: Value = serde_json::from_str(include_str!(
-            "../../../../../shared/contracts/plugins/v1/fixtures/build-run-options.json"
+            "../../../../../shared/contracts/plugins/v1/fixtures/build-providers/build-run-options.json"
         ))
         .unwrap();
         let params = json!({"launchOptions":fixture["launchOptions"]});
@@ -15609,7 +15609,7 @@ public class Main {
     #[test]
     fn provider_runtime_debug_requires_version_eleven_before_wire_send() {
         let fixture: Value = serde_json::from_str(include_str!(
-            "../../../../../shared/contracts/plugins/v1/fixtures/build-connection-debug-options.json"
+            "../../../../../shared/contracts/plugins/v1/fixtures/build-providers/build-connection-debug-options.json"
         ))
         .unwrap();
         let params = json!({"launchOptions":fixture["launchOptions"]});
@@ -15658,7 +15658,7 @@ public class Main {
             .await_request("lithe/build/prepareRun")
             .unwrap();
         let fixture: Value = serde_json::from_str(include_str!(
-            "../../../../../shared/contracts/plugins/v1/fixtures/build-run-preparation.json"
+            "../../../../../shared/contracts/plugins/v1/fixtures/build-providers/build-run-preparation.json"
         ))
         .unwrap();
         harness

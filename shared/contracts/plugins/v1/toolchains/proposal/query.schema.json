@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/proposals/toolchains/query.schema.json",
+  "$id": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/toolchains/proposal/query.schema.json",
   "title": "Proposed toolchain query protocol v1 (not implemented)",
   "description": "Review-only JSON-RPC request, successful response or error response. Semantic validation and authority checks are specified in protocol.md.",
   "oneOf": [

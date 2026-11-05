@@ -9,15 +9,15 @@ use std::path::PathBuf;
 
 const FIXTURE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../shared/contracts/plugins/v1/fixtures/project-generator.plugin.json"
+    "/../../shared/contracts/plugins/v1/fixtures/project-generators/project-generator.plugin.json"
 ));
 const PLANS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../shared/contracts/plugins/v1/fixtures/project-plans.json"
+    "/../../shared/contracts/plugins/v1/fixtures/project-generators/project-plans.json"
 ));
 const MAVEN_BUILD_FIXTURE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../shared/contracts/plugins/v1/fixtures/build-host-integration.plugin.json"
+    "/../../shared/contracts/plugins/v1/fixtures/build-systems/build-host-integration.plugin.json"
 ));
 const OFFICIAL_JAVA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -35,7 +35,7 @@ fn repository_path(relative: &str) -> PathBuf {
 }
 
 fn fixtures_path() -> PathBuf {
-    repository_path("shared/contracts/plugins/v1/fixtures")
+    repository_path("shared/contracts/plugins/v1/fixtures/project-generators")
 }
 
 /// Java Support without its own New Project entries, so catalog tests see

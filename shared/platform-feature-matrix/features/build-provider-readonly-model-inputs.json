@@ -7,8 +7,8 @@
     "evidence": [
       "rust/lithe-core/src/build/model_inputs.rs",
       "rust/lithe-core/src/tests/build_systems.rs",
-      "shared/contracts/plugins/v1/fixtures/build-model-producer.plugin.json",
-      "shared/contracts/plugins/v1/fixtures/build-model-consumer.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/build-systems/build-model-producer.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/build-systems/build-model-consumer.plugin.json",
       "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift",
       "macos/Sources/Lithe/Core/Rust/RustBuildSystemOperations.swift",
       "macos/Tests/LitheExecutionModuleTests/BuildSystemServiceTests.swift",

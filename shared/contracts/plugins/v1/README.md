@@ -8,24 +8,32 @@ not need to be rebuilt for each Lithe release.
 
 This directory is the cross-platform source of truth:
 
-| File | Purpose |
+| Path | Purpose |
 | --- | --- |
 | `plugin-manifest.schema.json` | JSON shape of `plugin.json` |
-| `fixtures/*.plugin.json` | Valid example manifests, named after the capability they exercise rather than a published plugin: `language-*` (packaged, system-command, and host-integration language servers; `node-runtime` for a discovered runtime), `hello-lithe` and `web-panel` (UI), `settings-v2`, and `build-*` (level 3 build systems and the two forms of a build provider) |
-| `fixtures/tool-definition.plugin.json`, `fixtures/toolchain-provider.plugin.json` | Production-shape Core fixtures for tool definitions and a packaged toolchain provider; require explicit new host capabilities, not yet supplied by native products |
-| `fixtures/keymap-import-provider.plugin.json` | Two independent shortcut import providers sharing one packaged backend; native source access is not implemented yet |
-| `fixtures/invalid-manifests.json` | Edits to a valid manifest and the rejection code every host must report |
-| `fixtures/signature-vectors.json` | Public cross-platform vectors for the package publisher signature: the RFC 8032 test key, a fixed package with non-ASCII file names, its canonical payload, RFC 8032 deterministic signature, and content digest. Both platforms must build the same canonical payload and digest and accept the recorded signature; signers that add randomness, such as CryptoKit, check the signature by verification instead of byte comparison |
-| `fixtures/command-plans.json` | Golden run/test command expansions and language-server launch plans |
-| `fixtures/runtime-versions.json` | Golden outcomes of the launch runtime version check |
-| `fixtures/build-plans.json` | Golden build-system plans and decoded outputs |
-| `fixtures/function-protocol.json` | Golden plugin-function negotiation, registration, invocation, outcome, progress, and refusal cases |
-| `fixtures/project-generator.plugin.json`, `fixtures/project-generator-templates/` | Project generators: template files, a scaffolding command, and an archive download |
-| `fixtures/project-plans.json` | Golden `project.*` form evaluations, generation plans, and name checks |
+| `native-ui.schema.json` | JSON shape of native UI documents rendered by the host |
 | `plugin-index.schema.json` | JSON shape of a marketplace source index |
-| `fixtures/marketplace/*.json` | Marketplace index, availability, source URL, and install review golden cases |
-| `toolchains.md` | Implemented Core foundation: plugin definitions/provider declarations, verified-origin registry, reply validation, directory pins, snapshot resolution, version matching and discovery plans; native hosts are not connected |
-| `proposals/toolchains/` | Broader design draft, including unimplemented query transport, native lifecycle/persistence, consumer migration, settings UI and manager plugins; examples are review projections, not installable manifests |
+| `fixtures/` | Valid example manifests and golden cases, one folder per contract area (below). Manifests are named after the capability they exercise rather than a published plugin. Case files name their base manifest by file name, so file names are unique across the folders |
+| `toolchains/README.md` | Implemented Core foundation: plugin definitions/provider declarations, verified-origin registry, reply validation, directory pins, snapshot resolution, version matching and discovery plans; macOS uses it for its read-only settings pages and for Build and run tools, Windows is not connected |
+| `toolchains/proposal/` | Broader design draft, including unimplemented query transport, native lifecycle/persistence, consumer migration, settings UI and manager plugins; examples are review projections, not installable manifests |
+
+| Fixture folder | Contents |
+| --- | --- |
+| `fixtures/manifest/` | `hello-lithe.plugin.json`, the smallest UI plugin, and `invalid-manifests.json`: edits to a valid manifest and the rejection code every host must report |
+| `fixtures/languages/` | Language support: packaged, system-command, and host-integration language servers, `node-runtime` for a discovered runtime, and `language-grammar` with `grammars/`; `command-plans.json` holds golden run/test command expansions and language-server launch plans, `runtime-versions.json` the golden outcomes of the launch runtime version check |
+| `fixtures/backend/` | Plugin backends (`backend`, `backend-workspace`, `command-backend`, `terminal-backend`); `function-protocol.json` holds golden plugin-function negotiation, registration, invocation, outcome, progress, and refusal cases, `plugin-logging.json` the golden `litheLogging` negotiation and notifications |
+| `fixtures/editor/` | Editor actions served by a backend |
+| `fixtures/ui/` | Native controls, forms, and panels, and a web panel |
+| `fixtures/settings/` | Plugin settings declared with `settings: 2` |
+| `fixtures/build-systems/` | Level 3 build systems (`build-*`: static file, command output, host integration, instance options, model producer and consumer, tool path, toolchains); `build-plans.json` holds golden build-system plans and decoded outputs |
+| `fixtures/build-providers/` | Build providers (`build-provider*`) and the golden cases of their configuration, run options, run and debug preparation, execution, and test protocols |
+| `fixtures/debug-adapters/` | Debug adapters (standalone, served by a language server, remote attach) and `debug-adapter-rejections.json` |
+| `fixtures/vcs/` | A version control provider |
+| `fixtures/keymap-import/` | Two independent shortcut import providers sharing one packaged backend |
+| `fixtures/project-generators/` | Project generators: template files (`templates/`), a scaffolding command, and an archive download; `project-plans.json` holds golden `project.*` form evaluations, generation plans, and name checks |
+| `fixtures/toolchains/` | Production-shape fixtures for tool definitions and a packaged toolchain provider; they require `toolDefinitions` and `toolchainProviders`, which only macOS advertises. `proposal/` holds the examples and cases of the toolchains draft |
+| `fixtures/package-trust/` | `publisher-bundled.plugin.json` and `signature-vectors.json`: public cross-platform vectors for the package publisher signature: the RFC 8032 test key, a fixed package with non-ASCII file names, its canonical payload, RFC 8032 deterministic signature, and content digest. Both platforms must build the same canonical payload and digest and accept the recorded signature; signers that add randomness, such as CryptoKit, check the signature by verification instead of byte comparison |
+| `fixtures/marketplace/` | Marketplace index, availability, source URL, and install review golden cases |
 
 Validation and template expansion are implemented once in Rust Core
 (`rust/lithe-core/src/plugins/`, with build systems in
@@ -44,15 +52,16 @@ fields are rejected; editors associate the schema by file name instead.
 
 ## Plugin-owned toolchains (Core foundation)
 
-The [toolchains draft](proposals/toolchains/README.md) records the replacement
+The [toolchains draft](toolchains/proposal/README.md) records the replacement
 design discussed in [PR #1581](https://github.com/1lck/Lithe-IDEA/pull/1581#issuecomment-6541366112).
 All tool definitions belong to enabled plugins; the host supplies only generic
 query, validation, resolution, persistence, and presentation mechanisms. It
 does not add a built-in tool-definition table or interpret version-manager
 configuration formats.
 
-The [implemented Core contract](toolchains.md) now accepts `toolDefinitions: 1`
-and `toolchainProviders: 1` declarations and provides six `toolchains.*` commands.
+The [implemented Core contract](toolchains/README.md) now accepts `toolDefinitions: 1`
+and `toolchainProviders: 1` declarations and provides the `toolchains.*` commands
+listed there.
 `executableResolution: 2` applies to tool-definition candidates only; it does not
 admit new sources into existing Build candidate sets. Definitions are entirely
 plugin-owned, with reserved short IDs checked against host-verified official
@@ -61,11 +70,13 @@ provenance when constructing the registry.
 macOS advertises these capabilities for its read-only toolchain settings pages.
 The native adapter scans declarations, probes checked executables, queries plugin
 backends and watches their inputs; Core consumes captured facts and owns validation
-and resolution. Windows does not advertise the capabilities. Saving pins,
+and resolution. A separate fresh resolution serves Build tools and run plans
+whose `toolchain` executable names a plugin-defined tool rather than a host
+toolchain; settings detections never grant launch authority. Windows does not advertise the capabilities. Saving pins,
 `toolchainConsumers`, generic runtime launches and live backend activation remain
-unsupported, and current Java/Maven/Build/Run selection is unchanged. Version-manager
+unsupported, and Java and language-server consumers keep their previous adapters. Version-manager
 implementations such as mise belong to their own plugin packages. Proposal
-envelopes remain separate from production manifests. See [the implemented slice](toolchains.md).
+envelopes remain separate from production manifests. See [the implemented slice](toolchains/README.md).
 
 ## Shortcut import providers (Core foundation)
 
@@ -125,10 +136,10 @@ and provider, revokes them when the import or session ends, and rejects files
 replaced or changed after capture. A new snapshot for that provider revokes the
 previous one. Errors never disclose absolute paths.
 
-This is a foundation, not an available product extension: macOS implements the
-scoped reader, but provider discovery, the product import workflow and Windows
-source access are not implemented. Hosts must not advertise this capability
-until they implement the complete workflow. No existing SDK advertises it.
+macOS advertises `keymapImportProviders` 1 and implements the scoped reader.
+Windows has no import source reader and does not advertise the capability; a
+host advertises it only with the complete import workflow. The official Node,
+Java and Rust SDKs implement `litheKeymapImport` 1.
 
 ## Package layout
 
@@ -151,7 +162,7 @@ symbolic links. A host treats an installed package as read-only.
 | `id` | Stable plugin ID: lowercase letters, digits, `.` and `-`. |
 | `displayName` | Name shown in plugin management. |
 | `version` | Plugin version, `major.minor.patch`. Independent of the Lithe version. |
-| `pluginAPIVersion` | Declarative plugin API level of the manifest format. Hosts list the levels they support; Lithe's own version is never used for compatibility. This contract defines levels `1`, `2`, and `3`; see [API levels](#api-levels). |
+| `pluginAPIVersion` | Declarative plugin API level of the manifest format. Hosts list the levels they support; Lithe's own version is never used for compatibility. This contract defines levels `1`, `2`, `3`, and `4`; see [API levels](#api-levels). |
 | `requires` | Level 3 only, and required there: every capability the manifest uses, with the version of that capability's contract it was written against; see [Capability versions](#capability-versions-level-3). |
 | `vendor` | `id`, `displayName`, and `signatureRequirement` (see Trust). |
 | `permissions` | Capabilities the plugin may ask the host to perform. |
@@ -162,8 +173,8 @@ symbolic links. A host treats an installed package as read-only.
 | `settings` | User-adjustable plugin options (level 2 and later). |
 | `ui` | Host-rendered tool windows and commands (level 2 and later). |
 | `buildSystems` | Project-level build tools (level 3). |
-| `toolDefinitions` | Plugin-owned tool policy ([Core foundation](toolchains.md)); requires `toolDefinitions: 1` and `executableResolution: 2`; macOS hosts read-only discovery. |
-| `toolchainProviders` | Backend fact-provider declarations ([Core foundation](toolchains.md)); requires `toolchainProviders: 1`, backend/server-process capabilities and `toolchains.provide`. |
+| `toolDefinitions` | Plugin-owned tool policy ([Core foundation](toolchains/README.md)); requires `toolDefinitions: 1` and `executableResolution: 2`; macOS hosts read-only discovery and resolves Build and run tools. |
+| `toolchainProviders` | Backend fact-provider declarations ([Core foundation](toolchains/README.md)); requires `toolchainProviders: 1`, backend/server-process capabilities and `toolchains.provide`. |
 | `keymapImportProviders` | Independent shortcut import providers; requires `keymapImportProviders: 1`, `backend: 2`, `serverProcess: 1` and `keymaps.provide`. macOS provides access to explicitly selected sources; Windows does not yet advertise this capability. |
 
 Unknown fields are refused (`plugin.manifest.invalid`) so an older host
@@ -239,7 +250,7 @@ activation event, and a plugin may consist of grammars alone.
   (`@a.b` resolves to the longest declared prefix, as in Monarch), `cases`
   guards naming an undeclared attribute, and `nextEmbedded` values other
   than `@pop` or a language ID. The fixture
-  [`fixtures/grammars/http.monarch.json`](fixtures/grammars/http.monarch.json)
+  [`fixtures/languages/grammars/http.monarch.json`](fixtures/languages/grammars/http.monarch.json)
   is a complete example.
 - `configuration` sets `lineComment`, `blockComment` (open and close),
   `brackets`, and `autoClosingPairs`. Each delimiter is 1 to 16 bytes without
@@ -299,7 +310,7 @@ prints to stderr (hosts capture it together with stdout), and `--version` for
 `node`. Java 8 and older report `1.<major>`, which is read as `<major>`.
 The reported version is the first dotted number in the probe output, ignoring
 lines that start with `Picked up ` (a JVM announcing `JAVA_TOOL_OPTIONS`
-before its version); see `fixtures/runtime-versions.json`.
+before its version); see `fixtures/languages/runtime-versions.json`.
 
 #### Host integrations (API 2)
 
@@ -432,7 +443,7 @@ Malformed or unnegotiated input produces one category-only
 the rejected payload. Ingress admits at most 600 facts per minute per session,
 then uses the existing bounded Core handoff to the host's single writer;
 overload increments its dropped counter. No polling timer or extra writer is
-created. Fixture: `fixtures/plugin-logging.json`.
+created. Fixture: `fixtures/backend/plugin-logging.json`.
 
 Declarative contributions have no plugin process to send `lithe/log`, so whoever
 executes the declared work records the same `plugins.operation.finished` and
@@ -522,7 +533,7 @@ a plugin place its options anywhere in the host's settings without the host
 knowing the plugin. Hosts keep only generic registration points: a page per
 language and per build system, sections, one control per setting type, a
 project/global layer switch, and buttons. What appears there comes from the
-manifest. Fixture: `fixtures/settings-v2.plugin.json`.
+manifest. Fixture: `fixtures/settings/settings-v2.plugin.json`.
 
 ```json
 "settings": [
@@ -653,21 +664,21 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `languages` | `languages[]` | `1`, `2` (adds [`grammar` and `configuration`](#grammars-and-editor-configuration-languages-2)) |
 | `packageTrust` | `vendor.bundledSignatureRequirement`: origin-scoped trust for a host-sealed bundled copy of a publisher-signed plugin | `1` |
 | `languageServers` | `languageServers[]` apart from their launch fields | `1`, `2` (adds [`workspaceConfiguration`](#workspace-configuration-languageservers-2)) |
-| `serverProcess` | The launch fields of language servers, of build providers with a process of their own, of VCS providers, and of the plugin backend: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
+| `serverProcess` | The launch fields of language servers, of build providers with a process of their own, of VCS providers, and of the plugin backend: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1`, `2` (adds `runSelectedRuntime` for [debug adapters](#api-level-4-debug-adapters); level 4; v2 Core only, macOS and Windows advertise `1`) |
 | `executionProviders` | `executionProviders[]` | `1` |
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (web content), `3` (native controls), `4` ([backend-only commands](#backend-only-commands-ui-4)) |
 | `buildSystems` | Declarative build detection, models, and command plans; v2 executable setting adapter; v3 instance-scoped options; v4 declarative preparation roles | `1`, `2`, `3`, `4` |
 | `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs, v7 native configuration, v8 inline test reports, v9 opaque semantic test selectors, v10 typed run options and service/task preparation, v11 registry connection debugging | `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `9`, `10`, `11` |
 | `buildModelInputs` | Optional public model sharing between enabled workspace plugins | `1` |
-| `executableResolution` | Shared executable candidate ordering and strict selection; v2 canonical project/subproject toolchain registry bindings | `1`, `2` |
 | `vcsProviders` | `vcsProviders[]` | `1` |
 | `debugAdapters` | [`debugAdapters[]`](#api-level-4-debug-adapters); v2 adds target arguments/environment | `1`, `2` |
 | `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window | `1` |
 | `backend` | [`backend`](#plugin-backend): the plugin's own long-lived process | `1`, `2` (adds [start without a page and workspace contexts](#backend-2-workspace-contexts)) |
-| `toolDefinitions` | [Tool identities, layouts, discovery and four-layer candidates](toolchains.md) | `1` (Core; macOS read-only settings) |
-| `toolchainProviders` | [Provider declarations and permission-bound answer validation](toolchains.md) | `1` (Core; macOS read-only settings) |
-| `executableResolution` | [Shared executable candidates](#shared-executable-candidates-executableresolution-1); v2 adds tool-definition candidates without changing existing Build candidate sets | `1`, `2` (v2 Core; macOS read-only settings) |
+| `toolDefinitions` | [Tool identities, layouts, discovery and four-layer candidates](toolchains/README.md) | `1` (Core; macOS settings pages, Build and run tools) |
+| `toolchainProviders` | [Provider declarations and permission-bound answer validation](toolchains/README.md) | `1` (Core; macOS settings pages, Build and run tools) |
+| `executableResolution` | [Shared executable candidates](#shared-executable-candidates-executableresolution-12): candidate ordering and strict selection; v2 adds tool-definition candidates and canonical project/subproject toolchain registry bindings without changing existing Build candidate sets | `1`, `2` (v2 Core; macOS settings pages, Build and run tools) |
+| `keymapImportProviders` | `keymapImportProviders[]`: independent shortcut import providers | `1` (macOS; Windows does not advertise it yet) |
 
 Version 1 of every capability means what its section means at level 2
 (runtime launches, launch templates, `initializationOptions`, and so on), so
@@ -808,7 +819,7 @@ even inside the host seal. The optional declaration alone grants no trust.
 Hosts without `packageTrust: 1` filter this version before download and reject
 its manifest; no new application-version field is needed. An older manifest
 without the declaration keeps its existing policy. The valid example is
-`fixtures/publisher-bundled.plugin.json`.
+`fixtures/package-trust/publisher-bundled.plugin.json`.
 
 A host pins the signature requirement of its official plugin IDs so a package
 cannot downgrade itself. Selecting a file from disk never overrides that pin,
@@ -1014,9 +1025,16 @@ They are excluded as `plugin-disk-install-state`. No runtime write targets the
 signed app bundle or Windows installation resources, so these paths do not
 change code signatures or Sparkle differential-update baselines.
 
-Windows currently shares the schemas and Rust validation only; it has no
-implementation of this declarative ZIP/directory snapshot and approval flow.
-Its existing worker-package import is a separate format. The feature matrix
+Windows has a narrower disk import. It copies a ZIP or unpacked directory into
+a private snapshot under the application's local data directory
+(`plugin-temp/lithe-plugin-disk-<id>`), reviews it with
+`plugins.marketplace.installReview`, and installs only after the user confirms.
+Confirmation re-runs the review and refuses a snapshot whose `plugin.json`
+changed after review. It does not verify publisher signatures, does not compute
+or recheck a digest of the other package files, and does not record approved
+programs or provenance; its installation record holds only the ID, active
+version and enabled state. It has no marketplace install path. Its existing
+worker-package import is a separate format. The feature matrix
 therefore keeps Windows `partial` and macOS runtime verification `pending`;
 static checks and Node resource tests alone do not verify the UI confirmation,
 complete program rendering, cleanup, or bundle hashes in a real workflow.
@@ -1035,7 +1053,7 @@ a project file, `build-command-stdout` decodes a command's standard output,
 `build-host-integration` hands the model to a host integration. They use
 Cargo, Go, Gradle, and Maven as realistic inputs; they are not those
 plugins. `build-provider` and `build-provider-language-server` show the two
-forms of a build provider, and `fixtures/build-plans.json` is the golden list
+forms of a build provider, and `fixtures/build-systems/build-plans.json` is the golden list
 of plans and decoded outputs every host gets from them.
 
 A build system needs `pluginAPIVersion` 3 with `buildSystems` in `requires`,
@@ -1075,7 +1093,7 @@ instance option. When an existing option moves to instance scope, macOS copies i
 to each detected or previously stored root, preserving explicit instance values
 and empty markers. It removes the shared representation only after readback, then
 redetects static models. Failure retains the source and blocks publishing defaults
-until retry; scope is not a fallback chain. See `fixtures/build-instance-options.plugin.json`.
+until retry; scope is not a fallback chain. See `fixtures/build-systems/build-instance-options.plugin.json`.
 
 ### Presentation
 
@@ -1232,8 +1250,8 @@ Provider session owns children and writable workspace state; no page,
 additional runtime, directory or cross-plugin private cache is required.
 Only public typed results may cross domain boundaries.
 
-Canonical examples: `fixtures/build-provider-execution.plugin.json` and
-`fixtures/build-execution-protocol.json`. Protocol v2 is a construction
+Canonical examples: `fixtures/build-providers/build-provider-execution.plugin.json` and
+`fixtures/build-providers/build-execution-protocol.json`. Protocol v2 is a construction
 primitive for #1495; it does not by itself migrate Maven or Java consumers.
 
 ### Provider test execution (buildProviders 3)
@@ -1266,8 +1284,8 @@ system has one. Configuration validity is retained through diagnostic and
 report decoding; late results cannot update a changed workspace/configuration.
 
 Java/Maven migration remains separate. No new resource/cache location is introduced.
-Canonical examples: `fixtures/build-provider-tests.plugin.json` and
-`fixtures/build-test-protocol.json`.
+Canonical examples: `fixtures/build-providers/build-provider-tests.plugin.json` and
+`fixtures/build-providers/build-test-protocol.json`.
 
 #### Test discovery
 
@@ -1301,7 +1319,7 @@ package changes and workspace teardown revoke the cached list and in-flight
 discovery. A native action must revalidate the selected ID against the current
 list before submitting its exact selectors to `lithe/build/test`; stale
 toolbar selections cannot run. The backend must reject a selector whose facts
-have become stale externally. Canonical example: `fixtures/build-test-discovery.json`.
+have become stale externally. Canonical example: `fixtures/build-providers/build-test-discovery.json`.
 
 ### Provider run preparation (buildProviders 4)
 
@@ -1388,8 +1406,8 @@ including aliases, before preparation. The host passes the same options to
 Only this explicit override may lie outside the selected instance. Without
 an override the original instance containment rule still applies. Other
 launch result validation and cancellation/stale-result behavior are unchanged.
-Canonical fixtures: `fixtures/build-provider-run-options.plugin.json` and
-`fixtures/build-run-options.json`.
+Canonical fixtures: `fixtures/build-providers/build-provider-run-options.plugin.json` and
+`fixtures/build-providers/build-run-options.json`.
 
 #### Registry connection debugging (buildProviders 11)
 
@@ -1422,7 +1440,7 @@ the selected registered adapter owns its transport. In particular,
 `tcpLanguageServer` may refer only to a language server declared by that adapter's
 own plugin. No built-in language debugger fallback is permitted.
 This does not change same-package native `prepareDebug` (v5).
-Canonical fixture: `fixtures/build-connection-debug-options.json`.
+Canonical fixture: `fixtures/build-providers/build-connection-debug-options.json`.
 
 ### Native debug preparation (version 5)
 
@@ -1463,8 +1481,8 @@ its own permissions and package process declaration. The launch configuration re
 operation; the Debug host owns launched sessions and plugin withdrawal cleanup.
 Saved Run configurations keep their existing selectors and prepare again for Debug.
 
-Fixtures: [native declaration](fixtures/build-provider-debug-preparation.plugin.json)
-and [native result](fixtures/build-debug-preparation.json). This does not provide
+Fixtures: [native declaration](fixtures/build-providers/build-provider-debug-preparation.plugin.json)
+and [native result](fixtures/build-providers/build-debug-preparation.json). This does not provide
 Java/JDT preparation, long-running services or cross-plugin collaboration.
 
 
@@ -1481,8 +1499,8 @@ Every restart re-resolves the enabled instance/model and sends a fresh preparati
 Missing plugins/targets/models fail explicitly; there is no command fallback.
 Saving and running work before detector-generated Run configurations exist.
 Service coordination, debug target registration and Java/Maven migration remain
-separate. See `fixtures/build-provider-run-preparation.plugin.json`
-and `fixtures/build-run-preparation.json`.
+separate. See `fixtures/build-providers/build-provider-run-preparation.plugin.json`
+and `fixtures/build-providers/build-run-preparation.json`.
 
 ### Optional native configuration (buildProviders 7)
 
@@ -1557,8 +1575,8 @@ A failed read-back is not a successful effective-value publication. Native probe
 output files and mutable provider caches live only in workspace/platform state and
 are not cross-worktree reusable. Installed packages remain byte-for-byte unchanged.
 
-Fixtures: [declaration](fixtures/build-provider-configuration.plugin.json) and
-[native facts](fixtures/build-configuration.json).
+Fixtures: [declaration](fixtures/build-providers/build-provider-configuration.plugin.json) and
+[native facts](fixtures/build-providers/build-configuration.json).
 
 ### Optional read-only model inputs (buildModelInputs 1)
 
@@ -1630,8 +1648,8 @@ functions, grants permissions, leases a process or resolves a package version.
 There is no general plugin-dependency/export API. Backend authors must handle
 unavailable and non-ready slots explicitly. Language integration and existing
 Java/Maven business migration remain separate work. Shared fixtures:
-`fixtures/build-model-producer.plugin.json` and
-`fixtures/build-model-consumer.plugin.json`.
+`fixtures/build-systems/build-model-producer.plugin.json` and
+`fixtures/build-systems/build-model-consumer.plugin.json`.
 
 ### Inline provider test reports (buildProviders 8)
 
@@ -1671,7 +1689,7 @@ identity, checks ownership again after decode, and only presents the result.
 Cancellation or configuration changes revoke late reports just like late output.
 The report is operation state in a platform-provided writable directory, never
 installed package state or a cross-worktree cache. Fixture:
-`fixtures/build-provider-reports.plugin.json`.
+`fixtures/build-providers/build-provider-reports.plugin.json`.
 
 ### Build providers
 
@@ -1727,13 +1745,15 @@ The manifest only says how to start the provider and which sources use it.
 Everything else is negotiated in the LSP `initialize` exchange, so a provider
 can add optional data within a negotiated protocol version:
 
-- The host sends `capabilities.experimental.litheBuild: { "versions": [8, 7, 6, 5, 4, 3, 2, 1] }`,
+- The host sends `capabilities.experimental.litheBuild: { "versions": [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1] }`,
   the build-provider protocol versions it speaks. Version 1 is the two
   requests above with the params and result formats of this section;
   version 2 adds typed task execution; version 3 adds typed test execution
   and discovery; version 4 adds application run preparation; version 5 adds native debug preparation;
   version 6 accepts the host's explicitly declared read-only model inputs;
-  version 7 adds source-backed native configuration; version 8 adds inline test reports.
+  version 7 adds source-backed native configuration; version 8 adds inline test reports;
+  version 9 adds opaque semantic test selectors; version 10 adds typed run options and
+  service/task run preparation; version 11 adds registry connection debugging.
 - The provider answers `capabilities.experimental.litheBuild: { "version": 1 }`
   with the version it chose from that list. A provider that answers no
   version, or one the host did not offer, is not used for build requests; a
@@ -1928,14 +1948,14 @@ takes a connection (`maxPathMappings` is 0 without mappings, 1 for `first`, and
 16 otherwise) and `null` otherwise, so a host knows whether to offer the
 host-and-port form and the mapping list, and how many rows the list may hold.
 
-The cases in `fixtures/debug-adapter-rejections.json` state the stable code and
+The cases in `fixtures/debug-adapters/debug-adapter-rejections.json` state the stable code and
 field for each refusal and the layer that reports it: `schema`,
 `coreManifest`, `corePlan` (one start: stale registration or runtime
 selection, a target missing a fact a binding reads; the request defaults to
 `launch` and `context.request` sets `attach`), and `coreInstall`
 (a `parametersSchema` that is missing or links outside the package).
-`fixtures/debug-adapter.plugin.json` is a valid example, and
-`fixtures/debug-adapter-remote-attach.plugin.json` declares six adapters that
+`fixtures/debug-adapters/debug-adapter.plugin.json` is a valid example, and
+`fixtures/debug-adapters/debug-adapter-remote-attach.plugin.json` declares six adapters that
 differ in how they take a connection.
 
 ## Plugin backend
@@ -1956,8 +1976,8 @@ language, or workspace:
   launch fields, with the same templates and install review; the review lists
   it as `packagedBackend`, `systemCommandBackend`, or `runtimeBackend`. It
   needs `pluginAPIVersion` 3, `requires.backend: 1`, `requires.serverProcess:
-  1`, and the `backend.launch` permission. `fixtures/backend.plugin.json` is
-  the example; the backend cases of `fixtures/invalid-manifests.json` are the
+  1`, and the `backend.launch` permission. `fixtures/backend/backend.plugin.json` is
+  the example; the backend cases of `fixtures/manifest/invalid-manifests.json` are the
   rejections.
 - In `backend` 1 only the plugin's own [web pages](#web-content-ui-2) call it,
   so a backend without a web tool window is `plugin.manifest.invalid`.
@@ -1980,7 +2000,7 @@ language, or workspace:
 
 `requires.backend: 2` keeps every rule of version 1 and changes when the
 process starts and what it learns about workspaces.
-`fixtures/backend-workspace.plugin.json` is the example.
+`fixtures/backend/backend-workspace.plugin.json` is the example.
 
 - It may start without a page. It needs at least one way to start: a web
   tool window (first page call, as in version 1), a `ui.commands[]` entry
@@ -2421,7 +2441,7 @@ notifications.
   `versionConflict`, or `{ retryAfterMilliseconds }` with `rateLimited`);
   it reaches a version 3 backend as `error.data.details` and is dropped
   otherwise. Details that are not an object, or larger, are dropped too;
-  the failure itself still reaches the backend. `fixtures/function-protocol.json` (`hostFailures`)
+  the failure itself still reaches the backend. `fixtures/backend/function-protocol.json` (`hostFailures`)
   lists the mapping.
 
   | Code | JSON-RPC | Meaning |
@@ -2492,7 +2512,7 @@ then never sees them.
   and serialized params are at most `limits.notificationBytes`. Core refuses
   any other method, a service the session is not granted, malformed params,
   a session that is not plugin-owned, or one that is not ready, with
-  `invalid_request`. `fixtures/function-protocol.json`
+  `invalid_request`. `fixtures/backend/function-protocol.json`
   (`hostNotifications`) holds the cases.
 
 ### Extending version 3
@@ -2531,7 +2551,7 @@ So that a version 3 backend works with every host of version 3:
   (`plugin.permission.unknown`), so a permission is never granted or
   ignored silently.
 
-`fixtures/function-protocol.json` (`hostRequests`) holds the
+`fixtures/backend/function-protocol.json` (`hostRequests`) holds the
 unsupported-option cases.
 
 ### Public document, file and window methods (protocol version 3)
@@ -2621,7 +2641,7 @@ or omitted `toolWindows` array. Such a command requires `backend:2`, the existin
 `ui.contribute` and `backend.launch` permissions, and its `onCommand:<id>` event.
 Versions 1-3 retain their window-required behavior. An old host rejects ui 4 at
 installation, rather than accepting a command it cannot execute. See
-`fixtures/command-backend.plugin.json`.
+`fixtures/backend/command-backend.plugin.json`.
 
 The command appears through the ordinary workbench command contributions and
 sends `commands/didRun` without opening a dummy tool window. Commands arriving
@@ -2662,7 +2682,7 @@ workspace context:
   cannot discover a backend that has not started. Backend installation still needs
   restart. Standalone backends have an application-scoped enablement module,
   without a fake UI or language provider; safe mode/quarantine/disable still veto
-  their startup. Example package: `fixtures/editor-actions.plugin.json`.
+  their startup. Example package: `fixtures/editor/editor-actions.plugin.json`.
 - A selector has 1 to 32 literal names/extensions; extensions accept an optional
   leading dot. Matching is case-insensitive. At most 32 bindings per plugin across
   contexts; duplicate registration IDs in a context are refused.
@@ -2722,7 +2742,7 @@ workspace context:
   context, and failure codes and details, all of which it never sees.
 - `requires.backend: 1` packages keep their meaning; a new behavior of the
   backend capability is `backend` 2, never a silent change of version 1.
-- `fixtures/function-protocol.json` holds the golden cases, including the
+- `fixtures/backend/function-protocol.json` holds the golden cases, including the
   host requests (`hostRequests`), call contexts (`invocationContexts`), host
   failure codes (`hostFailures`), and host notifications
   (`hostNotifications`). Rust Core tests run them, and a scripted backend covers routing, result, failure, cancellation,
@@ -2865,8 +2885,8 @@ is Windows-only behavior outside v1.
 `pluginAPIVersion: 2` adds optional `ui` contributions and the `ui.contribute`
 permission. API level 1 language packages continue to work. UI-only packages may
 omit `languages`; every package must still declare a language provider or a
-nonempty UI catalog. See `fixtures/hello-lithe.plugin.json` and the UI cases in
-`fixtures/invalid-manifests.json`.
+nonempty UI catalog. See `fixtures/manifest/hello-lithe.plugin.json` and the UI cases in
+`fixtures/manifest/invalid-manifests.json`.
 
 - `ui.toolWindows`: 1–64 entries with stable `id`, `title`, initial `placement`
   (`left`, `bottom` or `right`), integer `order` (default 0), and plain `text`.
@@ -2917,8 +2937,8 @@ that wants its own UI can show its own page in a tool window instead of
   permission, which the install review lists like every permission.
   `requires.ui: 2` without a web window is `plugin.manifest.invalid`, so a
   text-only plugin stays installable on hosts that run only `ui` 1.
-- `entry` is a package-relative `.html` path. `fixtures/web-panel.plugin.json`
-  is the example; the web cases of `fixtures/invalid-manifests.json` are the
+- `entry` is a package-relative `.html` path. `fixtures/ui/web-panel.plugin.json`
+  is the example; the web cases of `fixtures/manifest/invalid-manifests.json` are the
   rejections.
 
 The window shell stays the host's: dock, title, activity-bar entry, order,
@@ -3046,9 +3066,12 @@ The design source is the [proposed public Extension Contract and Provider API](h
 Current runtime behavior is recorded in the [first-stage workbench UI Note](https://github.com/1lck/Lithe-IDEA/blob/preview/.agents/notes/implemented/architecture/2026-10-12-workbench-ui-contributions.md).
 
 ### Current Windows availability
-Windows can validate API level 2 through Rust Core but its UI adapter has not
-implemented this contract yet. Its marketplace must filter unsupported API
-levels until that adapter is available.
+Windows advertises `ui` 1 and 2: it renders host tool windows, commands and
+package web content. It does not advertise `ui` 3 (native controls) or 4
+(backend-only commands), so Core refuses packages that require them there.
+Windows installs declarative packages from disk only and has no marketplace
+browser yet. Core's `plugins.marketplace.validateIndex` marks level 2 versions
+without `requires` available only on `darwin-*` platforms.
 
 ### Existing community store and Lua template
 
@@ -3066,10 +3089,11 @@ remain valid. To add a host-rendered view to that template:
    existing package checksum, user install review and content digest still
    apply; UI does not bypass them.
 5. Set the new Store version entry's `pluginAPIVersion` to 2. The index schema,
-   release archive format and SHA-256 rules stay unchanged. Only list platforms
-   with an implemented API level 2 UI host (currently macOS).
+   release archive format and SHA-256 rules stay unchanged. Only list `darwin-*`
+   platforms: `plugins.marketplace.validateIndex` marks a level 2 version without
+   `requires` unsupported on every other platform.
 
-`fixtures/hello-lithe.plugin.json` is a contract fixture in the reserved test
+`fixtures/manifest/hello-lithe.plugin.json` is a contract fixture in the reserved test
 namespace, not a ready-to-publish community package. Change its ID and all
 references to your own namespace before using it in Lithe Store.
 
@@ -3221,7 +3245,7 @@ remains sufficient). Legacy manifests do not need the new capability; hosts
 without it reject new-style plugins before decoding unknown fields. Published
 0.1.0/0.1.1 archives remain immutable; migration is a new plugin version.
 
-See [`build-tool-path.plugin.json`](fixtures/build-tool-path.plugin.json).
+See [`build-tool-path.plugin.json`](fixtures/build-systems/build-tool-path.plugin.json).
 
 With `executableResolution: 2`, a candidate may use
 `{ "kind": "toolchain", "toolchainID": "org.example.compiler:compiler" }`.
@@ -3239,7 +3263,7 @@ Passive import performs no version or runtime probes; a definition that requires
 verification is not reported as an already verified import executable.
 A toolchain that resolves to a project file remains project code,
 including through a symlink, and native configuration requires explicit Read
-before running it. See [`build-toolchains.plugin.json`](fixtures/build-toolchains.plugin.json).
+before running it. See [`build-toolchains.plugin.json`](fixtures/build-systems/build-toolchains.plugin.json).
 
 
 ### Host-rendered native content (`ui` 3, native schema 1)
@@ -3250,7 +3274,7 @@ ui 3 and rejects these packages before installing them. The independently
 versioned [native schema](native-ui.schema.json) has no style, script, HTML or
 host-action fields. The host renders every control with its shared theme.
 
-See [native-panel.plugin.json](fixtures/native-panel.plugin.json) and the runnable
+See [native-panel.plugin.json](fixtures/ui/native-panel.plugin.json) and the runnable
 [Node SDK Sample Explorer](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/node/examples/sample-build/plugin.json).
 `native.kind` is `tree`, `list` or `form`; `nodes` contains literal `id`, `label` and
 optional `children`. IDs are stable, case-sensitive ASCII letters/digits plus
@@ -3309,7 +3333,7 @@ A pending call disables all fields. Values use the existing 64 KiB per-plugin,
 per-window, per-workspace state store; removed fields, invalid types and removed
 options are discarded when restoring. Provider replies never overwrite local
 fields. Form declarations and choices are static in this version.
-See [native-form.plugin.json](fixtures/native-form.plugin.json) and
+See [native-form.plugin.json](fixtures/ui/native-form.plugin.json) and
 [host UI acceptance fixture](https://github.com/1lck/Lithe-IDEA/blob/preview/macos/Tests/Fixtures/native-ui-lab/README.md) for acceptance.
 
 An optional `source` names this plugin's `buildSystemID` and a function returning
@@ -3367,7 +3391,7 @@ The wire session must explicitly negotiate version 9. Core and both SDKs reject
 these fields on older versions before dispatch; ignoring a filter is unsafe even
 when version 8 inline reports are supported. The operation identity, source/model
 and configuration validity, cancellation, progress, and inline report rules still
-apply. The shared example is `fixtures/build-provider-selectors.plugin.json`.
+apply. The shared example is `fixtures/build-providers/build-provider-selectors.plugin.json`.
 
 ### Declarative project preparation (buildSystems 4)
 
@@ -3388,7 +3412,7 @@ ambiguous declarations fail; they do not fall back to a conventional task ID.
 The selected ID travels through the existing execute plan and backend method.
 An older host rejects the capability before invocation. No new RPC version is
 needed, so buildProviders 8–10 are unchanged. Shared fixture:
-`fixtures/build-provider-preparation.plugin.json`.
+`fixtures/build-providers/build-provider-preparation.plugin.json`.
 
 The build backend owns filtering, custom resource directories, profiles and
 reactor semantics. Hosts await successful completion, retain one operation
@@ -3399,7 +3423,7 @@ the persistent model reflects a different configuration.
 
 ### Plugin-owned native terminals (function protocol 3)
 
-[`terminal-backend.plugin.json`](fixtures/terminal-backend.plugin.json) is the
+[`terminal-backend.plugin.json`](fixtures/backend/terminal-backend.plugin.json) is the
 minimal manifest. `terminal.create` grants `lithe/host/terminal/create`, `show`, `close`, `reopen`,
 `dispose`, and `onExit`. It requires `backend:2`; discover the individual
 methods through `getCapabilities` before using them. macOS implements this

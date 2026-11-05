@@ -5000,7 +5000,7 @@ file refuses a plan without it. Unlike the `plugins.declarative.*` commands,
 `build.detect`, `build.decodeModel`, `build.decodeTestResults`,
 `build.decodeDependencies`, and `build.syncFingerprint` read bounded files
 inside `workspaceRoot` (and the given `outputFile`); none of the commands
-writes anything or starts a process. `shared/contracts/plugins/v1/fixtures/build-plans.json`
+writes anything or starts a process. `shared/contracts/plugins/v1/fixtures/build-systems/build-plans.json`
 holds the golden plans and decoded outputs.
 
 ### VCS providers
@@ -5027,7 +5027,7 @@ detection cases, decoded snapshots, and reply validation cases.
 The `project.*` commands back the New Project window. Payloads, results, and
 problem codes are specified in the plugin contract's
 [Project generators](plugins/v1/README.md#project-generators) section, and
-`shared/contracts/plugins/v1/fixtures/project-plans.json` holds the golden
+`shared/contracts/plugins/v1/fixtures/project-generators/project-plans.json` holds the golden
 answers. Results use the `plugins.declarative.*` envelope: `catalog`, `form`,
 `plan`, `name`, and `extracted`. Commands that take a manifest revalidate it
 and answer `plugin.project.unavailable` for an undeclared generator.
@@ -6153,7 +6153,7 @@ legacy runtime detail. The four facts map to catalog INFO/ERROR/WARN/WARN,
 and a live wire request ID resolves to its original host `op`; no user content
 or backend-selected channel/level/message is accepted. See the
 [plugin logging contract](plugins/v1/README.md#structured-plugin-diagnostics-logging-protocol-1)
-and `plugins/v1/fixtures/plugin-logging.json`. Explicit upstream LSP message
+and `plugins/v1/fixtures/backend/plugin-logging.json`. Explicit upstream LSP message
 types retain their severity through separate catalog events; unclassified
 stderr is DEBUG and actual lifecycle failure is ERROR.
 

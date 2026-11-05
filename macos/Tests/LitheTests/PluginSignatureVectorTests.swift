@@ -6,7 +6,7 @@ import Testing
 /// Cross-platform acceptance for the package signature: the same fixed
 /// vectors answer identically on Swift/CryptoKit and the Windows Rust host.
 /// The vectors live in
-/// `shared/contracts/plugins/v1/fixtures/signature-vectors.json` and anchor
+/// `shared/contracts/plugins/v1/fixtures/package-trust/signature-vectors.json` and anchor
 /// the Ed25519 primitive to the public RFC 8032 test key, so neither
 /// platform's own round-trip can drift.
 ///
@@ -42,7 +42,7 @@ struct PluginSignatureVectorTests {
 
     private static func fixture() throws -> Fixture {
         let url = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/signature-vectors.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/package-trust/signature-vectors.json")
         return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
     }
 

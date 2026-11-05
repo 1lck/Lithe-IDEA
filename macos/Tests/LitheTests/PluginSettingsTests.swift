@@ -385,18 +385,18 @@ struct PluginSettingsTests {
         let package = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: package) }
         let manifest = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/settings-v2.plugin.json"))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/settings/settings-v2.plugin.json"))
         try manifest.write(to: package.appendingPathComponent("plugin.json"))
         try await body(makeManager(
             settings: MacPluginSettingsStore(store: SettingsKeyValueStore()),
-            fixture: "settings-v2.plugin.json",
+            fixture: "settings/settings-v2.plugin.json",
             packageURL: package
         ))
     }
 
     private func makeManager(
         settings: any PluginSettingsStoring,
-        fixture: String = "node-runtime.plugin.json",
+        fixture: String = "languages/node-runtime.plugin.json",
         packageURL: URL = FileManager.default.temporaryDirectory
     ) throws -> MacPluginManager {
         let descriptor = try DeclarativePluginTestSupport.operations.validate(

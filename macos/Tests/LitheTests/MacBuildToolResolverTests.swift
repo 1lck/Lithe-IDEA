@@ -47,7 +47,7 @@ struct MacBuildToolResolverTests {
         let runtime = ProjectRuntimeService(runtimeLocator: CanonicalToolchainRuntimeLocator(), store: ToolchainPreferenceStore())
         runtime.openProject(at: workspace)
         let resolver = MacBuildToolResolver(runtime: runtime, processRunner: MacProcessRunner(), fileStorage: MacFileStorage(), definedTools: defined)
-        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-toolchains.plugin.json")
+        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-systems/build-toolchains.plugin.json")
         let text = try String(contentsOf: fixture, encoding: .utf8)
             .replacingOccurrences(of: "dev.lithe.fixture.build-toolchains:vm", with: "vm")
             .replacingOccurrences(of: "dev.lithe.fixture.build-toolchains:compiler", with: "compiler")
