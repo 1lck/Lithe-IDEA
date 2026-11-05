@@ -324,6 +324,59 @@
         }
       ],
       "expectedError": "overlappingEdits"
+    },
+    {
+      "name": "lone CR terminates a line",
+      "text": "a\rb\rc",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 2,
+              "character": 0
+            },
+            "end": {
+              "line": 2,
+              "character": 1
+            }
+          },
+          "newText": "C"
+        }
+      ],
+      "expectedText": "a\rb\rC"
+    },
+    {
+      "name": "insert at a replacement start is adjacent regardless of batch order",
+      "text": "abcd",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 1
+            },
+            "end": {
+              "line": 0,
+              "character": 3
+            }
+          },
+          "newText": "R"
+        },
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 1
+            },
+            "end": {
+              "line": 0,
+              "character": 1
+            }
+          },
+          "newText": "I"
+        }
+      ],
+      "expectedText": "aIRd"
     }
   ]
 }

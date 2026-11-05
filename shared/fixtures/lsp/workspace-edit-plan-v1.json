@@ -1,0 +1,613 @@
+{
+  "version": 1,
+  "command": "lsp.planWorkspaceEdit",
+  "cases": [
+    {
+      "name": "closed files commit before open documents, each by relative path",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "changes": {
+          "/work/project/src/b.go": [
+            {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "utf16Column": 0
+                },
+                "end": {
+                  "line": 0,
+                  "utf16Column": 0
+                }
+              },
+              "newText": "b"
+            }
+          ],
+          "file:///work/project/src/a.go": [
+            {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "utf16Column": 0
+                },
+                "end": {
+                  "line": 0,
+                  "utf16Column": 0
+                }
+              },
+              "newText": "a"
+            }
+          ],
+          "/work/project/z.go": [
+            {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "utf16Column": 0
+                },
+                "end": {
+                  "line": 0,
+                  "utf16Column": 0
+                }
+              },
+              "newText": "z"
+            }
+          ]
+        },
+        "openDocuments": [
+          {
+            "path": "/work/project/src/b.go",
+            "isReadOnly": false
+          }
+        ]
+      },
+      "expected": {
+        "rejection": null,
+        "targets": [
+          {
+            "path": "/work/project/src/a.go",
+            "relativePath": "src/a.go",
+            "effect": "writeFile",
+            "edits": [
+              {
+                "range": {
+                  "start": {
+                    "line": 0,
+                    "utf16Column": 0
+                  },
+                  "end": {
+                    "line": 0,
+                    "utf16Column": 0
+                  }
+                },
+                "newText": "a"
+              }
+            ]
+          },
+          {
+            "path": "/work/project/z.go",
+            "relativePath": "z.go",
+            "effect": "writeFile",
+            "edits": [
+              {
+                "range": {
+                  "start": {
+                    "line": 0,
+                    "utf16Column": 0
+                  },
+                  "end": {
+                    "line": 0,
+                    "utf16Column": 0
+                  }
+                },
+                "newText": "z"
+              }
+            ]
+          },
+          {
+            "path": "/work/project/src/b.go",
+            "relativePath": "src/b.go",
+            "effect": "updateDocument",
+            "edits": [
+              {
+                "range": {
+                  "start": {
+                    "line": 0,
+                    "utf16Column": 0
+                  },
+                  "end": {
+                    "line": 0,
+                    "utf16Column": 0
+                  }
+                },
+                "newText": "b"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "percent-encoded URI keys decode to native paths",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "changes": {
+          "file:///work/project/A%23B%20c.go": [
+            {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "utf16Column": 0
+                },
+                "end": {
+                  "line": 0,
+                  "utf16Column": 0
+                }
+              },
+              "newText": "x"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "rejection": null,
+        "targets": [
+          {
+            "path": "/work/project/A#B c.go",
+            "relativePath": "A#B c.go",
+            "effect": "writeFile",
+            "edits": [
+              {
+                "range": {
+                  "start": {
+                    "line": 0,
+                    "utf16Column": 0
+                  },
+                  "end": {
+                    "line": 0,
+                    "utf16Column": 0
+                  }
+                },
+                "newText": "x"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a target outside the workspace rejects the whole edit",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "changes": {
+          "/work/project/a.go": [
+            {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "utf16Column": 0
+                },
+                "end": {
+                  "line": 0,
+                  "utf16Column": 0
+                }
+              },
+              "newText": "a"
+            }
+          ],
+          "/etc/hosts": [
+            {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "utf16Column": 0
+                },
+                "end": {
+                  "line": 0,
+                  "utf16Column": 0
+                }
+              },
+              "newText": "x"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "rejection": {
+          "code": "outsideWorkspace",
+          "path": "/etc/hosts"
+        },
+        "targets": []
+      }
+    },
+    {
+      "name": "dot segments cannot escape the workspace",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "changes": {
+          "/work/project/../secret.go": [
+            {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "utf16Column": 0
+                },
+                "end": {
+                  "line": 0,
+                  "utf16Column": 0
+                }
+              },
+              "newText": "x"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "rejection": {
+          "code": "outsideWorkspace",
+          "path": "/work/project/../secret.go"
+        },
+        "targets": []
+      }
+    },
+    {
+      "name": "a sibling directory sharing the root prefix is outside",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "changes": {
+          "/work/project2/a.go": [
+            {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "utf16Column": 0
+                },
+                "end": {
+                  "line": 0,
+                  "utf16Column": 0
+                }
+              },
+              "newText": "x"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "rejection": {
+          "code": "outsideWorkspace",
+          "path": "/work/project2/a.go"
+        },
+        "targets": []
+      }
+    },
+    {
+      "name": "non-file URIs are outside the workspace",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "changes": {
+          "jdt://contents/rt.jar/java.lang/String.class": [
+            {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "utf16Column": 0
+                },
+                "end": {
+                  "line": 0,
+                  "utf16Column": 0
+                }
+              },
+              "newText": "x"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "rejection": {
+          "code": "outsideWorkspace",
+          "path": "jdt://contents/rt.jar/java.lang/String.class"
+        },
+        "targets": []
+      }
+    },
+    {
+      "name": "a read-only open document rejects the whole edit",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "changes": {
+          "/work/project/a.go": [
+            {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "utf16Column": 0
+                },
+                "end": {
+                  "line": 0,
+                  "utf16Column": 0
+                }
+              },
+              "newText": "a"
+            }
+          ],
+          "/work/project/gen.go": [
+            {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "utf16Column": 0
+                },
+                "end": {
+                  "line": 0,
+                  "utf16Column": 0
+                }
+              },
+              "newText": "g"
+            }
+          ]
+        },
+        "openDocuments": [
+          {
+            "path": "/work/project/gen.go",
+            "isReadOnly": true
+          }
+        ]
+      },
+      "expected": {
+        "rejection": {
+          "code": "readOnlyDocument",
+          "path": "/work/project/gen.go"
+        },
+        "targets": []
+      }
+    },
+    {
+      "name": "targets without edits produce no effect",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "changes": {
+          "/work/project/a.go": [],
+          "/work/project/b.go": [
+            {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "utf16Column": 0
+                },
+                "end": {
+                  "line": 0,
+                  "utf16Column": 0
+                }
+              },
+              "newText": "b"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "rejection": null,
+        "targets": [
+          {
+            "path": "/work/project/b.go",
+            "relativePath": "b.go",
+            "effect": "writeFile",
+            "edits": [
+              {
+                "range": {
+                  "start": {
+                    "line": 0,
+                    "utf16Column": 0
+                  },
+                  "end": {
+                    "line": 0,
+                    "utf16Column": 0
+                  }
+                },
+                "newText": "b"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Windows keys match open documents without case or separator differences and keep the host path",
+      "request": {
+        "platform": "windows",
+        "workspaceRoot": "C:\\Work\\Project",
+        "changes": {
+          "/C:/Work/Project/src/Main.java": [
+            {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "utf16Column": 0
+                },
+                "end": {
+                  "line": 0,
+                  "utf16Column": 0
+                }
+              },
+              "newText": "m"
+            }
+          ],
+          "file:///c%3A/work/project/README.md": [
+            {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "utf16Column": 0
+                },
+                "end": {
+                  "line": 0,
+                  "utf16Column": 0
+                }
+              },
+              "newText": "r"
+            }
+          ]
+        },
+        "openDocuments": [
+          {
+            "path": "C:\\Work\\Project\\src\\Main.java",
+            "isReadOnly": false
+          }
+        ]
+      },
+      "expected": {
+        "rejection": null,
+        "targets": [
+          {
+            "path": "c:/work/project/README.md",
+            "relativePath": "README.md",
+            "effect": "writeFile",
+            "edits": [
+              {
+                "range": {
+                  "start": {
+                    "line": 0,
+                    "utf16Column": 0
+                  },
+                  "end": {
+                    "line": 0,
+                    "utf16Column": 0
+                  }
+                },
+                "newText": "r"
+              }
+            ]
+          },
+          {
+            "path": "C:\\Work\\Project\\src\\Main.java",
+            "relativePath": "src/Main.java",
+            "effect": "updateDocument",
+            "edits": [
+              {
+                "range": {
+                  "start": {
+                    "line": 0,
+                    "utf16Column": 0
+                  },
+                  "end": {
+                    "line": 0,
+                    "utf16Column": 0
+                  }
+                },
+                "newText": "m"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "keys naming one file merge in key order",
+      "request": {
+        "platform": "windows",
+        "workspaceRoot": "C:/Work/Project",
+        "changes": {
+          "C:/Work/Project/a.txt": [
+            {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "utf16Column": 0
+                },
+                "end": {
+                  "line": 0,
+                  "utf16Column": 0
+                }
+              },
+              "newText": "1"
+            }
+          ],
+          "c:\\work\\project\\a.txt": [
+            {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "utf16Column": 0
+                },
+                "end": {
+                  "line": 0,
+                  "utf16Column": 0
+                }
+              },
+              "newText": "2"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "rejection": null,
+        "targets": [
+          {
+            "path": "C:/Work/Project/a.txt",
+            "relativePath": "a.txt",
+            "effect": "writeFile",
+            "edits": [
+              {
+                "range": {
+                  "start": {
+                    "line": 0,
+                    "utf16Column": 0
+                  },
+                  "end": {
+                    "line": 0,
+                    "utf16Column": 0
+                  }
+                },
+                "newText": "1"
+              },
+              {
+                "range": {
+                  "start": {
+                    "line": 0,
+                    "utf16Column": 0
+                  },
+                  "end": {
+                    "line": 0,
+                    "utf16Column": 0
+                  }
+                },
+                "newText": "2"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a relative workspace root is invalid",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "project",
+        "changes": {
+          "/work/project/a.go": [
+            {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "utf16Column": 0
+                },
+                "end": {
+                  "line": 0,
+                  "utf16Column": 0
+                }
+              },
+              "newText": "a"
+            }
+          ]
+        }
+      },
+      "expectedError": "invalid_request"
+    }
+  ]
+}

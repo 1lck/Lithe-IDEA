@@ -338,8 +338,9 @@ export function registerMonacoLspProviders() {
           : { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 };
 
       void (async () => {
-        const [{ openLspNavigationLocation }, { readFileContent }] = await Promise.all([
+        const [{ openLspNavigationLocation }, { classifyLspNavigationTarget }, { readFileContent }] = await Promise.all([
           import("@/features/editor/lsp/navigation-target"),
+          import("@/features/editor/lsp/navigation-classification"),
           import("@/features/file-system/controllers/file-operations"),
         ]);
         const bufferStore = useBufferStore.getState();
@@ -357,6 +358,7 @@ export function registerMonacoLspProviders() {
           getVirtualDocument: (filePath, virtualUri) =>
             lspClient.getVirtualDocument(filePath, virtualUri),
           readFileContent,
+          classifyTarget: classifyLspNavigationTarget,
         });
         window.dispatchEvent(
           new CustomEvent("menu-go-to-line", {

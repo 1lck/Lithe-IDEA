@@ -1,0 +1,1244 @@
+{
+  "description": "lsp.problems.query filters, orders, and groups Problems tool-window diagnostics. Responses return indices into the submitted diagnostics.",
+  "cases": [
+    {
+      "name": "default groups files in natural path order and sorts by severity inside each file",
+      "request": {
+        "diagnostics": [
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "line": 4,
+            "column": 2,
+            "severity": 2,
+            "message": "Unused import",
+            "source": "java",
+            "code": "268435844"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 9,
+            "column": 0,
+            "severity": 1,
+            "message": "Type mismatch",
+            "source": "java",
+            "code": "16777233"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 1,
+            "column": 5,
+            "severity": 3,
+            "message": "Consider final",
+            "source": "java"
+          },
+          {
+            "fileKey": "/w/README.md",
+            "displayPath": "README.md",
+            "line": 0,
+            "column": 0,
+            "severity": null,
+            "message": "Spelling",
+            "source": "cspell"
+          },
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "line": 4,
+            "column": 2,
+            "severity": 2,
+            "message": "Duplicate at the same position",
+            "source": "java"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 1,
+            "column": 5,
+            "severity": 4,
+            "message": "Hint here",
+            "source": "Java"
+          }
+        ]
+      },
+      "response": {
+        "groups": [
+          {
+            "key": "file:/w/README.md",
+            "kind": "file",
+            "fileKey": "/w/README.md",
+            "displayPath": "README.md",
+            "indices": [
+              3
+            ],
+            "counts": {
+              "error": 0,
+              "warning": 0,
+              "information": 0,
+              "hint": 0,
+              "unknown": 1
+            }
+          },
+          {
+            "key": "file:/w/src/File2.java",
+            "kind": "file",
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "indices": [
+              1,
+              2,
+              5
+            ],
+            "counts": {
+              "error": 1,
+              "warning": 0,
+              "information": 1,
+              "hint": 1,
+              "unknown": 0
+            }
+          },
+          {
+            "key": "file:/w/src/File10.java",
+            "kind": "file",
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "indices": [
+              0,
+              4
+            ],
+            "counts": {
+              "error": 0,
+              "warning": 2,
+              "information": 0,
+              "hint": 0,
+              "unknown": 0
+            }
+          }
+        ],
+        "files": [
+          {
+            "fileKey": "/w/README.md",
+            "displayPath": "README.md",
+            "count": 1,
+            "highestSeverity": 0,
+            "counts": {
+              "error": 0,
+              "warning": 0,
+              "information": 0,
+              "hint": 0,
+              "unknown": 1
+            }
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "count": 3,
+            "highestSeverity": 1,
+            "counts": {
+              "error": 1,
+              "warning": 0,
+              "information": 1,
+              "hint": 1,
+              "unknown": 0
+            }
+          },
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "count": 2,
+            "highestSeverity": 2,
+            "counts": {
+              "error": 0,
+              "warning": 2,
+              "information": 0,
+              "hint": 0,
+              "unknown": 0
+            }
+          }
+        ],
+        "visibleCounts": {
+          "error": 1,
+          "warning": 2,
+          "information": 1,
+          "hint": 1,
+          "unknown": 1
+        },
+        "totalCounts": {
+          "error": 1,
+          "warning": 2,
+          "information": 1,
+          "hint": 1,
+          "unknown": 1
+        }
+      }
+    },
+    {
+      "name": "severity groups list errors first and unknown severities last",
+      "request": {
+        "diagnostics": [
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "line": 4,
+            "column": 2,
+            "severity": 2,
+            "message": "Unused import",
+            "source": "java",
+            "code": "268435844"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 9,
+            "column": 0,
+            "severity": 1,
+            "message": "Type mismatch",
+            "source": "java",
+            "code": "16777233"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 1,
+            "column": 5,
+            "severity": 3,
+            "message": "Consider final",
+            "source": "java"
+          },
+          {
+            "fileKey": "/w/README.md",
+            "displayPath": "README.md",
+            "line": 0,
+            "column": 0,
+            "severity": null,
+            "message": "Spelling",
+            "source": "cspell"
+          },
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "line": 4,
+            "column": 2,
+            "severity": 2,
+            "message": "Duplicate at the same position",
+            "source": "java"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 1,
+            "column": 5,
+            "severity": 4,
+            "message": "Hint here",
+            "source": "Java"
+          }
+        ],
+        "groupBy": "severity",
+        "sortBy": "file"
+      },
+      "response": {
+        "groups": [
+          {
+            "key": "severity:1",
+            "kind": "severity",
+            "severity": 1,
+            "indices": [
+              1
+            ],
+            "counts": {
+              "error": 1,
+              "warning": 0,
+              "information": 0,
+              "hint": 0,
+              "unknown": 0
+            }
+          },
+          {
+            "key": "severity:2",
+            "kind": "severity",
+            "severity": 2,
+            "indices": [
+              0,
+              4
+            ],
+            "counts": {
+              "error": 0,
+              "warning": 2,
+              "information": 0,
+              "hint": 0,
+              "unknown": 0
+            }
+          },
+          {
+            "key": "severity:3",
+            "kind": "severity",
+            "severity": 3,
+            "indices": [
+              2
+            ],
+            "counts": {
+              "error": 0,
+              "warning": 0,
+              "information": 1,
+              "hint": 0,
+              "unknown": 0
+            }
+          },
+          {
+            "key": "severity:4",
+            "kind": "severity",
+            "severity": 4,
+            "indices": [
+              5
+            ],
+            "counts": {
+              "error": 0,
+              "warning": 0,
+              "information": 0,
+              "hint": 1,
+              "unknown": 0
+            }
+          },
+          {
+            "key": "severity:0",
+            "kind": "severity",
+            "severity": 0,
+            "indices": [
+              3
+            ],
+            "counts": {
+              "error": 0,
+              "warning": 0,
+              "information": 0,
+              "hint": 0,
+              "unknown": 1
+            }
+          }
+        ],
+        "files": [
+          {
+            "fileKey": "/w/README.md",
+            "displayPath": "README.md",
+            "count": 1,
+            "highestSeverity": 0,
+            "counts": {
+              "error": 0,
+              "warning": 0,
+              "information": 0,
+              "hint": 0,
+              "unknown": 1
+            }
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "count": 3,
+            "highestSeverity": 1,
+            "counts": {
+              "error": 1,
+              "warning": 0,
+              "information": 1,
+              "hint": 1,
+              "unknown": 0
+            }
+          },
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "count": 2,
+            "highestSeverity": 2,
+            "counts": {
+              "error": 0,
+              "warning": 2,
+              "information": 0,
+              "hint": 0,
+              "unknown": 0
+            }
+          }
+        ],
+        "visibleCounts": {
+          "error": 1,
+          "warning": 2,
+          "information": 1,
+          "hint": 1,
+          "unknown": 1
+        },
+        "totalCounts": {
+          "error": 1,
+          "warning": 2,
+          "information": 1,
+          "hint": 1,
+          "unknown": 1
+        }
+      }
+    },
+    {
+      "name": "position order ranks line and column before file and keeps submission order for ties",
+      "request": {
+        "diagnostics": [
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "line": 4,
+            "column": 2,
+            "severity": 2,
+            "message": "Unused import",
+            "source": "java",
+            "code": "268435844"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 9,
+            "column": 0,
+            "severity": 1,
+            "message": "Type mismatch",
+            "source": "java",
+            "code": "16777233"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 1,
+            "column": 5,
+            "severity": 3,
+            "message": "Consider final",
+            "source": "java"
+          },
+          {
+            "fileKey": "/w/README.md",
+            "displayPath": "README.md",
+            "line": 0,
+            "column": 0,
+            "severity": null,
+            "message": "Spelling",
+            "source": "cspell"
+          },
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "line": 4,
+            "column": 2,
+            "severity": 2,
+            "message": "Duplicate at the same position",
+            "source": "java"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 1,
+            "column": 5,
+            "severity": 4,
+            "message": "Hint here",
+            "source": "Java"
+          }
+        ],
+        "groupBy": "none",
+        "sortBy": "position"
+      },
+      "response": {
+        "groups": [
+          {
+            "key": "all",
+            "kind": "all",
+            "indices": [
+              3,
+              2,
+              5,
+              0,
+              4,
+              1
+            ],
+            "counts": {
+              "error": 1,
+              "warning": 2,
+              "information": 1,
+              "hint": 1,
+              "unknown": 1
+            }
+          }
+        ],
+        "files": [
+          {
+            "fileKey": "/w/README.md",
+            "displayPath": "README.md",
+            "count": 1,
+            "highestSeverity": 0,
+            "counts": {
+              "error": 0,
+              "warning": 0,
+              "information": 0,
+              "hint": 0,
+              "unknown": 1
+            }
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "count": 3,
+            "highestSeverity": 1,
+            "counts": {
+              "error": 1,
+              "warning": 0,
+              "information": 1,
+              "hint": 1,
+              "unknown": 0
+            }
+          },
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "count": 2,
+            "highestSeverity": 2,
+            "counts": {
+              "error": 0,
+              "warning": 2,
+              "information": 0,
+              "hint": 0,
+              "unknown": 0
+            }
+          }
+        ],
+        "visibleCounts": {
+          "error": 1,
+          "warning": 2,
+          "information": 1,
+          "hint": 1,
+          "unknown": 1
+        },
+        "totalCounts": {
+          "error": 1,
+          "warning": 2,
+          "information": 1,
+          "hint": 1,
+          "unknown": 1
+        }
+      }
+    },
+    {
+      "name": "severity filter keeps totals for the unfiltered list",
+      "request": {
+        "diagnostics": [
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "line": 4,
+            "column": 2,
+            "severity": 2,
+            "message": "Unused import",
+            "source": "java",
+            "code": "268435844"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 9,
+            "column": 0,
+            "severity": 1,
+            "message": "Type mismatch",
+            "source": "java",
+            "code": "16777233"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 1,
+            "column": 5,
+            "severity": 3,
+            "message": "Consider final",
+            "source": "java"
+          },
+          {
+            "fileKey": "/w/README.md",
+            "displayPath": "README.md",
+            "line": 0,
+            "column": 0,
+            "severity": null,
+            "message": "Spelling",
+            "source": "cspell"
+          },
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "line": 4,
+            "column": 2,
+            "severity": 2,
+            "message": "Duplicate at the same position",
+            "source": "java"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 1,
+            "column": 5,
+            "severity": 4,
+            "message": "Hint here",
+            "source": "Java"
+          }
+        ],
+        "filter": {
+          "severities": [
+            1,
+            2
+          ]
+        }
+      },
+      "response": {
+        "groups": [
+          {
+            "key": "file:/w/src/File2.java",
+            "kind": "file",
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "indices": [
+              1
+            ],
+            "counts": {
+              "error": 1,
+              "warning": 0,
+              "information": 0,
+              "hint": 0,
+              "unknown": 0
+            }
+          },
+          {
+            "key": "file:/w/src/File10.java",
+            "kind": "file",
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "indices": [
+              0,
+              4
+            ],
+            "counts": {
+              "error": 0,
+              "warning": 2,
+              "information": 0,
+              "hint": 0,
+              "unknown": 0
+            }
+          }
+        ],
+        "files": [
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "count": 1,
+            "highestSeverity": 1,
+            "counts": {
+              "error": 1,
+              "warning": 0,
+              "information": 0,
+              "hint": 0,
+              "unknown": 0
+            }
+          },
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "count": 2,
+            "highestSeverity": 2,
+            "counts": {
+              "error": 0,
+              "warning": 2,
+              "information": 0,
+              "hint": 0,
+              "unknown": 0
+            }
+          }
+        ],
+        "visibleCounts": {
+          "error": 1,
+          "warning": 2,
+          "information": 0,
+          "hint": 0,
+          "unknown": 0
+        },
+        "totalCounts": {
+          "error": 1,
+          "warning": 2,
+          "information": 1,
+          "hint": 1,
+          "unknown": 1
+        }
+      }
+    },
+    {
+      "name": "unknown severity is selected with zero",
+      "request": {
+        "diagnostics": [
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "line": 4,
+            "column": 2,
+            "severity": 2,
+            "message": "Unused import",
+            "source": "java",
+            "code": "268435844"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 9,
+            "column": 0,
+            "severity": 1,
+            "message": "Type mismatch",
+            "source": "java",
+            "code": "16777233"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 1,
+            "column": 5,
+            "severity": 3,
+            "message": "Consider final",
+            "source": "java"
+          },
+          {
+            "fileKey": "/w/README.md",
+            "displayPath": "README.md",
+            "line": 0,
+            "column": 0,
+            "severity": null,
+            "message": "Spelling",
+            "source": "cspell"
+          },
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "line": 4,
+            "column": 2,
+            "severity": 2,
+            "message": "Duplicate at the same position",
+            "source": "java"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 1,
+            "column": 5,
+            "severity": 4,
+            "message": "Hint here",
+            "source": "Java"
+          }
+        ],
+        "filter": {
+          "severities": [
+            0
+          ]
+        }
+      },
+      "response": {
+        "groups": [
+          {
+            "key": "file:/w/README.md",
+            "kind": "file",
+            "fileKey": "/w/README.md",
+            "displayPath": "README.md",
+            "indices": [
+              3
+            ],
+            "counts": {
+              "error": 0,
+              "warning": 0,
+              "information": 0,
+              "hint": 0,
+              "unknown": 1
+            }
+          }
+        ],
+        "files": [
+          {
+            "fileKey": "/w/README.md",
+            "displayPath": "README.md",
+            "count": 1,
+            "highestSeverity": 0,
+            "counts": {
+              "error": 0,
+              "warning": 0,
+              "information": 0,
+              "hint": 0,
+              "unknown": 1
+            }
+          }
+        ],
+        "visibleCounts": {
+          "error": 0,
+          "warning": 0,
+          "information": 0,
+          "hint": 0,
+          "unknown": 1
+        },
+        "totalCounts": {
+          "error": 1,
+          "warning": 2,
+          "information": 1,
+          "hint": 1,
+          "unknown": 1
+        }
+      }
+    },
+    {
+      "name": "file scope and source filter compare the source case-insensitively",
+      "request": {
+        "diagnostics": [
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "line": 4,
+            "column": 2,
+            "severity": 2,
+            "message": "Unused import",
+            "source": "java",
+            "code": "268435844"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 9,
+            "column": 0,
+            "severity": 1,
+            "message": "Type mismatch",
+            "source": "java",
+            "code": "16777233"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 1,
+            "column": 5,
+            "severity": 3,
+            "message": "Consider final",
+            "source": "java"
+          },
+          {
+            "fileKey": "/w/README.md",
+            "displayPath": "README.md",
+            "line": 0,
+            "column": 0,
+            "severity": null,
+            "message": "Spelling",
+            "source": "cspell"
+          },
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "line": 4,
+            "column": 2,
+            "severity": 2,
+            "message": "Duplicate at the same position",
+            "source": "java"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 1,
+            "column": 5,
+            "severity": 4,
+            "message": "Hint here",
+            "source": "Java"
+          }
+        ],
+        "filter": {
+          "fileKey": "/w/src/File2.java",
+          "source": "JAVA"
+        }
+      },
+      "response": {
+        "groups": [
+          {
+            "key": "file:/w/src/File2.java",
+            "kind": "file",
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "indices": [
+              1,
+              2,
+              5
+            ],
+            "counts": {
+              "error": 1,
+              "warning": 0,
+              "information": 1,
+              "hint": 1,
+              "unknown": 0
+            }
+          }
+        ],
+        "files": [
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "count": 3,
+            "highestSeverity": 1,
+            "counts": {
+              "error": 1,
+              "warning": 0,
+              "information": 1,
+              "hint": 1,
+              "unknown": 0
+            }
+          }
+        ],
+        "visibleCounts": {
+          "error": 1,
+          "warning": 0,
+          "information": 1,
+          "hint": 1,
+          "unknown": 0
+        },
+        "totalCounts": {
+          "error": 1,
+          "warning": 2,
+          "information": 1,
+          "hint": 1,
+          "unknown": 1
+        }
+      }
+    },
+    {
+      "name": "query trims and matches the one-based line and column label",
+      "request": {
+        "diagnostics": [
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "line": 4,
+            "column": 2,
+            "severity": 2,
+            "message": "Unused import",
+            "source": "java",
+            "code": "268435844"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 9,
+            "column": 0,
+            "severity": 1,
+            "message": "Type mismatch",
+            "source": "java",
+            "code": "16777233"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 1,
+            "column": 5,
+            "severity": 3,
+            "message": "Consider final",
+            "source": "java"
+          },
+          {
+            "fileKey": "/w/README.md",
+            "displayPath": "README.md",
+            "line": 0,
+            "column": 0,
+            "severity": null,
+            "message": "Spelling",
+            "source": "cspell"
+          },
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "line": 4,
+            "column": 2,
+            "severity": 2,
+            "message": "Duplicate at the same position",
+            "source": "java"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 1,
+            "column": 5,
+            "severity": 4,
+            "message": "Hint here",
+            "source": "Java"
+          }
+        ],
+        "filter": {
+          "query": "  10:1 "
+        }
+      },
+      "response": {
+        "groups": [
+          {
+            "key": "file:/w/src/File2.java",
+            "kind": "file",
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "indices": [
+              1
+            ],
+            "counts": {
+              "error": 1,
+              "warning": 0,
+              "information": 0,
+              "hint": 0,
+              "unknown": 0
+            }
+          }
+        ],
+        "files": [
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "count": 1,
+            "highestSeverity": 1,
+            "counts": {
+              "error": 1,
+              "warning": 0,
+              "information": 0,
+              "hint": 0,
+              "unknown": 0
+            }
+          }
+        ],
+        "visibleCounts": {
+          "error": 1,
+          "warning": 0,
+          "information": 0,
+          "hint": 0,
+          "unknown": 0
+        },
+        "totalCounts": {
+          "error": 1,
+          "warning": 2,
+          "information": 1,
+          "hint": 1,
+          "unknown": 1
+        }
+      }
+    },
+    {
+      "name": "query matches the display path case-insensitively",
+      "request": {
+        "diagnostics": [
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "line": 4,
+            "column": 2,
+            "severity": 2,
+            "message": "Unused import",
+            "source": "java",
+            "code": "268435844"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 9,
+            "column": 0,
+            "severity": 1,
+            "message": "Type mismatch",
+            "source": "java",
+            "code": "16777233"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 1,
+            "column": 5,
+            "severity": 3,
+            "message": "Consider final",
+            "source": "java"
+          },
+          {
+            "fileKey": "/w/README.md",
+            "displayPath": "README.md",
+            "line": 0,
+            "column": 0,
+            "severity": null,
+            "message": "Spelling",
+            "source": "cspell"
+          },
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "line": 4,
+            "column": 2,
+            "severity": 2,
+            "message": "Duplicate at the same position",
+            "source": "java"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 1,
+            "column": 5,
+            "severity": 4,
+            "message": "Hint here",
+            "source": "Java"
+          }
+        ],
+        "groupBy": "none",
+        "sortBy": "file",
+        "filter": {
+          "query": "FILE10"
+        }
+      },
+      "response": {
+        "groups": [
+          {
+            "key": "all",
+            "kind": "all",
+            "indices": [
+              0,
+              4
+            ],
+            "counts": {
+              "error": 0,
+              "warning": 2,
+              "information": 0,
+              "hint": 0,
+              "unknown": 0
+            }
+          }
+        ],
+        "files": [
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "count": 2,
+            "highestSeverity": 2,
+            "counts": {
+              "error": 0,
+              "warning": 2,
+              "information": 0,
+              "hint": 0,
+              "unknown": 0
+            }
+          }
+        ],
+        "visibleCounts": {
+          "error": 0,
+          "warning": 2,
+          "information": 0,
+          "hint": 0,
+          "unknown": 0
+        },
+        "totalCounts": {
+          "error": 1,
+          "warning": 2,
+          "information": 1,
+          "hint": 1,
+          "unknown": 1
+        }
+      }
+    },
+    {
+      "name": "no visible diagnostics produce no groups",
+      "request": {
+        "diagnostics": [
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "line": 4,
+            "column": 2,
+            "severity": 2,
+            "message": "Unused import",
+            "source": "java",
+            "code": "268435844"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 9,
+            "column": 0,
+            "severity": 1,
+            "message": "Type mismatch",
+            "source": "java",
+            "code": "16777233"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 1,
+            "column": 5,
+            "severity": 3,
+            "message": "Consider final",
+            "source": "java"
+          },
+          {
+            "fileKey": "/w/README.md",
+            "displayPath": "README.md",
+            "line": 0,
+            "column": 0,
+            "severity": null,
+            "message": "Spelling",
+            "source": "cspell"
+          },
+          {
+            "fileKey": "/w/src/File10.java",
+            "displayPath": "src/File10.java",
+            "line": 4,
+            "column": 2,
+            "severity": 2,
+            "message": "Duplicate at the same position",
+            "source": "java"
+          },
+          {
+            "fileKey": "/w/src/File2.java",
+            "displayPath": "src/File2.java",
+            "line": 1,
+            "column": 5,
+            "severity": 4,
+            "message": "Hint here",
+            "source": "Java"
+          }
+        ],
+        "groupBy": "none",
+        "filter": {
+          "query": "absent"
+        }
+      },
+      "response": {
+        "groups": [],
+        "files": [],
+        "visibleCounts": {
+          "error": 0,
+          "warning": 0,
+          "information": 0,
+          "hint": 0,
+          "unknown": 0
+        },
+        "totalCounts": {
+          "error": 1,
+          "warning": 2,
+          "information": 1,
+          "hint": 1,
+          "unknown": 1
+        }
+      }
+    },
+    {
+      "name": "empty input",
+      "request": {
+        "diagnostics": []
+      },
+      "response": {
+        "groups": [],
+        "files": [],
+        "visibleCounts": {
+          "error": 0,
+          "warning": 0,
+          "information": 0,
+          "hint": 0,
+          "unknown": 0
+        },
+        "totalCounts": {
+          "error": 0,
+          "warning": 0,
+          "information": 0,
+          "hint": 0,
+          "unknown": 0
+        }
+      }
+    }
+  ]
+}

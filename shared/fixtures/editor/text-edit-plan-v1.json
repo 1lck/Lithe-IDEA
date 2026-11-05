@@ -1,0 +1,841 @@
+{
+  "version": 1,
+  "command": "editor.planTextEdits",
+  "cases": [
+    {
+      "name": "emoji columns count UTF-16 code units",
+      "text": "a😀b",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 2
+            },
+            "end": {
+              "line": 1,
+              "column": 4
+            }
+          },
+          "text": "X"
+        }
+      ],
+      "expected": {
+        "lineEnding": "lf",
+        "lineSeparator": "\n",
+        "edits": [
+          {
+            "index": 0,
+            "utf16Offset": 1,
+            "utf16Length": 2,
+            "text": "X",
+            "normalizedText": "X"
+          }
+        ],
+        "rejection": null
+      },
+      "expectedText": "aXb"
+    },
+    {
+      "name": "position inside a surrogate pair is rejected",
+      "text": "a😀b",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 3
+            },
+            "end": {
+              "line": 1,
+              "column": 4
+            }
+          },
+          "text": ""
+        }
+      ],
+      "expected": {
+        "lineEnding": "lf",
+        "lineSeparator": "\n",
+        "edits": [],
+        "rejection": {
+          "reason": "splitsSurrogatePair",
+          "editIndex": 0,
+          "otherEditIndex": null
+        }
+      }
+    },
+    {
+      "name": "combining mark is its own code unit",
+      "text": "éx",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 2
+            },
+            "end": {
+              "line": 1,
+              "column": 3
+            }
+          },
+          "text": ""
+        }
+      ],
+      "expected": {
+        "lineEnding": "lf",
+        "lineSeparator": "\n",
+        "edits": [
+          {
+            "index": 0,
+            "utf16Offset": 1,
+            "utf16Length": 1,
+            "text": "",
+            "normalizedText": ""
+          }
+        ],
+        "rejection": null
+      },
+      "expectedText": "ex"
+    },
+    {
+      "name": "CRLF document writes inserted breaks as CRLF",
+      "text": "a\r\nb",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 2,
+              "column": 1
+            },
+            "end": {
+              "line": 2,
+              "column": 1
+            }
+          },
+          "text": "x\ny\r\n"
+        }
+      ],
+      "expected": {
+        "lineEnding": "crlf",
+        "lineSeparator": "\r\n",
+        "edits": [
+          {
+            "index": 0,
+            "utf16Offset": 3,
+            "utf16Length": 0,
+            "text": "x\r\ny\r\n",
+            "normalizedText": "x\ny\n"
+          }
+        ],
+        "rejection": null
+      },
+      "expectedText": "a\r\nx\r\ny\r\nb"
+    },
+    {
+      "name": "lone CR terminates a line",
+      "text": "a\rb",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 2,
+              "column": 1
+            },
+            "end": {
+              "line": 2,
+              "column": 2
+            }
+          },
+          "text": "B"
+        }
+      ],
+      "expected": {
+        "lineEnding": "cr",
+        "lineSeparator": "\r",
+        "edits": [
+          {
+            "index": 0,
+            "utf16Offset": 2,
+            "utf16Length": 1,
+            "text": "B",
+            "normalizedText": "B"
+          }
+        ],
+        "rejection": null
+      },
+      "expectedText": "a\rB"
+    },
+    {
+      "name": "mixed endings insert the first separator",
+      "text": "a\nb\r\nc",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 3,
+              "column": 1
+            },
+            "end": {
+              "line": 3,
+              "column": 1
+            }
+          },
+          "text": "1\r2"
+        }
+      ],
+      "expected": {
+        "lineEnding": "mixed",
+        "lineSeparator": "\n",
+        "edits": [
+          {
+            "index": 0,
+            "utf16Offset": 5,
+            "utf16Length": 0,
+            "text": "1\n2",
+            "normalizedText": "1\n2"
+          }
+        ],
+        "rejection": null
+      },
+      "expectedText": "a\nb\r\n1\n2c"
+    },
+    {
+      "name": "column between CR and LF is out of bounds",
+      "text": "a\r\nb",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 3
+            },
+            "end": {
+              "line": 1,
+              "column": 3
+            }
+          },
+          "text": "x"
+        }
+      ],
+      "expected": {
+        "lineEnding": "crlf",
+        "lineSeparator": "\r\n",
+        "edits": [],
+        "rejection": {
+          "reason": "rangeOutOfBounds",
+          "editIndex": 0,
+          "otherEditIndex": null
+        }
+      }
+    },
+    {
+      "name": "end of line and end of document are valid",
+      "text": "ab\n",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 3
+            },
+            "end": {
+              "line": 1,
+              "column": 3
+            }
+          },
+          "text": "!"
+        },
+        {
+          "range": {
+            "start": {
+              "line": 2,
+              "column": 1
+            },
+            "end": {
+              "line": 2,
+              "column": 1
+            }
+          },
+          "text": "?"
+        }
+      ],
+      "expected": {
+        "lineEnding": "lf",
+        "lineSeparator": "\n",
+        "edits": [
+          {
+            "index": 0,
+            "utf16Offset": 2,
+            "utf16Length": 0,
+            "text": "!",
+            "normalizedText": "!"
+          },
+          {
+            "index": 1,
+            "utf16Offset": 3,
+            "utf16Length": 0,
+            "text": "?",
+            "normalizedText": "?"
+          }
+        ],
+        "rejection": null
+      },
+      "expectedText": "ab!\n?"
+    },
+    {
+      "name": "line zero is out of bounds",
+      "text": "ab\ncd",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 1
+            },
+            "end": {
+              "line": 1,
+              "column": 1
+            }
+          },
+          "text": ""
+        },
+        {
+          "range": {
+            "start": {
+              "line": 0,
+              "column": 1
+            },
+            "end": {
+              "line": 0,
+              "column": 1
+            }
+          },
+          "text": "x"
+        }
+      ],
+      "expected": {
+        "lineEnding": "lf",
+        "lineSeparator": "\n",
+        "edits": [],
+        "rejection": {
+          "reason": "rangeOutOfBounds",
+          "editIndex": 1,
+          "otherEditIndex": null
+        }
+      }
+    },
+    {
+      "name": "missing line is out of bounds",
+      "text": "ab\ncd",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 1
+            },
+            "end": {
+              "line": 1,
+              "column": 1
+            }
+          },
+          "text": ""
+        },
+        {
+          "range": {
+            "start": {
+              "line": 3,
+              "column": 1
+            },
+            "end": {
+              "line": 3,
+              "column": 1
+            }
+          },
+          "text": "x"
+        }
+      ],
+      "expected": {
+        "lineEnding": "lf",
+        "lineSeparator": "\n",
+        "edits": [],
+        "rejection": {
+          "reason": "rangeOutOfBounds",
+          "editIndex": 1,
+          "otherEditIndex": null
+        }
+      }
+    },
+    {
+      "name": "column zero is out of bounds",
+      "text": "ab\ncd",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 1
+            },
+            "end": {
+              "line": 1,
+              "column": 1
+            }
+          },
+          "text": ""
+        },
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 0
+            },
+            "end": {
+              "line": 1,
+              "column": 0
+            }
+          },
+          "text": "x"
+        }
+      ],
+      "expected": {
+        "lineEnding": "lf",
+        "lineSeparator": "\n",
+        "edits": [],
+        "rejection": {
+          "reason": "rangeOutOfBounds",
+          "editIndex": 1,
+          "otherEditIndex": null
+        }
+      }
+    },
+    {
+      "name": "column past line end is out of bounds",
+      "text": "ab\ncd",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 1
+            },
+            "end": {
+              "line": 1,
+              "column": 1
+            }
+          },
+          "text": ""
+        },
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 4
+            },
+            "end": {
+              "line": 1,
+              "column": 4
+            }
+          },
+          "text": "x"
+        }
+      ],
+      "expected": {
+        "lineEnding": "lf",
+        "lineSeparator": "\n",
+        "edits": [],
+        "rejection": {
+          "reason": "rangeOutOfBounds",
+          "editIndex": 1,
+          "otherEditIndex": null
+        }
+      }
+    },
+    {
+      "name": "reversed range",
+      "text": "abc",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 3
+            },
+            "end": {
+              "line": 1,
+              "column": 1
+            }
+          },
+          "text": ""
+        }
+      ],
+      "expected": {
+        "lineEnding": "lf",
+        "lineSeparator": "\n",
+        "edits": [],
+        "rejection": {
+          "reason": "reversed",
+          "editIndex": 0,
+          "otherEditIndex": null
+        }
+      }
+    },
+    {
+      "name": "overlap reports caller indices",
+      "text": "abcdef",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 3
+            },
+            "end": {
+              "line": 1,
+              "column": 5
+            }
+          },
+          "text": ""
+        },
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 1
+            },
+            "end": {
+              "line": 1,
+              "column": 4
+            }
+          },
+          "text": ""
+        }
+      ],
+      "expected": {
+        "lineEnding": "lf",
+        "lineSeparator": "\n",
+        "edits": [],
+        "rejection": {
+          "reason": "overlappingRanges",
+          "editIndex": 0,
+          "otherEditIndex": 1
+        }
+      }
+    },
+    {
+      "name": "insertion strictly inside a replacement overlaps",
+      "text": "abcdef",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 1
+            },
+            "end": {
+              "line": 1,
+              "column": 4
+            }
+          },
+          "text": ""
+        },
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 2
+            },
+            "end": {
+              "line": 1,
+              "column": 2
+            }
+          },
+          "text": "x"
+        }
+      ],
+      "expected": {
+        "lineEnding": "lf",
+        "lineSeparator": "\n",
+        "edits": [],
+        "rejection": {
+          "reason": "overlappingRanges",
+          "editIndex": 0,
+          "otherEditIndex": 1
+        }
+      }
+    },
+    {
+      "name": "adjacent ranges are applied in stable order",
+      "text": "ab",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 2
+            },
+            "end": {
+              "line": 1,
+              "column": 3
+            }
+          },
+          "text": "B"
+        },
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 1
+            },
+            "end": {
+              "line": 1,
+              "column": 2
+            }
+          },
+          "text": "A"
+        }
+      ],
+      "expected": {
+        "lineEnding": "lf",
+        "lineSeparator": "\n",
+        "edits": [
+          {
+            "index": 1,
+            "utf16Offset": 0,
+            "utf16Length": 1,
+            "text": "A",
+            "normalizedText": "A"
+          },
+          {
+            "index": 0,
+            "utf16Offset": 1,
+            "utf16Length": 1,
+            "text": "B",
+            "normalizedText": "B"
+          }
+        ],
+        "rejection": null
+      },
+      "expectedText": "AB"
+    },
+    {
+      "name": "same-position inserts keep caller order",
+      "text": "z",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 1
+            },
+            "end": {
+              "line": 1,
+              "column": 1
+            }
+          },
+          "text": "x"
+        },
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 1
+            },
+            "end": {
+              "line": 1,
+              "column": 1
+            }
+          },
+          "text": "y"
+        }
+      ],
+      "expected": {
+        "lineEnding": "lf",
+        "lineSeparator": "\n",
+        "edits": [
+          {
+            "index": 0,
+            "utf16Offset": 0,
+            "utf16Length": 0,
+            "text": "x",
+            "normalizedText": "x"
+          },
+          {
+            "index": 1,
+            "utf16Offset": 0,
+            "utf16Length": 0,
+            "text": "y",
+            "normalizedText": "y"
+          }
+        ],
+        "rejection": null
+      },
+      "expectedText": "xyz"
+    },
+    {
+      "name": "insert at a replacement start is adjacent regardless of batch order",
+      "text": "abcd",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 2
+            },
+            "end": {
+              "line": 1,
+              "column": 4
+            }
+          },
+          "text": "R"
+        },
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 2
+            },
+            "end": {
+              "line": 1,
+              "column": 2
+            }
+          },
+          "text": "I"
+        }
+      ],
+      "expected": {
+        "lineEnding": "lf",
+        "lineSeparator": "\n",
+        "edits": [
+          {
+            "index": 1,
+            "utf16Offset": 1,
+            "utf16Length": 0,
+            "text": "I",
+            "normalizedText": "I"
+          },
+          {
+            "index": 0,
+            "utf16Offset": 1,
+            "utf16Length": 2,
+            "text": "R",
+            "normalizedText": "R"
+          }
+        ],
+        "rejection": null
+      },
+      "expectedText": "aIRd"
+    },
+    {
+      "name": "multi-line edits in a multi-selection batch",
+      "text": "one\ntwo\nthree",
+      "edits": [
+        {
+          "range": {
+            "start": {
+              "line": 3,
+              "column": 1
+            },
+            "end": {
+              "line": 3,
+              "column": 6
+            }
+          },
+          "text": "3"
+        },
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 1
+            },
+            "end": {
+              "line": 1,
+              "column": 4
+            }
+          },
+          "text": "1"
+        },
+        {
+          "range": {
+            "start": {
+              "line": 1,
+              "column": 4
+            },
+            "end": {
+              "line": 2,
+              "column": 4
+            }
+          },
+          "text": ""
+        }
+      ],
+      "expected": {
+        "lineEnding": "lf",
+        "lineSeparator": "\n",
+        "edits": [
+          {
+            "index": 1,
+            "utf16Offset": 0,
+            "utf16Length": 3,
+            "text": "1",
+            "normalizedText": "1"
+          },
+          {
+            "index": 2,
+            "utf16Offset": 3,
+            "utf16Length": 4,
+            "text": "",
+            "normalizedText": ""
+          },
+          {
+            "index": 0,
+            "utf16Offset": 8,
+            "utf16Length": 5,
+            "text": "3",
+            "normalizedText": "3"
+          }
+        ],
+        "rejection": null
+      },
+      "expectedText": "1\n3"
+    },
+    {
+      "name": "empty batch reports the line ending",
+      "text": "x\r\ny",
+      "edits": [],
+      "expected": {
+        "lineEnding": "crlf",
+        "lineSeparator": "\r\n",
+        "edits": [],
+        "rejection": null
+      },
+      "expectedText": "x\r\ny"
+    },
+    {
+      "name": "extra positions must exist",
+      "text": "ab\ncd",
+      "edits": [],
+      "positions": [
+        {
+          "line": 2,
+          "column": 3
+        },
+        {
+          "line": 2,
+          "column": 4
+        }
+      ],
+      "expected": {
+        "lineEnding": "lf",
+        "lineSeparator": "\n",
+        "edits": [],
+        "rejection": {
+          "reason": "rangeOutOfBounds",
+          "positionIndex": 1
+        }
+      }
+    }
+  ]
+}

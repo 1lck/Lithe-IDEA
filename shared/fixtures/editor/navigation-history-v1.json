@@ -1,0 +1,531 @@
+{
+  "version": 1,
+  "maxEntries": 100,
+  "cases": [
+    {
+      "name": "record-pushes-departure-and-clears-forward",
+      "request": {
+        "state": {
+          "back": [],
+          "forward": [
+            {
+              "document": "file:///w/C.java",
+              "line": 1,
+              "column": 0
+            }
+          ]
+        },
+        "event": {
+          "type": "record",
+          "departure": {
+            "document": "file:///w/A.java",
+            "line": 4,
+            "column": 2
+          },
+          "destination": {
+            "document": "file:///w/B.java",
+            "line": 9,
+            "column": 7
+          }
+        }
+      },
+      "expected": {
+        "state": {
+          "back": [
+            {
+              "document": "file:///w/A.java",
+              "line": 4,
+              "column": 2
+            }
+          ],
+          "forward": []
+        },
+        "destination": null
+      }
+    },
+    {
+      "name": "record-to-the-same-position-keeps-history",
+      "request": {
+        "state": {
+          "back": [],
+          "forward": [
+            {
+              "document": "file:///w/C.java",
+              "line": 1,
+              "column": 0
+            }
+          ]
+        },
+        "event": {
+          "type": "record",
+          "departure": {
+            "document": "file:///w/A.java",
+            "line": 4,
+            "column": 2
+          },
+          "destination": {
+            "document": "file:///w/A.java",
+            "line": 4,
+            "column": 2,
+            "context": {
+              "pane": "right"
+            }
+          }
+        }
+      },
+      "expected": {
+        "state": {
+          "back": [],
+          "forward": [
+            {
+              "document": "file:///w/C.java",
+              "line": 1,
+              "column": 0
+            }
+          ]
+        },
+        "destination": null
+      }
+    },
+    {
+      "name": "record-without-destination-still-records",
+      "request": {
+        "state": {
+          "back": [
+            {
+              "document": "file:///w/A.java",
+              "line": 4,
+              "column": 2
+            }
+          ],
+          "forward": []
+        },
+        "event": {
+          "type": "record",
+          "departure": {
+            "document": "file:///w/B.java",
+            "line": 9,
+            "column": 7
+          },
+          "destination": null
+        }
+      },
+      "expected": {
+        "state": {
+          "back": [
+            {
+              "document": "file:///w/A.java",
+              "line": 4,
+              "column": 2
+            },
+            {
+              "document": "file:///w/B.java",
+              "line": 9,
+              "column": 7
+            }
+          ],
+          "forward": []
+        },
+        "destination": null
+      }
+    },
+    {
+      "name": "record-without-departure-is-ignored",
+      "request": {
+        "state": {
+          "back": [
+            {
+              "document": "file:///w/A.java",
+              "line": 4,
+              "column": 2
+            }
+          ],
+          "forward": [
+            {
+              "document": "file:///w/C.java",
+              "line": 1,
+              "column": 0
+            }
+          ]
+        },
+        "event": {
+          "type": "record",
+          "departure": null,
+          "destination": {
+            "document": "file:///w/B.java",
+            "line": 9,
+            "column": 7
+          }
+        }
+      },
+      "expected": {
+        "state": {
+          "back": [
+            {
+              "document": "file:///w/A.java",
+              "line": 4,
+              "column": 2
+            }
+          ],
+          "forward": [
+            {
+              "document": "file:///w/C.java",
+              "line": 1,
+              "column": 0
+            }
+          ]
+        },
+        "destination": null
+      }
+    },
+    {
+      "name": "record-deduplicates-by-position-and-keeps-newest-context",
+      "request": {
+        "state": {
+          "back": [
+            {
+              "document": "file:///w/A.java",
+              "line": 4,
+              "column": 2,
+              "context": {
+                "scrollTop": 10
+              }
+            }
+          ],
+          "forward": []
+        },
+        "event": {
+          "type": "record",
+          "departure": {
+            "document": "file:///w/A.java",
+            "line": 4,
+            "column": 2,
+            "context": {
+              "scrollTop": 80
+            }
+          },
+          "destination": {
+            "document": "file:///w/B.java",
+            "line": 9,
+            "column": 7
+          }
+        }
+      },
+      "expected": {
+        "state": {
+          "back": [
+            {
+              "document": "file:///w/A.java",
+              "line": 4,
+              "column": 2,
+              "context": {
+                "scrollTop": 80
+              }
+            }
+          ],
+          "forward": []
+        },
+        "destination": null
+      }
+    },
+    {
+      "name": "back-records-the-live-caret-for-forward",
+      "request": {
+        "state": {
+          "back": [
+            {
+              "document": "file:///w/A.java",
+              "line": 4,
+              "column": 2
+            }
+          ],
+          "forward": []
+        },
+        "event": {
+          "type": "back",
+          "current": {
+            "document": "file:///w/B.java",
+            "line": 14,
+            "column": 3
+          }
+        }
+      },
+      "expected": {
+        "state": {
+          "back": [],
+          "forward": [
+            {
+              "document": "file:///w/B.java",
+              "line": 14,
+              "column": 3
+            }
+          ]
+        },
+        "destination": {
+          "document": "file:///w/A.java",
+          "line": 4,
+          "column": 2
+        }
+      }
+    },
+    {
+      "name": "forward-records-the-live-caret-for-back",
+      "request": {
+        "state": {
+          "back": [],
+          "forward": [
+            {
+              "document": "file:///w/B.java",
+              "line": 14,
+              "column": 3
+            }
+          ]
+        },
+        "event": {
+          "type": "forward",
+          "current": {
+            "document": "file:///w/A.java",
+            "line": 6,
+            "column": 0
+          }
+        }
+      },
+      "expected": {
+        "state": {
+          "back": [
+            {
+              "document": "file:///w/A.java",
+              "line": 6,
+              "column": 0
+            }
+          ],
+          "forward": []
+        },
+        "destination": {
+          "document": "file:///w/B.java",
+          "line": 14,
+          "column": 3
+        }
+      }
+    },
+    {
+      "name": "back-skips-entries-equal-to-the-current-location",
+      "request": {
+        "state": {
+          "back": [
+            {
+              "document": "file:///w/C.java",
+              "line": 1,
+              "column": 0
+            },
+            {
+              "document": "file:///w/A.java",
+              "line": 4,
+              "column": 2
+            }
+          ],
+          "forward": []
+        },
+        "event": {
+          "type": "back",
+          "current": {
+            "document": "file:///w/A.java",
+            "line": 4,
+            "column": 2
+          }
+        }
+      },
+      "expected": {
+        "state": {
+          "back": [],
+          "forward": [
+            {
+              "document": "file:///w/A.java",
+              "line": 4,
+              "column": 2
+            }
+          ]
+        },
+        "destination": {
+          "document": "file:///w/C.java",
+          "line": 1,
+          "column": 0
+        }
+      }
+    },
+    {
+      "name": "back-only-at-current-location-drops-the-no-op-entry",
+      "request": {
+        "state": {
+          "back": [
+            {
+              "document": "file:///w/A.java",
+              "line": 4,
+              "column": 2
+            }
+          ],
+          "forward": [
+            {
+              "document": "file:///w/C.java",
+              "line": 1,
+              "column": 0
+            }
+          ]
+        },
+        "event": {
+          "type": "back",
+          "current": {
+            "document": "file:///w/A.java",
+            "line": 4,
+            "column": 2
+          }
+        }
+      },
+      "expected": {
+        "state": {
+          "back": [],
+          "forward": [
+            {
+              "document": "file:///w/C.java",
+              "line": 1,
+              "column": 0
+            }
+          ]
+        },
+        "destination": null
+      }
+    },
+    {
+      "name": "back-with-empty-history-does-not-move",
+      "request": {
+        "state": {
+          "back": [],
+          "forward": [
+            {
+              "document": "file:///w/C.java",
+              "line": 1,
+              "column": 0
+            }
+          ]
+        },
+        "event": {
+          "type": "back",
+          "current": {
+            "document": "file:///w/A.java",
+            "line": 4,
+            "column": 2
+          }
+        }
+      },
+      "expected": {
+        "state": {
+          "back": [],
+          "forward": [
+            {
+              "document": "file:///w/C.java",
+              "line": 1,
+              "column": 0
+            }
+          ]
+        },
+        "destination": null
+      }
+    },
+    {
+      "name": "back-without-a-current-editor-location",
+      "request": {
+        "state": {
+          "back": [
+            {
+              "document": "file:///w/A.java",
+              "line": 4,
+              "column": 2
+            }
+          ],
+          "forward": []
+        },
+        "event": {
+          "type": "back",
+          "current": null
+        }
+      },
+      "expected": {
+        "state": {
+          "back": [],
+          "forward": []
+        },
+        "destination": {
+          "document": "file:///w/A.java",
+          "line": 4,
+          "column": 2
+        }
+      }
+    },
+    {
+      "name": "forward-pushes-current-without-duplicating-the-back-top",
+      "request": {
+        "state": {
+          "back": [
+            {
+              "document": "file:///w/A.java",
+              "line": 4,
+              "column": 2
+            }
+          ],
+          "forward": [
+            {
+              "document": "file:///w/C.java",
+              "line": 1,
+              "column": 0
+            }
+          ]
+        },
+        "event": {
+          "type": "forward",
+          "current": {
+            "document": "file:///w/A.java",
+            "line": 4,
+            "column": 2
+          }
+        }
+      },
+      "expected": {
+        "state": {
+          "back": [
+            {
+              "document": "file:///w/A.java",
+              "line": 4,
+              "column": 2
+            }
+          ],
+          "forward": []
+        },
+        "destination": {
+          "document": "file:///w/C.java",
+          "line": 1,
+          "column": 0
+        }
+      }
+    },
+    {
+      "name": "empty-document-identity-is-rejected",
+      "request": {
+        "state": {
+          "back": [
+            {
+              "document": "",
+              "line": 1,
+              "column": 0
+            }
+          ],
+          "forward": []
+        },
+        "event": {
+          "type": "back",
+          "current": null
+        }
+      },
+      "expectedError": "invalid_request"
+    }
+  ]
+}

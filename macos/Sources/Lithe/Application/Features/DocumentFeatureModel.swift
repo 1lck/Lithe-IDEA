@@ -1015,17 +1015,24 @@ final class DocumentFeatureModel: ObservableObject {
 
     @discardableResult
     func saveAllDocuments() async -> Bool {
-        for document in openDocuments where !document.isReadOnly {
+        let members = DocumentSaveBatchCore.members(of: openDocuments)
+        var outcomes: [DocumentSaveBatchCore.Outcome] = []
+        for document in members {
+            if Task.isCancelled {
+                outcomes.append(.cancelled)
+                continue
+            }
             do {
                 let previousText = document.savedText
                 try await saveDocument(document)
                 if document.savedText != previousText { onRecordSave?(document, previousText) }
+                outcomes.append(.saved)
             // log-exempt: 同一次失败已经记录过：saveDocument 在保存处理边界记录 editor.document.save_failed
             } catch {
-                return false
+                outcomes.append(error is CancellationError ? .cancelled : .failed)
             }
         }
-        return !Task.isCancelled && !openDocuments.contains(where: \.isDirty)
+        return DocumentSaveBatchCore.isComplete(members: members, outcomes: outcomes, live: openDocuments)
     }
 
     @discardableResult

@@ -1,11 +1,10 @@
 import isEqual from "fast-deep-equal";
-import { immer } from "zustand/middleware/immer";
 import { createWithEqualityFn } from "zustand/traditional";
+import { invoke } from "@/platform/tauri-core";
 import { createSelectors } from "@/utils/zustand-selectors";
+import { logger } from "../utils/logger";
 
-type JumpListEntrySource = "cursor" | "explicit";
-type JumpListPosition = Omit<JumpListEntry, "timestamp">;
-
+/** One editor position the user can return to. */
 export interface JumpListEntry {
   bufferId: string;
   filePath: string;
@@ -15,198 +14,127 @@ export interface JumpListEntry {
   offset: number;
   scrollTop: number;
   scrollLeft: number;
-  timestamp: number;
 }
 
-interface StoredJumpListEntry extends JumpListEntry {
-  source: JumpListEntrySource;
+/**
+ * Core wire form. Core compares `document`, `line` and `column`; the Windows
+ * pane, buffer, offset and scroll values travel unchanged in `context`.
+ */
+interface HistoryLocation {
+  document: string;
+  line: number;
+  column: number;
+  context: Omit<JumpListEntry, "filePath" | "line" | "column">;
+}
+
+export interface NavigationHistoryState {
+  back: HistoryLocation[];
+  forward: HistoryLocation[];
+}
+
+type HistoryEvent =
+  | { type: "record"; departure: HistoryLocation; destination: HistoryLocation | null }
+  | { type: "back" | "forward"; current: HistoryLocation | null };
+
+interface ReduceResponse {
+  state: NavigationHistoryState;
+  destination: HistoryLocation | null;
+}
+
+/** A step the caller must roll back when its destination cannot be opened. */
+export interface JumpListStep {
+  entry: JumpListEntry;
+  previous: NavigationHistoryState;
+  next: NavigationHistoryState;
 }
 
 interface JumpListActions {
-  pushEntry: (entry: JumpListPosition) => void;
-  recordCursorEntry: (entry: JumpListPosition) => void;
-  goBack: (currentPosition?: JumpListPosition) => JumpListEntry | null;
-  goForward: () => JumpListEntry | null;
-  rollbackNavigation: (entry: JumpListEntry, previousIndex: number, removePresent: boolean) => void;
+  /** Records a jump away from `departure`; `destination` is null when unresolved. */
+  record: (departure: JumpListEntry, destination?: JumpListEntry | null) => Promise<void>;
+  goBack: (current?: JumpListEntry) => Promise<JumpListStep | null>;
+  goForward: (current?: JumpListEntry) => Promise<JumpListStep | null>;
+  rollback: (step: JumpListStep) => void;
   canGoBack: () => boolean;
   canGoForward: () => boolean;
   clear: () => void;
 }
 
 interface JumpListState {
-  entries: StoredJumpListEntry[];
-  currentIndex: number;
-  maxEntries: number;
+  history: NavigationHistoryState;
   actions: JumpListActions;
 }
 
-const DEFAULT_MAX_ENTRIES = 100;
+const EMPTY_HISTORY: NavigationHistoryState = { back: [], forward: [] };
 
-function withTimestamp(entry: JumpListPosition, source: JumpListEntrySource): StoredJumpListEntry {
-  return { ...entry, source, timestamp: Date.now() };
+function toLocation(entry: JumpListEntry): HistoryLocation {
+  const { filePath, line, column, ...context } = entry;
+  return { document: filePath, line, column, context };
 }
 
-function truncateForwardEntries(state: JumpListState) {
-  if (state.currentIndex >= 0 && state.currentIndex < state.entries.length - 1) {
-    state.entries = state.entries.slice(0, state.currentIndex + 1);
-  }
+function toEntry(location: HistoryLocation): JumpListEntry {
+  return {
+    ...location.context,
+    filePath: location.document,
+    line: location.line,
+    column: location.column,
+  };
 }
 
-function appendEntry(state: JumpListState, entry: StoredJumpListEntry) {
-  state.entries.push(entry);
-  if (state.entries.length > state.maxEntries) {
-    state.entries.shift();
-  }
-}
+// Core owns the stack rules. Reductions run one at a time so every event
+// applies to the state produced by the previous one.
+let reductionQueue: Promise<unknown> = Promise.resolve();
 
 export const useJumpListStore = createSelectors(
   createWithEqualityFn<JumpListState>()(
-    immer((set, get) => ({
-      entries: [],
-      currentIndex: -1,
-      maxEntries: DEFAULT_MAX_ENTRIES,
-
-      actions: {
-        pushEntry: (entry) => {
-          set((state) => {
-            const newEntry = withTimestamp(entry, "explicit");
-
-            // If we're in the middle of history, truncate future entries.
-            truncateForwardEntries(state);
-
-            const lastEntry = state.entries[state.entries.length - 1];
-            const isSamePosition =
-              lastEntry &&
-              lastEntry.source !== "cursor" &&
-              lastEntry.filePath === newEntry.filePath &&
-              lastEntry.paneId === newEntry.paneId &&
-              lastEntry.line === newEntry.line &&
-              lastEntry.column === newEntry.column &&
-              lastEntry.offset === newEntry.offset;
-
-            if (isSamePosition) {
-              // Update the existing entry instead of adding a duplicate.
-              state.entries[state.entries.length - 1] = newEntry;
-              state.currentIndex = -1;
-              return;
-            }
-
-            appendEntry(state, newEntry);
-
-            // Reset to present (not navigating history).
-            state.currentIndex = -1;
-          });
-        },
-
-        recordCursorEntry: (entry) => {
-          set((state) => {
-            const newEntry = withTimestamp(entry, "cursor");
-
-            // A new cursor movement after going back starts a new history branch.
-            truncateForwardEntries(state);
-
-            const lastEntry = state.entries[state.entries.length - 1];
-            const isSamePosition =
-              lastEntry &&
-              lastEntry.bufferId === newEntry.bufferId &&
-              lastEntry.filePath === newEntry.filePath &&
-              lastEntry.paneId === newEntry.paneId &&
-              lastEntry.line === newEntry.line &&
-              lastEntry.column === newEntry.column &&
-              lastEntry.offset === newEntry.offset;
-
-            if (isSamePosition) {
-              state.entries[state.entries.length - 1] = newEntry;
-              state.currentIndex = -1;
-              return;
-            }
-
-            appendEntry(state, newEntry);
-            state.currentIndex = -1;
-          });
-        },
-
-        goBack: (currentPosition) => {
-          let result: JumpListEntry | null = null;
-
-          set((state) => {
-            if (state.entries.length === 0) return;
-
-            let newIndex: number;
-            if (state.currentIndex === -1) {
-              // Currently at present - save current position so we can go forward to it.
-              if (currentPosition) {
-                appendEntry(state, withTimestamp(currentPosition, "cursor"));
-              }
-              // Go to second-to-last entry (last entry is now where we just were).
-              newIndex = state.entries.length - 2;
-            } else if (state.currentIndex > 0) {
-              // Go to previous entry.
-              newIndex = state.currentIndex - 1;
-            } else {
-              // Already at the beginning.
-              return;
-            }
-
-            if (newIndex < 0) return;
-
-            const entry = state.entries[newIndex];
-            if (!entry) return;
-
-            state.currentIndex = newIndex;
-            result = { ...entry };
-          });
-
-          return result;
-        },
-
-        goForward: () => {
-          const state = get();
-          if (state.currentIndex === -1 || state.currentIndex >= state.entries.length - 1) {
+    (set, get) => {
+      const reduce = (event: HistoryEvent): Promise<JumpListStep | null> => {
+        const reduction = reductionQueue.then(async () => {
+          const previous = get().history;
+          let response: ReduceResponse;
+          try {
+            response = await invoke<ReduceResponse>("editor.navigationHistory.reduce", {
+              state: previous,
+              event,
+            });
+          } catch (error) {
+            logger.error("JumpList", "Navigation history update failed:", error);
             return null;
           }
+          // clear() may have run while the request was in flight.
+          if (get().history !== previous) return null;
+          set({ history: response.state });
+          return response.destination
+            ? { entry: toEntry(response.destination), previous, next: response.state }
+            : null;
+        });
+        reductionQueue = reduction.catch(() => undefined);
+        return reduction;
+      };
 
-          const newIndex = state.currentIndex + 1;
-          const entry = state.entries[newIndex];
-          if (!entry) return null;
-
-          set((state) => {
-            state.currentIndex = newIndex;
-          });
-
-          return { ...entry };
+      return {
+        history: EMPTY_HISTORY,
+        actions: {
+          record: async (departure, destination = null) => {
+            await reduce({
+              type: "record",
+              departure: toLocation(departure),
+              destination: destination ? toLocation(destination) : null,
+            });
+          },
+          goBack: (current) =>
+            reduce({ type: "back", current: current ? toLocation(current) : null }),
+          goForward: (current) =>
+            reduce({ type: "forward", current: current ? toLocation(current) : null }),
+          rollback: (step) => {
+            // A later jump owns the history now; do not overwrite it.
+            if (get().history === step.next) set({ history: step.previous });
+          },
+          canGoBack: () => get().history.back.length > 0,
+          canGoForward: () => get().history.forward.length > 0,
+          clear: () => set({ history: EMPTY_HISTORY }),
         },
-
-        rollbackNavigation: (entry, previousIndex, removePresent) => {
-          set((state) => {
-            const current = state.entries[state.currentIndex];
-            if (!current || current.timestamp !== entry.timestamp) return;
-            if (removePresent) state.entries.pop();
-            state.currentIndex = previousIndex;
-          });
-        },
-
-        canGoBack: () => {
-          const state = get();
-          if (state.entries.length === 0) return false;
-          if (state.currentIndex === -1) return true;
-          return state.currentIndex > 0;
-        },
-
-        canGoForward: () => {
-          const state = get();
-          if (state.currentIndex === -1) return false;
-          return state.currentIndex < state.entries.length - 1;
-        },
-
-        clear: () => {
-          set((state) => {
-            state.entries = [];
-            state.currentIndex = -1;
-          });
-        },
-      },
-    })),
+      };
+    },
     isEqual,
   ),
 );

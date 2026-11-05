@@ -1150,7 +1150,11 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `community.discourse.categories` | List normalized visible categories |
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
+| `lsp.planWorkspaceEdit` | Validate language-server workspace edit targets against the workspace and open documents, and order the commit |
+| `lsp.classifyNavigationTarget` | Classify a language-server jump target as workspace, external read-only or rejected |
+| `editor.planTextEdits` | Validate and order a plugin document edit batch into UTF-16 offsets with the document's line ending |
 | `editor.parseNavigationInput` | Parse a bounded line or line:column input into zero-based editor coordinates |
+| `editor.navigationHistory.reduce` | Reduce one bounded back/forward navigation history event and return the next state plus the location to open |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
 | `workspace.releaseIndexing` | Retire a policy and clear index/cache data at project close; accepts `root`, optional `ownerId`, and that owner's last observed `revision`, returns `released`; an old close must not retire a new generation |
 | `workspace.refreshIndexing` | Refresh external Git decisions for a live `root`, `ownerId`, `revision` lease without changing preferences or release tokens; returns lazy `IndexingStatus` |
@@ -1168,6 +1172,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `file.read` | Read a UTF-8 file using a workspace-relative path |
 | `file.write` | Write a UTF-8 file using a workspace-relative path |
 | `document.lifecycle` | Reduce a shared document save, external-change, or conflict event without reading text or disk |
+| `document.planSaveBatch` | Select the open documents a Save All or save-before-launch batch writes |
+| `document.reduceSaveBatch` | Reduce save batch member outcomes and live documents into one batch status |
 | `history.record` | Store a versioned text snapshot and metadata |
 | `history.entries` | List valid history entries for one file or a workspace |
 | `history.content` | Read a stored history snapshot by relative storage path |
@@ -1221,6 +1227,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.builtinCompletions` | Return lightweight current-file identifier completions |
 | `lsp.builtinHover` | Return lightweight current-symbol hover text |
 | `lsp.builtinNavigation` | Return lightweight current-file definition/reference locations |
+| `lsp.mergeCompletions` | Choose which candidates survive when several prioritized providers complete at one position |
+| `lsp.activationPolicy` | Decide whether a language server may start automatically after failures, using a platform monotonic clock |
+| `lsp.problems.query` | Filter, order, and group Problems tool-window diagnostics and count them by severity |
 | `lsp.documentUri` | Convert a native absolute path into a canonical file URI |
 | `lsp.startServer` | Start one Rust-owned process/session and begin initialization |
 | `lsp.jdtWorkspaceKey` | Derive the deterministic JDT LS workspace-state directory key |
@@ -1600,6 +1609,22 @@ lifecycle remains encoding-agnostic. Watchers are refresh hints, not write
 authorization. Conflict resolution acknowledges only the disk snapshot
 observed by the user, and subsequent saves must validate that snapshot again. The
 portable examples are in `shared/fixtures/documents/lifecycle-v1.json`.
+
+`document.planSaveBatch` accepts `{ documents }`, where each open document is
+`{ id, dirty, readOnly, contentSynchronized }`, and returns `{ members }` in
+request order. A writable document takes part when it is dirty, or when
+`contentSynchronized` is false because its editor view may still hold input
+that the platform model has not received. `document.reduceSaveBatch` accepts
+`{ members, results, documents }`: one `{ id, outcome }` result per member
+(`saved`, `failed` or `cancelled`) and the live documents observed after every
+write finished. It returns `{ status, savedCount, failed, cancelled,
+remainingDirty }`. `status` is `cancelled`, `failed`, `incomplete` or `saved`,
+in that precedence; any live dirty document, including one dirtied or opened
+while the batch ran, keeps the batch `incomplete`. Platforms attempt every
+member (sequentially or concurrently) instead of stopping at the first failure,
+and own dialogs and failure notifications. Duplicate or empty identities,
+missing or extra results, and more than 10,000 documents are `invalid_request`.
+See `shared/fixtures/documents/save-batch-v1.json`.
 
 GitHub command shapes, authorization behavior, and supported pull-request
 operations are documented in [`github.md`](github.md). Rust Core performs no
@@ -2650,10 +2675,57 @@ line clamp before its line ending, and positions inside a UTF-16 surrogate pair
 resolve to the character start. Missing/negative lines, negative columns,
 reversed ranges and overlapping replacements are rejected.
 
+The line index and batch rules are shared with `editor.planTextEdits`: `\r\n`,
+`\n` and a lone `\r` each end one line (as in the LSP specification), and a
+batch is applied in a stable order by start, end and then caller order.
+Insertions at the same position keep the caller's order, and an insertion at
+the boundary of a replaced range is adjacent regardless of where it appears in
+the batch.
+
 `lsp.plainSnippet` accepts `{ "value": string }` and returns `{ "text": string }`
 after removing LSP tab stops and replacing simple placeholder defaults such as
 `${1:name}` with `name`.
 
+
+`editor.planTextEdits` accepts `{ text, edits, positions? }`. Each edit is
+`{ range: { start, end }, text }` with one-based `line` and one-based UTF-16
+`column`; `positions` lists extra one-based positions that must exist (for
+example reported selection endpoints). It returns `{ lineEnding,
+lineSeparator, edits, rejection }`. `lineEnding` is `lf`, `crlf`, `cr` or
+`mixed`; `lineSeparator` is the text's first terminator, LF when there is
+none. On success `edits` is the stable application order with `index` (caller
+order), `utf16Offset`, `utf16Length`, `text` (line breaks rewritten to
+`lineSeparator`) and `normalizedText` (LF), and `rejection` is null. Unlike
+`lsp.applyTextEdits`, positions are strict: a missing line, column zero, a
+column past the line content or a position inside a surrogate pair rejects the
+batch. A rejected batch returns empty `edits` and `rejection: { reason,
+editIndex, otherEditIndex }` with `reason` `rangeOutOfBounds`, `reversed`,
+`splitsSurrogatePair` or `overlappingRanges`, or `{ reason, positionIndex }`
+for a failed extra position. An empty batch still reports the line ending.
+Malformed payloads return `invalid_request`. The host keeps document versions,
+undo grouping and the editor surface. See
+`shared/fixtures/editor/text-edit-plan-v1.json`.
+
+`lsp.planWorkspaceEdit` accepts `{ platform, workspaceRoot, changes,
+openDocuments? }`, where `changes` maps a file URI or absolute native path to
+its text edits and `openDocuments` lists `{ path, isReadOnly? }` for open
+editor documents. It returns `{ rejection, targets }`. Every target must be a
+workspace file; otherwise `rejection` is `{ code: "outsideWorkspace" |
+"readOnlyDocument", path }` and `targets` is empty. On success `rejection` is
+null and each target is `{ path, relativePath, effect, edits }` with `effect`
+`writeFile` (closed files first) or `updateDocument` (open documents), each
+group ordered by `relativePath`; keys naming one file merge. The host reads and
+writes files, owns buffers, stale-input checks and rollback, and applies each
+target's edits with `lsp.applyTextEdits`. See
+`shared/fixtures/lsp/workspace-edit-plan-v1.json`.
+
+`lsp.classifyNavigationTarget` accepts `{ platform, workspaceRoot?,
+resolvedWorkspaceRoot?, path, resolvedPath?, sourceLanguageID?, languageID?,
+resolvedLanguageID?, isReadOnly? }`; the host supplies symlink resolution and
+the path-to-language lookup as facts. It returns `{ classification,
+isReadOnly }` where `classification` is `workspace`, `externalReadOnly` (a
+source file of the language that produced the jump, opened read-only) or
+`rejected`. See `shared/fixtures/lsp/navigation-target-v1.json`.
 
 `editor.parseNavigationInput` accepts `{ text }` and returns `{ target }`.
 `target` is null for invalid input, otherwise `{ line, column, selectsWholeLine }`
@@ -2664,6 +2736,22 @@ integer are invalid. Text over 128 UTF-8 bytes is invalid. A line-only input
 selects its content without the terminator; an explicit column places the caret.
 Hosts clamp against the current document, not an old snapshot. See
 `shared/fixtures/editor/navigation-input-v1.json`.
+
+`editor.navigationHistory.reduce` accepts `{ state, event }` and returns
+`{ state, destination }`. `state` is `{ back, forward }`, each ordered oldest
+first, and each location is `{ document, line, column, context? }`. Identity is
+`document`, `line` and `column`; coordinates are opaque to Core and `context` is
+platform data (pane, scroll, read-only presentation) carried unchanged. Events
+are `record { departure, destination? }`, `back { current }` and
+`forward { current }`. Recording pushes the departure unless it equals the
+destination and clears the forward branch; a repeated position replaces the top
+entry so the newest context wins. Back and forward discard entries equal to the
+live `current` location, return the next distinct one as `destination`, and
+push `current` onto the opposite stack so caret movement since the last jump
+survives a return trip. Each stack keeps the newest 100 entries. Platforms
+decide which gestures record history and restore their previous state when the
+destination cannot be opened. See
+`shared/fixtures/editor/navigation-history-v1.json`.
 
 `editor.lineEdit` applies one deterministic line-level transform. All offsets
 are UTF-16 code units so both hosts can feed the result straight into their
@@ -3087,6 +3175,41 @@ definition prefers declaration-looking occurrences, while references returns
 all matching identifier occurrences. These commands are deliberately
 text-level fallbacks; precise type-aware behavior belongs to a started language
 server.
+
+`lsp.mergeCompletions` accepts `{ lists: [{ labels, isIncomplete }] }` ordered
+from the highest-priority provider to the lowest and returns
+`{ keep: [[index]], isIncomplete }`. A provider's own candidates are never
+collapsed, so overloads that share a label stay visible; a lower-priority
+candidate is dropped when a higher-priority provider already offered the same
+label. Only labels cross the boundary and the platform applies the indices to
+its full items. A host with a single completion provider (Windows today) keeps
+that provider's list unchanged and does not call the command. Cases:
+`shared/fixtures/lsp/completion-merge-v1.json`.
+
+`lsp.activationPolicy` accepts `{ state, event, nowMs }` and returns
+`{ state, decision, retryAfterMs }`. `event` is `automaticStart`,
+`explicitStart`, `startFailed`, or `ready`; `decision` is `allow`, `wait`, or
+`explicitRetryRequired`. The platform stores the returned `state` per server
+identity (language or provider plus workspace root) and passes it back
+verbatim; `null` means no failure history. After each failure automatic starts
+wait 5000 ms, and after 3 consecutive failures only an explicit start (restart,
+retry, or repair) may run. A ready session or an explicit start clears the
+history. `nowMs` must come from a monotonic clock; a reading earlier than the
+stored failure restarts the cooldown. Cases:
+`shared/fixtures/lsp/activation-policy-v1.json`.
+
+`lsp.problems.query` accepts the displayed diagnostics as
+`{ fileKey, displayPath, line, column, severity, message, source, code }`
+together with `groupBy` (`file` default, `severity`, `none`), `sortBy`
+(`severity` default, `file`, `position`), and an optional `filter`
+(`severities`, `fileKey`, `source`, `query`). It returns `groups` (each with a
+stable `key`, `indices` into the submitted list, and per-severity `counts`),
+`files` (file summaries in file order regardless of `groupBy`),
+`visibleCounts`, and `totalCounts`. `fileKey` is the platform's native file
+identity; `displayPath` is the workspace-relative path and orders files with
+the Project view's natural file-name order. Severity is the LSP number;
+missing or out-of-range values are unknown (`0`) and rank last. Cases:
+`shared/fixtures/lsp/problems-query-v1.json`.
 
 The LSP provider catalog is returned by `lithe_core_lsp_provider_catalog_json`.
 Each provider descriptor may include `languageServerLaunch` with ordered

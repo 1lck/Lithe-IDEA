@@ -20,6 +20,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useTranslation } from "@/i18n/locale-provider";
 import { LspClient } from "@/features/editor/lsp/lsp-client";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { logger } from "@/features/editor/utils/logger";
 import {
   FileNavigatorSidebar,
   type FileNavigatorItem,
@@ -44,6 +45,13 @@ import { SearchPopover } from "@/ui/search";
 import { cn } from "@/utils/cn";
 import { getBaseName, getRelativePath, normalizePath } from "@/utils/path-helpers";
 import type { Diagnostic, DiagnosticCodeAction } from "../types/diagnostics.types";
+import {
+  EMPTY_PROBLEMS_VIEW,
+  type ProblemsGroupBy,
+  type ProblemsQueryView,
+  type ProblemsSortBy,
+  queryProblems,
+} from "../utils/problems-query";
 
 interface DiagnosticsPaneProps {
   diagnostics: Diagnostic[];
@@ -56,8 +64,8 @@ interface DiagnosticsPaneProps {
   isFullScreen?: boolean;
 }
 
-type GroupBy = "severity" | "file" | "none";
-type SortBy = "severity" | "file" | "position";
+type GroupBy = ProblemsGroupBy;
+type SortBy = ProblemsSortBy;
 
 type FilterMenuType = "filters";
 
@@ -98,12 +106,6 @@ const SORT_OPTIONS: Array<{ value: SortBy; labelKey: string }> = [
   { value: "position", labelKey: "diagnostics.sortByPosition" },
 ];
 
-const SEVERITY_ORDER: Record<Diagnostic["severity"], number> = {
-  error: 0,
-  warning: 1,
-  info: 2,
-};
-
 const SEVERITY_LABEL_KEY: Record<Diagnostic["severity"], string> = {
   error: "diagnostics.errors",
   warning: "diagnostics.warnings",
@@ -143,14 +145,6 @@ const getDiagnosticNavigatorPath = (filePath: string, rootFolderPath: string | u
   if (relativePath && relativePath !== filePath) return relativePath;
   if (isAbsolutePath(filePath)) return getBaseName(filePath, filePath);
   return normalizePath(filePath);
-};
-
-const getHighestSeverity = (
-  counts: Record<Diagnostic["severity"], number>,
-): Diagnostic["severity"] => {
-  if (counts.error > 0) return "error";
-  if (counts.warning > 0) return "warning";
-  return "info";
 };
 
 const buildDiagnosticKey = (diagnostic: Diagnostic) => {
@@ -315,170 +309,81 @@ const DiagnosticsPane = ({
     lspClient,
   ]);
 
-  const filteredDiagnostics = useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLowerCase();
-    const normalizedSourceFilter = sourceFilter?.toLowerCase() ?? null;
+  const [problemsView, setProblemsView] = useState<ProblemsQueryView>(EMPTY_PROBLEMS_VIEW);
 
-    const filtered = diagnostics.filter((diagnostic) => {
-      if (!severityFilter[diagnostic.severity]) return false;
-
-      if (
-        preferences.onlyCurrentFile &&
-        activeFilePath &&
-        diagnostic.filePath.toLowerCase() !== activeFilePath.toLowerCase()
-      ) {
-        return false;
-      }
-
-      if (normalizedSourceFilter) {
-        const source = diagnostic.source?.toLowerCase() || "";
-        if (source !== normalizedSourceFilter) {
-          return false;
-        }
-      }
-
-      if (!normalizedQuery) return true;
-
-      const haystack = [
-        diagnostic.message,
-        diagnostic.source || "",
-        diagnostic.code || "",
-        diagnostic.filePath,
-        `${diagnostic.line + 1}:${diagnostic.column + 1}`,
-      ]
-        .join(" ")
-        .toLowerCase();
-
-      return haystack.includes(normalizedQuery);
-    });
-
-    return filtered.sort((left, right) => {
-      if (preferences.sortBy === "severity") {
-        const severityDiff = SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity];
-        if (severityDiff !== 0) return severityDiff;
-      }
-
-      if (preferences.sortBy === "file" || preferences.sortBy === "severity") {
-        const fileDiff = left.filePath.localeCompare(right.filePath);
-        if (fileDiff !== 0) return fileDiff;
-      }
-
-      const lineDiff = left.line - right.line;
-      if (lineDiff !== 0) return lineDiff;
-
-      return left.column - right.column;
-    });
-  }, [activeFilePath, diagnostics, preferences, searchQuery, severityFilter, sourceFilter]);
-
-  const groupedDiagnostics = useMemo<DiagnosticGroup[]>(() => {
-    if (preferences.groupBy === "none") {
-      return [
-        {
-          id: "all",
-          label: t("diagnostics.all"),
-          items: filteredDiagnostics,
-        },
-      ];
-    }
-
-    if (preferences.groupBy === "severity") {
-      return ["error", "warning", "info"]
-        .map((severity) => {
-          const items = filteredDiagnostics.filter(
-            (diagnostic) => diagnostic.severity === severity,
-          );
-          return {
-            id: `severity-${severity}`,
-            label: t(SEVERITY_LABEL_KEY[severity as Diagnostic["severity"]]),
-            items,
-            severity: severity as Diagnostic["severity"],
-          };
-        })
-        .filter((group) => group.items.length > 0);
-    }
-
-    const byFile = new Map<string, Diagnostic[]>();
-    for (const diagnostic of filteredDiagnostics) {
-      const current = byFile.get(diagnostic.filePath) || [];
-      current.push(diagnostic);
-      byFile.set(diagnostic.filePath, current);
-    }
-
-    return Array.from(byFile.entries())
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([filePath, items]) => ({
-        id: `file-${filePath}`,
-        label: filePath,
-        items,
-      }));
-  }, [filteredDiagnostics, preferences.groupBy, t]);
-
-  const totalBySeverity = useMemo(() => {
-    return diagnostics.reduce(
-      (acc, diagnostic) => {
-        acc[diagnostic.severity] += 1;
-        return acc;
-      },
-      { error: 0, warning: 0, info: 0 },
-    );
-  }, [diagnostics]);
-
-  const visibleBySeverity = useMemo(() => {
-    return filteredDiagnostics.reduce(
-      (acc, diagnostic) => {
-        acc[diagnostic.severity] += 1;
-        return acc;
-      },
-      { error: 0, warning: 0, info: 0 },
-    );
-  }, [filteredDiagnostics]);
-
-  const diagnosticFileItems = useMemo<FileNavigatorItem[]>(() => {
-    const byFile = new Map<
-      string,
-      {
-        total: number;
-        counts: Record<Diagnostic["severity"], number>;
-      }
-    >();
-
-    for (const diagnostic of filteredDiagnostics) {
-      const current =
-        byFile.get(diagnostic.filePath) ??
-        ({
-          total: 0,
-          counts: { error: 0, warning: 0, info: 0 },
-        } satisfies {
-          total: number;
-          counts: Record<Diagnostic["severity"], number>;
-        });
-
-      current.total += 1;
-      current.counts[diagnostic.severity] += 1;
-      byFile.set(diagnostic.filePath, current);
-    }
-
-    return Array.from(byFile.entries())
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([filePath, summary]) => {
-        const severity = getHighestSeverity(summary.counts);
-        const navigatorPath = getDiagnosticNavigatorPath(filePath, rootFolderPath);
-
-        return {
-          key: filePath,
-          path: navigatorPath,
-          label: navigatorPath,
-          iconPath: filePath,
-          iconClassName: SEVERITY_TEXT_CLASS[severity],
-          metadata: [
-            {
-              label: summary.total,
-              className: SEVERITY_TEXT_CLASS[severity],
-            },
-          ],
-        };
+  // Core owns filtering, order, grouping, and counts; a newer input discards
+  // an older response.
+  useEffect(() => {
+    let cancelled = false;
+    queryProblems(diagnostics, {
+      groupBy: preferences.groupBy,
+      sortBy: preferences.sortBy,
+      severities: severityFilter,
+      currentFilePath: preferences.onlyCurrentFile ? activeFilePath : null,
+      source: sourceFilter,
+      query: searchQuery,
+      displayPath: (filePath) => getDiagnosticNavigatorPath(filePath, rootFolderPath),
+    })
+      .then((view) => {
+        if (!cancelled) setProblemsView(view);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        logger.error("Diagnostics", "Problems query failed:", error);
+        setProblemsView(EMPTY_PROBLEMS_VIEW);
       });
-  }, [filteredDiagnostics, rootFolderPath]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeFilePath,
+    diagnostics,
+    preferences.groupBy,
+    preferences.onlyCurrentFile,
+    preferences.sortBy,
+    rootFolderPath,
+    searchQuery,
+    severityFilter,
+    sourceFilter,
+  ]);
+
+  const filteredDiagnostics = problemsView.visible;
+  const totalBySeverity = problemsView.totalBySeverity;
+  const visibleBySeverity = problemsView.visibleBySeverity;
+
+  const groupedDiagnostics = useMemo<DiagnosticGroup[]>(
+    () =>
+      problemsView.groups.map((group) => ({
+        id: group.id,
+        label:
+          group.kind === "file"
+            ? (group.items[0]?.filePath ?? group.id)
+            : group.kind === "severity" && group.severity
+              ? t(SEVERITY_LABEL_KEY[group.severity])
+              : t("diagnostics.all"),
+        items: group.items,
+        severity: group.severity,
+      })),
+    [problemsView.groups, t],
+  );
+
+  const diagnosticFileItems = useMemo<FileNavigatorItem[]>(
+    () =>
+      problemsView.files.map((file) => ({
+        key: file.filePath,
+        path: file.displayPath,
+        label: file.displayPath,
+        iconPath: file.filePath,
+        iconClassName: SEVERITY_TEXT_CLASS[file.severity],
+        metadata: [
+          {
+            label: file.total,
+            className: SEVERITY_TEXT_CLASS[file.severity],
+          },
+        ],
+      })),
+    [problemsView.files],
+  );
 
   const selectedFileNavigatorKey = useMemo(() => {
     if (

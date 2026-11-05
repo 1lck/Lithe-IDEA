@@ -11,6 +11,7 @@ struct ProblemsView: View {
     @State private var selectedDiagnosticID: String?
     @State private var resolvedFileIcons: [URL: LitheIconKind] = [:]
     @State private var severityFilter = Set(DiagnosticSeverity.allCases)
+    @State private var queryResult = ProblemsQueryResult.empty
 
     init(initialScope: ProblemsPanelScope = .file, previewEnabled: Bool = false,
          runnableFileURLs: Set<URL> = []) {
@@ -44,6 +45,7 @@ struct ProblemsView: View {
             }
         }
         .litheWorkbenchSurface(LitheTheme.editor)
+        .task(id: queryInput) { await refreshQuery(queryInput) }
         .background(LitheToolWindowActivityTracker(isActive: $toolWindowActive))
         .onDisappear { model.documentFeature.discardPreviewDocuments(owner: .problems) }
         .onChange(of: previewEnabled) { enabled in
@@ -118,8 +120,8 @@ struct ProblemsView: View {
 
     private var problemRows: [ProblemRow] {
         diagnosticGroups.flatMap { group in
-            [ProblemRow(id: "file:" + group.key.absoluteString, file: group.key, count: group.value.count)]
-                + group.value.map { ProblemRow(id: $0.id, diagnostic: $0) }
+            [ProblemRow(id: "file:" + group.fileURL.absoluteString, file: group.fileURL, count: group.diagnostics.count)]
+                + group.diagnostics.map { ProblemRow(id: $0.id, diagnostic: $0) }
         }
     }
 
@@ -213,37 +215,41 @@ struct ProblemsView: View {
         }
     }
 
-    private var scopedDiagnostics: [EditorDiagnostic] {
-        scope.diagnostics(in: diagnosticsStore.diagnosticsByURL, currentFileURL: currentFileURL)
-            .sorted {
-                let left = model.relativePath(for: $0.fileURL)
-                let right = model.relativePath(for: $1.fileURL)
-                if left != right { return left.localizedStandardCompare(right) == .orderedAscending }
-                if $0.line != $1.line { return $0.line < $1.line }
-                return $0.utf16Column < $1.utf16Column
-            }
+    /// Everything the shared Problems query depends on; a change reruns it.
+    private struct QueryInput: Equatable, Sendable {
+        let diagnostics: [EditorDiagnostic]
+        let severities: Set<DiagnosticSeverity>
     }
 
-    private var diagnostics: [EditorDiagnostic] {
-        scopedDiagnostics.filter { severityFilter.contains($0.severity) }
+    private var queryInput: QueryInput {
+        QueryInput(
+            diagnostics: scope.diagnostics(in: diagnosticsStore.diagnosticsByURL, currentFileURL: currentFileURL),
+            severities: severityFilter
+        )
     }
 
-    private var errorCount: Int {
-        diagnostics.filter { $0.severity == .error }.count
-    }
-
-    private var warningCount: Int {
-        diagnostics.filter { $0.severity == .warning }.count
-    }
-
-    private var diagnosticGroups: [(key: URL, value: [EditorDiagnostic])] {
-        Dictionary(grouping: diagnostics, by: \.fileURL).sorted {
-            let comparison = model.relativePath(for: $0.key)
-                .localizedStandardCompare(model.relativePath(for: $1.key))
-            return comparison == .orderedSame
-                ? $0.key.path < $1.key.path : comparison == .orderedAscending
+    private func refreshQuery(_ input: QueryInput) async {
+        var displayPaths: [URL: String] = [:]
+        for diagnostic in input.diagnostics where displayPaths[diagnostic.fileURL] == nil {
+            displayPaths[diagnostic.fileURL] = model.relativePath(for: diagnostic.fileURL)
         }
+        let logSink = model.services.logSink
+        let result = await Task.detached(priority: .userInitiated) {
+            ProblemsQuery.run(diagnostics: input.diagnostics, severities: input.severities,
+                              displayPaths: displayPaths, logSink: logSink)
+        }.value
+        // A newer input restarted the task; drop this obsolete result.
+        guard !Task.isCancelled else { return }
+        queryResult = result
     }
+
+    private var diagnostics: [EditorDiagnostic] { queryResult.diagnostics }
+
+    private var errorCount: Int { queryResult.errorCount }
+
+    private var warningCount: Int { queryResult.warningCount }
+
+    private var diagnosticGroups: [ProblemsQueryResult.FileGroup] { queryResult.groups }
 
     private func fileHeader(_ url: URL, count: Int) -> some View {
         HStack(spacing: LitheTheme.Tree.iconTextGap) {

@@ -117,7 +117,7 @@ final class AppModelFeatureGraph {
             binaryFileViewerRegistry: services.binaryFileViewerRegistry,
             confirmHardLinkSave: { services.platformUI.confirmHardLinkSave(at: $0) }
         )
-        navigationHistory = NavigationHistoryFeatureModel()
+        navigationHistory = NavigationHistoryFeatureModel(logSink: services.logSink)
         java = JavaFeatureModel(operations: services.javaMavenOperations)
         spring = SpringFeatureModel(operations: services.javaMavenOperations)
         mybatis = MybatisFeatureModel(operations: services.javaMavenOperations)

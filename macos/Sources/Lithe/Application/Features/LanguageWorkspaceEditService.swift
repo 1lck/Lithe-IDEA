@@ -19,6 +19,7 @@ final class LanguageWorkspaceEditService {
     enum EditError: LocalizedError {
         case outsideWorkspace
         case unreadableFile
+        case planUnavailable
 
         var errorDescription: String? {
             switch self {
@@ -26,6 +27,8 @@ final class LanguageWorkspaceEditService {
                 return L10n.string("Language edit targets a file outside the workspace.")
             case .unreadableFile:
                 return L10n.string("Language edit targets an unreadable file.")
+            case .planUnavailable:
+                return L10n.string("Language edit could not be planned.")
             }
         }
     }
@@ -38,21 +41,17 @@ final class LanguageWorkspaceEditService {
         fileOperations: any WorkspaceFileOperations,
         updateDocument: @MainActor (EditorDocument, String) -> Void
     ) -> Bool {
-        let root = workspaceURL.standardizedFileURL.path
         var sources: [URL: String] = [:]
         var documents: [URL: EditorDocument] = [:]
         do {
-            for rawURL in edit.changes.keys {
-                let url = rawURL.standardizedFileURL
-                guard url.path == root || url.path.hasPrefix(root + "/") else {
-                    throw EditError.outsideWorkspace
-                }
+            // Core validates every target against the workspace and the open
+            // documents before anything is read, and orders the commit.
+            let plan = try Self.plan(edit, workspaceURL: workspaceURL, openDocuments: openDocuments)
+            for target in plan {
+                let url = URL(fileURLWithPath: target.path).standardizedFileURL
                 if let document = openDocuments.first(where: {
                     $0.url.standardizedFileURL == url
                 }) {
-                    guard !document.isReadOnly else {
-                        throw EditorDocument.DocumentError.readOnly
-                    }
                     documents[url] = document
                     sources[url] = document.text
                 } else {
@@ -63,17 +62,17 @@ final class LanguageWorkspaceEditService {
                 }
             }
             var replacements: [URL: String] = [:]
-            for (url, edits) in edit.changes {
-                let normalized = url.standardizedFileURL
-                guard let source = sources[normalized] else { continue }
-                replacements[normalized] = try LanguageServerTextEditApplicator.apply(
-                    edits,
-                    to: source
-                )
+            for target in plan {
+                let url = URL(fileURLWithPath: target.path).standardizedFileURL
+                guard let source = sources[url] else { continue }
+                let edits = edit.changes.filter { $0.key.standardizedFileURL == url }.flatMap(\.value)
+                replacements[url] = try LanguageServerTextEditApplicator.apply(edits, to: source)
             }
             var originals: [URL: String] = [:]
             do {
-                for (url, replacement) in replacements where documents[url] == nil {
+                for target in plan where target.effect == "writeFile" {
+                    let url = URL(fileURLWithPath: target.path).standardizedFileURL
+                    guard let replacement = replacements[url] else { continue }
                     originals[url] = sources[url]
                     try fileOperations.writeText(replacement, to: url)
                 }
@@ -96,6 +95,57 @@ final class LanguageWorkspaceEditService {
         } catch {
             notify("Could not apply language edit: \(error.localizedDescription)")
             return false
+        }
+    }
+
+    struct PlannedTarget: Decodable {
+        let path: String
+        let effect: String
+    }
+
+    /// Asks Core (`lsp.planWorkspaceEdit`) which targets may be edited and in
+    /// what order they commit. A rejection maps to the matching edit error;
+    /// a Core failure refuses the whole edit.
+    static func plan(
+        _ edit: LanguageServerWorkspaceEdit,
+        workspaceURL: URL,
+        openDocuments: [EditorDocument]
+    ) throws -> [PlannedTarget] {
+        struct Position: Encodable { let line: Int; let utf16Column: Int }
+        struct Range: Encodable { let start: Position; let end: Position }
+        struct Edit: Encodable { let range: Range; let newText: String }
+        struct Open: Encodable { let path: String; let isReadOnly: Bool }
+        struct Request: Encodable {
+            let platform = "posix"
+            let workspaceRoot: String
+            let changes: [String: [Edit]]
+            let openDocuments: [Open]
+        }
+        struct Rejection: Decodable { let code: String }
+        struct Response: Decodable { let rejection: Rejection?; let targets: [PlannedTarget] }
+        var changes: [String: [Edit]] = [:]
+        for (url, edits) in edit.changes {
+            changes[url.standardizedFileURL.path, default: []] += edits.map {
+                Edit(
+                    range: Range(
+                        start: Position(line: $0.range.start.line, utf16Column: $0.range.start.utf16Column),
+                        end: Position(line: $0.range.end.line, utf16Column: $0.range.end.utf16Column)),
+                    newText: $0.newText)
+            }
+        }
+        let request = Request(
+            workspaceRoot: workspaceURL.standardizedFileURL.path,
+            changes: changes,
+            openDocuments: openDocuments.map {
+                Open(path: $0.url.standardizedFileURL.path, isReadOnly: $0.isReadOnly)
+            })
+        let result: Result<Response, RustCoreBridge.CoreCallError> = RustCoreBridge().executeResult(
+            command: "lsp.planWorkspaceEdit", payload: request)
+        guard case .success(let response) = result else { throw EditError.planUnavailable }
+        switch response.rejection?.code {
+        case nil: return response.targets
+        case "readOnlyDocument": throw EditorDocument.DocumentError.readOnly
+        default: throw EditError.outsideWorkspace
         }
     }
 }

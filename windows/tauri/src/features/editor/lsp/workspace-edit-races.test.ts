@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import * as native from "@/platform/tauri-core";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { useBufferStore } from "../stores/buffer.store";
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { applyWorkspaceEdit } from "./workspace-edit";
 const workspace = { id: "edit-race", name: "Edit race" };
 let restore: () => void;
@@ -16,10 +17,16 @@ for (const mutation of ["typing", "closed", "workspace"] as const) {
   const store = useBufferStore.getStore(workspace.id);
   const buffer: EditorContent = { id: "one", type: "editor", path: "C:/work/a.ts", name: "a.ts", content: "abc", savedContent: "abc", isVirtual: false, isDirty: false, isPinned: false, isPreview: false, isActive: true, tokens: [], contentRevision: 1 };
   store.setState({ buffers: [buffer] });
+  useFileSystemStore.getStore(workspace.id).setState({ rootFolderPath: "C:/work" });
   let release!: (value: {text:string}) => void; let entered!: () => void;
   const started = new Promise<void>(r => { entered = r; });
   const pending = new Promise<{text:string}>(r => { release = r; });
-  const invoke = spyOn(native, "invoke").mockImplementation(async command => { if(command === "lsp.applyTextEdits") { entered(); return pending as never; } return undefined as never; });
+  const invoke = spyOn(native, "invoke").mockImplementation(async (command, args) => {
+    if(command === "lsp.planWorkspaceEdit") {
+      const changes = (args as { changes: Record<string, unknown[]> }).changes;
+      return { rejection: null, targets: Object.entries(changes).map(([path, edits]) => ({ path, effect: "updateDocument", edits })) } as never;
+    }
+    if(command === "lsp.applyTextEdits") { entered(); return pending as never; } return undefined as never; });
   const operation = applyWorkspaceEdit({ changes: { "C:/work/a.ts": [{ range: { start: {line:0,character:0}, end: {line:0,character:1} }, newText:"X" }] } });
   const outcome = operation.catch(error => error);
   try {

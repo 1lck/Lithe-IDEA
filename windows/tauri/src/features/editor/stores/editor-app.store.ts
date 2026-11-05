@@ -1,3 +1,4 @@
+import { planSaveBatch, reduceSaveBatch, type SaveBatchOutcome } from "../services/save-batch";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { bufferNotLoadedMessage, isBufferContentLoaded } from "../utils/buffer-load-state";
 import { isLocalDocumentPath, readDocumentFile, saveDocumentFile } from "@/platform/document-files";
@@ -470,13 +471,6 @@ async function saveEditorBufferById(
   }
 }
 
-function getDirtyEditorBuffers(buffers: PaneContent[]): EditorContent[] {
-  return buffers.filter(
-    (buffer): buffer is EditorContent =>
-      isEditorContent(buffer) && buffer.isDirty && !buffer.readOnly,
-  );
-}
-
 /** One queued autosave debounce, optionally continuing an in-flight write. */
 interface AutoSaveTask {
   timeoutId: ReturnType<typeof setTimeout>;
@@ -839,21 +833,24 @@ export const createEditorAppStore = (
 
         handleSaveAll: async () => {
           const bufferStore = useBufferStore.getStore(workspaceId);
-          const dirtyBufferIds = getDirtyEditorBuffers(bufferStore.getState().buffers).map(
-            (buffer) => buffer.id,
-          );
-          const saveResults = await Promise.all(
-            dirtyBufferIds.map(async (bufferId) => {
+          // Core selects the members and reduces their outcomes; the writes
+          // run concurrently here and every member is attempted.
+          const members = await planSaveBatch(bufferStore.getState().buffers);
+          const settled = await Promise.allSettled(
+            members.map(async (bufferId): Promise<SaveBatchOutcome> => {
               const result = await saveEditorBufferById(workspaceId, bufferId);
               const nextBuffer = getBufferById(bufferStore.getState().buffers, bufferId);
-              return (
-                result === "saved" &&
-                (!nextBuffer || !isEditorContent(nextBuffer) || !nextBuffer.isDirty)
-              );
+              const clean = !nextBuffer || !isEditorContent(nextBuffer) || !nextBuffer.isDirty;
+              return result === "saved" && clean ? "saved" : "failed";
             }),
           );
-
-          return saveResults.filter(Boolean).length;
+          const outcomes = settled.map((entry): SaveBatchOutcome =>
+            entry.status === "fulfilled" ? entry.value : "failed");
+          const batch = await reduceSaveBatch(members, outcomes, bufferStore.getState().buffers);
+          // A thrown save is still reported to the caller after every member ran.
+          const thrown = settled.find((entry) => entry.status === "rejected");
+          if (thrown?.status === "rejected") throw thrown.reason;
+          return batch.savedCount;
         },
 
         openQuickEdit: (params) => {

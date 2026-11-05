@@ -98306,6 +98306,41 @@
       ]
     },
     {
+      "id": "editor.workspaceEditOutsideWorkspace",
+      "description": "Workspace edit rejected because a target is outside the workspace.",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "editor.workspaceEditReadOnlyDocument",
+      "description": "Workspace edit rejected because a target document is read-only.",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "editor.workspaceEditRollbackFailed",
+      "description": "Workspace edit failed and some files could not be restored.",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "paths": "string"
+      }
+    },
+    {
+      "id": "native.languageEditCouldNotBePlanned",
+      "description": "Native UI: Language edit could not be planned.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language edit could not be planned.",
+        "arguments": []
+      }
+    },
+    {
       "id": "workspace.appStore",
       "description": "Native project file Open With menu",
       "platforms": [

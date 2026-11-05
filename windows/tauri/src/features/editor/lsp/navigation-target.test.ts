@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { LspLocation } from "./lsp-client";
+import type { NavigationTargetDecision } from "./navigation-classification";
 import { openLspNavigationLocation } from "./navigation-target";
 import type { OpenContentSpec, PaneContent } from "@/features/panes/types/pane-content.types";
 
@@ -16,6 +17,9 @@ function createOptions(location: LspLocation, buffers: PaneContent[] = []) {
     async (): Promise<string | null> => "public final class String {}",
   );
   const readFileContent = mock(async () => "class Main {}");
+  const classifyTarget = mock(
+    async (): Promise<NavigationTargetDecision> => ({ classification: "workspace", isReadOnly: false }),
+  );
 
   return {
     options: {
@@ -25,16 +29,36 @@ function createOptions(location: LspLocation, buffers: PaneContent[] = []) {
       actions: { openContent, setActiveBuffer, updateBuffer },
       getVirtualDocument,
       readFileContent,
+      classifyTarget,
     },
     openContent,
     setActiveBuffer,
     updateBuffer,
     getVirtualDocument,
     readFileContent,
+    classifyTarget,
   };
 }
 
 describe("LSP navigation targets", () => {
+  test("a target Core rejects is never read or opened", async () => {
+    const context = createOptions({ uri: "file:///D:/secret/id.txt", filePath: "D:/secret/id.txt", range });
+    context.classifyTarget.mockResolvedValueOnce({ classification: "rejected", isReadOnly: true });
+
+    expect(await openLspNavigationLocation(context.options)).toBeNull();
+    expect(context.classifyTarget).toHaveBeenCalledWith("D:/secret/id.txt", context.options.sourceFilePath);
+    expect(context.readFileContent).not.toHaveBeenCalled();
+    expect(context.openContent).not.toHaveBeenCalled();
+  });
+
+  test("an external source file opens read-only", async () => {
+    const context = createOptions({ uri: "file:///D:/lib/Util.go", filePath: "D:/lib/Util.go", range });
+    context.classifyTarget.mockResolvedValueOnce({ classification: "externalReadOnly", isReadOnly: true });
+
+    expect(await openLspNavigationLocation(context.options)).toBe("opened-buffer");
+    expect(context.openContent).toHaveBeenCalledWith(expect.objectContaining({ path: "D:/lib/Util.go", readOnly: true }));
+  });
+
   test("opens physical file locations with their Core-projected path", async () => {
     const context = createOptions({
       uri: "file:///C:/work/src/Service.java",

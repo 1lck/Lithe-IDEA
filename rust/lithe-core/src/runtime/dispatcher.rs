@@ -1041,6 +1041,16 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                 ),
             }
         }
+        CoreCommand::DocumentPlanSaveBatch => plugin_response(
+            id,
+            parsed.payload,
+            project::document_save_batch::plan_command,
+        ),
+        CoreCommand::DocumentReduceSaveBatch => plugin_response(
+            id,
+            parsed.payload,
+            project::document_save_batch::reduce_command,
+        ),
         CoreCommand::DocumentLifecycle => {
             match serde_json::from_value::<DocumentLifecycleRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1848,10 +1858,30 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspPlanWorkspaceEdit => plugin_response(
+            id,
+            parsed.payload,
+            crate::lsp::workspace_edit_plan::plan_command,
+        ),
+        CoreCommand::LspClassifyNavigationTarget => plugin_response(
+            id,
+            parsed.payload,
+            crate::lsp::navigation_target::classify_command,
+        ),
+        CoreCommand::EditorPlanTextEdits => plugin_response(
+            id,
+            parsed.payload,
+            crate::editor::text_edit_plan::plan_command,
+        ),
         CoreCommand::EditorParseNavigationInput => plugin_response(
             id,
             parsed.payload,
             crate::editor::navigation_input::parse_command,
+        ),
+        CoreCommand::EditorNavigationHistoryReduce => plugin_response(
+            id,
+            parsed.payload,
+            crate::editor::navigation_history::reduce_command,
         ),
         CoreCommand::EditorLineEdit => {
             match serde_json::from_value::<crate::editor::LineEditRequest>(parsed.payload)
@@ -1969,6 +1999,21 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspMergeCompletions => plugin_response(
+            id,
+            parsed.payload,
+            crate::lsp::host_policy::completion_merge::merge_command,
+        ),
+        CoreCommand::LspActivationPolicy => plugin_response(
+            id,
+            parsed.payload,
+            crate::lsp::host_policy::activation::policy_command,
+        ),
+        CoreCommand::LspProblemsQuery => plugin_response(
+            id,
+            parsed.payload,
+            crate::lsp::host_policy::problems::query_command,
+        ),
         CoreCommand::LspStartServer => {
             match serde_json::from_value::<crate::lsp::StartServerRequest>(parsed.payload)
                 .map_err(|error| {

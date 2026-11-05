@@ -182,6 +182,8 @@ pub(crate) fn is_hot(method: &str) -> bool {
                 | "lsp.builtinCompletions"
                 | "lsp.builtinHover"
                 | "lsp.builtinNavigation"
+                | "lsp.mergeCompletions"
+                | "lsp.problems.query"
                 | "java.codeVision"
                 | "java.navigationMarkers"
                 | "java.runMarkers"

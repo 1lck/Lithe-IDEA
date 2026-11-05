@@ -413,7 +413,6 @@
     "windows/tauri/src/features/editor/lsp/java-workspace-change-scheduler.ts": {"words":17},
     "windows/tauri/src/features/editor/lsp/java-workspace-language-server.test.ts": {"words":27},
     "windows/tauri/src/features/editor/lsp/java-workspace-language-server.ts": {"words":30},
-    "windows/tauri/src/features/editor/lsp/language-server-failure-cooldown.test.ts": {"words":3},
     "windows/tauri/src/features/editor/lsp/language-server-feedback-options.test.ts": {"words":7},
     "windows/tauri/src/features/editor/lsp/language-server-navigation.test.ts": {"words":9},
     "windows/tauri/src/features/editor/lsp/lsp-client-code-actions.test.ts": {"words":5},

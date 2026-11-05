@@ -58,6 +58,37 @@ struct ProblemsPanelPresentationTests {
         #expect(store.diagnostics(for: second) == [problem])
     }
 
+    /// LSP-17: Core orders files naturally (`File2` before `File10`) and lists
+    /// errors before warnings inside a file, the same as Windows.
+    @Test
+    func problemsQueryUsesSharedFileAndSeverityOrder() {
+        let root = URL(fileURLWithPath: "/workspace/problems")
+        let ten = root.appendingPathComponent("src/File10.java")
+        let two = root.appendingPathComponent("src/File2.java")
+        func problem(_ id: String, _ url: URL, _ line: Int, _ severity: DiagnosticSeverity) -> EditorDiagnostic {
+            EditorDiagnostic(id: id, fileURL: url, line: line, utf16Column: 0, endLine: line, endUTF16Column: 1,
+                severity: severity, message: id, source: "java", code: nil, tags: [], relatedInformation: [])
+        }
+        let diagnostics = [
+            problem("ten-warning", ten, 1, .warning),
+            problem("two-warning", two, 1, .warning),
+            problem("two-error", two, 9, .error),
+            problem("two-hint", two, 0, .hint),
+        ]
+        let paths = [ten: "src/File10.java", two: "src/File2.java"]
+
+        let all = ProblemsQuery.run(diagnostics: diagnostics, severities: Set(DiagnosticSeverity.allCases),
+                                    displayPaths: paths, logSink: nil)
+        #expect(all.groups.map(\.fileURL) == [two, ten])
+        #expect(all.groups.first?.diagnostics.map(\.id) == ["two-error", "two-warning", "two-hint"])
+        #expect(all.errorCount == 1 && all.warningCount == 2)
+
+        let errors = ProblemsQuery.run(diagnostics: diagnostics, severities: [.error],
+                                       displayPaths: paths, logSink: nil)
+        #expect(errors.diagnostics.map(\.id) == ["two-error"])
+        #expect(errors.warningCount == 0)
+    }
+
     #if DEBUG
     @Test func demoCoversEverySeverityTagsRelatedInformationAndLongMessages() {
         let root = URL(fileURLWithPath: "/demo")

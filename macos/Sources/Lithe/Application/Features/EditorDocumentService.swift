@@ -78,7 +78,7 @@ final class EditorDocumentService: EditorDocumentServicing {
 
     func listDocuments(scope: EditorDocumentScope) throws -> [EditorDocumentSummary] {
         try validate(scope)
-        return documents().map { summary(of: $0, index: EditorTextLineIndex($0.text)) }
+        return try documents().map { try summary(of: $0) }
     }
 
     func snapshot(scope: EditorDocumentScope, documentID: UUID) throws -> EditorDocumentSnapshot {
@@ -86,14 +86,13 @@ final class EditorDocumentService: EditorDocumentServicing {
         // Text and version are read together on the main actor, so they always
         // describe the same buffer state. Keystrokes still crossing the editor
         // bridge appear in a later version and make edits based on this one fail.
-        return EditorDocumentSnapshot(summary: summary(of: document, index: EditorTextLineIndex(document.text)),
-                                      text: document.text)
+        return EditorDocumentSnapshot(summary: try summary(of: document), text: document.text)
     }
 
     func activeDocument(scope: EditorDocumentScope) throws -> EditorDocumentSummary? {
         try validate(scope)
         guard let id = activeDocumentID(), let document = documents().first(where: { $0.id == id }) else { return nil }
-        return summary(of: document, index: EditorTextLineIndex(document.text))
+        return try summary(of: document)
     }
 
     func selections(scope: EditorDocumentScope, documentID: UUID) async throws -> EditorSelectionsSnapshot {
@@ -105,10 +104,9 @@ final class EditorDocumentService: EditorDocumentServicing {
         guard reported.version == document.contentVersion else {
             throw EditorDocumentServiceError.versionConflict(expected: reported.version, actual: document.contentVersion)
         }
-        let index = EditorTextLineIndex(document.text)
-        guard reported.selections.allSatisfy({ index.offset(of: $0.anchor) != nil && index.offset(of: $0.active) != nil }) else {
-            throw EditorDocumentServiceError.editorUnavailable
-        }
+        // Every reported endpoint must exist in this side's text of the same version.
+        _ = try EditorTextEditPlanner.plan([], in: document.text,
+                                           positions: reported.selections.flatMap { [$0.anchor, $0.active] })
         let primary = reported.selections.first
         let sorted = reported.selections.sorted {
             ($0.range.start, $0.range.end) < ($1.range.start, $1.range.end)
@@ -125,17 +123,27 @@ final class EditorDocumentService: EditorDocumentServicing {
         guard document.contentVersion == expectedVersion else {
             throw EditorDocumentServiceError.versionConflict(expected: expectedVersion, actual: document.contentVersion)
         }
-        let index = EditorTextLineIndex(document.text)
-        let plan = try EditorTextEditPlanner.plan(edits, in: index)
-        guard !plan.isEmpty else {
+        // Plan off the main actor: the whole text crosses the Core boundary.
+        let text = document.text
+        let plan = try await Task.detached(priority: .userInitiated) {
+            try EditorTextEditPlanner.plan(edits, in: text)
+        }.value
+        try Task.checkCancellation()
+        // The plan describes `text`; reject it if the buffer moved on meanwhile.
+        guard try resolve(scope, documentID) === document else { throw EditorDocumentServiceError.documentNotFound }
+        guard !document.isReadOnly else { throw EditorDocumentServiceError.readOnly }
+        guard document.contentVersion == expectedVersion else {
+            throw EditorDocumentServiceError.versionConflict(expected: expectedVersion, actual: document.contentVersion)
+        }
+        guard !plan.edits.isEmpty else {
             return EditorDocumentEditResult(documentID: documentID, version: expectedVersion, applied: false)
         }
         guard let surface = document.editorSurface else { throw EditorDocumentServiceError.editorUnavailable }
-        // No suspension between the checks above and this call: the surface
+        // No suspension between the re-checks above and this call: the surface
         // compares the editor's own revision against the same instant.
         let version = try await surface.apply(
-            EditorSurfaceEditRequest(expectedVersion: expectedVersion, edits: plan,
-                                     lineSeparator: index.insertionSeparator),
+            EditorSurfaceEditRequest(expectedVersion: expectedVersion, edits: plan.edits,
+                                     lineSeparator: plan.lineSeparator),
             to: document)
         return EditorDocumentEditResult(documentID: documentID, version: version, applied: true)
     }
@@ -174,12 +182,12 @@ final class EditorDocumentService: EditorDocumentServicing {
         return document
     }
 
-    private func summary(of document: EditorDocument, index: EditorTextLineIndex) -> EditorDocumentSummary {
+    private func summary(of document: EditorDocument) throws -> EditorDocumentSummary {
         EditorDocumentSummary(
             documentID: document.id, version: document.contentVersion,
             workspaceRelativePath: relativePath(of: document.url), languageID: languageIdentifier(document.url),
             isReadOnly: document.isReadOnly, isDirty: document.isDirty, encoding: document.readEncoding,
-            lineEnding: index.lineEnding)
+            lineEnding: try EditorTextEditPlanner.plan([], in: document.text).lineEnding)
     }
 
     private func relativePath(of url: URL) -> String? {

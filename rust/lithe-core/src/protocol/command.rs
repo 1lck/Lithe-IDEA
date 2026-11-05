@@ -310,6 +310,10 @@ pub enum CoreCommand {
     DocumentLifecycle,
     /// Classifies decoded Unicode text independently of its filename (`document.classifyText`).
     DocumentClassifyText,
+    /// Selects the open documents a save batch writes (`document.planSaveBatch`).
+    DocumentPlanSaveBatch,
+    /// Reduces save batch member outcomes and live documents (`document.reduceSaveBatch`).
+    DocumentReduceSaveBatch,
     /// Records one local-history snapshot (`history.record`).
     HistoryRecord,
     /// Lists retained local-history metadata (`history.entries`).
@@ -408,11 +412,23 @@ pub enum CoreCommand {
     DebugDestroySession,
     /// Applies validated UTF-16 LSP text edits (`lsp.applyTextEdits`).
     LspApplyTextEdits,
+    /// Validates workspace-edit targets and orders their commit
+    /// (`lsp.planWorkspaceEdit`).
+    LspPlanWorkspaceEdit,
+    /// Decides whether a language-server jump target opens, opens read-only
+    /// or is refused (`lsp.classifyNavigationTarget`).
+    LspClassifyNavigationTarget,
     /// Applies a deterministic line-level editing transform
     /// (`editor.lineEdit`).
     EditorLineEdit,
+    /// Validates and orders a plugin document edit batch
+    /// (`editor.planTextEdits`).
+    EditorPlanTextEdits,
     /// Parses a line or line:column navigation input (`editor.parseNavigationInput`).
     EditorParseNavigationInput,
+    /// Reduces one bounded back/forward navigation history event
+    /// (`editor.navigationHistory.reduce`).
+    EditorNavigationHistoryReduce,
     /// Resolves the line comment token for a file extension
     /// (`editor.lineCommentToken`).
     EditorLineCommentToken,
@@ -427,6 +443,12 @@ pub enum CoreCommand {
     LspBuiltinHover,
     /// Provides same-document fallback navigation (`lsp.builtinNavigation`).
     LspBuiltinNavigation,
+    /// Merges completion lists from prioritized providers (`lsp.mergeCompletions`).
+    LspMergeCompletions,
+    /// Decides whether a language server may start automatically (`lsp.activationPolicy`).
+    LspActivationPolicy,
+    /// Filters, orders, and groups Problems tool-window diagnostics (`lsp.problems.query`).
+    LspProblemsQuery,
     /// Starts and initializes a managed language server (`lsp.startServer`).
     LspStartServer,
     /// Derives the durable JDT LS workspace directory key (`lsp.jdtWorkspaceKey`).
@@ -908,6 +930,8 @@ impl CoreCommand {
             "file.write" => Some(Self::FileWrite),
             "document.lifecycle" => Some(Self::DocumentLifecycle),
             "document.classifyText" => Some(Self::DocumentClassifyText),
+            "document.planSaveBatch" => Some(Self::DocumentPlanSaveBatch),
+            "document.reduceSaveBatch" => Some(Self::DocumentReduceSaveBatch),
             "history.record" => Some(Self::HistoryRecord),
             "history.entries" => Some(Self::HistoryEntries),
             "history.content" => Some(Self::HistoryContent),
@@ -957,14 +981,21 @@ impl CoreCommand {
             "debug.disconnect" => Some(Self::DebugDisconnect),
             "debug.destroySession" => Some(Self::DebugDestroySession),
             "lsp.applyTextEdits" => Some(Self::LspApplyTextEdits),
+            "lsp.planWorkspaceEdit" => Some(Self::LspPlanWorkspaceEdit),
+            "lsp.classifyNavigationTarget" => Some(Self::LspClassifyNavigationTarget),
             "editor.lineEdit" => Some(Self::EditorLineEdit),
+            "editor.planTextEdits" => Some(Self::EditorPlanTextEdits),
             "editor.parseNavigationInput" => Some(Self::EditorParseNavigationInput),
+            "editor.navigationHistory.reduce" => Some(Self::EditorNavigationHistoryReduce),
             "editor.lineCommentToken" => Some(Self::EditorLineCommentToken),
             "network.proxyPolicy" => Some(Self::NetworkProxyPolicy),
             "lsp.plainSnippet" => Some(Self::LspPlainSnippet),
             "lsp.builtinCompletions" => Some(Self::LspBuiltinCompletions),
             "lsp.builtinHover" => Some(Self::LspBuiltinHover),
             "lsp.builtinNavigation" => Some(Self::LspBuiltinNavigation),
+            "lsp.mergeCompletions" => Some(Self::LspMergeCompletions),
+            "lsp.activationPolicy" => Some(Self::LspActivationPolicy),
+            "lsp.problems.query" => Some(Self::LspProblemsQuery),
             "lsp.startServer" => Some(Self::LspStartServer),
             "lsp.jdtWorkspaceKey" => Some(Self::LspJdtWorkspaceKey),
             "java.workspacePolicy" => Some(Self::JavaWorkspacePolicy),
