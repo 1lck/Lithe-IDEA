@@ -1281,6 +1281,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.untrackedDirectory` | List one level of a summarized untracked directory: its files and subdirectory summaries |
 | `git.commitState` | Read exact HEAD, symbolic branch and index preconditions for a workspace commit |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
+| `git.classifyMetadataChanges` | Classify a bounded page of coalesced watcher paths without filesystem access |
 | `git.worktrees` | Return deterministic registered-worktree metadata without scanning each checkout |
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
 | `git.pullRequestCheckoutPreview` | Inspect and review a non-destructive PR checkout plan |
@@ -2278,6 +2279,18 @@ returns `{tags: [{name, objectId, targetId, message, date, isAnnotated}]}`;
 names come from full `refs/tags/` identities even when a branch has the same
 name, and `targetId` is the dereferenced object when Git reports one. These
 commands own Git output parsing and return errors for malformed output.
+`git.classifyMetadataChanges` accepts `{context, paths}` with at most 256 paths
+per call. The context contains `repositoryRoot`, `gitDirectory`,
+`gitCommonDirectory`, optional `workspaceRoot`, and optional `ruleDirectories`.
+Each non-empty path is at most 131,068 bytes. Paths use the host's native
+semantics and must already have the same resolved identity as the watch roots;
+Core performs no IO. The ordered `events` array returns `kind` (`context`,
+`ignoreRule`, `metadata`, `ignored`, or `other`) and `indexOnly`. Hosts retain
+ownership of native loss flags, watch lifetimes, and workspace visibility; on
+classification failure they must conservatively rescan. Native Rust callers can
+use the same typed classifier without JSON. The shared fixture is
+`shared/fixtures/git/metadata-classification-v1.json`.
+
 `git.parseCheckoutMetadata` and `git.parseGitdirPointer` each accept `{text}`
 of at most 4096 UTF-8 bytes and return `{branch}` or `{path}`, respectively;
 the host reads files and resolves relative paths. Examples live in

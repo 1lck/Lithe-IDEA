@@ -2789,6 +2789,9 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::GitClassifyMetadataChanges => {
+            plugin_response(id, parsed.payload, git::metadata_classification_command)
+        }
         CoreCommand::GitWatchContext => {
             match serde_json::from_value::<GitWatchContextRequest>(parsed.payload)
                 .map_err(|error| {

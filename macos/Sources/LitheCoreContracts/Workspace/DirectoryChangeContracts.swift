@@ -22,48 +22,11 @@ package struct DirectoryWatchConfiguration: Equatable, Sendable {
         self.ignoredDirectories = ignoredDirectories.map(Self.normalize).sorted { $0.path < $1.path }
     }
 
-    /// Whether a change cannot affect this workspace's tree or Git status.
-    ///
-    /// Besides `ignoredDirectories`, this covers the high-frequency private
-    /// state of other linked worktrees under `<common>/worktrees/<id>`: every
-    /// Git command in those worktrees rewrites their index, reflogs, and
-    /// submodule scratch state, but only the shared refs and this workspace's
-    /// own Git directory change what it shows. Their semantic metadata (such as
-    /// `HEAD`, `locked`, or registration files) is not ignored, so the
-    /// Worktrees panel still refreshes.
+    /// Excluded workspace directories are owned by the workspace watcher.
+    /// Git administrative paths are classified in batches by Core.
     package func isIgnored(_ url: URL) -> Bool {
-        let normalized = Self.normalize(url)
-        if ignoredDirectories.contains(where: { Self.contains($0, normalized) }) {
-            return true
-        }
-        guard let gitCommonDirectory else { return false }
-        let linkedWorktrees = gitCommonDirectory.appendingPathComponent("worktrees", isDirectory: true)
-        guard Self.contains(linkedWorktrees, normalized) else { return false }
-        // A linked workspace keeps its own state under `worktrees/<self>`.
-        if let gitDirectory, gitDirectory != gitCommonDirectory,
-           Self.contains(gitDirectory, normalized) {
-            return false
-        }
-        guard let relativePath = Self.relativePath(of: normalized, below: linkedWorktrees) else {
-            return false
-        }
-        // `<id>` alone is the registration directory itself; only entry names
-        // one level below it are high-frequency private state.
-        let components = relativePath.split(separator: "/").map(String.init)
-        guard components.count >= 2 else { return false }
-        return Self.highChurnLinkedWorktreeEntries.contains(components[1])
+        ignoredDirectoryRoot(containing: url) != nil
     }
-
-    /// Entries under another linked worktree's Git directory that every Git
-    /// command rewrites there. Changes to them cannot alter this workspace's
-    /// tree, status, or worktree list.
-    private static let highChurnLinkedWorktreeEntries: Set<String> = [
-        "index",
-        "index.lock",
-        "ORIG_HEAD",
-        "logs",
-        "modules",
-    ]
 
     /// The excluded workspace directory that owns `url`, if any.
     package func ignoredDirectoryRoot(containing url: URL) -> URL? {
@@ -111,21 +74,6 @@ package struct DirectoryWatchConfiguration: Equatable, Sendable {
         return Self.contains(repositoryRoot, Self.normalize(url))
     }
 
-    package func containsGitMetadataPath(_ url: URL) -> Bool {
-        let normalized = Self.normalize(url)
-        return [gitDirectory, gitCommonDirectory]
-            .compactMap { $0 }
-            .contains { Self.contains($0, normalized) }
-    }
-
-    package func isGitContextPointer(_ url: URL) -> Bool {
-        let normalized = Self.normalize(url)
-        let candidates = [workspaceRoot, repositoryRoot]
-            .compactMap { $0 }
-            .map { $0.appendingPathComponent(".git").standardizedFileURL.path }
-        return candidates.contains(normalized.path)
-    }
-
     package func isLogicalRoot(_ url: URL) -> Bool {
         let path = Self.normalize(url).path
         return [workspaceRoot, repositoryRoot, gitDirectory, gitCommonDirectory]
@@ -141,10 +89,7 @@ package struct DirectoryWatchConfiguration: Equatable, Sendable {
         child.path == parent.path || child.path.hasPrefix(parent.path + "/")
     }
 
-    private static func relativePath(of url: URL, below parent: URL) -> String? {
-        guard url.path.hasPrefix(parent.path + "/") else { return nil }
-        return String(url.path.dropFirst(parent.path.count + 1))
-    }
+
 }
 
 package struct DirectoryChangeBatch: Equatable, Sendable {

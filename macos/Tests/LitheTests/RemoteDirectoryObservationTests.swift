@@ -30,6 +30,13 @@ struct RemoteDirectoryObservationTests {
         #expect(batches.values.last?.workspacePaths == [])
         host.emit(.changed(paths: ["/srv/repo/src/main.rs"], overflow: false))
         #expect(batches.values.last?.workspacePaths == [root.appendingPathComponent("main.rs").path])
+        // Mixed batches must preserve the metadata signal alongside source changes.
+        host.emit(.changed(paths: ["/srv/repo/.git/index", "/srv/repo/src/main.rs"], overflow: false))
+        #expect(batches.values.last?.gitMetadataMayHaveChanged == true)
+        #expect(batches.values.last?.workspacePaths == [root.appendingPathComponent("main.rs").path])
+        let count = batches.values.count
+        host.emit(.changed(paths: ["/srv/repo/.git/objects/aa/object"], overflow: false))
+        #expect(batches.values.count == count)
         source.stop()
         #expect(await watchEventually { host.active == 0 })
     }

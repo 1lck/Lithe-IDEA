@@ -6331,7 +6331,7 @@ struct EditorDocumentTests {
     }
 
     @Test
-    func directoryWatchConfigurationIgnoresNestedWorktreesAndOtherWorktreeState() {
+    func directoryWatchConfigurationIgnoresNestedWorktreesAndClassifiesOtherWorktreeState() {
         let repository = URL(fileURLWithPath: "/in-memory/lithe-watch-ignore/repository")
         let commonDirectory = repository.appendingPathComponent(".git")
         let nestedWorktree = repository.appendingPathComponent(".claude/worktrees/agent")
@@ -6346,17 +6346,17 @@ struct EditorDocumentTests {
         )
 
         #expect(main.isIgnored(nestedWorktree.appendingPathComponent("src/App.java")))
-        #expect(main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/index")))
-        #expect(main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/index.lock")))
-        #expect(main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/logs/HEAD")))
-        // Shared semantic state must keep refreshing Git: the Worktrees panel
-        // shows whether a sibling worktree is locked and which commit it is on.
-        #expect(!main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/HEAD")))
-        #expect(!main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/locked")))
-        #expect(!main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent")))
-        #expect(!main.isIgnored(commonDirectory.appendingPathComponent("index")))
-        #expect(!main.isIgnored(commonDirectory.appendingPathComponent("refs/heads/agent")))
         #expect(!main.isIgnored(repository.appendingPathComponent(".claude/settings.json")))
+        let classifier = RustGitMetadataClassifier(core: RustCoreBridge())
+        let privatePaths = ["index", "index.lock", "logs/HEAD"].map {
+            commonDirectory.appendingPathComponent("worktrees/agent/" + $0).path
+        }
+        let semanticPaths = ["worktrees/agent/HEAD", "worktrees/agent/locked", "worktrees/agent", "index", "refs/heads/agent"].map {
+            commonDirectory.appendingPathComponent($0).path
+        }
+        let events = try? classifier.classify(paths: privatePaths + semanticPaths, configuration: main).get()
+        #expect(events?.prefix(privatePaths.count).allSatisfy { $0.kind == .ignored } == true)
+        #expect(events?.suffix(semanticPaths.count).allSatisfy { $0.kind == .metadata } == true)
 
         // Only a structural change or the `.git` marker can end the exclusion;
         // ordinary work inside the worktree cannot.
@@ -6375,8 +6375,12 @@ struct EditorDocumentTests {
                 gitCommonDirectory: commonDirectory
             )
         )
-        #expect(!linked.isIgnored(linkedGitDirectory.appendingPathComponent("index")))
-        #expect(linked.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/index")))
+        let linkedEvents = try? classifier.classify(paths: [
+            linkedGitDirectory.appendingPathComponent("index").path,
+            commonDirectory.appendingPathComponent("worktrees/agent/index").path,
+        ], configuration: linked).get()
+        #expect(linkedEvents?.map(\.kind) == [.metadata, .ignored])
+        #expect(linkedEvents?.first?.indexOnly == true)
     }
 
     @Test

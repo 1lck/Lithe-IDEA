@@ -1,0 +1,30 @@
+{
+  "id": "git-metadata-observation",
+  "area": "版本控制",
+  "group": "Git",
+  "capability": "Git 元数据变化观察与刷新",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDirectoryWatcher.swift",
+      "macos/Sources/Lithe/Services/Remote/RemoteDirectoryObservation.swift",
+      "macos/Tests/LitheTests/GitMetadataClassificationTests.swift",
+      "macos/Tests/LitheTests/RemoteDirectoryObservationTests.swift",
+      "shared/fixtures/git/metadata-classification-v1.json"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/crates/project/src/git_watcher.rs",
+      "windows/tauri/src/features/git/runtime/git-metadata-watch-host.tsx",
+      "rust/lithe-core/src/git/metadata_watch.rs",
+      "shared/fixtures/git/metadata-classification-v1.json"
+    ]
+  },
+  "owner": "Git",
+  "notes": "Git 路径分类由 Core 统一；原生宿主管理事件丢失、监听生命周期与工作区可见性。",
+  "verification": "两端在普通及 linked worktree 中外部暂存、checkout、移动共享引用、修改 ignore 规则与其他 worktree 的状态，确认刷新范围正确且对象库高频写入不触发无关刷新；macOS 另验证远程工作区、混合事件与监听丢失恢复。共享 fixture 和宿主自动化覆盖分类，真实产品和远程端到端验收 pending。"
+}
