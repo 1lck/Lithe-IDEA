@@ -140,8 +140,8 @@ shell 中把取消结果转换为成功，否则真正失败会消失。
 覆盖不到这两点。`preview` → `main` 的 PR 不跑任何 lane，只核对同一提交在
 `preview` 的 push 上已经通过 macOS CI；push 到 `main` 会再次执行完整 CI，且每个提交都保留。分类脚本用
 `LITHE_CI_SCOPE`（`pull_request`、`post_merge`、`release_promotion`）区分这些
-场景。被否方案：合并后完全不跑 CI（Intel 编译和 PR 组合问题会一直留到 AutoBuild
-或发布时才暴露）；要求 PR 与 `preview` 保持最新后再合并（并行 PR 多时每次合并
+场景。被否方案：合并后完全不跑 CI（PR 组合问题会一直留到 AutoBuild 才暴露；
+AutoBuild 只构建 Apple Silicon，Intel 编译问题会一直留到正式发布）；要求 PR 与 `preview` 保持最新后再合并（并行 PR 多时每次合并
 都要重跑完整 CI，总用量反而更高）。Windows CI 不在 `preview` push 上运行，但运行每个 `main` push；
 Windows 的 GitHub 缓存由 PR 与 main 刷新，`Cargo.lock` 变化后的几个 PR 会从
 较旧的前缀命中开始编译。
