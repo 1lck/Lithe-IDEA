@@ -25,12 +25,17 @@ const EXPERIMENTAL_KEY: &str = "litheFunctions";
 /// Version 3 keeps version 2 and adds `lithe/host/getCapabilities`,
 /// subscription disposal, workspace contexts, a workspace context on
 /// invocations, and typed host failure codes.
-const SUPPORTED_VERSIONS: [u64; 3] = [1, 2, 3];
+/// Version 4 keeps version 3 and adds the cross-plugin function relay
+/// (`lithe/host/functions/*`) and the Core-written `caller` of an invocation.
+const SUPPORTED_VERSIONS: [u64; 4] = [1, 2, 3, 4];
 /// First protocol version that offers host services.
 const HOST_SERVICES_VERSION: u64 = 2;
 /// First protocol version whose invocations may carry a workspace context
 /// and whose host offers capability discovery and workspace contexts.
 pub(crate) const CONTEXT_VERSION: u64 = 3;
+/// First protocol version whose backend may call the functions other plugins
+/// export, and whose invocations carry the Core-written `caller`.
+pub(crate) const RELAY_VERSION: u64 = 4;
 
 /// Feature name recorded in the session's server capabilities once a backend
 /// answered a supported version with a valid function list.
@@ -70,10 +75,18 @@ const HOST_SERVICE_HOST: &str = "host";
 /// of version 3 has it, because only the session that holds a subscription
 /// can name it.
 const HOST_SERVICE_SUBSCRIPTIONS: &str = "subscriptions";
+/// Calls into the functions other plugins export. The grant comes from the
+/// manifest's `requires.pluginFunctions.calls`, not from a permission: the
+/// caller's declaration plus the provider's `exports` is the consent, and
+/// Core's relay checks both on every call.
+pub(crate) const HOST_SERVICE_FUNCTIONS: &str = "functions";
 /// Legacy aggregate grants. New methods are granted individually so adding a
 /// method to `workspace` or `editor` never widens an existing permission.
-pub(crate) const GRANTABLE_HOST_SERVICES: &[&str] =
-    &[HOST_SERVICE_CREDENTIALS, HOST_SERVICE_WORKSPACE];
+pub(crate) const GRANTABLE_HOST_SERVICES: &[&str] = &[
+    HOST_SERVICE_CREDENTIALS,
+    HOST_SERVICE_WORKSPACE,
+    HOST_SERVICE_FUNCTIONS,
+];
 
 /// Whether a launch grant names an implemented legacy service or host method.
 pub(crate) fn is_host_grant(grant: &str) -> bool {
@@ -118,6 +131,10 @@ const SUBSCRIPTIONS_DISPOSE: &str = "lithe/host/subscriptions/dispose";
 const WORKSPACE_LIST_CONTEXTS: &str = "lithe/host/workspace/listContexts";
 const WORKSPACE_GET_CONTEXT: &str = "lithe/host/workspace/getContext";
 const WORKSPACE_GET_FOLDERS: &str = "lithe/host/workspace/getFolders";
+/// Backend request listing the plugins that export a function it may call.
+pub(crate) const FUNCTIONS_PROVIDERS: &str = "lithe/host/functions/providers";
+/// Backend request calling a function another plugin exports.
+pub(crate) const FUNCTIONS_INVOKE: &str = "lithe/host/functions/invoke";
 const MAX_CREDENTIAL_KEY_BYTES: usize = 128;
 /// Bound of one stored secret, in UTF-8 bytes; enough for a password, a
 /// token, or a private key, not for documents.
@@ -205,6 +222,34 @@ pub(crate) mod codes {
     /// A page's call or a host operation ended because the backend process
     /// exited. Reported by hosts to pages, never sent to a backend.
     pub const BACKEND_EXITED: &str = "plugin.backend.exited";
+
+    // Cross-plugin relay (`lithe/host/functions/*`, protocol version 4). Each
+    // refusal has its own code and number, so a caller can branch on either.
+
+    /// The caller's manifest does not declare a call to this function.
+    pub const NOT_DECLARED: &str = "plugin.function.notDeclared";
+    /// The plugin that should provide the function does not export it, or
+    /// has not registered it with its running backend.
+    pub const NOT_EXPORTED: &str = "plugin.function.notExported";
+    /// The providing plugin is not installed or not enabled, or was disabled
+    /// or removed while the call was running.
+    pub const PROVIDER_DISABLED: &str = "plugin.function.providerDisabled";
+    /// The caller declared another contract version than the provider exports.
+    pub const VERSION_MISMATCH: &str = "plugin.function.versionMismatch";
+    /// The provider is already on the call chain, so the call would come
+    /// back to a plugin that is waiting for it (including a plugin calling
+    /// itself).
+    pub const CALL_CYCLE: &str = "plugin.function.callCycle";
+    /// The call chain is longer than the depth limit.
+    pub const DEPTH_EXCEEDED: &str = "plugin.function.depthExceeded";
+    /// The calling plugin already has the most relayed calls it may have
+    /// running at once.
+    pub const TOO_MANY_CALLS: &str = "plugin.function.tooManyCalls";
+    /// The relayed params or result exceed the relay's byte limit.
+    pub const PAYLOAD_TOO_LARGE: &str = "plugin.function.payloadTooLarge";
+    /// The provider's backend could not serve the call: it did not start in
+    /// time, exited, or withdrew the function while the call ran.
+    pub const PROVIDER_UNAVAILABLE: &str = "plugin.function.providerUnavailable";
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -464,6 +509,10 @@ pub(crate) enum HostRoute {
     Forward(&'static str),
     /// Answered by Core with this result; the host never sees the request.
     Answer(Value),
+    /// Another plugin's function: Core's relay checks, dispatches, and
+    /// answers it. The host sees only the start request for a provider whose
+    /// backend is not running.
+    Relay,
 }
 
 /// How Core checks the params of one host method before the host sees them.
@@ -479,6 +528,10 @@ pub(crate) enum HostParams {
     Context,
     /// Snapshot source listing or one bounded chunk from a selected source.
     KeymapSnapshot { chunk: bool },
+    /// Exactly `{ functionID }`, a well-formed function ID.
+    FunctionProviders,
+    /// `{ pluginID, functionID, context, params?, timeoutMilliseconds? }`.
+    FunctionInvoke,
     /// Any object whose `context`, when present, is a well-formed
     /// reference. The service checks the rest and answers
     /// `plugin.host.invalidParams` or, for a field it does not know,
@@ -507,6 +560,20 @@ pub(crate) struct HostMethod {
 /// service adds its rows here, its grant to `GRANTABLE_HOST_SERVICES` and
 /// the manifest permission, and its handler to the host's dispatcher.
 pub(crate) const HOST_METHODS: &[HostMethod] = &[
+    HostMethod {
+        method: FUNCTIONS_PROVIDERS,
+        service: HOST_SERVICE_FUNCTIONS,
+        permission: None,
+        since: RELAY_VERSION,
+        params: HostParams::FunctionProviders,
+    },
+    HostMethod {
+        method: FUNCTIONS_INVOKE,
+        service: HOST_SERVICE_FUNCTIONS,
+        permission: None,
+        since: RELAY_VERSION,
+        params: HostParams::FunctionInvoke,
+    },
     HostMethod {
         method: "lithe/host/keymapImport/listInputs",
         service: "keymapImport",
@@ -841,6 +908,9 @@ pub(crate) fn host_request(
     if entry.method == GET_CAPABILITIES {
         return Ok(HostRoute::Answer(capabilities_answer(version, granted)));
     }
+    if entry.service == HOST_SERVICE_FUNCTIONS {
+        return Ok(HostRoute::Relay);
+    }
     Ok(HostRoute::Forward(entry.service))
 }
 
@@ -1062,6 +1132,15 @@ fn check_host_params(
         HostParams::Credential { with_secret: false } => &["key"],
         HostParams::Subscription => &["subscriptionID"],
         HostParams::Context => &["context"],
+        HostParams::FunctionProviders => &["functionID"],
+        HostParams::FunctionInvoke => &[
+            "pluginID",
+            "functionID",
+            "context",
+            "params",
+            "timeoutMilliseconds",
+            "parentOperationID",
+        ],
         HostParams::KeymapSnapshot { chunk: false } => &["snapshotID", "providerID"],
         HostParams::KeymapSnapshot { chunk: true } => &[
             "snapshotID",
@@ -1127,6 +1206,16 @@ fn check_host_params(
                 return Err(invalid(CONTEXT_REFERENCE_MESSAGE));
             }
         }
+        HostParams::FunctionProviders => {
+            if !params
+                .get("functionID")
+                .and_then(Value::as_str)
+                .is_some_and(is_function_id)
+            {
+                return Err(invalid(FUNCTION_ID_MESSAGE));
+            }
+        }
+        HostParams::FunctionInvoke => check_function_invoke_params(params)?,
         HostParams::KeymapSnapshot { chunk } => {
             let opaque_id = |key: &str| {
                 params.get(key).and_then(Value::as_str).is_some_and(|id| {
@@ -1164,6 +1253,63 @@ fn check_host_params(
             }
         }
         HostParams::Empty | HostParams::Object => {}
+    }
+    Ok(())
+}
+
+const FUNCTION_ID_MESSAGE: &str =
+    "A function ID is dot-separated lowerCamelCase segments of at most 128 bytes.";
+
+/// The shape of a `lithe/host/functions/invoke` request. Whether the caller
+/// declared the call and the provider exports it is the relay's check, which
+/// needs the plugin snapshot.
+fn check_function_invoke_params(
+    params: &serde_json::Map<String, Value>,
+) -> Result<(), HostRequestRefusal> {
+    let invalid = |message| HostRequestRefusal {
+        rpc_code: -32602,
+        code: codes::HOST_INVALID_PARAMS,
+        message,
+        details: None,
+    };
+    if !params
+        .get("pluginID")
+        .and_then(Value::as_str)
+        .is_some_and(is_plugin_id)
+    {
+        return Err(invalid(
+            "A plugin ID is lowercase letters, digits, '.' and '-'.",
+        ));
+    }
+    if !params
+        .get("functionID")
+        .and_then(Value::as_str)
+        .is_some_and(is_function_id)
+    {
+        return Err(invalid(FUNCTION_ID_MESSAGE));
+    }
+    if !params.get("context").is_some_and(is_context_reference) {
+        return Err(invalid(CONTEXT_REFERENCE_MESSAGE));
+    }
+    if params.get("params").is_some_and(|value| !value.is_object()) {
+        return Err(invalid("Function params must be a JSON object."));
+    }
+    if params
+        .get("timeoutMilliseconds")
+        .is_some_and(|value| !value.as_u64().is_some_and(|milliseconds| milliseconds >= 1))
+    {
+        return Err(invalid("A timeout is a positive number of milliseconds."));
+    }
+    // Only the shape is checked here. Whether the ID names a call this backend
+    // is serving needs the session's pending requests, so the relay decides.
+    if params.get("parentOperationID").is_some_and(|value| {
+        !value
+            .as_str()
+            .is_some_and(|id| (1..=128).contains(&id.len()))
+    }) {
+        return Err(invalid(
+            "A parent operation ID is the operationID of a call this backend is serving, 1-128 bytes.",
+        ));
     }
     Ok(())
 }
@@ -1216,6 +1362,26 @@ pub(crate) fn attach_context(
     Ok(())
 }
 
+/// Writes the calling plugin into the params of a relayed
+/// `lithe/function/invoke` as `caller: { "pluginID": ... }`, a sibling of
+/// `functionID`, `operationID`, `params` and `context`. Only Core writes it,
+/// from the identity of the session that made the request, so a callee can
+/// key state by caller without trusting anything in the params. A callee that
+/// negotiated a version before the relay never receives it, and a call the
+/// host itself starts (`caller` is `None`) never carries one: its absence
+/// means the host.
+pub(crate) fn attach_caller(invoke_params: &mut Value, version: u64, caller: Option<&str>) {
+    let Some(caller) = caller else {
+        return;
+    };
+    if version < RELAY_VERSION {
+        return;
+    }
+    if let Some(params) = invoke_params.as_object_mut() {
+        params.insert("caller".to_string(), json!({ "pluginID": caller }));
+    }
+}
+
 /// The JSON-RPC error code of a host-service code from version 3 on. Each
 /// code has its own number, so a backend can branch on the number alone:
 /// codes with a standard meaning keep the JSON-RPC or LSP number, and the
@@ -1239,6 +1405,19 @@ pub(crate) fn host_rpc_code(code: &str) -> i64 {
         codes::HOST_PRECONDITION_FAILED => -32019,
         codes::HOST_BUSY => -32020,
         codes::HOST_RATE_LIMITED => -32021,
+        codes::NOT_DECLARED => -32027,
+        codes::NOT_EXPORTED => -32028,
+        codes::PROVIDER_DISABLED => -32029,
+        codes::VERSION_MISMATCH => -32030,
+        codes::CALL_CYCLE => -32065,
+        codes::DEPTH_EXCEEDED => -32066,
+        codes::TOO_MANY_CALLS => -32067,
+        codes::PAYLOAD_TOO_LARGE => -32068,
+        codes::PROVIDER_UNAVAILABLE => -32069,
+        // A relayed call's own failure is not a host failure: the caller
+        // must tell the provider's error from Core's by the number alone.
+        codes::FAILED => -32070,
+        codes::INVALID_RESULT => -32071,
         _ => -32603,
     }
 }
@@ -1342,7 +1521,7 @@ pub(crate) fn is_function_id(value: &str) -> bool {
 }
 
 /// The manifest's plugin ID alphabet: lowercase letters, digits, `.` and `-`.
-fn is_plugin_id(value: &str) -> bool {
+pub(crate) fn is_plugin_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_PLUGIN_ID_BYTES
         && value.chars().all(|character| {
@@ -1582,6 +1761,10 @@ mod tests {
                 &granted,
             );
             let expected = &case["expected"];
+            if expected["relay"].as_bool() == Some(true) {
+                assert_eq!(outcome, Ok(HostRoute::Relay), "{}", name(&case));
+                continue;
+            }
             if let Some(service) = expected["forward"].as_str() {
                 assert_eq!(
                     outcome,
@@ -1644,6 +1827,63 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn invocation_callers_follow_the_fixture() {
+        for case in cases("invocationCallers") {
+            let mut params = case["params"].clone();
+            attach_caller(
+                &mut params,
+                case["version"].as_u64().unwrap(),
+                case["caller"].as_str(),
+            );
+            assert_eq!(params, case["expected"]["params"], "{}", name(&case));
+        }
+    }
+
+    #[test]
+    fn relay_errors_follow_the_fixture() {
+        for case in cases("relayErrors") {
+            let code = case["code"].as_str().unwrap();
+            assert_eq!(host_rpc_code(code), case["rpcCode"], "{}", name(&case));
+        }
+    }
+
+    /// Every failure a relayed call can end with has its own number, so a
+    /// caller can branch on either the string or the number.
+    #[test]
+    fn relay_refusals_have_distinct_numbers() {
+        let relay_codes = [
+            codes::FAILED,
+            codes::INVALID_RESULT,
+            codes::NOT_DECLARED,
+            codes::NOT_EXPORTED,
+            codes::PROVIDER_DISABLED,
+            codes::VERSION_MISMATCH,
+            codes::CALL_CYCLE,
+            codes::DEPTH_EXCEEDED,
+            codes::TOO_MANY_CALLS,
+            codes::PAYLOAD_TOO_LARGE,
+            codes::PROVIDER_UNAVAILABLE,
+        ];
+        let numbers: BTreeSet<i64> = relay_codes.iter().map(|code| host_rpc_code(code)).collect();
+        assert_eq!(numbers.len(), relay_codes.len());
+        assert!(!numbers.contains(&-32603));
+    }
+
+    /// The relay's discovery and invocation requests are not the old
+    /// recursive call: the backend still cannot send `lithe/function/invoke`.
+    #[test]
+    fn relay_methods_do_not_weaken_the_recursive_call_refusal() {
+        assert_eq!(
+            refused_backend_request(INVOKE_METHOD),
+            Some(codes::RECURSIVE_CALL)
+        );
+        assert_eq!(
+            refused_backend_request("lithe/build/model"),
+            Some(codes::RECURSIVE_CALL)
+        );
     }
 
     #[test]

@@ -237,6 +237,99 @@ struct MacPluginBackendSessionsTests {
         #expect(stopped.core.notifications.isEmpty)
     }
 
+    /// The relay between plugins works from the host's facts: which plugins
+    /// are enabled, with the functions they export and call as Core
+    /// normalized them, and which workspace contexts are live. Every change
+    /// of those facts reaches Core again; a repeat of the same facts does not.
+    @Test
+    func theRelayIsToldWhichPluginsAreEnabledAndWhichContextsAreLive() throws {
+        let contexts = PluginWorkspaceContexts()
+        let fixture = try BackendFixture(hostDispatcher: PluginHostServiceDispatcher(contexts: contexts))
+        defer { fixture.remove() }
+        try fixture.installFunctionPlugin("plugin-functions-exporter")
+        try fixture.installFunctionPlugin("plugin-functions-caller")
+
+        // The fixture's own backend declares no plugin functions, so it is not listed.
+        let plugins = try #require(fixture.core.relaySnapshots.last).plugins
+        #expect(plugins.map(\.pluginID) == [FunctionPlugins.caller, FunctionPlugins.exporter])
+        #expect(plugins[0].exports.isEmpty)
+        #expect(plugins[0].calls == [FunctionPlugins.declaration("document.format", version: 1)])
+        #expect(Set(plugins[1].exports) == [
+            FunctionPlugins.declaration("document.format", version: 1, context: "workspace"),
+            FunctionPlugins.declaration("symbols.list", version: 2, context: "workspace"),
+        ])
+        #expect(plugins[1].calls.isEmpty)
+
+        fixture.sessions.disable(FunctionPlugins.exporter)
+        #expect(fixture.core.relaySnapshots.last?.plugins.map(\.pluginID) == [FunctionPlugins.caller])
+        fixture.sessions.enable(FunctionPlugins.exporter)
+        #expect(fixture.core.relaySnapshots.last?.plugins.map(\.pluginID) == [FunctionPlugins.caller, FunctionPlugins.exporter])
+        let published = fixture.core.relaySnapshots.count
+        fixture.sessions.enable(FunctionPlugins.exporter)
+        #expect(fixture.core.relaySnapshots.count == published)
+        fixture.sessions.packageWillChange(FunctionPlugins.exporter)
+        #expect(fixture.core.relaySnapshots.last?.plugins.map(\.pluginID) == [FunctionPlugins.caller])
+
+        let localWindow = NSObject()
+        let local = contexts.open(owner: localWindow, rootURL: URL(fileURLWithPath: "/fixture/project"), remote: nil)
+        defer { contexts.close(owner: localWindow) }
+        let remoteWindow = NSObject()
+        let remote = contexts.open(
+            owner: remoteWindow, rootURL: URL(fileURLWithPath: "/fixture/remote"),
+            remote: (connectionID: "ssh-fixture", remoteRoot: "/srv/app")
+        )
+        defer { contexts.close(owner: remoteWindow) }
+        let liveContexts = try #require(fixture.core.relaySnapshots.last).contexts
+        #expect(liveContexts.first { $0.contextID == local.contextID }?.isRemote == false)
+        #expect(liveContexts.first { $0.contextID == local.contextID }?.generation == local.generation)
+        #expect(liveContexts.first { $0.contextID == remote.contextID }?.isRemote == true)
+
+        contexts.close(owner: localWindow)
+        #expect(fixture.core.relaySnapshots.last?.contexts.map(\.contextID) == [remote.contextID])
+    }
+
+    /// A plugin whose call waits for another plugin's backend gets that
+    /// backend started. The caller is granted the `functions` service Core
+    /// answers itself, and the callee, which declares no calls, is not.
+    @Test
+    func aCallWaitingForABackendStartsIt() async throws {
+        let fixture = try BackendFixture(hostDispatcher: PluginHostServiceDispatcher(contexts: PluginWorkspaceContexts()))
+        defer { fixture.remove() }
+        try fixture.installFunctionPlugin("plugin-functions-exporter")
+        try fixture.installFunctionPlugin("plugin-functions-caller")
+        _ = try await fixture.sessions.pluginFunctions(ofPlugin: FunctionPlugins.caller)
+        #expect(fixture.core.starts.map(\.pluginID) == [FunctionPlugins.caller])
+        #expect(fixture.core.starts.first?.hostServices == ["functions"])
+
+        fixture.core.sendProviderStartRequired(pluginID: FunctionPlugins.exporter)
+        try #require(await fixture.core.startGate(for: FunctionPlugins.exporter).waitUntilOpen(timeout: .seconds(5)))
+        #expect(fixture.core.starts.map(\.pluginID) == [FunctionPlugins.caller, FunctionPlugins.exporter])
+        #expect(fixture.core.starts.last?.hostServices == [])
+    }
+
+    /// The host starts only a backend that may run: a disabled plugin stays
+    /// stopped, and the failure is reported while Core ends the call.
+    @Test
+    func aCallCannotStartABackendThatIsDisabled() async throws {
+        let fixture = try BackendFixture(hostDispatcher: PluginHostServiceDispatcher(contexts: PluginWorkspaceContexts()))
+        defer { fixture.remove() }
+        try fixture.installFunctionPlugin("plugin-functions-exporter")
+        try fixture.installFunctionPlugin("plugin-functions-caller")
+        _ = try await fixture.sessions.pluginFunctions(ofPlugin: FunctionPlugins.caller)
+        fixture.sessions.disable(FunctionPlugins.exporter)
+        let reported = TestGate()
+        var failedPlugins: [String] = []
+        fixture.sessions.onActivationFailure = { pluginID, _ in
+            failedPlugins.append(pluginID)
+            reported.open()
+        }
+
+        fixture.core.sendProviderStartRequired(pluginID: FunctionPlugins.exporter)
+        try #require(await reported.waitUntilOpen(timeout: .seconds(5)))
+        #expect(failedPlugins == [FunctionPlugins.exporter])
+        #expect(fixture.core.starts.map(\.pluginID) == [FunctionPlugins.caller])
+    }
+
     /// The answer never echoes a secret, and a request outside the
     /// credentials service is refused even if Core forwarded it.
     @Test
@@ -299,10 +392,12 @@ private struct BackendFixture {
     let credentials = MemoryPluginCredentialStore()
     let core = ScriptedBackendCore()
     let sessions: MacPluginBackendSessions
+    private let installedFunctionPlugins = InstalledFunctionPlugins()
 
     init(
         backendVersion: Int = 1,
         commandActivation: Bool = false,
+        hostDispatcher: PluginHostServiceDispatcher? = nil,
         prepareState: @escaping @Sendable (_ installation: PluginInstallationRecord, _ stateDirectory: URL) -> Void = { _, _ in }
     ) throws {
         root = FileManager.default.temporaryDirectory
@@ -349,6 +444,7 @@ private struct BackendFixture {
             credentials: credentials,
             prepareState: prepareState,
             stuckSendGrace: .milliseconds(20),
+            hostDispatcher: hostDispatcher,
             endBackendProcesses: { [core] _, immediately in
                 if immediately { core.forcedStop.open(); core.releaseWrite.open() }
             }
@@ -362,10 +458,59 @@ private struct BackendFixture {
         )])
     }
 
+    /// Installs a plugin of the shared `pluginFunctions` fixtures beside the
+    /// fixture's own, with a placeholder backend executable.
+    func installFunctionPlugin(_ fixtureName: String) throws {
+        let fixtureURL = DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/backend/\(fixtureName).plugin.json")
+        let manifest = try #require(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any]
+        )
+        let pluginID = try #require(manifest["id"] as? String)
+        let directory = root.appendingPathComponent(pluginID, isDirectory: true)
+        _ = try DeclarativePluginTestSupport.writePackage(at: directory, manifest: manifest)
+        let executable = directory.appendingPathComponent("bin/backend")
+        try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("#!/bin/sh\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let descriptor = try DeclarativePluginTestSupport.operations.validate(
+            manifest: Data(contentsOf: directory.appendingPathComponent("plugin.json"))
+        )
+        sessions.register([InstalledPluginPackage(
+            descriptor: descriptor,
+            installation: PluginInstallationRecord(
+                pluginID: descriptor.id, activeVersion: descriptor.pluginManifest.version, origin: .localDevelopment
+            ),
+            packageURL: directory
+        )])
+        installedFunctionPlugins.ids.append(pluginID)
+    }
+
     func remove() {
         sessions.packageWillChange(Self.pluginID)
+        installedFunctionPlugins.ids.forEach { sessions.packageWillChange($0) }
         try? FileManager.default.removeItem(at: root)
     }
+}
+
+/// The plugins of the shared `pluginFunctions` fixtures, and how their
+/// declarations look in the relay snapshot.
+private enum FunctionPlugins {
+    static let exporter = "dev.lithe.fixture.functionexporter"
+    static let caller = "dev.lithe.fixture.functioncaller"
+
+    /// An export (with `context`) or a call (without) as Core normalizes it.
+    static func declaration(_ id: String, version: Int, context: String? = nil) -> ToolingJSONValue {
+        var fields: [String: ToolingJSONValue] = ["id": .string(id), "version": .integer(version)]
+        if let context { fields["context"] = .string(context) }
+        return .object(fields)
+    }
+}
+
+/// The IDs of the function plugins a fixture installed, so `remove` can
+/// stop them; a class because the fixture is a value.
+private final class InstalledFunctionPlugins {
+    var ids: [String] = []
 }
 
 /// Starts ready plugin backends, queues host requests on demand, and
@@ -405,6 +550,8 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
     private var _notifications: [Notification] = []
     private var waiters: [UUID: (count: Int, continuation: CheckedContinuation<Bool, Never>)] = [:]
     private var notificationWaiters: [UUID: (count: Int, continuation: CheckedContinuation<Bool, Never>)] = [:]
+    private var _relaySnapshots: [PluginFunctionRelaySnapshot] = []
+    private var startGates: [String: TestGate] = [:]
     private var _delayReady = false
     private var _blockNotification = false
     private var _notificationSupported = true
@@ -426,6 +573,34 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
     }
 
     var starts: [Start] { lock.withLock { _starts } }
+    var relaySnapshots: [PluginFunctionRelaySnapshot] { lock.withLock { _relaySnapshots } }
+
+    /// Opens once a backend of `pluginID` has started.
+    func startGate(for pluginID: String) -> TestGate {
+        lock.withLock { startGateLocked(for: pluginID) }
+    }
+
+    private func startGateLocked(for pluginID: String) -> TestGate {
+        if let gate = startGates[pluginID] { return gate }
+        let gate = TestGate()
+        startGates[pluginID] = gate
+        return gate
+    }
+
+    func configurePluginFunctionRelay(_ snapshot: PluginFunctionRelaySnapshot) -> Result<Void, LanguageServerRuntimeFailure> {
+        lock.withLock { _relaySnapshots.append(snapshot) }
+        return .success(())
+    }
+
+    /// Queues Core's request to start `pluginID`'s backend on the newest session.
+    func sendProviderStartRequired(pluginID: String) {
+        lock.withLock {
+            events["backend-\(nextSession)", default: []].append(LanguageServerRuntimeEvent(
+                type: "functionProviderStartRequired",
+                result: .object(["pluginID": .string(pluginID)])
+            ))
+        }
+    }
     var stops: [String] { lock.withLock { _stops } }
     var responses: [Response] { lock.withLock { _responses } }
     var notifications: [Notification] { lock.withLock { _notifications } }
@@ -448,6 +623,7 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
             ]
             if !_delayReady { events[sessionID, default: []].append(LanguageServerRuntimeEvent(type: "stateChanged", state: "ready")) }
             started.open()
+            startGateLocked(for: pluginID).open()
             return .success(LanguageServerRuntimeStart(sessionID: sessionID, state: "initializing", processID: nil))
         }
     }

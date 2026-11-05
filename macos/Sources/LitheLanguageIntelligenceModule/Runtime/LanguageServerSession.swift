@@ -149,6 +149,11 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// `$/cancelRequest` (function protocol 3). Core has already answered
     /// the backend; the owner stops the work and sends no answer.
     package var onHostRequestCancelled: ((String) -> Void)?
+    /// Receives the ID of a plugin whose backend a call from this plugin
+    /// waits for (function protocol 4). The owner starts that backend if it
+    /// can; Core ends the call with an error when the backend does not
+    /// register the function in time.
+    package var onFunctionProviderStartRequired: ((String) -> Void)?
     /// The VCS provider the process negotiated in `initialize`, as Core's
     /// `vcsProvider` event reported it; nil for every other session.
     package private(set) var vcsNegotiation: VcsProviderNegotiation?
@@ -1649,6 +1654,11 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 onHostRequest(request)
             } else {
                 respond(to: id, with: .failure(PluginHostRequestFailure(message: "The host serves no requests of this process.")))
+            }
+            return false
+        case "functionProviderStartRequired":
+            if case .object(let object)? = event.result, case .string(let pluginID)? = object["pluginID"] {
+                onFunctionProviderStartRequired?(pluginID)
             }
             return false
         case "hostRequestCancelled":

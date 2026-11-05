@@ -20,7 +20,7 @@ This directory is the cross-platform source of truth:
 | --- | --- |
 | `fixtures/manifest/` | `hello-lithe.plugin.json`, the smallest UI plugin, and `invalid-manifests.json`: edits to a valid manifest and the rejection code every host must report |
 | `fixtures/languages/` | Language support: packaged, system-command, and host-integration language servers, `node-runtime` for a discovered runtime, and `language-grammar` with `grammars/`; `command-plans.json` holds golden run/test command expansions and language-server launch plans, `runtime-versions.json` the golden outcomes of the launch runtime version check |
-| `fixtures/backend/` | Plugin backends (`backend`, `backend-workspace`, `command-backend`, `terminal-backend`); `function-protocol.json` holds golden plugin-function negotiation, registration, invocation, outcome, progress, and refusal cases, `plugin-logging.json` the golden `litheLogging` negotiation and notifications |
+| `fixtures/backend/` | Plugin backends (`backend`, `backend-workspace`, `command-backend`, `terminal-backend`); cross-plugin calls (`plugin-functions-exporter`, `plugin-functions-caller`); `function-protocol.json` holds golden plugin-function negotiation, registration, invocation, outcome, progress, and refusal cases, `plugin-logging.json` the golden `litheLogging` negotiation and notifications |
 | `fixtures/editor/` | Editor actions served by a backend: `editor-actions.plugin.json`, version 2 icons, alternatives and click results in `editor-actions-v2.json`; editor providers in `editor-providers.plugin.json` with registration and result cases in `editor-providers.json` |
 | `fixtures/ui/` | Native controls, forms, and panels, and a web panel |
 | `fixtures/settings/` | Plugin settings declared with `settings: 2` |
@@ -175,6 +175,7 @@ symbolic links. A host treats an installed package as read-only.
 | `toolDefinitions` | Plugin-owned tool policy ([Core foundation](toolchains/README.md)); requires `toolDefinitions: 1` and `executableResolution: 2`; macOS hosts read-only discovery and resolves Build and run tools. |
 | `toolchainProviders` | Backend fact-provider declarations ([Core foundation](toolchains/README.md)); requires `toolchainProviders: 1`, backend/server-process capabilities and `toolchains.provide`. |
 | `keymapImportProviders` | Independent shortcut import providers; requires `keymapImportProviders: 1`, `backend: 2`, `serverProcess: 1` and `keymaps.provide`. macOS provides access to explicitly selected sources; Windows does not yet advertise this capability. |
+| `pluginFunctions` | [Functions the plugin exports to, and calls from, other plugins](#cross-plugin-calls-protocol-version-4); requires `pluginFunctions: 1`, `backend: 2` and `serverProcess: 1`, and grants no permission. macOS relays the calls; Windows does not advertise this capability. |
 
 Unknown fields are refused (`plugin.manifest.invalid`) so an older host
 rejects a package instead of ignoring part of it. At levels 1 and 2 a new
@@ -676,6 +677,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `backend` | [`backend`](#plugin-backend): the plugin's own long-lived process | `1`, `2` (adds [start without a page and workspace contexts](#backend-2-workspace-contexts)) |
 | `toolDefinitions` | [Tool identities, layouts, discovery and four-layer candidates](toolchains/README.md) | `1` (Core; macOS settings pages, Build and run tools) |
 | `toolchainProviders` | [Provider declarations and permission-bound answer validation](toolchains/README.md) | `1` (Core; macOS settings pages, Build and run tools) |
+| `pluginFunctions` | [`pluginFunctions`](#cross-plugin-calls-protocol-version-4): exported functions and declared calls between plugins | `1` (Core; macOS relays calls) |
 | `executableResolution` | [Shared executable candidates](#shared-executable-candidates-executableresolution-12): candidate ordering and strict selection; v2 adds tool-definition candidates and canonical project/subproject toolchain registry bindings without changing existing Build candidate sets | `1`, `2` (v2 Core; macOS settings pages, Build and run tools) |
 | `keymapImportProviders` | `keymapImportProviders[]`: independent shortcut import providers | `1` (macOS; Windows does not advertise it yet) |
 
@@ -2221,11 +2223,15 @@ removes the staging directory and leaves nothing behind
 
 A plugin backend (a language server, build provider, or
 [plugin backend](#plugin-backend) process the plugin starts) can offer
-**plugin functions**: plugin-private actions with
-serializable params and results, which the host invokes on behalf of the same
-plugin, for example from that plugin's own window. Functions complement the
-typed domain protocols; they never replace them. Versions 1 to 3 of the protocol are
-implemented in Rust Core (`rust/lithe-core/src/lsp/interface/plugin_function.rs`).
+**plugin functions**: actions with
+serializable params and results. A function is private to its plugin unless
+the manifest exports it: the host invokes a private function on behalf of the
+same plugin, for example from that plugin's own window, and another plugin
+can call only an [exported function](#cross-plugin-calls-protocol-version-4).
+Functions complement the
+typed domain protocols; they never replace them. Versions 1 to 4 of the protocol are
+implemented in Rust Core (`rust/lithe-core/src/lsp/interface/plugin_function.rs`,
+`function_relay.rs`).
 macOS starts every build provider process as a session of the plugin that
 owns it and invokes its functions from that plugin's web pages (the
 `functions.*` bridge methods below). A provider served by a shared language
@@ -2242,6 +2248,7 @@ Every capability has one owner, who defines its contract, and one direction:
 | Plugin provides a domain capability | Lithe: the typed domain contract | The plugin, declaratively or by its backend | A manifest `source`, Core plans and decodes, a typed `lithe/build/*` request | Build model, dependency tree; later task execution |
 | Plugin provides a plugin function | The plugin: its own params and results | The plugin's backend | `lithe/function/invoke` | Refresh a private snapshot, a step behind a button of the plugin's own UI |
 | Plugin calls a host capability | The host | The host | `lithe/host/*` requests, offered per protocol version | Run a process through the host's runner, write output, store state |
+| Plugin calls another plugin's exported function | The exporting plugin: its own params and results, under an exported version | The exporting plugin's backend | `lithe/host/functions/invoke`, relayed by Core as `lithe/function/invoke` | A language plugin asks a build plugin for the options it contributes |
 
 Two rules keep these directions from forming a loop:
 
@@ -2250,7 +2257,11 @@ Two rules keep these directions from forming a loop:
   then wait for itself. A backend request for `lithe/function/invoke` or any
   `lithe/build/*` method is refused with `plugin.function.recursiveCall`.
   A handler that needs, say, a Maven run asks for the host's process
-  capability, never for the task that its own plugin implements.
+  capability, never for the task that its own plugin implements. The
+  [relay methods](#cross-plugin-calls-protocol-version-4) are a different
+  request: they name another plugin's exported function, Core refuses a call
+  that would come back to a plugin already waiting on the call chain, and
+  the old refusals above stay in force.
 - Host capabilities are primitive host services, never another entry into a
   domain registry. Each is added to a protocol version together with its
   params, permission, and the operation it must belong to. Version 1 offers
@@ -2266,10 +2277,12 @@ Two rules keep these directions from forming a loop:
 - A backend implements a domain operation through its typed method and Core's
   plan and decode commands, never through a plugin function, so IDE
   workflows, presentation, and other hosts keep a single contract.
-- Plugin functions need no manifest field. What a running process can answer
-  is negotiated, as for [build providers](#build-providers); so declaring,
-  adding, or removing functions changes neither `pluginAPIVersion` nor any
-  `requires` version.
+- A plugin-private function needs no manifest field. What a running process
+  can answer is negotiated, as for [build providers](#build-providers); so
+  declaring, adding, or removing private functions changes neither
+  `pluginAPIVersion` nor any `requires` version. Only a function that
+  another plugin may call, and a call to such a function, are declared, in
+  [`pluginFunctions`](#cross-plugin-calls-protocol-version-4).
 - A new kind of domain implementation, such as a provider for tasks, is a new
   version of the capability that owns it (`buildProviders`), so only plugins
   that use it are filtered from hosts that cannot run it.
@@ -2277,7 +2290,7 @@ Two rules keep these directions from forming a loop:
 ### Negotiation
 
 For a session owned by a plugin (`lsp.startServer.pluginId`), the host offers
-`capabilities.experimental.litheFunctions: { "versions": [1, 2, 3] }` in
+`capabilities.experimental.litheFunctions: { "versions": [1, 2, 3, 4] }` in
 `initialize`, next to and independent of `litheBuild`. Host-owned sessions do
 not offer or accept this protocol, retain no plugin-function registry, and
 reject register/unregister with `-32601`. A plugin backend that offers
@@ -2894,9 +2907,270 @@ per workspace context:
   package requiring `editor.providers` is refused by an older host that does
   not recognize the permission.
 
+### Cross-plugin calls (protocol version 4)
+
+A plugin function is private to its plugin unless the plugin exports it. An
+exported function can be called by another enabled plugin whose manifest
+declares that call. Core relays every call: the calling backend never
+reaches the provider's process, the provider's backend never learns more than
+the call it serves, and the host takes part only by starting a provider's
+backend that is not running (see below). The relay is Rust Core logic, the same
+on every platform that runs plugin backends.
+`fixtures/backend/plugin-functions-exporter.plugin.json` and
+`fixtures/backend/plugin-functions-caller.plugin.json` are the examples.
+
+#### Declaring exports and calls
+
+```json
+"requires": { "pluginFunctions": 1, "backend": 2, "serverProcess": 1 },
+"pluginFunctions": {
+  "exports": [{ "id": "document.format", "version": 1, "context": "workspace" }],
+  "calls": [{ "id": "project.describe", "version": 2 }]
+}
+```
+
+- `pluginFunctions` needs `pluginAPIVersion` 3 or later, a `backend`, and
+  `requires.pluginFunctions: 1`, `backend: 2` and `serverProcess: 1`. The
+  section holds at least one of `exports` and `calls`, each at most 32
+  entries sorted by `id`, with no `id` twice. Anything else, including an
+  unknown field, is `plugin.manifest.invalid`. `requires` lists
+  `pluginFunctions` exactly when the section exists.
+- An export is an object, never a bare function ID. `id` is a function ID
+  as in [References and IDs](#references-and-ids). `version` is the
+  exported contract version, an integer from 1 to 1000; an incompatible
+  change to the params or result takes a new version. `context` is a closed
+  set; version 1 knows only `"workspace"`: the function runs only for a
+  local workspace context, on a call Core relays. A missing or unknown
+  `context` refuses the whole manifest with `plugin.manifest.invalid`, so a
+  function whose context is unstated is never callable.
+- A call is `{ id, version }`. It names a function ID and the version the
+  caller was written against, never the providing plugin's ID: the caller
+  discovers providers at run time. Core requires the versions to be equal;
+  otherwise the call fails with `plugin.function.versionMismatch`.
+- Declaring an export does not register it. The provider's backend still
+  registers the function with `lithe/function/register`, and a function it
+  has not registered, or has withdrawn, is `plugin.function.notExported`.
+  A function the manifest does not export is private whatever the backend
+  registers, and a reference to it keeps answering
+  `plugin.function.wrongPlugin`.
+- A plugin that exports needs no page, command or `onWorkspaceOpen` to start
+  its backend: a call starts it. A plugin that only calls needs one of
+  those, as every [`backend` 2](#backend-2-workspace-contexts) does.
+- `pluginFunctions` grants no manifest permission. The caller's `calls`
+  and the provider's `exports` are the two sides' consent, and the host
+  grants a plugin that declares `calls` the `functions` host service,
+  through `backend.hostServices` of its launch plan, like every other
+  service. A host without `pluginFunctions` in `hostCapabilities` refuses
+  such a manifest with `plugin.api.unsupported`.
+
+#### What an exported function must and must not do
+
+- **Trust is not transitive.** The provider runs with its own permissions,
+  its own state directory and its own credentials. The caller gains none of
+  them, and the provider gains none of the caller's. Core never writes the
+  caller's plugin ID into the provider's session; it appears only in the
+  `caller` field of one request, below.
+- **The provider owns its resources and processes.** An exported function
+  must not accept an executable path, command line or script from its caller
+  and start a process with it, nor read or write a path the caller chose
+  without checking it against what the provider itself may access. If a
+  caller needs the provider to run something, the function takes a request
+  the provider interprets (a task name, a document) and the provider decides
+  the executable.
+- A function that decides by who asks reads the `caller` field below, never
+  a plugin ID in `params`, which any caller can write.
+
+#### Discovery and invocation
+
+A backend that negotiated protocol version 4, and whose plugin declares at
+least one call, may send two requests. A backend on version 3 or earlier gets
+`-32601`, `plugin.host.unavailable`; a plugin that declares no call gets
+`-32010`, `plugin.host.permissionDenied`. `getCapabilities` lists the
+methods the session may call under the `functions` service.
+
+| Request | Params | Result |
+| --- | --- | --- |
+| `lithe/host/functions/providers` | `{ functionID }` | `{ providers: [{ pluginID, version }] }` |
+| `lithe/host/functions/invoke` | `{ pluginID, functionID, context: { contextID, generation }, params?, timeoutMilliseconds?, parentOperationID? }` | `{ value }` |
+
+- `providers` lists the enabled plugins other than the caller that export
+  `functionID`, sorted by plugin ID, each with its exported `version`.
+  Disabling, enabling, replacing and uninstalling a plugin take effect for
+  the list at once; a host that registers backend plugins only when it
+  launches (macOS today) lists a newly installed or updated backend plugin
+  only after a restart of Lithe (see [Hot activation](#hot-activation)). The
+  caller must have declared the function, otherwise
+  `plugin.function.notDeclared`. A listed provider's backend need not be
+  running.
+- `invoke` calls one provider. `context` is required: a workspace context
+  the caller learned from the [workspace service](#workspace-contexts-and-capability-discovery-protocol-version-3),
+  checked like every call context. `params` is a JSON object and defaults
+  to `{}`. `timeoutMilliseconds` is a positive integer, defaults to 60 000
+  and is capped at 600 000. A field the method does not define is `-32018`,
+  `plugin.host.unsupportedOption`. The reply is `{ value }`, where `value`
+  is the provider's result (`null` is a result).
+- `parentOperationID` is optional: a string of 1 to 128 bytes, otherwise
+  `-32602`, `plugin.host.invalidParams`. A backend that makes a nested call
+  while it serves a relayed call sets it to the `operationID` of the
+  `lithe/function/invoke` it is serving (the field shown in
+  [The caller field](#the-caller-field)), so Core knows which call the new
+  one belongs to. Its effects are described in
+  [The call chain](#the-call-chain). A backend should always set it: without
+  it Core treats the new call as a child of every relayed call the backend is
+  serving.
+- The caller cancels a call with `$/cancelRequest` for its `invoke` request
+  id; it fails with `plugin.host.cancelled`.
+
+Core checks, in this order, and refuses a call before anything is written to
+the provider; the first failing check wins:
+
+| Check | Code |
+| --- | --- |
+| The caller declared the function | `plugin.function.notDeclared` |
+| The provider is installed and enabled | `plugin.function.providerDisabled` |
+| The provider exports the function | `plugin.function.notExported` |
+| The declared and exported versions are equal | `plugin.function.versionMismatch` |
+| The context is open, and has this generation | `plugin.host.contextExpired` |
+| The context is a local workspace | `plugin.host.authorityUnsupported` |
+| The params are at most 256 KiB | `plugin.function.payloadTooLarge` |
+| The call named by `parentOperationID` is still running | `plugin.host.cancelled` |
+| The provider is not on the call chain, the caller included | `plugin.function.callCycle` |
+| The chain has at most 4 calls | `plugin.function.depthExceeded` |
+| The caller has at most 8 relayed calls running | `plugin.function.tooManyCalls` |
+
+A provider's own failure keeps its meaning. The reply is a JSON-RPC error
+with `data: { "code", "details" }`; when the provider's function answered with
+an error, `code` is `plugin.function.failed` (`-32070`), `message` is the
+provider's message cut to 1024 bytes, and `details.pluginErrorCode` is the
+provider's own `error.data.code`. A reply with no `result`, or with one over
+1 MiB serialized, is `plugin.function.invalidResult` (`-32071`); any other
+result over 256 KiB is `plugin.function.payloadTooLarge`. Neither number is
+`-32603`, which stays `plugin.host.failed`, a failure inside Core. The relay's deadline passing is
+`plugin.host.timeout`. A call that is running normally ends through the
+provider session's own timeout; if the provider has still not answered 2
+seconds after the deadline, the relay ends the call with
+`plugin.host.timeout` itself and cancels the provider's operation. A
+provider whose backend exits, or that withdraws
+the function, while the call runs ends it with
+`plugin.function.providerUnavailable`; a provider that is disabled or
+uninstalled, or whose update stops exporting the function or changes its
+version, ends it with `plugin.function.providerDisabled`. A caller whose
+update stops declaring the call ends it with `plugin.function.notDeclared`.
+A workspace context that the host closes, or replaces with a newer
+generation, ends the relayed calls that carry it with
+`plugin.host.contextExpired`: both the calls still waiting for a provider and
+the calls already running, whose provider also receives `$/cancelRequest`.
+Core never restarts a backend or retries a call to finish one.
+
+`fixtures/backend/function-protocol.json` holds the cases: the host requests
+(`hostRequests`), the numbers of every failure (`relayErrors`) and the
+`caller` field (`invocationCallers`).
+
+#### The call chain
+
+Core records the chain a call belongs to. A provider that makes a call while it
+serves a relayed call names that call in `parentOperationID`. The new call is
+then a child of that call only:
+
+- Its chain is the chain of that call plus the caller.
+- Cancelling that call, its timing out, or its ending cancels the new call.
+
+A call to a plugin already on the chain, including a plugin calling itself, is
+`plugin.function.callCycle`: the plugin on the chain is waiting for the call
+that would reach it. A chain has at most 4 calls. So a provider that is asked
+to apply values must not call back the plugin that asked inside that call; it
+records the values, or calls after the call ends.
+
+- If `parentOperationID` names a call the host started directly, not a relayed
+  one, the new call starts a new chain.
+- If it names a call this backend is not serving (one that has finished, or
+  one that never existed), the call is refused with `plugin.host.cancelled`
+  and the message "The call this request belongs to is not running."
+- If it is omitted, the call counts as a child of every relayed call the
+  backend is serving at that moment. This is kept for compatibility with
+  backends written before the field; SDKs should always fill it in.
+
+Cancelling a call, its timing out or ending, or the end of its caller's
+session, cancels the calls made as its children, down the chain, and each
+provider receives `$/cancelRequest`. The relay never retries a call.
+
+#### Isolation between backends
+
+Core writes to each backend session through a queue of its own. A backend
+that stops reading its standard
+input only delays the calls and replies sent to it; the relayed calls of other
+plugins continue. If a write to a backend stays blocked past the request
+timeout, Core ends that backend's session as a transport failure
+(`transportFailed`, stage `relayWrite`), and the calls of that session end like
+those of any session failure.
+
+#### The caller field
+
+For every relayed call Core forwards `lithe/function/invoke` to the provider
+as for any call (see [Invocation](#invocation)) and adds one top-level field:
+
+```json
+{
+  "functionID": "project.describe",
+  "operationID": "7",
+  "context": { "contextID": "w1", "generation": 1 },
+  "params": { "project": "app" },
+  "caller": { "pluginID": "dev.lithe.fixture.python" }
+}
+```
+
+- `caller.pluginID` is written by Core from the identity of the calling
+  session. It is a sibling of `functionID`, `operationID`, `params` and
+  `context`, never inside `params`, and the caller cannot supply it: a
+  `lithe/host/functions/invoke` request carrying a top-level `caller` is
+  refused with `-32018`, `plugin.host.unsupportedOption`. A `caller` key
+  inside the caller's own `params` is ordinary data and is passed unchanged.
+- A call the host itself started has no `caller` field. Absent means the
+  host.
+- A provider that negotiated version 3 or earlier never receives the field.
+  A provider that relies on it must negotiate version 4; a provider that
+  keeps per-caller state (for example a slot per calling plugin) keys it by
+  this ID, which cannot be forged.
+
+#### Providers that are not running
+
+If the provider's backend is not running, Core waits for it and emits the
+runtime event `functionProviderStartRequired` with
+`result: { "pluginID" }` on the calling session, once per waiting provider.
+The host starts that plugin's backend as an ordinary plugin start, and Core
+dispatches the call when the provider has negotiated the protocol and registered
+the function. If that takes longer than 30 seconds the call fails with
+`plugin.function.providerUnavailable`; the relay's deadline still applies.
+A host that cannot start the backend ignores the event, and the call ends the
+same way.
+
+#### Remote workspaces
+
+The relay is a local-workspace feature. A call whose context is a remote
+workspace is refused with `plugin.host.authorityUnsupported`, and the
+exported `context` value `"workspace"` means a local workspace only. Backends
+still run on the machine that runs Lithe.
+
+#### Hot activation
+
+Disabling, enabling, replacing and uninstalling a plugin take effect for the
+relay at once and need no restart of Lithe or of any other plugin.
+The host sends the plugin and workspace-context snapshot with the Core
+command `lsp.configureFunctionRelay`
+([Rust Core API](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/rust-core-api.md)),
+and calls the new snapshot no longer allows end at once with the errors above.
+
+Installing or updating a plugin that has a backend is different on a host that
+registers backend plugins only when it launches (macOS today): that host lists
+a newly installed or updated backend plugin in `providers` only after a
+restart of Lithe.
+
 ### Compatibility
 
-- Packages of every API level are unchanged: functions add no manifest field.
+- Packages of every API level are unchanged: private functions add no
+  manifest field. `pluginFunctions` is a new capability
+  (`requires.pluginFunctions: 1`), so only a plugin that exports or calls
+  functions is refused by a host that cannot relay them.
 - A backend written before this protocol does not answer `litheFunctions`.
   It keeps serving its language and its `litheBuild` requests, receives no
   function calls, and its function requests are answered with `-32601`.
@@ -2908,13 +3182,17 @@ per workspace context:
 - A backend that answers `version: 1` keeps working unchanged: version 2
   only adds host services. A backend that answers `version: 2` keeps
   working unchanged: version 3 only adds methods, notifications, the call
-  context, and failure codes and details, all of which it never sees.
+  context, and failure codes and details, all of which it never sees. A
+  backend that answers `version: 3` keeps working unchanged: version 4 only
+  adds the relay methods, which it must not call, and the `caller` field
+  of a relayed call, which it never receives.
 - `requires.backend: 1` packages keep their meaning; a new behavior of the
   backend capability is `backend` 2, never a silent change of version 1.
 - `fixtures/backend/function-protocol.json` holds the golden cases, including the
-  host requests (`hostRequests`), call contexts (`invocationContexts`), host
-  failure codes (`hostFailures`), and host notifications
-  (`hostNotifications`). Rust Core tests run them, and a scripted backend covers routing, result, failure, cancellation,
+  host requests (`hostRequests`), call contexts (`invocationContexts`), the
+  caller of a relayed call (`invocationCallers`), host
+  failure codes (`hostFailures`), relay failure codes (`relayErrors`), and
+  host notifications (`hostNotifications`). Rust Core tests run them, and a scripted backend covers routing, result, failure, cancellation,
   deadline, late reply, revocation, and compatibility with a build-only
   backend.
 
@@ -3012,6 +3290,9 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.function.invalidReference`, `plugin.function.invalidParams`, `plugin.function.unavailable`, `plugin.function.wrongPlugin`, `plugin.function.unknown` | Core | A [plugin-function](#plugin-functions) call is refused before it reaches the backend |
 | `plugin.function.failed`, `plugin.function.invalidResult`, `plugin.function.revoked` | Core | A plugin-function call ended without a usable result |
 | `plugin.function.invalidRegistration` | Core | A backend's register or unregister request was refused as a whole |
+| `plugin.function.notDeclared`, `plugin.function.notExported`, `plugin.function.providerDisabled`, `plugin.function.versionMismatch` | Core | A [relayed call](#cross-plugin-calls-protocol-version-4) is refused: the caller did not declare it, the provider does not export (or has not registered) the function, the provider is not enabled, or the declared and exported versions differ |
+| `plugin.function.callCycle`, `plugin.function.depthExceeded`, `plugin.function.tooManyCalls`, `plugin.function.payloadTooLarge` | Core | A relayed call is refused by a bound: the provider is already on the call chain, the chain is too long, the caller has too many relayed calls running, or the params or result are too large |
+| `plugin.function.providerUnavailable` | Core | The provider's backend did not start in time, exited, or withdrew the function while a relayed call waited for it |
 | `plugin.project.unavailable` | Core | The plugin declares no such project generator |
 | `plugin.project.invalidInput` | Core | The project name or a field value is not accepted; `field` is `projectName` or `values.<id>`, or a step whose expanded path leaves the project |
 | `plugin.project.templateInvalid` | Core | A template directory is missing, too large, contains a symbolic link or non-UTF-8 file, or uses an unknown variable |

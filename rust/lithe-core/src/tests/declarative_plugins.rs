@@ -40,6 +40,10 @@ const SETTINGS_V2_FIXTURE: &str = contract_file!("fixtures/settings/settings-v2.
 const BACKEND_FIXTURE: &str = contract_file!("fixtures/backend/backend.plugin.json");
 const WORKSPACE_BACKEND_FIXTURE: &str =
     contract_file!("fixtures/backend/backend-workspace.plugin.json");
+const FUNCTION_EXPORTER_FIXTURE: &str =
+    contract_file!("fixtures/backend/plugin-functions-exporter.plugin.json");
+const FUNCTION_CALLER_FIXTURE: &str =
+    contract_file!("fixtures/backend/plugin-functions-caller.plugin.json");
 const DEBUG_ADAPTER_FIXTURE: &str =
     contract_file!("fixtures/debug-adapters/debug-adapter.plugin.json");
 const DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE: &str =
@@ -81,6 +85,8 @@ fn fixture(name: &str) -> Value {
         "settings-v2.plugin.json" => SETTINGS_V2_FIXTURE,
         "backend.plugin.json" => BACKEND_FIXTURE,
         "backend-workspace.plugin.json" => WORKSPACE_BACKEND_FIXTURE,
+        "plugin-functions-exporter.plugin.json" => FUNCTION_EXPORTER_FIXTURE,
+        "plugin-functions-caller.plugin.json" => FUNCTION_CALLER_FIXTURE,
         "debug-adapter.plugin.json" => DEBUG_ADAPTER_FIXTURE,
         "debug-adapter-language-server.plugin.json" => DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE,
         "debug-adapter-remote-attach.plugin.json" => DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE,
@@ -109,6 +115,8 @@ fn contract_fixtures_and_official_plugins_validate() {
         PUBLISHER_BUNDLED_FIXTURE,
         BACKEND_FIXTURE,
         WORKSPACE_BACKEND_FIXTURE,
+        FUNCTION_EXPORTER_FIXTURE,
+        FUNCTION_CALLER_FIXTURE,
         DEBUG_ADAPTER_FIXTURE,
         DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE,
         GRAMMAR_FIXTURE,
@@ -839,6 +847,73 @@ fn workspace_backend_is_planned_with_its_version_and_workspace_service() {
     let mut manifest = fixture("backend.plugin.json");
     manifest["requires"]["backend"] = json!(2);
     assert_eq!(validate(manifest)["status"], "ok");
+}
+
+/// An exporting plugin is sorted by function ID and starts for a call without
+/// a page or an event. Only a plugin that declares calls is granted the host
+/// service that finds providers: exporting grants nothing, and a call needs
+/// no permission because both declarations are the consent.
+#[test]
+fn plugin_functions_are_normalized_and_granted_only_to_callers() {
+    let mut exporter = fixture("plugin-functions-exporter.plugin.json");
+    exporter["pluginFunctions"]["exports"]
+        .as_array_mut()
+        .unwrap()
+        .reverse();
+    let outcome = validate(exporter);
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    assert_eq!(
+        outcome["plugin"]["pluginFunctions"]["exports"],
+        json!([
+            { "id": "document.format", "version": 1, "context": "workspace" },
+            { "id": "symbols.list", "version": 2, "context": "workspace" }
+        ])
+    );
+
+    let backend_plan = |name: &str| {
+        language_server_launch_plan_command(json!({
+            "manifest": fixture(name),
+            "backend": true,
+            "request": {
+                "pluginDirectory": "/plugins/functions",
+                "stateDirectory": "/state/functions",
+                "architecture": "arm64"
+            },
+        }))
+        .expect("payload is well formed")
+    };
+    let exporter_plan = backend_plan("plugin-functions-exporter.plugin.json");
+    assert_eq!(exporter_plan["status"], "ok", "{exporter_plan}");
+    assert_eq!(
+        exporter_plan["plan"]["backend"],
+        json!({ "hostServices": [], "version": 2 })
+    );
+    let caller_plan = backend_plan("plugin-functions-caller.plugin.json");
+    assert_eq!(caller_plan["status"], "ok", "{caller_plan}");
+    assert_eq!(
+        caller_plan["plan"]["backend"],
+        json!({ "hostServices": ["functions"], "version": 2 })
+    );
+}
+
+/// A host that does not know `pluginFunctions` never runs a plugin that uses
+/// it, so a plugin cannot export a function nobody will route.
+#[test]
+fn plugin_functions_need_a_host_that_hosts_them() {
+    let hosted = |host: Value| {
+        validate_command(json!({
+            "manifest": fixture("plugin-functions-caller.plugin.json"),
+            "hostCapabilities": host,
+        }))
+        .expect("payload is well formed")
+    };
+    let old_host = hosted(json!({ "backend": [1, 2], "serverProcess": [1] }));
+    assert_eq!(old_host["error"]["code"], "plugin.api.unsupported");
+    assert_eq!(old_host["error"]["field"], "requires.pluginFunctions");
+    let host = hosted(json!({
+        "backend": [1, 2], "serverProcess": [1], "pluginFunctions": [1]
+    }));
+    assert_eq!(host["status"], "ok", "{host}");
 }
 
 /// Icon trust boundaries are shared; native decoding remains with the macOS host.

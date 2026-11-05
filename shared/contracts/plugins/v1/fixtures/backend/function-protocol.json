@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "protocol": "litheFunctions",
-  "offer": { "versions": [1, 2, 3] },
+  "offer": { "versions": [1, 2, 3, 4] },
   "negotiation": [
     {
       "name": "no answer leaves the protocol off",
@@ -47,8 +47,13 @@
       "expected": { "functions": ["query.run"], "version": 3 }
     },
     {
+      "name": "version 4 negotiates the same registry and adds the cross-plugin relay",
+      "capabilities": { "experimental": { "litheFunctions": { "version": 4, "functions": [{ "id": "query.run" }] } } },
+      "expected": { "functions": ["query.run"], "version": 4 }
+    },
+    {
       "name": "a version the host never offered is not negotiated",
-      "capabilities": { "experimental": { "litheFunctions": { "version": 4 } } },
+      "capabilities": { "experimental": { "litheFunctions": { "version": 5 } } },
       "expected": { "functions": null }
     },
     {
@@ -543,7 +548,78 @@
     {"name": "terminal aggregate grant cannot authorize terminal creation", "version": 3, "hostServices": ["terminal"], "method": "lithe/host/terminal/create", "params": {}, "expected": {"code": "plugin.host.permissionDenied", "rpcCode": -32010}},
     {"name": "an older protocol cannot create a native terminal", "version": 2, "hostServices": ["lithe/host/terminal/create"], "method": "lithe/host/terminal/create", "params": {}, "expected": {"code": "plugin.host.unavailable", "rpcCode": -32601}},
     {"name": "terminal reopen is granted on protocol 3", "version": 3, "hostServices": ["lithe/host/terminal/reopen"], "method": "lithe/host/terminal/reopen", "params": {"context": {"contextID": "w-terminal", "generation": 1}, "terminalID": "owned"}, "expected": {"forward": "terminal"}},
-    {"name": "terminal dispose is granted on protocol 3", "version": 3, "hostServices": ["lithe/host/terminal/dispose"], "method": "lithe/host/terminal/dispose", "params": {"context": {"contextID": "w-terminal", "generation": 1}, "terminalID": "owned"}, "expected": {"forward": "terminal"}}
+    {"name": "terminal dispose is granted on protocol 3", "version": 3, "hostServices": ["lithe/host/terminal/dispose"], "method": "lithe/host/terminal/dispose", "params": {"context": {"contextID": "w-terminal", "generation": 1}, "terminalID": "owned"}, "expected": {"forward": "terminal"}},
+    {"name": "a declared caller lists the providers of a function", "version": 4, "hostServices": ["functions"], "method": "lithe/host/functions/providers", "params": {"functionID": "languageImport.settings"}, "expected": {"relay": true}},
+    {"name": "a declared caller invokes another plugin's function through the relay", "version": 4, "hostServices": ["functions"], "method": "lithe/host/functions/invoke", "params": {"pluginID": "dev.lithe.fixture.go", "functionID": "languageImport.settings", "context": {"contextID": "w1", "generation": 1}, "params": {"project": "app"}, "timeoutMilliseconds": 5000}, "expected": {"relay": true}},
+    {"name": "a nested invocation names the relayed call it belongs to", "version": 4, "hostServices": ["functions"], "method": "lithe/host/functions/invoke", "params": {"pluginID": "dev.lithe.fixture.go", "functionID": "languageImport.settings", "context": {"contextID": "w1", "generation": 1}, "params": {"project": "app"}, "timeoutMilliseconds": 5000, "parentOperationID": "17"}, "expected": {"relay": true}},
+    {"name": "an invocation's parent operation ID is a string", "version": 4, "hostServices": ["functions"], "method": "lithe/host/functions/invoke", "params": {"pluginID": "dev.lithe.fixture.go", "functionID": "languageImport.settings", "context": {"contextID": "w1", "generation": 1}, "params": {"project": "app"}, "timeoutMilliseconds": 5000, "parentOperationID": 17}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "the relay needs protocol version 4", "version": 3, "hostServices": ["functions"], "method": "lithe/host/functions/invoke", "params": {"pluginID": "dev.lithe.fixture.go", "functionID": "languageImport.settings", "context": {"contextID": "w1", "generation": 1}}, "expected": {"rpcCode": -32601, "code": "plugin.host.unavailable"}},
+    {"name": "the relay needs the manifest's pluginFunctions calls", "version": 4, "hostServices": [], "method": "lithe/host/functions/providers", "params": {"functionID": "languageImport.settings"}, "expected": {"rpcCode": -32010, "code": "plugin.host.permissionDenied"}},
+    {"name": "an invocation names the workspace context it runs in", "version": 4, "hostServices": ["functions"], "method": "lithe/host/functions/invoke", "params": {"pluginID": "dev.lithe.fixture.go", "functionID": "languageImport.settings"}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "an invocation's function ID is well formed", "version": 4, "hostServices": ["functions"], "method": "lithe/host/functions/invoke", "params": {"pluginID": "dev.lithe.fixture.go", "functionID": "Not-Valid", "context": {"contextID": "w1", "generation": 1}}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "an invocation's params are an object", "version": 4, "hostServices": ["functions"], "method": "lithe/host/functions/invoke", "params": {"pluginID": "dev.lithe.fixture.go", "functionID": "languageImport.settings", "context": {"contextID": "w1", "generation": 1}, "params": [1]}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "an invocation's timeout is positive", "version": 4, "hostServices": ["functions"], "method": "lithe/host/functions/invoke", "params": {"pluginID": "dev.lithe.fixture.go", "functionID": "languageImport.settings", "context": {"contextID": "w1", "generation": 1}, "timeoutMilliseconds": 0}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "a caller cannot choose who the callee thinks called", "version": 4, "hostServices": ["functions"], "method": "lithe/host/functions/invoke", "params": {"pluginID": "dev.lithe.fixture.go", "functionID": "languageImport.settings", "context": {"contextID": "w1", "generation": 1}, "caller": {"pluginID": "dev.lithe.fixture.other"}}, "expected": {"rpcCode": -32018, "code": "plugin.host.unsupportedOption", "details": {"option": "caller"}}}
+  ],
+  "invocationCallers": [
+    {
+      "name": "a version 4 callee receives the plugin that called it",
+      "version": 4,
+      "params": { "functionID": "languageImport.settings", "operationID": "7", "params": {} },
+      "caller": "dev.lithe.fixture.python",
+      "expected": {
+        "params": {
+          "functionID": "languageImport.settings",
+          "operationID": "7",
+          "params": {},
+          "caller": { "pluginID": "dev.lithe.fixture.python" }
+        }
+      }
+    },
+    {
+      "name": "an older callee never receives a caller",
+      "version": 3,
+      "params": { "functionID": "languageImport.settings", "operationID": "7", "params": {} },
+      "caller": "dev.lithe.fixture.python",
+      "expected": { "params": { "functionID": "languageImport.settings", "operationID": "7", "params": {} } }
+    },
+    {
+      "name": "a call the host started has no caller, which means the host",
+      "version": 4,
+      "params": { "functionID": "languageImport.settings", "operationID": "7", "params": {} },
+      "expected": { "params": { "functionID": "languageImport.settings", "operationID": "7", "params": {} } }
+    },
+    {
+      "name": "Core's caller replaces any field the params already carried",
+      "version": 4,
+      "params": { "functionID": "languageImport.settings", "operationID": "7", "params": {}, "caller": { "pluginID": "dev.lithe.fixture.other" } },
+      "caller": "dev.lithe.fixture.python",
+      "expected": {
+        "params": {
+          "functionID": "languageImport.settings",
+          "operationID": "7",
+          "params": {},
+          "caller": { "pluginID": "dev.lithe.fixture.python" }
+        }
+      }
+    }
+  ],
+  "relayErrors": [
+    { "name": "the caller did not declare the call", "code": "plugin.function.notDeclared", "rpcCode": -32027 },
+    { "name": "the provider does not export the function", "code": "plugin.function.notExported", "rpcCode": -32028 },
+    { "name": "the provider is not enabled", "code": "plugin.function.providerDisabled", "rpcCode": -32029 },
+    { "name": "the declared and exported contract versions differ", "code": "plugin.function.versionMismatch", "rpcCode": -32030 },
+    { "name": "the provider is already on the call chain", "code": "plugin.function.callCycle", "rpcCode": -32065 },
+    { "name": "the call chain is too long", "code": "plugin.function.depthExceeded", "rpcCode": -32066 },
+    { "name": "the caller has too many relayed calls running", "code": "plugin.function.tooManyCalls", "rpcCode": -32067 },
+    { "name": "the params or result exceed the relay's bound", "code": "plugin.function.payloadTooLarge", "rpcCode": -32068 },
+    { "name": "the provider's backend could not serve the call", "code": "plugin.function.providerUnavailable", "rpcCode": -32069 },
+    { "name": "the provider's function answered with an error", "code": "plugin.function.failed", "rpcCode": -32070 },
+    { "name": "the provider answered without a result Core can pass on", "code": "plugin.function.invalidResult", "rpcCode": -32071 },
+    { "name": "the relay's own deadline passed", "code": "plugin.host.timeout", "rpcCode": -32015 },
+    { "name": "the caller or an upstream caller cancelled", "code": "plugin.host.cancelled", "rpcCode": -32800 },
+    { "name": "the workspace context is unknown or replaced", "code": "plugin.host.contextExpired", "rpcCode": -32011 },
+    { "name": "the workspace is remote", "code": "plugin.host.authorityUnsupported", "rpcCode": -32012 }
   ],
   "invocationContexts": [
     {

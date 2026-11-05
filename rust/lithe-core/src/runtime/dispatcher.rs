@@ -2299,6 +2299,18 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspConfigureFunctionRelay => {
+            match serde_json::from_value::<crate::lsp::RelaySnapshot>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid function relay snapshot")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::configure_function_relay)
+            {
+                Ok(()) => CoreResponse::success(id, json!({})),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspHostResponse => {
             match serde_json::from_value::<crate::lsp::PluginHostResponse>(parsed.payload)
                 .map_err(|error| {

@@ -225,6 +225,10 @@ pub struct DeclarativePluginManifest {
     /// Independent shortcut importers implemented by this plugin's backend.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     keymap_import_providers: Vec<super::keymap_import::ProviderDeclaration>,
+    /// Functions this plugin exports to other plugins and the exported
+    /// functions it calls. `pluginFunctions` 1; see `super::plugin_functions`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    plugin_functions: Option<super::plugin_functions::PluginFunctionsDeclaration>,
 }
 
 /// UI supplied by plugins. The host owns every window shell: docking, title,
@@ -1103,6 +1107,7 @@ impl DeclarativePluginManifest {
             super::keymap_import::validate_declarations(&mut self.keymap_import_providers)?;
             self.validate_packaged_provider_backend()?;
         }
+        self.validate_plugin_functions()?;
         if let Some(backend) = &self.backend {
             backend.validate(&super::backend::DeclarationContext {
                 plugin_api_version: self.plugin_api_version,
@@ -1117,8 +1122,13 @@ impl DeclarativePluginManifest {
                     .activation_events
                     .iter()
                     .any(|event| event == super::backend::ON_WORKSPACE_OPEN),
+                // An exported function starts the backend when another plugin
+                // calls it, so it needs no page, command or workspace event.
                 provider_query_trigger: !self.toolchain_providers.is_empty()
-                    || !self.keymap_import_providers.is_empty(),
+                    || !self.keymap_import_providers.is_empty()
+                    || self.plugin_functions.as_ref().is_some_and(
+                        super::plugin_functions::PluginFunctionsDeclaration::exports_any,
+                    ),
             })?;
         }
         self.validate_permissions()?;
@@ -1211,6 +1221,10 @@ impl DeclarativePluginManifest {
             (
                 capabilities::KEYMAP_IMPORT_PROVIDERS,
                 !self.keymap_import_providers.is_empty(),
+            ),
+            (
+                capabilities::PLUGIN_FUNCTIONS,
+                self.plugin_functions.is_some(),
             ),
         ];
         sections
@@ -1329,6 +1343,28 @@ impl DeclarativePluginManifest {
             self.validate_packaged_provider_backend()?;
         }
         Ok(())
+    }
+
+    /// Checks `pluginFunctions`: only a backend 2 of a level 3 or newer
+    /// manifest registers functions for the protocol that relays calls.
+    fn validate_plugin_functions(&mut self) -> Validation<()> {
+        let version = self.backend_version();
+        let Some(section) = self.plugin_functions.as_mut() else {
+            return Ok(());
+        };
+        if self.plugin_api_version < CAPABILITIES_API_VERSION {
+            return Err(invalid(
+                "pluginFunctions",
+                "Plugin functions require plugin API level 3.",
+            ));
+        }
+        if self.backend.is_none() {
+            return Err(invalid(
+                "pluginFunctions",
+                "Exported and called plugin functions need the plugin backend.",
+            ));
+        }
+        super::plugin_functions::validate(section, version)
     }
 
     /// Host-queried providers must start without relying on the discovery they provide.
@@ -1793,6 +1829,16 @@ impl DeclarativePluginManifest {
         for permission in &self.permissions {
             services
                 .extend(crate::lsp::interface::plugin_function::methods_for_permission(permission));
+        }
+        // Calling another plugin's exported function takes no permission: the
+        // declaration, and the receiver's own export, are the consent. The
+        // service lets the backend ask Core to find and call a provider.
+        if self
+            .plugin_functions
+            .as_ref()
+            .is_some_and(super::plugin_functions::PluginFunctionsDeclaration::calls_any)
+        {
+            services.push(crate::lsp::interface::plugin_function::HOST_SERVICE_FUNCTIONS);
         }
         services.sort_unstable();
         services.dedup();

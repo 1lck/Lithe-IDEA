@@ -11,6 +11,7 @@ pub(crate) mod grammar;
 pub(crate) mod keymap_import;
 pub mod marketplace;
 pub(crate) mod native_ui;
+pub(crate) mod plugin_functions;
 pub(crate) mod settings;
 
 use serde::Deserialize;

@@ -73,6 +73,9 @@ pub(crate) const DEBUG_ADAPTERS_API_VERSION: u32 = 4;
 pub(crate) const EXECUTABLE_RESOLUTION: &str = "executableResolution";
 /// Independent providers that translate external shortcut settings.
 pub(crate) const KEYMAP_IMPORT_PROVIDERS: &str = "keymapImportProviders";
+/// `pluginFunctions`: functions exported to, and called from, other plugins;
+/// see `super::plugin_functions`.
+pub(crate) const PLUGIN_FUNCTIONS: &str = "pluginFunctions";
 /// Plugin-owned tool identities, discovery policy and executable candidates.
 pub(crate) const TOOL_DEFINITIONS: &str = "toolDefinitions";
 /// Backend facts that can influence the executable selected for a defined tool.
@@ -92,6 +95,7 @@ pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (LANGUAGE_SERVERS, &[1, 2]),
     (LANGUAGES, &[1, 2]),
     (PACKAGE_TRUST, &[1]),
+    (PLUGIN_FUNCTIONS, &[1]),
     (PROJECT_GENERATORS, &[1, 2]),
     (SERVER_PROCESS, &[1, 2]),
     (SETTINGS, &[1, 2]),

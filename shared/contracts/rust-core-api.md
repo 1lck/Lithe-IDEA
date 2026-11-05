@@ -1236,6 +1236,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.functionRequest` | Invoke one registered plugin function on a session its plugin started |
 | `lsp.hostResponse` | Answer one host-service request a plugin backend sent |
 | `lsp.hostNotify` | Send one host notification to a plugin backend that negotiated it |
+| `lsp.configureFunctionRelay` | Replace the enabled plugins and live workspace contexts Core's plugin-to-plugin function relay checks calls against |
 | `lsp.toolchainRequest` | Send one `toolchains/query` to a plugin backend that negotiated the provider |
 | `lsp.keymapImportRequest` | Send one shortcut import request to a negotiated plugin provider |
 | `lsp.vcsRequest` | Send one VCS operation, planned by Core, to a session that negotiated the VCS-provider protocol |
@@ -3511,6 +3512,42 @@ when the session negotiated version 3 and is granted its service, and returns
 ungranted service, malformed or oversized params, a session that is not
 plugin-owned, or one that is not ready is `invalid_request` with the
 `plugin.host.*` code in `details`.
+
+A session that negotiated `litheFunctions` version 4 and holds the `functions`
+grant may call another plugin's exported function through the
+[plugin-to-plugin relay](plugins/v1/README.md#cross-plugin-calls-protocol-version-4).
+Core runs the whole relay: it checks the declarations, keeps the call chain,
+writes the forwarded request, and answers the caller. `lsp.configureFunctionRelay`
+accepts the host's complete view and returns `{}`; every call replaces the
+previous view, and a call in flight that the new view forbids ends with an
+explicit `plugin.function.*` error.
+
+```json
+{
+  "plugins": [
+    {
+      "pluginID": "dev.example.formatter",
+      "exports": [{ "id": "document.format", "version": 1, "context": "workspace" }],
+      "calls": []
+    }
+  ],
+  "contexts": [{ "contextID": "w-1", "generation": 1, "authority": "local" }]
+}
+```
+
+- `plugins` lists the enabled plugins that declare `pluginFunctions`, and each
+  `exports` and `calls` is the normalized manifest's own list. The host
+  copies them and does not interpret them. A plugin that is disabled,
+  replaced, or removed is left out, which ends its calls.
+- `contexts` lists the live workspace contexts; `authority` is `local` or
+  `remote`, and a call in a remote workspace is refused.
+- A malformed snapshot (an unknown field, a bad plugin or function ID, a
+  duplicate plugin, more than 4096 plugins) is `invalid_request`.
+- Core publishes the runtime event `functionProviderStartRequired` with
+  `result: { pluginID }` on the calling plugin's session when a call waits for
+  a callee whose backend is not running. The host starts that backend as plain
+  I/O; Core ends the call with `plugin.function.providerUnavailable` if the
+  callee does not register the function within 30 seconds.
 
 `lsp.request` accepts a semantic `operation` plus
 the operation-specific URI, position, range, diagnostics, item, action, or

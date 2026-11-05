@@ -569,6 +569,22 @@ pub(super) fn client_apply_server_message_for_plugin(
                             error: None,
                         })
                     }
+                    // Another plugin's function: the engine's relay checks the
+                    // call against the plugins' manifests and answers the
+                    // backend itself, so the reducer only names the request.
+                    Ok(plugin_function::HostRoute::Relay) => events.push(LspClientEvent {
+                        kind: "functionRelayRequest".to_string(),
+                        request_id: None,
+                        method: Some(method.to_string()),
+                        uri: None,
+                        version: None,
+                        diagnostics: None,
+                        result: Some(json!({
+                            "id": id,
+                            "params": message.get("params").cloned().unwrap_or(Value::Null),
+                        })),
+                        error: None,
+                    }),
                     Err(refusal) => {
                         let mut data = json!({ "code": refusal.code });
                         if let Some(details) = refusal.details {
