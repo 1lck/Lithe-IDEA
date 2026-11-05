@@ -2123,6 +2123,7 @@
 "Language Server Settings..." = "Language Server Settings...";
 "Language Service" = "Language Service";
 "Language Services" = "Language Services";
+"Language edit could not be planned." = "Language edit could not be planned.";
 "Language edit targets a file outside the workspace." = "Language edit targets a file outside the workspace.";
 "Language edit targets an unreadable file." = "Language edit targets an unreadable file.";
 "Language server activation failed" = "Language server activation failed";
@@ -7350,6 +7351,7 @@
 "native.kotlinSupport" = "Kotlin Support";
 "native.labels" = "Labels";
 "native.labelsAndAssignees" = "Labels and assignees";
+"native.languageEditCouldNotBePlanned" = "Language edit could not be planned.";
 "native.languageEditTargetsAFileOutsideTheWorkspace" = "Language edit targets a file outside the workspace.";
 "native.languageEditTargetsAnUnreadableFile" = "Language edit targets an unreadable file.";
 "native.languageServer" = "Language Server";

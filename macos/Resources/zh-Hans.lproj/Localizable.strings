@@ -2123,6 +2123,7 @@
 "Language Server Settings..." = "语言服务器设置...";
 "Language Service" = "语言服务";
 "Language Services" = "语言服务";
+"Language edit could not be planned." = "无法规划语言编辑。";
 "Language edit targets a file outside the workspace." = "语言编辑指向工作区之外的文件。";
 "Language edit targets an unreadable file." = "语言编辑指向无法读取的文件。";
 "Language server activation failed" = "语言服务器激活失败";
@@ -7350,6 +7351,7 @@
 "native.kotlinSupport" = "Kotlin 支持";
 "native.labels" = "标签";
 "native.labelsAndAssignees" = "标签和负责人";
+"native.languageEditCouldNotBePlanned" = "无法规划语言编辑。";
 "native.languageEditTargetsAFileOutsideTheWorkspace" = "语言编辑指向工作区之外的文件。";
 "native.languageEditTargetsAnUnreadableFile" = "语言编辑指向无法读取的文件。";
 "native.languageServer" = "语言服务器";
