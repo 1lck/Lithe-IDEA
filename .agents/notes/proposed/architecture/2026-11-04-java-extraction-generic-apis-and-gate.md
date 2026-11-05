@@ -181,8 +181,8 @@ Windows 现在还通过 Core 的命令调用 Maven 和 Java 功能，而 Windows
 
 - **词表**：把标识符和字符串按 camelCase、snake_case、`.`、`/`、`-` 切成词，命中 `java`、`jdt`、`jdtls`、`jvm`、`maven`、`mvn`、`gradle`、`spring`、`mybatis`、`lombok`、`junit`、`testng`、`m2e`、`surefire` 就计数。`JavaScript` 不算。它按整词匹配，所以 `javac`、`javadoc`、`mvnw`、`springframework` 不计入。
 - **名字比较**：Rust、Swift、TypeScript 里把某个值与带词表词的字符串字面量做相等比较，或者写成 `match`、`switch` 的分支，例如 `tool == "java"`、`case "maven":`。
-- **工具名常量表**：Rust 里的 `const`、`static` 字符串数组，内容列出词表词，或 `node`、`go`、`python` 这类工具名，例如 `const X: &[&str] = &["java", ...]`。
-- **schema 封闭枚举**：`shared/contracts/plugins/v1/` 下的 JSON schema 里，`tool`、`runtime` 属性用 `enum` 或 `const` 把取值写死，`languageImport.kind` 同样写死，以及每一个 `hostIntegration` 属性。
+- **工具名常量表**：Rust 里的 `const`、`static` 字符串数组，内容列出词表词，或 `node`、`go`、`python` 这类工具名，例如 `const X: &[&str] = &["java", ...]`。按条目计数：这类表有几项就记几，所以给已有的表再加一个 `python` 也会让计数上升。
+- **schema 封闭枚举**：`shared/contracts/plugins/v1/` 下的 JSON schema 里，`tool`、`runtime` 属性用 `enum` 或 `const` 把取值写死，`languageImport.kind` 同样写死，以及每一个 `hostIntegration` 属性。按取值计数：`enum` 有几个成员就记几（含 `items`、`oneOf`、`anyOf`、`allOf` 里的），`const` 记 1；`hostIntegration` 记它的集成名个数（对象形式只数 `id` 的取值），至少记 1。这样已有枚举从 `["java", "node"]` 扩成 `["java", "node", "python"]` 也会被棘轮拦下。
 - **六个旧 token**：`is_main_method`、`main_declaration_index`、`main_class_exists`、`containsJavaMainMethod`、`java.runConfigurations`、`java.testMethods`，原脚本 `verify-java-semantic-ownership.mjs` 里的规则，在任何模式下都失败，白名单文件里也一样。
 
 三种模式：
@@ -201,15 +201,15 @@ A0 提交时的基线快照（以 baseline 文件为准）：
 
 | 目录 | 词表命中 | 文件数 |
 | --- | --- | --- |
-| `rust/lithe-core/src` | 8743 | 114 |
-| `macos/Sources` | 4969 | 185 |
+| `rust/lithe-core/src` | 8755 | 114 |
+| `macos/Sources` | 4972 | 185 |
 | `frontend/editor/src` | 99 | 2 |
 | `shared/contracts/plugins/v1` | 1045 | 44 |
-| `windows/tauri/src` | 7775 | 334 |
+| `windows/tauri/src` | 7787 | 335 |
 | `windows/tauri/src-tauri/src` | 1179 | 14 |
-| 合计 | 23810 | 693 |
+| 合计 | 23837 | 694 |
 
-另有名字比较 458、工具名常量表 18、schema 枚举 7，另有 30 个白名单文件不计数。
+另有名字比较 458、工具名常量表条目 163（18 张表）、schema 封闭取值 13，另有 30 个白名单文件不计数。
 
 并行 PR 的影响：每个删除或改名 Java 内容的 PR 都会让计数下降，必须同项运行 `--update-baseline`。例如 C-EDIT 把 `lithe-java-run-*` 改名为 `lithe-editor-action-*`，会让 `frontend/editor/src/plugin-editor-actions.ts` 的计数从 2 降到 0；W1 删除 Core 的 `project/maven*.rs` 会让对应文件从 baseline 消失。baseline 每个文件占一行，减少并行 PR 的冲突。
 
