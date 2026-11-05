@@ -3634,6 +3634,30 @@ public struct PluginsEditorActionsFailed: LogEvent {
     }
 }
 
+public struct PluginsEditorProviderFailed: LogEvent {
+    public static let id = "plugins.editor.provider_failed"
+    public static let level: LogLevel = .warn
+    public static let messageTemplate = "Plugin {plugin} editor provider failed"
+    public static let ratePerMinute = 60
+    public static let owner = "Lithe"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
+
+    public init(`error`: any Error, `plugin`: LogSegment, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.plugins, segments: [`plugin`, LogSegment("host")!])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["error"] = .error(`error`)
+        _logValues["plugin"] = .id(`plugin`)
+        self.fields = _logValues
+    }
+}
+
 public struct PluginsEditorRefreshFailed: LogEvent {
     public static let id = "plugins.editor.refresh_failed"
     public static let level: LogLevel = .warn

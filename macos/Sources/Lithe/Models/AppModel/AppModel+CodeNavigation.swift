@@ -29,6 +29,22 @@ extension AppModel {
                 )
                 return
             }
+            if languageServerIsPreparing(for: document.url) { return }
+            // The command asks the same plugin providers a modifier click does.
+            if let pluginDefinitions = pluginDefinitionQuery(
+                for: document, line: caret.line, utf16Column: caret.utf16Column
+            ) {
+                if supportsLanguageServerFeature(.definition) {
+                    performGenericNavigation(
+                        method: "textDocument/definition", kind: .definitions,
+                        document: document, pluginDefinitions: pluginDefinitions)
+                } else {
+                    presentPluginDefinitions(
+                        pluginDefinitions, documentURL: document.url.standardizedFileURL,
+                        line: caret.line, utf16Column: caret.utf16Column)
+                }
+                return
+            }
         }
         guard languageServerFeatureIsReady(
             .definition,
@@ -59,29 +75,39 @@ extension AppModel {
 
     /// Resolve link availability without moving the caret, recording history, or
     /// publishing a results panel. The bridge rejects stale document replies.
+    /// A read-only preview passes `askPlugins: false`, so hovering a file the
+    /// user only glanced at never runs plugin code.
     func requestDefinitionAvailability(
-        for document: EditorDocument, line: Int, utf16Column: Int,
+        for document: EditorDocument, line: Int, utf16Column: Int, askPlugins: Bool = true,
         completion: @escaping (Result<Bool, Error>) -> Void
     ) {
+        // Every hover supersedes the previous one, even one that ends here.
+        let hover = pluginDefinitionHover.begin()
         guard documentFeature.editorDocuments.contains(where: { $0 === document }) else {
             completion(.success(false)); return
         }
         if !productNavigationLocations(for: document.url, line: line, utf16Column: utf16Column).isEmpty {
             completion(.success(true)); return
         }
+        let complete = askPlugins
+            ? pluginSupplementedAvailability(
+                ticket: hover, for: document, line: line, utf16Column: utf16Column, completion: completion)
+            : completion
         guard let sessions = languageToolingSessionsIfActive, let workspaceURL,
               featureGraph.languageCapabilityPolicy.supports(
                 .definition, documentURL: document.url, sessions: sessions
-              ) else { completion(.success(false)); return }
+              ) else { complete(.success(false)); return }
         do {
             try sessions.navigate(
                 method: "textDocument/definition", fileURL: document.url, text: document.text,
                 position: LanguageServerPosition(line: line, utf16Column: utf16Column), rootURL: workspaceURL
-            ) { result in completion(result.map { !$0.isEmpty }) }
-        } catch { completion(.failure(error)) }
+            ) { result in complete(result.map { !$0.isEmpty }) }
+        } catch { complete(.failure(error)) }
     }
 
-    func navigateToSymbol(line: Int, utf16Column: Int, in fileURL: URL) {
+    /// `askPlugins: false` keeps a read-only preview's click on the language
+    /// server alone, as for `requestDefinitionAvailability`.
+    func navigateToSymbol(line: Int, utf16Column: Int, in fileURL: URL, askPlugins: Bool = true) {
         let normalizedURL = fileURL.standardizedFileURL
         editorCaret = EditorCaret(
             url: normalizedURL,
@@ -102,20 +128,30 @@ extension AppModel {
             )
             return
         }
-        guard languageProviderCatalog.provider(for: normalizedURL)?.capabilities.contains(.languageServer) == true
-        else { return }
-        if featureGraph.languageCapabilityPolicy.supports(
-            .definition,
-            documentURL: normalizedURL,
-            sessions: languageToolingSessionsIfActive
-        ) {
-            performGenericNavigation(
-                method: "textDocument/definition",
-                kind: .definitions,
-                fallbackToImplementationsIfSelf: true,
-                document: openDocuments.first { $0.url.standardizedFileURL == normalizedURL }
+        let document = openDocuments.first { $0.url.standardizedFileURL == normalizedURL }
+        // Plugin providers add to the language server's answer, so both run together.
+        let pluginDefinitions = askPlugins ? document.flatMap {
+            pluginDefinitionQuery(for: $0, line: line, utf16Column: utf16Column)
+        } : nil
+        let serverCanAnswer = languageProviderCatalog.provider(for: normalizedURL)?.capabilities.contains(.languageServer) == true
+            && featureGraph.languageCapabilityPolicy.supports(
+                .definition,
+                documentURL: normalizedURL,
+                sessions: languageToolingSessionsIfActive
             )
+        guard serverCanAnswer else {
+            if let pluginDefinitions {
+                presentPluginDefinitions(pluginDefinitions, documentURL: normalizedURL, line: line, utf16Column: utf16Column)
+            }
+            return
         }
+        performGenericNavigation(
+            method: "textDocument/definition",
+            kind: .definitions,
+            fallbackToImplementationsIfSelf: true,
+            document: document,
+            pluginDefinitions: pluginDefinitions
+        )
     }
 
     func findReferences() {
@@ -351,15 +387,19 @@ extension AppModel {
         _ feature: LanguageServerFeatureSet,
         unsupportedMessage: String
     ) -> Bool {
-        guard let document = focusedEditorDocument else { return false }
-        if isJavaLanguageServerPreparing(for: document.url) {
-            showJavaLanguageServerPreparingNotification()
-            return false
-        }
+        guard let document = focusedEditorDocument, !languageServerIsPreparing(for: document.url) else { return false }
         guard supportsLanguageServerFeature(feature) else {
             showNotification(unsupportedMessage, logReference: notificationRejection(operation: "navigation", reason: "unsupported"))
             return false
         }
+        return true
+    }
+
+    /// Whether the language server for the file is still preparing. Tells the
+    /// user so, rather than letting navigation report a spurious "not found".
+    private func languageServerIsPreparing(for fileURL: URL) -> Bool {
+        guard isJavaLanguageServerPreparing(for: fileURL) else { return false }
+        showJavaLanguageServerPreparingNotification()
         return true
     }
 
@@ -368,7 +408,8 @@ extension AppModel {
         kind: LanguageNavigationResultKind,
         navigateToSingleResult: Bool = true,
         fallbackToImplementationsIfSelf: Bool = false,
-        document requestedDocument: EditorDocument? = nil
+        document requestedDocument: EditorDocument? = nil,
+        pluginDefinitions: PluginDefinitionQuery? = nil
     ) {
         guard !languageNavigationCoordinator.state.isLoading,
               let document = requestedDocument ?? focusedEditorDocument,
@@ -389,6 +430,38 @@ extension AppModel {
             caret: caret,
             workspaceURL: workspaceURL
         )
+        func present(_ values: [LanguageServerLocation]) {
+            let fallback = languageNavigationCoordinator.implementationFallbackDecision(
+                method: method,
+                kind: kind,
+                values: values,
+                documentURL: document.url,
+                position: request.position,
+                supportsImplementation: fallbackToImplementationsIfSelf
+                    && featureGraph.languageCapabilityPolicy.supports(
+                        .implementation,
+                        documentURL: document.url,
+                        sessions: languageToolingSessionsIfActive
+                    )
+            )
+            if fallback.shouldRequestImplementations {
+                requestGenericImplementationFallback(
+                    document: document,
+                    caret: caret,
+                    workspaceURL: workspaceURL,
+                    originalValues: fallback.originalValues,
+                    navigateToSingleResult: navigateToSingleResult,
+                    providerID: provider.id
+                )
+                return
+            }
+            presentGenericNavigationValues(
+                values,
+                kind: kind,
+                navigateToSingleResult: navigateToSingleResult,
+                providerID: provider.id
+            )
+        }
         do {
             try languageToolingSessionsIfActive?.navigate(
                 method: request.method,
@@ -406,36 +479,17 @@ extension AppModel {
                         message: error.localizedDescription
                     )
                 case .success(let values):
-                    let fallback = self.languageNavigationCoordinator.implementationFallbackDecision(
-                        method: method,
-                        kind: kind,
-                        values: values,
-                        documentURL: document.url,
-                        position: request.position,
-                        supportsImplementation: fallbackToImplementationsIfSelf
-                            && self.featureGraph.languageCapabilityPolicy.supports(
-                                .implementation,
-                                documentURL: document.url,
-                                sessions: self.languageToolingSessionsIfActive
-                            )
-                    )
-                    if fallback.shouldRequestImplementations {
-                        self.requestGenericImplementationFallback(
-                            document: document,
-                            caret: caret,
-                            workspaceURL: workspaceURL,
-                            originalValues: fallback.originalValues,
-                            navigateToSingleResult: navigateToSingleResult,
-                            providerID: provider.id
-                        )
-                        return
+                    guard let pluginDefinitions else { present(values); return }
+                    // The server answered first; the providers finish within their own budgets.
+                    Task { @MainActor [weak self] in
+                        let plugin = await pluginDefinitions.task.value
+                        guard let self, self.languageNavigationCoordinator.owns(operationID) else { return }
+                        // Locations for an older revision of the document would point at the wrong text.
+                        guard self.isCurrent(pluginDefinitions) else { present(values); return }
+                        present(self.mergePluginDefinitions(
+                            server: values, plugin: plugin, documentURL: document.url,
+                            line: request.position.line, utf16Column: request.position.utf16Column))
                     }
-                    self.presentGenericNavigationValues(
-                        values,
-                        kind: kind,
-                        navigateToSingleResult: navigateToSingleResult,
-                        providerID: provider.id
-                    )
                 }
             }
         } catch {
@@ -517,7 +571,7 @@ extension AppModel {
         return springFeature.navigationLocations(for: url, line: line)
     }
 
-    private func presentGenericNavigationValues(
+    func presentGenericNavigationValues(
         _ values: [LanguageServerLocation],
         kind: LanguageNavigationResultKind,
         navigateToSingleResult: Bool,

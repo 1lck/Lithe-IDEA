@@ -1612,10 +1612,11 @@ impl DeclarativePluginManifest {
                 "Host API permissions require backend 2.",
             ));
         }
+        // Actions and providers both read the live document they annotate.
         if self
             .permissions
             .iter()
-            .any(|permission| permission == "editor.actions")
+            .any(|permission| permission == "editor.actions" || permission == "editor.providers")
             && !self
                 .permissions
                 .iter()
@@ -1623,7 +1624,7 @@ impl DeclarativePluginManifest {
         {
             return Err(invalid(
                 "permissions",
-                "Editor actions require documents.read for live snapshots.",
+                "Editor actions and providers require documents.read for live snapshots.",
             ));
         }
         for permission in required {

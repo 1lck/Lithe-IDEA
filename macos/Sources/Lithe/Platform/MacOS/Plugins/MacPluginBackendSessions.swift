@@ -91,6 +91,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
     /// Reports a backend that an activation event failed to start; the
     /// workspace or command goes on without it.
     var editorActions: PluginEditorActionHostService?
+    var editorProviders: PluginEditorProviderHostService?
     var onActivationFailure: (@MainActor (_ pluginID: String, _ error: Error) -> Void)?
     private static let maximumBackgroundStarts = 2
     private static let maximumPendingNotifications = 128
@@ -674,6 +675,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         entry.hostServices = Set(hostServices)
         session.onFunctionsChange = { [weak self] ids in
             self?.editorActions?.updateFunctions(pluginID: pluginID, sessionID: sessionToken, ids: ids)
+            self?.editorProviders?.updateFunctions(pluginID: pluginID, sessionID: sessionToken, ids: ids)
         }
         session.onHostRequest = { [weak session] request in
             hostDispatcher.handle(request, pluginID: pluginID, sessionID: sessionToken) { outcome in

@@ -2023,6 +2023,19 @@ pub static EVENTS: &[EventMetadata] = &[
         owner: "Lithe",
     },
     EventMetadata {
+        id: "plugins.editor.provider_failed",
+        channel: "plugins/{plugin}/host",
+        level: LogLevel::Warn,
+        message: "Plugin {plugin} editor provider failed",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Error returned while calling the provider function or validating its result", reason: None },
+            FieldMetadata { name: "plugin", field_type: FieldType::Id, required: true, description: "Validated plugin id whose editor language-feature provider function failed or answered invalidly", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "Lithe",
+    },
+    EventMetadata {
         id: "plugins.editor.refresh_failed",
         channel: "plugins",
         level: LogLevel::Warn,

@@ -256,6 +256,7 @@
 "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later." = "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later.";
 "Add clickable actions beside document text" = "Add clickable actions beside document text";
 "Add database connection" = "Add database connection";
+"Add definitions, hovers, completions and other editor features for matching files" = "Add definitions, hovers, completions and other editor features for matching files";
 "Add header" = "Add header";
 "Add memory usage monitoring\n\nTrack current and average memory usage in the status bar." = "Add memory usage monitoring\n\nTrack current and average memory usage in the status bar.";
 "Add memory usage visibility to the status bar" = "Add memory usage visibility to the status bar";
@@ -5464,6 +5465,7 @@
 "native.addAtLeastOneAbsoluteFolderPathAfterThePackageArgumentOnePerLineFilesystemCanReadAndWriteOnlyInTheFoldersYouAllowRequiresNodeJs24OrLater" = "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later.";
 "native.addClickableActionsBesideDocumentText" = "Add clickable actions beside document text";
 "native.addDatabaseConnection" = "Add database connection";
+"native.addEditorProvidersForMatchingFiles" = "Add definitions, hovers, completions and other editor features for matching files";
 "native.addHeader" = "Add header";
 "native.addHook" = "Add Hook";
 "native.addMemoryUsageMonitoringTrackCurrentAndAverageMemoryUsageInTheStatusBar" = "Add memory usage monitoring\n\nTrack current and average memory usage in the status bar.";

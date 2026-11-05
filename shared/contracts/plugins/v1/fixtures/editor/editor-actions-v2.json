@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "description": "Version 2 editor action validation. `host` is what the host declared in getCapabilities (`services.editor.options.actionIcons` and `limits.editorActionSourceBytes`); `kind` is `actions` for a collector result (one-based UTF-16 positions in `text`) or `invokeResult` for the result of a clicked action or alternative. Accepted cases list the normalized value; rejected cases reject the whole result.",
+  "host": {
+    "actionIcons": ["run", "run-all", "debug", "test", "test-passed", "test-failed", "test-skipped", "navigate-super", "navigate-implementations"],
+    "actionSourceBytes": 1048576
+  },
+  "cases": [
+    {
+      "name": "a Go main marker offers debug and test alternatives",
+      "kind": "actions",
+      "text": "package main\n\nfunc main() {}\n",
+      "value": {
+        "actions": [
+          {
+            "id": "main",
+            "range": { "start": { "line": 3, "column": 1 }, "end": { "line": 3, "column": 10 } },
+            "title": "Run main",
+            "icon": "run",
+            "invoke": { "functionID": "go.markers.invoke", "params": { "entry": "main" } },
+            "alternatives": [
+              { "id": "debug", "title": "Debug main", "icon": "debug", "invoke": { "functionID": "go.markers.invoke", "params": { "entry": "main", "debug": true } } },
+              { "id": "test", "title": "Test package", "icon": "test", "invoke": { "functionID": "go.markers.invoke" } }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "status": "accepted",
+        "value": [
+          {
+            "id": "main",
+            "range": { "start": { "line": 3, "column": 1 }, "end": { "line": 3, "column": 10 } },
+            "title": "Run main",
+            "icon": "run",
+            "invoke": { "functionID": "go.markers.invoke", "params": { "entry": "main" } },
+            "alternatives": [
+              { "id": "debug", "title": "Debug main", "icon": "debug", "invoke": { "functionID": "go.markers.invoke", "params": { "entry": "main", "debug": true } } },
+              { "id": "test", "title": "Test package", "icon": "test", "invoke": { "functionID": "go.markers.invoke", "params": {} } }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a Go test function shows its last outcome",
+      "kind": "actions",
+      "text": "func TestParse(t *testing.T) {}\n",
+      "value": {
+        "actions": [
+          { "id": "TestParse", "range": { "start": { "line": 1, "column": 1 }, "end": { "line": 1, "column": 15 } }, "title": "Run TestParse", "icon": "test-failed", "invoke": { "functionID": "go.markers.invoke", "params": { "test": "TestParse" } } }
+        ]
+      },
+      "expected": {
+        "status": "accepted",
+        "value": [
+          { "id": "TestParse", "range": { "start": { "line": 1, "column": 1 }, "end": { "line": 1, "column": 15 } }, "title": "Run TestParse", "icon": "test-failed", "invoke": { "functionID": "go.markers.invoke", "params": { "test": "TestParse" } } }
+        ]
+      }
+    },
+    {
+      "name": "an icon the host did not declare",
+      "kind": "actions",
+      "text": "x",
+      "value": { "actions": [ { "id": "a", "range": { "start": { "line": 1, "column": 1 }, "end": { "line": 1, "column": 1 } }, "title": "Run", "icon": "rocket", "invoke": { "functionID": "go.markers.invoke" } } ] },
+      "expected": { "status": "rejected" }
+    },
+    {
+      "name": "at most four alternatives",
+      "kind": "actions",
+      "text": "x",
+      "value": { "actions": [ { "id": "a", "range": { "start": { "line": 1, "column": 1 }, "end": { "line": 1, "column": 1 } }, "title": "Run", "icon": "run", "invoke": { "functionID": "go.markers.invoke" },
+        "alternatives": [
+          { "id": "1", "title": "One", "icon": "debug", "invoke": { "functionID": "go.markers.invoke" } },
+          { "id": "2", "title": "Two", "icon": "debug", "invoke": { "functionID": "go.markers.invoke" } },
+          { "id": "3", "title": "Three", "icon": "debug", "invoke": { "functionID": "go.markers.invoke" } },
+          { "id": "4", "title": "Four", "icon": "debug", "invoke": { "functionID": "go.markers.invoke" } },
+          { "id": "5", "title": "Five", "icon": "debug", "invoke": { "functionID": "go.markers.invoke" } }
+        ] } ] },
+      "expected": { "status": "rejected" }
+    },
+    {
+      "name": "alternative IDs are unique within their action",
+      "kind": "actions",
+      "text": "x",
+      "value": { "actions": [ { "id": "a", "range": { "start": { "line": 1, "column": 1 }, "end": { "line": 1, "column": 1 } }, "title": "Run", "icon": "run", "invoke": { "functionID": "go.markers.invoke" },
+        "alternatives": [
+          { "id": "same", "title": "Debug", "icon": "debug", "invoke": { "functionID": "go.markers.invoke" } },
+          { "id": "same", "title": "Test", "icon": "test", "invoke": { "functionID": "go.markers.invoke" } }
+        ] } ] },
+      "expected": { "status": "rejected" }
+    },
+    {
+      "name": "a click reveals resource-key definitions",
+      "kind": "invokeResult",
+      "value": { "reveal": { "locations": [
+        { "uri": "file:///workspace/messages.properties", "range": { "start": { "line": 4, "character": 0 }, "end": { "line": 4, "character": 9 } } },
+        { "uri": "file:///workspace/messages_zh.properties", "range": { "start": { "line": 2, "character": 0 }, "end": { "line": 2, "character": 9 } } }
+      ] }, "started": true },
+      "expected": { "status": "accepted", "value": { "reveal": { "locations": [
+        { "uri": "file:///workspace/messages.properties", "range": { "start": { "line": 4, "character": 0 }, "end": { "line": 4, "character": 9 } } },
+        { "uri": "file:///workspace/messages_zh.properties", "range": { "start": { "line": 2, "character": 0 }, "end": { "line": 2, "character": 9 } } }
+      ] } } }
+    },
+    {
+      "name": "other result members stay the plugin's own",
+      "kind": "invokeResult",
+      "value": { "runID": "r1" },
+      "expected": { "status": "accepted", "value": {} }
+    },
+    {
+      "name": "a reveal location needs an absolute URI",
+      "kind": "invokeResult",
+      "value": { "reveal": { "locations": [ { "uri": "messages.properties", "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 0 } } } ] } },
+      "expected": { "status": "rejected" }
+    }
+  ]
+}

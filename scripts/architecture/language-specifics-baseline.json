@@ -1,7 +1,6 @@
 {
   "description": "Per-file counts of language and build-tool names in host code. Counts may only go down; regenerate with --update-baseline after removing names. Deleted by the final Java extraction PR (#1495), which switches to --strict.",
   "files": {
-    "frontend/editor/src/plugin-editor-actions.ts": {"words":2},
     "frontend/editor/src/workbench.ts": {"words":97,"nameComparisons":8},
     "macos/Sources/Lithe/Application/Composition/AppModelFeatureGraph.swift": {"words":26},
     "macos/Sources/Lithe/Application/Composition/AppModelObservationBinder.swift": {"words":1},
@@ -297,7 +296,7 @@
     "rust/lithe-core/src/tests/support.rs": {"words":1},
     "rust/lithe-core/src/tests/toolchain_pins.rs": {"words":33},
     "rust/lithe-core/src/tests/toolchain_queries.rs": {"words":15,"nameComparisons":1},
-    "rust/lithe-core/src/tests/toolchain_resolution.rs": {"words":90,"nameComparisons":1},
+    "rust/lithe-core/src/tests/toolchain_resolution.rs": {"words":89,"nameComparisons":1},
     "rust/lithe-core/src/tests/vcs.rs": {"words":1},
     "rust/lithe-core/src/toolchain/pins.rs": {"words":1},
     "rust/lithe-core/src/vcs/model.rs": {"words":1},

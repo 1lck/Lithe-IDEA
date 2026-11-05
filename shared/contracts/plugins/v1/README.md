@@ -21,7 +21,7 @@ This directory is the cross-platform source of truth:
 | `fixtures/manifest/` | `hello-lithe.plugin.json`, the smallest UI plugin, and `invalid-manifests.json`: edits to a valid manifest and the rejection code every host must report |
 | `fixtures/languages/` | Language support: packaged, system-command, and host-integration language servers, `node-runtime` for a discovered runtime, and `language-grammar` with `grammars/`; `command-plans.json` holds golden run/test command expansions and language-server launch plans, `runtime-versions.json` the golden outcomes of the launch runtime version check |
 | `fixtures/backend/` | Plugin backends (`backend`, `backend-workspace`, `command-backend`, `terminal-backend`); `function-protocol.json` holds golden plugin-function negotiation, registration, invocation, outcome, progress, and refusal cases, `plugin-logging.json` the golden `litheLogging` negotiation and notifications |
-| `fixtures/editor/` | Editor actions served by a backend |
+| `fixtures/editor/` | Editor actions served by a backend: `editor-actions.plugin.json`, version 2 icons, alternatives and click results in `editor-actions-v2.json`; editor providers in `editor-providers.plugin.json` with registration and result cases in `editor-providers.json` |
 | `fixtures/ui/` | Native controls, forms, and panels, and a web panel |
 | `fixtures/settings/` | Plugin settings declared with `settings: 2` |
 | `fixtures/build-systems/` | Level 3 build systems (`build-*`: static file, command output, host integration, instance options, model producer and consumer, tool path, toolchains); `build-plans.json` holds golden build-system plans and decoded outputs |
@@ -228,9 +228,9 @@ activation event, and a plugin may consist of grammars alone.
   explicit contract; an arbitrary new `kind` string cannot supply one.
 - This contribution does not register completion, hover, definition, symbol,
   formatting, rename, or Code Action providers backed by ordinary plugin
-  functions. Those independent provider bindings are not implemented; existing
-  LSP support and `editor/registerActions` are separate capabilities, not a
-  substitute for them.
+  functions. A backend binds the provider types a host routes with
+  [`editor/registerProviders`](#editor-language-feature-providers-protocol-version-3);
+  existing LSP support and `editor/registerActions` are separate capabilities.
 - `grammar.path` is a package-relative file that stays inside the package.
   Hosts read it read-only from the installed package, pass its text to
   `plugins.declarative.decodeGrammar`, and hand the returned object to the
@@ -770,6 +770,7 @@ Rules for publishing across levels and capability versions:
 | `credentials.store` | the backend uses the [credentials host service](#host-services-protocol-version-2); refused without a `backend` |
 | `workspace.metadata` | the backend uses the [workspace host service](#workspace-contexts-and-capability-discovery-protocol-version-3); refused without `backend` 2 |
 | `editor.actions` | the backend registers independent editor actions; requires `backend` 2 and `documents.read`, grants only `editor/registerActions`, not document edits or domain execution |
+| `editor.providers` | the backend supplies [editor language features](#editor-language-feature-providers-protocol-version-3) for matching files; requires `backend` 2 and `documents.read`, grants only `editor/registerProviders`, not document edits |
 | `terminal.create` | the backend creates and manages its own [native terminals](#plugin-owned-native-terminals-function-protocol-3), including bounded display history for reopen; requires `backend` 2 |
 
 | Activation event | Meaning |
@@ -2445,6 +2446,14 @@ notifications.
   `functionResultBytes`, `hostRequestBytes`, `hostResultBytes`, `errorMessageBytes` (the cut of a host failure's
   message), `errorDetailsBytes`, and `notificationBytes`. A backend must
   check `services` instead of assuming a method from the version.
+- A service entry may also carry `options`: what the host declared for that
+  service. When `editor/registerActions` is granted, `services.editor.options`
+  has `actionIcons` (the icon tokens the host draws) and `limits` gains
+  `editorActionSourceBytes` (the largest document the host sends a
+  collector). When `editor/registerProviders` is granted,
+  `services.editor.options.providerTypes` lists the provider types the host
+  routes. A host that omits `actionIcons` accepts only the first editor-action
+  shape.
 - A context is one open workspace in one window:
 
   ```json
@@ -2635,6 +2644,7 @@ methods. Unknown options fail before side effects with `unsupportedOption`.
 | `documents/list` | `documents.read` | none | `{documents:[<summary>]}` |
 | `documents/getSnapshot` | `documents.read` | `documentID` | `{document:<summary>, text}` from the dirty live buffer |
 | `editor/registerActions` | `editor.actions` (+ `documents.read`) | `id,function,selector` | `{subscriptionID}`; independent editor actions, see below |
+| `editor/registerProviders` | `editor.providers` (+ `documents.read`) | `id,selector,providers` | `{subscriptionID}`; editor language-feature providers, see below |
 | `editor/getActive` | `documents.read` | none | summary of the foreground text tab, or `null` |
 | `editor/getSelections` | `documents.read` | `documentID` | `{documentID,version,selections:[{anchor,active}],primaryIndex}` |
 | `editor/applyEdits` | `editor.edit` | `documentID,expectedVersion,edits:[{range,text}]` | `{documentID,version,applied}` |
@@ -2746,8 +2756,10 @@ workspace context:
 - The host invokes the collection function via existing `lithe/function/invoke`
   with workspace context and `{document:{documentID,version,path},text}`. Version
   is the same public buffer version as `documents/getSnapshot`, not a WebView
-  revision. Source is the dirty live buffer, capped at 128 KiB. Remote workspaces
-  and read-only preview surfaces are not served by this first implementation.
+  revision. Source is the dirty live buffer, capped at the host's
+  `limits.editorActionSourceBytes` (1 MiB on macOS; 128 KiB when the host does
+  not report the limit). Remote workspaces and read-only preview surfaces are not
+  served by this first implementation.
 - Collection is read-only by contract: no network request or business execution.
   Edits invalidate the old actions immediately and cancel older collection work;
   the host debounces fresh collection and rejects stale or withdrawn results.
@@ -2758,20 +2770,42 @@ workspace context:
   invoke:{functionID,params?}}]}`. Positions are one-based UTF-16, half-open and
   cannot split surrogate pairs. Each range stays in the exact input document.
   `id` is 1 to 128 bytes without controls, unique per answer; `title` is 1 to 200
-  characters on one line. `icon` is `run` or `run-all`, a host-owned presentation
-  token. At most 1000 actions and 1 MiB serialized; malformed answers are refused
-  whole. Same-line actions share a menu rather than silently replacing each other.
+  characters on one line. `icon` is a host-owned presentation token from
+  `services.editor.options.actionIcons` (`run` or `run-all` when the host does not
+  report the list). At most 1000 actions and 1 MiB serialized; malformed answers
+  are refused whole. Same-line actions share a menu rather than silently replacing
+  each other.
+- An action may carry `alternatives`: at most 4 `{id,title,icon,invoke}` entries
+  with the same rules and IDs unique within the action, offered in the action's
+  menu after the action itself (for example Debug or Test beside Run). Hosts that
+  omit `actionIcons` refuse an answer with alternatives.
+- The macOS host draws `run`, `run-all`, `debug`, `test`, `test-passed`,
+  `test-failed`, `test-skipped`, `navigate-super` and `navigate-implementations`.
+  An icon names a picture, not an operation: a test icon does not make the
+  action a test, and the host never starts anything because of an icon.
 - Each invocation target is a currently registered function of the same plugin;
   `params` is a plugin-private JSON object. The host stores it behind an opaque
   per-batch action key, never accepts invocation payloads from the web editor, and
   validates document/context/session/registration again on click. It calls the
   function with `{documentID,expectedVersion,actionID,data:<params>}` through the
-  ordinary invocation lifecycle. The plugin validates/re-reads the live document
-  before side effects. Click executions are not cancelled by unrelated re-parsing;
+  ordinary invocation lifecycle; a chosen alternative adds `alternativeID` and
+  passes that alternative's `params` as `data`. The plugin validates/re-reads the
+  live document before side effects.
+- A click result may carry `{reveal:{locations:[{uri,range}]}}`: 1 to 100
+  absolute URIs with zero-based LSP ranges. The host opens a single location and
+  lists several in its navigation results. Other result members stay the
+  plugin's own. Hosts that omit `actionIcons` ignore the result.
+- A click that runs or debugs code starts it through the host's run and debug
+  methods (`lithe/host/run/start`, `lithe/host/debug/start`) once
+  `getCapabilities` lists them, so the run appears in the host's Run and Debug
+  windows. A private process started by the plugin is not a substitute. Click executions are not cancelled by unrelated re-parsing;
   withdrawing the binding, ending its session/context or tearing down the owning
   editor cancels them. The host never retries side effects automatically.
 - Registration/collection validation is shared Core command
-  `plugins.editorActions.decode`; public host failures retain protocol 3's existing
+  `plugins.editorActions.decode`; `version: 2` with the host's icons and source
+  bound admits alternatives and click results (`kind: invokeResult`), and version 1
+  keeps the first shape. Cases: `fixtures/editor/editor-actions-v2.json`. Public host
+  failures retain protocol 3's existing
   distinct codes (`invalidParams`, `permissionDenied`, `versionConflict`, etc.).
   No tool-private error or result is interpreted as a build/test result.
 - Existing `commands/didRun {commandID,context?}` is unchanged. A command-palette
@@ -2781,6 +2815,84 @@ workspace context:
   entry point; a package requiring `editor.actions` is deliberately refused by an
   older host that does not recognize that permission, rather than silently granted.
   Grammar capability admission is separate. SDK/contract mirrors still need sync.
+
+### Editor language-feature providers (protocol version 3)
+
+A provider adds a language feature the file's language server does not
+supply: a cross-file fact only the plugin knows, such as a key in a template
+that names an entry in a message bundle, or a framework declaration in a
+configuration file that names a method in source. It never replaces the
+language server. Where a language server answers, its answer comes first and
+plugin results only add to it; a plugin that repeats what the server already
+says shows the user the same thing twice.
+
+A backend declares `backend: 2`, `documents.read` and `editor.providers`,
+finds `lithe/host/editor/registerProviders` and
+`services.editor.options.providerTypes` with `getCapabilities`, then registers
+per workspace context:
+
+```json
+{
+  "context": {"contextID": "w1", "generation": 1},
+  "id": "message-keys",
+  "selector": {"languages": ["html"], "fileExtensions": ["properties"], "fileNames": []},
+  "providers": {
+    "definition": {"function": "keys.definition"},
+    "hover": {"function": "keys.hover"},
+    "completion": {"function": "keys.complete", "triggerCharacters": ["."]},
+    "semanticTokens": {"function": "keys.tokens",
+      "legend": {"tokenTypes": ["property", "string"], "tokenModifiers": ["declaration"]}}
+  }
+}
+```
+
+- Registration returns `{subscriptionID}`; dispose it with the subscription
+  API. Ending the session, the context or the plugin's activation withdraws
+  every registration it made, and a plugin activated later registers again.
+  Each named function must already be registered on that session.
+- A selector has 1 to 32 entries in total: language IDs, literal extensions
+  (optional leading dot) and literal file names, matched case-insensitively.
+  A document matches when any entry matches. At most 32 registrations per
+  plugin across contexts; duplicate IDs in a context are refused.
+- `providers` maps a provider type to `{function}`. The macOS host routes
+  `definition`, `hover`, `completion`, `codeLens`, `foldingRange`,
+  `semanticTokens` and `documentLink`. Completion may add 1 to 16
+  single-character `triggerCharacters`; semantic tokens must add their
+  `legend` (at most 64 types and 64 modifiers). A type outside the host's
+  `providerTypes` fails with `unsupportedOption` and
+  `details.option: "providers.<type>"` before anything is registered.
+  Diagnostics are not a provider type.
+- The host calls the function through `lithe/function/invoke` with the
+  workspace context and `{documentID,version}`; definition, hover and
+  completion add `position: {line,character}` (zero-based, UTF-16), and
+  completion adds `triggerCharacter` when typing started it. The plugin reads
+  the text with `documents/getSnapshot` and answers for that version.
+- Results use the LSP 3.17 shapes of the matching request: definition
+  `Location | Location[] | LocationLink[] | null`, `Hover | null`,
+  `CompletionItem[] | CompletionList | null` (no `data`, `command` or resolve
+  round trip), `CodeLens[] | null`, `FoldingRange[] | null`,
+  `SemanticTokens | null` indexed by the registered legend, and
+  `DocumentLink[] | null` with absolute targets. Every code lens carries its
+  `command`, whose `command` is a function of the same plugin and whose
+  `arguments` holds at most one params object; a click calls that function
+  with `{documentID,expectedVersion,data:<params>}`. A malformed result is
+  dropped whole.
+- Budgets are the host's: hover and completion 400 ms, definition 1500 ms,
+  the rest 2000 ms. A late answer, or one for an older document version, is
+  dropped without an error. A registration cannot set its own budget.
+- The host merges: hover sections and completion items follow the language
+  server's; definitions add plugin locations to the server's (a location at
+  the requested position itself yields to the plugin's); code lenses, folding
+  ranges and links are added; semantic tokens apply only to files whose
+  language server has none. A plugin location equal to one already kept is
+  dropped. The merge is Core command `plugins.editorProviders.decode` with
+  `kind: "mergeDefinitions"`, so every host merges definitions alike.
+- Validation is shared Core command `plugins.editorProviders.decode`. Cases:
+  `fixtures/editor/editor-providers.json`. Example package:
+  `fixtures/editor/editor-providers.plugin.json`.
+- This is an additive host method within protocol 3, not a version bump. A
+  package requiring `editor.providers` is refused by an older host that does
+  not recognize the permission.
 
 ### Compatibility
 

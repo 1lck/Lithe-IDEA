@@ -132,6 +132,8 @@ pub enum CoreCommand {
     PluginsDeclarativeDecodeGrammar,
     /// Validates independent editor action registration or results.
     PluginsEditorActionsDecode,
+    /// Validates editor provider registrations and provider results.
+    PluginsEditorProvidersDecode,
     /// Validates a normalized shortcut import against the host's action catalog.
     KeymapDecodeImport,
     /// Plans the selected provider's declared shortcut source inputs.
@@ -765,6 +767,7 @@ impl CoreCommand {
             }
             "plugins.declarative.decodeGrammar" => Some(Self::PluginsDeclarativeDecodeGrammar),
             "plugins.editorActions.decode" => Some(Self::PluginsEditorActionsDecode),
+            "plugins.editorProviders.decode" => Some(Self::PluginsEditorProvidersDecode),
             "keymap.decodeImport" => Some(Self::KeymapDecodeImport),
             "keymap.planImportSources" => Some(Self::KeymapPlanImportSources),
             "keymap.planImportBindings" => Some(Self::KeymapPlanImportBindings),
