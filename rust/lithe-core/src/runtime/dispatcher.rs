@@ -211,6 +211,9 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
         }
         CoreCommand::AgentSkills => agent_response(id, parsed.payload, crate::agent::skills),
         CoreCommand::AgentHooks => agent_response(id, parsed.payload, crate::agent::hooks::execute),
+        CoreCommand::AgentEditsReversePlan => {
+            agent_response(id, parsed.payload, crate::agent::edits::reverse_plan)
+        }
         CoreCommand::AiCommitInputBudget => {
             plugin_response(id, parsed.payload, crate::ai::commit_input_budget_command)
         }
@@ -220,11 +223,26 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
         CoreCommand::AiDecodeCommitMessage => {
             plugin_response(id, parsed.payload, crate::ai::decode_commit_command)
         }
-        CoreCommand::AgentParseProviderConfiguration => {
-            match crate::ai::parse_provider_configuration(parsed.payload) {
-                Ok(data) => CoreResponse::success(id, data),
-                Err(error) => CoreResponse::failure(id, error),
-            }
+        CoreCommand::AiConfigurationSources => {
+            plugin_response(id, parsed.payload, crate::ai::configuration_sources_command)
+        }
+        CoreCommand::AiConfigurationParse => {
+            plugin_response(id, parsed.payload, crate::ai::parse_configuration_command)
+        }
+        CoreCommand::AiPullRequestPlan => {
+            plugin_response(id, parsed.payload, crate::ai::plan_pull_request_command)
+        }
+        CoreCommand::AiPullRequestDecode => {
+            plugin_response(id, parsed.payload, crate::ai::decode_pull_request_command)
+        }
+        CoreCommand::AiInlineEditPlan => {
+            plugin_response(id, parsed.payload, crate::ai::plan_inline_edit_command)
+        }
+        CoreCommand::AiInlineEditDecode => {
+            plugin_response(id, parsed.payload, crate::ai::decode_inline_edit_command)
+        }
+        CoreCommand::AgentHooksValidateDraft => {
+            agent_response(id, parsed.payload, crate::agent::hooks::validate_draft)
         }
         CoreCommand::McpParseConfiguration => {
             match crate::mcp::parse_configuration(parsed.payload) {
@@ -250,6 +268,18 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
             Err(error) => CoreResponse::failure(id, error),
         },
         CoreCommand::McpPlanWrite => match crate::mcp::plan_write(parsed.payload) {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
+        CoreCommand::McpLibrarySnapshot => match crate::mcp::library_snapshot(parsed.payload) {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
+        CoreCommand::McpValidateDraft => match crate::mcp::validate_draft(parsed.payload) {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
+        CoreCommand::McpBatchPlan => match crate::mcp::batch_plan(parsed.payload) {
             Ok(data) => CoreResponse::success(id, data),
             Err(error) => CoreResponse::failure(id, error),
         },

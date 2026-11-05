@@ -228,3 +228,45 @@ fn cli_update_outcome_fixture_preserves_verified_version_and_warning() {
         assert_eq!(actual, fixture()["responses"][name]);
     }
 }
+
+#[test]
+fn edit_reverse_plan_dispatches_shared_fixture_and_rejects_malformed_payloads() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/agent/edit-review-v1.json"
+    ))
+    .unwrap();
+    assert!(crate::protocol::CoreCommand::parse("agent.edits.reversePlan").is_some());
+    for case in fixture["reversePlan"].as_array().unwrap() {
+        // Reverse plan cases use literal text only; generators belong to evidence cases.
+        let response = run("agent.edits.reversePlan", case["request"].clone());
+        assert_eq!(response["ok"], true, "{}", case["name"]);
+        assert_eq!(response["data"], case["expected"], "{}", case["name"]);
+    }
+    let response = run(
+        "agent.edits.reversePlan",
+        json!({"diffs": [{"oldText": "a", "truncated": false}], "disk": "a"}),
+    );
+    assert_eq!(response["error"]["code"], "invalid_request");
+    let response = run(
+        "agent.edits.reversePlan",
+        json!({"diffs": [], "disk": null, "workspace": "/arbitrary"}),
+    );
+    assert_eq!(response["error"]["code"], "invalid_request");
+}
+
+/// Both editors call this command; the dispatcher must return the fixture verdicts.
+#[test]
+fn hook_draft_validation_dispatch_returns_the_shared_field_codes() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/agent/hook-draft-validation-v1.json"
+    ))
+    .unwrap();
+    let command = fixture["command"].as_str().unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let response = run(command, case["request"].clone());
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["data"], case["expected"], "{}", case["name"]);
+    }
+    let response = run(command, json!({"hook": {"name": "x"}}));
+    assert_eq!(response["error"]["code"], "invalid_request", "{response}");
+}

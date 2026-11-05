@@ -209,15 +209,15 @@
     },
     "fileEdit": {
       "kind": "update", "sessionId": "session-1",
-      "update": { "sessionUpdate": "tool_call", "toolCallId": "edit-1", "title": "Edit sample.txt", "kind": "edit", "status": "completed", "content": [{ "type": "diff", "path": "sample.txt", "oldText": "before\n", "newText": "after\n", "_meta": { "kind": "update", "jetbrains": { "air": { "version": 1, "diffStats": { "version": 1, "added": 1, "removed": 1 } } } } }] }
+      "update": { "sessionUpdate": "tool_call", "toolCallId": "edit-1", "title": "Edit sample.txt", "kind": "edit", "status": "completed", "content": [{ "type": "diff", "path": "sample.txt", "oldText": "before\n", "newText": "after\n", "_meta": { "kind": "update", "jetbrains": { "air": { "version": 1, "diffStats": { "version": 1, "added": 1, "removed": 1 } } } } }], "_meta": { "lithe": { "diffs": [{ "path": "sample.txt", "oldText": "before\n", "newText": "after\n", "operation": "update", "additions": 1, "deletions": 1, "truncated": false, "revertible": true }] } } }
     },
     "claudeFileCreated": {
       "kind": "update", "sessionId": "session-1",
-      "update": { "sessionUpdate": "tool_call_update", "toolCallId": "write-create", "kind": "edit", "status": "completed", "content": [{ "type": "diff", "path": "created.txt", "newText": "created" }], "_meta": { "claudeCode": { "toolName": "Write", "toolResponse": { "type": "create", "filePath": "created.txt", "content": "created\n", "originalFile": null, "structuredPatch": [] } } } }
+      "update": { "sessionUpdate": "tool_call_update", "toolCallId": "write-create", "kind": "edit", "status": "completed", "content": [{ "type": "diff", "path": "created.txt", "newText": "created" }], "_meta": { "claudeCode": { "toolName": "Write", "toolResponse": { "type": "create", "filePath": "created.txt", "content": "created\n", "originalFile": null, "structuredPatch": [] } }, "lithe": { "diffs": [{ "path": "created.txt", "oldText": null, "newText": "created\n", "operation": "add", "additions": null, "deletions": null, "truncated": false, "revertible": true }] } } }
     },
     "claudeFileWriteUpdated": {
       "kind": "update", "sessionId": "session-1",
-      "update": { "sessionUpdate": "tool_call_update", "toolCallId": "write-update", "kind": "edit", "status": "completed", "content": [{ "type": "diff", "path": "updated.txt", "oldText": "before", "newText": "after" }], "_meta": { "claudeCode": { "toolName": "Write", "toolResponse": { "type": "update", "filePath": "updated.txt", "content": "after\n", "originalFile": "before\n", "structuredPatch": [] } } } }
+      "update": { "sessionUpdate": "tool_call_update", "toolCallId": "write-update", "kind": "edit", "status": "completed", "content": [{ "type": "diff", "path": "updated.txt", "oldText": "before", "newText": "after" }], "_meta": { "claudeCode": { "toolName": "Write", "toolResponse": { "type": "update", "filePath": "updated.txt", "content": "after\n", "originalFile": "before\n", "structuredPatch": [] } }, "lithe": { "diffs": [{ "path": "updated.txt", "oldText": "before\n", "newText": "after\n", "operation": "update", "additions": null, "deletions": null, "truncated": false, "revertible": true }] } } }
     },
     "codexRetry": {
       "kind": "update", "sessionId": "session-1",
@@ -259,6 +259,12 @@
         "firstTokenMs": 820, "durationMs": 6400,
         "usage": { "inputTokens": 1200, "cacheReadTokens": 42000, "cacheWriteTokens": 800, "outputTokens": 640 },
         "context": { "systemPromptTokens": 4500, "toolTokens": 3500, "mcpToolTokens": 14000, "messageTokens": 22000, "toolCount": 18, "mcpToolCount": 40, "scaledToUsage": true }
+      },
+      "statistics": {
+        "requests": 1, "steps": 1, "failedSteps": 0, "nonStreamingSteps": 0, "durationMs": 6400,
+        "inputTokens": 1200, "cacheReadTokens": 42000, "cacheWriteTokens": 800, "outputTokens": 640, "callsWithUsage": 1,
+        "firstTokenMs": 820, "firstTokenCount": 1, "generationMs": 5580, "generatedTokens": 640,
+        "context": { "systemPromptTokens": 4500, "toolTokens": 3500, "mcpToolTokens": 14000, "messageTokens": 22000, "toolCount": 18, "mcpToolCount": 40, "scaledToUsage": true }
       }
     },
     "modelCallAfterTurn": {
@@ -270,6 +276,12 @@
         "firstTokenMs": 820, "durationMs": 6400,
         "usage": { "inputTokens": 1200, "cacheReadTokens": 42000, "cacheWriteTokens": 800, "outputTokens": 640 },
         "context": { "systemPromptTokens": 4500, "toolTokens": 3500, "mcpToolTokens": 14000, "messageTokens": 22000, "toolCount": 18, "mcpToolCount": 40, "scaledToUsage": true }
+      },
+      "statistics": {
+        "requests": 1, "steps": 1, "failedSteps": 0, "nonStreamingSteps": 0, "durationMs": 6400,
+        "inputTokens": 1200, "cacheReadTokens": 42000, "cacheWriteTokens": 800, "outputTokens": 640, "callsWithUsage": 1,
+        "firstTokenMs": 820, "firstTokenCount": 1, "generationMs": 5580, "generatedTokens": 640,
+        "context": { "systemPromptTokens": 4500, "toolTokens": 3500, "mcpToolTokens": 14000, "messageTokens": 22000, "toolCount": 18, "mcpToolCount": 40, "scaledToUsage": true }
       }
     },
     "modelCallNonStreaming": {
@@ -278,6 +290,11 @@
       "call": {
         "api": "responses", "status": 200, "streaming": false, "durationMs": 3000,
         "usage": { "inputTokens": 500, "cacheReadTokens": 0, "cacheWriteTokens": 0, "outputTokens": 300, "reasoningTokens": 100 }
+      },
+      "statistics": {
+        "requests": 1, "steps": 1, "failedSteps": 0, "nonStreamingSteps": 1, "durationMs": 3000,
+        "inputTokens": 500, "cacheReadTokens": 0, "cacheWriteTokens": 0, "outputTokens": 300, "reasoningTokens": 100, "callsWithUsage": 1,
+        "firstTokenMs": 0, "firstTokenCount": 0, "generationMs": 0, "generatedTokens": 0
       }
     },
     "turnFinished": { "kind": "turnFinished", "sessionId": "session-1", "stopReason": "end_turn" },

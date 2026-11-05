@@ -1,6 +1,9 @@
 // Note: .agents/notes/implemented/feature/2026-09-22-windows-ai-commit-design.md
 // Native configuration, credential, cancellation and HTTP boundary. Core owns pure rules.
-use lithe_core::ai::{self, CommitFile, CommitOptions, DetectedConfiguration, Provider};
+use lithe_core::ai::{
+    self, CommitFile, CommitOptions, CommitRequestPlan, ConfigurationFile, ConfigurationFiles,
+    DetectedConfiguration, Provider, PullRequestComparison, PullRequestOptions,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
@@ -54,50 +57,29 @@ fn read_optional(path: &Path) -> Result<String, String> {
     Ok(text)
 }
 
-fn load_source(app: &AppHandle, source: &str) -> Result<Option<DetectedConfiguration>, String> {
+/// Reads the files Core names for one CLI source and applies the shared rules.
+/// The credential stays in this host process; callers never return it to the UI.
+pub(crate) fn load_source(
+    app: &AppHandle,
+    source: &str,
+) -> Result<Option<DetectedConfiguration>, String> {
     let home = app
         .path()
         .home_dir()
         .map_err(|_| "AI_COMMIT_CONFIG_READ_FAILED")?;
     let environment: BTreeMap<String, String> = std::env::vars().collect();
-    match source {
-        "codex" => {
-            let directory = environment
-                .get("CODEX_HOME")
-                .filter(|s| !s.trim().is_empty())
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| home.join(".codex"));
-            let config = read_optional(&directory.join("config.toml"))?;
-            if config.is_empty() {
-                return Ok(None);
-            }
-            let auth = read_optional(&directory.join("auth.json"))?;
-            ai::parse_codex(&config, &auth, &environment)
-                .map(Some)
-                .map_err(str::to_owned)
+    let mut files = ConfigurationFiles::default();
+    for entry in ai::configuration_sources(source, &home, &environment).map_err(str::to_owned)? {
+        let text = read_optional(&entry.path)?;
+        match entry.file {
+            ConfigurationFile::Config => files.config = text,
+            ConfigurationFile::Auth => files.auth = text,
+            ConfigurationFile::Settings => files.settings = text,
+            ConfigurationFile::Credentials => files.credentials = text,
+            ConfigurationFile::Root => files.root = text,
         }
-        "claude" => {
-            let directory = environment
-                .get("CLAUDE_CONFIG_DIR")
-                .filter(|s| !s.trim().is_empty())
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| home.join(".claude"));
-            let settings = read_optional(&directory.join("settings.json"))?;
-            let credentials = read_optional(&directory.join(".credentials.json"))?;
-            let root = read_optional(&home.join(".claude.json"))?;
-            if settings.is_empty()
-                && credentials.is_empty()
-                && root.is_empty()
-                && !environment.keys().any(|key| key.starts_with("ANTHROPIC_"))
-            {
-                return Ok(None);
-            }
-            ai::parse_claude(&settings, &credentials, &root, &environment)
-                .map(Some)
-                .map_err(str::to_owned)
-        }
-        _ => Err("AI_COMMIT_INVALID_PROVIDER".into()),
     }
+    ai::detect(source, &files, &environment).map_err(str::to_owned)
 }
 
 fn secret_key(id: &str) -> Result<String, String> {
@@ -117,6 +99,33 @@ struct GenerateArgs {
     provider: Provider,
     options: CommitOptions,
     files: Vec<CommitFile>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullRequestArgs {
+    operation_id: String,
+    provider: Provider,
+    options: PullRequestOptions,
+    comparison: PullRequestComparison,
+}
+
+/// Registers a cancellable request; the guard removes it when the request ends.
+fn begin_operation(
+    operation_id: &str,
+) -> Result<(Operation, tokio::sync::watch::Receiver<bool>), String> {
+    if operation_id.is_empty() || operation_id.len() > 128 {
+        return Err("AI_COMMIT_INVALID_OPTIONS".into());
+    }
+    let (sender, receiver) = tokio::sync::watch::channel(false);
+    let mut operations = cancellations()
+        .lock()
+        .map_err(|_| "AI_COMMIT_INTERNAL_ERROR")?;
+    if operations.len() >= 4 || operations.contains_key(operation_id) {
+        return Err("AI_COMMIT_BUSY".into());
+    }
+    operations.insert(operation_id.to_owned(), sender);
+    Ok((Operation(operation_id.to_owned()), receiver))
 }
 
 pub async fn dispatch(app: AppHandle, command: &str, args: Value) -> Result<Value, String> {
@@ -179,23 +188,19 @@ pub async fn dispatch(app: AppHandle, command: &str, args: Value) -> Result<Valu
         "ai_commit_generate" => {
             let args: GenerateArgs =
                 serde_json::from_value(args).map_err(|_| "AI_COMMIT_INVALID_OPTIONS")?;
-            if args.operation_id.is_empty() || args.operation_id.len() > 128 {
-                return Err("AI_COMMIT_INVALID_OPTIONS".into());
-            }
-            let (sender, mut receiver) = tokio::sync::watch::channel(false);
-            {
-                let mut operations = cancellations()
-                    .lock()
-                    .map_err(|_| "AI_COMMIT_INTERNAL_ERROR")?;
-                if operations.len() >= 4 || operations.contains_key(&args.operation_id) {
-                    return Err("AI_COMMIT_BUSY".into());
-                }
-                operations.insert(args.operation_id.clone(), sender);
-            }
-            let _operation = Operation(args.operation_id.clone());
+            let (_operation, mut receiver) = begin_operation(&args.operation_id)?;
             tokio::select! {
                 _ = receiver.changed() => Err("AI_COMMIT_CANCELLED".into()),
                 result = tokio::time::timeout(Duration::from_secs(45), generate(app, args)) => result.map_err(|_| "AI_COMMIT_TIMEOUT")?,
+            }
+        }
+        "ai_commit_pull_request" => {
+            let args: PullRequestArgs =
+                serde_json::from_value(args).map_err(|_| "AI_COMMIT_INVALID_OPTIONS")?;
+            let (_operation, mut receiver) = begin_operation(&args.operation_id)?;
+            tokio::select! {
+                _ = receiver.changed() => Err("AI_COMMIT_CANCELLED".into()),
+                result = tokio::time::timeout(Duration::from_secs(45), generate_pull_request(app, args)) => result.map_err(|_| "AI_COMMIT_TIMEOUT")?,
             }
         }
         _ => Err("AI_COMMIT_INVALID_OPTIONS".into()),
@@ -203,8 +208,28 @@ pub async fn dispatch(app: AppHandle, command: &str, args: Value) -> Result<Valu
 }
 
 async fn generate(app: AppHandle, args: GenerateArgs) -> Result<Value, String> {
+    let (provider, credential) = resolve_provider(app, args.provider).await?;
+    let plan = ai::plan_commit(&provider, &args.options, &args.files)?;
+    let response = send(&provider, credential, plan).await?;
+    let message = ai::decode_message(&provider.api_protocol, &response, args.options.include_body)?;
+    Ok(json!({"message":message}))
+}
+
+async fn generate_pull_request(app: AppHandle, args: PullRequestArgs) -> Result<Value, String> {
+    let (provider, credential) = resolve_provider(app, args.provider).await?;
+    let plan = ai::plan_pull_request(&provider, &args.options, &args.comparison)?;
+    let response = send(&provider, credential, plan).await?;
+    let description = ai::decode_pull_request(&provider.api_protocol, &response)?;
+    serde_json::to_value(description).map_err(|_| "AI_COMMIT_INTERNAL_ERROR".into())
+}
+
+/// Refreshes imported profiles from their source and reads the credential natively.
+async fn resolve_provider(
+    app: AppHandle,
+    provider: Provider,
+) -> Result<(Provider, Option<String>), String> {
     let (provider, credential) = tauri::async_runtime::spawn_blocking(move || {
-        let mut provider = args.provider;
+        let mut provider = provider;
         let credential = if provider.source == "local" {
             crate::secure_storage::get_secure_secret(app, secret_key(&provider.id)?)
                 .map_err(|_| "AI_COMMIT_KEY_FAILED")?
@@ -222,7 +247,15 @@ async fn generate(app: AppHandle, args: GenerateArgs) -> Result<Value, String> {
     .await
     .map_err(|_| "AI_COMMIT_INTERNAL_ERROR")??;
     validate_credential_requirement(&provider, credential.as_deref()).map_err(str::to_owned)?;
-    let plan = ai::plan_commit(&provider, &args.options, &args.files)?;
+    Ok((provider, credential))
+}
+
+/// Sends a Core-planned request and returns the bounded JSON response.
+async fn send(
+    provider: &Provider,
+    credential: Option<String>,
+    plan: CommitRequestPlan,
+) -> Result<Value, String> {
     // Never follow a redirect carrying credentials to a different server.
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -264,10 +297,7 @@ async fn generate(app: AppHandle, args: GenerateArgs) -> Result<Value, String> {
         }
         bytes.extend_from_slice(&chunk);
     }
-    let response: Value =
-        serde_json::from_slice(&bytes).map_err(|_| "AI_COMMIT_INVALID_RESPONSE")?;
-    let message = ai::decode_message(&provider.api_protocol, &response, args.options.include_body)?;
-    Ok(json!({"message":message}))
+    serde_json::from_slice(&bytes).map_err(|_| "AI_COMMIT_INVALID_RESPONSE".into())
 }
 
 #[cfg(test)]
