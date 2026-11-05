@@ -1,12 +1,16 @@
 import Foundation
 import LitheCoreContracts
 
-/// macOS fallback used when Rust cannot provide a workspace snapshot.
+/// Native recursive scan of a workspace. Production listings come from
+/// `workspace.listDirectories`; the plugin file service reuses the nested
+/// worktree check below.
 struct FileSystemWorkspaceSnapshotBuilder {
     private let fileManager: FileManager
+    private let core: RustCoreBridge
 
-    init(fileManager: FileManager = .default) {
+    init(fileManager: FileManager = .default, core: RustCoreBridge = RustCoreBridge()) {
         self.fileManager = fileManager
+        self.core = core
     }
 
     func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
@@ -16,61 +20,6 @@ struct FileSystemWorkspaceSnapshotBuilder {
         var nestedWorktrees: [URL] = []
         guard let root = scan(rootURL, rootURL: rootURL, visibilityRules: visibilityRules, nestedWorktrees: &nestedWorktrees, isRoot: true) else { return nil }
         return WorkspaceSnapshot(root: root, files: root.fileURLs, nestedWorktrees: nestedWorktrees.sorted { $0.path < $1.path })
-    }
-
-    /// One visible level below each directory, filtered like `scan`.
-    func listDirectories(
-        _ directories: [URL],
-        at rootURL: URL,
-        visibilityRules: FileVisibilityRules
-    ) -> [String: [ProjectDirectoryEntry]] {
-        var result: [String: [ProjectDirectoryEntry]] = [:]
-        for directory in directories {
-            var isDirectory: ObjCBool = false
-            guard fileManager.fileExists(atPath: directory.path, isDirectory: &isDirectory),
-                  isDirectory.boolValue,
-                  let childURLs = try? fileManager.contentsOfDirectory(
-                      at: directory,
-                      includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-                      options: []
-                  ) else { continue }
-            let entries = NaturalNameOrder.sortedAsProjectTreeSiblings(
-                childURLs.compactMap { url -> ProjectDirectoryEntry? in
-                    guard let isDirectory = visibleEntry(url, rootURL: rootURL, visibilityRules: visibilityRules) else { return nil }
-                    return ProjectDirectoryEntry(
-                        url: directory.appendingPathComponent(url.lastPathComponent),
-                        isDirectory: isDirectory,
-                        isEmptyDirectory: isDirectory && isVisiblyEmpty(url, rootURL: rootURL, visibilityRules: visibilityRules)
-                    )
-                },
-                isDirectory: \.isDirectory,
-                name: { $0.url.lastPathComponent }
-            )
-            result[directory.standardizedFileURL.path] = entries
-        }
-        return result
-    }
-
-    private func visibleEntry(_ url: URL, rootURL: URL, visibilityRules: FileVisibilityRules) -> Bool? {
-        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
-              values.isSymbolicLink != true else { return nil }
-        let isDirectory = values.isDirectory == true
-        guard !visibilityRules.isHidden(url, relativeTo: rootURL, isDirectory: isDirectory),
-              !(isDirectory && isNestedLinkedWorktree(url)) else { return nil }
-        return isDirectory
-    }
-
-    /// Stop at the first visible child; do not build or sort another directory listing.
-    private func isVisiblyEmpty(_ url: URL, rootURL: URL, visibilityRules: FileVisibilityRules) -> Bool {
-        var failed = false
-        guard let entries = fileManager.enumerator(
-            at: url, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-            options: [.skipsSubdirectoryDescendants], errorHandler: { _, _ in failed = true; return false }
-        ) else { return false }
-        while let child = entries.nextObject() as? URL {
-            if visibleEntry(child, rootURL: rootURL, visibilityRules: visibilityRules) != nil { return false }
-        }
-        return !failed
     }
 
     private func scan(_ url: URL, rootURL: URL, visibilityRules: FileVisibilityRules, nestedWorktrees: inout [URL], isRoot: Bool = false) -> FileNode? {
@@ -85,12 +34,12 @@ struct FileSystemWorkspaceSnapshotBuilder {
             return nil
         }
         let childURLs = (try? fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey], options: [])) ?? []
-        let children = NaturalNameOrder.sortedAsProjectTreeSiblings(
-            childURLs.compactMap { scan($0, rootURL: rootURL, visibilityRules: visibilityRules, nestedWorktrees: &nestedWorktrees) },
-            isDirectory: \.isDirectory,
-            name: \.name
-        )
-        return FileNode(url: url, isDirectory: true, children: children)
+        let scanned = childURLs.compactMap { scan($0, rootURL: rootURL, visibilityRules: visibilityRules, nestedWorktrees: &nestedWorktrees) }
+        // Sibling order comes from Core, like every Project tree listing.
+        guard let order = core.orderEntries(scanned.map {
+            RustCoreBridge.OrderedEntry(name: $0.name, isDirectory: $0.isDirectory)
+        }) else { return nil }
+        return FileNode(url: url, isDirectory: true, children: order.map { scanned[$0] })
     }
 
     /// Mirrors Rust Core's `is_nested_linked_worktree`: a `.git` pointer file

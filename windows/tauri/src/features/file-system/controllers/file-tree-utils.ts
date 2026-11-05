@@ -1,17 +1,6 @@
 import type { FileEntry } from "../types/app.types";
 import { getDirName } from "@/utils/path-helpers";
 
-export function sortFileEntries(entries: FileEntry[]): FileEntry[] {
-  return entries.sort((a, b) => {
-    // Directories come first
-    if (a.isDir && !b.isDir) return -1;
-    if (!a.isDir && b.isDir) return 1;
-
-    // Then sort alphabetically (case-insensitive)
-    return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
-  });
-}
-
 export function findFileInTree(files: FileEntry[], targetPath: string): FileEntry | null {
   for (const file of files) {
     if (file.path === targetPath) {
@@ -136,8 +125,13 @@ function isDirectoryChildrenRoot(files: FileEntry[], parentPath: string): boolea
   return parentPath === getDirName(files[0].path);
 }
 
-function appendSortedFile(files: FileEntry[], newFile: FileEntry): FileEntry[] {
-  return sortFileEntries([...files, newFile]);
+/**
+ * Inserts without comparing names; callers reorder the parent through Core
+ * (`orderFileEntries`). A new-item placeholder has an empty name, which Core
+ * always orders first, so it is placed there directly.
+ */
+function appendChild(files: FileEntry[], newFile: FileEntry): FileEntry[] {
+  return newFile.isNewItem && newFile.name === "" ? [newFile, ...files] : [...files, newFile];
 }
 
 export function addFileToTree(
@@ -147,20 +141,20 @@ export function addFileToTree(
 ): FileEntry[] {
   // If parentPath is empty or root, add to top level
   if (!parentPath || parentPath === "/" || parentPath === "\\") {
-    return appendSortedFile(files, newFile);
+    return appendChild(files, newFile);
   }
 
   // Check if parentPath matches the root folder (when files are direct children of parentPath)
   // This happens when creating files in the root directory
   if (isDirectoryChildrenRoot(files, parentPath)) {
-    return appendSortedFile(files, newFile);
+    return appendChild(files, newFile);
   }
 
   let changed = false;
   const result = files.map((file) => {
     if (file.path === parentPath && file.isDir) {
       changed = true;
-      const children = appendSortedFile(file.children || [], newFile);
+      const children = appendChild(file.children || [], newFile);
       return { ...file, children };
     }
     if (file.children) {
@@ -176,4 +170,25 @@ export function addFileToTree(
     return file;
   });
   return changed ? result : files;
+}
+
+/** The sibling array `addFileToTree` inserts into for `parentPath`, if loaded. */
+export function getChildrenForParent(files: FileEntry[], parentPath: string): FileEntry[] | null {
+  if (!parentPath || parentPath === "/" || parentPath === "\\" || isDirectoryChildrenRoot(files, parentPath)) {
+    return files;
+  }
+  const parent = findFileInTree(files, parentPath);
+  return parent?.isDir && parent.children ? parent.children : null;
+}
+
+/** Replaces the sibling array `getChildrenForParent` returns for `parentPath`. */
+export function replaceChildrenForParent(
+  files: FileEntry[],
+  parentPath: string,
+  children: FileEntry[],
+): FileEntry[] {
+  if (!parentPath || parentPath === "/" || parentPath === "\\" || isDirectoryChildrenRoot(files, parentPath)) {
+    return children;
+  }
+  return updateFileInTree(files, parentPath, (file) => (file.isDir ? { ...file, children } : file));
 }

@@ -113,9 +113,8 @@ struct ProjectTreeLoaderTests {
         try Data().write(to: root.appendingPathComponent("hidden-only/ignored.tmp"))
         try FileManager.default.createDirectory(at: root.appendingPathComponent("parent/empty"), withIntermediateDirectories: true)
         let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: ["*.tmp"])
-        let builder = FileSystemWorkspaceSnapshotBuilder()
-        let loader = ProjectTreeLoader { builder.listDirectories($0, at: root, visibilityRules: rules) }
-        let rows = try #require(loader.childRows(of: [FileNode(url: root, isDirectory: true, children: nil)])?[root.path])
+        let operations = RustWorkspaceOperations(core: RustCoreBridge())
+        let rows = try #require(operations.childRows(of: [FileNode(url: root, isDirectory: true, children: nil)], at: root, visibilityRules: rules)?[root.path])
         #expect(rows.first { $0.name == "logs" }?.children?.isEmpty == true)
         #expect(rows.first { $0.name == "hidden-only" }?.children?.isEmpty == true)
         #expect(rows.first { $0.name == "parent" }?.isUnloadedDirectory == true)

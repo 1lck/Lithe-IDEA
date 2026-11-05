@@ -89,13 +89,15 @@ import {
   hasOpenProjectWorkspace,
 } from "../controllers/project-open-destination";
 import {
-  addFileToTree,
+  addFileToTree as insertFileTreeEntry,
   findFileInTree,
+  getChildrenForParent,
   loadFolderExpansion,
   removeFileFromTree,
-  sortFileEntries,
+  replaceChildrenForParent,
   updateFileInTree,
 } from "../controllers/file-tree-utils";
+import { orderEntriesBy, orderFileEntries } from "../utils/entry-order";
 import {
   getFilenameFromPath,
   isBinaryFile,
@@ -227,8 +229,7 @@ const syncFffWorkspace = async (get: FileSystemGet, workspaceId: string): Promis
 
 const readWorkspaceRootEntry = async (path: string): Promise<FileEntry> => {
   const projectName = getFolderName(path);
-  const entries = await readProviderDirectoryEntries(path);
-  const fileTree = sortFileEntries(entries);
+  const fileTree = await readProviderDirectoryEntries(path);
   return wrapWithRootFolder(fileTree, path, projectName)[0];
 };
 
@@ -265,7 +266,7 @@ const readProviderDirectoryEntries = async (
       connectionId: remoteInfo.connectionId,
       path: remoteInfo.remotePath,
     });
-    return toRemoteFileEntries(remoteInfo.connectionId, entries);
+    return orderFileEntries(toRemoteFileEntries(remoteInfo.connectionId, entries));
   }
 
   const wslInfo = parseWslPath(path);
@@ -274,10 +275,10 @@ const readProviderDirectoryEntries = async (
       distro: wslInfo.distro,
       path: wslInfo.linuxPath,
     });
-    return toWslFileEntries(entries);
+    return orderFileEntries(toWslFileEntries(entries));
   }
 
-  return sortFileEntries(await readDirectoryContents(path, workspaceRoot));
+  return orderFileEntries(await readDirectoryContents(path, workspaceRoot));
 };
 
 const pendingWorkspaceSessionWrites = new Map<string, ReturnType<typeof setTimeout>>();
@@ -732,7 +733,7 @@ const openLocalWorkspace = async (
     const entries = await readDirectoryContents(path);
     logWorkspaceOpenStep("end", "readDirectoryContents", path, readDirectoryStartedAt);
 
-    const fileTree = sortFileEntries(entries);
+    const fileTree = await orderFileEntries(entries);
     const wrappedFileTree = wrapWithRootFolder(fileTree, path, folderName);
 
     if (treeState === "expand-root") {
@@ -891,6 +892,48 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
   let sessionRestoreGeneration = 0;
   let deferredAiSession: ReturnType<typeof readPersistedAiWorkspaceSession> | undefined;
   const coordinateProjectFileScan = createProjectFileScanCoordinator<FileEntry[]>();
+  // Insertions append without comparing names; each touched parent is then
+  // reordered by Core once per microtask. A result is applied only while the
+  // parent still holds the same children, so a newer change is never undone.
+  const pendingChildrenOrders = new Set<string>();
+  const reorderChildren = async (parentPath: string) => {
+    const children = getChildrenForParent(store.getState().files, parentPath);
+    if (!children || children.length < 2) return;
+    const ordered = await orderFileEntries(children);
+    store.setState((state) => {
+      const current = getChildrenForParent(state.files, parentPath);
+      if (
+        !current ||
+        current.length !== children.length ||
+        current.some((child, index) => child.path !== children[index]?.path)
+      ) {
+        return;
+      }
+      const currentByPath = new Map(current.map((child) => [child.path, child]));
+      state.files = replaceChildrenForParent(
+        state.files,
+        parentPath,
+        ordered.map((child) => currentByPath.get(child.path) ?? child),
+      );
+      state.filesVersion++;
+    });
+  };
+  const addFileToTree: typeof insertFileTreeEntry = (files, parentPath, newFile) => {
+    if (pendingChildrenOrders.size === 0) {
+      queueMicrotask(() => {
+        const parents = [...pendingChildrenOrders];
+        pendingChildrenOrders.clear();
+        for (const parent of parents) {
+          reorderChildren(parent).catch((error) => {
+            // The entry stays visible at its inserted position; the next load reorders it.
+            console.error("[file-tree] Core sibling order failed:", error);
+          });
+        }
+      });
+    }
+    pendingChildrenOrders.add(parentPath);
+    return insertFileTreeEntry(files, parentPath, newFile);
+  };
 
   const store = createStore<ScopedFileSystemStoreState>()(
     immer((set, get) => ({
@@ -1508,7 +1551,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           const { remotePath, wrappedFileTree } = buildRemoteWorkspaceTree(
             connectionId,
             connection.name,
-            entries,
+            await orderEntriesBy(entries, (entry) => entry.is_dir),
           );
 
           // Add project to workspace tabs
@@ -1605,7 +1648,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           const { wslPath, wrappedFileTree } = buildWslWorkspaceTree(
             distro,
             normalizedLinuxPath,
-            entries,
+            await orderEntriesBy(entries, (entry) => entry.is_dir),
           );
           const projectName = getWslProjectName(distro, normalizedLinuxPath);
 

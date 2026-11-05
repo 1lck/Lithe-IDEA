@@ -55,8 +55,8 @@ struct ProjectTreeNameOrderTests {
         let zeta = try #require(snapshot.root.children?.first { $0.name == "zeta" })
         #expect((zeta.children ?? []).map(\.name) == ["part2", "part10"])
 
-        let listed = builder.listDirectories([root], at: root, visibilityRules: rules)
-        let listedNames = try #require(listed[root.standardizedFileURL.path]).map { $0.url.lastPathComponent }
+        let listed = try #require(RustWorkspaceOperations(core: RustCoreBridge()).rootRows(at: root, visibilityRules: rules))
+        let listedNames = listed.map { $0.url.lastPathComponent }
         #expect(listedNames == rootNames)
     }
 
@@ -68,7 +68,7 @@ struct ProjectTreeNameOrderTests {
         }
         var tree = FileNode(url: root, isDirectory: true, children: [row("v0.1.4.md"), row("v0.1.13.md"), row("v0.2.0.md")])
         for name in ["v0.1.5.md", "v0.1.12.md", "TEMPLATE.md"] {
-            guard case .updated(let updated) = tree.inserting(file: root.appendingPathComponent(name)) else {
+            guard case .updated(let updated) = tree.inserting(file: root.appendingPathComponent(name), order: coreTreeOrder) else {
                 Issue.record("Inserting \(name) should update the loaded directory")
                 return
             }
@@ -78,4 +78,9 @@ struct ProjectTreeNameOrderTests {
             "TEMPLATE.md", "v0.1.4.md", "v0.1.5.md", "v0.1.12.md", "v0.1.13.md", "v0.2.0.md",
         ])
     }
+}
+
+/// Orders rows with the same Core entry-order command production uses.
+func coreTreeOrder(_ rows: [FileNode]) -> [FileNode]? {
+    RustWorkspaceOperations(core: RustCoreBridge()).orderedTreeSiblings(rows)
 }

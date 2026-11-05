@@ -199,6 +199,10 @@ struct RemoteRoutingWorkspaceOperations: WorkspaceOperations {
         local.rootRows(at: rootURL, visibilityRules: visibilityRules)
     }
 
+    func orderedTreeSiblings(_ rows: [FileNode]) -> [FileNode]? {
+        local.orderedTreeSiblings(rows)
+    }
+
     func warmSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules) {
         local.warmSearchIndex(at: rootURL, visibilityRules: visibilityRules)
     }
