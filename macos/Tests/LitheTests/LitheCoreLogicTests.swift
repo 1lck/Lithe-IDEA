@@ -1844,27 +1844,33 @@ struct LitheCoreLogicTests {
     }
 
     @Test
-    func localHistoryDiffBuilderProducesChangedRow() {
-        let rows = LocalHistoryDiffBuilder.rows(old: "before\n", current: "after\n")
-
-        #expect(rows.count == 1)
-        #expect(rows[0].kind == .changed)
-        #expect(rows[0].left == "before")
-        #expect(rows[0].rightText == "after")
-    }
-
-    @Test
-    func localHistoryDiffPairsSimilarLinesAndSeparatesUnrelatedOnes() {
-        // The added comment used to be paired positionally with the statement,
-        // labelling two unrelated lines as one modification.
-        let rows = LocalHistoryDiffBuilder.rows(
-            old: "let total = compute(a, b)\n",
-            current: "// recompute\nlet total = compute(a, b, c)\n"
-        )
-
-        #expect(rows.map(\.kind) == [.addition, .changed])
-        #expect(rows[1].left == "let total = compute(a, b)")
-        #expect(rows[1].rightText == "let total = compute(a, b, c)")
+    func textComparisonMatchesSharedFixture() throws {
+        // Local History, Agent and VCS provider diffs all render these Core rows,
+        // so the bridge must preserve every kind, line number, and side.
+        struct Fixture: Decodable {
+            struct Case: Decodable {
+                struct Expected: Decodable {
+                    struct Row: Decodable { let oldLine: Int?; let newLine: Int?; let left: String?; let right: String?; let kind: String }
+                    let rows: [Row]
+                }
+                let name: String
+                let oldText: String
+                let newText: String
+                let expected: Expected
+            }
+            let cases: [Case]
+        }
+        let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: repository.appendingPathComponent("shared/fixtures/diff/compare-texts-v1.json"))
+        for item in try JSONDecoder().decode(Fixture.self, from: data).cases {
+            let rows = try #require(RustCoreBridge().compareTexts(old: item.oldText, current: item.newText), "\(item.name)")
+            #expect(rows.map(\.oldLine) == item.expected.rows.map(\.oldLine), "\(item.name)")
+            #expect(rows.map(\.newLine) == item.expected.rows.map(\.newLine), "\(item.name)")
+            #expect(rows.map(\.left) == item.expected.rows.map(\.left), "\(item.name)")
+            #expect(rows.map(\.rightText) == item.expected.rows.map { $0.kind == "context" ? $0.left : $0.right }, "\(item.name)")
+            #expect(rows.map { "\($0.kind)" } == item.expected.rows.map(\.kind), "\(item.name)")
+        }
     }
 
     @Test
@@ -6218,13 +6224,13 @@ struct EditorDocumentTests {
 
         let app = package.appendingPathComponent("App.java")
         let license = root.appendingPathComponent("LICENSE")
-        let withApp = try #require(Self.updatedTree(tree.inserting(file: app)))
-        let inserted = try #require(Self.updatedTree(withApp.inserting(file: license)))
+        let withApp = try #require(Self.updatedTree(tree.inserting(file: app, order: coreTreeOrder)))
+        let inserted = try #require(Self.updatedTree(withApp.inserting(file: license, order: coreTreeOrder)))
         #expect(inserted.fileURLs == [app, main, license, readme])
-        #expect(Self.isUnchanged(inserted.inserting(file: app)))
+        #expect(Self.isUnchanged(inserted.inserting(file: app, order: coreTreeOrder)))
         // A file in a collapsed middle package would split the compact row.
-        #expect(Self.isReload(tree.inserting(file: source.appendingPathComponent("com/New.java"))))
-        #expect(Self.isReload(tree.inserting(file: root.appendingPathComponent("new/New.java"))))
+        #expect(Self.isReload(tree.inserting(file: source.appendingPathComponent("com/New.java"), order: coreTreeOrder)))
+        #expect(Self.isReload(tree.inserting(file: root.appendingPathComponent("new/New.java"), order: coreTreeOrder)))
 
         #expect(Self.updatedTree(inserted.removing(file: readme))?.fileURLs == [app, main, license])
         #expect(Self.isUnchanged(tree.removing(file: package)))
@@ -6270,8 +6276,8 @@ struct EditorDocumentTests {
         #expect(row.url == docs)
         #expect(tree.displayedNode(for: guide) == nil)
         #expect(tree.node(exactlyAt: docs)?.isUnloadedDirectory == true)
-        #expect(Self.isUnchanged(tree.inserting(file: guide)))
-        #expect(Self.isUnchanged(tree.inserting(file: docs.appendingPathComponent("README.md"))))
+        #expect(Self.isUnchanged(tree.inserting(file: guide, order: coreTreeOrder)))
+        #expect(Self.isUnchanged(tree.inserting(file: docs.appendingPathComponent("README.md"), order: coreTreeOrder)))
         #expect(tree.unloadedRows(expandedPaths: [root.path]).isEmpty)
         #expect(tree.unloadedRows(expandedPaths: [root.path, docs.path, source.path]).map(\.url) == [docs, source])
         #expect(tree.unloadedRows(expandedPaths: [docs.path]).isEmpty)
@@ -7132,6 +7138,7 @@ private final class BlockingBinaryWorkspaceOperations: WorkspaceOperations, @unc
 }
 
 private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecked Sendable {
+    func orderedTreeSiblings(_ rows: [FileNode]) -> [FileNode]? { coreTreeOrder(rows) }
     private let lock = NSLock()
     private var snapshotAvailability: [Bool]
     private let files: [URL]

@@ -33,6 +33,8 @@ struct RustLocalHistoryOperations: LocalHistoryOperations, Sendable {
 
     func clear(at storageURL: URL) -> Bool { core.historyClear(storageURL: storageURL) }
 
+    func compareTexts(old: String, current: String) -> [LocalHistoryDiffRow]? { core.compareTexts(old: old, current: current) }
+
     func ignorePreview(path: String?, rules: LocalHistoryVisibilityRules, workspaceURL: URL?) -> LocalHistoryIgnorePreview? {
         guard let value = core.historyIgnorePreview(
             path: path,

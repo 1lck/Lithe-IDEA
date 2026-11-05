@@ -210,7 +210,7 @@ function FileLocalHistoryCommandContent({
   }, [targetPath]);
 
   const openDiff = useCallback(
-    (params: { title: string; oldContent: string; newContent: string }) => {
+    async (params: { title: string; oldContent: string; newContent: string }) => {
       if (!targetPath) return;
 
       if (params.oldContent === params.newContent) {
@@ -218,7 +218,7 @@ function FileLocalHistoryCommandContent({
         return;
       }
 
-      const diff = createLocalHistoryDiff({
+      const diff = await createLocalHistoryDiff({
         filePath: targetPath,
         oldContent: params.oldContent,
         newContent: params.newContent,
@@ -250,7 +250,7 @@ function FileLocalHistoryCommandContent({
           getCurrentContent(),
         ]);
 
-        openDiff({
+        await openDiff({
           title: `${fileName}: ${getEntryTitle(entry)} vs Current`,
           oldContent: snapshotContent,
           newContent: currentContent,
@@ -280,7 +280,7 @@ function FileLocalHistoryCommandContent({
           readLocalHistoryEntry(targetPath, entry.id),
         ]);
 
-        openDiff({
+        await openDiff({
           title: `${fileName}: ${getEntryTitle(previousEntry)} vs ${getEntryTitle(entry)}`,
           oldContent: previousContent,
           newContent: snapshotContent,

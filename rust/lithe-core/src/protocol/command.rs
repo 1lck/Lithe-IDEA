@@ -282,10 +282,14 @@ pub enum CoreCommand {
     WorkspaceReleaseIndexing,
     /// Lists the visible children of project directories (`workspace.listDirectories`).
     WorkspaceListDirectories,
+    /// Orders natively enumerated directory siblings (`workspace.orderEntries`).
+    WorkspaceOrderEntries,
     /// Filter ordinary workspace-relative event paths using shared defaults.
     WorkspaceFilterChanges,
     /// Finds Git repositories that belong to an opened workspace (`workspace.repositories`).
     WorkspaceRepositories,
+    /// Applies one action to the recent project list (`workspace.recentProjects.reduce`).
+    WorkspaceRecentProjectsReduce,
     /// Builds or reuses the workspace search index (`workspace.searchIndex.warm`).
     WorkspaceSearchIndexWarm,
     /// Applies changed paths to the search index (`workspace.searchIndex.update`).
@@ -332,6 +336,8 @@ pub enum CoreCommand {
     HistoryUsage,
     /// Deletes every snapshot of one project (`history.clear`).
     HistoryClear,
+    /// Compares two host-supplied texts line by line (`diff.compareTexts`).
+    DiffCompareTexts,
     /// Inspects a declared Maven reactor (`maven.scan`).
     MavenScan,
     /// Produces a deterministic Maven invocation (`maven.launchPlan`).
@@ -916,7 +922,9 @@ impl CoreCommand {
             "workspace.refreshIndexing" => Some(Self::WorkspaceRefreshIndexing),
             "workspace.filterChanges" => Some(Self::WorkspaceFilterChanges),
             "workspace.listDirectories" => Some(Self::WorkspaceListDirectories),
+            "workspace.orderEntries" => Some(Self::WorkspaceOrderEntries),
             "workspace.repositories" => Some(Self::WorkspaceRepositories),
+            "workspace.recentProjects.reduce" => Some(Self::WorkspaceRecentProjectsReduce),
             "workspace.searchIndex.warm" => Some(Self::WorkspaceSearchIndexWarm),
             "workspace.searchIndex.update" => Some(Self::WorkspaceSearchIndexUpdate),
             "workspace.searchIndex.invalidate" => Some(Self::WorkspaceSearchIndexInvalidate),
@@ -941,6 +949,7 @@ impl CoreCommand {
             "history.ignorePreview" => Some(Self::HistoryIgnorePreview),
             "history.usage" => Some(Self::HistoryUsage),
             "history.clear" => Some(Self::HistoryClear),
+            "diff.compareTexts" => Some(Self::DiffCompareTexts),
             "maven.scan" => Some(Self::MavenScan),
             "maven.launchPlan" => Some(Self::MavenLaunchPlan),
             "execution.resolveEnvironment" => Some(Self::ExecutionResolveEnvironment),
