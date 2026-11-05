@@ -306,6 +306,9 @@ private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
 }
 
 /// Recognizes two standalone Shift taps while rejecting Shift-modified typing.
+/// It runs on every native key event, so it stays out of Core (no per-key IPC). Windows keeps the
+/// same machine in double-shift-recognizer.ts; both are tested against
+/// shared/fixtures/keymap/modifier-gesture-v1.json and must change together.
 struct DoubleShiftGestureRecognizer {
     let threshold: TimeInterval
     private(set) var shiftWasDown = false

@@ -1,3 +1,9 @@
+/**
+ * Double-Shift gesture state machine. It runs synchronously on every key event, so it
+ * deliberately stays out of Core (no per-key IPC). macOS keeps the same machine in
+ * MacShortcutDetector.swift; both are tested against
+ * shared/fixtures/keymap/modifier-gesture-v1.json and must change together.
+ */
 export const DOUBLE_SHIFT_THRESHOLD_SECONDS = 0.35;
 
 export class DoubleShiftGestureRecognizer {

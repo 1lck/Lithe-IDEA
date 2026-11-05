@@ -1,0 +1,612 @@
+{
+  "version": 1,
+  "thresholdSeconds": 0.35,
+  "sequences": [
+    {
+      "name": "two-standalone-taps-trigger",
+      "steps": [
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.0,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.05,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.2,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.25,
+          "expected": true
+        }
+      ]
+    },
+    {
+      "name": "trigger-consumes-the-pending-tap",
+      "steps": [
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.0,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.05,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.2,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.25,
+          "expected": true
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.3,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.35,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.4,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.45,
+          "expected": true
+        }
+      ]
+    },
+    {
+      "name": "typing-uppercase-between-press-and-release-is-not-a-tap",
+      "steps": [
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.0,
+          "expected": false
+        },
+        {
+          "event": "keyDown"
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.05,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.2,
+          "expected": false
+        },
+        {
+          "event": "keyDown"
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.25,
+          "expected": false
+        }
+      ]
+    },
+    {
+      "name": "key-between-two-taps-cancels",
+      "steps": [
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 2.0,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 2.05,
+          "expected": false
+        },
+        {
+          "event": "keyDown"
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 2.2,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 2.25,
+          "expected": false
+        }
+      ]
+    },
+    {
+      "name": "second-tap-after-threshold-starts-a-new-gesture",
+      "steps": [
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.0,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.05,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.5,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.55,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.7,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.75,
+          "expected": true
+        }
+      ]
+    },
+    {
+      "name": "interval-equal-to-threshold-does-not-trigger",
+      "steps": [
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.0,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.0,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.2,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.35,
+          "expected": false
+        }
+      ]
+    },
+    {
+      "name": "interval-just-under-threshold-triggers",
+      "steps": [
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.0,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.0,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.2,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.349,
+          "expected": true
+        }
+      ]
+    },
+    {
+      "name": "backwards-clock-never-triggers",
+      "steps": [
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 5.0,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 5.0,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 4.0,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 4.1,
+          "expected": false
+        }
+      ]
+    },
+    {
+      "name": "other-modifier-down-with-shift-is-not-standalone",
+      "steps": [
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": true,
+          "timestamp": 1.0,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.05,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.2,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.25,
+          "expected": false
+        }
+      ]
+    },
+    {
+      "name": "other-modifier-added-while-shift-is-held-cancels",
+      "steps": [
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.0,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.05,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.2,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": true,
+          "timestamp": 1.22,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.25,
+          "expected": false
+        }
+      ]
+    },
+    {
+      "name": "other-modifier-on-release-cancels-the-first-tap",
+      "steps": [
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.0,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": true,
+          "timestamp": 1.05,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.2,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.25,
+          "expected": false
+        }
+      ]
+    },
+    {
+      "name": "other-modifier-change-without-shift-forgets-the-tap",
+      "steps": [
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.0,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.05,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": true,
+          "timestamp": 1.1,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.2,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.25,
+          "expected": false
+        }
+      ]
+    },
+    {
+      "name": "held-shift-repeat-events-are-ignored",
+      "steps": [
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.0,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.01,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.05,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.2,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.21,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.25,
+          "expected": true
+        }
+      ]
+    },
+    {
+      "name": "release-without-press-is-ignored",
+      "steps": [
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.0,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.1,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.15,
+          "expected": false
+        }
+      ]
+    },
+    {
+      "name": "reset-drops-pending-state",
+      "steps": [
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.0,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.05,
+          "expected": false
+        },
+        {
+          "event": "reset"
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.2,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.25,
+          "expected": false
+        }
+      ]
+    },
+    {
+      "name": "reset-while-shift-is-down-forgets-the-press",
+      "steps": [
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.0,
+          "expected": false
+        },
+        {
+          "event": "reset"
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.05,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": true,
+          "otherModifiers": false,
+          "timestamp": 1.1,
+          "expected": false
+        },
+        {
+          "event": "flags",
+          "shift": false,
+          "otherModifiers": false,
+          "timestamp": 1.15,
+          "expected": false
+        }
+      ]
+    }
+  ]
+}
