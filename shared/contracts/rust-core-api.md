@@ -1491,7 +1491,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.comparison` | Return files changed between a reference and the working tree |
 | `git.stashes` | Return structured stash references and messages |
 | `git.checkoutPreflight` | Return local paths that would block switching to a reference |
-| `git.pullPreflight` | Report the configured upstream, ahead/behind counts, divergence, and tracked local changes without fetching |
+| `git.pullPreflight` | Report the configured upstream, ahead/behind counts, divergence, tracked local changes, and the strategy Git is configured for, without fetching |
+| `git.updatePlan` | Route a branch Update and gate a Pull from facts the host collected: blockers, strategy default, whether to ask, and the expected checkout |
+| `git.historyWindow` | Plan a history refresh window, page merge, and selection retention over commit identities |
 | `git.integrationPreflight` | Return local paths that block a merge, rebase, cherry-pick, or revert |
 | `git.conflictMarkers` | Return staged text files that still contain conflict markers |
 | `git.operationState` | Report an interrupted merge, rebase, cherry-pick, or revert and its conflicted paths |
@@ -2421,6 +2423,33 @@ string or `null`, numeric `ahead` and `behind` counts, `diverged`, and
 `diverged` is true only when both counts are non-zero. `hasLocalChanges` checks
 tracked changes and excludes untracked files. A branch with no configured
 upstream returns `null`, zero counts, and false for both booleans.
+`configuredStrategy` is `"rebase"` when `pull.rebase` is true, `"ffOnly"` when
+`pull.ff` is `only`, `"merge"` when `pull.ff` or `pull.rebase` is false, and
+`null` when Git is not configured for a strategy.
+
+`git.updatePlan` is a pure planner; it never starts Git. `{ "stage": "route",
+"branch": { "fullName", "upstream", "isCurrent" }, "worktrees": [{ "path",
+"branch", "isCurrent" }] }` returns `blocked`, `fastForwardReference`, or
+`inspect` with the `checkout` worktree (or `null` for the request root), the
+`expectedBranch`, and whether the user may be asked. `{ "stage": "inspect",
+"preflight", "interactive", "explicitSource"?, "strategy"?, "confirmation"? }`
+returns `blocked` (`noUpstream`, `localChanges`, `upToDate`, `notFastForward`,
+`stateChanged`), `chooseStrategy`, or `pull` with the mode for `git.write`.
+The strategy is the user's choice, else the preflight's `configuredStrategy`,
+else `ffOnly`; a diverged history that would need `ffOnly` asks when
+`interactive` and is refused otherwise. `{ "stage": "defaultStrategy",
+"preflight", "fastForwardPossible" }` returns the strategy a Pull dialog
+preselects. `shared/fixtures/git/update-plan-v1.json` defines the rules.
+
+`git.historyWindow` is a pure planner over commit identities in display order.
+`refreshPlan` returns the first-page `limit`: with `preserveLoaded` it is at
+least the loaded count, so a refresh never shrinks a deep window. `extendPlan`
+returns the `extensionLimit` that keeps the previous tail loaded after new
+commits appeared at the head. `mergePage` returns the `append` positions of a
+page that are not yet in the window and whether `hasMore`, bounded to 5000
+commits. `reconcileSelection` returns the retained `selected` identities in
+window order plus `focused` and `anchor`, falling back to the first loaded
+commit. `shared/fixtures/git/history-window-v1.json` defines the rules.
 
 `git.integrationPreflight` accepts either `reference` or `gitReference` with
 `root` and `operation`, where `operation` is `merge`, `rebase`, `cherryPick`,

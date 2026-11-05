@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { LocaleProvider } from "@/i18n/locale-provider";
+import { installGitHistoryWindowStub } from "@/test-utils/git-history-window-stub";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import * as historyApi from "../api/git-commits-api";
 import type {
@@ -95,6 +96,7 @@ beforeEach(() => {
     value: window.CustomEvent,
   });
   actGlobal.IS_REACT_ACT_ENVIRONMENT = true;
+  spies.push(installGitHistoryWindowStub());
   spies.push(
     spyOn(historyApi, "cancelGitHistoryOperation").mockImplementation(cancelGitHistoryOperation),
     spyOn(historyApi, "closeGitHistoryCursor").mockImplementation(closeGitHistoryCursor),
@@ -277,6 +279,57 @@ describe("Git Log controller repository lifecycle", () => {
         exhausted = await harness.read().loadMore();
       });
       expect(exhausted).toBe(false);
+    } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("a refresh keeps the loaded depth and the old tail when new commits arrive", async () => {
+    const commits = (from: number, to: number) =>
+      Array.from({ length: to - from }, (_, index) => historyCommit(`c${from + index}`, `c${from + index}`));
+    let refreshed = false;
+    getGitHistoryPage.mockImplementation((...args) => {
+      const [, cursor, limit] = args;
+      if (limit === 5_000) return Promise.resolve({ commits: [], hasMore: false });
+      if (cursor === "more") {
+        return Promise.resolve({ commits: commits(50, 60), hasMore: true, nextCursor: "deep" });
+      }
+      if (cursor === "refreshed") {
+        // The extension reads only the one commit the new head displaced.
+        return Promise.resolve({ commits: commits(59, 60), hasMore: true, nextCursor: "deep-2" });
+      }
+      return Promise.resolve(
+        refreshed
+          ? {
+              commits: [historyCommit("new", "new"), ...commits(0, (limit ?? 1) - 1)],
+              hasMore: true,
+              nextCursor: "refreshed",
+            }
+          : { commits: commits(0, 50), hasMore: true, nextCursor: "more" },
+      );
+    });
+    const harness = mountController();
+    try {
+      await harness.render("C:/repo-a");
+      await act(async () => {
+        await harness.read().loadMore();
+      });
+      expect(harness.read().history.commits).toHaveLength(60);
+
+      refreshed = true;
+      await act(async () => {
+        await harness.read().refresh();
+      });
+
+      // The refresh read the whole loaded window (60), not the first page (50).
+      expect(visiblePageCalls().some((call) => call[1] === undefined && call[2] === 60)).toBe(true);
+      const hashes = harness.read().history.commits.map((commit) => commit.hash);
+      expect(hashes).toHaveLength(61);
+      expect(hashes[0]).toBe("new");
+      expect(hashes[60]).toBe("c59");
+      expect(harness.read().history.hasMore).toBe(true);
     } finally {
       await act(async () => {
         harness.root.unmount();

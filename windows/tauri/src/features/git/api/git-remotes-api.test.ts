@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { stubGitUpdatePlan } from "@/test-utils/git-update-plan-stub";
 import * as gitEvents from "../events/git-events";
 import type { GitPullPreflight, GitReference } from "../types/git.types";
 
@@ -65,9 +66,10 @@ describe("Git remote Pull API", () => {
     expect(invoke).toHaveBeenCalledWith("git_fetch", { repoPath: "C:/repo" });
   });
 
-  test("keeps a headless divergent Pull on the safe Cancel default", async () => {
-    invoke.mockImplementation(async (command: string) => {
+  test("a headless divergent Pull reports that a strategy is needed instead of pulling", async () => {
+    invoke.mockImplementation(async (command: string, args?: unknown) => {
       if (command === "git_discover_repo") return "C:/repo";
+      if (command === "git.updatePlan") return stubGitUpdatePlan(args as Record<string, unknown>);
       if (command === "git.pullPreflight") {
         return {
           upstream: "origin/main",
@@ -90,7 +92,7 @@ describe("Git remote Pull API", () => {
 
     await expect(pullChanges("C:/repo")).resolves.toEqual({
       success: false,
-      pullResult: { status: "cancelled" },
+      pullResult: { status: "needs-strategy" },
     });
     expect(invoke).not.toHaveBeenCalledWith("git_pull", expect.anything());
     expect(invoke).toHaveBeenCalledWith(

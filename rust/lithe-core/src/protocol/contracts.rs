@@ -911,6 +911,9 @@ pub struct GitPullPreflightResponse {
     pub behind: usize,
     pub diverged: bool,
     pub has_local_changes: bool,
+    /// `rebase`, `merge`, or `ffOnly` when `pull.rebase` or `pull.ff` says so;
+    /// absent when Git is not configured for a strategy.
+    pub configured_strategy: Option<&'static str>,
 }
 
 /// A sequential operation Git left half-finished, usually because of a conflict.

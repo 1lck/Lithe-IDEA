@@ -738,6 +738,10 @@ pub enum CoreCommand {
     GitBranchNamePreview,
     /// Assigns palette slots to a page of ordered repository identities.
     GitRepositoryColorAssignments,
+    /// Plans a branch Update or Pull from collected facts (`git.updatePlan`).
+    GitUpdatePlan,
+    /// Plans history refresh windows, page merges, and selection retention (`git.historyWindow`).
+    GitHistoryWindow,
     /// Drops targets already covered by a selected untracked summary (`git.normalizeChangeTargets`).
     GitNormalizeChangeTargets,
     /// Validates an interactive rebase draft and derives its messages (`git.rebasePlanPreview`).
@@ -1173,6 +1177,8 @@ impl CoreCommand {
             "git.historyLocate" => Some(Self::GitHistoryLocate),
             "git.branchNamePreview" => Some(Self::GitBranchNamePreview),
             "git.repositoryColorAssignments" => Some(Self::GitRepositoryColorAssignments),
+            "git.updatePlan" => Some(Self::GitUpdatePlan),
+            "git.historyWindow" => Some(Self::GitHistoryWindow),
             "git.normalizeChangeTargets" => Some(Self::GitNormalizeChangeTargets),
             "git.rebasePlanPreview" => Some(Self::GitRebasePlanPreview),
             "git.referenceTree" => Some(Self::GitReferenceTree),

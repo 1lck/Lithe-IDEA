@@ -120,7 +120,7 @@ struct GitStatusObservationTests {
         #expect(headActions.canUndo)
         #expect(!headActions.canCherryPick)
         let history = try #require(operations.history(at: root, reference: nil, limit: 10))
-        editor.retainSelection(in: history.commits, fallback: head)
+        editor.applySelection(selected: [head], focused: head, anchor: head)
         #expect(editor.capabilities(at: root) == nil)
         try #require(await refreshed.waitUntilOpen())
         #expect(editor.capabilities(at: root)?.canUndo == true)

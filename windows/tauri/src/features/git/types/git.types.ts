@@ -209,6 +209,8 @@ export interface GitPullPreflight {
   behind: number;
   diverged: boolean;
   hasLocalChanges: boolean;
+  /** Strategy `pull.rebase` or `pull.ff` selects; null when Git is not configured. */
+  configuredStrategy?: PullStrategy | null;
 }
 
 /** A pull policy accepted by the shared Rust Core. */
@@ -217,6 +219,8 @@ export type PullStrategy = "ffOnly" | "merge" | "rebase";
 export type GitPullResult =
   | { status: "pulled"; strategy: PullStrategy }
   | { status: "cancelled" }
+  /** The history diverged and the user must pick merge or rebase (Pull dialog). */
+  | { status: "needs-strategy" }
   | {
       status: "blocked";
       reason: "no-upstream" | "up-to-date" | "dirty" | "state-changed";

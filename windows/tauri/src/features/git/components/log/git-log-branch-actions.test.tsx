@@ -3,6 +3,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { toast } from "sonner";
 import { LocaleProvider } from "@/i18n/locale-provider";
+import { installGitHistoryWindowStub } from "@/test-utils/git-history-window-stub";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { useRepositoryStore } from "../../stores/git-repository.store";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
@@ -143,6 +144,7 @@ beforeEach(() => {
   useGitLogRevealStore.setState({ pending: null });
   // Keep the real action owner; stub unrelated data loading and rendering, so
   // this test exercises checkout confirmation and update dispatch without Git or layout timers.
+  spies.push(installGitHistoryWindowStub());
   spies.push(
     controllerSpy,
     spyOn(workspaceRefs, "useGitWorkspaceReferences").mockImplementation(() => ({
@@ -163,7 +165,6 @@ beforeEach(() => {
     spyOn(pullWorkflow, "useGitPullWorkflow").mockImplementation(() => ({
       isPulling: false,
       isPullLocked: false,
-      pendingPreflight: null,
       pull,
     })),
     spyOn(dialogs, "showConfirmDialog").mockImplementation(confirm),

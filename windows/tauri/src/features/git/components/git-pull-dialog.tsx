@@ -18,6 +18,7 @@ import { CaretDownIcon, CaretRightIcon, WarningCircleIcon as WarningCircle } fro
 import { cn } from "@/utils/cn";
 import { getGitReferencesAtRoot } from "../api/git-commits-api";
 import { getGitPullWorkflow, getPullPreflight } from "../api/git-remotes-api";
+import { defaultGitPullStrategy } from "../api/git-update-plan-api";
 import {
   attachGitPullDialogHost,
   type GitPullDialogRequest,
@@ -28,7 +29,6 @@ import { getGitPullResultPresentation } from "../utils/git-pull-result-presentat
 import {
   canUseFastForward,
   defaultPullReference,
-  defaultPullStrategy,
   isUpstreamPullTarget,
 } from "../utils/git-pull-selection";
 
@@ -88,7 +88,10 @@ function GitPullDialog({
       setReferences(branches);
       const initial = defaultPullReference(branches, nextPreflight);
       setSelectedFullName(initial?.fullName ?? null);
-      setStrategy(defaultPullStrategy());
+      // Core picks the preselection: Git's configuration, else fast-forward when possible.
+      setStrategy(
+        await defaultGitPullStrategy(nextPreflight, canUseFastForward(nextPreflight, initial)),
+      );
       setLoadState("ready");
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error));

@@ -894,6 +894,7 @@
 "Commit message replaced" = "提交信息已替换";
 "Commit message: %@" = "提交说明：%@";
 "Commit messages use" = "提交信息使用";
+"Commit or stash local changes before pulling." = "拉取前请先提交或贮藏本地更改。";
 "Commit title" = "提交标题";
 "Commit version" = "提交版本";
 "Commits" = "提交";
@@ -4247,6 +4248,7 @@
 "The active repository changed. Inspect the original repository before retrying." = "当前仓库已更改。重试前请检查原仓库。";
 "The address is invalid." = "地址无效。";
 "The application closed before the debug terminal could start." = "调试终端启动前应用已关闭。";
+"The branch changed while choosing a pull strategy. Review it and try again." = "选择拉取策略期间分支状态已变化，请检查后重试。";
 "The branch could not be published" = "无法发布该分支";
 "The branch now contains the completed plan. Its original history remains available through the recovery reference." = "操作计划已执行完成。仍可通过恢复引用查看分支的原始历史。";
 "The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message." = "分项需要开启“模型调用统计”（默认开启）。开启后请重新连接并发送消息。";
@@ -4749,6 +4751,7 @@
 "UNFILED CONNECTIONS" = "未归档连接";
 "URL" = "URL";
 "Unable to create the Maven dependency plan." = "无法创建 Maven 依赖解析计划。";
+"Unable to inspect the branch." = "无法检查当前分支。";
 "Unable to parse Maven dependencies for this module." = "无法解析此模块的 Maven 依赖。";
 "Unable to read settings" = "无法读取设置";
 "Unable to resolve Maven dependencies." = "无法解析 Maven 依赖。";
@@ -5260,6 +5263,9 @@
 "git.log.branchNameEmpty" = "请指定新分支的名称";
 "git.log.branchNameHead" = "HEAD 是保留关键字";
 "git.log.olderCommitsFailed" = "无法加载更早的提交，点击刷新历史";
+"git.pullResult.dirty" = "拉取前请先提交或贮藏本地更改。";
+"git.pullResult.inspectBranchFailed" = "无法检查当前分支。";
+"git.pullResult.stateChanged" = "选择拉取策略期间分支状态已变化，请检查后重试。";
 "git.rebasePlan.issue.emptyReword" = "每个 Reword 步骤都需要提交信息。";
 "git.rebasePlan.issue.emptySquash" = "请输入 Squash 信息，或使用默认的合并信息。";
 "git.rebasePlan.issue.invalidMessage" = "此计划中的提交信息无效。";

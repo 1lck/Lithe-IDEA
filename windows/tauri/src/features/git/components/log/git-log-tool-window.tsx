@@ -57,6 +57,7 @@ import {
 } from "../../utils/git-reference-actions";
 import { selectedReferenceAfterRename } from "../../utils/git-log-refresh";
 import { showGitPushDialog } from "../../services/git-push-dialog-service";
+import { reconcileGitHistorySelection } from "../../api/git-history-window-api";
 import { updateGitLogBranch } from "../../services/git-log-branch-update";
 import { getGitPullResultPresentation } from "../../utils/git-pull-result-presentation";
 import { showCheckoutFailure } from "../../utils/git-checkout-failure-presentation";
@@ -707,6 +708,9 @@ export function GitLogToolWindow() {
       if (!isCurrent()) return;
       if (result.status === "branch-updated") {
         toast.success(t("git.actionCompleted", { action }));
+      } else if (result.status === "needs-strategy") {
+        // A diverged branch needs merge or rebase; the Pull dialog is where that is chosen.
+        void pullWorkflow.pull();
       } else {
         const presentation = getGitPullResultPresentation(result, t);
         if (presentation) toast[presentation.tone](presentation.message);
@@ -815,20 +819,43 @@ export function GitLogToolWindow() {
     }
   };
 
+  // Core keeps the selection, focus, and range anchor that are still loaded
+  // after the window changed (refresh, page load); the view only applies it.
+  const selectedCommitRef = useRef(selectedCommit);
+  const selectedHashesRef = useRef(selectedCommitHashes);
+  selectedCommitRef.current = selectedCommit;
+  selectedHashesRef.current = selectedCommitHashes;
   useEffect(() => {
-    setSelectedCommit((current) => {
-      if (current && commitByHash.has(current.hash)) return commitByHash.get(current.hash) ?? null;
-      return history.commits[0] ?? null;
-    });
-
-    const availableHashes = new Set(history.commits.map((commit) => commit.hash));
-    setSelectedCommitHashes((current) => {
-      const next = new Set([...current].filter((hash) => availableHashes.has(hash)));
-      return next.size === current.size ? current : next;
-    });
-    if (selectionAnchorRef.current && !availableHashes.has(selectionAnchorRef.current)) {
-      selectionAnchorRef.current = null;
-    }
+    let cancelled = false;
+    const sent = {
+      selected: [...selectedHashesRef.current],
+      focused: selectedCommitRef.current?.hash ?? null,
+      anchor: selectionAnchorRef.current,
+    };
+    void reconcileGitHistorySelection(history.commits, sent)
+      .then((next) => {
+        // A click that landed while Core was answering already holds the newer selection.
+        if (
+          cancelled ||
+          selectedCommitRef.current?.hash !== sent.focused ||
+          selectionAnchorRef.current !== sent.anchor ||
+          selectedHashesRef.current.size !== sent.selected.length ||
+          sent.selected.some((hash) => !selectedHashesRef.current.has(hash))
+        ) {
+          return;
+        }
+        setSelectedCommit(next.focused ? (commitByHash.get(next.focused) ?? null) : null);
+        setSelectedCommitHashes((current) =>
+          current.size === next.selected.length && next.selected.every((hash) => current.has(hash))
+            ? current
+            : new Set(next.selected),
+        );
+        selectionAnchorRef.current = next.anchor;
+      })
+      .catch((error) => console.error("Failed to reconcile Git history selection:", error));
+    return () => {
+      cancelled = true;
+    };
   }, [commitByHash, history.commits]);
 
   const openDiff = (commit: GitCommit, filePath?: string) => {

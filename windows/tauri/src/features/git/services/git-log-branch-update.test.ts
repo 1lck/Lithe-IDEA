@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
+import * as native from "@/platform/tauri-core";
+import { stubGitUpdatePlan } from "@/test-utils/git-update-plan-stub";
 import { GitPullWorkflow } from "../hooks/git-pull-workflow";
 import type { GitReference, GitWorktree, PullStrategy } from "../types/git.types";
 import { updateGitLogBranch } from "./git-log-branch-update";
@@ -12,6 +14,7 @@ const spies: Array<{ mockRestore: () => void }> = [];
 let entries: GitWorktree[];
 let diverged: boolean;
 let hasLocalChanges: boolean;
+let configuredStrategy: PullStrategy | null;
 const calls: string[] = [];
 const refresh = mock(async () => {});
 const readWorktrees = mock(async (repoPath: string) => entries.map((entry) => ({
@@ -41,12 +44,18 @@ beforeEach(() => {
   entries = [];
   diverged = false;
   hasLocalChanges = false;
+  configuredStrategy = null;
   calls.length = 0;
   refresh.mockClear();
   updateBranch.mockClear();
   showPull.mockClear();
   readWorktrees.mockClear();
   spies.push(
+    // Core owns the Update rules; the stub replays the shared fixture's wire format.
+    spyOn(native, "invoke").mockImplementation((async (command: string, payload?: unknown) => {
+      if (command !== "git.updatePlan") throw new Error(`unexpected Core command ${command}`);
+      return stubGitUpdatePlan(payload as Record<string, unknown>);
+    }) as typeof native.invoke),
     spyOn(worktrees, "readWorktrees").mockImplementation(readWorktrees),
     spyOn(branches, "updateBranch").mockImplementation(updateBranch),
     spyOn(dialogs, "showGitPullDialog").mockImplementation(showPull),
@@ -66,8 +75,10 @@ beforeEach(() => {
               behind: 2,
               diverged,
               hasLocalChanges,
+              configuredStrategy,
             };
           },
+          plan: async (input) => stubGitUpdatePlan({ stage: "inspect", ...input }),
           pull: async (path, strategy: PullStrategy, _reference, expectedBranch) => {
             expect(expectedBranch).toBe(reference.fullName);
             calls.push(`pull:${path}:${strategy}`);
@@ -82,13 +93,25 @@ afterEach(() => {
   for (const spy of spies.splice(0)) spy.mockRestore();
 });
 
-test("Current selected branch updates in the background with the existing Merge default", async () => {
+test("Diverged current branch asks for a strategy instead of merging", async () => {
   entries = [tree("C:/repo", true)];
   diverged = true;
   await expect(
     updateGitLogBranch("C:/repo", { ...reference, isCurrent: true }, refresh),
-  ).resolves.toEqual({ status: "pulled", strategy: "merge" });
-  expect(calls).toEqual(["fetch:C:/repo", "preflight:C:/repo", "pull:C:/repo:merge"]);
+  ).resolves.toEqual({ status: "needs-strategy" });
+  expect(calls).toEqual(["fetch:C:/repo", "preflight:C:/repo"]);
+  expect(updateBranch).not.toHaveBeenCalled();
+  expect(refresh).toHaveBeenCalledTimes(1);
+});
+
+test("Diverged current branch follows the strategy Git is configured for", async () => {
+  entries = [tree("C:/repo", true)];
+  diverged = true;
+  configuredStrategy = "rebase";
+  await expect(
+    updateGitLogBranch("C:/repo", { ...reference, isCurrent: true }, refresh),
+  ).resolves.toEqual({ status: "pulled", strategy: "rebase" });
+  expect(calls).toEqual(["fetch:C:/repo", "preflight:C:/repo", "pull:C:/repo:rebase"]);
   expect(showPull).not.toHaveBeenCalled();
   expect(updateBranch).not.toHaveBeenCalled();
   expect(refresh).toHaveBeenCalledTimes(1);
@@ -143,9 +166,9 @@ test("Dirty checked-out worktree keeps changes and does not start Pull", async (
 
 test("Current worktree is resolved from fresh metadata rather than the stale isCurrent flag", async () => {
   entries = [tree("C:/repo", true)];
+  diverged = true;
   await expect(updateGitLogBranch("C:/repo", reference, refresh)).resolves.toEqual({
-    status: "pulled",
-    strategy: "merge",
+    status: "needs-strategy",
   });
 });
 
@@ -198,6 +221,7 @@ for (const changeAt of ["fetch", "preflight"] as const) {
         return { upstream: "origin/other", ahead: 0, behind: 2, diverged: false, hasLocalChanges: false };
       },
       pull, operationState: async () => null,
+      plan: async (input) => stubGitUpdatePlan({ stage: "inspect", ...input }),
     })));
     await expect(updateGitLogBranch("C:/repo", reference, refresh)).resolves.toEqual({
       status: "blocked", reason: "state-changed",

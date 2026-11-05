@@ -28,6 +28,7 @@ mod github_checkout;
 pub(crate) mod graph;
 mod history;
 mod history_query;
+mod history_window;
 mod metadata_watch;
 mod mutations;
 mod patch_exchange;
@@ -42,6 +43,7 @@ mod rollback;
 mod setup;
 mod shelf;
 mod untracked_directories;
+mod update_plan;
 
 // The response and reference types stay owned by the module; callers consume
 // them through the command contract instead of naming more shared types.
@@ -78,6 +80,7 @@ pub use history::{
     GitHistoryRequest, GitReferencesRequest,
 };
 pub(crate) use history_query::query_command as history_query_command;
+pub(crate) use history_window::command as history_window_command;
 pub(crate) use metadata_watch::classify_command as metadata_classification_command;
 pub use metadata_watch::{
     classify_git_metadata_change, GitMetadataChangeKind, GitMetadataEventClassification,
@@ -97,6 +100,7 @@ pub(crate) use reference_tree::command as reference_tree_command;
 pub(crate) use repository_colors::assign_command as repository_color_assignments_command;
 pub(crate) use rollback::{rollback_plan_command, rollback_prepare_command};
 pub(crate) use shelf::shelf_command;
+pub(crate) use update_plan::command as update_plan_command;
 
 pub(crate) use rewrite::history_action_capabilities_command;
 pub use rewrite::{
@@ -3681,6 +3685,7 @@ pub fn pull_preflight(
             behind: 0,
             diverged: false,
             has_local_changes: false,
+            configured_strategy: None,
         });
     }
     let upstream = upstream.output.trim().to_string();
@@ -3707,7 +3712,7 @@ pub fn pull_preflight(
     let ahead = fields.next().and_then(|v| v.parse().ok()).unwrap_or(0);
 
     let dirty = readonly_command(GitCommandRequest {
-        root,
+        root: root.clone(),
         arguments: vec![
             "status".to_string(),
             "--porcelain".to_string(),
@@ -3728,7 +3733,37 @@ pub fn pull_preflight(
         behind,
         diverged: ahead > 0 && behind > 0,
         has_local_changes: !dirty.output.trim().is_empty(),
+        configured_strategy: configured_pull_strategy(&root)?,
     })
+}
+
+/// The pull strategy Git is explicitly configured for, or `None` when neither
+/// `pull.rebase` nor `pull.ff` says anything. `git.updatePlan` falls back to
+/// fast-forward only in that case.
+fn configured_pull_strategy(root: &str) -> Result<Option<&'static str>, CoreError> {
+    let rebase = read_git_config_value(root, "pull.rebase")?;
+    let fast_forward = read_git_config_value(root, "pull.ff")?;
+    let enabled = |value: &Option<String>, accepted: &[&str]| {
+        value
+            .as_deref()
+            .is_some_and(|value| accepted.contains(&value.to_ascii_lowercase().as_str()))
+    };
+    Ok(
+        if enabled(
+            &rebase,
+            &["true", "yes", "on", "1", "interactive", "merges"],
+        ) {
+            Some("rebase")
+        } else if enabled(&fast_forward, &["only"]) {
+            Some("ffOnly")
+        } else if enabled(&fast_forward, &["false", "no", "off", "0"])
+            || enabled(&rebase, &["false", "no", "off", "0"])
+        {
+            Some("merge")
+        } else {
+            None
+        },
+    )
 }
 
 /// Resolves the Git directory once, honoring worktrees and submodules where
