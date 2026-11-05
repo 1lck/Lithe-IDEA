@@ -5,7 +5,6 @@ import {
   resolveGitFileMutationPaths,
   refreshedCommitSelectionMatches,
   resolveGitFilesForStagedState,
-  resolveGitStatusDeletionPaths,
   resolveGitStatusContextSelection,
   updateGitStatusSelection,
 } from "./git-status-selection";
@@ -156,22 +155,5 @@ describe("Git status row selection", () => {
         { kind: "folder", path: "cache\\nested" },
       ]),
     ).toEqual(["cache/nested/", "generated/", "local.env"]);
-  });
-
-  test("deletes only source-control leaf files represented by selected folders", () => {
-    expect(
-      resolveGitStatusDeletionPaths([
-        {
-          files: [
-            { path: "module/changed.ts", status: "modified" },
-            { path: "module/new.ts", status: "untracked" },
-            { path: "module/already-gone.ts", status: "deleted" },
-          ],
-        },
-        {
-          files: [{ path: "module/changed.ts", status: "modified" }],
-        },
-      ]),
-    ).toEqual(["module/changed.ts", "module/new.ts"]);
   });
 });

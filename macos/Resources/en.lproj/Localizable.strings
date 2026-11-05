@@ -1098,6 +1098,7 @@
 "Could not open the remote folder: %@" = "Could not open the remote folder: %@";
 "Could not prepare diagnostic logs. Try again." = "Could not prepare diagnostic logs. Try again.";
 "Could not prepare the run configuration: %@" = "Could not prepare the run configuration: %@";
+"Could not prepare the selected changes." = "Could not prepare the selected changes.";
 "Could not read %@." = "Could not read %@.";
 "Could not read %@: %@" = "Could not read %@: %@";
 "Could not read project indexing settings. Try reopening the project." = "Could not read project indexing settings. Try reopening the project.";
@@ -5214,6 +5215,7 @@
 "from JAVA_HOME" = "from JAVA_HOME";
 "generated main" = "generated main";
 "generated test" = "generated test";
+"git.changeTargets.prepareFailed" = "Could not prepare the selected changes.";
 "git.changelists.invalidName" = "Use a unique, nonempty name of at most 100 characters.";
 "git.diff.repositoryPreviewEmptyTitle" = "Repository Diff";
 "git.diff.repositoryPreviewTitle" = "Repository Diff: %1$@";

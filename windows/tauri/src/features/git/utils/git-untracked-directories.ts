@@ -30,12 +30,11 @@ export function isBelowUntrackedDirectory(directory: CountedEntry, file: Counted
 }
 
 /**
- * Drops entries listed below a summary that is in the same set.
- *
- * Acting on the summary already acts on them; acting again would fail once the
- * summary's files are gone, and counting them again would double the total.
+ * Entries a change count includes: a listed file below a summary in the same
+ * set is already counted by the summary. Operation targets are normalized by
+ * Core instead (`normalizeGitChangeTargets`).
  */
-export function withoutListedUntrackedContents<T extends CountedEntry>(files: readonly T[]): T[] {
+function withoutListedUntrackedContents<T extends CountedEntry>(files: readonly T[]): T[] {
   const summaries = files.filter(isUntrackedDirectorySummary);
   if (summaries.length === 0) return [...files];
   return files.filter(

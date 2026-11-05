@@ -13,11 +13,9 @@ import {
   type LocalChangelists,
 } from "./git-changelists";
 import { isGitGutterFileUntracked } from "./git-gutter-changes";
-import { resolveGitStatusDeletionPaths } from "./git-status-selection";
 import {
   countGitChangedFiles,
   findContainingUntrackedDirectory,
-  withoutListedUntrackedContents,
 } from "./git-untracked-directories";
 
 // Regression coverage for #1385: a large untracked directory is one `dir/`
@@ -55,17 +53,6 @@ describe("untracked directory summaries", () => {
     expect(countUniqueGitChanges(undefined)).toBe(0);
   });
 
-  test("drop listed contents covered by a summary in the same set", () => {
-    expect(withoutListedUntrackedContents(expanded).map((file) => file.path)).toEqual([
-      "src/App.tsx",
-      "target/",
-    ]);
-    // A sibling sharing the name prefix is not below the directory.
-    expect(
-      withoutListedUntrackedContents([untracked("target/", 200), untracked("targets.txt")]),
-    ).toHaveLength(2);
-  });
-
   test("find the summary containing a repository-relative path in its own repository", () => {
     const files = [untracked("target/", 200, "A"), untracked("target/", 300, "B")];
     expect(findContainingUntrackedDirectory(files, "C:/workspace/B", "target/debug/app")).toBe(
@@ -100,13 +87,7 @@ describe("untracked directory summaries", () => {
     expect(isGitGutterFileUntracked(files, "C:/workspace/B", "target/debug/app")).toBe(false);
     expect(isGitGutterFileUntracked(files, "C:/workspace/A", "src/main.rs")).toBe(false);
   });
-
-  test("delete a summary once instead of again for each listed file", () => {
-    expect(resolveGitStatusDeletionPaths([{ files: expanded }])).toEqual([
-      "src/App.tsx",
-      "target/",
-    ]);
-  });
+});
 });
 
 test("directory rows consume the Core projection and unknown membership fails closed", () => {

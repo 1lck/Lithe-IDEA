@@ -1098,6 +1098,7 @@
 "Could not open the remote folder: %@" = "无法打开远程文件夹：%@";
 "Could not prepare diagnostic logs. Try again." = "无法准备诊断日志，请重试。";
 "Could not prepare the run configuration: %@" = "无法准备运行配置：%@";
+"Could not prepare the selected changes." = "无法准备所选更改。";
 "Could not read %@." = "无法读取 %@。";
 "Could not read %@: %@" = "无法读取 %@：%@";
 "Could not read project indexing settings. Try reopening the project." = "无法读取项目索引设置，请重新打开项目后重试。";
@@ -5214,6 +5215,7 @@
 "from JAVA_HOME" = "来自 JAVA_HOME";
 "generated main" = "生成的主代码";
 "generated test" = "生成的测试代码";
+"git.changeTargets.prepareFailed" = "无法准备所选更改。";
 "git.changelists.invalidName" = "请输入不重名、非空且不超过 100 个字符的名称。";
 "git.diff.repositoryPreviewEmptyTitle" = "仓库差异";
 "git.diff.repositoryPreviewTitle" = "仓库差异: %1$@";

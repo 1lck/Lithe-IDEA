@@ -1182,17 +1182,21 @@ package final class GitFeatureModel: ObservableObject {
         }
     }
 
-    /// Drops changes below a directory summary that is in the same set.
+    /// The changes one operation acts on (`git.normalizeChangeTargets`).
     ///
-    /// Acting on the summary already acts on them. Acting again would write
-    /// each file twice into a shelf patch, or fail once the summary's files
-    /// have been cleaned.
-    private func coveringUntrackedDirectoryContents(_ changes: [GitChange]) -> [GitChange] {
-        let summaries = changes.filter(\.isUntrackedDirectory)
-        guard !summaries.isEmpty else { return changes }
-        return changes.filter { change in
-            !summaries.contains { $0.containsUntrackedDescendant(change) }
+    /// Core drops changes listed below a selected untracked directory summary
+    /// of the same repository: acting on the summary already acts on them, and
+    /// acting again would write a file twice into a shelf patch or fail once the
+    /// summary's files are gone. `nil` means Core rejected the selection; the
+    /// caller reports it instead of acting on an unnormalized set.
+    private func operationTargets(_ changes: [GitChange]) async -> [GitChange]? {
+        guard !changes.isEmpty else { return [] }
+        let plan: GitChangeTargetsPlan? = await service.corePlan(.normalizeChangeTargets, GitChangeTargetsRequest(changes))
+        guard let plan, plan.indices.allSatisfy(changes.indices.contains) else {
+            notifyFailure(L10n.string("Could not prepare the selected changes."), reason: "operation_failed")
+            return nil
         }
+        return plan.indices.map { changes[$0] }
     }
 
     /// True for a change listed only because its untracked summary is expanded.
@@ -1873,8 +1877,7 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func discardChanges(_ changes: [GitChange]) async {
-        let changes = coveringUntrackedDirectoryContents(changes)
-        guard !changes.isEmpty else { return }
+        guard let changes = await operationTargets(changes), !changes.isEmpty else { return }
         _ = await withGitChangeOperation(changes) {
             var results: [GitService.CommandResult] = []
             for change in changes {
@@ -1927,7 +1930,7 @@ package final class GitFeatureModel: ObservableObject {
         }
         let contextID = rollbackContextID
         let workspace = rollbackWorkspaceURL
-        let changes = coveringUntrackedDirectoryContents(selection.includedChanges)
+        guard let changes = await operationTargets(selection.includedChanges) else { return }
         activeRollbackID = contextID
         isRollingBackChanges = true
         defer {
@@ -2199,7 +2202,7 @@ package final class GitFeatureModel: ObservableObject {
         guard await activateChangelist(targetList), canPrepareCommitFiles(changes) else { return false }
         let generation = workspaceCommitGeneration
         let workspace = workspaceURLProvider?()?.standardizedFileURL
-        let selected = coveringUntrackedDirectoryContents(changes)
+        guard let selected = await operationTargets(changes) else { return false }
         let roots = Set(availableRepositoryRoots.map(\.standardizedFileURL) + changes.map { $0.repositoryRoot.standardizedFileURL }).sorted { $0.path < $1.path }
         let selectedByRoot = Dictionary(grouping: selected) { $0.repositoryRoot.standardizedFileURL }
         let request = GitCommitSelectionRequest(repositories: roots.map {
@@ -3304,12 +3307,12 @@ package final class GitFeatureModel: ObservableObject {
               inspection.hasLoadedChanges else { return }
         // Resolve captured rows against the latest inspection. Neither a stale
         // confirmation nor a foreign GitChange may redirect a worktree action.
-        let targets = coveringUntrackedDirectoryContents(inspection.changes.filter { current in
+        guard let targets = await operationTargets(inspection.changes.filter { current in
             current.repositoryRoot.standardizedFileURL == worktree.url.standardizedFileURL
                 && changes.contains(current)
                 && (staged.map { current.canToggleStaging && ($0 ? (!current.isStaged || current.hasWorkingTreeChange) : current.isStaged) }
                     ?? current.hasWorkingTreeChange)
-        })
+        }) else { return }
         guard !targets.isEmpty else { return }
         let mutationID = UUID()
         worktreeChangesMutationID = mutationID

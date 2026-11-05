@@ -806,6 +806,14 @@ struct RustGitOperations: GitOperations, Sendable {
         core.cancel(operationID: operationID)
     }
 
+    func corePlan<Request: Encodable & Sendable, Response: Decodable & Sendable>(
+        _ command: GitCorePlanCommand,
+        _ request: Request
+    ) -> Response? {
+        let result: Result<Response, CoreCallError> = core.executeResult(command: command.rawValue, payload: request)
+        return try? result.get()
+    }
+
     func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]? {
         core.gitCommitFiles(at: rootURL, commit: commit.hash)?.files.map { file in
             GitCommitFile(status: file.status, path: file.path)

@@ -3,7 +3,13 @@
   "events": [
     {
       "operationId": "fixture",
-      "type": "requestStarted"
+      "type": "requestStarted",
+      "retention": {
+        "maxRecords": 200,
+        "maxRecordOutputCharacters": 32768,
+        "maxRecordOutputLines": 2000,
+        "maxTotalOutputCharacters": 1048576
+      }
     },
     {
       "operationId": "fixture",
@@ -77,12 +83,15 @@
       "exitCode": 0,
       "durationMilliseconds": 0,
       "error": null,
-      "expectedExit": false
+      "expectedExit": false,
+      "state": "completed"
     },
     {
       "operationId": "fixture",
       "type": "requestFinished",
-      "error": null
+      "error": null,
+      "unconfirmedInvocations": [],
+      "failureRecord": false
     }
   ]
 }
