@@ -2016,7 +2016,9 @@ differ in how they take a connection.
 `outputLinkMatchers[]` lets a plugin make text in the Run and Test consoles
 clickable, such as a traceback frame or a panic location. The host knows no
 tool's output format: the plugin declares the pattern and Core finds the
-matches. Requires `requires.outputLinkMatchers` 1.
+matches. Requires `requires.outputLinkMatchers` 1. Matchers alone are a
+complete plugin: one that declares nothing else is valid, and matchers without
+`resolve` need no backend.
 
 ```json
 "outputLinkMatchers": [

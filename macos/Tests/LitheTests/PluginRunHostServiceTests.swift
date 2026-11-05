@@ -353,7 +353,9 @@ struct PluginRunHostServiceTests {
 
         #expect(both?.code == .invalidParams)
         #expect(neither?.code == .invalidParams)
-        #expect(extra?.code == .invalidParams)
+        // An option the host does not know is refused before anything stops, as the contract asks.
+        #expect(extra?.code == .unsupportedOption)
+        #expect(extra?.details == ["option": .string("force")])
     }
 
     // MARK: debug/start

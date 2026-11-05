@@ -1113,6 +1113,8 @@ impl DeclarativePluginManifest {
             && self.tool_definitions.is_empty()
             && self.toolchain_providers.is_empty()
             && self.keymap_import_providers.is_empty()
+            // Console links alone are a complete plugin: Core matches them.
+            && self.output_link_matchers.is_empty()
             && self.backend.is_none()
             // A grammar alone is a complete highlighting plugin.
             && !self.languages.iter().any(LanguageDeclaration::uses_version_2)

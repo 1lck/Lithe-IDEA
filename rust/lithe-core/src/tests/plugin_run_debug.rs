@@ -7,7 +7,7 @@
 use super::support::temporary_root;
 use crate::build::run_decode_start_command;
 use crate::debug::decode_backend_configuration_command;
-use crate::plugins::declarative::language_server_launch_plan_command;
+use crate::plugins::declarative::{language_server_launch_plan_command, validate_manifest_value};
 use crate::plugins::output_links::{decode_resolution, match_lines};
 use crate::toolchain::instantiate_launch_command;
 use serde_json::{json, Value};
@@ -354,6 +354,29 @@ fn output_link_fixture_cases_match_the_same_in_every_host() {
             assert_eq!(decoded.expect(name), case["location"], "{name}");
         }
     }
+}
+
+#[test]
+fn output_link_matchers_alone_are_a_complete_plugin() {
+    let manifest = json!({
+        "schemaVersion": 2, "id": "dev.example.links", "displayName": "Script Links",
+        "version": "1.0.0", "pluginAPIVersion": 4, "requires": {"outputLinkMatchers": 1},
+        "vendor": {"id": "org.example", "displayName": "Example", "signatureRequirement": "publisherPackage"},
+        "permissions": [], "activationEvents": [], "languages": [],
+        "outputLinkMatchers": [
+            {"id": "traceback", "pattern": "File \"(?P<path>[^\"]+)\", line (?P<line>\\d+)", "scope": "run"},
+            {"id": "assertion", "pattern": "(?P<path>\\S+\\.script):(?P<line>\\d+)"}
+        ]
+    });
+    let validated = validate_manifest_value(manifest).expect("matchers alone are a plugin");
+    let ids: Vec<_> = serde_json::to_value(&validated).unwrap()["outputLinkMatchers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|matcher| matcher["id"].clone())
+        .collect();
+    // Core sorts matchers by ID.
+    assert_eq!(ids, [json!("assertion"), json!("traceback")]);
 }
 
 fn instantiate(tool_definition: Value, parts: Value) -> Value {
