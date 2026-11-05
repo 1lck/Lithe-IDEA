@@ -32,5 +32,13 @@ if (!/^linker\s*=\s*"isolated"/m.test(bunConfig)) {
 if (windows.dependencies["monaco-editor"] !== shared.dependencies["monaco-editor"]) {
   failures.push("Both hosts must use the exact same Monaco version");
 }
+// The macOS host offers plugins gutter icon names (API-27); each needs an SVG in the web editor.
+const hostOptions = readFileSync(join(root, "macos/Sources/Lithe/Platform/MacOS/Plugins/PluginEditorHostOptions+macOS.swift"), "utf8");
+const offered = /actionIcons:\s*\[([^\]]*)\]/.exec(hostOptions)?.[1].match(/"[a-z0-9-]+"/g)?.map(name => name.slice(1, -1)) ?? [];
+const frontend = readFileSync(join(root, "macos/EditorFrontend/main.ts"), "utf8");
+const drawn = new Set((/editorActionIcons:\s*\{([^}]*)\}/.exec(frontend)?.[1].match(/"?[a-z][a-z0-9-]*"?(?=\s*:)/g) ?? [])
+  .map(name => name.replaceAll('"', "")));
+if (!offered.length) failures.push("macOS plugin editor action icons could not be read from the host options");
+for (const name of offered) if (!drawn.has(name)) failures.push(`macOS plugin editor action icon "${name}" has no SVG in macos/EditorFrontend/main.ts`);
 if (failures.length) { console.error(failures.join("\n")); process.exitCode = 1; }
 else console.log("Shared editor boundaries and Monaco version verified");

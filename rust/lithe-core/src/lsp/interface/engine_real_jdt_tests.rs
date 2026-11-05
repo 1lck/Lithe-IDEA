@@ -348,6 +348,7 @@ fn real_start_request(
         plugin_id: None,
         startup_operation: None,
         host_services: Vec::new(),
+        host_options: Default::default(),
         toolchain_providers: Vec::new(),
         keymap_import_providers: Vec::new(),
         executable_path: toolchain

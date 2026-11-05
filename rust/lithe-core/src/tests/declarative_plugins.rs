@@ -53,6 +53,8 @@ const TOOL_REFERENCE_FIXTURE: &str =
 const DEBUG_ADAPTER_REJECTIONS: &str =
     contract_file!("fixtures/debug-adapters/debug-adapter-rejections.json");
 const EDITOR_ACTIONS_FIXTURE: &str = contract_file!("fixtures/editor/editor-actions.plugin.json");
+const EDITOR_PROVIDERS_FIXTURE: &str =
+    contract_file!("fixtures/editor/editor-providers.plugin.json");
 const GRAMMAR_FIXTURE: &str = contract_file!("fixtures/languages/language-grammar.plugin.json");
 const PROJECT_GENERATOR_FIXTURE: &str =
     contract_file!("fixtures/project-generators/project-generator.plugin.json");
@@ -89,6 +91,7 @@ fn fixture(name: &str) -> Value {
         "debug-adapter-features.plugin.json" => DEBUG_ADAPTER_FEATURES_FIXTURE,
         "tool-reference-launch.plugin.json" => TOOL_REFERENCE_FIXTURE,
         "language-grammar.plugin.json" => GRAMMAR_FIXTURE,
+        "editor-providers.plugin.json" => EDITOR_PROVIDERS_FIXTURE,
         "project-generator.plugin.json" => PROJECT_GENERATOR_FIXTURE,
         "project-generator-tool-field.plugin.json" => PROJECT_GENERATOR_TOOL_FIXTURE,
         other => panic!("unknown fixture {other}"),
@@ -118,6 +121,7 @@ fn contract_fixtures_and_official_plugins_validate() {
         TOOL_REFERENCE_FIXTURE,
         GRAMMAR_FIXTURE,
         EDITOR_ACTIONS_FIXTURE,
+        EDITOR_PROVIDERS_FIXTURE,
         PROJECT_GENERATOR_TOOL_FIXTURE,
         OFFICIAL_JAVA,
     ] {

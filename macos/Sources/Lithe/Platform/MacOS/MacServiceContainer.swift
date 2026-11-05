@@ -476,8 +476,12 @@ final class MacServiceContainer {
                 fileStorage: fileStorage, baseEnvironment: { runtimeService.processEnvironment() }
             )
             hostDispatcher.register(runHost)
-            let editorActions = PluginEditorActionHostService(contexts: .shared, decoder: declarativePluginOperations)
+            let editorActions = PluginEditorActionHostService(
+                contexts: .shared, decoder: declarativePluginOperations, host: .macOS)
             hostDispatcher.register(editorActions)
+            let editorProviders = PluginEditorProviderHostService(
+                contexts: .shared, decoder: declarativePluginOperations, host: .macOS, logSink: logSink)
+            hostDispatcher.register(editorProviders)
             hostDispatcher.register(PluginFileHostService(contexts: .shared, metadata: workspaceHost,
                 files: MacPluginWorkspaceFileService(
                     searchOperations: RustWorkspaceOperations(core: rustCore),
@@ -512,6 +516,7 @@ final class MacServiceContainer {
             )
             sessions.editorActions = editorActions
             runHost.backends = sessions
+            sessions.editorProviders = editorProviders
             sessions.onActivationFailure = { pluginID, error in
                 if let plugin = LogSegment(pluginID) { logSink?.emit(PluginsBackendActivationFailed(error: error, plugin: plugin)) }
             }
@@ -1224,6 +1229,7 @@ final class MacServiceContainer {
             }
         }
         services.pluginEditorActions = pluginBackends.editorActions
+        services.pluginEditorProviders = pluginBackends.editorProviders
         let isModuleUsable: @MainActor (ModuleID) -> Bool = { [weak moduleRuntime] id in
             guard let snapshot = try? moduleRuntime?.snapshot(for: id) else { return false }
             return snapshot.state != .disabled && !snapshot.isQuarantined && !snapshot.isSuppressedBySafeMode

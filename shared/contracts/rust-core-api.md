@@ -1377,7 +1377,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `toolchains.discoveryPlan` | Return platform-filtered definition-owned scan declarations, layouts, probes, PATH entries, login-shell home variables and budgets; never scans native directories |
 | `toolchains.candidates` | List one tool's login-shell homes and host-scanned installations with checked executables, versions or skip reasons, and the automatic-layer choice; never starts a probe |
 | `plugins.declarative.decodeGrammar` | Validate independent static editor resources (`languages` 2) |
-| `plugins.editorActions.decode` | Validate independent action registration or collection results |
+| `plugins.editorActions.decode` | Validate independent action registration, collection or click results |
+| `plugins.editorProviders.decode` | Validate editor provider registrations and provider function results |
 | `run.decodeStart` | Validate a plugin backend's `lithe/host/run/start` params against its manifest and the workspace, and return the normalized start with temporary-file paths substituted |
 | `debug.decodeBackendConfiguration` | Validate a plugin backend's `lithe/host/debug/start` params against its manifest and return the qualified adapter, request, label and configuration |
 | `outputLinks.match` | Find the links plugin `outputLinkMatchers` declare in Run or Test console lines, as UTF-16 ranges with candidate paths or a backend function to resolve them |
@@ -3065,7 +3066,11 @@ directory, initialization options, optional runtime executable,
 optional `pluginId` of the plugin that owns the process, its optional
 `workspaceConfiguration` (an object, plugin-owned sessions only), its
 optional `hostServices` (the launch plan's `backend.hostServices`;
-plugin-owned sessions only; legacy service grants or full public host-method names Core defines), plus
+plugin-owned sessions only; legacy service grants or full public host-method names Core defines),
+its optional `hostOptions` (plugin-owned sessions only; `editor:{actionIcons,
+actionSourceBytes, providerTypes}` declares the icons, collector source bound and
+provider types the host implements, reported through `lithe/host/getCapabilities`
+to sessions granted the matching editor methods), plus
 initialize, post-initialize readiness, request, Java project build
 (`javaBuildTimeoutMilliseconds`), and shutdown deadlines.
 Java callers may also provide the versioned `mavenContext` accepted by
@@ -4897,9 +4902,30 @@ languages return `grammar:null` and require no file read. Core reads no files.
 `plugins.editorActions.decode` accepts `{kind:"registration",value}` or
 `{kind:"actions",value,text}` and returns `{registration}` or `{actions}`.
 Core validates literal selectors, one-based UTF-16 ranges and bounded opaque
-function bindings. Hosts enforce permission, live document versions and session
-ownership; HTTP/SQL business semantics stay with plugins. See the plugin
-contract's independent editor actions section.
+function bindings. Version 1 (the default) admits the icons `run` and
+`run-all` and a 128 KiB source. `version: 2` with the host's `icons` and
+`sourceBytes` also admits `alternatives` and `{kind:"invokeResult",value}`,
+which returns `{}` or `{reveal:{locations}}` for a clicked action. Hosts enforce
+permission, live document versions and session ownership; HTTP/SQL business
+semantics stay with plugins. See the plugin contract's independent editor
+actions section.
+
+`plugins.editorProviders.decode` accepts `{kind:"registration",value,types}`
+(the provider types the host routes) and returns `{registration}` with
+lowercased literal selectors and Core's per-type `budgetMs`; a type outside
+`types` is `not_supported` with details `providers.<type>`. It also accepts
+`{kind:"result",type,value,legend?}` (one provider function's LSP 3.17 shaped
+result; semantic tokens need the registered legend) and returns `{result}`
+normalized to `{locations}`, `{contents,range?}`, `{isIncomplete,items}`,
+`{lenses}`, `{ranges}`, `{data}` or `{links}`. Hosts own calls, budgets,
+stale-version drops and the merge after language-server answers; see the
+plugin contract's editor language-feature providers section. The definition
+merge is Core's too: `{kind:"mergeDefinitions",value:{documentUri,position,server,plugin}}`
+takes the language server's and the plugins' validated `Location[]` and returns
+the indices each side keeps as `{server,plugin}`. The server's answer comes
+first; a plugin location equal to one already kept is dropped, and a server
+location that covers the requested position itself (the caret already sits on
+the declaration) yields when a plugin answered.
 
 `toolchains.instantiateLaunch` accepts `{ registry, tool, executable, home?,
 entry?, runtimeArguments, arguments }` and returns `{ status: "ok", launch:
