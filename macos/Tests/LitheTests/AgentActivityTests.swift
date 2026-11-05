@@ -27,7 +27,8 @@ struct AgentActivityTests {
             #expect(change.diffs.first?.newText == new)
             #expect(change.diffs.first?.operation == operation)
             message.toolDetails.merge(["status": "completed"])
-            #expect(message.toolDetails.diffs == change.diffs)
+            #expect(message.toolDetails.diffs.map(\.newText) == change.diffs.map(\.newText))
+            #expect(change.diffs.allSatisfy { $0.toolKind == "edit" })
         }
         var unknown = AgentToolDetails()
         unknown.merge(["_meta": ["claudeCode": ["toolName": "Write", "toolResponse": [
@@ -67,15 +68,39 @@ struct AgentActivityTests {
         #expect(!AgentActivity(messages: [unknownCreation]).files[0].canRevert)
         var creation = unknownCreation
         creation.toolDetails.diffs[0].operation = "add"
+        creation.toolDetails.diffs[0].isRevertible = true
         #expect(AgentActivity(messages: [creation]).files[0].canRevert)
-        let oversized = tool("large", path: "a.txt", old: "before", new: String(repeating: "x", count: AgentToolDetails.textLimit + 1))
-        #expect(oversized.toolDetails.diffs[0].isTruncated)
-        #expect(!AgentActivity(messages: [oversized]).files[0].canRevert)
-        details.merge(["content": (0..<101).map { _ in ["type": "diff", "path": "a.txt", "oldText": "before", "newText": "after"] }])
-        #expect(details.diffs.count == 100)
-        #expect(details.diffs.allSatisfy { $0.isTruncated }, "Dropping reported hunks must also disable rollback")
-        details.merge(["content": []])
+        details.merge(["content": [], "_meta": ["lithe": ["diffs": []]]])
         #expect(details.diffs.isEmpty, "Explicit replacement must remove optimistic evidence")
+    }
+
+    /// Limits and eligibility are the Host's verdict; Swift neither recounts
+    /// text nor parses raw diff content (AGT-08).
+    @Test func sharedHostEvidenceFixtureMapsWithoutRecountingText() throws {
+        let data = try Data(contentsOf: AgentEditEvidenceTestSupport.repositoryRoot()
+            .appendingPathComponent("shared/fixtures/agent/edit-review-v1.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let cases = try #require(fixture["evidence"] as? [[String: Any]])
+        for entry in cases {
+            guard let expected = AgentEditEvidenceTestSupport.expand(entry["expected"] as Any) as? [[String: Any]] else { continue }
+            var update = try #require(AgentEditEvidenceTestSupport.expand(entry["update"] as Any) as? [String: Any])
+            var meta = update["_meta"] as? [String: Any] ?? [:]
+            meta["lithe"] = ["diffs": expected]
+            update["_meta"] = meta
+            var details = AgentToolDetails()
+            details.merge(update)
+            #expect(details.diffs.count == expected.count, "\(entry["name"] ?? "")")
+            for (diff, evidence) in zip(details.diffs, expected) {
+                #expect(diff.newText == evidence["newText"] as? String)
+                #expect(diff.oldText == evidence["oldText"] as? String)
+                #expect(diff.isTruncated == evidence["truncated"] as? Bool)
+                #expect(diff.isRevertible == evidence["revertible"] as? Bool)
+                #expect(diff.additions == evidence["additions"] as? Int)
+            }
+        }
+        var raw = AgentToolDetails()
+        raw.merge(["content": [["type": "diff", "path": "a.txt", "oldText": "a", "newText": "b"]]])
+        #expect(raw.diffs.isEmpty, "Raw ACP content without Host evidence is display-only")
     }
 
     @Test func keepingChangesAdvancesTheBaselineAndIsIsolatedByConversation() async throws {
@@ -167,9 +192,9 @@ struct AgentActivityTests {
     }
 
     private func seed(_ connection: AgentConnectionModel, session: String, id: String, path: String, old: String, new: String) {
-        let update: [String: Any] = ["kind": "update", "sessionId": session, "update": [
+        let update: [String: Any] = ["kind": "update", "sessionId": session, "update": ([
             "sessionUpdate": "tool_call", "toolCallId": id, "title": "Edit file", "kind": "edit", "status": "completed",
-            "content": [["type": "diff", "path": path, "oldText": old, "newText": new]]]]
+        ] as [String: Any]).merging(AgentEditEvidenceTestSupport.diffContent(path: path, old: old, new: new)) { $1 }]
         let data = try! JSONSerialization.data(withJSONObject: update)
         connection.receive(String(decoding: data, as: UTF8.self))
     }
@@ -177,9 +202,8 @@ struct AgentActivityTests {
     private func tool(_ id: String, path: String, old: String?, new: String,
                       status: AgentConversationMessage.ToolStatus = .completed, stats: Bool = false) -> AgentConversationMessage {
         var message = AgentConversationMessage(id: id, role: .tool, text: "Edit \(path)", toolStatus: status)
-        var diff: [String: Any] = ["type": "diff", "path": path, "oldText": old as Any, "newText": new]
-        if stats { diff["_meta"] = ["jetbrains": ["air": ["diffStats": ["version": 1, "added": 1, "removed": 1]]]] }
-        message.toolDetails.merge(["kind": "edit", "locations": [["path": path], ["path": path]], "content": [diff]])
+        let evidence = AgentEditEvidenceTestSupport.diffContent(path: path, old: old, new: new, stats: stats ? (1, 1) : nil)
+        message.toolDetails.merge((["kind": "edit", "locations": [["path": path], ["path": path]]] as [String: Any]).merging(evidence) { $1 })
         return message
     }
 }

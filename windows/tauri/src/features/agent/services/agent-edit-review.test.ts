@@ -1,81 +1,97 @@
 import { describe, expect, test } from "bun:test";
+import evidenceFixture from "../../../../../../shared/fixtures/agent/edit-review-v1.json";
 import { createConversation, upsertToolMessage } from "../types/agent.types";
-import { agentFileChanges, canRevertAgentChange, reverseAgentChange } from "./agent-edit-review";
+import { agentFileChanges, agentReversePlanRequest, canRevertAgentChange } from "./agent-edit-review";
+
+type Evidence = { path: string; oldText: string | null; newText: string; operation: string | null; truncated: boolean; revertible: boolean };
+
+/** Host-presented tool update: raw ACP diff plus the Host's `_meta.lithe.diffs`. */
+function hostDiff(oldText: string | null, newText: string, options: { operation?: string; truncated?: boolean } = {}) {
+  const truncated = options.truncated ?? false;
+  const evidence: Evidence = { path: "sample.txt", oldText, newText, operation: options.operation ?? null, truncated,
+    revertible: !truncated && (oldText !== null || options.operation === "add") };
+  return { content: [{ type: "diff", path: "sample.txt", oldText, newText }], _meta: { lithe: { diffs: [evidence] } } };
+}
 
 function transcript(updates: Record<string, unknown>[]) {
   return updates.reduce((conversation, update, index) => upsertToolMessage(conversation, String(index), {
     status: "completed", kind: "edit", ...update,
   }), createConversation()).messages;
 }
-const diff = (oldText: string | null, newText: string, operation?: string) => ({
-  type: "diff", path: "sample.txt", oldText, newText, _meta: { kind: operation },
-});
+
+/** Expands the shared fixture's `{repeat, count, suffix?}` text generators. */
+function expand(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(expand);
+  if (value && typeof value === "object") {
+    const object = value as Record<string, unknown>;
+    if (typeof object.repeat === "string" && typeof object.count === "number") {
+      return object.repeat.repeat(object.count) + (typeof object.suffix === "string" ? object.suffix : "");
+    }
+    return Object.fromEntries(Object.entries(object).map(([key, entry]) => [key, expand(entry)]));
+  }
+  return value;
+}
 
 describe("Agent edit review", () => {
-  test("reverses consecutive edits newest first without touching surrounding content", () => {
+  test("stores Host evidence verbatim without recounting UTF-16 units", () => {
+    for (const entry of evidenceFixture.evidence) {
+      const expected = expand(entry.expected) as Evidence[] | null;
+      if (expected === null) continue;
+      const update = expand(entry.update) as Record<string, unknown>;
+      const meta = (update._meta ?? {}) as Record<string, unknown>;
+      const [message] = transcript([{ ...update, _meta: { ...meta, lithe: { diffs: expected } } }]);
+      const diffs = message.role === "tool" ? message.toolDetails.diffs ?? [] : [];
+      expect(diffs.map((diff) => [diff.newText, diff.oldText, diff.incomplete, diff.revertible]))
+        .toEqual(expected.map((diff) => [diff.newText, diff.oldText, diff.truncated, diff.revertible]));
+    }
+  });
+  test("raw ACP diff content without Host evidence is display-only", () => {
+    const [message] = transcript([{ content: [{ type: "diff", path: "sample.txt", oldText: "a", newText: "b" }] }]);
+    expect(message.role === "tool" ? message.toolDetails.diffs ?? [] : null).toEqual([]);
+  });
+  test("builds the shared reverse plan request in execution order with tool kinds", () => {
     const [change] = agentFileChanges(transcript([
-      { content: [diff("one", "two")] }, { content: [diff("two", "three")] },
+      { content: hostDiff("one", "two").content, _meta: hostDiff("one", "two")._meta },
+      { kind: "delete", ...hostDiff("two", "") },
     ]));
-    expect(reverseAgentChange(change, "before\nthree\nafter")).toBe("before\none\nafter");
-  });
-  test("reverses LF ACP edits against a CRLF Windows document", () => {
-    const [change] = agentFileChanges(transcript([{ content: [diff("before\n", "after\n")] }]));
-    expect(reverseAgentChange(change, "before\r\nafter\r\n")).toBe("before\r\nbefore\r\n");
-    expect(reverseAgentChange(change, "after\r\n")).toBe("before\r\n");
-  });
-  test("rejects ambiguous excerpts and external disk changes", () => {
-    const [change] = agentFileChanges(transcript([{ content: [diff("old", "new")] }]));
-    expect(() => reverseAgentChange(change, "new new")).toThrow("agent.edits.changed");
-    expect(() => reverseAgentChange(change, "unrelated")).toThrow("agent.edits.changed");
-  });
-  test("rejects overlapping exact excerpts instead of reverting the wrong occurrence", () => {
-    const [change] = agentFileChanges(transcript([{ content: [diff("x", "aba")] }]));
-    expect(() => reverseAgentChange(change, "ababa")).toThrow("agent.edits.changed");
-  });
-  test("rejects overlapping excerpts after normalizing mixed line endings", () => {
-    const [change] = agentFileChanges(transcript([{ content: [diff("x", "a\nb\na")] }]));
-    // Mixed LF/CRLF prevents an exact match; the canonical matches overlap.
-    expect(() => reverseAgentChange(change, "a\nb\r\na\nb\r\na")).toThrow("agent.edits.changed");
+    expect(agentReversePlanRequest(change, "two")).toEqual({
+      diffs: [
+        { oldText: "one", newText: "two", operation: null, toolKind: "edit", truncated: false },
+        { oldText: "two", newText: "", operation: null, toolKind: "delete", truncated: false },
+      ],
+      pending: false,
+      missingEvidence: false,
+      disk: "two",
+    });
   });
   test("an insertion with no original content is not proof of file creation", () => {
-    const [change] = agentFileChanges(transcript([{ content: [diff(null, "inserted")] }]));
-    expect(canRevertAgentChange(change)).toBe(false);
-  });
-  test("creation can remove only the exact created content", () => {
-    const [change] = agentFileChanges(transcript([{ content: [diff(null, "created", "add")] }]));
-    expect(reverseAgentChange(change, "created")).toBeNull();
-    expect(() => reverseAgentChange(change, "created and edited")).toThrow();
-  });
-  test("deletion restores only to a still missing destination", () => {
-    const [change] = agentFileChanges(transcript([{ kind: "delete", content: [diff("deleted", "", "delete")] }]));
-    expect(reverseAgentChange(change, null)).toBe("deleted");
-    expect(() => reverseAgentChange(change, "recreated")).toThrow();
+    expect(canRevertAgentChange(agentFileChanges(transcript([hostDiff(null, "inserted")]))[0])).toBe(false);
+    expect(canRevertAgentChange(agentFileChanges(transcript([hostDiff(null, "created", { operation: "add" })]))[0])).toBe(true);
   });
   test("pending, moved and truncated evidence cannot be reverted", () => {
     for (const update of [
-      { status: "in_progress", content: [diff("old", "new")] },
-      { kind: "move", content: [diff("old", "new")] },
-      { content: [{ ...diff("old", "new"), isTruncated: true }] },
-      { content: [diff("a".repeat(40_000), "new")] },
+      { status: "in_progress", ...hostDiff("old", "new") },
+      { kind: "move", ...hostDiff("old", "new") },
+      hostDiff("old", "new", { truncated: true }),
     ]) expect(canRevertAgentChange(agentFileChanges(transcript([update]))[0])).toBe(false);
+    const [moved] = agentFileChanges(transcript([{ kind: "move", ...hostDiff("old", "new") }]));
+    expect(agentReversePlanRequest(moved, "new").missingEvidence).toBe(true);
   });
   test("failed and interrupted tool effects are excluded", () => {
-    expect(agentFileChanges(transcript(["failed", "interrupted"].map((status) => ({ status, content: [diff("old", "new")] }))))).toEqual([]);
+    expect(agentFileChanges(transcript(["failed", "interrupted"].map((status) => ({ status, ...hostDiff("old", "new") }))))).toEqual([]);
   });
   test("keeping an exact prefix preserves new edits and invalidates replaced evidence", () => {
-    const first = { content: [diff("one", "two")] };
+    const first = hostDiff("one", "two");
     const initial = agentFileChanges(transcript([first]))[0];
     const reviewed = { "sample.txt": initial.versions };
     expect(agentFileChanges(transcript([first]), reviewed)).toEqual([]);
-    const [later] = agentFileChanges(transcript([first, { content: [diff("two", "three")] }]), reviewed);
-    expect(later.diffs).toHaveLength(1);
-    expect(reverseAgentChange(later, "three")).toBe("two");
-    expect(agentFileChanges(transcript([{ content: [diff("one", "changed replay")] }]), reviewed)).toHaveLength(1);
+    const [later] = agentFileChanges(transcript([first, hostDiff("two", "three")]), reviewed);
+    expect(later.diffs.map((diff) => diff.oldText)).toEqual(["two"]);
+    expect(agentFileChanges(transcript([hostDiff("one", "changed replay")]), reviewed)).toHaveLength(1);
   });
-  test("Claude Write metadata replaces partial hunks with complete file evidence", () => {
-    const [change] = agentFileChanges(transcript([{ content: [diff(null, "fragment")],
-      _meta: { claudeCode: { toolName: "Write", toolResponse: { type: "create", filePath: "sample.txt", content: "whole\nfile\n" } } },
-    }]));
-    expect(reverseAgentChange(change, "whole\nfile\n")).toBeNull();
+  test("an update without Host evidence keeps earlier evidence", () => {
+    const [change] = agentFileChanges(transcript([hostDiff("one", "two")]).map((message) =>
+      message.role === "tool" ? upsertToolMessage({ ...createConversation(), messages: [message] }, "0", { rawOutput: "saved" }).messages[0] : message));
+    expect(change.diffs.map((diff) => diff.newText)).toEqual(["two"]);
   });
 });

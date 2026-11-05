@@ -61,16 +61,45 @@ public struct AgentToolDetails: Equatable, Sendable {
 
     /// Structured evidence is kept separate from the shortened display text.
     /// Some agents report only a changed excerpt, so this is not a disk snapshot.
+    /// Agent Host normalizes it (`_meta.lithe.diffs`, `shared/contracts/agent-edit-review.md`);
+    /// limits and revert eligibility are never recomputed here.
     public struct Diff: Equatable, Sendable {
         public var path: String
         public var oldText: String?
         public var newText: String
         public var isTruncated: Bool
+        /// Host verdict that this diff alone is sufficient for a rollback.
+        public var isRevertible: Bool
         /// Explicit upstream creation/deletion metadata; null oldText alone is
         /// insufficient because Claude can report an inserted excerpt that way.
         public var operation: String?
         public var additions: Int?
         public var deletions: Int?
+        /// ACP kind of the reporting tool, attached by ``AgentActivity`` so a
+        /// `delete` tool marks an operation-less diff as a deletion.
+        public var toolKind: String? = nil
+
+        init?(evidence: [String: Any]) {
+            guard let path = evidence["path"] as? String, let new = evidence["newText"] as? String,
+                  let truncated = evidence["truncated"] as? Bool, let revertible = evidence["revertible"] as? Bool else {
+                return nil
+            }
+            self.init(path: path, oldText: evidence["oldText"] as? String, newText: new, isTruncated: truncated,
+                      isRevertible: revertible, operation: evidence["operation"] as? String,
+                      additions: evidence["additions"] as? Int, deletions: evidence["deletions"] as? Int)
+        }
+
+        public init(path: String, oldText: String?, newText: String, isTruncated: Bool, isRevertible: Bool,
+                    operation: String? = nil, additions: Int? = nil, deletions: Int? = nil) {
+            self.path = path
+            self.oldText = oldText
+            self.newText = newText
+            self.isTruncated = isTruncated
+            self.isRevertible = isRevertible
+            self.operation = operation
+            self.additions = additions
+            self.deletions = deletions
+        }
     }
 
     public var kind: String?
@@ -97,21 +126,6 @@ public struct AgentToolDetails: Equatable, Sendable {
             }
         }
         if let content = update["content"] as? [[String: Any]] {
-            diffs = content.prefix(100).compactMap { item in
-                guard item["type"] as? String == "diff", let path = item["path"] as? String,
-                      let new = item["newText"] as? String else { return nil }
-                let old = item["oldText"] as? String
-                let metadata = item["_meta"] as? [String: Any]
-                let jetbrains = metadata?["jetbrains"] as? [String: Any]
-                let air = jetbrains?["air"] as? [String: Any]
-                let stats = air?["diffStats"] as? [String: Any]
-                let validStats = stats?["version"] as? Int == 1
-                return Diff(path: path, oldText: old.map(Self.bounded), newText: Self.bounded(new),
-                            isTruncated: content.count > 100 || new.count > Self.textLimit || (old?.count ?? 0) > Self.textLimit,
-                            operation: metadata?["kind"] as? String,
-                            additions: validStats ? (stats?["added"] as? Int).flatMap { $0 >= 0 ? $0 : nil } : nil,
-                            deletions: validStats ? (stats?["removed"] as? Int).flatMap { $0 >= 0 ? $0 : nil } : nil)
-            }
             // Parse each picture once; an `image` block no decoder accepts falls back to a text entry.
             var parsedIndices = Set<Int>()
             let reported = content.prefix(100).enumerated().compactMap { index, item -> AgentImage? in
@@ -149,24 +163,10 @@ public struct AgentToolDetails: Equatable, Sendable {
            let card = AgentDesktopCard(lithe["claudeDesktop"]) {
             desktopCard = card
         }
-        // The pinned Claude adapter forwards the SDK's public FileWriteOutput
-        // in tool metadata. Prefer its complete text over newline-less hunks;
-        // the explicit create type distinguishes a new file from an insertion.
-        if let metadata = update["_meta"] as? [String: Any],
-           let claude = metadata["claudeCode"] as? [String: Any], claude["toolName"] as? String == "Write",
-           let response = claude["toolResponse"] as? [String: Any],
-           let type = response["type"] as? String, let path = response["filePath"] as? String, !path.isEmpty,
-           let new = response["content"] as? String {
-            let old = response["originalFile"] as? String
-            if type == "create" || (type == "update" && old != nil) {
-                var reported = AgentFileChange(path: path)
-                reported.diffs = diffs.filter { $0.path == path }
-                let completeStats = !reported.diffs.contains(where: \.isTruncated)
-                diffs = [Diff(path: path, oldText: type == "create" ? nil : old.map(Self.bounded),
-                    newText: Self.bounded(new), isTruncated: new.count > Self.textLimit || (old?.count ?? 0) > Self.textLimit,
-                    operation: type == "create" ? "add" : "update",
-                    additions: completeStats ? reported.additions : nil, deletions: completeStats ? reported.deletions : nil)]
-            }
+        // Agent Host restates normalized diff evidence whenever an update determines it.
+        if let metadata = update["_meta"] as? [String: Any], let lithe = metadata["lithe"] as? [String: Any],
+           let reported = lithe["diffs"] as? [[String: Any]] {
+            diffs = reported.compactMap(Diff.init(evidence:))
         }
     }
 
