@@ -74,7 +74,7 @@ Core 基础切片先独立验证固定值，因此低层提供方超时不能撤
 
 ### 4. 目录固定与手动添加的写入边界
 
-环境页按目录展示结果，子目录继承最近祖先的固定值。固定写到 `.lithe/toolchains/local.json` 的 `pins`；现有 `toolchains` 字段保留，草案不授权提前迁移旧数据。目录标识使用规范的工作区相对路径，根为 `.`，不能用绝对路径或 `..` 把固定作用域扩展到工作区外。
+环境页按目录展示结果，子目录继承最近祖先的固定值。固定写到 `.lithe/toolchains/local.json` 的 `pins`；现有 `toolchains` 字段保留，本提案不授权提前迁移旧数据。目录标识使用规范的工作区相对路径，根为 `.`，不能用绝对路径或 `..` 把固定作用域扩展到工作区外。
 
 `local.json` 保存本机安装路径，因此首次明确保存时，平台存储适配器还要确保 `.lithe/.gitignore` 包含 `/toolchains/local.json`，保留已有内容。打开项目或设置页只读，不创建这两个文件；未修改、取消、失焦和切页不写入。保存必须检查读取基线，受保护地原子替换并回读；任一步失败都报告真实结果、保留草稿和既有数据，不能把部分写入报告成全部成功。
 
@@ -146,14 +146,14 @@ macOS 的声明式路线由 `MacToolchainDiscovery` 执行，宿主不认识任�
 
 | 阶段 | 交付内容 | 必须证明 |
 | --- | --- | --- |
-| 1：提案 | 本笔记、隔离的清单贡献、查询和解析、`pins` 契约草案及 fixture | Java 风格定义、mise 提供方、未定义工具反例可读且一致；未实施的草案字段不能被误当成已支持能力 |
+| 1：提案 | 本笔记、隔离的清单贡献、查询和解析、`pins` 契约草案及 fixture（草案和 fixture 已于 2026-11-05 删除，见下文） | Java 风格定义、mise 提供方、未定义工具反例可读且一致；未实施的草案字段不能被误当成已支持能力 |
 | 2：Core 与查询客户端，部分完成 | Core 已支持定义/答案校验、目录固定、四层解析、同时列出扫描规则与提供方的发现计划、设置页候选（`toolchains.candidates`）、只报告安装的提供方和版本校验；macOS 设置页已接入声明式扫描、版本探测、提供方查询客户端和输入监听；Windows 未接入 | 已有纯数据测试保护固定失效、来源与最低版本、冲突、路径和数量边界，以及只扫描、只由定义插件自供、两条路线报告同一 home 时只算一份；macOS 用真实临时目录和注入的探测证明扫描、工作区排除、只探测 Core 返回的文件和冲突；macOS 已用脚本后端与注入查询证明协商、原样回复、同一轮共享代次而操作 ID 各不相同、整份重查与合并，并用 `toolchains.resolve` 证明项目要求、未安装要求退到下一层、固定值生效与失效，以及超时和后端不可用的提供方带着各自原因留在结果里、由下一层决定；真实后端超时、进程回收与 Windows 仍须平台实现证明；不新增宿主工具表 |
 | 3：统一选择与设置界面，部分完成 | macOS 环境/来源页和只读加载器已接入；实际启动与展示共用快照、Java/Maven 定义迁移尚未完成 | 现有目录、插件撤销、错误及过期快照测试；手动添加、确认保存、冲突回读和消费者切换仍须后续验证；同项删除被替换的专属路径 |
 | 4：两个真实提供方 | mise 后端调用上游输出，SDKMAN 作为不同机制的验收插件，设置各自注入插件页 | 第二个提供方只改插件；SDKMAN 路径从 `MacRuntimeDiscovery` 迁出；原生工作流、离线/未信任/未安装/取消、进程清理与安装包哈希不变 |
 
 阶段 3 清理 `ProjectRuntimeService` 的专属选择链和 `project-jdk`、`project-maven` 等被替代引用前，须按 [Java/Maven 迁移清单](2026-10-26-maven-java-domain-plugin-migration.md)核对真实消费者和数据迁移。Node、Go、Python 等在其插件声明定义之前保持当前实现，不新增特判；不能在本次提案删除仍在生产使用的代码，或用永久兼容别名伪装迁移完成。
 
-契约草案位于 `shared/contracts/plugins/v1/toolchains/proposal/`，其中尚未实现的消费者启动、查询客户端和界面行为继续保留未支持标记。Core 已实现的清单贡献和命令由本次正式契约单独说明，不把草案全集直接当作能力承诺；旧 `local-v1` schema 与 Run 配置读写路径保持不变，新 Core 固定解析入口只处理调用方传入的 JSON，不打开文件或保存忽略规则。合并后在插件文档仓库按合并的 `preview` 提交执行 `node scripts/contract.mjs sync --revision <commit>`；实际插件后端协议接入时同步 Node/Java SDK，并在合并前执行 SDK 端到端验证。每阶段的功能矩阵只记录实际实现和目标平台运行证据，不把本提案或 Core 单元测试当作 Windows 已完成。
+阶段 1 的契约草案 `shared/contracts/plugins/v1/toolchains/proposal/` 及其 fixture 已于 2026-11-05 删除。草案把已实现和未实现的行为写在一起，同步到 lithe-plugin-docs 后，插件开发者分不清哪些能用。其中已经实现的后端协商 `litheToolchains`、稳定失败码和错误回复规则已写进正式契约 `shared/contracts/plugins/v1/toolchains/README.md`；Core 测试改用 `rust/lithe-core/src/tests/toolchain_vectors.rs` 里的内联数据。消费者迁移、查询生命周期与缓存、固定值保存和版本管理器插件等未实现部分只在本笔记跟踪，实现时再写进正式契约；旧 `local-v1` schema 与 Run 配置读写路径保持不变，新 Core 固定解析入口只处理调用方传入的 JSON，不打开文件或保存忽略规则。合并后在插件文档仓库按合并的 `preview` 提交执行 `node scripts/contract.mjs sync --revision <commit>`；实际插件后端协议接入时同步 Node/Java SDK，并在合并前执行 SDK 端到端验证。每阶段的功能矩阵只记录实际实现和目标平台运行证据，不把本提案或 Core 单元测试当作 Windows 已完成。
 
 ## 风险
 
@@ -169,7 +169,7 @@ macOS 的声明式路线由 `MacToolchainDiscovery` 执行，宿主不认识任�
 当前验证覆盖文档、契约、Core 纯数据边界和 macOS 设置页的扫描与布局测试，不声称运行时流程已验收：
 
 - `./scripts/agent-notes/verify-agent-notes.sh`：中文笔记格式、生命周期、链接与路径。
-- `./scripts/architecture/verify-shared-contracts.sh`：现行共享契约及 JSON 有效性；不能替代草案 schema 的专门校验或未来 Core 语义测试。
+- `./scripts/architecture/verify-shared-contracts.sh`：现行共享契约及 JSON 有效性；不检查 Core 语义，语义由下面的 Core 测试保护。
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`：矩阵记录实际 Core 切片与平台待接入状态，不把纯数据测试标成产品运行时已验证。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib toolchain_definitions -- --test-threads=1`：短 ID 来源、重复归属、嵌套字段失败即拒绝、只报告安装的提供方，以及定义插件为自己的工具声明提供方。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib toolchain_pins -- --test-threads=1`：目录按组件继承、失效数据、跨平台路径语法、数量边界和 legacy 数据保留。
