@@ -308,9 +308,11 @@ fn planned_messages(
                 let previous = combined.as_ref().ok_or_else(|| {
                     invalid("Squash and fixup require an earlier surviving commit")
                 })?;
-                combined = Some(step.message.clone().unwrap_or_else(|| {
-                    format!("{}\n\n{}", previous.trim_end_matches('\n'), original)
-                }));
+                combined = Some(
+                    step.message
+                        .clone()
+                        .unwrap_or_else(|| default_squash_message(previous, original)),
+                );
             }
             "fixup" => {
                 if combined.is_none() {
@@ -341,6 +343,205 @@ fn planned_messages(
         ));
     }
     Ok(messages)
+}
+
+/// Git's default combined message: the surviving message without trailing
+/// newlines, a blank line, then the squashed commit's complete message.
+fn default_squash_message(previous: &str, original: &str) -> String {
+    format!("{}\n\n{}", previous.trim_end_matches('\n'), original)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One reviewed commit as the plan editor shows it.
+struct PlanCommit {
+    hash: String,
+    /// Complete original message.
+    message: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// The editor's current todo order, actions, and explicit message overrides.
+struct PlanPreviewRequest {
+    /// Reviewed range from `git.rebasePreview`, oldest first.
+    commits: Vec<PlanCommit>,
+    /// `message` is the user's explicit replacement: a reword falls back to the
+    /// original message and a squash to the default combined message without it.
+    steps: Vec<GitRebaseStep>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// First problem the user must fix before the plan can start.
+struct PlanIssue {
+    /// `missingPrecedingCommit`, `emptyRewordMessage`, `emptySquashMessage`, or `invalidMessage`.
+    code: &'static str,
+    /// Step that has the problem; `null` when the complete plan exceeds the budget.
+    hash: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One row with the message the editor shows for it.
+struct PlanPreviewStep {
+    hash: String,
+    action: String,
+    /// Effective reword or combined squash message; the commit's own message otherwise.
+    message: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Everything the plan editor presents and submits for one draft.
+struct PlanPreviewResponse {
+    issue: Option<PlanIssue>,
+    steps: Vec<PlanPreviewStep>,
+    /// Exact `steps` for `git.rebaseStart`; only reword and an edited squash carry a message.
+    start_steps: Vec<GitRebaseStep>,
+    /// Commits the rewritten range will contain.
+    output_commit_count: usize,
+}
+
+/// Handles `git.rebasePlanPreview`: validates a draft and derives every
+/// message with the same rules [`start`] applies, without touching a repository.
+///
+/// Problems the user can fix in the editor are returned as an `issue`; a draft
+/// that does not cover the reviewed range exactly once is a host error.
+pub(crate) fn plan_preview_command(
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, CoreError> {
+    let request: PlanPreviewRequest = serde_json::from_value(payload).map_err(|error| {
+        invalid("Invalid interactive rebase plan").with_details(error.to_string())
+    })?;
+    if request.steps.len() > MAX_SESSION_STEPS || request.commits.len() != request.steps.len() {
+        return Err(invalid(
+            "Every reviewed commit must appear exactly once in the rebase plan",
+        ));
+    }
+    let mut originals = BTreeMap::new();
+    for commit in &request.commits {
+        if originals
+            .insert(commit.hash.as_str(), commit.message.as_str())
+            .is_some()
+        {
+            return Err(invalid("Reviewed commits must be unique"));
+        }
+    }
+    let mut seen = BTreeSet::new();
+    let mut issue = None;
+    let mut combined: Option<String> = None;
+    let mut steps = Vec::with_capacity(request.steps.len());
+    let mut start_steps = Vec::with_capacity(request.steps.len());
+    for step in &request.steps {
+        let original = *originals
+            .get(step.hash.as_str())
+            .ok_or_else(|| invalid("Every planned commit must belong to the reviewed range"))?;
+        if !seen.insert(step.hash.as_str()) {
+            return Err(invalid(
+                "Every reviewed commit must appear exactly once in the rebase plan",
+            ));
+        }
+        if step.message.is_some() && !matches!(step.action.as_str(), "reword" | "squash") {
+            return Err(invalid(
+                "Only reword and squash plan steps accept a replacement message",
+            ));
+        }
+        let mut problem = |code| {
+            issue.get_or_insert(PlanIssue {
+                code,
+                hash: Some(step.hash.clone()),
+            });
+        };
+        let message_problem = |message: &str, empty| {
+            if message.trim().is_empty() {
+                Some(empty)
+            } else if valid_message(message) {
+                None
+            } else {
+                Some("invalidMessage")
+            }
+        };
+        let (shown, start_message) = match step.action.as_str() {
+            "pick" | "edit" => {
+                combined = Some(original.to_string());
+                (original.to_string(), None)
+            }
+            "reword" => {
+                let message = step.message.clone().unwrap_or_else(|| original.to_string());
+                if let Some(code) = message_problem(&message, "emptyRewordMessage") {
+                    problem(code);
+                }
+                combined = Some(message.clone());
+                (message.clone(), Some(message))
+            }
+            "squash" => {
+                if combined.is_none() {
+                    problem("missingPrecedingCommit");
+                }
+                if let Some(message) = step.message.as_deref() {
+                    if let Some(code) = message_problem(message, "emptySquashMessage") {
+                        problem(code);
+                    }
+                }
+                let message = match (&step.message, &combined) {
+                    (Some(message), _) => message.clone(),
+                    (None, Some(previous)) => default_squash_message(previous, original),
+                    (None, None) => original.to_string(),
+                };
+                combined = Some(message.clone());
+                (message, step.message.clone())
+            }
+            "fixup" => {
+                if combined.is_none() {
+                    problem("missingPrecedingCommit");
+                }
+                (original.to_string(), None)
+            }
+            "drop" => (original.to_string(), None),
+            _ => return Err(invalid("Unsupported interactive rebase action")),
+        };
+        steps.push(PlanPreviewStep {
+            hash: step.hash.clone(),
+            action: step.action.clone(),
+            message: shown,
+        });
+        start_steps.push(GitRebaseStep {
+            hash: step.hash.clone(),
+            action: step.action.clone(),
+            message: start_message,
+        });
+    }
+    // The start path re-derives every message from the same steps; checking it
+    // here keeps the editor from offering a plan that start would reject.
+    if issue.is_none() {
+        let commits = request
+            .commits
+            .iter()
+            .map(|commit| GitHistoryRewriteCommit {
+                hash: commit.hash.clone(),
+                parents: Vec::new(),
+                message: commit.message.clone(),
+            })
+            .collect::<Vec<_>>();
+        if planned_messages(&start_steps, &commits).is_err() {
+            issue = Some(PlanIssue {
+                code: "invalidMessage",
+                hash: None,
+            });
+        }
+    }
+    let output_commit_count = start_steps
+        .iter()
+        .filter(|step| matches!(step.action.as_str(), "pick" | "reword" | "edit"))
+        .count();
+    Ok(serde_json::to_value(PlanPreviewResponse {
+        issue,
+        steps,
+        start_steps,
+        output_commit_count,
+    })
+    .expect("rebase plan preview encodes"))
 }
 
 fn ensure_owned_file(path: &Path) -> Result<(), CoreError> {
@@ -1018,4 +1219,74 @@ pub(super) fn resolve_owned_operation(
         expected_head: None,
     })
     .map(|response| Some(response.command))
+}
+
+#[cfg(test)]
+mod plan_preview_tests {
+    use serde_json::{json, Value};
+
+    fn call(commits: &Value, steps: &Value) -> Value {
+        serde_json::from_str(&crate::execute_json(
+            &json!({"id":"plan", "command":"git.rebasePlanPreview",
+                "payload":{"commits":commits, "steps":steps}})
+            .to_string(),
+        ))
+        .unwrap()
+    }
+
+    /// Both editors present and submit exactly these values; a drift here is
+    /// a preview that no longer matches what the native sequencer receives.
+    #[test]
+    fn shared_fixture_drafts_match_start_semantics() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/git/rebase-plan-preview-v1.json"
+        ))
+        .unwrap();
+        let commits = &fixture["commits"];
+        for case in fixture["cases"].as_array().unwrap() {
+            let response = call(commits, &case["steps"]);
+            assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+            assert_eq!(response["data"], case["response"], "{}", case["name"]);
+        }
+        for case in fixture["invalid"].as_array().unwrap() {
+            let response = call(commits, &case["steps"]);
+            assert_eq!(response["ok"], false, "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn issue_free_preview_is_accepted_by_the_start_planner() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/git/rebase-plan-preview-v1.json"
+        ))
+        .unwrap();
+        let commits = fixture["commits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|commit| super::GitHistoryRewriteCommit {
+                hash: commit["hash"].as_str().unwrap().into(),
+                parents: Vec::new(),
+                message: commit["message"].as_str().unwrap().into(),
+            })
+            .collect::<Vec<_>>();
+        for case in fixture["cases"].as_array().unwrap() {
+            if !case["response"]["issue"].is_null() {
+                continue;
+            }
+            let steps: Vec<super::GitRebaseStep> =
+                serde_json::from_value(case["response"]["startSteps"].clone()).unwrap();
+            let messages = super::planned_messages(&steps, &commits).unwrap();
+            for step in case["response"]["steps"].as_array().unwrap() {
+                if matches!(step["action"].as_str(), Some("reword" | "squash")) {
+                    assert_eq!(
+                        messages[step["hash"].as_str().unwrap()],
+                        step["message"].as_str().unwrap(),
+                        "{}",
+                        case["name"]
+                    );
+                }
+            }
+        }
+    }
 }

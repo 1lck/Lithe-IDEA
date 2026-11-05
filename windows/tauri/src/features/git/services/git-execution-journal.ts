@@ -1,4 +1,4 @@
-import type { GitExecutionEvent } from "@/platform/git-execution-events";
+import type { GitExecutionEvent, GitJournalRetention } from "@/platform/git-execution-events";
 
 export interface GitConsoleRecord {
   id: string;
@@ -26,12 +26,12 @@ export interface GitConsoleRecord {
   error?: string;
 }
 
-const MAX_RECORDS = 200;
-const MAX_OUTPUT = 65_536;
-const MAX_OUTPUT_LINES = 2_000;
-const MAX_TOTAL_OUTPUT = 1_048_576;
-
-/** Receives complete sanitized native lines. State is intentionally memory-only. */
+/**
+ * Stores the ordered native events Core emits. State is intentionally memory-only.
+ *
+ * Core owns record states, redaction, and the retention budget (carried by
+ * `requestStarted`); the journal only stores, trims to that budget, and exposes records.
+ */
 export class GitExecutionJournal {
   constructor(private readonly now: () => number = Date.now) {}
   records: GitConsoleRecord[] = [];
@@ -41,6 +41,7 @@ export class GitExecutionJournal {
   private hidden = new Set<string>();
   private pending = new Map<string, { root: string; action: string }>();
   private sequence = 0;
+  private retention: GitJournalRetention | null = null;
 
   clear(root?: string) {
     this.records = this.records.filter((record) => root != null && !sameGitRoot(record.root, root));
@@ -53,6 +54,7 @@ export class GitExecutionJournal {
     if (event.type === "started") this.sequence += 1;
     if (event.type === "authentication") { this.authentication.push(event); return; }
     if (event.type === "requestStarted") {
+      if (event.retention) this.retention = event.retention;
       this.active.set(operationId, event.workingDirectory ?? "");
       this.pending.set(operationId, { root: event.workingDirectory ?? "", action: event.action ?? "Git" });
       return;
@@ -66,15 +68,15 @@ export class GitExecutionJournal {
       const records = this.records.filter((record) => record.operationId === operationId);
       let last = records[records.length - 1];
       // A failed preflight needs its reason, but is never presented as an executed command.
-      // A request cancelled before any command ran (a newer request superseded it) is not a failure.
-      if (!last && event.error && event.error.code !== "cancelled") {
+      if (!last && event.failureRecord && event.error) {
         last = { id: operationId, operationId, timestamp: this.now(), root: pending?.root ?? event.workingDirectory ?? "",
           action: pending?.action ?? event.action ?? "Git", arguments: [], state: "unconfirmed", output: "", lines: [], truncated: false };
         this.records.push(last);
       }
-      if (last && event.error) last.error = redactConsoleText([event.error.message, event.error.details].filter(Boolean).join("\n"));
+      if (last && event.error) last.error = [event.error.message, event.error.details].filter(Boolean).join("\n");
+      const unconfirmed = new Set(event.unconfirmedInvocations ?? []);
       for (const record of records) {
-        if (record.state === "running" || record.state === "queued") record.state = "unconfirmed";
+        if (unconfirmed.has(Number(record.id.slice(operationId.length + 1)))) record.state = "unconfirmed";
       }
       this.trimHistory();
       return;
@@ -82,7 +84,7 @@ export class GitExecutionJournal {
     if (this.hidden.has(operationId)) return;
     if (event.type === "remoteResult") {
       const record = [...this.records].reverse().find((record) => record.operationId === operationId && (event.invocationId == null || record.id === `${operationId}:${event.invocationId}`));
-      if (record) { record.remoteResult = event; if (event.error) record.error = redactConsoleText(event.error.message); }
+      if (record) { record.remoteResult = event; if (event.error) record.error = event.error.message; }
       return;
     }
     const id = `${operationId}:${event.invocationId}`;
@@ -96,34 +98,39 @@ export class GitExecutionJournal {
     const record = [...this.records].reverse().find((record) => record.id === id);
     if (record && event.type === "output") {
       record.phase = event.progressDetails ?? record.phase;
-      if (event.progress) record.progress = redactConsoleText(event.text ?? "");
+      if (event.progress) record.progress = event.text ?? "";
       else {
-        const text = redactConsoleText(event.text ?? "");
-        record.lines.push({ stream: event.stream === "stderr" ? "stderr" : "stdout", text: text.slice(-(MAX_OUTPUT - 1)) });
-        let characters = record.output.length + record.lines[record.lines.length - 1].text.length + 1;
-        while (record.lines.length > 1 && (characters > MAX_OUTPUT || record.lines.length > MAX_OUTPUT_LINES)) {
-          characters -= record.lines.shift()!.text.length + 1;
-          record.truncated = true;
+        const limits = this.retention;
+        const text = limits ? (event.text ?? "").slice(-(limits.maxRecordOutputCharacters - 1)) : (event.text ?? "");
+        record.lines.push({ stream: event.stream === "stderr" ? "stderr" : "stdout", text });
+        if (limits) {
+          let characters = record.output.length + text.length + 1;
+          while (record.lines.length > 1 && (characters > limits.maxRecordOutputCharacters || record.lines.length > limits.maxRecordOutputLines)) {
+            characters -= record.lines.shift()!.text.length + 1;
+            record.truncated = true;
+          }
+          record.truncated ||= (event.text ?? "").length >= limits.maxRecordOutputCharacters;
         }
-        record.truncated ||= text.length >= MAX_OUTPUT;
         record.output = record.lines.map((line) => line.text + "\n").join("");
         record.progress = undefined;
       }
       record.truncated ||= !!event.truncated;
     }
     if (record && event.type === "finished") {
-      record.state = event.exitCode == null ? "unconfirmed" : "completed";
+      record.state = event.state ?? "unconfirmed";
       record.exitCode = event.exitCode ?? undefined;
       record.expectedExit = event.expectedExit ?? false;
       record.durationMilliseconds = event.durationMilliseconds;
-      record.error = event.error ? redactConsoleText([event.error.message, event.error.details].filter(Boolean).join("\n")) : undefined;
+      record.error = event.error ? [event.error.message, event.error.details].filter(Boolean).join("\n") : undefined;
       record.progress = undefined;
     }
     this.trimHistory();
   }
 
   private trimHistory() {
-    while (this.records.length > MAX_RECORDS || (this.records.length > 1 && this.records.reduce((sum, record) => sum + record.output.length, 0) > MAX_TOTAL_OUTPUT)) {
+    const limits = this.retention;
+    if (!limits) return;
+    while (this.records.length > limits.maxRecords || (this.records.length > 1 && this.records.reduce((sum, record) => sum + record.output.length, 0) > limits.maxTotalOutputCharacters)) {
       this.historyTruncated = true;
       this.records.shift();
     }

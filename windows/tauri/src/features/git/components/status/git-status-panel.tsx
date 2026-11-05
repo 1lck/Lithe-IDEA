@@ -72,8 +72,11 @@ import {
   countGitChangedFiles,
   isBelowUntrackedDirectory,
   isUntrackedDirectorySummary,
-  withoutListedUntrackedContents,
 } from "../../utils/git-untracked-directories";
+import {
+  normalizeGitChangeTargets,
+  resolveGitStatusDeletion,
+} from "../../api/git-change-targets-api";
 import { setUntrackedDirectoryExpanded } from "../../services/git-untracked-directory-expansions";
 import {
   buildGitIgnorePaths,
@@ -82,7 +85,6 @@ import {
   getGitFileRepositoryRelativePath,
   resolveGitFileMutationPaths,
   resolveGitFilesForStagedState,
-  resolveGitStatusDeletionPaths,
   resolveGitStatusContextSelection,
 } from "../../utils/git-status-selection";
 import { StashMessageModal } from "../stash/git-stash-modal";
@@ -791,7 +793,18 @@ const GitStatusPanel = ({
       stagePendingPaths.size > 0
     )
       return;
-    const selected = withoutListedUntrackedContents(entries.flatMap((entry) => entry.files));
+    let selected: GitFile[];
+    try {
+      selected = await normalizeGitChangeTargets(
+        entries.flatMap((entry) => entry.files),
+        repoPath,
+      );
+    } catch (error) {
+      toast.error(
+        t("git.operationError", { error: error instanceof Error ? error.message : String(error) }),
+      );
+      return;
+    }
     if (
       selected.length === 0 ||
       selected.some((file) => file.canToggleStaging === false || !file.rawStatus)
@@ -950,7 +963,16 @@ const GitStatusPanel = ({
   };
 
   const handleDeleteEntries = async (entries: GitStatusSelectionEntry[]) => {
-    const filePaths = resolveGitStatusDeletionPaths(entries);
+    let deletion: { paths: string[]; targets: GitFile[] };
+    try {
+      deletion = await resolveGitStatusDeletion(entries, repoPath);
+    } catch (error) {
+      toast.error(
+        t("git.operationError", { error: error instanceof Error ? error.message : String(error) }),
+      );
+      return;
+    }
+    const filePaths = deletion.paths;
     if (filePaths.length === 0) return;
     const singleFileEntry = entries.length === 1 && entries[0]?.kind === "file";
     const confirmationMessage = singleFileEntry
@@ -973,9 +995,7 @@ const GitStatusPanel = ({
       const result = await deleteGitStatusPaths(
         filePaths,
         async (filePath) => {
-          const file = entries
-            .flatMap((entry) => entry.files)
-            .find((candidate) => candidate.path === filePath);
+          const file = deletion.targets.find((candidate) => candidate.path === filePath);
           const fileRepoPath = file ? getGitFileRepositoryPath(file, repoPath) : repoPath;
           // A summarized directory is reported as `dir/`; the file tree names it `dir`.
           const relativePath = (file ? getGitFileRepositoryRelativePath(file) : filePath).replace(
@@ -987,11 +1007,7 @@ const GitStatusPanel = ({
         },
         async () => onRefresh?.(),
         async () => {
-          const selectedPaths = new Set(filePaths);
-          const selected = withoutListedUntrackedContents(
-            entries.flatMap((entry) => entry.files),
-          ).filter((file) => selectedPaths.has(file.path));
-          for (const group of groupGitFilesByRepository(selected, repoPath)) {
+          for (const group of groupGitFilesByRepository(deletion.targets, repoPath)) {
             await reconcileDeletedSelection(
               group.repoPath,
               group.files.map((file) => ({
@@ -1685,9 +1701,10 @@ const GitStatusPanel = ({
     () => resolveGitFilesForStagedState(contextMenuFiles, true),
     [contextMenuFiles],
   );
-  const contextMenuDeletionPaths = useMemo(
-    () => resolveGitStatusDeletionPaths(contextMenuEntries),
-    [contextMenuEntries],
+  // Every selected row that still exists is either a target or below one.
+  const contextMenuCanDelete = useMemo(
+    () => contextMenuFiles.some((file) => file.status !== "deleted"),
+    [contextMenuFiles],
   );
   const contextMenuTarget = contextMenuEntries.length === 1 ? contextMenuEntries[0] : null;
   const contextMenuHasTrackedFiles = contextMenuFiles.some((file) => file.status !== "untracked");
@@ -2083,7 +2100,7 @@ const GitStatusPanel = ({
                   label: t("git.delete"),
                   icon: <Trash2 />,
                   disabled:
-                    contextMenuDeletionPaths.length === 0 ||
+                    !contextMenuCanDelete ||
                     isLoading ||
                     stagePendingPaths.size > 0,
                   className: "text-destructive",

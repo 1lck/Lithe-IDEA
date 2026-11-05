@@ -1,42 +1,59 @@
+import { useEffect, useState } from "react";
+import { invoke } from "@/platform/tauri-core";
 import type { GitHistoryRewriteCommit } from "../types/git-history-rewrite.types";
 import type { GitRebaseStep } from "../types/git-rebase.types";
 
-/** Plan messages are explicit user edits; predicted squash text stays presentation-only. */
-export function prepareGitRebasePlan(
-  steps: GitRebaseStep[],
-  commits: GitHistoryRewriteCommit[],
-): { steps: GitRebaseStep[]; messages: Map<string, string> } {
-  const originals = new Map(commits.map((commit) => [commit.hash, commit.message]));
-  const messages = new Map<string, string>();
-  let combined = "";
-  const prepared = steps.map((step): GitRebaseStep => {
-    const original = originals.get(step.hash) ?? "";
-    let displayed = original;
-    switch (step.action) {
-      case "pick":
-      case "edit":
-        combined = original;
-        break;
-      case "reword":
-        combined = displayed = step.message ?? original;
-        break;
-      case "squash":
-        combined = displayed = step.message ?? `${combined.replace(/\n+$/, "")}\n\n${original}`;
-        break;
-      case "fixup":
-      case "drop":
-        break;
-    }
-    messages.set(step.hash, displayed);
-    return {
-      hash: step.hash,
-      action: step.action,
-      ...(step.action === "reword"
-        ? { message: displayed }
-        : step.action === "squash" && step.message !== undefined
-          ? { message: step.message }
-          : {}),
-    };
+/** What the plan editor presents and submits for one draft (`git.rebasePlanPreview`). */
+export interface GitRebasePlanPreview {
+  /** First problem the user must fix; `null` when the plan can start. */
+  issue: {
+    code: "missingPrecedingCommit" | "emptyRewordMessage" | "emptySquashMessage" | "invalidMessage";
+    hash: string | null;
+  } | null;
+  /** Draft rows with the message the editor shows for each. */
+  steps: Array<{ hash: string; action: GitRebaseStep["action"]; message: string }>;
+  /** Exact steps for `git.rebaseStart`. */
+  startSteps: GitRebaseStep[];
+  outputCommitCount: number;
+}
+
+/**
+ * Validates a rebase draft and derives its messages in Core, with the rules the
+ * start command applies. Plan messages are explicit user edits; predicted squash
+ * text stays presentation-only.
+ */
+export function loadGitRebasePlanPreview(
+  steps: readonly GitRebaseStep[],
+  commits: readonly GitHistoryRewriteCommit[],
+): Promise<GitRebasePlanPreview> {
+  return invoke<GitRebasePlanPreview>("git.rebasePlanPreview", {
+    commits: commits.map(({ hash, message }) => ({ hash, message })),
+    steps,
   });
-  return { steps: prepared, messages };
+}
+
+/** Core's preview for the current draft; `null` while it loads, after a rejected draft, or without commits. */
+export function useGitRebasePlanPreview(
+  steps: readonly GitRebaseStep[],
+  commits: readonly GitHistoryRewriteCommit[] | undefined,
+): GitRebasePlanPreview | null {
+  const [snapshot, setSnapshot] = useState<{
+    steps: readonly GitRebaseStep[];
+    plan: GitRebasePlanPreview;
+  } | null>(null);
+  useEffect(() => {
+    if (!commits || commits.length === 0) return;
+    let current = true;
+    loadGitRebasePlanPreview(steps, commits)
+      .then((plan) => {
+        if (current) setSnapshot({ steps, plan });
+      })
+      .catch((error) => {
+        if (current) console.error("Failed to preview the rebase plan:", error);
+      });
+    return () => {
+      current = false;
+    };
+  }, [steps, commits]);
+  return snapshot?.steps === steps ? snapshot.plan : null;
 }

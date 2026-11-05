@@ -4,6 +4,7 @@
 // until both native products can consume the same versioned contract.
 mod branch_names;
 pub(crate) mod catalog;
+mod change_targets;
 mod changelists;
 mod command_trace;
 mod commit_message_context;
@@ -32,6 +33,7 @@ mod mutations;
 mod patch_exchange;
 mod progress;
 mod rebase_session;
+mod reference_tree;
 mod remote_history;
 mod remote_process;
 mod repository_colors;
@@ -56,6 +58,7 @@ pub use setup::{
     GitConfigureIdentityRequest, GitSetupRequest,
 };
 
+pub(crate) use change_targets::command as normalize_change_targets_command;
 pub(crate) use changelists::changelists_command;
 pub(crate) use commit_message_context::commit_message_context_command;
 pub(crate) use commit_selection::prepare_commit_selection_command;
@@ -84,11 +87,13 @@ pub use patch_exchange::{
     apply_reviewed as apply_patch_reviewed, export as export_patch, preview as preview_patch,
     PatchApplyRequest, PatchExportRequest, PatchPreviewRequest,
 };
+pub(crate) use rebase_session::plan_preview_command as rebase_plan_preview_command;
 pub use rebase_session::{
     control as rebase_control, preview as rebase_preview, session as rebase_session,
     start as rebase_start, GitRebaseControlRequest, GitRebasePreviewRequest,
     GitRebaseSessionRequest, GitRebaseStartRequest,
 };
+pub(crate) use reference_tree::command as reference_tree_command;
 pub(crate) use repository_colors::assign_command as repository_color_assignments_command;
 pub(crate) use rollback::{rollback_plan_command, rollback_prepare_command};
 pub(crate) use shelf::shelf_command;

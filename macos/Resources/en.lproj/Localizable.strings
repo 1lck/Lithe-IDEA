@@ -1098,6 +1098,7 @@
 "Could not open the remote folder: %@" = "Could not open the remote folder: %@";
 "Could not prepare diagnostic logs. Try again." = "Could not prepare diagnostic logs. Try again.";
 "Could not prepare the run configuration: %@" = "Could not prepare the run configuration: %@";
+"Could not prepare the selected changes." = "Could not prepare the selected changes.";
 "Could not read %@." = "Could not read %@.";
 "Could not read %@: %@" = "Could not read %@: %@";
 "Could not read project indexing settings. Try reopening the project." = "Could not read project indexing settings. Try reopening the project.";
@@ -1491,6 +1492,7 @@
 "Enter a ChangeList name (1–100 characters)." = "Enter a ChangeList name (1–100 characters).";
 "Enter a JSON object of adapter arguments no larger than 256 KiB." = "Enter a JSON object of adapter arguments no larger than 256 KiB.";
 "Enter a JVM debug port between 1 and 65535." = "Enter a JVM debug port between 1 and 65535.";
+"Enter a Squash message or use the default combined messages." = "Enter a Squash message or use the default combined messages.";
 "Enter a branch name" = "Enter a branch name";
 "Enter a branch name before publishing." = "Enter a branch name before publishing.";
 "Enter a branch name." = "Enter a branch name.";
@@ -1541,6 +1543,7 @@
 "Evaluating…" = "Evaluating…";
 "Event" = "Event";
 "Events over time" = "events over time";
+"Every Reword step needs a commit message." = "Every Reword step needs a commit message.";
 "Every saved version of this project's files is deleted. Open files are not changed." = "Every saved version of this project's files is deleted. Open files are not changed.";
 "Example" = "Example";
 "Exception" = "Exception";
@@ -3962,6 +3965,7 @@
 "Squash %lld commits into 1. Later commits in the affected history will be replayed." = "Squash %lld commits into 1. Later commits in the affected history will be replayed.";
 "Squash Commits" = "Squash Commits";
 "Squash Commits…" = "Squash Commits…";
+"Squash and Fixup need a preceding commit that is not dropped." = "Squash and Fixup need a preceding commit that is not dropped.";
 "Squash and merge" = "Squash and merge";
 "Squash → 1" = "Squash → 1";
 "Stable (Recommended)" = "Stable (Recommended)";
@@ -4267,6 +4271,7 @@
 "The clipboard image could not be read" = "The clipboard image could not be read";
 "The clipboard image is empty" = "The clipboard image is empty";
 "The clipboard image is larger than 100 MB" = "The clipboard image is larger than 100 MB";
+"The commit messages in this plan are not valid." = "The commit messages in this plan are not valid.";
 "The configuration changed on disk. Refresh and try again." = "The configuration changed on disk. Refresh and try again.";
 "The configuration could not be read. Check the selected directory and file permissions." = "The configuration could not be read. Check the selected directory and file permissions.";
 "The configured build tool is not executable: %@" = "The configured build tool is not executable: %@";
@@ -5214,6 +5219,7 @@
 "from JAVA_HOME" = "from JAVA_HOME";
 "generated main" = "generated main";
 "generated test" = "generated test";
+"git.changeTargets.prepareFailed" = "Could not prepare the selected changes.";
 "git.changelists.invalidName" = "Use a unique, nonempty name of at most 100 characters.";
 "git.diff.repositoryPreviewEmptyTitle" = "Repository Diff";
 "git.diff.repositoryPreviewTitle" = "Repository Diff: %1$@";
@@ -5228,6 +5234,10 @@
 "git.log.branchNameEmpty" = "Specify name for the new branch";
 "git.log.branchNameHead" = "HEAD is a reserved keyword";
 "git.log.olderCommitsFailed" = "Could not load older commits. Refresh history";
+"git.rebasePlan.issue.emptyReword" = "Every Reword step needs a commit message.";
+"git.rebasePlan.issue.emptySquash" = "Enter a Squash message or use the default combined messages.";
+"git.rebasePlan.issue.invalidMessage" = "The commit messages in this plan are not valid.";
+"git.rebasePlan.issue.missingPreceding" = "Squash and Fixup need a preceding commit that is not dropped.";
 "git.rollback.confirm" = "Rollback";
 "git.rollback.deleteAdded" = "Delete local copies of added files";
 "git.rollback.include" = "Include in rollback";

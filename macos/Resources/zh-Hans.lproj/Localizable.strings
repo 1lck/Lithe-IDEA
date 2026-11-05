@@ -1098,6 +1098,7 @@
 "Could not open the remote folder: %@" = "无法打开远程文件夹：%@";
 "Could not prepare diagnostic logs. Try again." = "无法准备诊断日志，请重试。";
 "Could not prepare the run configuration: %@" = "无法准备运行配置：%@";
+"Could not prepare the selected changes." = "无法准备所选更改。";
 "Could not read %@." = "无法读取 %@。";
 "Could not read %@: %@" = "无法读取 %@：%@";
 "Could not read project indexing settings. Try reopening the project." = "无法读取项目索引设置，请重新打开项目后重试。";
@@ -1491,6 +1492,7 @@
 "Enter a ChangeList name (1–100 characters)." = "请输入更改列表名称（1–100 个字符）。";
 "Enter a JSON object of adapter arguments no larger than 256 KiB." = "请输入不超过 256 KiB 的适配器参数 JSON 对象。";
 "Enter a JVM debug port between 1 and 65535." = "请输入 1 到 65535 之间的 JVM 调试端口。";
+"Enter a Squash message or use the default combined messages." = "请输入 Squash 信息，或使用默认的合并信息。";
 "Enter a branch name" = "请输入分支名称";
 "Enter a branch name before publishing." = "请输入分支名称后再发布。";
 "Enter a branch name." = "请输入分支名称。";
@@ -1541,6 +1543,7 @@
 "Evaluating…" = "正在计算…";
 "Event" = "事件";
 "Events over time" = "事件分布";
+"Every Reword step needs a commit message." = "每个 Reword 步骤都需要提交信息。";
 "Every saved version of this project's files is deleted. Open files are not changed." = "此项目文件的所有已保存版本都会被删除，已打开的文件不受影响。";
 "Example" = "示例";
 "Exception" = "异常";
@@ -3962,6 +3965,7 @@
 "Squash %lld commits into 1. Later commits in the affected history will be replayed." = "将 %lld 笔提交合并为 1 笔，并重放其后的受影响提交。";
 "Squash Commits" = "合并所选提交";
 "Squash Commits…" = "合并所选提交…";
+"Squash and Fixup need a preceding commit that is not dropped." = "Squash 和 Fixup 需要前面有一个未被丢弃的提交。";
 "Squash and merge" = "压缩并合并";
 "Squash → 1" = "合并为 1 笔";
 "Stable (Recommended)" = "正式版（推荐）";
@@ -4267,6 +4271,7 @@
 "The clipboard image could not be read" = "无法读取剪贴板中的图片";
 "The clipboard image is empty" = "剪贴板中的图片为空";
 "The clipboard image is larger than 100 MB" = "剪贴板中的图片超过 100 MB";
+"The commit messages in this plan are not valid." = "此计划中的提交信息无效。";
 "The configuration changed on disk. Refresh and try again." = "磁盘上的配置已变化。请刷新后重试。";
 "The configuration could not be read. Check the selected directory and file permissions." = "无法读取配置，请检查所选目录和文件权限。";
 "The configured build tool is not executable: %@" = "配置的构建工具无法执行：%@";
@@ -5214,6 +5219,7 @@
 "from JAVA_HOME" = "来自 JAVA_HOME";
 "generated main" = "生成的主代码";
 "generated test" = "生成的测试代码";
+"git.changeTargets.prepareFailed" = "无法准备所选更改。";
 "git.changelists.invalidName" = "请输入不重名、非空且不超过 100 个字符的名称。";
 "git.diff.repositoryPreviewEmptyTitle" = "仓库差异";
 "git.diff.repositoryPreviewTitle" = "仓库差异: %1$@";
@@ -5228,6 +5234,10 @@
 "git.log.branchNameEmpty" = "请指定新分支的名称";
 "git.log.branchNameHead" = "HEAD 是保留关键字";
 "git.log.olderCommitsFailed" = "无法加载更早的提交，点击刷新历史";
+"git.rebasePlan.issue.emptyReword" = "每个 Reword 步骤都需要提交信息。";
+"git.rebasePlan.issue.emptySquash" = "请输入 Squash 信息，或使用默认的合并信息。";
+"git.rebasePlan.issue.invalidMessage" = "此计划中的提交信息无效。";
+"git.rebasePlan.issue.missingPreceding" = "Squash 和 Fixup 需要前面有一个未被丢弃的提交。";
 "git.rollback.confirm" = "回滚";
 "git.rollback.deleteAdded" = "删除新增文件的本地副本";
 "git.rollback.include" = "纳入回滚";

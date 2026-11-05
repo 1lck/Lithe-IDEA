@@ -3212,6 +3212,17 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
             parsed.payload,
             crate::git::repository_color_assignments_command,
         ),
+        CoreCommand::GitNormalizeChangeTargets => plugin_response(
+            id,
+            parsed.payload,
+            crate::git::normalize_change_targets_command,
+        ),
+        CoreCommand::GitRebasePlanPreview => {
+            plugin_response(id, parsed.payload, crate::git::rebase_plan_preview_command)
+        }
+        CoreCommand::GitReferenceTree => {
+            plugin_response(id, parsed.payload, crate::git::reference_tree_command)
+        }
         CoreCommand::GitPrepareCommitSelection => plugin_response(
             id,
             parsed.payload,

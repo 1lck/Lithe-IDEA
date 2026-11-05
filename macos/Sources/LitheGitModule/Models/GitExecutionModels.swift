@@ -35,6 +35,14 @@ package struct GitExecutionEvent: Decodable, Sendable {
     package var exitCode: Int32?
     package var durationMilliseconds: Int?
     package var error: Failure?
+    /// `requestStarted`: the console journal budget Core defines for every host.
+    package var retention: GitJournalRetention?
+    /// `finished`: the record's final state, decided by Core.
+    package var state: String?
+    /// `requestFinished`: records of this request whose exit was never observed.
+    package var unconfirmedInvocations: [Int]?
+    /// `requestFinished`: the failure needs its own record because no Git process started.
+    package var failureRecord: Bool?
 
     package struct Failure: Decodable, Sendable {
         package let code: String
@@ -44,6 +52,14 @@ package struct GitExecutionEvent: Decodable, Sendable {
         /// A request that a newer request or the user superseded. It is not a Git failure.
         package var isCancellation: Bool { code == "cancelled" }
     }
+}
+
+/// Console journal budget from Core, in character counts.
+package struct GitJournalRetention: Decodable, Equatable, Sendable {
+    package let maxRecords: Int
+    package let maxRecordOutputCharacters: Int
+    package let maxRecordOutputLines: Int
+    package let maxTotalOutputCharacters: Int
 }
 
 /// The lock protects synchronous bridge delivery and cancellation across the
@@ -62,10 +78,8 @@ package final class GitExecutionContext: @unchecked Sendable {
     private var requestRoot: URL?
     private var requestInvocationID: UUID?
     private var omittedHistory = false
-    private static let maxRecords = 200
-    private static let maxStreamCharacters = 32_768
-    private static let maxOutputLines = 2_000
-    private static let maxTotalCharacters = 1_048_576
+    /// Core's budget, learned from `requestStarted`; nothing is trimmed before it arrives.
+    private var retention: GitJournalRetention?
 
     private struct Record {
         let invocationID: Int
@@ -93,14 +107,19 @@ package final class GitExecutionContext: @unchecked Sendable {
         var duration: Int?
         var error: String?
 
-        mutating func appendOutput(_ text: String, stream: GitConsoleOutputStream) {
+        mutating func appendOutput(_ text: String, stream: GitConsoleOutputStream, retention: GitJournalRetention?) {
             // Bound both text storage and rendered rows, including empty lines.
-            let retained = String(text.suffix(GitExecutionContext.maxStreamCharacters - 1))
+            guard let retention else {
+                lines.append(GitConsoleOutputLine(stream: stream, text: text))
+                lineCharacters += text.count + 1
+                return
+            }
+            let retained = String(text.suffix(retention.maxRecordOutputCharacters - 1))
             lines.append(GitConsoleOutputLine(stream: stream, text: retained))
             lineCharacters += retained.count + 1
             truncated = truncated || retained.count < text.count
-            while lines.count > 1 && (lineCharacters > GitExecutionContext.maxStreamCharacters
-                || lines.count > GitExecutionContext.maxOutputLines) {
+            while lines.count > 1 && (lineCharacters > retention.maxRecordOutputCharacters
+                || lines.count > retention.maxRecordOutputLines) {
                 lineCharacters -= lines.removeFirst().text.count + 1
                 truncated = true
             }
@@ -118,7 +137,8 @@ package final class GitExecutionContext: @unchecked Sendable {
     }
 
     package init(operationID: String = UUID().uuidString, source: GitExecutionSource = .unknown,
-        action: UserAction? = UserActionContext.current) {
+        action: UserAction? = UserActionContext.current, retention: GitJournalRetention? = nil) {
+        self.retention = retention
         self.operationID = operationID
         self.source = source
         self.action = action
@@ -143,6 +163,7 @@ package final class GitExecutionContext: @unchecked Sendable {
     /// Called with the lock held so each event publishes an atomic snapshot.
     private func receiveLocked(_ event: GitExecutionEvent, at root: URL?) {
         if event.type == "requestStarted" {
+            if let retention = event.retention { self.retention = retention }
             requestRoot = root ?? event.workingDirectory.map { URL(fileURLWithPath: $0) }
             requestInvocationID = nil
             return
@@ -160,7 +181,8 @@ package final class GitExecutionContext: @unchecked Sendable {
         if event.type == "requestFinished" {
             defer { requestRoot = nil; requestInvocationID = nil }
             challenges.removeAll()
-            for index in records.indices where records[index].state == .running {
+            let unconfirmed = Set(event.unconfirmedInvocations ?? [])
+            for index in records.indices where unconfirmed.contains(records[index].invocationID) {
                 records[index].state = .unconfirmed
                 dirty = true
             }
@@ -169,10 +191,10 @@ package final class GitExecutionContext: @unchecked Sendable {
                 if let index = records.lastIndex(where: { $0.id == requestInvocationID }) {
                     records[index].error = message
                     dirty = true
-                } else if let root = requestRoot, !error.isCancellation {
+                } else if let root = requestRoot, event.failureRecord == true {
                     // A context can span several Core requests. Keep a preflight
                     // failure separate from an earlier request's executed command.
-                    // A cancellation before any command ran has nothing to report.
+                    // Core decides which failures need a record of their own.
                     appendRecord(Record(invocationID: -1, root: root, arguments: [],
                         source: source, state: .unconfirmed, exitCode: -1, error: message))
                 }
@@ -198,30 +220,33 @@ package final class GitExecutionContext: @unchecked Sendable {
         switch event.type {
         case "output":
             records[index].phase = event.progressDetails ?? records[index].phase
-            let text = GitConsoleRedactor.redact(event.text ?? "")
+            // Core redacts event text once; the host never scrubs it again.
+            let text = event.text ?? ""
             if event.progress == true {
                 records[index].progress = text
             } else {
                 if event.stream == "stderr" { records[index].stderr += text + "\n" }
                 else { records[index].stdout += text + "\n" }
-                records[index].appendOutput(text, stream: event.stream == "stderr" ? .standardError : .standardOutput)
+                records[index].appendOutput(text, stream: event.stream == "stderr" ? .standardError : .standardOutput, retention: retention)
                 records[index].progress = nil
             }
             records[index].truncated = records[index].truncated || event.truncated == true
-            if records[index].stdout.count > Self.maxStreamCharacters {
-                records[index].stdout = String(records[index].stdout.suffix(Self.maxStreamCharacters))
-                records[index].truncated = true
-            }
-            if records[index].stderr.count > Self.maxStreamCharacters {
-                records[index].stderr = String(records[index].stderr.suffix(Self.maxStreamCharacters))
-                records[index].truncated = true
-            }
-            while records.count > 1 && records.reduce(0, { $0 + $1.stdout.count + $1.stderr.count + $1.lineCharacters }) > Self.maxTotalCharacters {
-                omittedHistory = true
-                records.removeFirst()
+            if let retention {
+                if records[index].stdout.count > retention.maxRecordOutputCharacters {
+                    records[index].stdout = String(records[index].stdout.suffix(retention.maxRecordOutputCharacters))
+                    records[index].truncated = true
+                }
+                if records[index].stderr.count > retention.maxRecordOutputCharacters {
+                    records[index].stderr = String(records[index].stderr.suffix(retention.maxRecordOutputCharacters))
+                    records[index].truncated = true
+                }
+                while records.count > 1 && records.reduce(0, { $0 + $1.stdout.count + $1.stderr.count + $1.lineCharacters }) > retention.maxTotalOutputCharacters {
+                    omittedHistory = true
+                    records.removeFirst()
+                }
             }
         case "finished":
-            records[index].state = event.exitCode == nil ? .unconfirmed : .completed
+            records[index].state = event.state == "completed" ? .completed : .unconfirmed
             records[index].exitCode = event.exitCode ?? -1
             records[index].expectedExit = event.expectedExit ?? false
             records[index].duration = event.durationMilliseconds
@@ -234,7 +259,7 @@ package final class GitExecutionContext: @unchecked Sendable {
 
     private func appendRecord(_ record: Record) {
         records.append(record)
-        if records.count > Self.maxRecords { omittedHistory = true; records.removeFirst(records.count - Self.maxRecords) }
+        if let maxRecords = retention?.maxRecords, records.count > maxRecords { omittedHistory = true; records.removeFirst(records.count - maxRecords) }
         dirty = true
     }
 

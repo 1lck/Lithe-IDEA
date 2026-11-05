@@ -34,8 +34,10 @@ static SENSITIVE_ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| {
     .expect("valid regex")
 });
 
+// Query names hosts once redacted on their own before displaying Git output;
+// Core is now the only redaction pass for console events.
 static SENSITIVE_QUERY_PARAMETER: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)([?&](?:access_token|api_key|token|key|auth))=[^&#\s]+").expect("valid regex")
+    Regex::new(r"(?i)([?&](?:access_token|api_key|apikey|token|key|auth|authorization|client_secret|password|passwd|secret))=[^&#\s]+").expect("valid regex")
 });
 
 static CREDENTIAL_SHAPE: LazyLock<Regex> = LazyLock::new(|| {
@@ -121,6 +123,26 @@ mod tests {
             redact("Authorization: Bearer abc123def456"),
             "Authorization=<redacted>"
         );
+    }
+
+    /// Git console hosts no longer redact event text themselves; every query
+    /// name they used to scrub must be covered here.
+    #[test]
+    fn redacts_every_query_credential_hosts_used_to_scrub() {
+        for name in [
+            "client_secret",
+            "passwd",
+            "apikey",
+            "authorization",
+            "auth",
+            "token",
+        ] {
+            assert_eq!(
+                redact(&format!("https://example.com/r.git?x=1&{name}=s3cr3t")),
+                format!("https://example.com/r.git?x=1&{name}=<redacted>"),
+                "{name}"
+            );
+        }
     }
 
     #[test]

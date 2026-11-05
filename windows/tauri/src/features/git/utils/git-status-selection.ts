@@ -1,6 +1,5 @@
 import { normalizeRepositoryPath } from "../api/git-repository-path";
 import type { GitFile } from "../types/git.types";
-import { withoutListedUntrackedContents } from "./git-untracked-directories";
 
 export function getGitFileRepositoryPath(file: GitFile, fallbackRepoPath?: string): string | null {
   return file.repositoryPath ?? fallbackRepoPath ?? null;
@@ -95,18 +94,6 @@ export function buildGitIgnorePaths(
   return collapseNestedGitStatusPaths(entries.map((entry) => entry.path)).map((path) =>
     folderPaths.has(path) ? `${path}/` : path,
   );
-}
-
-export function resolveGitStatusDeletionPaths(
-  entries: ReadonlyArray<{
-    files: ReadonlyArray<{ path: string; status: string; untrackedFileCount?: number }>;
-  }>,
-): string[] {
-  // Deleting a summarized directory removes the contents listed below it.
-  const files = withoutListedUntrackedContents(entries.flatMap((entry) => entry.files));
-  return [
-    ...new Set(files.filter((file) => file.status !== "deleted").map((file) => file.path)),
-  ].sort((left, right) => left.localeCompare(right));
 }
 
 /** Check the refreshed presentation before moving focus to the commit editor. */

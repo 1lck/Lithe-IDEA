@@ -57,8 +57,10 @@ enum GitReferenceRowsBuilder {
         collapsedGroups: Set<String>
     ) -> [GitReferenceRow] {
         var rows: [GitReferenceRow] = []
+        guard let nodes = GitReferenceTreeNode.plan(for: references) else { return rows }
         append(
-            GitReferenceTreeNode.build(from: references),
+            nodes,
+            references: references,
             kind: kind,
             depth: 0,
             collapsedGroups: collapsedGroups,
@@ -69,6 +71,7 @@ enum GitReferenceRowsBuilder {
 
     private static func append(
         _ nodes: [GitReferenceTreeNode],
+        references: [GitReference],
         kind: GitReferenceKind,
         depth: Int,
         collapsedGroups: Set<String>,
@@ -78,7 +81,8 @@ enum GitReferenceRowsBuilder {
             // A node can be both: `feature` may be a branch and also the prefix
             // of `feature/x`, in which case it emits a reference row and a group
             // row at the same depth.
-            if let reference = node.reference {
+            if let index = node.reference, references.indices.contains(index) {
+                let reference = references[index]
                 rows.append(
                     GitReferenceRow(
                         id: "reference:" + node.path,
@@ -104,6 +108,7 @@ enum GitReferenceRowsBuilder {
             guard !isCollapsed else { continue }
             append(
                 node.children,
+                references: references,
                 kind: kind,
                 depth: depth + 1,
                 collapsedGroups: collapsedGroups,
@@ -250,73 +255,37 @@ enum GitReferenceRowMenu {
     }
 }
 
-/// Intermediate tree used only to group references by their `/`-separated path
-/// before flattening.
-struct GitReferenceTreeNode: Identifiable {
+/// One grouped path segment planned by Core (`git.referenceTree`).
+///
+/// Core owns the `/` grouping and the sibling order; the view keeps expansion,
+/// indentation, and row identities.
+struct GitReferenceTreeNode: Identifiable, Decodable {
     let path: String
     let name: String
-    let reference: GitReference?
+    /// Index into the references sent to Core; `nil` for a pure group.
+    let reference: Int?
     let children: [GitReferenceTreeNode]
 
     var id: String { path }
 
-    static func build(from references: [GitReference]) -> [GitReferenceTreeNode] {
-        let root = MutableGitReferenceTreeNode(name: "", path: "")
-
-        for reference in references {
-            let components = reference.shortName
-                .split(separator: "/")
-                .map(String.init)
-            guard !components.isEmpty else { continue }
-
-            var node = root
-            var pathComponents: [String] = []
-            for component in components {
-                pathComponents.append(component)
-                if node.children[component] == nil {
-                    node.children[component] = MutableGitReferenceTreeNode(
-                        name: component,
-                        path: pathComponents.joined(separator: "/")
-                    )
-                }
-                node = node.children[component]!
-            }
-            node.reference = reference
-        }
-
-        return makeNodes(from: root)
+    private struct Request: Encodable {
+        struct Reference: Encodable { let name: String }
+        let references: [Reference]
     }
 
-    private static func makeNodes(from node: MutableGitReferenceTreeNode) -> [GitReferenceTreeNode] {
-        node.children.values
-            .map { child in
-                GitReferenceTreeNode(
-                    path: child.path,
-                    name: child.name,
-                    reference: child.reference,
-                    children: makeNodes(from: child)
-                )
-            }
-            // Leaves before folders, then natural order, so the list is stable
-            // across rebuilds of the unordered child dictionary.
-            .sorted { lhs, rhs in
-                if (lhs.reference != nil) != (rhs.reference != nil) {
-                    return lhs.reference != nil
-                }
-                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-            }
+    private struct Plan: Decodable {
+        let nodes: [GitReferenceTreeNode]
     }
-}
 
-private final class MutableGitReferenceTreeNode {
-    let name: String
-    let path: String
-    var reference: GitReference?
-    var children: [String: MutableGitReferenceTreeNode] = [:]
-
-    init(name: String, path: String) {
-        self.name = name
-        self.path = path
+    /// Plans the tree of one kind of references. `nil` means Core rejected the
+    /// request, in which case the pane shows no rows rather than a guessed order.
+    static func plan(for references: [GitReference]) -> [GitReferenceTreeNode]? {
+        guard !references.isEmpty else { return [] }
+        let result: Result<Plan, RustCoreBridge.CoreCallError> = RustCoreBridge().executeResult(
+            command: "git.referenceTree",
+            payload: Request(references: references.map { Request.Reference(name: $0.shortName) })
+        )
+        return try? result.get().nodes
     }
 }
 

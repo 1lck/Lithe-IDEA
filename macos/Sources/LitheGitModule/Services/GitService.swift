@@ -123,6 +123,12 @@ package protocol GitOperations: Sendable {
         operationID: String
     ) -> GitHistoryLocateResult?
     func closeHistoryCursor(at rootURL: URL, cursor: String) -> Bool
+    /// Runs one pure Core planner. Planners never start Git or read a
+    /// repository; `nil` means Core rejected the request.
+    func corePlan<Request: Encodable & Sendable, Response: Decodable & Sendable>(
+        _ command: GitCorePlanCommand,
+        _ request: Request
+    ) -> Response?
     func cancel(operationID: String) -> Bool
 
     func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]?
@@ -240,6 +246,10 @@ package protocol GitOperations: Sendable {
 }
 
 package extension GitOperations {
+    func corePlan<Request: Encodable & Sendable, Response: Decodable & Sendable>(
+        _ command: GitCorePlanCommand,
+        _ request: Request
+    ) -> Response? { nil }
     func workspaceStatusPlan(roots: [String], previousRoots: [String], outcomes: [GitWorkspaceStatusOutcome]) -> GitWorkspaceStatusPlan? { nil }
     func resolveFileContext(fileURL: URL, relativeTo rootURL: URL) -> GitFileContext? { nil }
     func changelistProjection(_ request: GitChangelistCoreRequest) -> GitChangelistCoreProjection? { nil }
@@ -1002,6 +1012,15 @@ package struct GitService: Sendable {
         await cancellableRead(operationID: operationID) {
             $0.references(at: repositoryRoot, operationID: operationID)
         }
+    }
+
+    /// Runs a pure Core planner off the main actor.
+    func corePlan<Request: Encodable & Sendable, Response: Decodable & Sendable>(
+        _ command: GitCorePlanCommand,
+        _ request: Request,
+        operationName: String = #function
+    ) async -> Response? {
+        await read(operationName: operationName) { $0.corePlan(command, request) }
     }
 
     func branchNamePreview(

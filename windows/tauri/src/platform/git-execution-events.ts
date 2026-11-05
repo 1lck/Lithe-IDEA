@@ -1,5 +1,12 @@
 export type GitExecutionSource = "user" | "background" | "unknown";
 
+export interface GitJournalRetention {
+  maxRecords: number;
+  maxRecordOutputCharacters: number;
+  maxRecordOutputLines: number;
+  maxTotalOutputCharacters: number;
+}
+
 /** Native diagnostics only; command input and environment are never included. */
 export interface GitExecutionEvent {
   operationId: string;
@@ -22,6 +29,14 @@ export interface GitExecutionEvent {
   displayArguments?: string[];
   globalArguments?: string[];
   progressDetails?: { stage: string; percent?: number | null; completed?: number | null; total?: number | null };
+  /** `requestStarted`: the console journal budget Core defines for every host. */
+  retention?: GitJournalRetention;
+  /** `finished`: the record's final state, decided by Core. */
+  state?: "completed" | "unconfirmed";
+  /** `requestFinished`: records of this request whose exit was never observed. */
+  unconfirmedInvocations?: number[];
+  /** `requestFinished`: the failure needs its own record because no Git process started. */
+  failureRecord?: boolean;
   requestId?: string;
   prompt?: string;
   secret?: boolean;
