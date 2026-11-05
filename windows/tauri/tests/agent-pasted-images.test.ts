@@ -1,19 +1,73 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+const fixture = await Bun.file(new URL("../../../shared/fixtures/agent/attachment-retention-v1.json", import.meta.url)).json();
 const writes: string[] = [];
 const removals: string[] = [];
+const invocations: { command: string; args: any }[] = [];
+const listing: { name: string; isFile: boolean }[] = [];
+const modified = new Map<string, number>();
+const files = new Map<string, string>();
 let failWrite = 0;
 let failRemove = false;
+const retentionCase = (name: string) => fixture.cases.find((item: any) => item.name === name);
+let planCase: any = retentionCase("mixed cache keeps order within each list");
 mock.module("@tauri-apps/api/path", () => ({ appCacheDir: async () => "C:/cache", join: async (...parts: string[]) => parts.join("/") }));
 mock.module("@tauri-apps/plugin-fs", () => ({
   mkdir: async () => {},
+  exists: async (path: string) => files.has(path) || writes.includes(path),
+  readDir: async () => listing,
+  readTextFile: async (path: string) => files.get(path) ?? "[]",
+  writeTextFile: async (path: string, text: string) => { files.set(path, text); },
+  stat: async (path: string) => ({ mtime: new Date(modified.get(path) ?? Date.now()) }),
   writeFile: async (path: string) => { writes.push(path); if (writes.length === failWrite) throw new Error("write refused"); },
   remove: async (path: string) => { removals.push(path); if (failRemove && removals.length === 1) throw new Error("remove refused"); },
 }));
-const { savePastedImages } = await import("../src/platform/agent-pasted-images");
+// Core stand-in: the first sweep returns the shared fixture's mixed-cache answer; later
+// calls only carry abandoned pastes, which the fixture's "abandoned" rule deletes at once.
+mock.module("../src/platform/tauri-core", () => ({
+  invoke: async (command: string, args: any) => {
+    invocations.push({ command, args });
+    if (args.entries.length > 0 && args.entries.every((entry: any) => entry.abandoned)) {
+      return { delete: args.entries.map((entry: any) => ({ path: entry.path, reason: "abandoned" })), keep: [] };
+    }
+    const local = (path: string) => args.entries.find((entry: any) => entry.path.endsWith(path.slice(2))).path;
+    const place = (items: any[]) => items.map((item) => ({ ...item, path: local(item.path) }));
+    return args.entries.length === 0
+      ? { delete: [], keep: [] }
+      : { delete: place(planCase.expected.delete), keep: place(planCase.expected.keep) };
+  },
+}));
+const { savePastedImages, recordAcceptedPastedImages } = await import("../src/platform/agent-pasted-images");
 const image = () => new File([new Uint8Array(4)], "sample.png", { type: "image/png" });
-beforeEach(() => { writes.length = 0; removals.length = 0; failWrite = 0; failRemove = false; });
+beforeEach(() => {
+  writes.length = 0; removals.length = 0; invocations.length = 0; listing.length = 0; modified.clear(); files.clear();
+  failWrite = 0; failRemove = false;
+});
 describe("Agent pasted image storage", () => {
+  test("the first use sweeps the cache with the Core plan and the accepted ledger", async () => {
+    const root = "C:/cache/agent/pasted-images";
+    const now = Date.now();
+    for (const [name, days] of [["1.png", 30], ["2.png", 30], ["3.png", 2], ["4.png", 9]] as const) {
+      listing.push({ name, isFile: true });
+      modified.set(`${root}/${name}`, now - days * 86_400_000);
+    }
+    listing.push({ name: "folder", isFile: false });
+    files.set("C:/cache/agent/pasted-images-accepted.json", JSON.stringify([`${root}/2.png`]));
+    await savePastedImages([image()]);
+    expect(invocations[0].command).toBe("agent.attachments.retentionPlan");
+    expect(invocations[0].args.acceptedReferences).toEqual([`${root}/2.png`]);
+    expect(invocations[0].args.caseInsensitive).toBe(true);
+    expect(invocations[0].args.entries.map((entry: any) => entry.path)).toEqual(["1", "2", "3", "4"].map((n) => `${root}/${n}.png`));
+    expect(invocations[0].args.entries.every((entry: any) => entry.abandoned === false)).toBe(true);
+    expect(removals).toEqual([`${root}/1.png`, `${root}/4.png`]);
+  });
+  test("an accepted prompt records only cached images in the ledger", async () => {
+    const root = "C:/cache/agent/pasted-images";
+    files.set(`${root}/5.png`, "x");
+    files.set("C:/other/6.png", "x");
+    await recordAcceptedPastedImages([`file:///${root}/5.png`, "file:///C:/other/6.png", "file:///C:/cache/agent/pasted-images/gone.png"]);
+    expect(JSON.parse(files.get("C:/cache/agent/pasted-images-accepted.json")!)).toEqual([`${root}/5.png`]);
+  });
   test("accepted files stay in the application cache until their owner discards them", async () => {
     const batch = await savePastedImages([image(), image()]);
     expect(batch.paths).toEqual(writes);

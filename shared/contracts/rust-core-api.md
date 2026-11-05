@@ -6799,3 +6799,16 @@ the failure again.
 ```json
 {"ts":"2026-11-03T08:00:01.123Z","level":"WARN","event":"vcs.git.command.failed","channel":"vcs/git","op":"op-7f3a","fields":{"command":"fetch","arguments":"fetch --prune origin","repository":"<HOME>/src/app","source":"user","duration_ms":311,"exit_code":128,"stderr":"fatal: could not read from remote repository."}}
 ```
+
+`agent.attachments.retentionPlan` decides which pasted Agent images the platform may
+delete; it reads and writes no files. The payload is `{nowMs, entries, acceptedReferences,
+caseInsensitive}`: `entries` lists the platform's pasted-image cache as `{path, modifiedMs,
+abandoned}` (`modifiedMs` is Unix milliseconds and may be omitted; `abandoned` marks a
+paste that failed or was discarded before any conversation accepted it),
+`acceptedReferences` is the platform ledger of paths a conversation accepted, and
+`caseInsensitive` (Windows) compares paths without case; separators are always normalized.
+The result is `{delete, keep}`, each a list of `{path, reason}` in entry order. Reasons:
+`referenced` (kept, even when flagged abandoned), `recent` (kept, unreferenced and at most
+seven days old or of unknown age), `abandoned` and `expired` (deleted). The cache and the
+ledger live in the platform cache directory, never in the app bundle or install directory.
+The fixture is `shared/fixtures/agent/attachment-retention-v1.json`.

@@ -79,6 +79,8 @@ pub enum CoreCommand {
     AgentEditsReversePlan,
     /// Validates an unsaved Hook draft field by field (`agent.hooks.validateDraft`).
     AgentHooksValidateDraft,
+    /// Plans which pasted Agent images may be deleted (`agent.attachments.retentionPlan`).
+    AgentAttachmentsRetentionPlan,
     /// Budgets diff prefixes before crossing the native boundary (`ai.commitInputBudget`).
     AiCommitInputBudget,
     /// Plans a credential-free commit message request (`ai.planCommit`).
@@ -828,6 +830,7 @@ impl CoreCommand {
             "agent.installCli" => Some(Self::AgentInstallCli),
             "agent.edits.reversePlan" => Some(Self::AgentEditsReversePlan),
             "agent.hooks.validateDraft" => Some(Self::AgentHooksValidateDraft),
+            "agent.attachments.retentionPlan" => Some(Self::AgentAttachmentsRetentionPlan),
             "ai.commitInputBudget" => Some(Self::AiCommitInputBudget),
             "ai.planCommit" => Some(Self::AiPlanCommit),
             "ai.decodeCommitMessage" => Some(Self::AiDecodeCommitMessage),
