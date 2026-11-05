@@ -71,10 +71,10 @@ package final class GitHistoryEditingFeatureModel: ObservableObject {
         onChange?()
     }
 
-    package func retainSelection(in commits: [GitCommit], fallback: String?) {
+    package func applySelection(selected: [String], focused: String?, anchor: String?) {
         let context = actionCapabilitiesContext
         cancelActionCapabilities()
-        selection.retain(Set(commits.map(\.hash)), fallback: fallback)
+        selection.apply(selected: selected, focused: focused, anchor: anchor)
         if let context {
             context.onChange()
             loadActionCapabilities(at: context.root, onReady: context.onChange)

@@ -5,6 +5,7 @@ import type {
   GitReference,
   PullStrategy,
 } from "../types/git.types";
+import { stubGitUpdatePlan } from "@/test-utils/git-update-plan-stub";
 import { GitPullWorkflow, type GitPullWorkflowDependencies } from "./git-pull-workflow";
 
 const remoteReference = (shortName: string): GitReference => ({
@@ -53,6 +54,7 @@ const createHarness = (overrides: Partial<GitPullWorkflowDependencies> = {}) => 
       return { success: true };
     },
     operationState: async () => null,
+    plan: async (input) => stubGitUpdatePlan({ stage: "inspect", ...input }),
     ...overrides,
   };
   const workflow = new GitPullWorkflow(dependencies);
@@ -68,14 +70,6 @@ const createHarness = (overrides: Partial<GitPullWorkflowDependencies> = {}) => 
     pullReferences,
     refreshCount: () => refreshCount,
   };
-};
-
-const waitForStrategyDialog = async (workflow: GitPullWorkflow) => {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    if (workflow.getSnapshot().pendingPreflight) return;
-    await Promise.resolve();
-  }
-  throw new Error("Strategy dialog was not requested");
 };
 
 describe("GitPullWorkflow", () => {
@@ -173,36 +167,45 @@ describe("GitPullWorkflow", () => {
     });
 
     expect(result).toMatchObject({ status: "pulled", strategy: "rebase" });
-    expect(harness.workflow.getSnapshot().pendingPreflight).toBeNull();
     expect(harness.pullStrategies).toEqual(["rebase"]);
   });
 
-  test("still prompts when a fast-forward strategy meets divergent history", async () => {
+  test("asks for a strategy when a fast-forward meets divergent history", async () => {
     const harness = createHarness({
       preflight: async () => cleanPreflight({ ahead: 1, behind: 1, diverged: true }),
     });
 
-    const resultPromise = harness.workflow.run("C:/repo", {
+    const result = await harness.workflow.run("C:/repo", {
       ...harness.options,
       strategy: "ffOnly",
     });
-    await waitForStrategyDialog(harness.workflow);
-    harness.workflow.chooseStrategy("merge");
-    const result = await resultPromise;
 
-    expect(result).toMatchObject({ status: "pulled", strategy: "merge" });
-    expect(harness.pullStrategies).toEqual(["merge"]);
+    expect(result).toEqual({ status: "needs-strategy" });
+    expect(harness.pullStrategies).toEqual([]);
+    expect(harness.refreshCount()).toBe(1);
   });
 
-  test("background fast-forward update fails on divergence without leaving a pending dialog", async () => {
+  test("a non-interactive update fails on divergence instead of asking", async () => {
     const harness = createHarness({ preflight: async () => cleanPreflight({ ahead: 1, behind: 1, diverged: true }) });
     const result = await harness.workflow.run("C:/worktree", {
-      ...harness.options, strategy: "ffOnly", allowStrategyPrompt: false,
+      ...harness.options, interactive: false,
     });
     expect(result).toMatchObject({ status: "failed", stage: "pull" });
     expect(harness.pullStrategies).toEqual([]);
-    expect(harness.workflow.getSnapshot()).toEqual({ isPulling: false, isPullLocked: false, pendingPreflight: null });
+    expect(harness.workflow.getSnapshot()).toEqual({ isPulling: false, isPullLocked: false });
     expect(harness.refreshCount()).toBe(1);
+  });
+
+  test("Git configuration chooses the strategy when the user chose none", async () => {
+    const harness = createHarness({
+      preflight: async () =>
+        cleanPreflight({ ahead: 1, behind: 1, diverged: true, configuredStrategy: "rebase" }),
+    });
+
+    const result = await harness.workflow.run("C:/repo", { ...harness.options, interactive: false });
+
+    expect(result).toMatchObject({ status: "pulled", strategy: "rebase" });
+    expect(harness.pullStrategies).toEqual(["rebase"]);
   });
 
   test("pulls a chosen remote branch into the current branch with the selected strategy", async () => {
@@ -237,97 +240,6 @@ describe("GitPullWorkflow", () => {
 
     expect(result).toMatchObject({ status: "blocked", reason: "dirty" });
     expect(harness.pullStrategies).toEqual([]);
-  });
-
-  test("uses Merge only after an explicit divergent-history choice", async () => {
-    const harness = createHarness({
-      preflight: async () => cleanPreflight({ ahead: 2, behind: 3, diverged: true }),
-    });
-
-    const resultPromise = harness.workflow.run("C:/repo", harness.options);
-    await waitForStrategyDialog(harness.workflow);
-    harness.workflow.chooseStrategy("merge");
-    const result = await resultPromise;
-
-    expect(result).toMatchObject({ status: "pulled", strategy: "merge" });
-    expect(harness.pullStrategies).toEqual(["merge"]);
-  });
-
-  test("uses Rebase only after an explicit divergent-history choice", async () => {
-    const harness = createHarness({
-      preflight: async () => cleanPreflight({ ahead: 1, behind: 4, diverged: true }),
-    });
-
-    const resultPromise = harness.workflow.run("C:/repo", harness.options);
-    await waitForStrategyDialog(harness.workflow);
-    harness.workflow.chooseStrategy("rebase");
-    const result = await resultPromise;
-
-    expect(result).toMatchObject({ status: "pulled", strategy: "rebase" });
-    expect(harness.pullStrategies).toEqual(["rebase"]);
-  });
-
-  test("blocks when the working tree becomes dirty while choosing a strategy", async () => {
-    let preflightCalls = 0;
-    const harness = createHarness({
-      preflight: async () => {
-        preflightCalls += 1;
-        return cleanPreflight({
-          ahead: 1,
-          behind: 1,
-          diverged: true,
-          hasLocalChanges: preflightCalls > 1,
-        });
-      },
-    });
-
-    const resultPromise = harness.workflow.run("C:/repo", harness.options);
-    await waitForStrategyDialog(harness.workflow);
-    harness.workflow.chooseStrategy("merge");
-    const result = await resultPromise;
-
-    expect(result).toMatchObject({ status: "blocked", reason: "dirty" });
-    expect(preflightCalls).toBe(2);
-    expect(harness.pullStrategies).toEqual([]);
-  });
-
-  test("blocks when the upstream state changes while choosing a strategy", async () => {
-    let preflightCalls = 0;
-    const harness = createHarness({
-      preflight: async () => {
-        preflightCalls += 1;
-        return cleanPreflight({
-          upstream: preflightCalls === 1 ? "origin/main" : "origin/release",
-          ahead: 1,
-          behind: 1,
-          diverged: true,
-        });
-      },
-    });
-
-    const resultPromise = harness.workflow.run("C:/repo", harness.options);
-    await waitForStrategyDialog(harness.workflow);
-    harness.workflow.chooseStrategy("rebase");
-    const result = await resultPromise;
-
-    expect(result).toMatchObject({ status: "blocked", reason: "state-changed" });
-    expect(preflightCalls).toBe(2);
-    expect(harness.pullStrategies).toEqual([]);
-  });
-
-  test("Cancel is the safe divergent-history default", async () => {
-    const harness = createHarness({
-      preflight: async () => cleanPreflight({ ahead: 1, behind: 1, diverged: true }),
-    });
-
-    const resultPromise = harness.workflow.run("C:/repo", harness.options);
-    await waitForStrategyDialog(harness.workflow);
-    harness.workflow.chooseStrategy(null);
-    const result = await resultPromise;
-
-    expect(result.status).toBe("cancelled");
-    expect(harness.pullStrategies).toEqual([]);
-    expect(harness.refreshCount()).toBe(1);
   });
 
   test("reports an ordinary Pull failure after confirming no operation remains", async () => {
@@ -414,7 +326,6 @@ describe("GitPullWorkflow", () => {
       expect(harness.workflow.getSnapshot()).toEqual({
         isPulling: false,
         isPullLocked: true,
-        pendingPreflight: null,
       });
       await expect(harness.workflow.run("C:/repo", harness.options)).resolves.toEqual({
         status: "duplicate",
@@ -433,7 +344,6 @@ describe("GitPullWorkflow", () => {
     expect(harness.workflow.getSnapshot()).toEqual({
       isPulling: false,
       isPullLocked: false,
-      pendingPreflight: null,
     });
   }, 2_000);
 });

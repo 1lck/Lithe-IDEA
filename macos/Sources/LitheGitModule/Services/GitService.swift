@@ -185,7 +185,7 @@ package protocol GitOperations: Sendable {
     func mergeBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
     func rebaseCurrentBranch(onto reference: GitReference, at rootURL: URL) -> GitProcessResult?
     func checkoutAndRebase(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
-    func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy) -> GitProcessResult?
+    func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy, expectedBranch: String?) -> GitProcessResult?
     /// Fast-forwards a non-current local branch from its upstream without switching HEAD.
     func updateBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
     func pullRemoteReference(
@@ -1288,9 +1288,12 @@ package struct GitService: Sendable {
 
     func updateCurrentBranch(
         at repositoryRoot: URL,
-        strategy: GitPullStrategy = .ffOnly
+        strategy: GitPullStrategy,
+        expectedBranch: String?
     ) async -> CommandResult {
-        await command(at: repositoryRoot) { $0.updateCurrentBranch(at: repositoryRoot, strategy: strategy) }
+        await command(at: repositoryRoot) {
+            $0.updateCurrentBranch(at: repositoryRoot, strategy: strategy, expectedBranch: expectedBranch)
+        }
     }
 
     func updateBranch(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {

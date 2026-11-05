@@ -1,0 +1,280 @@
+{
+  "description": "git.historyWindow keeps a refreshed Git Log window at its loaded depth, extends it by commits that appeared at the head, and retains selection, focus, and range anchor. Hosts own commits, cursors, and pixel scroll anchors.",
+  "cases": [
+    {
+      "name": "a watcher refresh keeps the loaded depth",
+      "request": {
+        "operation": "refreshPlan",
+        "loadedCount": 320,
+        "pageSize": 50,
+        "preserveLoaded": true
+      },
+      "response": {
+        "limit": 320
+      }
+    },
+    {
+      "name": "a shallow window still reads a full page",
+      "request": {
+        "operation": "refreshPlan",
+        "loadedCount": 12,
+        "pageSize": 50,
+        "preserveLoaded": true
+      },
+      "response": {
+        "limit": 50
+      }
+    },
+    {
+      "name": "a fresh history starts at one page",
+      "request": {
+        "operation": "refreshPlan",
+        "loadedCount": 320,
+        "pageSize": 100,
+        "preserveLoaded": false
+      },
+      "response": {
+        "limit": 100
+      }
+    },
+    {
+      "name": "the refresh never exceeds the window bound",
+      "request": {
+        "operation": "refreshPlan",
+        "loadedCount": 9000,
+        "pageSize": 100,
+        "preserveLoaded": true
+      },
+      "response": {
+        "limit": 5000
+      }
+    },
+    {
+      "name": "new heads extend the page by their displacement",
+      "request": {
+        "operation": "extendPlan",
+        "previous": [
+          "c1",
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "page": [
+          "n1",
+          "n2",
+          "c1",
+          "c2"
+        ],
+        "canContinue": true
+      },
+      "response": {
+        "extensionLimit": 2
+      }
+    },
+    {
+      "name": "a page that still contains the old tail is kept",
+      "request": {
+        "operation": "extendPlan",
+        "previous": [
+          "c1",
+          "c2"
+        ],
+        "page": [
+          "n1",
+          "c1",
+          "c2"
+        ],
+        "canContinue": true
+      },
+      "response": {
+        "extensionLimit": 0
+      }
+    },
+    {
+      "name": "an exhausted history is not extended",
+      "request": {
+        "operation": "extendPlan",
+        "previous": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "page": [
+          "n1",
+          "c1"
+        ],
+        "canContinue": false
+      },
+      "response": {
+        "extensionLimit": 0
+      }
+    },
+    {
+      "name": "a rewritten history shares nothing and is not extended",
+      "request": {
+        "operation": "extendPlan",
+        "previous": [
+          "c1",
+          "c2"
+        ],
+        "page": [
+          "r1",
+          "r2"
+        ],
+        "canContinue": true
+      },
+      "response": {
+        "extensionLimit": 0
+      }
+    },
+    {
+      "name": "merging skips commits already in the window",
+      "request": {
+        "operation": "mergePage",
+        "window": [
+          "n1",
+          "n2",
+          "c1",
+          "c2"
+        ],
+        "page": [
+          "c2",
+          "c3",
+          "c4"
+        ],
+        "pageHasMore": true
+      },
+      "response": {
+        "append": [
+          1,
+          2
+        ],
+        "hasMore": true
+      }
+    },
+    {
+      "name": "a continuation that adds nothing ends the window",
+      "request": {
+        "operation": "mergePage",
+        "window": [
+          "c1",
+          "c2"
+        ],
+        "page": [
+          "c2"
+        ],
+        "pageHasMore": true
+      },
+      "response": {
+        "append": [],
+        "hasMore": false
+      }
+    },
+    {
+      "name": "selection, focus, and anchor survive when still loaded",
+      "request": {
+        "operation": "reconcileSelection",
+        "window": [
+          "n1",
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "selected": [
+          "c3",
+          "c1"
+        ],
+        "focused": "c3",
+        "anchor": "c1"
+      },
+      "response": {
+        "selected": [
+          "c1",
+          "c3"
+        ],
+        "focused": "c3",
+        "anchor": "c1"
+      }
+    },
+    {
+      "name": "missing commits fall back to the first row",
+      "request": {
+        "operation": "reconcileSelection",
+        "window": [
+          "r1",
+          "r2"
+        ],
+        "selected": [
+          "c1",
+          "c2"
+        ],
+        "focused": "c2",
+        "anchor": "c1"
+      },
+      "response": {
+        "selected": [
+          "r1"
+        ],
+        "focused": "r1",
+        "anchor": "r1"
+      }
+    },
+    {
+      "name": "a missing anchor falls back to the retained focus",
+      "request": {
+        "operation": "reconcileSelection",
+        "window": [
+          "c1",
+          "c2"
+        ],
+        "selected": [
+          "c2",
+          "gone"
+        ],
+        "focused": "c2",
+        "anchor": "gone"
+      },
+      "response": {
+        "selected": [
+          "c2"
+        ],
+        "focused": "c2",
+        "anchor": "c2"
+      }
+    },
+    {
+      "name": "an empty window clears the selection",
+      "request": {
+        "operation": "reconcileSelection",
+        "window": [],
+        "selected": [
+          "c1"
+        ],
+        "focused": "c1",
+        "anchor": "c1"
+      },
+      "response": {
+        "selected": [],
+        "focused": null,
+        "anchor": null
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "zero page size",
+      "request": {
+        "operation": "refreshPlan",
+        "loadedCount": 0,
+        "pageSize": 0,
+        "preserveLoaded": false
+      }
+    },
+    {
+      "name": "unknown operation",
+      "request": {
+        "operation": "scroll"
+      }
+    }
+  ]
+}

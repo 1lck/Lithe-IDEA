@@ -2508,11 +2508,31 @@ package final class GitFeatureModel: ObservableObject {
         )
     }
 
+    /// Core's `git.historyWindow` plan for one window operation; `nil` means Core rejected it.
+    private func historyWindowPlan(_ request: GitHistoryWindowRequest) async -> GitHistoryWindowPlan? {
+        await service.corePlan(.historyWindow, request)
+    }
+
+    /// Appends `page` to `window` through Core so both products dedupe and bound a
+    /// history window alike. `hasMore` says whether history may continue after it.
+    private func mergeHistoryPage(
+        window: [GitCommit], page: [GitCommit], pageHasMore: Bool
+    ) async -> (commits: [GitCommit], appended: Int, hasMore: Bool)? {
+        guard let plan = await historyWindowPlan(.mergePage(
+            window: window.map(\.hash), page: page.map(\.hash), pageHasMore: pageHasMore
+        )), let append = plan.append, let hasMore = plan.hasMore,
+        append.allSatisfy({ page.indices.contains($0) }) else { return nil }
+        return (window + append.map { page[$0] }, append.count, hasMore)
+    }
+
     package func refreshGitHistory(preservingLoadedHistory: Bool = false) async {
         guard let gitRepositoryRoot else { return }
-        let pageLimit = preservingLoadedHistory
-            ? max(Self.gitHistoryPageSize, gitCommits.count)
-            : Self.gitHistoryPageSize
+        // A refresh that keeps the loaded depth reads that many commits at once.
+        // Core owns the size; the window is replaced atomically below.
+        let pageLimit = await historyWindowPlan(.refreshPlan(
+            loadedCount: gitCommits.count, pageSize: Self.gitHistoryPageSize,
+            preserveLoaded: preservingLoadedHistory
+        ))?.limit ?? Self.gitHistoryPageSize
         cancelGitHistoryLoading()
         let generation = gitHistoryGeneration
         let selectedReference = selectedGitReference
@@ -2582,10 +2602,22 @@ package final class GitFeatureModel: ObservableObject {
             service.closeHistoryCursor(at: gitRepositoryRoot, cursor: cursor)
         }
 
+        // Core keeps the selected commits, focus, and range anchor that are still
+        // loaded and falls back to the first row; pixel scroll anchors stay in the view.
         let retainedCommitHash = preservingLoadedHistory ? selectedGitCommit?.hash : previousCommitHash
-        let nextCommit = historyPage.commits.first(where: { $0.hash == retainedCommitHash })
-            ?? historyPage.commits.first
-        historyEditing.retainSelection(in: historyPage.commits, fallback: nextCommit?.hash)
+        let selection = historyEditing.selection
+        let reconciled = await historyWindowPlan(.reconcileSelection(
+            window: historyPage.commits.map(\.hash), selected: selection.hashes.sorted(),
+            focused: retainedCommitHash ?? selection.focusedHash, anchor: selection.anchorHash
+        ))
+        guard gitHistoryGeneration == generation, self.gitRepositoryRoot == gitRepositoryRoot else { return }
+        guard let reconciled, let selected = reconciled.selected else {
+            await repositoryGraph
+            await repositoryReferences
+            return
+        }
+        let nextCommit = historyPage.commits.first(where: { $0.hash == reconciled.focused })
+        historyEditing.applySelection(selected: selected, focused: nextCommit?.hash, anchor: reconciled.anchor)
         if let nextCommit {
             if retainedCommitHash == nextCommit.hash {
                 selectedGitCommit = nextCommit
@@ -2610,25 +2642,20 @@ package final class GitFeatureModel: ObservableObject {
         guard let page = await service.historyPage(
             at: root, reference: reference, cursor: nil, limit: limit, operationID: operationID
         ) else { return nil }
-        guard let previousTail = previousCommits.last,
-              !page.commits.contains(where: { $0.hash == previousTail.hash }),
-              page.hasMore, let cursor = page.nextCursor,
+        guard !previousCommits.isEmpty, page.hasMore, let cursor = page.nextCursor,
               gitHistoryGeneration == generation, gitRepositoryRoot == root, !Task.isCancelled else { return page }
 
-        // New heads must not evict the old loaded tail (or its selection). Only
-        // extend by the observed displacement, not another page on every watch event.
-        let previousIndices = Dictionary(previousCommits.enumerated().map { ($1.hash, $0) }, uniquingKeysWith: min)
-        guard let overlap = page.commits.enumerated().first(where: { previousIndices[$0.element.hash] != nil }),
-              let previousIndex = previousIndices[overlap.element.hash] else { return page }
-        let extensionLimit = min(overlap.offset - previousIndex, Self.gitGraphRepositoryLimit - page.commits.count)
-        guard extensionLimit > 0 else { return page }
+        // New heads must not evict the old loaded tail (or its selection). Core says
+        // how far to read past the page: only the displacement, not a page per event.
+        guard let extensionLimit = await historyWindowPlan(.extendPlan(
+            previous: previousCommits.map(\.hash), page: page.commits.map(\.hash), canContinue: true
+        ))?.extensionLimit, extensionLimit > 0 else { return page }
         guard let extensionPage = await service.historyPage(
             at: root, reference: reference, cursor: cursor, limit: extensionLimit, operationID: operationID
+        ), let merged = await mergeHistoryPage(
+            window: page.commits, page: extensionPage.commits, pageHasMore: extensionPage.hasMore
         ) else { return nil }
-        var hashes = Set(page.commits.map(\.hash))
-        let fresh = extensionPage.commits.filter { hashes.insert($0.hash).inserted }
-        return GitHistoryPage(commits: page.commits + fresh, nextCursor: extensionPage.nextCursor,
-                              hasMore: extensionPage.hasMore && !fresh.isEmpty)
+        return GitHistoryPage(commits: merged.commits, nextCursor: extensionPage.nextCursor, hasMore: merged.hasMore)
     }
 
     private func refreshGitRepositoryGraph(at root: URL, generation: UUID) async {
@@ -2824,10 +2851,14 @@ package final class GitFeatureModel: ObservableObject {
             return
         }
 
-        var loadedHashes = Set(gitCommits.map(\.hash))
-        let fresh = page.commits.filter { loadedHashes.insert($0.hash).inserted }
-        gitCommits.append(contentsOf: fresh)
-        canLoadMoreGitHistory = page.hasMore && page.nextCursor != nil && !fresh.isEmpty
+        guard let merged = await mergeHistoryPage(window: gitCommits, page: page.commits, pageHasMore: page.hasMore),
+              gitHistoryGeneration == generation else {
+            if let cursor = page.nextCursor { service.closeHistoryCursor(at: gitRepositoryRoot, cursor: cursor) }
+            if gitHistoryGeneration == generation { gitHistoryPageFailed = true }
+            return
+        }
+        gitCommits = merged.commits
+        canLoadMoreGitHistory = merged.hasMore && page.nextCursor != nil
         gitHistoryCursor = canLoadMoreGitHistory ? page.nextCursor : nil
         if !canLoadMoreGitHistory, let cursor = page.nextCursor {
             service.closeHistoryCursor(at: gitRepositoryRoot, cursor: cursor)
@@ -3063,10 +3094,14 @@ package final class GitFeatureModel: ObservableObject {
             return
         }
 
-        var loadedHashes = Set(gitCommits.map(\.hash))
-        let fresh = result.commits.filter { loadedHashes.insert($0.hash).inserted }
-        gitCommits.append(contentsOf: fresh)
-        canLoadMoreGitHistory = result.hasMore && result.nextCursor != nil && !fresh.isEmpty
+        guard let merged = await mergeHistoryPage(window: gitCommits, page: result.commits, pageHasMore: result.hasMore),
+              gitHistoryGeneration == generation else {
+            if let cursor = result.nextCursor { service.closeHistoryCursor(at: gitRepositoryRoot, cursor: cursor) }
+            if gitHistoryGeneration == generation { gitHistoryPageFailed = true }
+            return
+        }
+        gitCommits = merged.commits
+        canLoadMoreGitHistory = merged.hasMore && result.nextCursor != nil
         gitHistoryCursor = canLoadMoreGitHistory ? result.nextCursor : nil
         if !canLoadMoreGitHistory, let nextCursor = result.nextCursor {
             service.closeHistoryCursor(at: gitRepositoryRoot, cursor: nextCursor)
@@ -4426,25 +4461,65 @@ package final class GitFeatureModel: ObservableObject {
         }
     }
 
-    /// IDEA's branch Update: the checked-out branch pulls into the working tree,
-    /// any other local branch fast-forwards from its upstream in place. Core runs
-    /// one atomic fetch for the latter, so Git itself refuses a diverged branch or
-    /// one checked out by another worktree instead of rewriting it.
+    /// IDEA's branch Update. Core's `git.updatePlan` decides every rule: a branch
+    /// checked out in a worktree pulls inside that worktree, any other local branch
+    /// fast-forwards from its upstream in place (one atomic fetch, so Git itself
+    /// refuses a diverged branch), and a diverged current branch asks for a strategy.
     package func updateBranch(_ reference: GitReference) async {
-        if reference.isCurrent { return await updateCurrentBranch(reference) }
         guard let gitRepositoryRoot, reference.kind == .local else { return }
-        guard let upstream = reference.upstreamShortName else {
-            notifyWithReference("\(reference.shortName) tracks no remote branch")
-            return
-        }
-        // Git refuses to fetch into a branch checked out elsewhere and prints
-        // that refusal in the user's locale, so check the worktree list first.
-        // The published list only loads with the Worktrees tab; query it fresh.
+        // The published worktree list only loads with the Worktrees tab; query it fresh.
         let worktrees = await worktreesProvider(gitRepositoryRoot) ?? gitWorktrees
-        if worktrees.contains(where: { !$0.isCurrent && $0.branch == reference.fullName }) {
-            notifyWithReference("\(reference.shortName) is checked out in another worktree. Update it there.")
+        let route: GitUpdatePlan? = await service.corePlan(
+            .updatePlan,
+            GitUpdatePlanRequest.route(
+                fullName: reference.fullName,
+                upstream: reference.upstreamShortName,
+                isCurrent: reference.isCurrent,
+                worktrees: worktrees
+            )
+        )
+        guard let route else {
+            notifyWithReference(L10n.string("Unable to inspect the branch."))
             return
         }
+        switch route.step {
+        case "fastForwardReference":
+            await fastForwardBranchInPlace(reference)
+        case "inspect":
+            await updateCheckedOutBranch(reference, route: route)
+        default:
+            notifyUpdateBlocker(route.blocker, reference: reference, upstream: reference.upstreamShortName)
+        }
+    }
+
+    package func updateCurrentBranch(_ reference: GitReference) async {
+        guard reference.isCurrent else {
+            notifyWithReference("Only the current branch can be updated")
+            return
+        }
+        await updateBranch(reference)
+    }
+
+    private func notifyUpdateBlocker(_ blocker: String?, reference: GitReference, upstream: String?) {
+        switch blocker {
+        case "noUpstream":
+            notifyWithReference("\(reference.shortName) tracks no remote branch")
+        case "upToDate":
+            notifyWithReference("\(reference.shortName) is already up to date")
+        case "localChanges":
+            notifyWithReference(L10n.string("Commit or stash local changes before pulling."))
+        case "stateChanged":
+            notifyWithReference(L10n.string("The branch changed while choosing a pull strategy. Review it and try again."))
+        case "notFastForward":
+            notifyWithReference("\(reference.shortName) has diverged from \(upstream ?? ""). Check it out to merge or rebase.")
+        default:
+            notifyWithReference(L10n.string("Unable to inspect the branch."))
+        }
+    }
+
+    /// A branch no worktree has checked out: Core fetches into it with `--ff-only`.
+    private func fastForwardBranchInPlace(_ reference: GitReference) async {
+        guard let gitRepositoryRoot, let upstream = reference.upstreamShortName else { return }
         isPerformingBranchOperation = true
         let result = await withGitOperation { await service.updateBranch(reference, at: gitRepositoryRoot) }
         isPerformingBranchOperation = false
@@ -4461,65 +4536,92 @@ package final class GitFeatureModel: ObservableObject {
         await reportBranchOperation(result, success: "Updated \(reference.shortName)")
     }
 
-    package func updateCurrentBranch(_ reference: GitReference) async {
-        guard let gitRepositoryRoot, reference.isCurrent else {
-            notifyWithReference("Only the current branch can be updated")
-            return
-        }
+    /// Fetch, inspect, and let Core decide whether to pull, ask, or stop.
+    private func updateCheckedOutBranch(_ reference: GitReference, route: GitUpdatePlan) async {
+        guard let gitRepositoryRoot, let expectedBranch = route.expectedBranch else { return }
+        let interactive = route.interactive ?? false
+        // The active worktree is addressed by the model's own root, not by the path
+        // Git listed, which may spell the same directory differently.
+        let checkoutRoot = interactive ? gitRepositoryRoot : (route.checkout.map { URL(fileURLWithPath: $0) } ?? gitRepositoryRoot)
         // Fetch first so the divergence check reflects the remote as it is now;
         // otherwise a stale ref would send a pull down the wrong path.
         isPerformingBranchOperation = true
-        let fetched = await withGitOperation { await service.fetch(at: gitRepositoryRoot) }
+        let fetched = await withGitOperation { await service.fetch(at: checkoutRoot) }
         guard fetched.succeeded else {
             isPerformingBranchOperation = false
             notifyWithReference(trimmedMessage(fetched))
             return
         }
+        await inspectAndUpdate(
+            reference, checkoutRoot: checkoutRoot, expectedBranch: expectedBranch,
+            interactive: interactive, confirmation: nil
+        )
+    }
 
-        let preflight = await service.pullPreflight(at: gitRepositoryRoot)
-        if let preflight, preflight.upstream == nil {
+    /// Reads the pull preflight, asks Core for the next step, and runs it. The
+    /// caller already holds `isPerformingBranchOperation`.
+    private func inspectAndUpdate(
+        _ reference: GitReference,
+        checkoutRoot: URL,
+        expectedBranch: String,
+        interactive: Bool,
+        confirmation: GitUpdatePlanRequest.Confirmation?
+    ) async {
+        // A failed inspection must stop the update: pulling blind would skip every gate.
+        guard let preflight = await service.pullPreflight(at: checkoutRoot),
+              let plan: GitUpdatePlan = await service.corePlan(
+                .updatePlan,
+                GitUpdatePlanRequest.inspect(preflight: preflight, interactive: interactive, confirmation: confirmation)
+              ) else {
             isPerformingBranchOperation = false
-            notifyWithReference("\(reference.shortName) tracks no remote branch")
+            notifyWithReference(L10n.string("Unable to inspect the branch."))
             await refreshGit()
             return
         }
-        if let preflight, preflight.isUpToDate {
+        switch plan.step {
+        case "pull" where plan.strategy != nil:
+            let strategy = plan.strategy ?? .ffOnly
+            let result = await withGitOperation {
+                await service.updateCurrentBranch(at: checkoutRoot, strategy: strategy, expectedBranch: expectedBranch)
+            }
             isPerformingBranchOperation = false
-            notifyWithReference("\(reference.shortName) is already up to date")
-            await refreshGit()
-            return
-        }
-        // Only a divergent history needs a decision. Git would refuse it with a
-        // localized hint block, so we ask before running anything.
-        if let preflight, preflight.diverged {
+            let success = confirmation == nil
+                ? "Updated \(reference.shortName)"
+                : (strategy == .rebase ? "Rebased onto upstream" : "Merged upstream")
+            await reportBranchOperation(result, success: success)
+        case "chooseStrategy":
             isPerformingBranchOperation = false
             pendingPullStrategy = GitPullStrategyRequest(
                 upstream: preflight.upstream ?? "",
                 ahead: preflight.ahead,
                 behind: preflight.behind,
-                hasLocalChanges: preflight.hasLocalChanges
+                hasLocalChanges: preflight.hasLocalChanges,
+                reference: reference,
+                checkoutRoot: checkoutRoot,
+                expectedBranch: expectedBranch,
+                preflight: preflight
             )
-            return
+        case "blocked":
+            isPerformingBranchOperation = false
+            notifyUpdateBlocker(plan.blocker, reference: reference, upstream: preflight.upstream)
+            await refreshGit()
+        default:
+            isPerformingBranchOperation = false
+            notifyWithReference(L10n.string("Unable to inspect the branch."))
+            await refreshGit()
         }
-
-        let result = await withGitOperation {
-            await service.updateCurrentBranch(at: gitRepositoryRoot)
-        }
-        isPerformingBranchOperation = false
-        await reportBranchOperation(result, success: "Updated \(reference.shortName)")
     }
 
-    /// Runs the pull the user chose from the divergence dialog.
-    package func resolvePullStrategy(_ strategy: GitPullStrategy) async {
+    /// Runs the pull the user chose from the divergence dialog. Core re-checks the
+    /// history the user saw, so a branch that moved meanwhile is refused.
+    package func resolvePullStrategy(_ strategy: GitPullStrategy, for request: GitPullStrategyRequest) async {
         pendingPullStrategy = nil
-        guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
-        let result = await withGitOperation {
-            await service.updateCurrentBranch(at: gitRepositoryRoot, strategy: strategy)
-        }
-        isPerformingBranchOperation = false
-        let verb = strategy == .rebase ? "Rebased onto upstream" : "Merged upstream"
-        await reportBranchOperation(result, success: verb)
+        await inspectAndUpdate(
+            request.reference, checkoutRoot: request.checkoutRoot, expectedBranch: request.expectedBranch,
+            interactive: true,
+            confirmation: .init(strategy: strategy, preflight: request.preflight)
+        )
     }
 
     package func cancelPullStrategy() {

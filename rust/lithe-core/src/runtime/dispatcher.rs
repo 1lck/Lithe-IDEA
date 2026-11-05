@@ -3388,6 +3388,12 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
             parsed.payload,
             crate::git::repository_color_assignments_command,
         ),
+        CoreCommand::GitUpdatePlan => {
+            plugin_response(id, parsed.payload, crate::git::update_plan_command)
+        }
+        CoreCommand::GitHistoryWindow => {
+            plugin_response(id, parsed.payload, crate::git::history_window_command)
+        }
         CoreCommand::GitNormalizeChangeTargets => plugin_response(
             id,
             parsed.payload,

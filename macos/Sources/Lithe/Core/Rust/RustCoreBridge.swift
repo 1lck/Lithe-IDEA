@@ -1323,6 +1323,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let behind: Int
         let diverged: Bool
         let hasLocalChanges: Bool
+        let configuredStrategy: String?
     }
 
     struct GitOperationStatePayload: Decodable, Sendable {
@@ -2372,6 +2373,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         /// Destination confirmed for a divergent upstream; omitted so routine
         /// pushes keep their existing behaviour.
         let pushTarget: String?
+        /// Complete local reference a guarded pull must still find checked out.
+        let expectedBranch: String?
     }
 
     private struct GitDiffRequest: Encodable {
@@ -3282,7 +3285,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         amend: Bool = false,
         force: Bool = false,
         autoStash: Bool = false,
-        pushTarget: String? = nil
+        pushTarget: String? = nil,
+        expectedBranch: String? = nil
     ) -> GitCommandPayload? {
         execute(
             command: "git.write",
@@ -3304,7 +3308,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 amend: amend,
                 force: force,
                 autoStash: autoStash,
-                pushTarget: pushTarget
+                pushTarget: pushTarget,
+                expectedBranch: expectedBranch
             )
         )
     }
@@ -3381,7 +3386,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         amend: Bool = false,
         force: Bool = false,
         autoStash: Bool = false,
-        pushTarget: String? = nil
+        pushTarget: String? = nil,
+        expectedBranch: String? = nil
     ) -> Result<GitCommandPayload, CoreCallError> {
         executeResult(
             command: "git.write",
@@ -3403,7 +3409,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 amend: amend,
                 force: force,
                 autoStash: autoStash,
-                pushTarget: pushTarget
+                pushTarget: pushTarget,
+                expectedBranch: expectedBranch
             )
         )
     }
