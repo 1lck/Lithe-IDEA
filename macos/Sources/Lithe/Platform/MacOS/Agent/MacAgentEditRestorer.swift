@@ -5,6 +5,7 @@ import LitheAgentConversationModule
 /// read-only; snapshots live in conversation memory, without a new disk cache.
 struct MacAgentEditRestorer: AgentEditRestoring {
     let fileOperations: any WorkspaceFileOperations
+    let planner: any AgentEditReversePlanning
     private static let queue = DispatchQueue(label: "app.lithe.agent-edit-review", qos: .userInitiated)
 
     func restore(_ change: AgentFileChange, in workspace: URL) async throws {
@@ -33,40 +34,20 @@ struct MacAgentEditRestorer: AgentEditRestoring {
         }
         // Reuse the document adapter's size/link checks, encoding and byte identity.
         let disk = try fileOperations.readDocumentDetails(from: url, encoding: nil)
-        var restored = disk?.text
-        for diff in change.diffs.reversed() {
-            try cancellation.check()
-            if diff.operation == "delete" || (change.isDeletion && change.diffs.count == 1) {
-                guard restored == nil, let old = diff.oldText else { throw AgentEditRestoreError.changed }
-                restored = old
-            } else if let old = diff.oldText {
-                guard let current = restored else { throw AgentEditRestoreError.changed }
-                if current == diff.newText { restored = old }
-                else {
-                    // Claude sometimes supplies an excerpt. Reverse only one
-                    // exact nonempty match; ambiguous or missing text is a conflict.
-                    guard !diff.newText.isEmpty, let range = current.range(of: diff.newText),
-                          current.range(of: diff.newText, range: current.index(after: range.lowerBound)..<current.endIndex) == nil else {
-                        throw AgentEditRestoreError.changed
-                    }
-                    restored = current.replacingCharacters(in: range, with: old)
-                }
-            } else {
-                // Null oldText also appears for inserted excerpts. Only explicit
-                // upstream creation metadata proves that the file can be removed.
-                guard diff.operation == "add" else { throw AgentEditRestoreError.incomplete }
-                guard restored == diff.newText else { throw AgentEditRestoreError.changed }
-                restored = nil
-            }
-        }
         try cancellation.check()
-        if let restored {
+        // Core owns matching, line endings, deletion and conflict rules.
+        switch try planner.reversePlan(for: change, disk: disk?.text) {
+        case .none:
+            return
+        case .write(let restored):
+            try cancellation.check()
             switch try fileOperations.writeDocumentText(restored, to: url, expectedContent: disk?.text,
                 encoding: disk?.encoding ?? .utf8, expectedIdentity: disk?.identity) {
             case .saved: break
             case .conflict: throw AgentEditRestoreError.changed
             }
-        } else if let disk {
+        case .trash:
+            guard let disk else { throw AgentEditRestoreError.changed }
             guard let identity = disk.identity else { throw AgentEditRestoreError.unavailable }
             try cancellation.check()
             // New files go to recoverable Trash, never permanent deletion.

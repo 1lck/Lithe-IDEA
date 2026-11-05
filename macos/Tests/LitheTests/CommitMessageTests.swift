@@ -8,100 +8,6 @@ import Testing
 @Suite("Commit message generation")
 struct CommitMessageTests {
     @Test
-    func codexDefaultModelDoesNotRequireAProviderOrCredentials() {
-        let config = """
-        model = "current-model" # local default
-        [profiles.legacy]
-        model = "obsolete-model"
-        [agents.worker]
-        model = "worker-model"
-        """
-        #expect(MacCodexConfigurationParser.parseModel(config: config) == "current-model")
-        #expect(MacCodexConfigurationParser.parse(config: config, authData: nil) == nil,
-            "reading a model must not grant API access or invent a provider")
-        #expect(MacCodexConfigurationParser.parseModel(config: "model = \"\"") == "")
-        #expect(MacCodexConfigurationParser.parseModel(config: "[profiles.legacy]\nmodel = \"obsolete-model\"") == "",
-            "a missing top-level model delegates to the CLI instead of a nested profile or stale import")
-    }
-
-    @Test
-    func parsesCodexResponsesConfigurationAndAuthKey() throws {
-        let config = """
-        model_provider = "custom"
-        model = "gpt-5.6-luna"
-        model_reasoning_effort = "max"
-
-        [model_providers.custom]
-        wire_api = "responses"
-        requires_openai_auth = true
-        base_url = "https://example.test/codex/v1"
-        """
-        let auth = Data(#"{"OPENAI_API_KEY":"test-secret"}"#.utf8)
-
-        let snapshot = MacCodexConfigurationParser.parse(config: config, authData: auth)
-
-        #expect(snapshot?.providerName == "custom")
-        #expect(snapshot?.endpoint == "https://example.test/codex/v1")
-        #expect(snapshot?.model == "gpt-5.6-luna")
-        #expect(snapshot?.apiProtocol == .responses)
-        #expect(snapshot?.reasoningEffort == .max)
-        #expect(snapshot?.requiresAPIKey == true)
-        #expect(snapshot?.apiKey == "test-secret")
-    }
-
-    @Test
-    func parsesClaudeConfigurationFromSettingsAndEnvironment() throws {
-        let settings = Data("""
-        {
-            "model": "claude-sonnet-custom",
-            "env": {
-                "ANTHROPIC_BASE_URL": "https://proxy.example.test/v1",
-                "ANTHROPIC_API_KEY": "claude-secret"
-            }
-        }
-        """.utf8)
-
-        let snapshot = MacClaudeConfigurationParser.parse(
-            settingsData: settings,
-            credentialsData: nil,
-            rootConfigData: nil,
-            environment: [:]
-        )
-
-        #expect(snapshot?.source == .claude)
-        #expect(snapshot?.endpoint == "https://proxy.example.test/v1")
-        #expect(snapshot?.model == "claude-sonnet-custom")
-        #expect(snapshot?.apiProtocol == .anthropicMessages)
-        #expect(snapshot?.apiKey == "claude-secret")
-        #expect(snapshot?.authentication == .apiKey)
-        #expect(snapshot?.requiresAPIKey == true)
-    }
-
-    @Test
-    func parsesClaudeAuthTokenAndResolvesModelAlias() throws {
-        let settings = Data("""
-        {
-            "model": "opus",
-            "env": {
-                "ANTHROPIC_AUTH_TOKEN": "auth-token",
-                "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-custom"
-            }
-        }
-        """.utf8)
-
-        let snapshot = MacClaudeConfigurationParser.parse(
-            settingsData: settings,
-            credentialsData: nil,
-            rootConfigData: nil,
-            environment: [:]
-        )
-
-        #expect(snapshot?.model == "claude-opus-custom")
-        #expect(snapshot?.apiKey == "auth-token")
-        #expect(snapshot?.authentication == .bearer)
-    }
-
-    @Test
     func switchingNewProviderToAnthropicRequiresModelBeforeEncodingRequest() async throws {
         var settings = CommitMessageAISettings.default
         let provider = settings.addProvider()
@@ -547,10 +453,73 @@ struct CommitMessageTests {
         let userPrompt = try #require(messages[1]["content"] as? String)
         #expect(systemPrompt.contains("Preserve this Markdown template"))
         #expect(systemPrompt.contains("never claim tests passed"))
-        #expect(userPrompt.contains("Base branch: main"))
-        #expect(userPrompt.contains("Compare branch: feature/ai-pr"))
-        #expect(userPrompt.contains("path: Sources/PullRequest.swift"))
-        #expect(json["max_tokens"] as? Int == 1_600)
+        #expect(userPrompt.contains(#"Base branch: "main""#))
+        #expect(userPrompt.contains(#"Compare branch: "feature/ai-pr""#))
+        #expect(userPrompt.contains(#"path: "Sources/PullRequest.swift""#))
+        // Reasoning shares the output budget, so PR descriptions use the commit budget.
+        #expect(json["max_completion_tokens"] as? Int == 4_096)
+    }
+
+    @Test
+    func sharedPullRequestFixtureMatchesActualCoreBridge() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: root.appendingPathComponent(
+            "shared/fixtures/ai/pull-request-description-v1.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let comparison = try #require(fixture["comparison"] as? [String: Any])
+        let fileObjects = try #require(comparison["files"] as? [[String: String]])
+        let files = try fileObjects.map { file in
+            let kind = try #require(file["changeKind"])
+            return PullRequestDescriptionFileInput(
+                path: try #require(file["path"]),
+                changeKind: try #require(CommitMessageChangeKind(rawValue: kind)),
+                patch: try #require(file["diff"])
+            )
+        }
+        let input = PullRequestDescriptionInput(
+            repository: try #require(comparison["repository"] as? String),
+            base: try #require(comparison["base"] as? String),
+            head: try #require(comparison["head"] as? String),
+            commitMessages: try #require(comparison["commitMessages"] as? [String]),
+            files: files
+        )
+        let options = try #require(fixture["options"] as? [String: Any])
+        var settings = CommitMessageAISettings.default
+        settings.pullRequestFormat = .custom
+        settings.pullRequestCustomTemplate = try #require(options["customTemplate"] as? String)
+        let expected = try #require(fixture["expectedDescription"] as? [String: String])
+        let core = RustCoreBridge()
+        for item in try #require(fixture["responses"] as? [[String: Any]]) {
+            let protocolText = try #require(item["protocol"] as? String)
+            let protocolName = try #require(CommitMessageAPIProtocol(rawValue: protocolText))
+            let provider = AIProviderProfile(name: "Example", endpoint: "https://api.example.com/v1",
+                model: "example-model", apiProtocol: protocolName, requiresAPIKey: false)
+            let plan = try core.planPullRequest(input: input, settings: settings, provider: provider)
+            let body = try #require(JSONSerialization.jsonObject(with: plan.body) as? [String: Any])
+            #expect(body[try #require(item["tokenField"] as? String)] as? Int == 4_096)
+            #expect(!String(decoding: plan.body, as: UTF8.self).contains("Assets/logo.png"))
+            let response = try JSONSerialization.data(withJSONObject: try #require(item["body"]))
+            let output = try core.decodePullRequestResponse(protocolName: protocolName, response: response)
+            #expect(output == PullRequestDescriptionOutput(
+                title: try #require(expected["title"]), description: try #require(expected["description"])))
+        }
+        for item in try #require(fixture["decodeRejections"] as? [[String: Any]]) {
+            let protocolText = try #require(item["protocol"] as? String)
+            let protocolName = try #require(CommitMessageAPIProtocol(rawValue: protocolText))
+            let response = try JSONSerialization.data(withJSONObject: try #require(item["body"]))
+            #expect(throws: (any Error).self) {
+                try core.decodePullRequestResponse(protocolName: protocolName, response: response)
+            }
+        }
+        let sensitive = PullRequestDescriptionInput(repository: "example/lithe", base: "main", head: "topic",
+            commitMessages: [], files: [PullRequestDescriptionFileInput(
+                path: "config/credentials.json", changeKind: .modified, patch: "+x")])
+        let provider = AIProviderProfile(name: "Example", endpoint: "https://api.example.com/v1",
+            model: "example-model", apiProtocol: .responses, requiresAPIKey: false)
+        #expect(throws: CommitMessageGenerationError.self) {
+            try core.planPullRequest(input: sensitive, settings: settings, provider: provider)
+        }
     }
 }
 

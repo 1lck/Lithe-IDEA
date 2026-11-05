@@ -100,7 +100,7 @@ struct AgentSessionSelectorLayoutTests {
         let usage = try #require(AgentContextUsage(usedTokens: 1200, capacityTokens: 10000))
         var conversation = AgentConversation()
         conversation.completedTurns = [.init(id: "turn", startedAt: .now)]
-        conversation.recordModelCall(try #require(AgentModelCall.parse([
+        conversation.recordModelCall(try #require(AgentModelCall.streamedStep([
             "api": "anthropicMessages", "status": 200, "streaming": true, "firstTokenMs": 700, "durationMs": 1250,
             "usage": ["inputTokens": 1200, "cacheReadTokens": 600, "cacheWriteTokens": 0, "outputTokens": 165]
         ])))

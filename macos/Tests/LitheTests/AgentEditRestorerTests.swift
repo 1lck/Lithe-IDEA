@@ -42,7 +42,7 @@ struct AgentEditRestorerTests {
             let url = workspace.appendingPathComponent("a.txt")
             try Data([0xef, 0xbb, 0xbf] + Array("C\n".utf8)).write(to: url)
             let change = change([("A\n", "B\n"), ("B\n", "C\n")])
-            try await MacAgentEditRestorer(fileOperations: files).restore(change, in: workspace)
+            try await MacAgentEditRestorer(fileOperations: files, planner: planner).restore(change, in: workspace)
             #expect(try Data(contentsOf: url) == Data([0xef, 0xbb, 0xbf] + Array("A\n".utf8)))
         }
     }
@@ -51,7 +51,7 @@ struct AgentEditRestorerTests {
         try await withWorkspace { workspace, files in
             let url = workspace.appendingPathComponent("a.txt")
             try Data("prefix\nnew line\nsuffix\n".utf8).write(to: url)
-            try await MacAgentEditRestorer(fileOperations: files).restore(change([("old line", "new line")]), in: workspace)
+            try await MacAgentEditRestorer(fileOperations: files, planner: planner).restore(change([("old line", "new line")]), in: workspace)
             #expect(try String(contentsOf: url, encoding: .utf8) == "prefix\nold line\nsuffix\n")
         }
     }
@@ -63,7 +63,7 @@ struct AgentEditRestorerTests {
                 let bytes = Data(disk.utf8)
                 try bytes.write(to: url)
                 await #expect(throws: AgentEditRestoreError.self) {
-                    try await MacAgentEditRestorer(fileOperations: files).restore(change([("before", reported)]), in: workspace)
+                    try await MacAgentEditRestorer(fileOperations: files, planner: planner).restore(change([("before", reported)]), in: workspace)
                 }
                 #expect(try Data(contentsOf: url) == bytes)
             }
@@ -74,12 +74,13 @@ struct AgentEditRestorerTests {
         try await withWorkspace { workspace, files in
             let url = workspace.appendingPathComponent("a.txt")
             var deleted = change([("original", "")])
-            deleted.isDeletion = true
-            try await MacAgentEditRestorer(fileOperations: files).restore(deleted, in: workspace)
+            // A delete tool marks the operation-less diff as a deletion.
+            deleted.diffs[0].toolKind = "delete"
+            try await MacAgentEditRestorer(fileOperations: files, planner: planner).restore(deleted, in: workspace)
             #expect(try String(contentsOf: url, encoding: .utf8) == "original")
             try Data("new user file".utf8).write(to: url)
             await #expect(throws: AgentEditRestoreError.self) {
-                try await MacAgentEditRestorer(fileOperations: files).restore(deleted, in: workspace)
+                try await MacAgentEditRestorer(fileOperations: files, planner: planner).restore(deleted, in: workspace)
             }
             #expect(try String(contentsOf: url, encoding: .utf8) == "new user file")
         }
@@ -92,12 +93,12 @@ struct AgentEditRestorerTests {
             var incomplete = change([("before", "after")])
             incomplete.diffs[0].oldText = nil
             await #expect(throws: AgentEditRestoreError.self) {
-                try await MacAgentEditRestorer(fileOperations: files).restore(incomplete, in: workspace)
+                try await MacAgentEditRestorer(fileOperations: files, planner: planner).restore(incomplete, in: workspace)
             }
             incomplete.diffs[0].oldText = "before"
             incomplete.diffs[0].isTruncated = true
             await #expect(throws: AgentEditRestoreError.self) {
-                try await MacAgentEditRestorer(fileOperations: files).restore(incomplete, in: workspace)
+                try await MacAgentEditRestorer(fileOperations: files, planner: planner).restore(incomplete, in: workspace)
             }
             #expect(try String(contentsOf: url, encoding: .utf8) == "after")
         }
@@ -116,7 +117,7 @@ struct AgentEditRestorerTests {
                 var escaping = change([("before", "after")], path: path)
                 escaping.diffs[0].path = path
                 await #expect(throws: AgentEditRestoreError.self) {
-                    try await MacAgentEditRestorer(fileOperations: files).restore(escaping, in: root)
+                    try await MacAgentEditRestorer(fileOperations: files, planner: planner).restore(escaping, in: root)
                 }
             }
             #expect(try String(contentsOf: target, encoding: .utf8) == "after")
@@ -133,11 +134,11 @@ struct AgentEditRestorerTests {
             let adapter = ReviewFileOperations(native: files, recovered: recovered)
             try Data("user modified".utf8).write(to: url)
             await #expect(throws: AgentEditRestoreError.self) {
-                try await MacAgentEditRestorer(fileOperations: adapter).restore(created, in: workspace)
+                try await MacAgentEditRestorer(fileOperations: adapter, planner: planner).restore(created, in: workspace)
             }
             #expect(!files.fileExists(at: recovered))
             try Data("created".utf8).write(to: url)
-            try await MacAgentEditRestorer(fileOperations: adapter).restore(created, in: workspace)
+            try await MacAgentEditRestorer(fileOperations: adapter, planner: planner).restore(created, in: workspace)
             #expect(!files.fileExists(at: url))
             #expect(try String(contentsOf: recovered, encoding: .utf8) == "created")
         }
@@ -150,7 +151,7 @@ struct AgentEditRestorerTests {
             let adapter = ReviewFileOperations(native: files, recovered: workspace.appendingPathComponent("recovered.txt"),
                 concurrentText: "another writer")
             await #expect(throws: AgentEditRestoreError.self) {
-                try await MacAgentEditRestorer(fileOperations: adapter).restore(change([("before", "after")]), in: workspace)
+                try await MacAgentEditRestorer(fileOperations: adapter, planner: planner).restore(change([("before", "after")]), in: workspace)
             }
             #expect(try String(contentsOf: url, encoding: .utf8) == "another writer")
         }
@@ -165,7 +166,7 @@ struct AgentEditRestorerTests {
             try FileManager.default.createSymbolicLink(at: url, withDestinationURL: target)
             let adapter = ReviewFileOperations(native: files, recovered: recovered)
             await #expect(throws: (any Error).self) {
-                try await MacAgentEditRestorer(fileOperations: adapter).restore(creation(), in: workspace)
+                try await MacAgentEditRestorer(fileOperations: adapter, planner: planner).restore(creation(), in: workspace)
             }
             #expect(try FileManager.default.destinationOfSymbolicLink(atPath: url.path) == target.path)
             #expect(try String(contentsOf: target, encoding: .utf8) == "created")
@@ -184,7 +185,7 @@ struct AgentEditRestorerTests {
                 guard case .saved = result else { throw AgentEditRestoreError.changed }
             })
             await #expect(throws: AgentEditRestoreError.self) {
-                try await MacAgentEditRestorer(fileOperations: adapter).restore(creation(), in: workspace)
+                try await MacAgentEditRestorer(fileOperations: adapter, planner: planner).restore(creation(), in: workspace)
             }
             #expect(try String(contentsOf: url, encoding: .utf8) == "saved by editor")
             #expect(!files.fileExists(at: recovered))
@@ -203,7 +204,7 @@ struct AgentEditRestorerTests {
                 return recovered
             })
             await #expect(throws: AgentEditRestoreError.self) {
-                try await MacAgentEditRestorer(fileOperations: files).restore(creation(), in: workspace)
+                try await MacAgentEditRestorer(fileOperations: files, planner: planner).restore(creation(), in: workspace)
             }
             #expect(try String(contentsOf: url, encoding: .utf8) == "external version")
             #expect(!files.fileExists(at: recovered))
@@ -224,7 +225,7 @@ struct AgentEditRestorerTests {
                 return recovered
             })
             await #expect(throws: DocumentFileAccessError.symbolicLink) {
-                try await MacAgentEditRestorer(fileOperations: files).restore(creation(), in: workspace)
+                try await MacAgentEditRestorer(fileOperations: files, planner: planner).restore(creation(), in: workspace)
             }
             #expect(try FileManager.default.destinationOfSymbolicLink(atPath: url.path) == target.path)
             #expect(try String(contentsOf: target, encoding: .utf8) == "created")
@@ -244,7 +245,7 @@ struct AgentEditRestorerTests {
                 return recovered
             })
             do {
-                try await MacAgentEditRestorer(fileOperations: files).restore(creation(), in: workspace)
+                try await MacAgentEditRestorer(fileOperations: files, planner: planner).restore(creation(), in: workspace)
                 Issue.record("A conflict requiring manual recovery must not acknowledge rollback")
             } catch {
                 #expect(error.localizedDescription.contains(recovered.path))
@@ -260,11 +261,56 @@ struct AgentEditRestorerTests {
             try Data("created".utf8).write(to: url)
             let files = MacWorkspaceFileOperations(moveToTrash: { _ in throw CocoaError(.fileWriteNoPermission) })
             await #expect(throws: CocoaError.self) {
-                try await MacAgentEditRestorer(fileOperations: files).restore(creation(), in: workspace)
+                try await MacAgentEditRestorer(fileOperations: files, planner: planner).restore(creation(), in: workspace)
             }
             #expect(try String(contentsOf: url, encoding: .utf8) == "created")
         }
     }
+
+    @Test func lfEvidenceRevertsInsideACRLFFileWithoutTouchingOtherLines() async throws {
+        try await withWorkspace { workspace, files in
+            let url = workspace.appendingPathComponent("a.txt")
+            try Data("keep\r\nx\nafter\nend\r\n".utf8).write(to: url)
+            try await MacAgentEditRestorer(fileOperations: files, planner: planner)
+                .restore(change([("before\nend\n", "after\nend\n")]), in: workspace)
+            #expect(try String(contentsOf: url, encoding: .utf8) == "keep\r\nx\nbefore\r\nend\r\n")
+        }
+    }
+
+    /// Bridge regression: every shared plan decodes to the same port outcome.
+    @Test func sharedReversePlanFixtureDecodesThroughTheCoreBridge() throws {
+        let data = try Data(contentsOf: AgentEditEvidenceTestSupport.repositoryRoot()
+            .appendingPathComponent("shared/fixtures/agent/edit-review-v1.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        for entry in try #require(fixture["reversePlan"] as? [[String: Any]]) {
+            let request = try #require(entry["request"] as? [String: Any])
+            let expected = try #require(entry["expected"] as? [String: Any])
+            var change = AgentFileChange(path: "a.txt")
+            change.isPending = request["pending"] as? Bool ?? false
+            change.hasMissingDiff = request["missingEvidence"] as? Bool ?? false
+            change.diffs = try #require(request["diffs"] as? [[String: Any]]).map { diff in
+                var result = AgentToolDetails.Diff(path: "a.txt", oldText: diff["oldText"] as? String,
+                    newText: diff["newText"] as? String ?? "", isTruncated: diff["truncated"] as? Bool ?? false,
+                    isRevertible: true, operation: diff["operation"] as? String)
+                result.toolKind = diff["toolKind"] as? String
+                return result
+            }
+            let disk = request["disk"] as? String
+            let name = entry["name"] as? String ?? ""
+            switch (expected["action"] as? String, expected["reason"] as? String) {
+            case ("write", _):
+                #expect(try planner.reversePlan(for: change, disk: disk) == .write(expected["text"] as? String ?? ""), "\(name)")
+            case ("trash", _): #expect(try planner.reversePlan(for: change, disk: disk) == .trash, "\(name)")
+            case ("none", _): #expect(try planner.reversePlan(for: change, disk: disk) == AgentEditReversePlan.none, "\(name)")
+            case ("conflict", "incomplete"):
+                #expect(throws: AgentEditRestoreError.incomplete, "\(name)") { try planner.reversePlan(for: change, disk: disk) }
+            default:
+                #expect(throws: AgentEditRestoreError.changed, "\(name)") { try planner.reversePlan(for: change, disk: disk) }
+            }
+        }
+    }
+
+    private var planner: RustAgentEditReversePlanner { RustAgentEditReversePlanner() }
 
     private func creation() -> AgentFileChange {
         var created = change([("", "created")])
@@ -275,7 +321,7 @@ struct AgentEditRestorerTests {
 
     private func change(_ versions: [(String, String)], path: String = "a.txt") -> AgentFileChange {
         var result = AgentFileChange(path: path)
-        result.diffs = versions.map { .init(path: path, oldText: $0.0, newText: $0.1, isTruncated: false) }
+        result.diffs = versions.map { .init(path: path, oldText: $0.0, newText: $0.1, isTruncated: false, isRevertible: true) }
         return result
     }
 

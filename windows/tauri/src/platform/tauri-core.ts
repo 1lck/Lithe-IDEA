@@ -192,7 +192,7 @@ function capabilityForCommand(command: string): BackendCapability | null {
     command === "agent.install" ||
     command === "agent.uninstall" ||
     command === "agent.installCli" ||
-    command === "agent.parseProviderConfiguration"
+    command === "ai.configuration.parse"
   ) {
     return "agent";
   }

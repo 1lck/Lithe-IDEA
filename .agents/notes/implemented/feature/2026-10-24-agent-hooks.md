@@ -39,10 +39,19 @@ Lithe 管理资源库并显式写入原生配置；何时运行、Shell、标准
 创建与编辑分别显示「新 Hook」和「编辑 Hook」，主按钮也区分添加与保存。
 
 Agent 使用带原有品牌标志的选择按钮及「全部」动作，只展示已支持的两个
-Agent；全不选时仍由已有校验禁止保存。macOS 复用 MCP 资源库原有的选择
+Agent；全不选时由 Core 草稿校验禁止保存。macOS 复用 MCP 资源库原有的选择
 按钮外观，抽为 `AgentSelectionChip`，不再分别维护两套样式。说明继续遵守
 macOS 设置的 ⓘ 规则，不复制参考页的控件下方说明段落。描述字段通过共享
 文本编辑器显式选择正文字体，其他调用者继续使用原有等宽字体与控件样式。
+
+编辑器的字段校验只有一份规则：Agent Host 的 `hooks::validate_draft`，经
+Core `agent.hooks.validateDraft` 返回逐字段的 `{field, code}`，与 `save` 的最终
+校验共用同一组规则（#1662 AGT-18）。以前 Swift `canSave` 漏掉重复 Agent 和
+非工具事件的工具筛选、Windows `validHook` 另写了一份正则且重名单独判断，
+草稿能通过编辑器却在保存时被 Host 拒绝。超时字段把原始文本交给 Core，
+只接受 ASCII 数字，保存时写入 Core 解析出的秒数；两端把
+`agent.hooks.draft.<field>.<code>` 本地化后显示在编辑器内，空名称和空命令
+只禁用保存、不显示提示，避免新建时立即报错。
 
 搜索按名称、描述和命令筛选。页面必须根据筛选后的列表显示空状态：有
 搜索词而无结果时提示「没有匹配的 Hook」，无搜索词且资源库为空时提示
@@ -107,6 +116,8 @@ Swift 功能模型负责草稿与 UI 状态，Rust Core 负责严格命令分派
   自有条目、trust 索引不变、只读/符号链接、冲突、部分失败、取消与日志恢复。
 - Core `hook_contract_dispatch_is_strict_before_accessing_native_files` 校验
   严格请求；Swift 与 TypeScript 读取同一个跨平台 fixture。
+- `shared/fixtures/agent/hook-draft-validation-v1.json` 由 Host、Core 分发、
+  Swift 桥接与 TypeScript 请求测试共同读取，固定每个字段码。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentHooks|SettingsSidebarLayoutTests|SettingsSearchVocabularyTests|ContextMenuCoverageTests'`。
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`./scripts/architecture/verify-service-boundaries.sh`、

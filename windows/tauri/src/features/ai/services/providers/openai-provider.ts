@@ -4,6 +4,8 @@ import {
   type ProviderHeaders,
   type ProviderModel,
   type StreamRequest,
+  chatCompletionsFacts,
+  type ProviderRequestFacts,
 } from "./ai-provider-interface";
 
 // Models that require max_completion_tokens instead of max_tokens
@@ -86,6 +88,19 @@ export class OpenAIProvider extends AIProvider {
       console.error(`${this.id} model fetch error:`, error);
       return [];
     }
+  }
+
+  requestFacts(modelId: string): ProviderRequestFacts {
+    return chatCompletionsFacts(this.config.apiUrl, {
+      chatTokenLimitField: MODELS_REQUIRING_MAX_COMPLETION_TOKENS.some((model) =>
+        modelId.startsWith(model),
+      )
+        ? "max_completion_tokens"
+        : "max_tokens",
+      supportsTemperature: !MODELS_WITHOUT_TEMPERATURE_SUPPORT.some((model) =>
+        modelId.startsWith(model),
+      ),
+    });
   }
 
   buildHeaders(apiKey?: string): ProviderHeaders {

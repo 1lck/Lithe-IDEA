@@ -243,11 +243,14 @@ fn execute_in(
     match &request.action {
         Action::Save { hook, .. } => {
             let mut hook = hook.clone();
-            if stored
-                .hooks
-                .iter()
-                .any(|h| h.id != hook.id && h.name.eq_ignore_ascii_case(&hook.name))
-            {
+            if name_taken(
+                stored
+                    .hooks
+                    .iter()
+                    .map(|h| (h.id.as_str(), h.name.as_str())),
+                &hook.id,
+                &hook.name,
+            ) {
                 return Err(error(
                     "invalid_request",
                     "A Hook with this name already exists.",
@@ -378,33 +381,235 @@ fn decode(source: &InstructionFile) -> Result<Stored, Error> {
 }
 
 fn validate(hook: &Hook) -> Result<(), Error> {
-    if uuid::Uuid::parse_str(&hook.id).is_err()
-        || hook.name.is_empty()
-        || hook.name.len() > 80
-        || !hook
-            .name
-            .bytes()
-            .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
-        || hook.description.chars().count() > 200
-        || hook.command.trim().is_empty()
-        || hook.command.len() > 32768
-        || hook.command.contains('\0')
-        || hook
-            .timeout_seconds
-            .is_some_and(|seconds| seconds == 0 || seconds > 86400)
-        || hook.agents.is_empty()
-        || hook.agents.len() > 2
-        || hook.agents.iter().any(|a| !AGENTS.contains(&a.as_str()))
-        || (hook.agents.len() == 2 && hook.agents[0] == hook.agents[1])
-        || (!matches!(hook.event, Event::BeforeTool | Event::AfterTool)
-            && hook.matcher != Matcher::All)
-    {
+    let fields = Fields {
+        id: &hook.id,
+        name: &hook.name,
+        description: &hook.description,
+        event: hook.event,
+        matcher: hook.matcher,
+        command: &hook.command,
+        timeout: Ok(hook.timeout_seconds),
+        agents: &hook.agents,
+    };
+    if !field_issues(&fields, &[]).is_empty() {
         return Err(error(
             "invalid_request",
             "Check the Hook name, command, event, Agents and timeout (1–86400 seconds).",
         ));
     }
     Ok(())
+}
+
+/// Longest Hook name in UTF-8 bytes; names are ASCII-only, so bytes equal characters.
+const MAX_NAME_BYTES: usize = 80;
+/// Longest description in Unicode scalar values.
+const MAX_DESCRIPTION_SCALARS: usize = 200;
+/// Longest command in UTF-8 bytes, matching the native file write budget.
+const MAX_COMMAND_BYTES: usize = 32768;
+/// Largest explicit timeout in seconds (one day).
+const MAX_TIMEOUT_SECONDS: u64 = 86400;
+
+/// Unsaved editor state. `timeoutText` is the raw text field so integer parsing
+/// and the range rule stay in one place; an empty value inherits the Agent default.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Draft {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub event: Event,
+    pub matcher: Matcher,
+    pub command: String,
+    pub timeout_text: String,
+    pub agents: Vec<String>,
+}
+
+/// Identity of a Hook already in the library, used only for the unique-name rule.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExistingHook {
+    pub id: String,
+    pub name: String,
+}
+
+/// Payload of `agent.hooks.validateDraft`. Pure: no files are read or written.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DraftRequest {
+    pub hook: Draft,
+    /// Library rows other than the draft; the draft's own id is ignored here.
+    #[serde(default)]
+    pub existing_hooks: Vec<ExistingHook>,
+}
+
+/// One field-level problem. `field` is a draft field name (`id`, `name`,
+/// `description`, `command`, `timeout`, `agents`, `matcher`); `code` is a stable
+/// snake_case reason the platform localizes. Each field reports at most one issue.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftIssue {
+    pub field: &'static str,
+    pub code: &'static str,
+}
+
+/// Draft verdict. Saving is allowed only when `valid`; `timeoutSeconds` is the
+/// parsed value the platform stores in the Hook it saves.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftValidation {
+    pub valid: bool,
+    pub issues: Vec<DraftIssue>,
+    pub timeout_seconds: Option<u64>,
+}
+
+/// Applies the same rules `save` enforces, field by field, without touching files.
+pub fn validate_draft(request: &DraftRequest) -> DraftValidation {
+    let draft = &request.hook;
+    let timeout = parse_timeout(&draft.timeout_text);
+    let fields = Fields {
+        id: &draft.id,
+        name: &draft.name,
+        description: &draft.description,
+        event: draft.event,
+        matcher: draft.matcher,
+        command: &draft.command,
+        timeout,
+        agents: &draft.agents,
+    };
+    let issues = field_issues(&fields, &request.existing_hooks);
+    // A rejected timeout has no value to store.
+    let timeout_seconds = if issues.iter().any(|issue| issue.field == "timeout") {
+        None
+    } else {
+        timeout.ok().flatten()
+    };
+    DraftValidation {
+        valid: issues.is_empty(),
+        timeout_seconds,
+        issues,
+    }
+}
+
+/// Names are unique ignoring ASCII case; a Hook never conflicts with itself.
+fn name_taken<'a>(
+    mut others: impl Iterator<Item = (&'a str, &'a str)>,
+    id: &str,
+    name: &str,
+) -> bool {
+    others.any(|(other_id, other_name)| other_id != id && other_name.eq_ignore_ascii_case(name))
+}
+
+/// Accepts only ASCII digits so signs, spaces and fractions never round silently.
+fn parse_timeout(text: &str) -> Result<Option<u64>, &'static str> {
+    if text.is_empty() {
+        return Ok(None);
+    }
+    if !text.bytes().all(|b| b.is_ascii_digit()) {
+        return Err("not_integer");
+    }
+    // Overlong digit strings are still integers, just out of range.
+    Ok(Some(text.parse::<u64>().unwrap_or(u64::MAX)))
+}
+
+struct Fields<'a> {
+    id: &'a str,
+    name: &'a str,
+    description: &'a str,
+    event: Event,
+    matcher: Matcher,
+    command: &'a str,
+    timeout: Result<Option<u64>, &'static str>,
+    agents: &'a [String],
+}
+
+// Field order is the editor's top-to-bottom order so the first issue is the first
+// control the user sees.
+fn field_issues(fields: &Fields<'_>, existing: &[ExistingHook]) -> Vec<DraftIssue> {
+    let mut issues = Vec::new();
+    let mut push = |field, code: Option<&'static str>| {
+        if let Some(code) = code {
+            issues.push(DraftIssue { field, code });
+        }
+    };
+    push(
+        "id",
+        uuid::Uuid::parse_str(fields.id)
+            .is_err()
+            .then_some("invalid"),
+    );
+    let name = fields.name;
+    push(
+        "name",
+        if name.is_empty() {
+            Some("required")
+        } else if name.len() > MAX_NAME_BYTES {
+            Some("too_long")
+        } else if !name
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+        {
+            Some("invalid_characters")
+        } else if name_taken(
+            existing.iter().map(|h| (h.id.as_str(), h.name.as_str())),
+            fields.id,
+            name,
+        ) {
+            Some("duplicate")
+        } else {
+            None
+        },
+    );
+    push(
+        "description",
+        (fields.description.chars().count() > MAX_DESCRIPTION_SCALARS).then_some("too_long"),
+    );
+    push(
+        "matcher",
+        (!matches!(fields.event, Event::BeforeTool | Event::AfterTool)
+            && fields.matcher != Matcher::All)
+            .then_some("incompatible_event"),
+    );
+    let command = fields.command;
+    push(
+        "command",
+        if command.trim().is_empty() {
+            Some("required")
+        } else if command.len() > MAX_COMMAND_BYTES {
+            Some("too_long")
+        } else if command.contains('\0') {
+            Some("contains_nul")
+        } else {
+            None
+        },
+    );
+    push(
+        "timeout",
+        match fields.timeout {
+            Err(code) => Some(code),
+            Ok(Some(seconds)) if seconds == 0 || seconds > MAX_TIMEOUT_SECONDS => {
+                Some("out_of_range")
+            }
+            Ok(_) => None,
+        },
+    );
+    let agents = fields.agents;
+    push(
+        "agents",
+        if agents.is_empty() {
+            Some("required")
+        } else if agents.iter().any(|a| !AGENTS.contains(&a.as_str())) {
+            Some("unsupported")
+        } else if agents
+            .iter()
+            .enumerate()
+            .any(|(i, a)| agents[..i].contains(a))
+        {
+            Some("duplicate")
+        } else {
+            None
+        },
+    );
+    issues
 }
 
 fn native_file(agent: &str, resolve: &Resolver<'_>) -> Result<InstructionFile, Error> {

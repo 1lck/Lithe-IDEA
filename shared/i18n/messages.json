@@ -1160,6 +1160,192 @@
       ]
     },
     {
+      "id": "agent.hooks.draft.agents.duplicate",
+      "description": "Hook editor field issue from Core agent.hooks.validateDraft (agents: duplicate)",
+      "platforms": [
+        "macos",
+        "windows"
+      ]
+    },
+    {
+      "id": "agent.hooks.draft.agents.required",
+      "description": "Hook editor field issue from Core agent.hooks.validateDraft (agents: required)",
+      "platforms": [
+        "macos",
+        "windows"
+      ]
+    },
+    {
+      "id": "agent.hooks.draft.agents.unsupported",
+      "description": "Hook editor field issue from Core agent.hooks.validateDraft (agents: unsupported)",
+      "platforms": [
+        "macos",
+        "windows"
+      ]
+    },
+    {
+      "id": "agent.hooks.draft.command.containsNul",
+      "description": "Hook editor field issue from Core agent.hooks.validateDraft (command: contains_nul)",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "agent.hooks.draft.command.contains_nul",
+        "arguments": []
+      },
+      "windows": {
+        "key": "agent.hooks.draft.command.contains_nul"
+      }
+    },
+    {
+      "id": "agent.hooks.draft.command.required",
+      "description": "Hook editor field issue from Core agent.hooks.validateDraft (command: required)",
+      "platforms": [
+        "macos",
+        "windows"
+      ]
+    },
+    {
+      "id": "agent.hooks.draft.command.tooLong",
+      "description": "Hook editor field issue from Core agent.hooks.validateDraft (command: too_long)",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "agent.hooks.draft.command.too_long",
+        "arguments": []
+      },
+      "windows": {
+        "key": "agent.hooks.draft.command.too_long"
+      }
+    },
+    {
+      "id": "agent.hooks.draft.description.tooLong",
+      "description": "Hook editor field issue from Core agent.hooks.validateDraft (description: too_long)",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "agent.hooks.draft.description.too_long",
+        "arguments": []
+      },
+      "windows": {
+        "key": "agent.hooks.draft.description.too_long"
+      }
+    },
+    {
+      "id": "agent.hooks.draft.id.invalid",
+      "description": "Hook editor field issue from Core agent.hooks.validateDraft (id: invalid)",
+      "platforms": [
+        "macos",
+        "windows"
+      ]
+    },
+    {
+      "id": "agent.hooks.draft.matcher.incompatibleEvent",
+      "description": "Hook editor field issue from Core agent.hooks.validateDraft (matcher: incompatible_event)",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "agent.hooks.draft.matcher.incompatible_event",
+        "arguments": []
+      },
+      "windows": {
+        "key": "agent.hooks.draft.matcher.incompatible_event"
+      }
+    },
+    {
+      "id": "agent.hooks.draft.name.duplicate",
+      "description": "Hook editor field issue from Core agent.hooks.validateDraft (name: duplicate)",
+      "platforms": [
+        "macos",
+        "windows"
+      ]
+    },
+    {
+      "id": "agent.hooks.draft.name.invalidCharacters",
+      "description": "Hook editor field issue from Core agent.hooks.validateDraft (name: invalid_characters)",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "agent.hooks.draft.name.invalid_characters",
+        "arguments": []
+      },
+      "windows": {
+        "key": "agent.hooks.draft.name.invalid_characters"
+      }
+    },
+    {
+      "id": "agent.hooks.draft.name.required",
+      "description": "Hook editor field issue from Core agent.hooks.validateDraft (name: required)",
+      "platforms": [
+        "macos",
+        "windows"
+      ]
+    },
+    {
+      "id": "agent.hooks.draft.name.tooLong",
+      "description": "Hook editor field issue from Core agent.hooks.validateDraft (name: too_long)",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "agent.hooks.draft.name.too_long",
+        "arguments": []
+      },
+      "windows": {
+        "key": "agent.hooks.draft.name.too_long"
+      }
+    },
+    {
+      "id": "agent.hooks.draft.responseInvalid",
+      "description": "Windows UI: Core returned an unrecognised Hook draft validation response",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "The Hook draft validation response was not recognised."
+      }
+    },
+    {
+      "id": "agent.hooks.draft.timeout.notInteger",
+      "description": "Hook editor field issue from Core agent.hooks.validateDraft (timeout: not_integer)",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "agent.hooks.draft.timeout.not_integer",
+        "arguments": []
+      },
+      "windows": {
+        "key": "agent.hooks.draft.timeout.not_integer"
+      }
+    },
+    {
+      "id": "agent.hooks.draft.timeout.outOfRange",
+      "description": "Hook editor field issue from Core agent.hooks.validateDraft (timeout: out_of_range)",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "agent.hooks.draft.timeout.out_of_range",
+        "arguments": []
+      },
+      "windows": {
+        "key": "agent.hooks.draft.timeout.out_of_range"
+      }
+    },
+    {
       "id": "agent.notice.dismiss",
       "description": "Windows UI: agent.notice.dismiss",
       "platforms": [
@@ -11425,6 +11611,30 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "editor.workspaceEditOutsideWorkspace",
+      "description": "Workspace edit rejected because a target is outside the workspace.",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "editor.workspaceEditReadOnlyDocument",
+      "description": "Workspace edit rejected because a target document is read-only.",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "editor.workspaceEditRollbackFailed",
+      "description": "Workspace edit failed and some files could not be restored.",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "paths": "string"
+      }
     },
     {
       "id": "editor.workspaceEditStale",
@@ -24871,6 +25081,149 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "inlineEdit.aiINLINEEDITENDPOINTMISSING",
+      "description": "Windows UI: inline edit failure AI_INLINE_EDIT_ENDPOINT_MISSING",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "inlineEdit.AI_INLINE_EDIT_ENDPOINT_MISSING"
+      }
+    },
+    {
+      "id": "inlineEdit.aiINLINEEDITFAILED",
+      "description": "Windows UI: inline edit failure AI_INLINE_EDIT_FAILED",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "inlineEdit.AI_INLINE_EDIT_FAILED"
+      }
+    },
+    {
+      "id": "inlineEdit.aiINLINEEDITHTTP",
+      "description": "Windows UI: inline edit failure AI_INLINE_EDIT_HTTP",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "inlineEdit.AI_INLINE_EDIT_HTTP"
+      },
+      "parameters": {
+        "status": "integer"
+      }
+    },
+    {
+      "id": "inlineEdit.aiINLINEEDITINSECUREENDPOINT",
+      "description": "Windows UI: inline edit failure AI_INLINE_EDIT_INSECURE_ENDPOINT",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "inlineEdit.AI_INLINE_EDIT_INSECURE_ENDPOINT"
+      }
+    },
+    {
+      "id": "inlineEdit.aiINLINEEDITINVALIDENDPOINT",
+      "description": "Windows UI: inline edit failure AI_INLINE_EDIT_INVALID_ENDPOINT",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "inlineEdit.AI_INLINE_EDIT_INVALID_ENDPOINT"
+      }
+    },
+    {
+      "id": "inlineEdit.aiINLINEEDITINVALIDREQUEST",
+      "description": "Windows UI: inline edit failure AI_INLINE_EDIT_INVALID_REQUEST",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "inlineEdit.AI_INLINE_EDIT_INVALID_REQUEST"
+      }
+    },
+    {
+      "id": "inlineEdit.aiINLINEEDITINVALIDRESPONSE",
+      "description": "Windows UI: inline edit failure AI_INLINE_EDIT_INVALID_RESPONSE",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "inlineEdit.AI_INLINE_EDIT_INVALID_RESPONSE"
+      }
+    },
+    {
+      "id": "inlineEdit.aiINLINEEDITMISSINGKEY",
+      "description": "Windows UI: inline edit failure AI_INLINE_EDIT_MISSING_KEY",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "inlineEdit.AI_INLINE_EDIT_MISSING_KEY"
+      }
+    },
+    {
+      "id": "inlineEdit.aiINLINEEDITMODELMISSING",
+      "description": "Windows UI: inline edit failure AI_INLINE_EDIT_MODEL_MISSING",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "inlineEdit.AI_INLINE_EDIT_MODEL_MISSING"
+      }
+    },
+    {
+      "id": "inlineEdit.aiINLINEEDITMODELNOTFOUND",
+      "description": "Windows UI: inline edit failure AI_INLINE_EDIT_MODEL_NOT_FOUND",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "inlineEdit.AI_INLINE_EDIT_MODEL_NOT_FOUND"
+      }
+    },
+    {
+      "id": "inlineEdit.aiINLINEEDITNETWORKERROR",
+      "description": "Windows UI: inline edit failure AI_INLINE_EDIT_NETWORK_ERROR",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "inlineEdit.AI_INLINE_EDIT_NETWORK_ERROR"
+      }
+    },
+    {
+      "id": "inlineEdit.aiINLINEEDITOUTPUTLIMIT",
+      "description": "Windows UI: inline edit failure AI_INLINE_EDIT_OUTPUT_LIMIT",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "inlineEdit.AI_INLINE_EDIT_OUTPUT_LIMIT"
+      }
+    },
+    {
+      "id": "inlineEdit.aiINLINEEDITPROVIDERNOTFOUND",
+      "description": "Windows UI: inline edit failure AI_INLINE_EDIT_PROVIDER_NOT_FOUND",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "inlineEdit.AI_INLINE_EDIT_PROVIDER_NOT_FOUND"
+      }
+    },
+    {
+      "id": "inlineEdit.aiINLINEEDITUNSUPPORTEDPROVIDER",
+      "description": "Windows UI: inline edit failure AI_INLINE_EDIT_UNSUPPORTED_PROVIDER",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "inlineEdit.AI_INLINE_EDIT_UNSUPPORTED_PROVIDER"
+      }
     },
     {
       "id": "inlineEdit.apiKeyRequired",
@@ -52042,6 +52395,17 @@
       }
     },
     {
+      "id": "native.languageEditCouldNotBePlanned",
+      "description": "Native UI: Language edit could not be planned.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language edit could not be planned.",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.languageEditTargetsAFileOutsideTheWorkspace",
       "description": "Native UI: Language edit targets a file outside the workspace.",
       "platforms": [
@@ -74676,11 +75040,15 @@
       "id": "native.theAIProviderReturnedAnEmptyPullRequestDescription",
       "description": "Native UI: The AI provider returned an empty pull request description.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "The AI provider returned an empty pull request description.",
         "arguments": []
+      },
+      "windows": {
+        "key": "aiCommit.AI_PULL_REQUEST_EMPTY_RESPONSE"
       }
     },
     {
@@ -74698,11 +75066,15 @@
       "id": "native.theAIProviderReturnedAnUnexpectedPullRequestDescription",
       "description": "Native UI: The AI provider returned an unexpected pull request description.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "The AI provider returned an unexpected pull request description.",
         "arguments": []
+      },
+      "windows": {
+        "key": "aiCommit.AI_PULL_REQUEST_INVALID_RESPONSE"
       }
     },
     {
@@ -74890,7 +75262,8 @@
       "id": "native.theAgentDidNotConfirmTheSelectedSessionSetting",
       "description": "Native UI: The Agent did not confirm the selected session setting.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "The Agent did not confirm the selected session setting.",
@@ -74989,7 +75362,8 @@
       "id": "native.theAgentNoLongerSupportsTheSelectedSessionSetting",
       "description": "Native UI: The Agent no longer supports the selected session setting.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "The Agent no longer supports the selected session setting.",
@@ -75022,7 +75396,8 @@
       "id": "native.theAgentRequestFailed",
       "description": "Native UI: The Agent request failed.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "The Agent request failed.",
@@ -77744,11 +78119,15 @@
       "id": "native.theSelectedBranchesHaveNoTextualChangesToSummarize",
       "description": "Native UI: The selected branches have no textual changes to summarize.",
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
       "macos": {
         "key": "The selected branches have no textual changes to summarize.",
         "arguments": []
+      },
+      "windows": {
+        "key": "aiCommit.AI_PULL_REQUEST_EMPTY_COMPARISON"
       }
     },
     {
@@ -98304,41 +98683,6 @@
       "platforms": [
         "windows"
       ]
-    },
-    {
-      "id": "editor.workspaceEditOutsideWorkspace",
-      "description": "Workspace edit rejected because a target is outside the workspace.",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "editor.workspaceEditReadOnlyDocument",
-      "description": "Workspace edit rejected because a target document is read-only.",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "editor.workspaceEditRollbackFailed",
-      "description": "Workspace edit failed and some files could not be restored.",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "paths": "string"
-      }
-    },
-    {
-      "id": "native.languageEditCouldNotBePlanned",
-      "description": "Native UI: Language edit could not be planned.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Language edit could not be planned.",
-        "arguments": []
-      }
     },
     {
       "id": "workspace.appStore",

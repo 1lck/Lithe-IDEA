@@ -9,9 +9,11 @@ mock.module("@/platform/agent-cli-configuration", () => ({ readAgentCliSnapshot:
   generation += 1;
   return { configuration: String(generation), authentication: JSON.stringify({ OPENAI_API_KEY: `fixture-key-${generation}` }) };
 } }));
-mock.module("@/platform/tauri-core", () => ({ invoke: async (command: string, payload: { configuration: string }) => {
+mock.module("@/platform/tauri-core", () => ({ invoke: async (command: string, payload: unknown) => {
   if (command === "get_secure_secret") { savedKeyReads += 1; return "stale-key"; }
-  return { apiProtocol: "responses", endpoint: `https://provider-${payload.configuration}.example.test/v1`, model: `model-${payload.configuration}` };
+  // `ai.configuration.parse` returns metadata under `provider`; the key stays with the host.
+  const { files } = payload as { files: { config: string } };
+  return { provider: { apiProtocol: "responses", endpoint: `https://provider-${files.config}.example.test/v1`, model: `model-${files.config}` } };
 } }));
 const { loadAgentLaunch, settingsWithLinkedAgentProvider } = await import("../src/features/agent/services/agent-launch");
 afterEach(() => { fail = false; generation = 0; savedKeyReads = 0; });

@@ -140,11 +140,14 @@ struct AgentProviderConfigurationTests {
 
     @Test
     func nativeParserUsesSharedFixtureAndRoundTripsEditorTemplates() throws {
-        let fixtureURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("shared/fixtures/agent/provider-configuration-v1.json")
-        let fixture = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any])
-        let cases = try #require(fixture["cases"] as? [[String: Any]])
+        // Parsing rules are covered by shared/fixtures/ai/cli-configuration-v1.json in Core;
+        // these editor templates only prove the adapter round-trips through Core.
+        let cases: [[String: Any]] = [
+            ["source": "codex", "configuration": "model_provider = 'gateway'\nmodel = 'fixture-model'\n[model_providers.gateway]\nbase_url = 'https://example.test/v1'\nwire_api = 'responses'\nrequires_openai_auth = true\n",
+             "expected": ["endpoint": "https://example.test/v1", "model": "fixture-model", "apiProtocol": "responses"]],
+            ["source": "claude", "configuration": #"{"env":{"ANTHROPIC_BASE_URL":"https://example.test/v1","ANTHROPIC_MODEL":"fixture-model","ANTHROPIC_API_KEY":"fixture-secret"}}"#,
+             "expected": ["endpoint": "https://example.test/v1", "model": "fixture-model", "apiProtocol": "anthropicMessages"]],
+        ]
         let parser = MacAgentProviderConfigurationParser(core: RustCoreBridge())
         #expect(throws: AgentProviderConfigurationError.invalidConfigurationQuotes) {
             try parser.parse(source: .codex, configuration: "model = “fixture-model”",
@@ -294,15 +297,23 @@ struct AgentProviderConfigurationTests {
 
         let fixtureURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("shared/fixtures/agent/provider-configuration-v1.json")
+            .appendingPathComponent("shared/fixtures/ai/cli-configuration-v1.json")
         let fixture = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any])
         let cases = try #require(fixture["draftCases"] as? [[String: Any]])
         for value in cases where value["source"] as? String == source.rawValue {
-            let text = try #require(value["configuration"] as? String)
-            let expected = try #require(value["expected"] as? [String: String])
-            let snapshot = try parser.parse(source: source, configuration: text, authentication: "{}", allowIncomplete: true)
-            #expect(snapshot.endpoint == expected["endpoint"] && snapshot.model == expected["model"])
-            #expect(snapshot.apiKey == (value["expectedAPIKey"] as? String ?? ""))
+            let files = try #require(value["files"] as? [String: String])
+            let text = files[source == .codex ? "config" : "settings"] ?? ""
+            let expected = try #require(value["expected"] as? [String: Any])
+            if expected["authentication"] as? String == "bearer" && source == .claude
+                || (expected["unsupportedAuthentication"] as? Bool) == true {
+                #expect(throws: AgentProviderConfigurationError.unsupportedProtocol) {
+                    try parser.parse(source: source, configuration: text, authentication: "{}", allowIncomplete: true)
+                }
+                continue
+            }
+            let snapshot = try parser.parse(source: source, configuration: text, authentication: files["auth"] ?? "{}", allowIncomplete: true)
+            #expect(snapshot.endpoint == expected["endpoint"] as? String && snapshot.model == expected["model"] as? String)
+            #expect((snapshot.apiKey ?? "").isEmpty == (value["expectedCredential"] == nil || value["expectedCredential"] is NSNull))
         }
         if source == .codex {
             #expect(throws: AgentProviderConfigurationError.invalidAuthentication) {

@@ -1,10 +1,14 @@
 //! Validates commit inputs, budgets diffs, and translates supported provider wire protocols.
 
+use super::provider_request::{
+    encode_body, endpoint_url, response_text, ChatTokenField, EndpointError, PromptRequest,
+    ResponseError, WireProtocol,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 // Providers count internal reasoning against the same output limit as the final message.
-const COMMIT_OUTPUT_TOKEN_BUDGET: usize = 4_096;
+pub(crate) const COMMIT_OUTPUT_TOKEN_BUDGET: usize = 4_096;
 
 /// Output-budget field accepted by the selected Chat Completions server.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -196,36 +200,14 @@ pub(crate) fn plan_commit_with_truncation(
     if !matches!(provider.authentication.as_str(), "bearer" | "apiKey") {
         return Err("AI_COMMIT_INVALID_PROVIDER");
     }
-    let mut endpoint =
-        url::Url::parse(provider.endpoint.trim()).map_err(|_| "AI_COMMIT_INVALID_PROVIDER")?;
-    if endpoint.host_str().is_none()
-        || !endpoint.username().is_empty()
-        || endpoint.password().is_some()
-        || endpoint.query().is_some()
-        || endpoint.fragment().is_some()
-    {
-        return Err("AI_COMMIT_INVALID_PROVIDER");
-    }
-    if endpoint.scheme() != "https"
-        && !(endpoint.scheme() == "http" && provider.allows_insecure_http)
-    {
-        return Err("AI_COMMIT_INSECURE_ENDPOINT");
-    }
-    let suffix = match provider.api_protocol.as_str() {
-        "responses" => "responses",
-        "chatCompletions" => "chat/completions",
-        "anthropicMessages" => "messages",
-        _ => return Err("AI_COMMIT_INVALID_PROVIDER"),
-    };
-    let path = endpoint.path().trim_end_matches('/');
-    if !path.ends_with(&format!("/{suffix}")) {
-        let path = if provider.api_protocol == "anthropicMessages" && !path.ends_with("/v1") {
-            format!("{path}/v1/{suffix}")
-        } else {
-            format!("{path}/{suffix}")
-        };
-        endpoint.set_path(&path);
-    }
+    let protocol = commit_protocol(&provider.api_protocol)?;
+    let endpoint = endpoint_url(
+        &provider.endpoint,
+        protocol,
+        &provider.model,
+        provider.allows_insecure_http,
+    )
+    .map_err(commit_endpoint_error)?;
     if !(20..=200).contains(&options.subject_maximum_length)
         || !(8_000..=120_000).contains(&options.maximum_diff_characters)
         || options.custom_instructions.len() > 16_000
@@ -287,35 +269,45 @@ pub(crate) fn plan_commit_with_truncation(
         ));
     }
     let user = blocks.join("\n");
-    let tokens = COMMIT_OUTPUT_TOKEN_BUDGET;
-    let body = match provider.api_protocol.as_str() {
-        "responses" => {
-            let mut body = json!({"model": provider.model, "input": [{"role":"system","content":system},{"role":"user","content":user}],"max_output_tokens":tokens,"store":false});
-            if options.reasoning_effort != "default" {
-                body["reasoning"] = json!({"effort":options.reasoning_effort});
-            }
-            body
-        }
-        "chatCompletions" => {
-            let mut body = json!({"model": provider.model,"messages":[{"role":"system","content":system},{"role":"user","content":user}]});
-            let token_field = match provider.chat_token_limit_field {
-                ChatTokenLimitField::MaxCompletionTokens => "max_completion_tokens",
-                ChatTokenLimitField::MaxTokens => "max_tokens",
-            };
-            body[token_field] = json!(tokens);
-            if options.reasoning_effort != "default" {
-                body["reasoning_effort"] = json!(options.reasoning_effort);
-            }
-            body
-        }
-        _ => {
-            json!({"model":provider.model,"system":system,"messages":[{"role":"user","content":user}],"max_tokens":tokens})
-        }
-    };
+    let body = encode_body(
+        protocol,
+        &PromptRequest {
+            model: &provider.model,
+            system: &system,
+            user: &user,
+            output_tokens: COMMIT_OUTPUT_TOKEN_BUDGET,
+            reasoning_effort: (options.reasoning_effort != "default")
+                .then_some(options.reasoning_effort.as_str()),
+            temperature: None,
+            chat_token_field: chat_token_field(&provider.chat_token_limit_field),
+        },
+    );
     Ok(CommitRequestPlan {
         url: endpoint.to_string(),
         body,
     })
+}
+
+/// Commit profiles speak the three protocols of the AI commit contract only.
+pub(crate) fn commit_protocol(name: &str) -> Result<WireProtocol, &'static str> {
+    match WireProtocol::parse(name) {
+        Some(WireProtocol::GeminiGenerateContent) | None => Err("AI_COMMIT_INVALID_PROVIDER"),
+        Some(protocol) => Ok(protocol),
+    }
+}
+
+pub(crate) fn commit_endpoint_error(error: EndpointError) -> &'static str {
+    match error {
+        EndpointError::Invalid => "AI_COMMIT_INVALID_PROVIDER",
+        EndpointError::Insecure => "AI_COMMIT_INSECURE_ENDPOINT",
+    }
+}
+
+pub(crate) fn chat_token_field(field: &ChatTokenLimitField) -> ChatTokenField {
+    match field {
+        ChatTokenLimitField::MaxCompletionTokens => ChatTokenField::MaxCompletionTokens,
+        ChatTokenLimitField::MaxTokens => ChatTokenField::MaxTokens,
+    }
 }
 
 pub(crate) fn sensitive_path(path: &str) -> bool {
@@ -340,58 +332,8 @@ pub fn decode_message(
     response: &Value,
     include_body: bool,
 ) -> Result<String, &'static str> {
-    let exhausted_output = match protocol {
-        "responses" => {
-            response
-                .pointer("/incomplete_details/reason")
-                .and_then(Value::as_str)
-                == Some("max_output_tokens")
-        }
-        "chatCompletions" => {
-            response
-                .pointer("/choices/0/finish_reason")
-                .and_then(Value::as_str)
-                == Some("length")
-        }
-        "anthropicMessages" => {
-            response.get("stop_reason").and_then(Value::as_str) == Some("max_tokens")
-        }
-        _ => false,
-    };
-    if exhausted_output {
-        return Err("AI_COMMIT_OUTPUT_LIMIT");
-    }
-    let raw = match protocol {
-        "chatCompletions" => response
-            .pointer("/choices/0/message/content")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string(),
-        "responses" => response
-            .get("output_text")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .unwrap_or_else(|| {
-                response["output"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .flat_map(|item| item["content"].as_array().into_iter().flatten())
-                    .filter(|item| item["type"] == "output_text")
-                    .filter_map(|item| item["text"].as_str())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            }),
-        "anthropicMessages" => response["content"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|item| item["type"] == "text")
-            .filter_map(|item| item["text"].as_str())
-            .collect::<Vec<_>>()
-            .join("\n"),
-        _ => return Err("AI_COMMIT_INVALID_PROVIDER"),
-    };
+    let raw = response_text(commit_protocol(protocol)?, response)
+        .map_err(|ResponseError::OutputLimit| "AI_COMMIT_OUTPUT_LIMIT")?;
     let trimmed = raw.trim();
     let text = if trimmed.starts_with("```") && trimmed.ends_with("```") {
         trimmed

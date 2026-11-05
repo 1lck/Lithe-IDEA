@@ -449,3 +449,68 @@ fn symlinked_native_files_are_not_followed_and_readonly_permissions_are_preserve
         0o400
     );
 }
+
+fn draft(hook: &Hook) -> Draft {
+    Draft {
+        id: hook.id.clone(),
+        name: hook.name.clone(),
+        description: hook.description.clone(),
+        event: hook.event,
+        matcher: hook.matcher,
+        command: hook.command.clone(),
+        timeout_text: hook
+            .timeout_seconds
+            .map(|s| s.to_string())
+            .unwrap_or_default(),
+        agents: hook.agents.clone(),
+    }
+}
+
+/// The shared fixture pins every field-level code both editors localize, so a
+/// platform cannot accept a draft that `save` would later reject.
+#[test]
+fn draft_validation_matches_the_shared_fixture_and_the_save_rules() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/agent/hook-draft-validation-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let request: DraftRequest = serde_json::from_value(case["request"].clone()).unwrap();
+        let result = serde_json::to_value(validate_draft(&request)).unwrap();
+        assert_eq!(result, case["expected"], "{}", case["name"]);
+    }
+}
+
+#[test]
+fn every_draft_accepted_by_the_editor_is_accepted_by_save_validation() {
+    let base = hook();
+    let mut timed = base.clone();
+    timed.timeout_seconds = Some(MAX_TIMEOUT_SECONDS);
+    let mut tool = base.clone();
+    tool.event = Event::BeforeTool;
+    tool.matcher = Matcher::Edit;
+    for accepted in [base.clone(), timed, tool] {
+        let verdict = validate_draft(&DraftRequest {
+            hook: draft(&accepted),
+            existing_hooks: vec![],
+        });
+        assert!(verdict.valid, "{verdict:?}");
+        assert_eq!(verdict.timeout_seconds, accepted.timeout_seconds);
+        assert!(validate(&accepted).is_ok());
+    }
+    // Swift previously accepted these; the host always rejected them at save time.
+    let mut duplicate_agents = base.clone();
+    duplicate_agents.agents = vec!["codex-acp".into(), "codex-acp".into()];
+    let mut matcher = base.clone();
+    matcher.matcher = Matcher::Shell;
+    for rejected in [duplicate_agents, matcher] {
+        assert!(
+            !validate_draft(&DraftRequest {
+                hook: draft(&rejected),
+                existing_hooks: vec![]
+            })
+            .valid
+        );
+        assert!(validate(&rejected).is_err());
+    }
+}

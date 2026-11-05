@@ -84,12 +84,19 @@ export interface AgentToolContent {
   text: string;
 }
 
+/**
+ * Agent Host evidence (`_meta.lithe.diffs`, shared/contracts/agent-edit-review.md).
+ * Text limits and revert eligibility come from the Host and are never recounted here.
+ */
 export interface AgentToolDiff {
   path: string;
   oldText: string | null;
   newText: string;
   operation: string | null;
+  /** Host verdict: the texts are not a complete copy of the change. */
   incomplete: boolean;
+  /** Host verdict: this diff alone is sufficient to plan a rollback. */
+  revertible: boolean;
 }
 
 /** Bounded presentation of ACP tool evidence; partial updates replace present fields only. */
@@ -460,16 +467,6 @@ export function mergeToolDetails(details: AgentToolDetails, update: Record<strin
     });
   }
   if (Array.isArray(update.content)) {
-    const content = update.content;
-    merged.diffs = content.slice(0, TOOL_CONTENT_LIMIT).flatMap((entry): AgentToolDiff[] => {
-      if (!isRecord(entry) || entry.type !== "diff" || typeof entry.path !== "string") return [];
-      const oldText = asString(entry.oldText);
-      const newText = asString(entry.newText);
-      return [{ path: entry.path, oldText: oldText === null ? null : bounded(oldText),
-        newText: bounded(newText ?? ""), operation: isRecord(entry._meta) ? asString(entry._meta.kind) : null,
-        incomplete: newText === null || entry.isTruncated === true || content.length > TOOL_CONTENT_LIMIT ||
-          (oldText?.length ?? 0) > AGENT_TOOL_TEXT_LIMIT || (newText?.length ?? 0) > AGENT_TOOL_TEXT_LIMIT }];
-    });
     merged.content = update.content.slice(0, TOOL_CONTENT_LIMIT).flatMap((entry): AgentToolContent[] => {
       if (!isRecord(entry)) return [];
       if (entry.type === "content") {
@@ -490,20 +487,18 @@ export function mergeToolDetails(details: AgentToolDetails, update: Record<strin
       return [];
     });
   }
-  // The pinned Claude adapter exposes complete Write output through public SDK
-  // metadata. A null old excerpt alone must never be mistaken for file creation.
+  // Agent Host restates normalized diff evidence whenever an update determines it.
   const metadata = isRecord(update._meta) ? update._meta : null;
-  const claude = metadata && isRecord(metadata.claudeCode) ? metadata.claudeCode : null;
-  const response = claude && isRecord(claude.toolResponse) ? claude.toolResponse : null;
-  if (claude?.toolName === "Write" && response && typeof response.filePath === "string" && response.filePath &&
-      typeof response.content === "string" && (response.type === "create" ||
-      (response.type === "update" && typeof response.originalFile === "string"))) {
-    const oldText = response.type === "create" ? null : asString(response.originalFile);
-    merged.diffs = [{ path: response.filePath, oldText: oldText === null ? null : bounded(oldText),
-      newText: bounded(response.content), operation: response.type === "create" ? "add" : "update",
-      incomplete: response.content.length > AGENT_TOOL_TEXT_LIMIT || (oldText?.length ?? 0) > AGENT_TOOL_TEXT_LIMIT }];
-  }
+  const lithe = metadata && isRecord(metadata.lithe) ? metadata.lithe : null;
+  if (lithe && Array.isArray(lithe.diffs)) merged.diffs = lithe.diffs.flatMap(hostDiffEvidence);
   return merged;
+}
+
+function hostDiffEvidence(entry: unknown): AgentToolDiff[] {
+  if (!isRecord(entry) || typeof entry.path !== "string" || typeof entry.newText !== "string" ||
+    typeof entry.truncated !== "boolean" || typeof entry.revertible !== "boolean") return [];
+  return [{ path: entry.path, oldText: asString(entry.oldText), newText: entry.newText,
+    operation: asString(entry.operation), incomplete: entry.truncated, revertible: entry.revertible }];
 }
 
 function toolStatusOf(update: Record<string, unknown>): AgentToolStatus | null {

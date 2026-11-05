@@ -2321,8 +2321,8 @@ struct AgentConversationFeatureModelTests {
     }
 
     private func receiveEdit(_ feature: AgentConnectionModel, id: String, old: String, new: String) throws {
-        let update: [String: Any] = ["sessionUpdate": "tool_call", "toolCallId": id, "kind": "edit",
-            "status": "completed", "content": [["type": "diff", "path": "a.txt", "oldText": old, "newText": new]]]
+        let update = (["sessionUpdate": "tool_call", "toolCallId": id, "kind": "edit", "status": "completed"] as [String: Any])
+            .merging(AgentEditEvidenceTestSupport.diffContent(path: "a.txt", old: old, new: new)) { $1 }
         try feature.receive(event("toolCall", ["update": update]))
     }
 
@@ -2440,43 +2440,35 @@ struct AgentConversationFeatureModelTests {
         #expect(conversation.modelCalls.callsWithUsage == 1)
     }
 
+    /// The Host decides what each call contributes; these totals only add the
+    /// shared fixture's contributions and must reach its shared totals.
     @Test
-    func contextCompositionFollowsMainRequestsWithAndWithoutTools() throws {
-        // Agents that never send tools refresh the composition on every request.
-        var toolless = AgentModelCallTotals()
-        toolless.record(try modelCall(context: context(messages: 1000, tools: 0)))
-        toolless.record(try modelCall(context: context(messages: 5000, tools: 0)))
-        #expect(toolless.latestContext?.messageTokens == 5000)
-        // Once tools are sent, tool-less auxiliary requests do not replace it.
-        var main = AgentModelCallTotals()
-        main.record(try modelCall(context: context(messages: 1000, tools: 0)))
-        main.record(try modelCall(context: context(messages: 8000, tools: 12)))
-        main.record(try modelCall(context: context(messages: 40, tools: 0)))
-        #expect(main.latestContext?.messageTokens == 8000)
-        main.record(try modelCall(context: context(messages: 9000, tools: 12)))
-        #expect(main.latestContext?.messageTokens == 9000)
-    }
-
-    @Test
-    func auxiliaryRequestsSpendTokensButAreNotConversationSteps() throws {
-        var totals = AgentModelCallTotals()
-        let usage: [String: Any] = ["inputTokens": 10, "cacheReadTokens": 0, "cacheWriteTokens": 0, "outputTokens": 16]
-        // Claude Code names the session with a request of its own.
-        totals.record(try modelCall(usage: usage, context: context(messages: 300, tools: 0), auxiliary: true))
-        #expect(totals.callCount == 0)
-        #expect(totals.duration == 0)
-        #expect(totals.averageFirstToken == nil)
-        #expect(totals.latestContext == nil)
-        #expect(totals.outputTokens == 16)
-        #expect(totals.callsWithUsage == 1)
-        #expect(totals.requestCount == 1)
-        #expect(totals.callsMissingUsage == 0)
-        totals.record(try modelCall(usage: usage, context: context(messages: 4000, tools: 11)))
-        #expect(totals.callCount == 1)
-        #expect(totals.outputTokens == 32)
-        #expect(totals.latestContext?.toolCount == 11)
-        #expect(totals.requestCount == 2)
-        #expect(totals.callsMissingUsage == 0)
+    func hostContributionsSumToTheSharedTotals() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: root.appendingPathComponent("shared/fixtures/agent/model-call-statistics-v1.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        for entry in try #require(fixture["cases"] as? [[String: Any]]) {
+            var totals = AgentModelCallTotals()
+            for event in try #require(entry["events"] as? [[String: Any]]) {
+                totals.record(try #require(AgentModelCall.parse(event["statistics"])))
+            }
+            let expected = try #require(AgentModelCall.parse(entry["total"]))
+            #expect(totals.requestCount == expected.requests)
+            #expect(totals.callCount == expected.steps)
+            #expect(totals.failedCount == expected.failedSteps)
+            #expect(totals.nonStreamingCount == expected.nonStreamingSteps)
+            #expect(abs(totals.duration - Double(expected.durationMs) / 1000) < 0.000_001)
+            #expect(totals.inputTokens == expected.inputTokens)
+            #expect(totals.cacheReadTokens == expected.cacheReadTokens)
+            #expect(totals.outputTokens == expected.outputTokens)
+            #expect(totals.reasoningTokens == expected.reasoningTokens)
+            #expect(totals.callsWithUsage == expected.callsWithUsage)
+            #expect(totals.latestContext == expected.context)
+            #expect(totals.averageFirstToken == (expected.firstTokenCount == 0 ? nil
+                : Double(expected.firstTokenMs) / 1000 / Double(expected.firstTokenCount)))
+        }
     }
 
     @Test(arguments: [false, true])
@@ -2539,18 +2531,18 @@ struct AgentConversationFeatureModelTests {
         #expect(auxiliary.callsMissingUsage == 0)
     }
 
+    /// The Host contribution of one streamed call without a first token.
     private func modelCall(usage: [String: Any]? = nil, context: [String: Any]? = nil,
                            auxiliary: Bool = false) throws -> AgentModelCall {
-        var call: [String: Any] = ["api": "anthropicMessages", "status": 200, "streaming": true, "durationMs": 1000]
-        if auxiliary { call["auxiliary"] = true }
-        if let usage { call["usage"] = usage }
-        if let context { call["context"] = context }
-        return try #require(AgentModelCall.parse(call))
-    }
-
-    private func context(messages: Int, tools: Int) -> [String: Any] {
-        ["systemPromptTokens": 100, "toolTokens": tools * 100, "mcpToolTokens": 0, "messageTokens": messages,
-         "toolCount": tools, "mcpToolCount": 0, "scaledToUsage": false]
+        var statistics: [String: Any] = [
+            "requests": 1, "steps": auxiliary ? 0 : 1, "failedSteps": 0, "nonStreamingSteps": 0,
+            "durationMs": auxiliary ? 0 : 1000, "callsWithUsage": usage == nil ? 0 : 1,
+            "firstTokenMs": 0, "firstTokenCount": 0, "generationMs": 0, "generatedTokens": 0]
+        for key in ["inputTokens", "cacheReadTokens", "cacheWriteTokens", "outputTokens"] {
+            statistics[key] = usage?[key] ?? 0
+        }
+        if let context, !auxiliary { statistics["context"] = context }
+        return try #require(AgentModelCall.parse(statistics))
     }
 
     @Test

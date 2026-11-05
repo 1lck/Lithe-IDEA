@@ -90,7 +90,27 @@ public struct AgentHookLibrary: Decodable, Equatable, Sendable {
     }
 }
 
+/// One field-level problem from Core's `agent.hooks.validateDraft`; `field` and
+/// `code` are stable identifiers the editor localizes.
+public struct AgentHookDraftIssue: Decodable, Equatable, Sendable {
+    public let field: String
+    public let code: String
+    public init(field: String, code: String) { self.field = field; self.code = code }
+}
+
+/// Core verdict for an unsaved draft. `timeoutSeconds` is the parsed timeout to store.
+public struct AgentHookDraftValidation: Decodable, Equatable, Sendable {
+    public let valid: Bool
+    public let issues: [AgentHookDraftIssue]
+    public let timeoutSeconds: Int?
+    public init(valid: Bool, issues: [AgentHookDraftIssue], timeoutSeconds: Int?) {
+        self.valid = valid; self.issues = issues; self.timeoutSeconds = timeoutSeconds
+    }
+}
+
 public protocol AgentHooksService: Sendable {
+    /// Pure, file-free validation using the same rules as `save`; cheap enough per edit.
+    func validateDraft(_ hook: AgentHook, timeoutText: String, library: AgentHookLibrary) throws -> AgentHookDraftValidation
     func load() async throws -> AgentHookLibrary
     func save(_ hook: AgentHook, library: AgentHookLibrary) async throws -> AgentHookLibrary
     func remove(id: String, library: AgentHookLibrary) async throws -> AgentHookLibrary
@@ -99,6 +119,9 @@ public protocol AgentHooksService: Sendable {
 
 public struct UnavailableAgentHooksService: AgentHooksService {
     public init() {}
+    public func validateDraft(_ hook: AgentHook, timeoutText: String, library: AgentHookLibrary) throws -> AgentHookDraftValidation {
+        throw CocoaError(.featureUnsupported)
+    }
     public func load() async throws -> AgentHookLibrary { throw CocoaError(.featureUnsupported) }
     public func save(_ hook: AgentHook, library: AgentHookLibrary) async throws -> AgentHookLibrary { throw CocoaError(.featureUnsupported) }
     public func remove(id: String, library: AgentHookLibrary) async throws -> AgentHookLibrary { throw CocoaError(.featureUnsupported) }

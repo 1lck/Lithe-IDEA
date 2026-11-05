@@ -1,11 +1,10 @@
 /**
  * Import Agent provider metadata from pasted CLI configuration text.
  *
- * The parse itself belongs to the shared Rust core
- * (`agent.parseProviderConfiguration`), which returns provider metadata only:
- * endpoint, model and wire protocol, with no credentials or credential
- * presence. Explicit credentials are handled separately by the platform CLI
- * snapshot or the editor's credential parser, never returned by the core parser.
+ * The parse itself belongs to the shared Rust core (`ai.configuration.parse`),
+ * and only the provider metadata (endpoint, model and wire protocol) is read
+ * from its response. Credentials are resolved natively by the host from the
+ * credential locator and are never part of the core response.
  */
 
 import { invoke } from "@/platform/tauri-core";
@@ -70,12 +69,12 @@ export async function importAgentProviderConfiguration(
   configuration: string,
   allowIncomplete = false,
 ): Promise<ImportedAgentProvider> {
-  const response = await invoke<unknown>("agent.parseProviderConfiguration", {
+  const response = await invoke<{ provider?: unknown } | null>("ai.configuration.parse", {
     source,
-    configuration,
+    files: source === "codex" ? { config: configuration } : { settings: configuration },
     allowIncomplete,
   });
-  const provider = parseImportedAgentProvider(response, allowIncomplete);
+  const provider = parseImportedAgentProvider(response?.provider, allowIncomplete);
   if (provider === null) throw new Error("The provider configuration could not be read.");
   return provider;
 }

@@ -369,10 +369,10 @@ is green through 60%, yellow above 60% through 90%, and red above 90%; unknown
 or stale data remains gray. Window duration and missing values are never invented.
 
 `lithe_agent_send_json` queues one command: `newSession`, `loadSession`,
-`listSessions`, `setConfigOption`, `prompt`, `steer`, `cancel`, `permission`, `authenticate`,
+`listSessions`, `setConfigOption`, `applyNextTurnConfiguration`, `prompt`, `steer`, `cancel`, `permission`, `authenticate`,
 or `refreshQuota`. Results arrive as events:
 `ready`, `sessionCreated`, `sessionLoaded`, `sessions`, `update`, `permission`,
-`sessionConfigured`, `steeringResult`, `turnRetrying`, `turnActivity`, `turnCancelling`, `turnFinished`, `requestFailed`, `stopped`,
+`sessionConfigured`, `nextTurnConfigured`, `modelCall`, `steeringResult`, `turnRetrying`, `turnActivity`, `turnCancelling`, `turnFinished`, `requestFailed`, `stopped`,
 `authenticationRequired`, `authenticating`, `account`, `quota`, and `quotaFailed`. Commands and events, including
 their camel-case field names, are fixed by
 `shared/fixtures/agent/acp-events-v1.json`; `token` values are echoed so a caller
@@ -491,13 +491,24 @@ full option list arrives as `sessionConfigured`. Consumers also accept ACP
 values remain authoritative; unsupported controls are not synthesized.
 Configuration failure echoes the token and does not finish a prompt. Native clients may stage next-turn choices while a
 prompt is active, without sending configuration commands or replacing the
-Agent-confirmed values. The macOS conversation model keeps that intent per
-session and submits it only after a terminal turn event, model first and then
-one acknowledged choice at a time against the latest option list. Rejection,
-unconfirmed values, or removed choices clear the remaining intent and surface a
-configuration error; disconnect clears it as well. The next prompt remains
-blocked until configuration requests finish. This does not change the Host's
-busy-session rejection or the command/event shape.
+Agent-confirmed values. Both products keep that intent per session and, after a
+terminal turn event (including a failed turn), send one
+`applyNextTurnConfiguration` command with `token`, `sessionId`, the product's
+latest `catalog` (`id`, optional `category`, `currentValue`, `choices` value
+IDs) and `choices` (`configId`, `value`). The Host owns the order and
+validation: model options first, then the rest in catalog order; each remaining
+choice is revalidated against the latest catalog the Agent returned, skipped
+when already current, and must be confirmed by the Agent's reported value. It
+answers with one `nextTurnConfigured` event (`token`, `sessionId`, optional
+`configOptions` = latest Agent catalog once any request succeeded, optional
+`failure` = `unsupported` | `notConfirmed` | `requestFailed`, and for a failed
+request the upstream `message`). Products localize the failure code, clear the
+remaining intent, keep confirmed settings, and fail a deferred supplement
+instead of sending it; disconnect clears the intent as well. A deferred
+supplement after a failed turn is failed with that turn's error, never replayed.
+The next prompt remains blocked until the command finishes. The Host still
+rejects the command while the session's prompt is running. Shape and cases:
+`shared/fixtures/agent/next-turn-configuration-v1.json`.
 
 For a new session, the host also preserves the adapter's optional legacy model
 catalog while decoding the ACP response and negotiates only the versioned
@@ -674,7 +685,18 @@ exactly one non-cancelling prompt was running when the request started; consumer
 drop unattributed calls instead of guessing. The host waits up to two seconds for
 a turn's attributed calls to report before emitting its `turnFinished`, so they
 arrive first. A call still open after that bound carries `afterTurnFinished: true`
-and counts for the session only, never for a later turn. The launch accepts `contextLimits` (`windowTokens`, `autoCompactTokens`, both optional;
+and counts for the session only, never for a later turn. Each `modelCall` also carries
+`statistics`, the Host's accounting contribution of that call (`requests`,
+`steps`, `failedSteps`, `nonStreamingSteps` for successful non-streamed steps
+only, `durationMs`, the four token buckets, optional `reasoningTokens`,
+`callsWithUsage`, `firstTokenMs`/`firstTokenCount` and
+`generationMs`/`generatedTokens` of streamed steps, and optional `context` when
+the call describes the current prompt: auxiliary requests never do, and once a
+session's main requests carry tools, tool-less ones no longer do). Products
+merge contributions in event order (counters add, `reasoningTokens` adds over
+calls that report it, a present `context` replaces the previous one) and never
+reinterpret `call` for accounting. Cases:
+`shared/fixtures/agent/model-call-statistics-v1.json`. The launch accepts `contextLimits` (`windowTokens`, `autoCompactTokens`, both optional;
 zero means unset). Codex receives them as `model_context_window` and
 `model_auto_compact_token_limit` in its session configuration. Claude Code has a single
 switch, so the threshold (else the context length) is exported as
@@ -766,6 +788,9 @@ configuration parsing, and response decoding. macOS uses `ai.commitInputBudget`,
 `ai.planCommit`, and `ai.decodeCommitMessage` over the existing JSON C ABI; Windows
 uses the typed API. The [AI commit contract](ai-commit.md) defines the bounded diff
 prefixes, payloads, errors and platform-owned I/O.
+`ai.pullRequest.plan` / `ai.pullRequest.decode` and `ai.inlineEdit.plan` /
+`ai.inlineEdit.decode` share that provider request model; see
+[AI generation requests](ai-generation-requests.md).
 
 Every request has this shape:
 
@@ -956,27 +981,89 @@ unknown fields. Unchanged set plans also return the current entry's hashes;
 removal can return the old definition hash for filter retention; absence has no entry hashes. Hashes sent on the draft server
 are never trusted as write output or persisted into Agent configuration.
 
+The MCP server library is planned by three Core commands; hosts only discover
+paths, read and atomically write files, persist the ledger and localize codes.
+Each takes `files: LibraryFile[]` (at most 16, unique `id`), where a file is
+`{ id, source: "codex" | "claude", scope, projectPath?, path, content?: string |
+null, owned: LedgerEntry[] }`. `id` is the host's opaque ledger key and `path`
+the native path that keys retained tool filters. A ledger entry is `{ name,
+definitionHash, sourceHash?, toolFilters?: { <path>: {enabledTools?,
+disabledTools?} } }`; it never contains env/header values.
+
+`mcp.librarySnapshot` accepts `{ files }` and returns `{ rows, failures }`. Rows
+merge every parsed server by `name#definitionHash` (`id`), carry the definition
+from the first source in host file order, `sources: [{ file, definitionHash,
+sourceHash, ownedByLithe }]`, `hasDefinitionConflict` (another global entry
+with the same name has a different definition) and `projectOnly`. A source is
+owned when a ledger entry records its name and complete `sourceHash`. Rows are
+ordered by natural, case-insensitive name (digit runs compare numerically, bytes
+break ties), then global before project-only, then definition hash. A file that
+fails to parse contributes no rows and appears in `failures: [{ file, code,
+message }]` without echoing content; hosts report their own read failures.
+
+`mcp.validateDraft` accepts `{ draft: { name, transport, command, url,
+arguments, env, headers, enabledAgents, setup? } }` and returns `{ issues:
+[{ field, code }], definition }`. Issues are ordered by display priority:
+`name`/`nameRequired` or `nameInvalid` (`^[A-Za-z0-9][A-Za-z0-9._-]*$` after
+trimming), `enabledAgents`/`agentsRequired`, `env` or `headers`/`duplicateKeys`
+(active transport only, blank keys ignored), `command`/`commandRequired`,
+`url`/`urlInvalid` (an absolute URL with a host), then featured setup:
+`headers`/`bearerTokenRequired` (one `Authorization: Bearer <token>` value,
+scheme case-insensitive) or `arguments`/`allowedDirectoriesRequired` (at least
+one POSIX, drive or UNC absolute folder after the two fixed arguments).
+`definition` is the normalized server a save writes — trimmed name, command or
+URL, only the active transport's fields, blank keys dropped, entries sorted by
+key — or `null` while issues remain. Values are never echoed in issues.
+
+`mcp.batchPlan` accepts `{ files, intent }`, with `intent` one of:
+`{ kind: "save", draft, original?: { name, sources: [{ file, sourceHash?,
+ownedByLithe }] } }`, `{ kind: "setAgent", definition: McpServer, agent,
+enabled }` or `{ kind: "delete", name, files: string[] }`. `save` validates the
+draft as above, removes the captured original from every global source whose
+Agent is no longer enabled (requiring the captured `sourceHash` and a ledger
+entry with that exact hash), and sets the definition in every global file whose
+`source` is enabled, passing the captured hash as `expectedHash` and renaming
+from the original name where the original existed. `setAgent` targets the first
+global file of `agent`; `delete` removes the name from the listed files. Each
+file's operations are planned in order with `mcp.planWrite` rules against the
+previous output and the evolving ledger. The response is `{ status: "invalid",
+issues }`, `{ status: "rejected", rejection: { code, name, file } }` with code
+`notOwned`, `externallyModified` or `agentHasNoGlobalConfiguration` (`file` is
+the conflicting file, or `null` for draft-level checks), or `{ status: "ready",
+changes: [{ file, changed, content?, owned, renames: [{ from, to }] }] }` in
+host file order. `content` is present only when changed; `owned` is the file's
+next ledger (unchanged files return their input ledger). Hosts write every
+changed file as one rollback batch and publish ledgers and renames only after
+the whole batch succeeds. `shared/fixtures/mcp/library-v1.json` holds the shared
+cases; its `{{sourceHash:<file>:<name>}}` placeholders are resolved from the
+parsed fixture files.
+
 ### Agent adapters
 
-`agent.parseProviderConfiguration` takes `{source, configuration}` with `source`
-equal to `codex` (TOML) or `claude` (JSON). It reuses the typed AI configuration
-parsers with an empty environment and returns provider metadata only, without
-credentials or credential-presence flags. Configuration text is limited to
-64 KiB UTF-8. Invalid source, malformed text and oversized input return
-`invalid_request` without raw input or parser diagnostics. The fixture is
-`shared/fixtures/agent/provider-configuration-v1.json`. Hosts extract explicit
-API keys, validate Agent protocol compatibility, and persist credentials in their
-native vault. This operation does not discover or write local CLI files.
+`ai.configuration.sources` takes `{source, home, environment}` (`source` is
+`codex` or `claude`, `home` an absolute path, `environment` only the directory
+overrides `CODEX_HOME` / `CLAUDE_CONFIG_DIR`) and returns `{files}`: the native
+files `{file, path}` the platform should read. `ai.configuration.parse` takes
+`{source, files, environment, allowIncomplete}` with the file texts keyed
+`config`, `auth`, `settings`, `credentials` and `root`, each at most 1 MiB, and
+returns `null` when nothing is configured, otherwise `{model, provider, issue,
+reasoningEffort, hasCredential, credential, unsupportedAuthentication}`. The
+response never contains a secret: `credential` is a locator
+(`{kind: "environment", name}` or `{kind: "file", file, path}`) that the host
+resolves natively against the same text or environment. Malformed input returns
+`invalid_request` with a fixed code (`AI_COMMIT_INVALID_CONFIG`,
+`AI_CONFIGURATION_INVALID_AUTHENTICATION`, `AI_CONFIGURATION_SMART_QUOTES`,
+`AI_CONFIGURATION_TOO_LARGE`) and never echoes input. `allowIncomplete: true` is
+for editor drafts: it ignores the environment, accepts blank or partial text and
+keeps missing endpoint/model fields empty. The shared cases are in
+`shared/fixtures/ai/cli-configuration-v1.json`. It replaces the former
+`agent.parseProviderConfiguration`.
 
-The optional `allowIncomplete: true` is for switching an editor draft back to
-form fields. It accepts syntactically valid incomplete or blank input, preserves
-missing endpoint/model fields as empty strings, and does not inject CLI defaults.
-Claude metadata uses `apiKey` authentication when no credential is present;
-an explicit auth token still uses `bearer`. Credential extraction remains
-host-owned and may return an empty key only in this draft mode. Malformed text
-and the 64 KiB limit still fail with redacted errors. Omitting this flag keeps
-the existing parser behavior; saving still requires all fields, a compatible
-protocol and explicit consent for HTTP.
+`agent.edits.reversePlan` takes `{diffs, disk}` (normalized edit evidence plus the
+current file text, or `null` when the file is missing) and returns the rollback
+plan or a conflict; it never touches the file system. Path containment, encoding,
+guarded writes and Trash stay with the platform. Cases are in
+`shared/fixtures/agent/edit-review-v1.json`.
 
 `agent.instructions.read` takes `{agentId}` (`codex-acp` or `claude-acp`) and
 returns `{agentId, path, content, exists, revision}`. It does not create files.
@@ -1060,6 +1147,22 @@ requires native Hook enablement and approval in `/hooks`; `configuredAgents`
 does not claim execution. Source, ownership journal, lock and temporary siblings
 are user state outside installed resources and cannot be reused across worktrees.
 The shared fixture is `shared/fixtures/agent/hooks-management-v1.json`.
+
+`agent.hooks.validateDraft` validates an unsaved editor draft without reading or
+writing files, using the same rules `save` enforces in Agent Host. The payload is
+`{hook, existingHooks}`: `hook` has `id`, `name`, `description`, `event`, `matcher`,
+`command`, `agents` and the raw `timeoutText` of the timeout field (empty inherits
+the native default; only ASCII digits are integers), and `existingHooks` lists
+library rows as `{id, name}` for the case-insensitive unique-name rule. The result is
+`{valid, issues, timeoutSeconds}`: `issues` holds at most one `{field, code}` per
+field in editor order, and `timeoutSeconds` is the parsed value platforms store when
+saving (null when empty or rejected). Fields and codes: `id` `invalid`; `name`
+`required`, `too_long`, `invalid_characters`, `duplicate`; `description` `too_long`;
+`matcher` `incompatible_event`; `command` `required`, `too_long`, `contains_nul`;
+`timeout` `not_integer`, `out_of_range`; `agents` `required`, `unsupported`,
+`duplicate`. Platforms localize `agent.hooks.draft.<field>.<code>` and enable saving
+only when `valid`. A malformed payload fails with `invalid_request`. The fixture is
+`shared/fixtures/agent/hook-draft-validation-v1.json`.
 
 `agent.status`, `agent.install`, `agent.uninstall`, and `agent.installCli` manage ACP adapters in
 `<dataDirectory>/agents/<agentId>`, using the Node.js and npm the user installed.

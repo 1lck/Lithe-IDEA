@@ -8,11 +8,12 @@ public struct AgentFileChange: Identifiable, Equatable, Sendable {
     public var diffs: [AgentToolDetails.Diff] = []
     public var isPending = false
     public var hasMissingDiff = false
+    /// Presentation only: the latest tool deleted the file. Rollback reads per-diff evidence.
     public var isDeletion = false
     public var id: String { path }
+    /// Agent Host decides per-diff eligibility; `agent.edits.reversePlan` rechecks it.
     public var canRevert: Bool {
-        !isPending && !hasMissingDiff && !diffs.isEmpty
-            && diffs.allSatisfy { !$0.isTruncated && ($0.oldText != nil || $0.operation == "add") }
+        !isPending && !hasMissingDiff && !diffs.isEmpty && diffs.allSatisfy(\.isRevertible)
     }
     /// Stats retain the upstream accounting scope; absent reports stay unknown.
     public var additions: Int? { total(\.additions) }
@@ -60,7 +61,11 @@ public struct AgentActivity {
                     indices[path] = index
                     files.append(AgentFileChange(path: path))
                 }
-                let diffs = details.diffs.filter { $0.path == path }
+                let diffs = details.diffs.filter { $0.path == path }.map { diff in
+                    var diff = diff
+                    diff.toolKind = details.kind
+                    return diff
+                }
                 files[index].toolIDs.append(tool.id)
                 files[index].diffs.append(contentsOf: diffs)
                 files[index].isPending = files[index].isPending || tool.toolStatus != .completed

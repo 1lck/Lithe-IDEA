@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 
+pub(crate) mod edits;
 pub(crate) mod hooks;
 pub(crate) mod instructions;
 

@@ -302,6 +302,7 @@ fn run_with(
                 session_id,
                 after_turn_finished,
                 call,
+                ..
             } => {
                 assert!(!after_turn_finished, "the turn waits for its own calls");
                 model_calls.push((session_id, call));

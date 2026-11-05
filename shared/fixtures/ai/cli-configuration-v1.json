@@ -1,0 +1,278 @@
+{
+  "schemaVersion": 1,
+  "description": "ai.configuration.sources and ai.configuration.parse. Every credential value is an obviously fake string containing secretMarker; no response may contain it. expectedCredentialValue is what a host obtains by resolving the returned locator against the same files and environment.",
+  "secretMarker": "fixture-secret",
+  "sourceCases": [
+    {
+      "id": "codex-default-directory",
+      "request": { "source": "codex", "home": "/fixture-home", "environment": {} },
+      "expected": [
+        { "file": "config", "path": "/fixture-home/.codex/config.toml" },
+        { "file": "auth", "path": "/fixture-home/.codex/auth.json" }
+      ]
+    },
+    {
+      "id": "codex-home-override",
+      "request": { "source": "codex", "home": "/fixture-home", "environment": { "CODEX_HOME": "/fixture-codex" } },
+      "expected": [
+        { "file": "config", "path": "/fixture-codex/config.toml" },
+        { "file": "auth", "path": "/fixture-codex/auth.json" }
+      ]
+    },
+    {
+      "id": "claude-config-dir-override-keeps-root-in-home",
+      "request": { "source": "claude", "home": "/fixture-home", "environment": { "CLAUDE_CONFIG_DIR": "/fixture-claude", "CODEX_HOME": " " } },
+      "expected": [
+        { "file": "settings", "path": "/fixture-claude/settings.json" },
+        { "file": "credentials", "path": "/fixture-claude/.credentials.json" },
+        { "file": "root", "path": "/fixture-home/.claude.json" }
+      ]
+    }
+  ],
+  "strictCases": [
+    {
+      "id": "codex-profile-defaults-to-responses-and-reads-auth-key",
+      "source": "codex",
+      "files": {
+        "config": "model = 'unused'\nprofile = 'work'\n[profiles.work]\nmodel = 'fixture-model'\nmodel_provider = 'gateway'\nmodel_reasoning_effort = 'high'\n[model_providers.gateway]\nbase_url = 'https://example.test/v1'\nrequires_openai_auth = true\n",
+        "auth": "{\"OPENAI_API_KEY\":\"fixture-secret-auth\"}"
+      },
+      "environment": { "OPENAI_API_KEY": "fixture-secret-environment" },
+      "expected": {
+        "model": "fixture-model",
+        "provider": { "endpoint": "https://example.test/v1", "model": "fixture-model", "apiProtocol": "responses", "authentication": "bearer", "requiresApiKey": true, "source": "codex" },
+        "issue": null,
+        "reasoningEffort": "high",
+        "hasCredential": true,
+        "credential": { "kind": "file", "file": "auth", "path": ["OPENAI_API_KEY"] },
+        "unsupportedAuthentication": false
+      },
+      "expectedCredentialValue": "fixture-secret-auth"
+    },
+    {
+      "id": "codex-default-openai-provider-falls-back-to-environment",
+      "source": "codex",
+      "files": { "config": "model = 'fixture-model'\n", "auth": "{\"OPENAI_API_KEY\":null,\"tokens\":{\"access_token\":\"fixture-secret-oauth\"}}" },
+      "environment": { "OPENAI_API_KEY": "fixture-secret-environment" },
+      "expected": {
+        "model": "fixture-model",
+        "provider": { "endpoint": "https://api.openai.com/v1", "apiProtocol": "responses", "requiresApiKey": true },
+        "hasCredential": true,
+        "credential": { "kind": "environment", "name": "OPENAI_API_KEY" }
+      },
+      "expectedCredentialValue": "fixture-secret-environment"
+    },
+    {
+      "id": "codex-declared-env-key-never-falls-back",
+      "source": "codex",
+      "files": {
+        "config": "model = 'fixture-model'\nmodel_provider = 'company'\n[model_providers.company]\nbase_url = 'https://gateway.example.test/v1'\nwire_api = 'chat'\nenv_key = 'COMPANY_KEY'\n",
+        "auth": "{\"OPENAI_API_KEY\":\"fixture-secret-auth\"}"
+      },
+      "environment": { "OPENAI_API_KEY": "fixture-secret-environment" },
+      "expected": {
+        "provider": { "endpoint": "https://gateway.example.test/v1", "apiProtocol": "chatCompletions", "requiresApiKey": true },
+        "hasCredential": false,
+        "credential": null
+      }
+    },
+    {
+      "id": "codex-env-key-resolves-from-environment",
+      "source": "codex",
+      "files": {
+        "config": "model = 'fixture-model'\nmodel_provider = 'company'\n[model_providers.company]\nbase_url = 'https://gateway.example.test/v1'\nenv_key = 'COMPANY_KEY'\n"
+      },
+      "environment": { "COMPANY_KEY": "fixture-secret-company" },
+      "expected": {
+        "hasCredential": true,
+        "credential": { "kind": "environment", "name": "COMPANY_KEY" }
+      },
+      "expectedCredentialValue": "fixture-secret-company"
+    },
+    {
+      "id": "codex-inline-bearer-token",
+      "source": "codex",
+      "files": {
+        "config": "model = 'fixture-model'\nmodel_provider = 'company'\n[model_providers.company]\nbase_url = 'https://gateway.example.test/v1'\nexperimental_bearer_token = 'fixture-secret-inline'\n"
+      },
+      "environment": {},
+      "expected": {
+        "hasCredential": true,
+        "credential": { "kind": "file", "file": "config", "path": ["model_providers", "company", "experimental_bearer_token"] }
+      },
+      "expectedCredentialValue": "fixture-secret-inline"
+    },
+    {
+      "id": "codex-keyless-local-provider",
+      "source": "codex",
+      "files": {
+        "config": "model = 'local-model'\nmodel_provider = 'local'\n[model_providers.local]\nbase_url = 'http://localhost:1234/v1'\n",
+        "auth": "{\"OPENAI_API_KEY\":\"fixture-secret-auth\"}"
+      },
+      "environment": {},
+      "expected": {
+        "provider": { "endpoint": "http://localhost:1234/v1", "requiresApiKey": false },
+        "hasCredential": false,
+        "credential": null
+      }
+    },
+    {
+      "id": "codex-incomplete-provider-still-reports-model",
+      "source": "codex",
+      "files": { "config": "model = 'fixture-model'\nmodel_provider = 'custom'\n" },
+      "environment": {},
+      "expected": {
+        "model": "fixture-model",
+        "provider": null,
+        "issue": "AI_COMMIT_INVALID_CONFIG",
+        "hasCredential": false,
+        "credential": null
+      }
+    },
+    {
+      "id": "codex-not-configured",
+      "source": "codex",
+      "files": { "config": " \n", "auth": "{\"OPENAI_API_KEY\":\"fixture-secret-auth\"}" },
+      "environment": { "OPENAI_API_KEY": "fixture-secret-environment" },
+      "expected": null
+    },
+    {
+      "id": "claude-settings-env-wins-and-resolves-alias",
+      "source": "claude",
+      "files": {
+        "settings": "{\"env\":{\"ANTHROPIC_BASE_URL\":\"https://example.test/v1\",\"ANTHROPIC_MODEL\":\"sonnet\",\"ANTHROPIC_DEFAULT_SONNET_MODEL\":\"fixture-model\",\"ANTHROPIC_API_KEY\":\"fixture-secret-settings\"}}",
+        "root": "{\"apiKey\":\"fixture-secret-root\"}"
+      },
+      "environment": { "ANTHROPIC_API_KEY": "fixture-secret-environment", "ANTHROPIC_BASE_URL": "https://ignored.example.test" },
+      "expected": {
+        "model": "fixture-model",
+        "provider": { "endpoint": "https://example.test/v1", "model": "fixture-model", "apiProtocol": "anthropicMessages", "authentication": "apiKey", "source": "claude" },
+        "hasCredential": true,
+        "credential": { "kind": "file", "file": "settings", "path": ["env", "ANTHROPIC_API_KEY"] },
+        "unsupportedAuthentication": false
+      },
+      "expectedCredentialValue": "fixture-secret-settings"
+    },
+    {
+      "id": "claude-process-environment-api-url-and-key",
+      "source": "claude",
+      "files": { "settings": "{\"model\":\"fixture-model\",\"apiKey\":\" \"}" },
+      "environment": { "ANTHROPIC_API_URL": "https://environment.example.test/v1", "ANTHROPIC_API_KEY": "fixture-secret-environment" },
+      "expected": {
+        "provider": { "endpoint": "https://environment.example.test/v1", "model": "fixture-model", "authentication": "apiKey" },
+        "credential": { "kind": "environment", "name": "ANTHROPIC_API_KEY" }
+      },
+      "expectedCredentialValue": "fixture-secret-environment"
+    },
+    {
+      "id": "claude-auth-token-wins-over-api-key",
+      "source": "claude",
+      "files": { "settings": "{\"apiKey\":\"fixture-secret-key\",\"env\":{\"ANTHROPIC_AUTH_TOKEN\":\"fixture-secret-token\"}}" },
+      "environment": {},
+      "expected": {
+        "provider": { "endpoint": "https://api.anthropic.com/v1", "model": "claude-sonnet-4-5", "authentication": "bearer" },
+        "credential": { "kind": "file", "file": "settings", "path": ["env", "ANTHROPIC_AUTH_TOKEN"] }
+      },
+      "expectedCredentialValue": "fixture-secret-token"
+    },
+    {
+      "id": "claude-cloud-route-has-no-static-credential",
+      "source": "claude",
+      "files": { "settings": "{\"env\":{\"CLAUDE_CODE_USE_BEDROCK\":\"1\",\"ANTHROPIC_API_KEY\":\"fixture-secret-settings\"}}" },
+      "environment": {},
+      "expected": {
+        "hasCredential": false,
+        "credential": null,
+        "unsupportedAuthentication": true
+      }
+    },
+    {
+      "id": "claude-key-helper-without-key-is-unsupported",
+      "source": "claude",
+      "files": { "settings": "{\"apiKeyHelper\":\"/fixture/print-key\"}" },
+      "environment": {},
+      "expected": {
+        "hasCredential": false,
+        "credential": null,
+        "unsupportedAuthentication": true
+      }
+    },
+    {
+      "id": "claude-key-helper-is-ignored-when-a-key-exists",
+      "source": "claude",
+      "files": { "settings": "{\"apiKeyHelper\":\"/fixture/print-key\"}", "credentials": "{\"apiKey\":\"fixture-secret-credentials\"}" },
+      "environment": {},
+      "expected": {
+        "hasCredential": true,
+        "credential": { "kind": "file", "file": "credentials", "path": ["apiKey"] },
+        "unsupportedAuthentication": false
+      },
+      "expectedCredentialValue": "fixture-secret-credentials"
+    },
+    {
+      "id": "claude-environment-only",
+      "source": "claude",
+      "files": {},
+      "environment": { "ANTHROPIC_API_KEY": "fixture-secret-environment" },
+      "expected": {
+        "provider": { "endpoint": "https://api.anthropic.com/v1", "authentication": "apiKey" },
+        "credential": { "kind": "environment", "name": "ANTHROPIC_API_KEY" }
+      },
+      "expectedCredentialValue": "fixture-secret-environment"
+    },
+    {
+      "id": "claude-not-configured",
+      "source": "claude",
+      "files": { "settings": "", "credentials": " " },
+      "environment": { "OPENAI_API_KEY": "fixture-secret-environment" },
+      "expected": null
+    }
+  ],
+  "draftCases": [
+    { "id": "codex-empty", "source": "codex", "files": { "config": "" },
+      "expected": { "endpoint": "", "model": "", "apiProtocol": "responses", "authentication": "bearer" } },
+    { "id": "codex-whitespace", "source": "codex", "files": { "config": " \n\t " },
+      "expected": { "endpoint": "", "model": "", "apiProtocol": "responses", "authentication": "bearer" } },
+    { "id": "codex-model-only", "source": "codex", "files": { "config": "model = 'draft-model'" },
+      "expected": { "endpoint": "", "model": "draft-model", "apiProtocol": "responses", "authentication": "bearer" } },
+    { "id": "codex-endpoint-only", "source": "codex", "files": { "config": "model_provider = 'custom'\n[model_providers.custom]\nbase_url = 'https://example.test/v1'" },
+      "expected": { "endpoint": "https://example.test/v1", "model": "", "apiProtocol": "responses", "authentication": "bearer" } },
+    { "id": "codex-pasted-auth-key", "source": "codex",
+      "files": { "config": "model_provider = \"lithe\"\nmodel = \"draft-model\"\n[model_providers.lithe]\nbase_url = \"https://example.test/v1\"\nwire_api = \"responses\"\n", "auth": "{\"api_key\":\"fixture-secret-pasted\"}" },
+      "expected": { "endpoint": "https://example.test/v1", "model": "draft-model", "apiProtocol": "responses" },
+      "expectedCredential": { "kind": "file", "file": "auth", "path": ["api_key"] },
+      "expectedCredentialValue": "fixture-secret-pasted" },
+    { "id": "claude-blank", "source": "claude", "files": { "settings": "" },
+      "expected": { "endpoint": "", "model": "", "apiProtocol": "anthropicMessages", "authentication": "apiKey" } },
+    { "id": "claude-whitespace", "source": "claude", "files": { "settings": " \n\t " },
+      "expected": { "endpoint": "", "model": "", "apiProtocol": "anthropicMessages", "authentication": "apiKey" } },
+    { "id": "claude-empty", "source": "claude", "files": { "settings": "{}" },
+      "expected": { "endpoint": "", "model": "", "apiProtocol": "anthropicMessages", "authentication": "apiKey" } },
+    { "id": "claude-empty-template", "source": "claude", "files": { "settings": "{\"env\":{\"ANTHROPIC_BASE_URL\":\"\",\"ANTHROPIC_MODEL\":\"\",\"ANTHROPIC_API_KEY\":\"\"}}" },
+      "expected": { "endpoint": "", "model": "", "apiProtocol": "anthropicMessages", "authentication": "apiKey" } },
+    { "id": "claude-model-only", "source": "claude", "files": { "settings": "{\"env\":{\"ANTHROPIC_MODEL\":\"draft-model\"}}" },
+      "expected": { "endpoint": "", "model": "draft-model", "apiProtocol": "anthropicMessages", "authentication": "apiKey" } },
+    { "id": "claude-key-only", "source": "claude", "files": { "settings": "{\"env\":{\"ANTHROPIC_API_KEY\":\"fixture-secret-pasted\"}}" },
+      "expected": { "endpoint": "", "model": "", "apiProtocol": "anthropicMessages", "authentication": "apiKey" },
+      "expectedCredential": { "kind": "file", "file": "settings", "path": ["env", "ANTHROPIC_API_KEY"] },
+      "expectedCredentialValue": "fixture-secret-pasted" },
+    { "id": "claude-alias", "source": "claude", "files": { "settings": "{\"env\":{\"ANTHROPIC_MODEL\":\"sonnet\",\"ANTHROPIC_DEFAULT_SONNET_MODEL\":\"alias-model\"}}" },
+      "expected": { "endpoint": "", "model": "alias-model", "apiProtocol": "anthropicMessages", "authentication": "apiKey" } },
+    { "id": "claude-pasted-token-is-bearer", "source": "claude", "files": { "settings": "{\"env\":{\"ANTHROPIC_AUTH_TOKEN\":\"fixture-secret-token\",\"ANTHROPIC_API_KEY\":\"fixture-secret-pasted\"}}" },
+      "expected": { "authentication": "bearer", "unsupportedAuthentication": false },
+      "expectedCredential": { "kind": "file", "file": "settings", "path": ["env", "ANTHROPIC_AUTH_TOKEN"] },
+      "expectedCredentialValue": "fixture-secret-token" },
+    { "id": "claude-pasted-cloud-route", "source": "claude", "files": { "settings": "{\"env\":{\"CLAUDE_CODE_USE_VERTEX\":\"true\",\"ANTHROPIC_API_KEY\":\"fixture-secret-pasted\"}}" },
+      "expected": { "unsupportedAuthentication": true },
+      "expectedCredential": null }
+  ],
+  "errorCases": [
+    { "id": "codex-malformed", "payload": { "source": "codex", "files": { "config": "fixture-secret = [" } }, "code": "AI_COMMIT_INVALID_CONFIG" },
+    { "id": "codex-smart-quotes", "payload": { "source": "codex", "files": { "config": "model = “fixture-secret”" }, "allowIncomplete": true }, "code": "AI_CONFIGURATION_SMART_QUOTES" },
+    { "id": "codex-auth-not-object", "payload": { "source": "codex", "files": { "config": "model = 'x'", "auth": "[\"fixture-secret\"]" } }, "code": "AI_CONFIGURATION_INVALID_AUTHENTICATION" },
+    { "id": "codex-auth-key-not-string", "payload": { "source": "codex", "files": { "config": "model = 'x'", "auth": "{\"OPENAI_API_KEY\":42}" }, "allowIncomplete": true }, "code": "AI_CONFIGURATION_INVALID_AUTHENTICATION" },
+    { "id": "claude-not-object", "payload": { "source": "claude", "files": { "settings": "[\"fixture-secret\"]" } }, "code": "AI_COMMIT_INVALID_CONFIG" },
+    { "id": "unknown-source", "payload": { "source": "fixture", "files": {} }, "code": "AI_COMMIT_INVALID_CONFIG" },
+    { "id": "unknown-file", "payload": { "source": "codex", "files": { "fixture": "fixture-secret" } }, "code": "AI_COMMIT_INVALID_CONFIG" }
+  ]
+}

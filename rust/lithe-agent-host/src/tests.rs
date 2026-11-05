@@ -2449,6 +2449,41 @@ async fn session_configuration_round_trips_upstream_options() {
     assert_eq!(harness.stop().await, Ok(()));
 }
 
+/// The Host applies next-turn choices as one confirmed sequence and answers
+/// with the shared event shape, both on success and when a request fails.
+#[tokio::test(flavor = "current_thread")]
+async fn next_turn_configuration_applies_choices_and_reports_one_result() {
+    let next: Value = serde_json::from_str(include_str!(
+        "../../../shared/fixtures/agent/next-turn-configuration-v1.json"
+    ))
+    .unwrap();
+    let mut harness = Harness::ready().await;
+    harness.open_session("session-1").await;
+    let configured = next["events"]["configured"].clone();
+    harness.send(next["command"].clone());
+    let request = harness.agent.expect("session/set_config_option").await;
+    assert_eq!(request["params"]["configId"], "model");
+    assert_eq!(request["params"]["value"], "model-b");
+    harness
+        .agent
+        .reply(&request, json!({ "configOptions": configured["configOptions"] }))
+        .await;
+    assert_eq!(serde_json::to_value(harness.event().await).unwrap(), configured);
+
+    harness.send(next["command"].clone());
+    let request = harness.agent.expect("session/set_config_option").await;
+    harness
+        .agent
+        .write(json!({ "jsonrpc": "2.0", "id": request["id"], "error": { "code": -32602, "message": "Rejected" } }))
+        .await;
+    let failed = serde_json::to_value(harness.event().await).unwrap();
+    assert_eq!(failed["kind"], "nextTurnConfigured");
+    assert_eq!(failed["failure"], "requestFailed");
+    assert!(failed.get("configOptions").is_none(), "no request succeeded");
+    assert!(failed["message"].as_str().unwrap().contains("Rejected"));
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn every_new_session_repairs_a_stale_model_before_publishing_options() {
     let mut harness = Harness::ready().await;
@@ -4046,16 +4081,19 @@ fn model_call_events_use_the_fixture_shape() {
         }),
         auxiliary: false,
     };
+    let statistics = crate::ModelCallStatistics::of_call(&call, &mut false);
     let event = AgentEvent::ModelCall {
         session_id: Some("session-1".into()),
         after_turn_finished: false,
         call: call.clone(),
+        statistics: statistics.clone(),
     };
     assert_eq!(serde_json::to_value(event).unwrap(), expected);
     let late = AgentEvent::ModelCall {
         session_id: Some("session-1".into()),
         after_turn_finished: true,
         call,
+        statistics,
     };
     assert_eq!(
         serde_json::to_value(late).unwrap(),

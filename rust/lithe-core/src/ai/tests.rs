@@ -1,91 +1,197 @@
-//! Behavioral coverage for configuration import, secret boundaries and commit wire protocols.
+//! Behavioral coverage for CLI configuration import, secret boundaries and commit wire protocols.
 
 use super::*;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
-#[test]
-fn agent_provider_configuration_matches_fixture_without_credentials() {
-    let fixture: Value = serde_json::from_str(include_str!(
-        "../../../../shared/fixtures/agent/provider-configuration-v1.json"
+fn configuration_fixture() -> Value {
+    serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/ai/cli-configuration-v1.json"
     ))
-    .unwrap();
-    for case in fixture["cases"].as_array().unwrap() {
-        let response: Value = serde_json::from_str(&crate::execute_json(
-            &json!({
-                "id": "provider-fixture", "command": "agent.parseProviderConfiguration",
-                "payload": {"source": case["source"], "configuration": case["configuration"]}
-            })
-            .to_string(),
-        ))
-        .unwrap();
-        assert_eq!(response["ok"], true);
-        assert_eq!(response["id"], "provider-fixture");
-        let parsed = &response["data"];
-        for (key, value) in case["expected"].as_object().unwrap() {
-            assert_eq!(&parsed[key], value);
+    .unwrap()
+}
+
+fn execute(command: &str, payload: &Value) -> Value {
+    serde_json::from_str(&crate::execute_json(
+        &json!({"id": "configuration-fixture", "command": command, "payload": payload}).to_string(),
+    ))
+    .unwrap()
+}
+
+/// Every expected field must match; unspecified response fields are free.
+fn assert_subset(actual: &Value, expected: &Value, case: &Value) {
+    match expected {
+        Value::Object(fields) => {
+            for (key, value) in fields {
+                assert_subset(&actual[key], value, case);
+            }
         }
-        assert!(!parsed.to_string().contains("fixture-secret"));
-        assert!(parsed.get("credential").is_none());
-        assert!(parsed.get("hasCredential").is_none());
+        _ => assert_eq!(actual, expected, "{}", case["id"]),
+    }
+}
+
+/// Resolves a locator the way a host does, against the request it sent.
+fn resolve_locator(locator: &Value, files: &Value, environment: &Value) -> Option<String> {
+    match locator["kind"].as_str()? {
+        "environment" => environment[locator["name"].as_str()?]
+            .as_str()
+            .map(str::to_owned),
+        "file" => {
+            let text = files[locator["file"].as_str()?].as_str()?;
+            let document: Value = if locator["file"] == "config" {
+                serde_json::to_value(toml::from_str::<toml::Value>(text).ok()?).ok()?
+            } else {
+                serde_json::from_str(text).ok()?
+            };
+            let path = locator["path"].as_array()?;
+            path.iter()
+                .try_fold(&document, |value, key| value.get(key.as_str()?))?
+                .as_str()
+                .map(|value| value.trim().to_owned())
+        }
+        _ => None,
     }
 }
 
 #[test]
-fn agent_provider_configuration_errors_are_bounded_and_redacted() {
-    for payload in [
-        json!({"source":"codex", "configuration":"fixture-secret = ["}),
-        json!({"source":"claude", "configuration":"[]"}),
-        json!({"source":"unknown", "configuration":"{}"}),
-        json!({"source":"codex", "configuration":"x".repeat(65 * 1024)}),
-        json!({"source":"codex", "configuration": null}),
-    ] {
-        for allow_incomplete in [false, true] {
-            let mut payload = payload.clone();
-            payload["allowIncomplete"] = allow_incomplete.into();
-            let error = parse_provider_configuration(payload).unwrap_err();
-            let value = serde_json::to_string(&error).unwrap();
-            assert!(value.contains("invalid_request"));
-            assert!(!value.contains("fixture-secret"));
-            assert!(!value.contains("details"));
+fn configuration_sources_match_fixture() {
+    let fixture = configuration_fixture();
+    // Fixture paths are POSIX; Windows needs a drive for them to be absolute.
+    let native = |path: &str| {
+        if cfg!(windows) {
+            format!("C:{path}")
+        } else {
+            path.to_owned()
         }
-    }
-}
-
-#[test]
-fn agent_provider_drafts_preserve_missing_fields_without_credentials_or_cli_defaults() {
-    let fixture: Value = serde_json::from_str(include_str!(
-        "../../../../shared/fixtures/agent/provider-configuration-v1.json"
-    ))
-    .unwrap();
-    for case in fixture["draftCases"].as_array().unwrap() {
-        let response: Value = serde_json::from_str(&crate::execute_json(&json!({
-            "id": "draft-fixture", "command": "agent.parseProviderConfiguration",
-            "payload": {"source": case["source"], "configuration": case["configuration"], "allowIncomplete": true}
-        }).to_string())).unwrap();
+    };
+    for case in fixture["sourceCases"].as_array().unwrap() {
+        let mut request = case["request"].clone();
+        request["home"] = native(request["home"].as_str().unwrap()).into();
+        for (_, value) in request["environment"].as_object_mut().unwrap() {
+            if value.as_str().unwrap().starts_with('/') {
+                *value = native(value.as_str().unwrap()).into();
+            }
+        }
+        let response = execute("ai.configuration.sources", &request);
         assert_eq!(response["ok"], true, "{}", case["id"]);
-        for (key, value) in case["expected"].as_object().unwrap() {
-            assert_eq!(&response["data"][key], value, "{}", case["id"]);
+        let actual = response["data"]["files"].as_array().unwrap();
+        let expected = case["expected"].as_array().unwrap();
+        assert_eq!(actual.len(), expected.len(), "{}", case["id"]);
+        for (actual, expected) in actual.iter().zip(expected) {
+            assert_eq!(actual["file"], expected["file"], "{}", case["id"]);
+            // Component comparison keeps the fixture valid with Windows separators.
+            assert_eq!(
+                std::path::Path::new(actual["path"].as_str().unwrap()),
+                std::path::Path::new(&native(expected["path"].as_str().unwrap())),
+                "{}",
+                case["id"]
+            );
         }
-        assert!(!response.to_string().contains("fixture-secret"));
-        assert!(response["data"].get("credential").is_none());
-        assert!(response["data"].get("hasCredential").is_none());
     }
-    // The editor-only flag must not relax the existing strict/default CLI parser.
-    let strict_codex = parse_provider_configuration(
-        json!({"source":"codex", "configuration":"model = 'draft-model'"}),
-    )
-    .unwrap();
-    assert_eq!(strict_codex["endpoint"], "https://api.openai.com/v1");
-    assert!(parse_provider_configuration(
-        json!({"source":"codex", "configuration":"model_provider = 'custom'"})
-    )
-    .is_err());
-    let strict =
-        parse_provider_configuration(json!({"source":"claude", "configuration":"{}"})).unwrap();
-    assert_eq!(strict["endpoint"], "https://api.anthropic.com/v1");
-    assert_eq!(strict["model"], "claude-sonnet-4-5");
-    assert_eq!(strict["authentication"], "bearer");
+    let relative = execute(
+        "ai.configuration.sources",
+        &json!({"source": "codex", "home": "relative"}),
+    );
+    assert_eq!(relative["ok"], false);
+}
+
+#[test]
+fn strict_configuration_parse_matches_fixture_without_secrets() {
+    let fixture = configuration_fixture();
+    let marker = fixture["secretMarker"].as_str().unwrap();
+    for case in fixture["strictCases"].as_array().unwrap() {
+        let payload = json!({
+            "source": case["source"], "files": case["files"], "environment": case["environment"],
+        });
+        let response = execute("ai.configuration.parse", &payload);
+        assert_eq!(response["ok"], true, "{}", case["id"]);
+        assert!(!response.to_string().contains(marker), "{}", case["id"]);
+        let data = &response["data"];
+        if case["expected"].is_null() {
+            assert!(data.is_null(), "{}", case["id"]);
+            continue;
+        }
+        assert_subset(data, &case["expected"], case);
+        assert_eq!(
+            resolve_locator(&data["credential"], &case["files"], &case["environment"]),
+            case["expectedCredentialValue"].as_str().map(str::to_owned),
+            "{}",
+            case["id"]
+        );
+        assert_eq!(
+            data["hasCredential"],
+            !data["credential"].is_null(),
+            "{}",
+            case["id"]
+        );
+        // The in-process Rust API used by the Windows host agrees with the locator.
+        let files: ConfigurationFiles = serde_json::from_value(case["files"].clone()).unwrap();
+        let environment: BTreeMap<String, String> =
+            serde_json::from_value(case["environment"].clone()).unwrap();
+        if let Ok(Some(detected)) = detect(case["source"].as_str().unwrap(), &files, &environment) {
+            assert_eq!(
+                detected.credential.as_deref(),
+                case["expectedCredentialValue"].as_str(),
+                "{}",
+                case["id"]
+            );
+            assert!(!serde_json::to_string(&detected).unwrap().contains(marker));
+        }
+    }
+}
+
+#[test]
+fn draft_configuration_parse_preserves_missing_fields_without_cli_defaults() {
+    let fixture = configuration_fixture();
+    let marker = fixture["secretMarker"].as_str().unwrap();
+    for case in fixture["draftCases"].as_array().unwrap() {
+        let payload =
+            json!({"source": case["source"], "files": case["files"], "allowIncomplete": true});
+        let response = execute("ai.configuration.parse", &payload);
+        assert_eq!(response["ok"], true, "{}", case["id"]);
+        assert!(!response.to_string().contains(marker), "{}", case["id"]);
+        let data = &response["data"];
+        let mut expected = case["expected"].clone();
+        if let Some(flag) = expected
+            .as_object_mut()
+            .unwrap()
+            .remove("unsupportedAuthentication")
+        {
+            assert_eq!(data["unsupportedAuthentication"], flag, "{}", case["id"]);
+        }
+        assert_subset(&data["provider"], &expected, case);
+        if let Some(locator) = case.get("expectedCredential") {
+            assert_eq!(&data["credential"], locator, "{}", case["id"]);
+        }
+        assert_eq!(
+            resolve_locator(&data["credential"], &case["files"], &json!({})),
+            case["expectedCredentialValue"].as_str().map(str::to_owned),
+            "{}",
+            case["id"]
+        );
+    }
+}
+
+#[test]
+fn configuration_parse_errors_are_stable_codes_without_input() {
+    let fixture = configuration_fixture();
+    let marker = fixture["secretMarker"].as_str().unwrap();
+    for case in fixture["errorCases"].as_array().unwrap() {
+        let response = execute("ai.configuration.parse", &case["payload"]);
+        assert_eq!(response["ok"], false, "{}", case["id"]);
+        assert_eq!(
+            response["error"]["code"], "invalid_request",
+            "{}",
+            case["id"]
+        );
+        assert_eq!(response["error"]["message"], case["code"], "{}", case["id"]);
+        assert!(!response.to_string().contains(marker), "{}", case["id"]);
+    }
+    let oversized = execute(
+        "ai.configuration.parse",
+        &json!({"source": "codex", "files": {"config": "x".repeat(1024 * 1024 + 1)}}),
+    );
+    assert_eq!(oversized["error"]["message"], "AI_CONFIGURATION_TOO_LARGE");
 }
 
 fn fixture() -> (Provider, CommitOptions, Vec<CommitFile>, Value) {

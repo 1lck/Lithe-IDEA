@@ -3,6 +3,7 @@ import {
   type ProviderHeaders,
   type ProviderModel,
   type StreamRequest,
+  type ProviderRequestFacts,
 } from "./ai-provider-interface";
 import { providerFetch } from "./provider-fetch";
 
@@ -50,6 +51,17 @@ export class GeminiProvider extends AIProvider {
       console.error(`${this.id} model fetch error:`, error);
       return [];
     }
+  }
+
+  requestFacts(): ProviderRequestFacts {
+    return {
+      wireProtocol: "geminiGenerateContent",
+      endpoint: this.config.apiUrl,
+      allowsInsecureHttp: false,
+      acceptsUnlistedModels: false,
+      chatTokenLimitField: "max_tokens",
+      supportsTemperature: true,
+    };
   }
 
   buildHeaders(apiKey?: string): ProviderHeaders {

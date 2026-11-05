@@ -172,8 +172,8 @@ final class MacServiceContainer {
             core: rustCore,
             applicationLogging: applicationLogging, sink: logSink
         )
-        let codexConfigurationSource = MacCodexConfigurationSource()
-        let claudeConfigurationSource = MacClaudeConfigurationSource()
+        let codexConfigurationSource = MacCodexConfigurationSource(core: rustCore)
+        let claudeConfigurationSource = MacClaudeConfigurationSource(core: rustCore)
         let aiConfigurationSources: [any AIConfigurationSource] = providedAIConfigurationSources ?? [
             codexConfigurationSource,
             claudeConfigurationSource
@@ -1177,7 +1177,8 @@ final class MacServiceContainer {
             store: store,
             fileStorage: fileStorage,
             fileOperations: fileOperations,
-            agentEditRestorer: MacAgentEditRestorer(fileOperations: fileOperations),
+            agentEditRestorer: MacAgentEditRestorer(fileOperations: fileOperations,
+                planner: RustAgentEditReversePlanner(core: rustCore)),
             binaryFileViewerRegistry: binaryFileViewerRegistry,
             projectRuntimeService: runtimeService,
             gitWatchContextProvider: gitWatchContextProvider,

@@ -20,10 +20,10 @@ mock.module("@/features/settings/stores/settings.store", () => ({ useSettingsSto
   agentSettingsError: () => null,
 } } }));
 mock.module("@/features/agent/services/agent-launch", () => ({ readAgentApiKey: async () => "fixture-key" }));
-mock.module("@/platform/tauri-core", () => ({ invoke: async (_command: string, args: { source: string; configuration: string }) => {
-  if (args.source === "codex") return { apiProtocol: "responses", endpoint: "https://codex.example.test/v1", model: "imported-codex-model" };
-  const config = JSON.parse(args.configuration).env;
-  return { apiProtocol: "anthropicMessages", endpoint: config.ANTHROPIC_BASE_URL ?? "", model: config.ANTHROPIC_MODEL ?? "" };
+mock.module("@/platform/tauri-core", () => ({ invoke: async (_command: string, args: { source: string; files: { config?: string; settings?: string } }) => {
+  if (args.source === "codex") return { provider: { apiProtocol: "responses", endpoint: "https://codex.example.test/v1", model: "imported-codex-model" } };
+  const config = JSON.parse(args.files.settings ?? "{}").env;
+  return { provider: { apiProtocol: "anthropicMessages", endpoint: config.ANTHROPIC_BASE_URL ?? "", model: config.ANTHROPIC_MODEL ?? "" } };
 } }));
 mock.module("@/i18n/locale-provider", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 mock.module("@/features/keymaps/hooks/use-command-shortcut", () => ({ useCommandShortcut: () => undefined }));

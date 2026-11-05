@@ -578,7 +578,7 @@ struct AgentConversationPresentationTests {
         conversation.completedTurns = [AgentTurnStatistics(id: "turn", startedAt: .now)]
         // Without proxy observations, steps and speed are absent rather than estimated.
         #expect(AgentSessionStatusPresentation.summary(conversation.sessionStatistics, locale: locale) == "1 turns")
-        let call = try #require(AgentModelCall.parse([
+        let call = try #require(AgentModelCall.streamedStep([
             "api": "anthropicMessages", "status": 200, "streaming": true, "firstTokenMs": 500, "durationMs": 2500,
             "usage": ["inputTokens": 100, "cacheReadTokens": 900, "cacheWriteTokens": 0, "outputTokens": 400],
             "context": ["systemPromptTokens": 100, "toolTokens": 200, "mcpToolTokens": 300, "messageTokens": 400,
@@ -615,7 +615,7 @@ struct AgentConversationPresentationTests {
     @Test
     func contextBreakdownUsesReportedWindowInsteadOfNormalizingTheRequestToFull() throws {
         let locale = Locale(identifier: "en_US")
-        let context = try #require(AgentModelCall.parse([
+        let context = try #require(AgentModelCall.streamedStep([
             "api": "responses", "status": 200, "streaming": true, "durationMs": 100,
             "context": ["systemPromptTokens": 11700, "toolTokens": 33900, "messageTokens": 30300,
                         "mcpToolTokens": 300, "toolCount": 18, "mcpToolCount": 2, "scaledToUsage": true]
@@ -637,7 +637,7 @@ struct AgentConversationPresentationTests {
         let resourceURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources")
         let bundle = try #require(Bundle(url: resourceURL))
-        let composition = try #require(AgentModelCall.parse([
+        let composition = try #require(AgentModelCall.streamedStep([
             "api": "responses", "status": 200, "streaming": true, "durationMs": 100,
             "context": ["systemPromptTokens": 11700, "toolTokens": 33900, "messageTokens": 30300,
                         "mcpToolTokens": 300, "toolCount": 18, "mcpToolCount": 2, "scaledToUsage": true]
@@ -677,7 +677,7 @@ struct AgentConversationPresentationTests {
     func defaultWidthDetailsCardsKeepAllReportedStatistics() throws {
         var conversation = AgentConversation()
         conversation.completedTurns = [AgentTurnStatistics(id: "turn", startedAt: .now)]
-        conversation.recordModelCall(try #require(AgentModelCall.parse([
+        conversation.recordModelCall(try #require(AgentModelCall.streamedStep([
             "api": "anthropicMessages", "status": 200, "streaming": true, "firstTokenMs": 700, "durationMs": 1250,
             "usage": ["inputTokens": 62063, "cacheReadTokens": 61696, "cacheWriteTokens": 0, "outputTokens": 165]
         ])))
@@ -723,7 +723,7 @@ struct AgentConversationPresentationTests {
         var conversation = AgentConversation()
         conversation.completedTurns = (0..<7).map { AgentTurnStatistics(id: "turn-\($0)", startedAt: .now) }
         for _ in 0..<54 {
-            conversation.recordModelCall(try #require(AgentModelCall.parse([
+            conversation.recordModelCall(try #require(AgentModelCall.streamedStep([
                 "api": "anthropicMessages", "status": 200, "streaming": true, "firstTokenMs": 950, "durationMs": 7400,
                 "usage": ["inputTokens": 1100, "cacheReadTokens": 65600, "cacheWriteTokens": 900, "outputTokens": 1500]
             ])))
@@ -745,7 +745,7 @@ struct AgentConversationPresentationTests {
             return turn
         }
         for index in 0..<54 {
-            let call = try #require(AgentModelCall.parse([
+            let call = try #require(AgentModelCall.streamedStep([
                 "api": "anthropicMessages", "status": 200, "streaming": true,
                 "firstTokenMs": 900 + index * 4, "durationMs": 7400,
                 "usage": ["inputTokens": 1100, "cacheReadTokens": 65600, "cacheWriteTokens": 900, "outputTokens": 1500],

@@ -31,14 +31,37 @@ export function parseHookLibrary(value: unknown): HookLibrary | null {
   return value as unknown as HookLibrary;
 }
 
-export function validHook(hook: AgentHook): boolean {
-  return /^[A-Za-z0-9_-]{1,80}$/.test(hook.name) && [...hook.description].length <= 200
-    && hook.command.trim().length > 0 && new TextEncoder().encode(hook.command).length <= 32768 && !hook.command.includes("\0")
-    && hook.agents.length > 0 && hook.agents.length <= 2 && new Set(hook.agents).size === hook.agents.length
-    && hook.agents.every(id => hookAgents.includes(id as typeof hookAgents[number]))
-    && (hook.matcher === "all" || hook.event === "before-tool" || hook.event === "after-tool")
-    && (hook.timeoutSeconds === null || (Number.isInteger(hook.timeoutSeconds) && hook.timeoutSeconds >= 1 && hook.timeoutSeconds <= 86400));
+/** One field-level problem from Core; `field` and `code` are stable identifiers for localization. */
+export interface HookDraftIssue { field: string; code: string }
+/** Core verdict for an unsaved draft; `timeoutSeconds` is the parsed value to store. */
+export interface HookDraftValidation { valid: boolean; issues: HookDraftIssue[]; timeoutSeconds: number | null }
+
+function parseDraftValidation(value: unknown): HookDraftValidation | null {
+  if (!record(value) || typeof value.valid !== "boolean" || !Array.isArray(value.issues)) return null;
+  if (!value.issues.every(issue => record(issue) && typeof issue.field === "string" && typeof issue.code === "string")) return null;
+  if (value.timeoutSeconds !== null && !Number.isInteger(value.timeoutSeconds)) return null;
+  return value as unknown as HookDraftValidation;
 }
+
+/**
+ * Validates an unsaved draft with the rules `agent.hooks` save enforces. The raw
+ * timeout text goes to Core so integer parsing and the range rule have one owner.
+ */
+export async function validateHookDraft(hook: AgentHook, timeoutText: string, library: HookLibrary): Promise<HookDraftValidation> {
+  const value = await invoke<unknown>("agent.hooks.validateDraft", {
+    hook: {
+      id: hook.id, name: hook.name, description: hook.description, event: hook.event, matcher: hook.matcher,
+      command: hook.command, timeoutText, agents: hook.agents,
+    },
+    existingHooks: library.hooks.map(entry => ({ id: entry.id, name: entry.name })),
+  });
+  const result = parseDraftValidation(value);
+  if (!result) throw new Error("The Hook draft validation response was not recognised.");
+  return result;
+}
+
+/** Localization key for one Core draft issue. */
+export const hookDraftIssueKey = (issue: HookDraftIssue) => `agent.hooks.draft.${issue.field}.${issue.code}`;
 
 /** Only configuration is written. Native runtimes retain shell, stdin and trust ownership. */
 export async function manageHooks(action: "read" | "save" | "remove" | "sync", library?: HookLibrary, hook?: AgentHook, id?: string): Promise<HookLibrary> {

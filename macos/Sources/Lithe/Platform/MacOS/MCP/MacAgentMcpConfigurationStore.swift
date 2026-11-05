@@ -233,6 +233,36 @@ final class MacAgentMcpConfigurationStore: McpConfigurationStore {
         }
     }
 
+    func librarySnapshot(_ files: [McpLibraryFileInput]) throws -> McpLibrarySnapshot {
+        struct Payload: Encodable { let files: [McpLibraryFileInput] }
+        do {
+            return try core.executeResult(command: "mcp.librarySnapshot", payload: Payload(files: files)).get()
+        } catch let error {
+            throw McpConfigurationError.core(error.message)
+        }
+    }
+
+    func validateDraft(_ draft: McpDraftPayload) throws -> McpDraftValidation {
+        struct Payload: Encodable { let draft: McpDraftPayload }
+        do {
+            return try core.executeResult(command: "mcp.validateDraft", payload: Payload(draft: draft)).get()
+        } catch let error {
+            throw McpConfigurationError.core(error.message)
+        }
+    }
+
+    func batchPlan(files: [McpLibraryFileInput], intent: McpBatchIntent) throws -> McpBatchOutcome {
+        struct Payload: Encodable {
+            let files: [McpLibraryFileInput]
+            let intent: McpBatchIntent
+        }
+        do {
+            return try core.executeResult(command: "mcp.batchPlan", payload: Payload(files: files, intent: intent)).get()
+        } catch let error {
+            throw McpConfigurationError.core(error.message)
+        }
+    }
+
     /// Appends to `.git/info/exclude` instead of the tracked `.gitignore` so the
     /// project's own version-control policy stays untouched.
     func excludeFromVersionControl(_ relativePath: String, workspace: URL) throws {

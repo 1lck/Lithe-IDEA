@@ -13,6 +13,7 @@ mod claude_desktop;
 mod claude_earlier_history;
 mod claude_subscription;
 pub mod cli_update;
+pub mod edit_review;
 mod codex_context;
 mod codex_history;
 mod codex_retry;
@@ -21,7 +22,9 @@ pub mod hooks;
 pub mod install;
 pub mod instructions;
 pub mod mcp_probe;
+mod model_call_statistics;
 mod model_calls;
+pub mod next_turn_config;
 mod model_proxy;
 mod prompt;
 mod prompt_retry;
@@ -35,6 +38,7 @@ mod subscription;
 mod workspace_context;
 
 pub use catalog::{ModelDelivery, ProviderProtocol};
+pub use model_call_statistics::ModelCallStatistics;
 pub use model_calls::{ContextComposition, ModelApi, ModelCall, ModelCallUsage};
 pub use prompt::PromptFile;
 
@@ -538,6 +542,15 @@ pub enum AgentCommand {
         config_id: String,
         value: String,
     },
+    /// Applies the choices a user made while a turn was running, after it
+    /// ended, as one ordered and confirmed sequence. See [`next_turn_config`].
+    ApplyNextTurnConfiguration {
+        token: String,
+        session_id: String,
+        /// The product's latest confirmed catalog of the session.
+        catalog: Vec<next_turn_config::CatalogOption>,
+        choices: Vec<next_turn_config::ConfigChoice>,
+    },
     Permission {
         request_id: String,
         option_id: Option<String>,
@@ -628,6 +641,21 @@ pub enum AgentEvent {
         session_id: String,
         config_options: Vec<SessionConfigOption>,
     },
+    /// Result of `applyNextTurnConfiguration`. `config_options` is the latest
+    /// catalog the Agent returned, present once any request succeeded, so the
+    /// product shows confirmed settings even when a later choice failed.
+    NextTurnConfigured {
+        token: String,
+        session_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        config_options: Option<Vec<SessionConfigOption>>,
+        /// Absent when every choice was applied.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        failure: Option<next_turn_config::ConfigFailure>,
+        /// Upstream diagnostics of a failed request; never localized.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
     TurnCancelling {
         session_id: String,
     },
@@ -685,6 +713,9 @@ pub enum AgentEvent {
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         after_turn_finished: bool,
         call: model_calls::ModelCall,
+        /// This call's contribution to turn and session statistics. Products
+        /// merge contributions; they never reinterpret `call` for accounting.
+        statistics: ModelCallStatistics,
     },
     /// The agent acknowledged the prompt's completion, including cancellation.
     TurnFinished {
@@ -1057,12 +1088,15 @@ async fn run_agent(
             let session: model_proxy::SessionResolver =
                 Arc::new(move || sole_running_session(&running));
             let calls = emit.clone();
+            let tracker = model_call_statistics::StatisticsTracker::default();
             let sink: model_proxy::CallSink =
                 Arc::new(move |session_id, after_turn_finished, call| {
+                    let statistics = tracker.contribution(session_id.as_deref(), &call);
                     calls(AgentEvent::ModelCall {
                         session_id,
                         after_turn_finished,
                         call,
+                        statistics,
                     })
                 });
             // Statistics are optional. A proxy that cannot start leaves the
@@ -1514,7 +1548,9 @@ where
                         return Ok(());
                     };
                     let presented = update_desktop.lock().map_err(|_| internal("Replay presentation is unavailable"))?.present(&session_id, update);
-                    for update in presented {
+                    for mut update in presented {
+                        // One evidence normalization for both products' edit review.
+                        edit_review::annotate(&mut update);
                         if update["sessionUpdate"] == "usage_update" {
                             if let Some(recovery) = &context_updates { recovery.prefer_upstream_report(&session_id); }
                         }
@@ -1833,7 +1869,8 @@ where
                                     Ok(mut desktop) => updates.into_iter().flat_map(|u| desktop.present(&session_id, u)).collect(),
                                     Err(_) => updates,
                                 };
-                                for update in updates {
+                                for mut update in updates {
+                                    edit_review::annotate(&mut update);
                                     emit(AgentEvent::Update { session_id: session_id.clone(), update });
                                 }
                             }
@@ -1917,6 +1954,40 @@ where
                                 Ok(response) => AgentEvent::SessionConfigured { token, session_id, config_options: response.config_options },
                                 Err(message) => failed(Some(token), Some(session_id), message),
                             });
+                        });
+                    }
+                    AgentCommand::ApplyNextTurnConfiguration { token, session_id, catalog, choices } => {
+                        if turns.lock().is_ok_and(|turns| turns.contains_key(&session_id)) {
+                            emit(failed(Some(token), Some(session_id), "Wait for the current turn before changing configuration".into()));
+                            continue;
+                        }
+                        let connection = connection.clone();
+                        let emit = emit.clone();
+                        tasks.spawn(async move {
+                            let mut plan = next_turn_config::NextTurnPlan::new(catalog, choices);
+                            let mut latest = None;
+                            let (failure, message) = loop {
+                                let choice = match plan.next() {
+                                    next_turn_config::Step::Done => break (None, None),
+                                    next_turn_config::Step::Failed(failure) => break (Some(failure), None),
+                                    next_turn_config::Step::Send(choice) => choice,
+                                };
+                                let result = request_with_timeout(
+                                    SESSION_REQUEST_TIMEOUT,
+                                    connection.send_request(SetSessionConfigOptionRequest::new(
+                                        session_id.clone(), choice.config_id, choice.value.as_str(),
+                                    )).block_task(),
+                                ).await;
+                                match result {
+                                    Ok(response) => {
+                                        let confirmed = plan.confirm(next_turn_config::catalog(&response.config_options));
+                                        latest = Some(response.config_options);
+                                        if let Err(failure) = confirmed { break (Some(failure), None); }
+                                    }
+                                    Err(message) => break (Some(next_turn_config::ConfigFailure::RequestFailed), Some(message)),
+                                }
+                            };
+                            emit(AgentEvent::NextTurnConfigured { token, session_id, config_options: latest, failure, message });
                         });
                     }
                     AgentCommand::Steer { token, session_id, text, files } => {

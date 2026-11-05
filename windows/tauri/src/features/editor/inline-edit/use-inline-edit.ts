@@ -7,7 +7,8 @@ import { useInlineEditToolbarStore } from "@/features/editor/stores/inline-edit-
 import { useTranslation } from "@/i18n/locale-provider";
 import { toast } from "sonner";
 import {
-  InlineEditError,
+  inlineEditContext,
+  inlineEditErrorMessage,
   requestInlineEdit,
 } from "@/features/editor/services/editor-inline-edit-service";
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
@@ -26,7 +27,6 @@ type InlineEditModelPositionResolver = (
 ) => { top: number; left: number } | null;
 type InlineEditAnchor = { line: number; column: number };
 
-const DEFAULT_INLINE_EDIT_INSTRUCTION = "Improve this code while preserving behavior.";
 const INLINE_EDIT_POPOVER_WIDTH = 380;
 const INLINE_EDIT_POPOVER_ESTIMATED_HEIGHT = 58;
 const INLINE_EDIT_POPOVER_MARGIN = 8;
@@ -384,8 +384,11 @@ export function useInlineEdit({
       }
     }
 
-    const beforeSelection = documentContent.slice(Math.max(0, startOffset - 12000), startOffset);
-    const afterSelection = documentContent.slice(endOffset, endOffset + 12000);
+    const { beforeSelection, afterSelection } = inlineEditContext(
+      documentContent,
+      startOffset,
+      endOffset,
+    );
 
     setInlineEditError(null);
     setIsInlineEditRunning(true);
@@ -398,7 +401,7 @@ export function useInlineEdit({
         beforeSelection,
         selectedText,
         afterSelection,
-        instruction: inlineEditInstruction.trim() || DEFAULT_INLINE_EDIT_INSTRUCTION,
+        instruction: inlineEditInstruction,
         filePath: buffer.path,
         languageId: buffer.language,
       });
@@ -437,14 +440,9 @@ export function useInlineEdit({
 
       toast.success(t("inlineEdit.applied"));
     } catch (error) {
-      const errorMessage =
-        error instanceof InlineEditError ? error.message : t("inlineEdit.failedTryAgain");
+      const errorMessage = inlineEditErrorMessage(error, t);
       setInlineEditError(errorMessage);
-      if (error instanceof InlineEditError) {
-        toast.error(error.message);
-      } else {
-        toast.error(t("inlineEdit.failedTryAgain"));
-      }
+      toast.error(errorMessage);
     } finally {
       setIsInlineEditRunning(false);
     }
