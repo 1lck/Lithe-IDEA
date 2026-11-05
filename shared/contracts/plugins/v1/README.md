@@ -1025,9 +1025,16 @@ They are excluded as `plugin-disk-install-state`. No runtime write targets the
 signed app bundle or Windows installation resources, so these paths do not
 change code signatures or Sparkle differential-update baselines.
 
-Windows currently shares the schemas and Rust validation only; it has no
-implementation of this declarative ZIP/directory snapshot and approval flow.
-Its existing worker-package import is a separate format. The feature matrix
+Windows has a narrower disk import. It copies a ZIP or unpacked directory into
+a private snapshot under the application's local data directory
+(`plugin-temp/lithe-plugin-disk-<id>`), reviews it with
+`plugins.marketplace.installReview`, and installs only after the user confirms.
+Confirmation re-runs the review and refuses a snapshot whose `plugin.json`
+changed after review. It does not verify publisher signatures, does not compute
+or recheck a digest of the other package files, and does not record approved
+programs or provenance; its installation record holds only the ID, active
+version and enabled state. It has no marketplace install path. Its existing
+worker-package import is a separate format. The feature matrix
 therefore keeps Windows `partial` and macOS runtime verification `pending`;
 static checks and Node resource tests alone do not verify the UI confirmation,
 complete program rendering, cleanup, or bundle hashes in a real workflow.
