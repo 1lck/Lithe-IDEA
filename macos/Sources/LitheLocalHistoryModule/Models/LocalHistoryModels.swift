@@ -20,6 +20,8 @@ public struct LocalHistoryEntry: Identifiable, Codable, Hashable, Sendable {
 }
 
 public typealias LocalHistoryReason = LitheCoreContracts.LocalHistoryReason
+public typealias LocalHistoryEvent = LitheCoreContracts.LocalHistoryEvent
+public typealias LocalHistorySnapshotPlan = LitheCoreContracts.LocalHistorySnapshotPlan
 
 public struct LocalHistoryRequest: Identifiable {
     public let id = UUID()
