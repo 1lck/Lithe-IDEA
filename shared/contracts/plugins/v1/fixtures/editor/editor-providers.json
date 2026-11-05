@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "description": "lithe/host/editor/registerProviders validation. `host.providerTypes` is what the host declared in getCapabilities (`services.editor.options.providerTypes`). Registration cases carry the method params without `context`; result cases carry one provider function's LSP 3.17 shaped result and the normalized value the host merges after the language server's own answer. Positions are zero-based LSP positions. A rejected registration names the host failure code; a rejected result is dropped whole.",
+  "host": {
+    "providerTypes": ["definition", "hover", "completion", "codeLens", "foldingRange", "semanticTokens", "documentLink"]
+  },
+  "registrations": [
+    {
+      "name": "resource keys navigate from templates to message bundles",
+      "params": {
+        "id": "message-keys",
+        "selector": { "languages": ["html"], "fileExtensions": [".Properties"], "fileNames": ["Messages"] },
+        "providers": {
+          "definition": { "function": "keys.definition" },
+          "hover": { "function": "keys.hover" },
+          "completion": { "function": "keys.complete", "triggerCharacters": ["."] },
+          "codeLens": { "function": "keys.usages" },
+          "semanticTokens": { "function": "keys.tokens", "legend": { "tokenTypes": ["property", "string"], "tokenModifiers": ["declaration"] } }
+        }
+      },
+      "expected": {
+        "status": "accepted",
+        "registration": {
+          "id": "message-keys",
+          "selector": { "languages": ["html"], "fileExtensions": ["properties"], "fileNames": ["messages"] },
+          "providers": {
+            "codeLens": { "function": "keys.usages", "budgetMs": 2000 },
+            "completion": { "function": "keys.complete", "triggerCharacters": ["."], "budgetMs": 400 },
+            "definition": { "function": "keys.definition", "budgetMs": 1500 },
+            "hover": { "function": "keys.hover", "budgetMs": 400 },
+            "semanticTokens": { "function": "keys.tokens", "legend": { "tokenTypes": ["property", "string"], "tokenModifiers": ["declaration"] }, "budgetMs": 2000 }
+          }
+        }
+      }
+    },
+    {
+      "name": "a provider type the host does not route",
+      "params": { "id": "message-keys", "selector": { "fileExtensions": ["properties"] }, "providers": { "signatureHelp": { "function": "keys.signature" } } },
+      "expected": { "status": "rejected", "code": "plugin.host.unsupportedOption", "details": { "option": "providers.signatureHelp" } }
+    },
+    {
+      "name": "diagnostics are not a provider",
+      "params": { "id": "message-keys", "selector": { "fileExtensions": ["properties"] }, "providers": { "diagnostics": { "function": "keys.check" } } },
+      "expected": { "status": "rejected", "code": "plugin.host.unsupportedOption", "details": { "option": "providers.diagnostics" } }
+    },
+    {
+      "name": "a selector names at least one language, extension or file",
+      "params": { "id": "message-keys", "selector": {}, "providers": { "hover": { "function": "keys.hover" } } },
+      "expected": { "status": "rejected", "code": "plugin.host.invalidParams" }
+    },
+    {
+      "name": "semantic tokens declare their legend",
+      "params": { "id": "message-keys", "selector": { "fileExtensions": ["properties"] }, "providers": { "semanticTokens": { "function": "keys.tokens" } } },
+      "expected": { "status": "rejected", "code": "plugin.host.invalidParams" }
+    },
+    {
+      "name": "budgets are the host's",
+      "params": { "id": "message-keys", "selector": { "fileExtensions": ["properties"] }, "providers": { "hover": { "function": "keys.hover", "budgetMs": 5000 } } },
+      "expected": { "status": "rejected", "code": "plugin.host.invalidParams" }
+    }
+  ],
+  "results": [
+    {
+      "name": "a definition link becomes its target selection",
+      "type": "definition",
+      "value": [ { "targetUri": "file:///workspace/messages.properties", "targetRange": { "start": { "line": 3, "character": 0 }, "end": { "line": 3, "character": 30 } }, "targetSelectionRange": { "start": { "line": 3, "character": 0 }, "end": { "line": 3, "character": 9 } } } ],
+      "expected": { "status": "accepted", "value": { "locations": [ { "uri": "file:///workspace/messages.properties", "range": { "start": { "line": 3, "character": 0 }, "end": { "line": 3, "character": 9 } } } ] } }
+    },
+    {
+      "name": "no definition",
+      "type": "definition",
+      "value": null,
+      "expected": { "status": "accepted", "value": { "locations": [] } }
+    },
+    {
+      "name": "a hover with a code block",
+      "type": "hover",
+      "value": { "contents": [ { "language": "properties", "value": "app.title=Lithe" }, "Defined in messages.properties" ], "range": { "start": { "line": 0, "character": 7 }, "end": { "line": 0, "character": 16 } } },
+      "expected": { "status": "accepted", "value": { "contents": [ { "kind": "markdown", "value": "```properties\napp.title=Lithe\n```" }, { "kind": "markdown", "value": "Defined in messages.properties" } ], "range": { "start": { "line": 0, "character": 7 }, "end": { "line": 0, "character": 16 } } } }
+    },
+    {
+      "name": "completion keeps presentation and edits only",
+      "type": "completion",
+      "value": { "isIncomplete": false, "items": [ { "label": "app.title", "kind": 10, "detail": "Lithe", "data": { "cursor": 1 }, "command": { "title": "Resolve", "command": "keys.resolve" } } ] },
+      "expected": { "status": "accepted", "value": { "isIncomplete": false, "items": [ { "label": "app.title", "kind": 10, "detail": "Lithe" } ] } }
+    },
+    {
+      "name": "a code lens calls a function of its plugin",
+      "type": "codeLens",
+      "value": [ { "range": { "start": { "line": 3, "character": 0 }, "end": { "line": 3, "character": 9 } }, "command": { "title": "2 usages", "command": "keys.usages.reveal", "arguments": [ { "key": "app.title" } ] } } ],
+      "expected": { "status": "accepted", "value": { "lenses": [ { "range": { "start": { "line": 3, "character": 0 }, "end": { "line": 3, "character": 9 } }, "command": { "title": "2 usages", "command": "keys.usages.reveal", "arguments": [ { "key": "app.title" } ] } } ] } }
+    },
+    {
+      "name": "a code lens without a command",
+      "type": "codeLens",
+      "value": [ { "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 0 } } } ],
+      "expected": { "status": "rejected" }
+    },
+    {
+      "name": "folding ranges keep their kind",
+      "type": "foldingRange",
+      "value": [ { "startLine": 0, "endLine": 4, "kind": "region", "collapsedText": "..." } ],
+      "expected": { "status": "accepted", "value": { "ranges": [ { "startLine": 0, "endLine": 4, "kind": "region" } ] } }
+    },
+    {
+      "name": "semantic tokens index the registered legend",
+      "type": "semanticTokens",
+      "legend": { "tokenTypes": ["property", "string"], "tokenModifiers": ["declaration"] },
+      "value": { "resultId": "1", "data": [0, 0, 9, 0, 1, 0, 10, 5, 1, 0] },
+      "expected": { "status": "accepted", "value": { "data": [0, 0, 9, 0, 1, 0, 10, 5, 1, 0] } }
+    },
+    {
+      "name": "a semantic token type outside the legend",
+      "type": "semanticTokens",
+      "legend": { "tokenTypes": ["property"], "tokenModifiers": [] },
+      "value": { "data": [0, 0, 9, 1, 0] },
+      "expected": { "status": "rejected" }
+    },
+    {
+      "name": "a document link needs an absolute target",
+      "type": "documentLink",
+      "value": [ { "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 4 } }, "target": "messages.properties" } ],
+      "expected": { "status": "rejected" }
+    },
+    {
+      "name": "a document link to a bundle",
+      "type": "documentLink",
+      "value": [ { "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 4 } }, "target": "file:///workspace/messages.properties", "tooltip": "Open bundle" } ],
+      "expected": { "status": "accepted", "value": { "links": [ { "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 4 } }, "target": "file:///workspace/messages.properties", "tooltip": "Open bundle" } ] } }
+    }
+  ]
+}

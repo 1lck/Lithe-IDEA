@@ -5,6 +5,7 @@ pub mod capabilities;
 pub mod declarative;
 /// Independent, host-rendered editor actions of ordinary tool plugins.
 pub mod editor_actions;
+pub mod editor_providers;
 pub(crate) mod executables;
 pub(crate) mod grammar;
 pub(crate) mod keymap_import;

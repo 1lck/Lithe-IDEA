@@ -6,6 +6,8 @@
 
 Java Support 的同一份清单现在区分两种来源：随应用发行的副本可以依靠宿主签名，用户下载安装的副本必须有 Lithe 发布者签名。两种来源使用同一插件 ID，经过校验的用户安装版本替代内置版本，不重复登记 Java 语言服务。官方发布工具能记录 ARM64、Intel 两个归档及各自哈希，并从发布标签读取对应 API 和能力声明；迁移保留启用选择并提供按需安装入口；主包只在完整双架构官方下载进入索引后移除资源。自动上架仍暂停，真实发布包按[独立分发提案](../../proposed/architecture/2026-10-24-java-support-independent-distribution.md)继续验收。
 
+2026-11-05 起 Lithe 不再区分官方插件和普通插件，下载版改用普通插件 ID `io.github.lithe-idea.java-support`、不签名，不再走本篇的发布者签名路径。本篇描述的代码仍是旧 ID 内置包的现状，等用户迁到新 ID 后随旧 ID 一起退役，见[通用 API 与语言闸门](../../proposed/architecture/2026-11-04-java-extraction-generic-apis-and-gate.md)的 Q1。
+
 ## 问题
 
 Java 已经是声明式插件，但 `sameTeamAsHost` 原来只接受应用签名封装内的文件。直接把目录放到用户插件目录会被拒绝；直接把策略改成 `publisherPackage` 又会要求普通应用构建持有插件发布私钥。

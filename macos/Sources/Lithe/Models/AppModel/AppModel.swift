@@ -160,6 +160,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var shortcutSessionCoordinator: ShortcutSessionCoordinator?
     private var documentLanguageCoordinator: DocumentLanguageCoordinator?
     private var sidebarRefreshTask: Task<Void, Never>?
+    /// The modifier hover's plugin definition query; a newer hover cancels it.
+    let pluginDefinitionHover = PluginDefinitionHover()
     private var moduleSessionCoordinator: ModuleSessionCoordinator?
     var isModuleRuntimeShuttingDown: Bool { moduleSessionCoordinator?.isShuttingDown == true }
     private(set) var isProjectSessionClosed = false
