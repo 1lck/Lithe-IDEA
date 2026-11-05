@@ -262,15 +262,12 @@ final class GitHubFeatureModel: ObservableObject {
             base: base,
             head: head,
             commitMessages: comparison.commits.map(\.message),
-            files: comparison.files.compactMap { file in
-                guard let patch = file.patch,
-                      !patch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    return nil
-                }
-                return PullRequestDescriptionFileInput(
+            // Core owns the evidence policy: metadata-only files still reach its sensitive-path check.
+            files: comparison.files.map { file in
+                PullRequestDescriptionFileInput(
                     path: file.path,
                     changeKind: file.pullRequestDescriptionChangeKind,
-                    patch: patch
+                    patch: file.patch ?? ""
                 )
             }
         )

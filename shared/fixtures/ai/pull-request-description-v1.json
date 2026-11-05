@@ -1,0 +1,190 @@
+{
+  "version": 1,
+  "provider": {
+    "id": "fixture-provider",
+    "name": "Example",
+    "endpoint": "https://api.example.com/v1",
+    "model": "example-model",
+    "apiProtocol": "chatCompletions",
+    "authentication": "bearer",
+    "source": "local",
+    "requiresApiKey": true,
+    "allowsInsecureHttp": false,
+    "chatTokenLimitField": "max_completion_tokens"
+  },
+  "options": {
+    "language": "english",
+    "format": "custom",
+    "customTemplate": "## Summary\n\n{summary}\n\n## Testing\n\n{testing}",
+    "maximumDiffCharacters": 32000,
+    "reasoningEffort": "default"
+  },
+  "comparison": {
+    "repository": "example/lithe",
+    "base": "main",
+    "head": "feature/ai-pr",
+    "commitMessages": [
+      "Add generation"
+    ],
+    "files": [
+      {
+        "path": "Sources/PullRequest.swift",
+        "changeKind": "modified",
+        "diff": "@@ -1 +1 @@\n-old\n+new"
+      },
+      {
+        "path": "Assets/logo.png",
+        "changeKind": "modified",
+        "diff": ""
+      }
+    ]
+  },
+  "expectedPrompt": {
+    "outputTokens": 4096,
+    "systemContains": [
+      "Preserve this Markdown template",
+      "never claim tests passed",
+      "## Testing"
+    ],
+    "userContains": [
+      "Base branch: \"main\"",
+      "Compare branch: \"feature/ai-pr\"",
+      "1. Add generation",
+      "path: \"Sources/PullRequest.swift\"",
+      "+new"
+    ],
+    "userExcludes": [
+      "Assets/logo.png"
+    ]
+  },
+  "responses": [
+    {
+      "protocol": "responses",
+      "tokenField": "max_output_tokens",
+      "body": {
+        "output_text": "{\"title\": \"Add AI pull request descriptions\", \"description\": \"## Summary\\n\\nAdds grounded pull request descriptions.\"}"
+      }
+    },
+    {
+      "protocol": "chatCompletions",
+      "tokenField": "max_completion_tokens",
+      "body": {
+        "choices": [
+          {
+            "message": {
+              "content": "```json\n{\"title\": \"Add AI pull request descriptions\", \"description\": \"## Summary\\n\\nAdds grounded pull request descriptions.\"}\n```"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "protocol": "anthropicMessages",
+      "tokenField": "max_tokens",
+      "body": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"title\": \"Add AI pull request descriptions\", \"description\": \"## Summary\\n\\nAdds grounded pull request descriptions.\"}"
+          }
+        ]
+      }
+    }
+  ],
+  "expectedDescription": {
+    "title": "Add AI pull request descriptions",
+    "description": "## Summary\n\nAdds grounded pull request descriptions."
+  },
+  "planRejections": [
+    {
+      "case": "credentialFileUsedToBeSentByMacOS",
+      "files": [
+        {
+          "path": "config/credentials.json",
+          "changeKind": "modified",
+          "diff": "+x"
+        }
+      ],
+      "code": "AI_COMMIT_SENSITIVE_FILE"
+    },
+    {
+      "case": "privateKey",
+      "files": [
+        {
+          "path": "deploy/id_ed25519",
+          "changeKind": "added",
+          "diff": "+x"
+        }
+      ],
+      "code": "AI_COMMIT_SENSITIVE_FILE"
+    },
+    {
+      "case": "noTextualPatch",
+      "files": [
+        {
+          "path": "Assets/logo.png",
+          "changeKind": "modified",
+          "diff": "  \n"
+        }
+      ],
+      "code": "AI_PULL_REQUEST_EMPTY_COMPARISON"
+    }
+  ],
+  "decodeRejections": [
+    {
+      "case": "titleOnlyUsedToBeAcceptedByWindows",
+      "protocol": "chatCompletions",
+      "body": {
+        "choices": [
+          {
+            "message": {
+              "content": "{\"title\":\"Only a title\"}"
+            }
+          }
+        ]
+      },
+      "code": "AI_PULL_REQUEST_INVALID_RESPONSE"
+    },
+    {
+      "case": "proseAroundJsonUsedToBeAcceptedByWindows",
+      "protocol": "chatCompletions",
+      "body": {
+        "choices": [
+          {
+            "message": {
+              "content": "Here is the draft: {\"title\": \"Add AI pull request descriptions\", \"description\": \"## Summary\\n\\nAdds grounded pull request descriptions.\"}"
+            }
+          }
+        ]
+      },
+      "code": "AI_PULL_REQUEST_INVALID_RESPONSE"
+    },
+    {
+      "case": "blankDescription",
+      "protocol": "responses",
+      "body": {
+        "output_text": "{\"title\":\"Title\",\"description\":\"   \"}"
+      },
+      "code": "AI_PULL_REQUEST_INVALID_RESPONSE"
+    },
+    {
+      "case": "empty",
+      "protocol": "anthropicMessages",
+      "body": {
+        "content": []
+      },
+      "code": "AI_PULL_REQUEST_EMPTY_RESPONSE"
+    },
+    {
+      "case": "outputLimit",
+      "protocol": "responses",
+      "body": {
+        "output_text": "{\"title\":",
+        "incomplete_details": {
+          "reason": "max_output_tokens"
+        }
+      },
+      "code": "AI_COMMIT_OUTPUT_LIMIT"
+    }
+  ]
+}

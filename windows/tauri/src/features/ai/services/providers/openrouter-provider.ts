@@ -3,6 +3,8 @@ import {
   type ProviderHeaders,
   type ProviderModel,
   type StreamRequest,
+  chatCompletionsFacts,
+  type ProviderRequestFacts,
 } from "./ai-provider-interface";
 import { providerFetch } from "./provider-fetch";
 
@@ -35,6 +37,15 @@ export class OpenRouterProvider extends AIProvider {
       console.error(`${this.id} model fetch error:`, error);
       return [];
     }
+  }
+
+  requestFacts(): ProviderRequestFacts {
+    // OpenRouter routes any model id it knows, including ones absent from the cached listing.
+    return chatCompletionsFacts(this.config.apiUrl, {
+      acceptsUnlistedModels: true,
+      chatTokenLimitField: "max_completion_tokens",
+      attributionHeaders: { "HTTP-Referer": "https://localhost", "X-Title": "Lithe" },
+    });
   }
 
   buildHeaders(apiKey?: string): ProviderHeaders {

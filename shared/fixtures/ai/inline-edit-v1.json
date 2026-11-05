@@ -1,0 +1,323 @@
+{
+  "version": 1,
+  "edit": {
+    "beforeSelection": "fn main() {\n",
+    "selectedText": "    println!(\"hi\");",
+    "afterSelection": "\n}\n",
+    "instruction": "  ",
+    "filePath": "src/main.rs",
+    "languageId": "rust"
+  },
+  "expectedUserPrompt": "File: src/main.rs\nLanguage: rust\n\nInstruction:\nImprove this code while preserving behavior.\n\nBefore selection:\nfn main() {\n\n\nSelected text:\n    println!(\"hi\");\n\nAfter selection:\n\n}\n",
+  "plans": [
+    {
+      "case": "chatCompletionsCatalogModel",
+      "provider": {
+        "wireProtocol": "chatCompletions",
+        "endpoint": "https://api.example.com/v1/chat/completions",
+        "requiresApiKey": true,
+        "acceptsUnlistedModels": false,
+        "chatTokenLimitField": "max_tokens",
+        "supportsTemperature": true
+      },
+      "model": {
+        "id": "example-model",
+        "listing": "catalog",
+        "maxTokens": 200000
+      },
+      "expected": {
+        "url": "https://api.example.com/v1/chat/completions",
+        "tokenField": "max_tokens",
+        "outputTokens": 4096,
+        "temperature": 0.2,
+        "credential": {
+          "required": true,
+          "header": "Authorization",
+          "scheme": "bearer"
+        }
+      }
+    },
+    {
+      "case": "compatibleBaseUrlGetsPathOnce",
+      "provider": {
+        "wireProtocol": "chatCompletions",
+        "endpoint": "http://localhost:11434/v1/",
+        "requiresApiKey": false,
+        "allowsInsecureHttp": true,
+        "acceptsUnlistedModels": false,
+        "chatTokenLimitField": "max_completion_tokens",
+        "supportsTemperature": false
+      },
+      "model": {
+        "id": "local-model",
+        "listing": "discovered",
+        "maxTokens": null
+      },
+      "expected": {
+        "url": "http://localhost:11434/v1/chat/completions",
+        "tokenField": "max_completion_tokens",
+        "outputTokens": 4096,
+        "temperature": null,
+        "credential": {
+          "required": false,
+          "header": "Authorization",
+          "scheme": "bearer"
+        }
+      }
+    },
+    {
+      "case": "anthropicSmallModelLimit",
+      "provider": {
+        "wireProtocol": "anthropicMessages",
+        "endpoint": "https://api.example.com/v1/messages",
+        "requiresApiKey": true
+      },
+      "model": {
+        "id": "example-claude",
+        "listing": "catalog",
+        "maxTokens": 1024
+      },
+      "expected": {
+        "url": "https://api.example.com/v1/messages",
+        "tokenField": "max_tokens",
+        "outputTokens": 1024,
+        "temperature": 0.2,
+        "credential": {
+          "required": true,
+          "header": "x-api-key",
+          "scheme": "raw"
+        }
+      }
+    },
+    {
+      "case": "geminiModelPath",
+      "provider": {
+        "wireProtocol": "geminiGenerateContent",
+        "endpoint": "https://generative.example.com/v1beta/models",
+        "requiresApiKey": true
+      },
+      "model": {
+        "id": "example-gemini",
+        "listing": "catalog",
+        "maxTokens": 65536
+      },
+      "expected": {
+        "url": "https://generative.example.com/v1beta/models/example-gemini:generateContent",
+        "tokenField": "generationConfig.maxOutputTokens",
+        "outputTokens": 4096,
+        "temperature": 0.2,
+        "credential": {
+          "required": true,
+          "header": "x-goog-api-key",
+          "scheme": "raw"
+        }
+      }
+    },
+    {
+      "case": "unlistedModelOnOpenProvider",
+      "provider": {
+        "wireProtocol": "chatCompletions",
+        "endpoint": "https://router.example.com/api/v1/chat/completions",
+        "requiresApiKey": true,
+        "acceptsUnlistedModels": true
+      },
+      "model": {
+        "id": "vendor/new-model",
+        "listing": "unlisted"
+      },
+      "expected": {
+        "url": "https://router.example.com/api/v1/chat/completions",
+        "tokenField": "max_tokens",
+        "outputTokens": 4096,
+        "temperature": 0.2,
+        "credential": {
+          "required": true,
+          "header": "Authorization",
+          "scheme": "bearer"
+        }
+      }
+    }
+  ],
+  "planRejections": [
+    {
+      "case": "unlistedModel",
+      "provider": {
+        "wireProtocol": "chatCompletions",
+        "endpoint": "https://api.example.com/v1/chat/completions",
+        "requiresApiKey": true
+      },
+      "model": {
+        "id": "missing",
+        "listing": "unlisted"
+      },
+      "code": "AI_INLINE_EDIT_MODEL_NOT_FOUND"
+    },
+    {
+      "case": "blankModel",
+      "provider": {
+        "wireProtocol": "chatCompletions",
+        "endpoint": "https://api.example.com/v1",
+        "requiresApiKey": true
+      },
+      "model": {
+        "id": "  ",
+        "listing": "catalog"
+      },
+      "code": "AI_INLINE_EDIT_MODEL_MISSING"
+    },
+    {
+      "case": "customEndpointMissing",
+      "provider": {
+        "wireProtocol": "chatCompletions",
+        "endpoint": " ",
+        "requiresApiKey": false,
+        "acceptsUnlistedModels": true
+      },
+      "model": {
+        "id": "m",
+        "listing": "unlisted"
+      },
+      "code": "AI_INLINE_EDIT_ENDPOINT_MISSING"
+    },
+    {
+      "case": "httpWithoutTrust",
+      "provider": {
+        "wireProtocol": "chatCompletions",
+        "endpoint": "http://api.example.com/v1",
+        "requiresApiKey": true
+      },
+      "model": {
+        "id": "m",
+        "listing": "catalog"
+      },
+      "code": "AI_INLINE_EDIT_INSECURE_ENDPOINT"
+    },
+    {
+      "case": "queryCouldCarryCredential",
+      "provider": {
+        "wireProtocol": "geminiGenerateContent",
+        "endpoint": "https://generative.example.com/v1beta/models?key=x",
+        "requiresApiKey": true
+      },
+      "model": {
+        "id": "m",
+        "listing": "catalog"
+      },
+      "code": "AI_INLINE_EDIT_INVALID_ENDPOINT"
+    },
+    {
+      "case": "providerWithoutWireProtocol",
+      "provider": {
+        "wireProtocol": "",
+        "endpoint": "https://api.example.com",
+        "requiresApiKey": false
+      },
+      "model": {
+        "id": "m",
+        "listing": "catalog"
+      },
+      "code": "AI_INLINE_EDIT_UNSUPPORTED_PROVIDER"
+    }
+  ],
+  "decodes": [
+    {
+      "case": "fencedReplacementKeepsIndentation",
+      "wireProtocol": "chatCompletions",
+      "response": {
+        "choices": [
+          {
+            "message": {
+              "content": "```rust\n    println!(\"hello\");\n```"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      },
+      "editedText": "    println!(\"hello\");"
+    },
+    {
+      "case": "anthropicText",
+      "wireProtocol": "anthropicMessages",
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "let value = 1;"
+          }
+        ],
+        "stop_reason": "end_turn"
+      },
+      "editedText": "let value = 1;"
+    },
+    {
+      "case": "geminiParts",
+      "wireProtocol": "geminiGenerateContent",
+      "response": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "let a"
+                },
+                {
+                  "text": " = 1;"
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ]
+      },
+      "editedText": "let a = 1;"
+    },
+    {
+      "case": "emptyIsAResult",
+      "wireProtocol": "chatCompletions",
+      "response": {
+        "choices": [
+          {
+            "message": {
+              "content": "  "
+            }
+          }
+        ]
+      },
+      "editedText": ""
+    },
+    {
+      "case": "truncatedUsedToBeApplied",
+      "wireProtocol": "chatCompletions",
+      "response": {
+        "choices": [
+          {
+            "message": {
+              "content": "fn partial("
+            },
+            "finish_reason": "length"
+          }
+        ]
+      },
+      "code": "AI_INLINE_EDIT_OUTPUT_LIMIT"
+    },
+    {
+      "case": "geminiTruncated",
+      "wireProtocol": "geminiGenerateContent",
+      "response": {
+        "candidates": [
+          {
+            "content": {
+              "parts": [
+                {
+                  "text": "fn"
+                }
+              ]
+            },
+            "finishReason": "MAX_TOKENS"
+          }
+        ]
+      },
+      "code": "AI_INLINE_EDIT_OUTPUT_LIMIT"
+    }
+  ]
+}

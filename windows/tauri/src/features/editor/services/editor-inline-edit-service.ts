@@ -1,4 +1,5 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { invoke } from "@/platform/tauri-core";
 import {
   type CustomProviderScope,
   getCustomProviderApiToken,
@@ -10,16 +11,15 @@ import {
   getProvider,
   shouldUseTauriFetchForProvider,
 } from "@/features/ai/services/providers/ai-provider-registry";
-import type { ProviderModel } from "@/features/ai/services/providers/ai-provider-interface";
 import { useAIChatStore } from "@/features/ai/stores/ai-chat.store";
-import type { AIMessage } from "@/features/ai/types/messages.types";
 import { getModelById, getProviderById } from "@/features/ai/types/providers.types";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { processStreamingResponse } from "@/utils/stream-utils";
 
-const DEFAULT_INLINE_EDIT_PROVIDER_ID = "openrouter";
-const DEFAULT_INLINE_EDIT_INSTRUCTION = "Improve this code while preserving behavior.";
-
+/**
+ * Rust Core plans and decodes inline edits (`ai.inlineEdit.plan` / `ai.inlineEdit.decode`):
+ * model limits, surrounding context, prompt, request body and output cleanup. This
+ * module only resolves catalog facts, reads the credential and performs HTTP.
+ */
 export interface InlineEditRequest {
   provider?: string;
   customProviderScope: CustomProviderScope;
@@ -32,188 +32,154 @@ export interface InlineEditRequest {
   languageId?: string;
 }
 
+/** Failure with a stable code; `status` is the provider HTTP status when one was returned. */
 export class InlineEditError extends Error {
-  status: number;
+  code: string;
+  status: number | null;
 
-  constructor(message: string, status: number) {
-    super(message);
+  constructor(code: string, status: number | null = null) {
+    super(code);
     this.name = "InlineEditError";
+    this.code = code;
     this.status = status;
   }
+}
+
+/** Translation key and parameters for an inline edit failure. */
+export function inlineEditErrorMessage(
+  error: unknown,
+  t: (key: string, values?: Record<string, string | number>) => string,
+): string {
+  if (!(error instanceof InlineEditError)) return t("inlineEdit.failedTryAgain");
+  if (error.code === "AI_INLINE_EDIT_HTTP") {
+    return t("inlineEdit.AI_INLINE_EDIT_HTTP", { status: error.status ?? 0 });
+  }
+  const key = `inlineEdit.${error.code}`;
+  const translated = t(key);
+  return translated === key ? t("inlineEdit.failedTryAgain") : translated;
+}
+
+// Core keeps 12,000 Unicode scalars on each side (`ai.inlineEdit.plan`). A scalar is at
+// most two UTF-16 units, so this read window always contains Core's full context.
+const INLINE_EDIT_READ_WINDOW = 24_000;
+
+const isLowSurrogate = (code: number) => code >= 0xdc00 && code <= 0xdfff;
+const isHighSurrogate = (code: number) => code >= 0xd800 && code <= 0xdbff;
+
+/** Context window that never splits a surrogate pair, which would not survive the JSON boundary. */
+export function inlineEditContext(content: string, start: number, end: number) {
+  let before = Math.max(0, start - INLINE_EDIT_READ_WINDOW);
+  if (before > 0 && isLowSurrogate(content.charCodeAt(before))) before += 1;
+  let after = Math.min(content.length, end + INLINE_EDIT_READ_WINDOW);
+  if (after < content.length && isHighSurrogate(content.charCodeAt(after - 1))) after -= 1;
+  return {
+    beforeSelection: content.slice(before, start),
+    afterSelection: content.slice(end, after),
+  };
+}
+
+interface InlineEditPlan {
+  url: string;
+  body: unknown;
+  headers: Record<string, string>;
+  credential: { required: boolean; header: string; scheme: "bearer" | "raw" };
+}
+
+const RESPONSE_BYTES = 2 * 1024 * 1024;
+
+function coreFailure(error: unknown): InlineEditError {
+  const code = error instanceof Error ? error.message : String(error);
+  return new InlineEditError(code.startsWith("AI_INLINE_EDIT_") ? code : "AI_INLINE_EDIT_FAILED");
+}
+
+function modelFacts(providerId: string, modelId: string) {
+  const catalog = getModelById(providerId, modelId);
+  if (catalog) return { id: modelId, listing: "catalog", maxTokens: catalog.maxTokens };
+  const discovered = useAIChatStore
+    .getState()
+    .dynamicModels[providerId]?.find((model) => model.id === modelId);
+  if (discovered) return { id: modelId, listing: "discovered", maxTokens: discovered.maxTokens };
+  return { id: modelId, listing: "unlisted" };
 }
 
 export async function requestInlineEdit(
   request: InlineEditRequest,
 ): Promise<{ editedText: string }> {
-  const normalizedRequest = {
-    ...request,
-    provider: request.provider?.trim() || DEFAULT_INLINE_EDIT_PROVIDER_ID,
-    model: request.model.trim(),
-    beforeSelection: request.beforeSelection,
-    selectedText: request.selectedText,
-    afterSelection: request.afterSelection || "",
-    instruction: request.instruction?.trim() || DEFAULT_INLINE_EDIT_INSTRUCTION,
-  };
-
-  if (!normalizedRequest.model) {
-    throw new InlineEditError("No inline edit model selected.", 400);
-  }
-
-  return requestProviderInlineEdit(normalizedRequest);
-}
-
-function resolveInlineEditModel(providerId: string, modelId: string): ProviderModel | undefined {
-  const staticModel = getModelById(providerId, modelId);
-  if (staticModel) return staticModel;
-
-  const dynamicModel = useAIChatStore.getState().dynamicModels[providerId]?.find((model) => {
-    return model.id === modelId;
-  });
-  if (dynamicModel) {
-    return {
-      ...dynamicModel,
-      maxTokens: dynamicModel.maxTokens || 4096,
-    };
-  }
-
-  if (providerId === "openrouter" || providerId === "custom") {
-    return {
-      id: modelId,
-      name: modelId,
-      maxTokens: 4096,
-    };
-  }
-
-  return undefined;
-}
-
-async function requestProviderInlineEdit(
-  request: Required<
-    Pick<InlineEditRequest, "provider" | "model" | "beforeSelection" | "selectedText">
-  > &
-    Omit<InlineEditRequest, "provider" | "model" | "beforeSelection" | "selectedText">,
-): Promise<{ editedText: string }> {
-  const providerConfig = getProviderById(request.provider);
-  const model = resolveInlineEditModel(request.provider, request.model);
-
-  if (!providerConfig) {
-    throw new InlineEditError(`Provider not found: ${request.provider}`, 400);
-  }
-
-  if (!model) {
-    throw new InlineEditError(`Model not found: ${request.provider}/${request.model}`, 400);
-  }
-
+  const providerId = request.provider?.trim() ?? "";
+  const modelId = request.model.trim();
   const settings = useSettingsStore.getState().settings;
-  const customProviderScope = request.customProviderScope;
-  const customProviderBaseUrl =
-    request.provider === "custom"
-      ? resolveCustomProviderBaseUrl(settings, customProviderScope)
-      : "";
-  if (request.provider === "custom" && !customProviderBaseUrl) {
-    throw new InlineEditError(
-      "Custom provider base URL is required. Add one in Settings > AI.",
-      400,
-    );
-  }
+  const scope = request.customProviderScope;
+  const catalogEntry = getProviderById(providerId);
   const provider =
-    request.provider === "custom"
-      ? createCustomProvider(customProviderBaseUrl)
-      : getProvider(request.provider);
-  if (!provider) {
-    throw new InlineEditError(`Provider not found: ${request.provider}`, 400);
+    providerId === "custom"
+      ? createCustomProvider(resolveCustomProviderBaseUrl(settings, scope))
+      : getProvider(providerId);
+  if (!catalogEntry || !provider) throw new InlineEditError("AI_INLINE_EDIT_PROVIDER_NOT_FOUND");
+  const facts = provider.requestFacts(modelId);
+  if (!facts) throw new InlineEditError("AI_INLINE_EDIT_UNSUPPORTED_PROVIDER");
+  const { attributionHeaders, ...providerFacts } = facts;
+
+  let plan: InlineEditPlan;
+  try {
+    plan = await invoke<InlineEditPlan>("ai.inlineEdit.plan", {
+      provider: { ...providerFacts, requiresApiKey: catalogEntry.requiresApiKey },
+      model: modelFacts(providerId, modelId),
+      edit: {
+        beforeSelection: request.beforeSelection,
+        selectedText: request.selectedText,
+        afterSelection: request.afterSelection ?? "",
+        instruction: request.instruction ?? "",
+        filePath: request.filePath ?? "",
+        languageId: request.languageId ?? "",
+      },
+    });
+  } catch (error) {
+    throw coreFailure(error);
   }
 
-  const apiKey =
-    request.provider === "custom"
-      ? await getCustomProviderApiToken(customProviderScope)
-      : providerConfig.requiresApiKey
-        ? await getProviderApiToken(request.provider)
-        : await getProviderApiToken(request.provider).catch(() => null);
-  if (providerConfig.requiresApiKey && !apiKey) {
-    throw new InlineEditError(`${providerConfig.name} API key is required for inline edit.`, 402);
+  const storedKey =
+    providerId === "custom"
+      ? await getCustomProviderApiToken(scope)
+      : await getProviderApiToken(providerId).catch(() => null);
+  const apiKey = storedKey || provider.storedCredential();
+  if (plan.credential.required && !apiKey) {
+    throw new InlineEditError("AI_INLINE_EDIT_MISSING_KEY");
+  }
+  const headers: Record<string, string> = { ...attributionHeaders, ...plan.headers };
+  if (apiKey) {
+    headers[plan.credential.header] =
+      plan.credential.scheme === "bearer" ? `Bearer ${apiKey}` : apiKey;
   }
 
-  const messages = buildInlineEditMessages(request);
-  const streamRequest = {
-    modelId: request.model,
-    messages,
-    maxTokens: Math.min(model.maxTokens || 4096, 4096),
-    temperature: 0.2,
-    apiKey: apiKey || undefined,
-  };
-
-  const headers = provider.buildHeaders(apiKey || undefined);
-  const payload = provider.buildPayload(streamRequest);
-  const url = provider.buildUrl ? provider.buildUrl(streamRequest) : provider.apiUrl;
-  const needsTauriFetch = shouldUseTauriFetchForProvider(request.provider);
-  const fetchFn = needsTauriFetch ? tauriFetch : fetch;
-
-  const response = await fetchFn(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload),
-  });
-
+  const fetchFn = shouldUseTauriFetchForProvider(providerId) ? tauriFetch : fetch;
+  let response: Response;
+  try {
+    response = await fetchFn(plan.url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(plan.body),
+    });
+  } catch {
+    throw new InlineEditError("AI_INLINE_EDIT_NETWORK_ERROR");
+  }
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new InlineEditError(
-      errorText || `${providerConfig.name} inline edit request failed (${response.status})`,
-      response.status,
-    );
+    // Provider error bodies may echo request content; only the status is surfaced.
+    throw new InlineEditError("AI_INLINE_EDIT_HTTP", response.status);
   }
-
-  let editedText = "";
-  let streamError: string | null = null;
-  await processStreamingResponse(
-    response,
-    (chunk) => {
-      editedText += chunk;
-    },
-    () => {},
-    (error) => {
-      streamError = error;
-    },
-  );
-
-  if (streamError) {
-    throw new InlineEditError(streamError, 500);
+  const text = await response.text();
+  if (text.length > RESPONSE_BYTES) throw new InlineEditError("AI_INLINE_EDIT_INVALID_RESPONSE");
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new InlineEditError("AI_INLINE_EDIT_INVALID_RESPONSE");
   }
-
-  return { editedText: cleanInlineEditOutput(editedText) };
-}
-
-function buildInlineEditMessages(request: InlineEditRequest): AIMessage[] {
-  const fileContext = [
-    request.filePath ? `File: ${request.filePath}` : null,
-    request.languageId ? `Language: ${request.languageId}` : null,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  return [
-    {
-      role: "system",
-      content:
-        "You are Lithe inline edit. Return only the replacement text for the selected text. Do not include markdown fences, explanations, or surrounding unchanged context.",
-    },
-    {
-      role: "user",
-      content: [
-        fileContext,
-        `Instruction:\n${request.instruction || DEFAULT_INLINE_EDIT_INSTRUCTION}`,
-        `Before selection:\n${request.beforeSelection}`,
-        `Selected text:\n${request.selectedText}`,
-        `After selection:\n${request.afterSelection || ""}`,
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
-    },
-  ];
-}
-
-function cleanInlineEditOutput(value: string): string {
-  const trimmed = value.trim();
-  const fenceMatch = trimmed.match(/^```[a-zA-Z0-9_-]*\n([\s\S]*?)\n```$/);
-  return fenceMatch ? fenceMatch[1] : trimmed;
+  try {
+    return await invoke<{ editedText: string }>("ai.inlineEdit.decode", {
+      wireProtocol: facts.wireProtocol,
+      response: body,
+    });
+  } catch (error) {
+    throw coreFailure(error);
+  }
 }

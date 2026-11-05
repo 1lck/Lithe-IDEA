@@ -3,6 +3,7 @@ import {
   type ProviderHeaders,
   type ProviderModel,
   type StreamRequest,
+  type ProviderRequestFacts,
 } from "./ai-provider-interface";
 
 export class AnthropicProvider extends AIProvider {
@@ -36,6 +37,17 @@ export class AnthropicProvider extends AIProvider {
       console.error(`${this.id} model fetch error:`, error);
       return [];
     }
+  }
+
+  requestFacts(): ProviderRequestFacts {
+    return {
+      wireProtocol: "anthropicMessages",
+      endpoint: this.config.apiUrl,
+      allowsInsecureHttp: false,
+      acceptsUnlistedModels: false,
+      chatTokenLimitField: "max_tokens",
+      supportsTemperature: true,
+    };
   }
 
   buildHeaders(apiKey?: string): ProviderHeaders {

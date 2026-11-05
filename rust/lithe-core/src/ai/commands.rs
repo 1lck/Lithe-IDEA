@@ -1,7 +1,10 @@
 //! Credential-free JSON entry points for the shared commit generation rules.
 
 use super::generation::commit_input_budget;
-use super::{decode_message, plan_commit_bounded, CommitFile, CommitOptions, Provider};
+use super::{
+    decode_message, decode_pull_request, plan_commit_bounded, plan_pull_request, CommitFile,
+    CommitOptions, Provider, PullRequestComparison, PullRequestOptions,
+};
 use crate::protocol::{CoreError, ErrorCode};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -59,4 +62,35 @@ pub(crate) fn commit_input_budget_command(payload: Value) -> Result<Value, CoreE
     let files = commit_input_budget(request.maximum_diff_characters, &request.file_lengths)
         .map_err(|code| CoreError::new(ErrorCode::InvalidRequest, code))?;
     Ok(json!({"files": files}))
+}
+
+#[derive(Deserialize)]
+struct PullRequestPlanRequest {
+    provider: Provider,
+    options: PullRequestOptions,
+    comparison: PullRequestComparison,
+}
+
+#[derive(Deserialize)]
+struct PullRequestDecodeRequest {
+    protocol: String,
+    response: Value,
+}
+
+/// `ai.pullRequest.plan`: credential-free request for a pull request title and description.
+pub(crate) fn plan_pull_request_command(payload: Value) -> Result<Value, CoreError> {
+    let request: PullRequestPlanRequest =
+        serde_json::from_value(payload).map_err(|_| invalid_payload())?;
+    let plan = plan_pull_request(&request.provider, &request.options, &request.comparison)
+        .map_err(|code| CoreError::new(ErrorCode::InvalidRequest, code))?;
+    Ok(json!({"url": plan.url, "body": plan.body}))
+}
+
+/// `ai.pullRequest.decode`: strict title and description from a provider response.
+pub(crate) fn decode_pull_request_command(payload: Value) -> Result<Value, CoreError> {
+    let request: PullRequestDecodeRequest =
+        serde_json::from_value(payload).map_err(|_| invalid_payload())?;
+    let description = decode_pull_request(&request.protocol, &request.response)
+        .map_err(|code| CoreError::new(ErrorCode::InvalidRequest, code))?;
+    serde_json::to_value(description).map_err(|_| invalid_payload())
 }
