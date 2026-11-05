@@ -45,6 +45,8 @@ export interface CommitDiffBlockPlan {
 }
 
 export type CommitDiffBlockAction = "include" | "exclude" | "rollback";
+/** Whole-file inclusion; Core checks the same token under its write lock. */
+export type CommitDiffFileAction = "includeFile" | "excludeFile";
 export type CommitDiffBlockWriteResult = "applied" | "stale" | "unsafe" | "failed";
 
 const payload = (target: CommitDiffBlockTarget) => ({
@@ -79,12 +81,13 @@ export async function planCommitDiffBlocks(target: CommitDiffBlockTarget): Promi
  */
 export async function applyCommitDiffBlock(
   target: CommitDiffBlockTarget,
-  blockId: string,
-  action: CommitDiffBlockAction,
+  blockId: string | null,
+  action: CommitDiffBlockAction | CommitDiffFileAction,
   token: string,
 ): Promise<CommitDiffBlockWriteResult> {
   try {
-    await tauriInvoke("git.applyDiffBlock", { ...payload(target), blockId, action, token });
+    await tauriInvoke("git.applyDiffBlock", {
+      ...payload(target), ...(blockId === null ? {} : { blockId }), action, token });
   } catch (error) {
     const message = errorMessage(error);
     if (message.includes("GIT_DIFF_BLOCK_STALE")) return "stale";
@@ -96,7 +99,9 @@ export async function applyCommitDiffBlock(
     repoPath: target.repoPath,
     filePath: target.filePath,
     scopes: ["working-tree"],
-    source: action === "rollback" ? "discard-hunk" : action === "include" ? "stage-hunk" : "unstage-hunk",
+    source: action === "rollback" ? "discard-hunk"
+      : action === "include" ? "stage-hunk" : action === "exclude" ? "unstage-hunk"
+      : action === "includeFile" ? "stage-files" : "unstage-files",
   });
   return "applied";
 }

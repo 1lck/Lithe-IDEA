@@ -809,8 +809,9 @@ pub(crate) fn plan_diff_blocks_command(payload: Value) -> Result<Value, CoreErro
 struct ApplyBlockRequest {
     #[serde(flatten)]
     target: BlockTarget,
+    #[serde(default)]
     block_id: String,
-    /// `include`, `exclude` or `rollback`.
+    /// `include`, `exclude`, `rollback`, or the whole-file `includeFile` / `excludeFile`.
     action: String,
     /// Token returned by the `git.planDiffBlocks` result the user acted on.
     token: String,
@@ -827,6 +828,24 @@ pub(crate) fn apply_diff_block_command(payload: Value) -> Result<Value, CoreErro
     let snapshot = BlockSnapshot::read(&request.target, &root)?;
     if snapshot.token != request.token {
         return Err(invalid(DIFF_BLOCK_STALE));
+    }
+    // Whole-file inclusion needs no block, but it is still bound to the token:
+    // a file that changed since the user saw it is never staged or unstaged.
+    if matches!(request.action.as_str(), "includeFile" | "excludeFile") {
+        let paths = request
+            .target
+            .original_path
+            .iter()
+            .chain([&request.target.path])
+            .cloned()
+            .collect::<Vec<_>>();
+        let response = if request.action == "includeFile" {
+            super::stage_paths(&root, &paths)?
+        } else {
+            super::unstage_paths(&root, &paths)?
+        };
+        return serde_json::to_value(response)
+            .map_err(|_| CoreError::new(ErrorCode::Unknown, "Could not encode Git response"));
     }
     let block = snapshot
         .blocks()

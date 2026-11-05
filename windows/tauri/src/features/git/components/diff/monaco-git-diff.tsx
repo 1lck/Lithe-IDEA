@@ -112,7 +112,7 @@ export default function MonacoGitDiff({
   const [error, setError] = useState<string>();
   // `stale` is a refused zero-context discard: the file changed after this
   // diff was read, and the watcher replaces the diff (clearing the notice).
-  const [actionError, setActionError] = useState<"failed" | "stale" | null>(null);
+  const [actionError, setActionError] = useState<"failed" | "stale" | "unsafe" | null>(null);
   const [height, setHeight] = useState(MIN_REVIEW_HEIGHT);
   const blockWidgets = useRef<ReturnType<typeof mountMonacoCommitBlockControls> | null>(null);
   const latestBlockControls = useRef(blockControls);
@@ -171,7 +171,7 @@ export default function MonacoGitDiff({
       if (closed || updating.current || !owner) return;
       setActionError(null);
       void owner.apply(hunkID, action).then((result) => {
-        if (!closed && hunkActions.current === owner && (result === "failed" || result === "stale")) setActionError(result);
+        if (!closed && hunkActions.current === owner && (result === "failed" || result === "stale" || result === "unsafe")) setActionError(result);
       });
     });
     review.current = instance;
@@ -443,7 +443,7 @@ export default function MonacoGitDiff({
 
   return <div data-readonly-diff="true" className="relative min-h-0 w-full overflow-hidden bg-background" style={{ height: embedded ? height : "100%" }}>
     <div ref={container} className="absolute inset-0" title="Ctrl/Cmd-click to open source" />
-    {actionError && <div role="alert" className="absolute bottom-0 inset-x-0 bg-background p-2 text-destructive">{t(actionError === "stale" ? "git.diff.hunkStale" : "git.operationFailed")}</div>}
+    {actionError && <div role="alert" className="absolute bottom-0 inset-x-0 bg-background p-2 text-destructive">{t(actionError === "stale" ? "git.diff.hunkStale" : actionError === "unsafe" ? "git.diff.rollbackUnsafe" : "git.operationFailed")}</div>}
     {error && <div role="alert" className="absolute inset-0 bg-background p-4 text-destructive">{error}</div>}
   </div>;
 }

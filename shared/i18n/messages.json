@@ -14056,6 +14056,13 @@
       }
     },
     {
+      "id": "git.diff.rollbackUnsafe",
+      "description": "Windows UI: rolling back a block is refused because a Git filter or working-tree-encoding could change bytes the patch never saw",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "git.diff.search",
       "description": "Windows UI: git.diff.search",
       "platforms": [

@@ -1,5 +1,5 @@
 import type { GitDiff, GitFile } from "../types/git.types";
-import type { CommitDiffBlock, CommitDiffBlockAction, CommitDiffBlockWriteResult } from "../api/git-diff-block-api";
+import type { CommitDiffBlock, CommitDiffBlockAction, CommitDiffFileAction, CommitDiffBlockWriteResult } from "../api/git-diff-block-api";
 
 /** One Core read: both comparisons, the planned blocks and the token that
  * identifies the read. Core refuses any write planned from another read. */
@@ -14,7 +14,7 @@ export interface CommitDiffReviewState {
   snapshot: CommitDiffSnapshot | null;
   blocks: CommitDiffBlock[];
   busy: boolean;
-  error?: "read" | "write" | "stale";
+  error?: "read" | "write" | "stale" | "unsafe";
 }
 
 /** Display index-only changes without using them as a working-tree write base.
@@ -33,9 +33,10 @@ export function commitDiffPresentation(snapshot: CommitDiffSnapshot, stagedView:
 interface Dependencies {
   read: () => Promise<CommitDiffSnapshot | null>;
   /** Core re-plans under its write lock and refuses a stale token. */
-  writeBlock: (snapshot: CommitDiffSnapshot, blockId: string, action: CommitDiffBlockAction)
+  writeBlock: (snapshot: CommitDiffSnapshot, blockId: string | null,
+    action: CommitDiffBlockAction | CommitDiffFileAction)
     => Promise<CommitDiffBlockWriteResult>;
-  includeFile: (included: boolean) => Promise<boolean>;
+
   changed: (state: CommitDiffReviewState) => void;
   beginWrite?: () => () => void;
   canWrite?: () => boolean;
@@ -89,18 +90,20 @@ export function createCommitDiffReview(dependencies: Dependencies) {
     publish({ ...state, busy: true, error: undefined });
     try {
       if (closed || dependencies.canWrite?.() === false) return "ignored";
-      let result: boolean;
-      if (id === null || block?.wholeFile) {
-        result = await dependencies.includeFile(action === "include");
-      } else {
-        const outcome = await dependencies.writeBlock(snapshot, id, action);
-        if (outcome === "stale") {
-          // The file moved after the user saw the block: show what is there now.
-          publish({ ...state, error: "stale" });
-          return "stale";
-        }
-        result = outcome === "applied";
+      // Whole-file inclusion carries the same token as a block write.
+      const outcome = await dependencies.writeBlock(snapshot,
+        id === null || block?.wholeFile ? null : id,
+        id === null || block?.wholeFile ? (action === "include" ? "includeFile" : "excludeFile") : action);
+      if (outcome === "stale") {
+        // The file moved after the user saw it: show what is there now.
+        publish({ ...state, error: "stale" });
+        return "stale";
       }
+      if (outcome === "unsafe") {
+        publish({ ...state, error: "unsafe" });
+        return "failed";
+      }
+      const result = outcome === "applied";
       if (!closed && !result) publish({ ...state, error: "write" });
       return result ? "applied" : "failed";
     } catch {

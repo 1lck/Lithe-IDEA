@@ -31,7 +31,6 @@ function fixture(outcome: "applied" | "stale" | "unsafe" | "failed" = "applied")
       if (outcome === "applied") current = snapshot(action === "include", "t1");
       return outcome;
     },
-    includeFile: async () => { writes.push("file"); return true; },
     changed: next => { state = next; }, beginWrite: () => () => { released++; },
   });
   return { owner, writes, setSnapshot: (value: CommitDiffSnapshot) => { current = value; },
@@ -64,15 +63,31 @@ test("a write Core refuses as stale surfaces the stale notice and refreshes", as
   } finally { f.owner.dispose(); }
 });
 
-test("an unsafe or failed Core write surfaces a write error", async () => {
-  for (const outcome of ["unsafe", "failed"] as const) {
+test("an unsafe rollback keeps its specific reason and a failed write is generic", async () => {
+  for (const [outcome, error] of [["unsafe", "unsafe"], ["failed", "write"]] as const) {
     const f = fixture(outcome);
     try {
       await f.owner.refresh();
       expect(await f.owner.apply("line-1", "rollback")).toBe("failed");
-      expect(f.state.error).toBe("write");
+      expect(f.state.error).toBe(error);
     } finally { f.owner.dispose(); }
   }
+});
+
+test("whole-file inclusion carries the snapshot token and a stale refusal is surfaced", async () => {
+  const f = fixture();
+  try {
+    await f.owner.refresh();
+    expect(await f.owner.apply(null, "include")).toBe("applied");
+    expect(f.writes).toEqual(["includeFile:null:t0"]);
+  } finally { f.owner.dispose(); }
+  const stale = fixture("stale");
+  try {
+    await stale.owner.refresh();
+    expect(await stale.owner.apply(null, "exclude")).toBe("stale");
+    expect(stale.writes).toEqual(["excludeFile:null:t0"]);
+    expect(stale.state.error).toBe("stale");
+  } finally { stale.owner.dispose(); }
 });
 
 test("blocks Core cannot toggle are never sent", async () => {
@@ -91,7 +106,7 @@ test("disposal during a write still releases the commit guard", async () => {
   const gate = deferred<"applied">();
   let released = 0, state!: CommitDiffReviewState;
   const owner = createCommitDiffReview({
-    read: async () => snapshot(), writeBlock: () => gate.promise, includeFile: async () => false,
+    read: async () => snapshot(), writeBlock: () => gate.promise,
     beginWrite: () => () => { released++; }, changed: next => { state = next; },
   });
   await owner.refresh();
@@ -135,7 +150,7 @@ test("leaving commit review mid-write prevents the block write", async () => {
   let writable = true, writes = 0, state!: CommitDiffReviewState;
   const owner = createCommitDiffReview({
     read: async () => snapshot(), writeBlock: async () => { writes++; return "applied"; },
-    includeFile: async () => false, canWrite: () => writable, changed: next => { state = next; },
+    canWrite: () => writable, changed: next => { state = next; },
   });
   await owner.refresh();
   writable = false;

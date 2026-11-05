@@ -26,9 +26,9 @@ export function workingTreeStagingContext(
   return { repoPath: review.repoPath, isStaged, ...(canDiscard ? { canDiscard: true } : {}) };
 }
 
-type HunkOperation = (repoPath: string, hunk: GitHunk) => Promise<boolean>;
+type HunkOperation = (repoPath: string, hunk: GitHunk) => Promise<boolean | "unsafe">;
 export type HunkActionID = "stage" | "unstage" | "discard";
-type ActionResult = "applied" | "failed" | "ignored" | "cancelled" | "stale";
+type ActionResult = "applied" | "failed" | "ignored" | "cancelled" | "stale" | "unsafe";
 
 export interface MonacoDiffHunkOperations {
   stage: HunkOperation;
@@ -95,6 +95,7 @@ export function createMonacoDiffHunkActions(
         if (disposed) return "ignored";
         // The patch is stale after a successful mutation. Wait for the host's
         // Git change event to replace it before accepting another action.
+        if (success === "unsafe") return "unsafe";
         applied = success;
         return success ? "applied" : "failed";
       } catch {

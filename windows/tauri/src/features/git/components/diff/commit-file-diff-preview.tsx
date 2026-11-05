@@ -184,7 +184,8 @@ function CommitFileDiffPage({ multiDiff, index,
       )}
       {review?.error && <div role="alert" className="px-3 py-1 text-xs text-destructive">
         {t(review.error === "read" ? "git.diff.refreshFailed" : review.error === "stale"
-          ? "git.diff.selectionChanged" : "git.diff.stageFailed")}
+          ? "git.diff.selectionChanged" : review.error === "unsafe"
+          ? "git.diff.rollbackUnsafe" : "git.diff.stageFailed")}
       </div>}
       <div className="min-h-0 flex-1 overflow-hidden">
         {!diff ? (

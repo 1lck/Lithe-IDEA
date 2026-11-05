@@ -31,7 +31,7 @@ const discardContext = { ...context, canDiscard: true };
 function rollbackOperations() {
   return {
     ...operations(),
-    discard: mock(async (_repo: string, _hunk: GitHunk) => true),
+    discard: mock(async (_repo: string, _hunk: GitHunk): Promise<boolean | "unsafe"> => true),
   };
 }
 function deferred() {
@@ -77,6 +77,14 @@ describe("Core-owned hunk patches", () => {
     expect(owner.actions).toEqual(["stage", "discard"]);
     expect(await owner.apply(hunkID(lossyDiff), "discard")).toBe("applied");
     expect(api.discard.mock.calls[0]![1].rawPatch).toContain("-b\r\n+B\r\n");
+  });
+
+  test("a rollback Core refuses as unsafe is reported as such and can be retried", async () => {
+    const api = rollbackOperations();
+    api.discard.mockResolvedValueOnce("unsafe");
+    const owner = createMonacoDiffHunkActions(lossyDiff, discardContext, api);
+    expect(await owner.apply(hunkID(lossyDiff), "discard")).toBe("unsafe");
+    expect(await owner.apply(hunkID(lossyDiff), "discard")).toBe("applied");
   });
 
   test("a hunk Core offered no patch for is never written", async () => {

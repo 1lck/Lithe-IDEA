@@ -412,3 +412,40 @@ fn gutter_changes_stage_original_bytes_and_refuse_moved_lines() {
         b"one\r\ntwo\r\nthree\r\nFOUR\r\n"
     );
 }
+
+#[test]
+fn whole_file_inclusion_is_bound_to_the_planned_token() {
+    for case in fixture()["wholeFileWriteCases"].as_array().unwrap() {
+        let text = |field: &str| case[field].as_str().unwrap().as_bytes().to_vec();
+        let stale = case["staleError"].as_str().unwrap();
+        let repository = Repository::new("diff-blocks-file");
+        repository.commit("file.txt", &text("head"));
+        repository.write("file.txt", &text("worktree"));
+        let plan = repository.plan("file.txt");
+        let file = |action: &str, token: &Value| {
+            repository.request(
+                "git.applyDiffBlock",
+                json!({ "path": "file.txt", "action": action, "token": token }),
+            )
+        };
+
+        // The file moved after planning: neither direction writes anything.
+        repository.write("file.txt", &text("movedWorktree"));
+        for action in case["actions"].as_array().unwrap() {
+            assert_eq!(
+                failure(&file(action.as_str().unwrap(), &plan["token"])),
+                stale
+            );
+        }
+        assert_eq!(repository.index("file.txt"), text("head"));
+
+        let fresh = repository.plan("file.txt");
+        applied(&file("includeFile", &fresh["token"]));
+        assert_eq!(repository.index("file.txt"), text("indexAfterInclude"));
+        // Staging moved the index, so the old token no longer describes it.
+        assert_eq!(failure(&file("excludeFile", &fresh["token"])), stale);
+        let staged = repository.plan("file.txt");
+        applied(&file("excludeFile", &staged["token"]));
+        assert_eq!(repository.index("file.txt"), text("indexAfterExclude"));
+    }
+}

@@ -305,5 +305,20 @@
       "patch": "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-a\n+b\n@@ -9 +9 @@\n-c\n+d\n",
       "hunks": null
     }
+  ],
+  "wholeFileWriteCases": [
+    {
+      "name": "whole-file inclusion is bound to the planned token",
+      "head": "a\nb\nc\n",
+      "worktree": "a\nB\nc\n",
+      "movedWorktree": "a\nB\nc\nlater\n",
+      "staleError": "GIT_DIFF_BLOCK_STALE",
+      "actions": [
+        "includeFile",
+        "excludeFile"
+      ],
+      "indexAfterInclude": "a\nB\nc\nlater\n",
+      "indexAfterExclude": "a\nb\nc\n"
+    }
   ]
 }

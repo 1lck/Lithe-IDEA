@@ -5,7 +5,7 @@ import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { getFullContextFileDiff, getWorkingTreePathDiff } from "../api/git-diff-api";
 import { applyCommitDiffBlock, planCommitDiffBlocks } from "../api/git-diff-block-api";
 import { resolveRepositoryForFile } from "../api/git-repo-api";
-import { getGitStatus, setFilesStaged } from "../api/git-status-api";
+import { getGitStatus } from "../api/git-status-api";
 import { isGitChangeRelevant, subscribeToGitChanges } from "../events/git-events";
 import { commitDiffPresentation, createCommitDiffReview, type CommitDiffReviewState } from "../services/commit-diff-review";
 import { beginCommitDiffWrite, commitDiffWritePending } from "../runtime/commit-diff-write-state";
@@ -15,7 +15,7 @@ import { showConfirmDialog } from "@/ui/dialog";
 import { useTranslation } from "@/i18n/locale-provider";
 import type { MultiFileDiff, WorkingTreeDiffTarget } from "../types/git-diff.types";
 import { createSingleFileWorkingTreeDiff } from "../utils/working-tree-multi-diff";
-import { getGitFileRepositoryRelativePath, resolveGitFileMutationPaths } from "../utils/git-status-selection";
+import { getGitFileRepositoryRelativePath } from "../utils/git-status-selection";
 import { createRequestGeneration } from "../utils/request-generation";
 
 export function useCommitDiffReview(bufferId: string | null, fileKey: string,
@@ -74,7 +74,6 @@ export function useCommitDiffReview(bufferId: string | null, fileKey: string,
         && identity?.repoPath === repoPath && identity.filePath === filePath
         && Boolean(identity.staged) === stagedView ? data : null;
     };
-    let statusFile: Parameters<typeof resolveGitFileMutationPaths>[0][number] | undefined;
     const instance = createCommitDiffReview({
       beginWrite: beginCommitDiffWrite,
       writeAvailable: () => !commitDiffWritePending(),
@@ -91,7 +90,6 @@ export function useCommitDiffReview(bufferId: string | null, fileKey: string,
           if (!closed && current()) useBufferStore.getState().actions.closeBuffer(bufferId);
           return null;
         }
-        statusFile = file;
         // Core reads both comparisons, plans the blocks and keeps their patches.
         const target = { repoPath, filePath, ...(file.originalPath ? { originalPath: file.originalPath } : {}),
           ...(stagedView ? { staged: true } : {}) };
@@ -103,8 +101,6 @@ export function useCommitDiffReview(bufferId: string | null, fileKey: string,
           ...(snapshot.file.originalPath ? { originalPath: snapshot.file.originalPath } : {}),
           ...(stagedView ? { staged: true } : {}) }, blockId, action, snapshot.token)
         : Promise.resolve("failed"),
-      includeFile: included => current() && statusFile
-        ? setFilesStaged(repoPath, resolveGitFileMutationPaths([statusFile]), included) : Promise.resolve(false),
       changed: next => {
         if (closed || !current()) return;
         setState(next);

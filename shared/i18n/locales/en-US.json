@@ -1785,6 +1785,7 @@
     "git.diff.repositoryPreviewTitle": "Repository Diff: {file}",
     "git.diff.rollbackHunk": "Rollback Change Block",
     "git.diff.rollbackHunkConfirm": "Roll back this change block in \"{path}\"? Its unstaged edits will be discarded. This cannot be undone.",
+    "git.diff.rollbackUnsafe": "This change cannot be rolled back safely because a Git filter or working-tree-encoding applies to the file.",
     "git.diff.search": "Search Diff",
     "git.diff.searchChanges": "Search changes",
     "git.diff.selectedCommitsTitle": "{count} selected commits",

@@ -37,9 +37,14 @@ const fakePlan = async (request: blockApi.CommitDiffBlockTarget): Promise<blockA
     canRollback: indexed[at] !== planWork[at], leftStart: 0, rightStart: 0 }]) : [];
   return { diff: shown, staged: index, blocks, token: `t${version}` };
 };
-const fakeApply = async (request: blockApi.CommitDiffBlockTarget, blockID: string,
-  action: blockApi.CommitDiffBlockAction, token: string): Promise<blockApi.CommitDiffBlockWriteResult> => {
+const fakeApply = async (request: blockApi.CommitDiffBlockTarget, blockID: string | null,
+  action: blockApi.CommitDiffBlockAction | blockApi.CommitDiffFileAction, token: string): Promise<blockApi.CommitDiffBlockWriteResult> => {
   if (token !== `t${version}`) return "stale";
+  if (action === "includeFile" || action === "excludeFile") {
+    indexed = action === "includeFile" ? planWork : head;
+    version++;
+    return "applied";
+  }
   const at = blockID === blockIDs[1] ? 1 : 3;
   if (action === "include") indexed = indexed.map((value, k) => k === at ? planWork[k] : value);
   else if (action === "exclude") indexed = indexed.map((value, k) => k === at ? head[k] : value);
@@ -262,8 +267,6 @@ test("automatic refresh ignores events belonging to a different repository", asy
 test("index-only changes retain a file, index title and whole-file inclusion without inventing worktree blocks", async () => {
   indexed = ["a", "B", "c", "d"];
   planMode = "index-only";
-  const include = spyOn(statusApi, "setFilesStaged").mockImplementation(async () => { indexed = head; return true; });
-  spies.push(include);
   await act(async () => { root.render(<LocaleProvider language="en-US"><Harness /></LocaleProvider>); });
   expect(current.files).toHaveLength(1);
   expect(current.files[0].lines).toEqual(fullDiff(head, indexed).lines);
@@ -271,21 +274,21 @@ test("index-only changes retain a file, index title and whole-file inclusion wit
   expect(review.snapshot!.diff.lines).toHaveLength(0);
   expect(review.blocks).toHaveLength(0);
   await act(async () => { await review.toggle(null, true); });
-  expect(include).toHaveBeenCalledWith(target.repoPath, [target.filePath], true);
-  expect(stage).not.toHaveBeenCalled();
+  expect(stage).toHaveBeenCalledTimes(1);
+  expect(stage.mock.calls[0][0]).toMatchObject({ repoPath: target.repoPath, filePath: target.filePath });
+  expect(stage.mock.calls[0].slice(1)).toEqual([null, "includeFile", "t0"]);
 });
 
 test.each(["binary", "renamed"] as const)("%s file inclusion stays mixed with staged and worktree changes", async kind => {
   indexed = ["a", "B", "c", "d"];
   planMode = kind;
-  const include = spyOn(statusApi, "setFilesStaged").mockResolvedValue(true);
-  spies.push(include);
   await act(async () => { root.render(<LocaleProvider language="en-US"><Harness /></LocaleProvider>); });
   expect(review.blocks).toHaveLength(0);
   expect(review.presentation).toMatchObject({ included: true, indeterminate: true });
   await act(async () => { await review.toggle(null, true); });
-  expect(include).toHaveBeenCalledWith(target.repoPath, [target.filePath], true);
-  expect(stage).not.toHaveBeenCalled();
+  expect(stage).toHaveBeenCalledTimes(1);
+  expect(stage.mock.calls[0][0]).toMatchObject({ repoPath: target.repoPath, filePath: target.filePath });
+  expect(stage.mock.calls[0].slice(1)).toEqual([null, "includeFile", "t0"]);
 });
 
 test("a restored preview without target metadata resolves its owner before enabling block controls", async () => {
