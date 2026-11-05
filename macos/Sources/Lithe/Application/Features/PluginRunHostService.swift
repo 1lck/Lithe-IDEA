@@ -10,13 +10,13 @@ protocol PluginRunWindowPort: AnyObject {
     /// Shows `launch` in the Run window and starts it. `debug` asks for a debugger that attaches
     /// to the process once it listens. `onEnd` runs once when the process ends, however it ends.
     func hostStartPluginRun(_ launch: PluginRunLaunch, debug: PluginRunStart.Debug?,
-                            rerun: (@MainActor () -> Void)?,
-                            onEnd: @escaping @MainActor (PluginRunEnd) -> Void) async throws
+                            rerun: (@MainActor @Sendable () -> Void)?,
+                            onEnd: @escaping @MainActor @Sendable (PluginRunEnd) -> Void) async throws
     func hostStopPluginRun(runID: String)
     /// Starts a debug session on `start.adapterID` and returns its ID. `onEnd` gets the ID when
     /// the session is gone.
     func hostStartPluginDebugSession(_ start: PluginDebugStart,
-                                     onEnd: @escaping @MainActor (String) -> Void) async throws -> String
+                                     onEnd: @escaping @MainActor @Sendable (String) -> Void) async throws -> String
     func hostStopPluginDebugSession(_ sessionID: String)
     /// Tells the user about a failure no request is left to answer, such as a backend that
     /// could not prepare the run again.
@@ -205,7 +205,7 @@ final class PluginRunHostService: PluginHostServiceHandling {
 
     /// Run again: the backend prepares the restart and answers with a new `run/start`.
     private func rerunAction(_ rerun: PluginRunStart.Rerun, pluginID: String,
-                             window: any PluginRunWindowPort) -> @MainActor () -> Void {
+                             window: any PluginRunWindowPort) -> @MainActor @Sendable () -> Void {
         return { [weak self, weak window] in
             guard let self, let window, let backends = self.backends,
                   let context = self.contexts.context(ownedBy: window)?.reference else { return }

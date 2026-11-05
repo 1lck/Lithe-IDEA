@@ -558,8 +558,8 @@ private final class RunWindow: PluginHostWindowPort, PluginRunWindowPort {
     private var debugEnd: (@MainActor (String) -> Void)?
     let problemReported = TestGate()
 
-    func hostStartPluginRun(_ launch: PluginRunLaunch, debug: PluginRunStart.Debug?, rerun: (@MainActor () -> Void)?,
-                            onEnd: @escaping @MainActor (PluginRunEnd) -> Void) async throws {
+    func hostStartPluginRun(_ launch: PluginRunLaunch, debug: PluginRunStart.Debug?, rerun: (@MainActor @Sendable () -> Void)?,
+                            onEnd: @escaping @MainActor @Sendable (PluginRunEnd) -> Void) async throws {
         self.launch = launch
         self.debug = debug
         self.rerun = rerun
@@ -570,7 +570,7 @@ private final class RunWindow: PluginHostWindowPort, PluginRunWindowPort {
 
     func hostStopPluginRun(runID: String) { stoppedRuns.append(runID) }
 
-    func hostStartPluginDebugSession(_ start: PluginDebugStart, onEnd: @escaping @MainActor (String) -> Void) async throws -> String {
+    func hostStartPluginDebugSession(_ start: PluginDebugStart, onEnd: @escaping @MainActor @Sendable (String) -> Void) async throws -> String {
         debugStarts.append(start)
         debugEnd = onEnd
         duringStart?()

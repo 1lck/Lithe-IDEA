@@ -47,8 +47,8 @@ private enum PluginRunSetupFailure: LocalizedError {
 extension AppModel: PluginRunWindowPort {
     // MARK: Runs
 
-    func hostStartPluginRun(_ launch: PluginRunLaunch, debug: PluginRunStart.Debug?, rerun: (@MainActor () -> Void)?,
-                            onEnd: @escaping @MainActor (PluginRunEnd) -> Void) async throws {
+    func hostStartPluginRun(_ launch: PluginRunLaunch, debug: PluginRunStart.Debug?, rerun: (@MainActor @Sendable () -> Void)?,
+                            onEnd: @escaping @MainActor @Sendable (PluginRunEnd) -> Void) async throws {
         guard let identity = currentWorkspaceIdentity,
               let run = await activateExecutionModule()?.runFeature,
               isCurrentWorkspace(identity) else { throw CancellationError() }
@@ -150,7 +150,7 @@ extension AppModel: PluginRunWindowPort {
     // MARK: Debug sessions
 
     func hostStartPluginDebugSession(_ start: PluginDebugStart,
-                                     onEnd: @escaping @MainActor (String) -> Void) async throws -> String {
+                                     onEnd: @escaping @MainActor @Sendable (String) -> Void) async throws -> String {
         guard let identity = currentWorkspaceIdentity,
               let debug = await activateDebugModule()?.genericFeature,
               isCurrentWorkspace(identity) else { throw CancellationError() }
