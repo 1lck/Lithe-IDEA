@@ -528,7 +528,7 @@ public struct PluginManifest: Equatable, Codable, Sendable {
         "executionProviders": [1],
         "languageServers": [1, 2],
         "languages": [1, 2],
-        "projectGenerators": [1],
+        "projectGenerators": [1, 2],
         "serverProcess": [1],
         "settings": [1, 2],
         "toolDefinitions": [1],

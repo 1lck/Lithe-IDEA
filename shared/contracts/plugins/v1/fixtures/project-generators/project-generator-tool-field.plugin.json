@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.project-generator-tool-field",
+  "displayName": "Project Generator Tool Field Fixture",
+  "version": "1.0.0",
+  "pluginAPIVersion": 3,
+  "requires": {"projectGenerators": 2},
+  "vendor": {"id": "org.example", "displayName": "Example", "signatureRequirement": "publisherPackage"},
+  "permissions": ["project.generate"],
+  "activationEvents": [],
+  "projectGenerators": [
+    {
+      "id": "python-app",
+      "displayName": "Python App",
+      "section": "project",
+      "fields": [
+        {"id": "python", "type": "tool", "title": "Python", "tool": "python",
+         "minimumVersion": "3.11", "pinAs": "project"},
+        {"id": "venv", "type": "boolean", "title": "Create a virtual environment", "default": true}
+      ],
+      "steps": [
+        {"kind": "files", "source": "templates/tool-field"},
+        {"kind": "command", "command": "uv", "mayUseNetwork": false,
+         "arguments": ["venv", "--python", "${field.python.executable}"],
+         "environment": {"PYTHON_HOME": "${field.python}"},
+         "when": {"field": "venv", "equals": true}}
+      ]
+    },
+    {
+      "id": "node-app",
+      "displayName": "Node App",
+      "section": "generator",
+      "fields": [
+        {"id": "node", "type": "tool", "title": "Node.js", "tool": "node",
+         "minimumVersion": "18.0.0", "pinAs": "project", "optional": true}
+      ],
+      "steps": [
+        {"kind": "command", "command": "npm", "mayUseNetwork": true,
+         "arguments": ["init", "--yes"],
+         "environment": {"NODE": "${field.node.executable}"},
+         "when": {"field": "node", "notEquals": ""}}
+      ]
+    }
+  ]
+}

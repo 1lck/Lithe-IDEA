@@ -35,3 +35,4 @@ mod toolchain_definitions;
 mod toolchain_pins;
 mod toolchain_queries;
 mod toolchain_resolution;
+mod toolchain_vectors;

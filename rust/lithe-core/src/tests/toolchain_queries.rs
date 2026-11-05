@@ -1,10 +1,8 @@
 //! Pure query validation with inert native filesystem facts and cross-platform paths.
 
+use super::toolchain_vectors::{error_responses, query_request, query_response, HOME, WORKSPACE};
 use crate::toolchain::{paths, query};
 use serde_json::{json, Value};
-
-const HOME: &str = "/opt/lithe-fixtures/installs/java/21.0.4";
-const WORKSPACE: &str = "/opt/lithe-fixtures/workspace";
 
 fn contract(name: &str) -> Value {
     let source = match name {
@@ -15,10 +13,6 @@ fn contract(name: &str) -> Value {
         "mise" => include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../shared/contracts/plugins/v1/fixtures/toolchains/toolchain-provider.plugin.json"
-        )),
-        "queries" => include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../shared/contracts/plugins/v1/fixtures/toolchains/proposal/query-cases.json"
         )),
         _ => panic!("unknown contract fixture"),
     };
@@ -34,9 +28,8 @@ fn fact(path: &str, kind: &str, executable: bool) -> Value {
 }
 
 fn input() -> Value {
-    let fixture = contract("queries");
     json!({"registry":{"plugins":[{"manifest":manifest(&contract("java")),"verifiedOfficial":true},{"manifest":manifest(&contract("mise")),"verifiedOfficial":false}]},
-        "pluginID":"dev.lithe.fixture.mise","request":fixture["cases"][0]["request"],"response":fixture["cases"][0]["response"],"currentGeneration":1,"platform":"macos",
+        "pluginID":"dev.lithe.fixture.mise","request":query_request(),"response":query_response(),"currentGeneration":1,"platform":"macos",
         "filesystem":[fact(WORKSPACE,"directory",false),fact(HOME,"directory",false),fact(&format!("{HOME}/bin/java"),"file",true),fact(&format!("{WORKSPACE}/mise.toml"),"file",false)]})
 }
 
@@ -225,9 +218,8 @@ fn toolchain_queries_refuse_mismatched_rpc_and_operation_generations() {
 #[test]
 fn toolchain_queries_keep_every_error_mapping_unique_and_validate_the_pair() {
     let mut numbers = std::collections::BTreeSet::new();
-    for response in contract("queries")["errorResponses"].as_array().unwrap() {
+    for mut response in error_responses() {
         let mut value = input();
-        let mut response = response.clone();
         response["id"] = value["request"]["id"].clone();
         response["error"]["data"]["operationID"] =
             value["request"]["params"]["operationID"].clone();
