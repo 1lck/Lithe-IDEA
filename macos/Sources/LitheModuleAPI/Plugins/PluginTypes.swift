@@ -521,6 +521,7 @@ public struct PluginManifest: Equatable, Codable, Sendable {
     public static let hostCapabilities: [String: [Int]] = [
         "keymapImportProviders": [1],
         "packageTrust": [1],
+        "pluginFunctions": [1],
         "backend": [1, 2],
         "buildProviders": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], "buildModelInputs": [1],
         "buildSystems": [1, 2, 3, 4], "debugAdapters": [1, 2, 3], "executableResolution": [1, 2],

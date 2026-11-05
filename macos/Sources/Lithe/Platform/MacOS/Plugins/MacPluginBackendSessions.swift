@@ -98,6 +98,10 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
     private var backgroundQueue: [String] = []
     private var backgroundStarts: [String: Task<Void, Never>] = [:]
     private var commandStarts: [String: Task<Void, Never>] = [:]
+    /// Starts a call between plugins waits for, one per plugin.
+    private var providerStarts: [String: Task<Void, Never>] = [:]
+    /// The last snapshot Core's relay accepted; an unchanged one is not sent again.
+    private var publishedRelaySnapshot: PluginFunctionRelaySnapshot?
     private var pendingCommands: [String: [ToolingJSONValue]] = [:]
     private var packages: [String: Package] = [:]
     /// Disabled plugins start again once enabled.
@@ -193,6 +197,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
             )
             added.insert(id)
         }
+        publishFunctionRelay()
         activateForOpenWorkspaces(added)
     }
 
@@ -475,6 +480,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
     /// Tells every running backend granted `workspace` that the contexts
     /// changed; it asks `listContexts` for them.
     private func contextsDidChange(revision: Int) {
+        publishFunctionRelay()
         for (pluginID, entry) in running where entry.hostServices.contains("workspace") {
             notify(pluginID: pluginID, method: "lithe/host/workspace/didChangeContexts",
                    params: .object(["revision": .integer(revision)]))
@@ -528,16 +534,84 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         ))
     }
 
+    // MARK: Calls between plugins
+
+    /// Reports to Core's relay which plugins are enabled and which workspace
+    /// contexts are live. Core decides from these what a call may do; this
+    /// side only states the facts, and states them again whenever one of
+    /// them changes, so calls in flight see the change.
+    private func publishFunctionRelay() {
+        let snapshot = functionRelaySnapshot()
+        guard snapshot != publishedRelaySnapshot else { return }
+        // A snapshot Core did not accept stays unpublished, so the next
+        // change sends it again.
+        guard case .success = core.configurePluginFunctionRelay(snapshot) else { return }
+        publishedRelaySnapshot = snapshot
+    }
+
+    private func functionRelaySnapshot() -> PluginFunctionRelaySnapshot {
+        let plugins = packages.compactMap { pluginID, package -> PluginFunctionRelaySnapshot.Plugin? in
+            guard !disabledPluginIDs.contains(pluginID), !replacedPluginIDs.contains(pluginID), canStart(pluginID),
+                  let declaration = Self.pluginFunctionDeclaration(ofManifest: package.manifest) else { return nil }
+            return .init(pluginID: pluginID, exports: declaration.exports ?? [], calls: declaration.calls ?? [])
+        }
+        let contexts = hostDispatcher.contexts.contexts.map { context -> PluginFunctionRelaySnapshot.Context in
+            let isRemote: Bool
+            if case .remote = context.authority { isRemote = true } else { isRemote = false }
+            return .init(contextID: context.contextID, generation: context.generation, isRemote: isRemote)
+        }
+        return PluginFunctionRelaySnapshot(
+            plugins: plugins.sorted { $0.pluginID < $1.pluginID },
+            contexts: contexts.sorted { $0.contextID < $1.contextID }
+        )
+    }
+
+    /// The `pluginFunctions` section of a normalized manifest, left as Core
+    /// wrote it: Core validated it once and reads it again in the relay.
+    private struct PluginFunctionDeclaration: Decodable {
+        let exports: [ToolingJSONValue]?
+        let calls: [ToolingJSONValue]?
+    }
+
+    private struct PluginFunctionsManifest: Decodable {
+        let pluginFunctions: PluginFunctionDeclaration?
+    }
+
+    private static func pluginFunctionDeclaration(ofManifest manifest: Data) -> PluginFunctionDeclaration? {
+        // log-exempt: Core 已校验过清单；解码失败只会让该插件不进中转快照
+        try? JSONDecoder().decode(PluginFunctionsManifest.self, from: manifest).pluginFunctions
+    }
+
+    /// Starts the backend a call between plugins waits for. This is the
+    /// host's whole part in the call: Core checks and relays it. The start
+    /// is bounded like every other one, by the `initialize` time limit, and
+    /// a failure is reported here while Core ends the waiting call with its
+    /// own error once its wait runs out.
+    private func startProviderBackend(_ pluginID: String) {
+        guard providerStarts[pluginID] == nil else { return }
+        providerStarts[pluginID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { if !Task.isCancelled { self.providerStarts[pluginID] = nil } }
+            do {
+                _ = try await self.session(for: pluginID)
+            } catch {
+                if !Task.isCancelled, !(error is CancellationError) { self.onActivationFailure?(pluginID, error) }
+            }
+        }
+    }
+
     /// Stops the backend until `enable` is called.
     func disable(_ pluginID: String) {
         disabledPluginIDs.insert(pluginID)
         stop(pluginID)
+        publishFunctionRelay()
     }
 
     /// The backend may start again; with a workspace open, one that starts
     /// on `onWorkspaceOpen` starts now instead of with the next workspace.
     func enable(_ pluginID: String) {
         disabledPluginIDs.remove(pluginID)
+        publishFunctionRelay()
         activateForOpenWorkspaces([pluginID])
     }
 
@@ -547,12 +621,14 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         replacedPluginIDs.insert(pluginID)
         packages[pluginID] = nil
         stop(pluginID)
+        publishFunctionRelay()
     }
 
     private func stop(_ pluginID: String) {
         backgroundQueue.removeAll { $0 == pluginID }
         backgroundStarts.removeValue(forKey: pluginID)?.cancel()
         commandStarts.removeValue(forKey: pluginID)?.cancel()
+        providerStarts.removeValue(forKey: pluginID)?.cancel()
         pendingCommands[pluginID] = nil
         hostDispatcher.endSession(pluginID: pluginID)
         guard let entry = running.removeValue(forKey: pluginID) else { return }
@@ -684,6 +760,9 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         }
         session.onHostRequestCancelled = { hostRequestID in
             hostDispatcher.cancel(hostRequestID: hostRequestID, pluginID: pluginID, sessionID: sessionToken)
+        }
+        session.onFunctionProviderStartRequired = { [weak self] providerID in
+            self?.startProviderBackend(providerID)
         }
         entry.session = session
         try await waitUntilReady(session, rootURL: backend.stateDirectory)

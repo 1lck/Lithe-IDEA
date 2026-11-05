@@ -13,6 +13,7 @@ pub mod marketplace;
 pub(crate) mod native_ui;
 /// Plugin-declared console link patterns and their resolution.
 pub(crate) mod output_links;
+pub(crate) mod plugin_functions;
 pub(crate) mod settings;
 
 use serde::Deserialize;

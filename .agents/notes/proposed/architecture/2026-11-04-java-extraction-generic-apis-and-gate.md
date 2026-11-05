@@ -219,7 +219,7 @@ A0 提交时的基线快照（以 baseline 文件为准）：
 
 | 编号 | 决定 |
 | --- | --- |
-| Q1 | 保留官方 ID `dev.lithe.plugin.java-support` 和工具短 ID `java`，从外部仓库构建 |
+| Q1 | 2026-11-05 改定：不再区分官方插件和普通插件，Java 插件和 Cargo、Maven、Gradle 一样是普通插件，ID 为 `io.github.lithe-idea.java-support`，vendor 为 `Lithe Community`，`signatureRequirement: "none"`，不再带发布者签名和 `packageTrust`，从外部仓库 [Lithe-IDEA/lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 构建，由 Lithe Store 自动收录。工具短 ID `java` 保留。E1 必须先做两件事，否则宿主会拒绝这个包：一是去掉 `languageServers[].hostIntegration` 按 ID 命名空间判定官方的限制（`plugins/declarative.rs` 的 `is_official_namespace`）；二是允许普通插件声明不带 `:` 的短工具 ID（`toolchain/definitions.rs` 的 `verifiedOfficial` 要求）。旧 ID `dev.lithe.plugin.java-support` 按 [#1357](https://github.com/1lck/Lithe-IDEA/pull/1357) 迁移 Go 和 PHP 的做法处理：保留在 `OfficialPluginCatalog` 并填写 `communityReplacementID`，引导用户换装新 ID。在此之前 Java 仓库只发预发布 |
 | Q2 | E1 之后旧版 1.1.0 必须更新，不保留兼容翻译 |
 | Q3 | 共享前端内置的 TextMate 语法、主题、文件关联里的 Java 项，算通用语言目录数据，进白名单 |
 | Q4 | 作废：不做商店索引 v2 |

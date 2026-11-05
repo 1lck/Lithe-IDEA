@@ -6,7 +6,7 @@
 
 插件之间复用运行时、JSON 声明和计算能力属于整个插件平台，不应由某个 Debug 格式顺带定义。本提案从 [Debug #1210](https://github.com/1lck/Lithe-IDEA/issues/1210) 拆出依赖、导出和授权，挂在[公共扩展契约](2026-10-13-public-extension-contract-and-provider-api.md)下；Debug 的 Registry 与第三方 DAP 接入不依赖它。
 
-方向仍是插件好写、共享逻辑尽量复用，但安装闭包（某个插件及其全部间接依赖）、版本冲突和信任必须先有明确规则。以下只是待单独实施的决策边界，不开放 `pluginDependencies`、`exports`、跨包函数或工作流字段，也不更改现有私有函数契约。
+方向仍是插件好写、共享逻辑尽量复用，但安装闭包（某个插件及其全部间接依赖）、版本冲突和信任必须先有明确规则。其中**第一阶段已经落地**：两个已安装、已启用的插件之间，可以经 Rust Core 中转调用被明确导出的函数（见提案第 5 节）。其余仍只是待单独实施的决策边界：安装依赖、版本范围解析、依赖闭包、跨包资源租约和工作流字段都没有开放，`pluginDependencies` 也不存在。
 
 ## 问题
 
@@ -45,15 +45,28 @@
 
 若需要跨包资源引用，正式契约使用显式带标签的类型，例如专门的 backend/lease 变体；不靠普通参数恰好叫 `backendRef` 来识别。宿主签发的租约记录资源所有者、调用链、操作与失效代次，跨包只传受限引用；`${pluginDir}` 永远按声明资源的包解析。用户参数里的同名字符串和对象仍然只是数据。
 
-跨包操作只能由宿主在已授权的导出边界调度到资源所属会话，不能将调用方 pluginID 写入目标会话。后端回调宿主重新进入注册表的禁止规则保留；否则等待中的处理器可能等待自己。如何将新授权模型加入函数路由、如何区分私有与公开调用，需要单独版本化，不能删除旧 `wrongPlugin` 或 `recursiveCall` 检查来实现。
+跨包操作只能在已授权的导出边界调度到资源所属会话，不能将调用方 pluginID 写入目标会话。（第一阶段由 Rust Core 在导出边界中转，宿主只负责启动被调方后端；调用方 ID 只出现在 Core 填写的 `caller` 请求字段里。）后端回调宿主重新进入注册表的禁止规则保留；否则等待中的处理器可能等待自己。如何将新授权模型加入函数路由、如何区分私有与公开调用，需要单独版本化，不能删除旧 `wrongPlugin` 或 `recursiveCall` 检查来实现。
 
 ### 4. 不在此处偷改已实现决策
 
-[插件函数契约](../../implemented/architecture/2026-10-20-plugin-function-contract.md)仍是当前行为真源：函数私有，领域结果走类型化契约。此提案没有修改它。若以后采用函数传输领域结果或依赖导出，先在实现 PR 中修订对应决策，给出输入/结果、授权、错误优先级与兼容 fixtures，再改 Core 和双端宿主。
+[插件函数契约](../../implemented/architecture/2026-10-20-plugin-function-contract.md)仍是当前行为真源：函数默认私有，领域结果走类型化契约。第一阶段在它的决策 8 里增加了“明确导出的函数可经 Core 中转被另一个插件调用”，同一 PR 给出了输入/结果、错误优先级与兼容 fixtures；私有、递归和领域结果走类型化契约的规则没有改动。以后若采用函数传输领域结果，或让导出带上依赖闭包、资源租约，仍须先在实现 PR 中修订对应决策，再改 Core 和双端宿主。
 
 新的字段属于统一 `plugin.json` 的能力演进；基础权限或身份语义变化需要新的基础 API。没有 Debug draftVersion，也不要求现有 Build/VCS/UI/语言插件迁移。现有 `backend: 1` 的全局、网页触发行为不变；新的进程共享方式另行版本化。
 
 通用 workflow 尚无证明必要的真实输入，不在这个依赖提案里重新引入 steps 或取值语言。先通过实际导出契约完成复用，再判断是否有需要由宿主解释的公共流程。
+
+### 5. 第一阶段已落地的部分
+
+对应计划 API-35 的第一阶段，不新增 API 编号，决策正文写在[插件函数契约](../../implemented/architecture/2026-10-20-plugin-function-contract.md)的决策 8，契约写在 `shared/contracts/plugins/v1/README.md` 的 “Cross-plugin calls (protocol version 4)”。它只落地了本提案里不依赖安装解析的那一部分：
+
+- 清单新能力键 `requires.pluginFunctions: 1` 与顶层 `pluginFunctions {exports, calls}`。导出是 `{id, version, context}`，`context` 是封闭集合，第一阶段只有 `"workspace"`，缺失或未知就拒绝整个清单：这兑现了第 2 节“没有定义可接受调用上下文的导出，不允许跨包调用”。调用方只声明 `{id, version}`，版本必须相等，不相等是 `plugin.function.versionMismatch`。
+- 协议 `litheFunctions` 增加版本 4，只有协商到 4 的后端能用 `lithe/host/functions/providers` 与 `lithe/host/functions/invoke`。运行时发现被调方，清单里不写被调方的插件 ID。
+- 所有检查在 Rust Core：声明、导出、双方启用、版本、调用链（拒绝 A→B→A 和自己调自己）、深度、每个调用方的并发、参数与结果大小、超时、沿链取消，远程工作区拒绝（API-40）。被调方未运行时 Core 只发 `functionProviderStartRequired`，宿主把它当作 I/O 去启动后端，超时即失败。
+- 信任不传递：被调方用自己的权限运行，Core 不把调用方的插件 ID 写进被调方的会话身份，只在转发的请求里加一个由 Core 填写的 `caller: {pluginID}` 字段；契约要求导出函数不得接受调用方传来的可执行路径或命令。没有新增权限项，`calls` 声明加 `exports` 选择加入就是双方的同意。
+- 安装、更新、卸载、启用、禁用即时更新发现结果，进行中的调用以明确的错误结束；带后端的插件在 macOS 上仍只在启动时注册，新安装或更新的后端插件要重启后才出现在发现结果里（属于 #1515 的后续工作）。
+- 旧的 `plugin.function.wrongPlugin` 与 `plugin.function.recursiveCall` 检查一个都没有删除。
+
+**没有落地**：安装时解析依赖、版本范围与冲突报告、依赖闭包和事务恢复、卸载或禁用时的反向依赖提示、启动时发现缺失依赖并标记阻塞、跨包资源租约和带标签的资源引用类型、会启动程序的导出、弱依赖和多版本并存。这些仍按本提案的待办和验收标准单独实施；第一阶段也不引入任何安装期的依赖声明，被调方是否已安装完全由运行时发现。
 
 ### 正确做法与反例
 
@@ -73,7 +86,7 @@
 - 独立任务/PR 完成安装解析、版本冲突、来源固定、哈希校验、事务恢复及并发安装规则，之后才公布新能力。
 - 有共同兼容版本与不兼容菱形两组标准用例，冲突报告带确定排序的两条依赖路径；失败不修改原安装闭包。
 - 禁用/卸载、启动时依赖缺失、升级失效及恢复分别验证反向依赖与资源清理；任何失败不误停不相关插件。
-- 社区依赖官方、同名包来自不同来源、签名变化和导出撤回均有拒绝输入；旧私有函数的归属和递归拒绝语义不变。
+- 社区依赖官方、同名包来自不同来源、签名变化和导出撤回均有拒绝输入；旧私有函数的归属和递归拒绝语义不变。（第一阶段已覆盖导出撤回、禁用与卸载的进行中调用，以及旧 `wrongPlugin`、`recursiveCall` 不变；来源与签名相关的输入属于安装解析，尚未覆盖。）
 - 如涉及函数协议，在 `lithe-plugin-docs` 验证 Node/Java SDK；正式契约与 Core 一起落地后再同步副本。
 - #1210 的基础 Registry 和第三方 DAP 验收可以完全不安装依赖包而完成。
 
@@ -83,12 +96,13 @@
 
 ## 验证
 
-本次只运行 `./scripts/agent-notes/verify-agent-notes.sh` 和文档检查，没有依赖解析器或跨包调用实现，不能声称安装或授权用例通过。实施时使用 `write-stable-tests`、`./scripts/architecture/verify-shared-contracts.sh`、`./scripts/rust-core/verify-rust-core.sh`，并分别验证两个宿主和函数 SDK；新增资源时遵守工作树复用与安装目录只读要求。
+第一阶段的跨插件调用由 Core 测试（`plugins::plugin_functions`、`lsp::interface::function_relay`、`lsp::interface::engine`）和 macOS 单测（`MacPluginBackendSessionsTests`、`PluginHostServiceDispatchTests`、`PluginPublicHostAPITests`）覆盖，细节见实现 Note 的“验证”。依赖解析器和安装期规则仍没有实现，不能声称安装、版本冲突或依赖授权用例通过。实施时使用 `write-stable-tests`、`./scripts/architecture/verify-shared-contracts.sh`、`./scripts/rust-core/verify-rust-core.sh`，并分别验证两个宿主和函数 SDK；新增资源时遵守工作树复用与安装目录只读要求。
 
 ## 适用范围
 
 - `rust/lithe-core/src/plugins/`
 - `rust/lithe-core/src/lsp/interface/plugin_function.rs`
+- `rust/lithe-core/src/lsp/interface/function_relay.rs`
 - `shared/contracts/plugins/v1/`
 - `macos/Sources/Lithe/Platform/MacOS/`
 - `windows/tauri/src-tauri/src/plugin_host/`
