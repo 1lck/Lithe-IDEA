@@ -402,6 +402,14 @@ modify_logging_script() {
 assert_classification logging-uses-independent-workflow \
     "$(classification false false false false false false false false)" \
     modify_logging_script
+modify_language_specifics_gate() {
+    mkdir -p scripts/architecture
+    printf '%s\n' '// Host language-specifics gate' > scripts/architecture/verify-no-host-language-specifics.mjs
+    printf '%s\n' '{"files": {}}' > scripts/architecture/language-specifics-baseline.json
+}
+assert_classification language-specifics-gate-uses-independent-workflow \
+    "$(classification false false false false false false false false)" \
+    modify_language_specifics_gate
 LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-defers-runner-lanes \
     "$(classification false false false false false false false false false false pull_request true)" \
     modify_unknown_script
