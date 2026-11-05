@@ -7,7 +7,7 @@
 
 use super::manifest::{
     Conditions, GeneratorField, ProjectGeneratorDeclaration, FIELD_BOOLEAN, FIELD_ENUM,
-    FIELD_MULTI_SELECT, FIELD_RUNTIME, FIELD_TEXT,
+    FIELD_MULTI_SELECT, FIELD_RUNTIME, FIELD_TEXT, FIELD_TOOL,
 };
 use super::template::{FieldValue, Values};
 use crate::plugins::declarative::version_components;
@@ -26,13 +26,24 @@ pub(crate) struct RuntimeSelection {
     pub(crate) version: String,
 }
 
+/// An installation of a tool that the host found through the tool
+/// definition's discovery, so the host has already checked that it is real.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ToolInstallation {
+    pub(crate) home: String,
+    pub(crate) executable: String,
+    pub(crate) version: String,
+}
+
 /// What the user has entered so far.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct FormInput {
     pub(crate) project_name: String,
     /// Values by field ID. A text value counts only if its ID is in
-    /// `edited`; otherwise the field keeps following its default.
+    /// `edited`; otherwise the field keeps following its default. A tool
+    /// field's value is the home of the installation the user chose.
     #[serde(default)]
     pub(crate) values: BTreeMap<String, Value>,
     #[serde(default)]
@@ -40,6 +51,9 @@ pub(crate) struct FormInput {
     /// Selected installations of runtime fields.
     #[serde(default)]
     pub(crate) runtimes: BTreeMap<String, RuntimeSelection>,
+    /// Installations the host found for each tool field, by field ID.
+    #[serde(default)]
+    pub(crate) tools: BTreeMap<String, Vec<ToolInstallation>>,
 }
 
 /// Why a value is not accepted. Hosts localize by code.
@@ -51,6 +65,8 @@ pub(crate) enum FieldProblem {
     InvalidFormat,
     UnsupportedValue,
     RuntimeTooOld,
+    /// The selected tool installation is older than the field's `minimumVersion`.
+    ToolTooOld,
     /// The value names a newer version than `maximumVersion` allows.
     VersionTooHigh,
 }
@@ -63,6 +79,7 @@ impl FieldProblem {
             Self::InvalidFormat => "invalidFormat",
             Self::UnsupportedValue => "unsupportedValue",
             Self::RuntimeTooOld => "runtimeTooOld",
+            Self::ToolTooOld => "toolTooOld",
             Self::VersionTooHigh => "versionTooHigh",
         }
     }
@@ -76,6 +93,20 @@ pub(crate) struct FieldState {
     pub(crate) value: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) problem: Option<FieldProblem>,
+    /// A tool field's candidates, for the host to list. Empty for other fields.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) installations: Vec<ToolChoice>,
+}
+
+/// One installation a tool field offers, with Core's verdict on its version.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ToolChoice {
+    home: String,
+    executable: String,
+    version: String,
+    /// False when the version is older than the field's `minimumVersion`.
+    meets_minimum: bool,
 }
 
 /// The evaluated form.
@@ -120,6 +151,7 @@ pub(crate) fn evaluate(generator: &ProjectGeneratorDeclaration, input: &FormInpu
             visible,
             value,
             problem: problem.filter(|_| visible),
+            installations: tool_choices(field, input),
         });
     }
     let active_requirements = generator
@@ -255,9 +287,10 @@ fn resolve(
         }
         FIELD_RUNTIME => match input.runtimes.get(&field.id) {
             Some(selection) if !selection.home.trim().is_empty() => {
-                let too_old = field.minimum_version.as_deref().is_some_and(|minimum| {
-                    version_components(&selection.version) < version_components(minimum)
-                });
+                let too_old = field
+                    .minimum_version
+                    .as_deref()
+                    .is_some_and(|minimum| release(&selection.version) < release(minimum));
                 (
                     json!(selection.home),
                     FieldValue::Runtime {
@@ -276,8 +309,100 @@ fn resolve(
                 (!field.optional).then_some(FieldProblem::Required),
             ),
         },
+        FIELD_TOOL => resolve_tool(field, input),
         _ => (Value::Null, FieldValue::Text(String::new()), None),
     }
+}
+
+/// A tool field holds the installation the user chose, or else the newest
+/// one the host found. A choice the host no longer lists (the tool was
+/// uninstalled meanwhile) falls back to the newest, and the field shows it.
+///
+/// An optional field whose newest installation is below the minimum stays
+/// empty, as if the tool were not installed: an old copy on the machine must
+/// not block a project that can be created without the tool. Choosing that
+/// copy explicitly is still reported.
+fn resolve_tool(
+    field: &GeneratorField,
+    input: &FormInput,
+) -> (Value, FieldValue, Option<FieldProblem>) {
+    let found = tool_installations(field, input);
+    let chosen = input
+        .values
+        .get(&field.id)
+        .and_then(Value::as_str)
+        .and_then(|home| found.iter().find(|installation| installation.home == home));
+    let fallback =
+        newest(found).filter(|installation| !field.optional || meets_minimum(field, installation));
+    match chosen.or(fallback) {
+        Some(installation) => (
+            json!(installation.home),
+            FieldValue::Tool {
+                home: installation.home.clone(),
+                executable: installation.executable.clone(),
+            },
+            (!meets_minimum(field, installation)).then_some(FieldProblem::ToolTooOld),
+        ),
+        None => (
+            json!(""),
+            FieldValue::Tool {
+                home: String::new(),
+                executable: String::new(),
+            },
+            (!field.optional).then_some(FieldProblem::Required),
+        ),
+    }
+}
+
+fn tool_installations<'a>(field: &GeneratorField, input: &'a FormInput) -> &'a [ToolInstallation] {
+    input
+        .tools
+        .get(&field.id)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+}
+
+/// The highest version; among equal versions the host's first one, because
+/// the host lists installations in the order it prefers them.
+fn newest(found: &[ToolInstallation]) -> Option<&ToolInstallation> {
+    // `max_by_key` keeps the last of several maxima, so walk backwards.
+    found
+        .iter()
+        .rev()
+        .max_by_key(|installation| release(&installation.version))
+}
+
+fn meets_minimum(field: &GeneratorField, installation: &ToolInstallation) -> bool {
+    field
+        .minimum_version
+        .as_deref()
+        .is_none_or(|minimum| release(&installation.version) >= release(minimum))
+}
+
+/// Version numbers without trailing zeros, so `3.11`, `3.11.0` and
+/// `3.11.0.0` compare as the same release, as toolchain resolution treats
+/// them. Plain vector comparison would put `3.11` below `3.11.0`.
+fn release(version: &str) -> Vec<u64> {
+    let mut numbers = version_components(version);
+    while numbers.last() == Some(&0) {
+        numbers.pop();
+    }
+    numbers
+}
+
+fn tool_choices(field: &GeneratorField, input: &FormInput) -> Vec<ToolChoice> {
+    if !field.is(FIELD_TOOL) {
+        return Vec::new();
+    }
+    tool_installations(field, input)
+        .iter()
+        .map(|installation| ToolChoice {
+            home: installation.home.clone(),
+            executable: installation.executable.clone(),
+            version: installation.version.clone(),
+            meets_minimum: meets_minimum(field, installation),
+        })
+        .collect()
 }
 
 /// Compares a value with the field's `maximumVersion`, expanded over the
@@ -299,8 +424,7 @@ fn version_too_high(
     if bound.is_empty() || value.is_empty() {
         return None;
     }
-    (version_components(&value) > version_components(&bound))
-        .then_some(FieldProblem::VersionTooHigh)
+    (release(&value) > release(&bound)).then_some(FieldProblem::VersionTooHigh)
 }
 
 fn text_problem(field: &GeneratorField, text: &str) -> Option<FieldProblem> {
@@ -339,6 +463,7 @@ pub(crate) fn project_name_problem(name: &str) -> Option<FieldProblem> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::manifest::KNOWN_RUNTIMES;
     use super::*;
 
     fn generator(fields: Value) -> ProjectGeneratorDeclaration {
@@ -358,6 +483,15 @@ mod tests {
             values: serde_json::from_value(values).unwrap(),
             edited: edited.iter().map(|id| id.to_string()).collect(),
             runtimes: BTreeMap::new(),
+            tools: BTreeMap::new(),
+        }
+    }
+
+    fn installation(home: &str, version: &str) -> ToolInstallation {
+        ToolInstallation {
+            home: home.into(),
+            executable: format!("{home}/bin/tool"),
+            version: version.into(),
         }
     }
 
@@ -472,6 +606,193 @@ mod tests {
                 "{version}"
             );
         }
+    }
+
+    fn tool_generator(optional: bool) -> ProjectGeneratorDeclaration {
+        generator(json!([{
+            "id": "sdk", "type": "tool", "title": "Python", "tool": "python",
+            "minimumVersion": "3.11", "pinAs": "project", "optional": optional
+        }]))
+    }
+
+    fn with_tools(mut form: FormInput, found: &[(&str, &str)]) -> FormInput {
+        let installations = found
+            .iter()
+            .map(|(home, version)| installation(home, version))
+            .collect();
+        form.tools.insert("sdk".into(), installations);
+        form
+    }
+
+    #[test]
+    fn a_tool_field_follows_the_newest_installation_until_chosen() {
+        let generator = tool_generator(false);
+        let form = with_tools(
+            input("demo", json!({}), &[]),
+            &[
+                ("/py/3.11", "3.11.9"),
+                ("/py/3.13", "3.13.1"),
+                ("/py/3.12", "3.12.4"),
+            ],
+        );
+        let state = evaluate(&generator, &form);
+        assert_eq!(field(&state, "sdk").value, json!("/py/3.13"));
+        assert_eq!(field(&state, "sdk").problem, None);
+        assert_eq!(field(&state, "sdk").installations.len(), 3);
+        assert_eq!(
+            state.values["sdk"],
+            FieldValue::Tool {
+                home: "/py/3.13".into(),
+                executable: "/py/3.13/bin/tool".into(),
+            }
+        );
+
+        let mut chosen = form.clone();
+        chosen.values.insert("sdk".into(), json!("/py/3.12"));
+        let state = evaluate(&generator, &chosen);
+        assert_eq!(field(&state, "sdk").value, json!("/py/3.12"));
+    }
+
+    #[test]
+    fn equal_versions_keep_the_hosts_order() {
+        let form = with_tools(
+            input("demo", json!({}), &[]),
+            &[("/first", "3.12.0"), ("/second", "3.12.0")],
+        );
+        let state = evaluate(&tool_generator(false), &form);
+        assert_eq!(field(&state, "sdk").value, json!("/first"));
+    }
+
+    /// A choice the host no longer lists is not trusted: the field falls
+    /// back to what is installed instead of keeping a stale path.
+    #[test]
+    fn a_vanished_choice_falls_back_to_the_newest() {
+        let mut form = with_tools(
+            input("demo", json!({"sdk": "/py/gone"}), &[]),
+            &[("/py/3.12", "3.12.4")],
+        );
+        let state = evaluate(&tool_generator(false), &form);
+        assert_eq!(field(&state, "sdk").value, json!("/py/3.12"));
+
+        form.values.insert("sdk".into(), json!(7));
+        let state = evaluate(&tool_generator(false), &form);
+        assert_eq!(field(&state, "sdk").value, json!("/py/3.12"));
+    }
+
+    #[test]
+    fn a_tool_below_the_minimum_is_reported() {
+        let form = with_tools(
+            input("demo", json!({}), &[]),
+            &[("/py/3.9", "3.9.18"), ("/py/3.10", "3.10.14")],
+        );
+        let state = evaluate(&tool_generator(false), &form);
+        assert_eq!(field(&state, "sdk").problem, Some(FieldProblem::ToolTooOld));
+        assert!(!state.is_valid());
+        assert!(field(&state, "sdk")
+            .installations
+            .iter()
+            .all(|choice| !choice.meets_minimum));
+
+        // Choosing a sufficient installation clears the problem.
+        let form = with_tools(
+            input("demo", json!({"sdk": "/py/3.11"}), &[]),
+            &[("/py/3.9", "3.9.18"), ("/py/3.11", "3.11.0")],
+        );
+        let state = evaluate(&tool_generator(false), &form);
+        assert_eq!(field(&state, "sdk").problem, None);
+        let meets: Vec<bool> = field(&state, "sdk")
+            .installations
+            .iter()
+            .map(|choice| choice.meets_minimum)
+            .collect();
+        assert_eq!(meets, [false, true]);
+    }
+
+    /// `3.11` and `3.11.0` are one release: neither falls below a minimum
+    /// written the other way, and equal releases keep the host's order.
+    #[test]
+    fn trailing_zeros_do_not_change_a_release() {
+        let tool = generator(json!([{
+            "id": "sdk", "type": "tool", "title": "Python", "tool": "python",
+            "minimumVersion": "3.11.0", "pinAs": "project"
+        }]));
+        let form = with_tools(input("demo", json!({}), &[]), &[("/py/3.11", "3.11")]);
+        let state = evaluate(&tool, &form);
+        assert_eq!(field(&state, "sdk").problem, None);
+        assert!(field(&state, "sdk").installations[0].meets_minimum);
+
+        let form = with_tools(
+            input("demo", json!({}), &[]),
+            &[("/first", "3.12"), ("/second", "3.12.0.0")],
+        );
+        let state = evaluate(&tool_generator(false), &form);
+        assert_eq!(field(&state, "sdk").value, json!("/first"));
+
+        // Runtime fields compare the same way; the runtime is whichever one the
+        // manifest accepts, so the test names none itself.
+        let runtime = generator(json!([
+            {"id": "sdk", "type": "runtime", "title": "SDK", "runtime": KNOWN_RUNTIMES[0], "minimumVersion": "17.0"}
+        ]));
+        let mut form = input("demo", json!({}), &[]);
+        form.runtimes.insert(
+            "sdk".into(),
+            RuntimeSelection {
+                home: "/sdk".into(),
+                version: "17".into(),
+            },
+        );
+        assert_eq!(field(&evaluate(&runtime, &form), "sdk").problem, None);
+    }
+
+    /// An old copy of an optional tool must not block a project that could be
+    /// created without the tool: the field stays empty and leaves no pin, the
+    /// same as when nothing is installed. Choosing the old copy is reported.
+    #[test]
+    fn an_optional_tool_with_only_old_installations_stays_empty() {
+        let form = with_tools(input("demo", json!({}), &[]), &[("/py/3.10", "3.10.14")]);
+        let state = evaluate(&tool_generator(true), &form);
+        assert_eq!(field(&state, "sdk").problem, None);
+        assert_eq!(field(&state, "sdk").value, json!(""));
+        assert!(state.is_valid());
+        assert_eq!(
+            state.values["sdk"],
+            FieldValue::Tool {
+                home: String::new(),
+                executable: String::new(),
+            }
+        );
+        assert!(!field(&state, "sdk").installations[0].meets_minimum);
+
+        let mut cleared = form.clone();
+        cleared.values.insert("sdk".into(), json!(""));
+        assert_eq!(
+            field(&evaluate(&tool_generator(true), &cleared), "sdk").value,
+            json!("")
+        );
+
+        let mut chosen = form;
+        chosen.values.insert("sdk".into(), json!("/py/3.10"));
+        let state = evaluate(&tool_generator(true), &chosen);
+        assert_eq!(field(&state, "sdk").problem, Some(FieldProblem::ToolTooOld));
+    }
+
+    #[test]
+    fn a_tool_field_without_candidates_is_required_unless_optional() {
+        let form = input("demo", json!({}), &[]);
+        let state = evaluate(&tool_generator(false), &form);
+        assert_eq!(field(&state, "sdk").problem, Some(FieldProblem::Required));
+        assert_eq!(field(&state, "sdk").value, json!(""));
+
+        let state = evaluate(&tool_generator(true), &form);
+        assert_eq!(field(&state, "sdk").problem, None);
+        assert!(state.is_valid());
+        assert_eq!(
+            state.values["sdk"],
+            FieldValue::Tool {
+                home: String::new(),
+                executable: String::new(),
+            }
+        );
     }
 
     #[test]

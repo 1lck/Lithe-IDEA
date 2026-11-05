@@ -932,17 +932,23 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
     }
 
     /// Whether the plugin can take effect in a running session. That holds when
-    /// debug adapters, language grammars and console link matchers are its only
-    /// contributions: the host reads adapters on demand when a debug session
-    /// starts, hands grammars to open editors when the registry changes and reads
-    /// the matchers when a console renders, so the module graph,
+    /// debug adapters, language grammars, console link matchers, project
+    /// generators and tool definitions are its only contributions: the host
+    /// reads adapters on demand when a debug session starts, hands grammars to
+    /// open editors when the registry changes, reads the matchers when a
+    /// console renders, lists generators when the New Project window loads and
+    /// reads tool definitions each time a tool is resolved, so the module graph,
     /// the language-server and run/test modules, backend processes and UI
     /// composition built at launch do not change. Anything else waits for the
     /// next launch.
     public var canActivateWithoutRestart: Bool {
         let modules = pluginManifest.modules
         let live: Set<ModuleID> = [
-            .debugAdaptersExtension(id.rawValue), .grammarsExtension(id.rawValue), .outputLinksExtension(id.rawValue)
+            .debugAdaptersExtension(id.rawValue),
+            .grammarsExtension(id.rawValue),
+            .outputLinksExtension(id.rawValue),
+            .projectGeneratorsExtension(id.rawValue),
+            .toolchainsExtension(id.rawValue),
         ]
         return !modules.isEmpty
             && !declaresBackend

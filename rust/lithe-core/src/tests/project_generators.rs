@@ -15,6 +15,14 @@ const PLANS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../shared/contracts/plugins/v1/fixtures/project-generators/project-plans.json"
 ));
+const TOOL_FIELD_FIXTURE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../shared/contracts/plugins/v1/fixtures/project-generators/project-generator-tool-field.plugin.json"
+));
+const TOOL_DEFINITION_FIXTURE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../shared/contracts/plugins/v1/fixtures/toolchains/tool-definition.plugin.json"
+));
 const MAVEN_BUILD_FIXTURE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../shared/contracts/plugins/v1/fixtures/build-systems/build-host-integration.plugin.json"
@@ -64,16 +72,28 @@ fn official_package_path() -> PathBuf {
 
 fn host() -> Value {
     json!({"languages": [1], "languageServers": [1, 2], "serverProcess": [1], "settings": [1, 2],
-           "buildSystems": [1], "projectGenerators": [1], "debugAdapters": [1], "packageTrust": [1], "toolDefinitions": [1], "executableResolution": [1, 2]})
+           "buildSystems": [1], "projectGenerators": [1, 2], "debugAdapters": [1], "packageTrust": [1], "toolDefinitions": [1], "executableResolution": [1, 2]})
+}
+
+/// A case names its manifest fixture in `manifest`; the default is the
+/// version 1 generator fixture.
+fn case_manifest(case: &Value) -> Value {
+    match case["manifest"].as_str() {
+        Some(file) => json(
+            &std::fs::read_to_string(fixtures_path().join(file))
+                .unwrap_or_else(|error| panic!("{file}: {error}")),
+        ),
+        None => json(FIXTURE),
+    }
 }
 
 #[test]
 fn golden_project_plans_match() {
     let plans = json(PLANS);
     assert_eq!(plans["schemaVersion"], 1);
-    let manifest = json(FIXTURE);
     for case in plans["cases"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
+        let manifest = case_manifest(case);
         let actual = match case["operation"].as_str().unwrap() {
             "generatorForm" => project_generator_form_command(json!({
                 "manifest": manifest,
@@ -147,6 +167,116 @@ fn catalog_skips_plugins_the_host_cannot_run() {
         result["catalog"]["issues"][0]["error"]["code"],
         "plugin.api.unsupported"
     );
+}
+
+/// The catalog tells the host which plugins declare the tool a field selects,
+/// so a field with no installation can point at the plugin to enable. A tool
+/// nobody declares has no provider, which is how an unknown ID shows up.
+#[test]
+fn catalog_names_the_plugins_that_define_each_tool() {
+    // Read the names from the definition fixture, so the test follows it and
+    // the host keeps no tool name of its own.
+    let definition = json(TOOL_DEFINITION_FIXTURE);
+    let definer = definition["id"].as_str().unwrap().to_string();
+    let tool = definition["toolDefinitions"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut generators = json(TOOL_FIELD_FIXTURE);
+    // Point the first field at the tool the definition fixture declares.
+    generators["projectGenerators"][0]["fields"][0]["tool"] = json!(tool);
+    let result = project_generator_catalog_command(json!({
+        "plugins": [
+            {"manifest": generators, "enabled": true},
+            {"manifest": json(TOOL_DEFINITION_FIXTURE), "enabled": false},
+        ],
+        "hostCapabilities": host(),
+    }))
+    .unwrap();
+    assert_eq!(result["status"], "ok", "{result}");
+    assert_eq!(result["catalog"]["issues"], json!([]), "{result}");
+    let entries = result["catalog"]["generators"].as_array().unwrap();
+    assert_eq!(
+        entries[0]["tools"],
+        json!([{
+            "fieldID": "python", "tool": tool,
+            "providers": [{
+                "pluginID": definer,
+                "pluginName": "Tool definition fixture",
+                "enabled": false
+            }]
+        }])
+    );
+    assert_eq!(
+        entries[1]["tools"],
+        json!([{"fieldID": "node", "tool": "node", "providers": []}])
+    );
+    // A third-party definition is addressed as `<pluginID>:<id>`; that spelling
+    // names the same declaration, but another plugin's prefix does not.
+    for (tool, provider_count) in [
+        (format!("{definer}:{tool}"), 1),
+        (format!("dev.lithe.fixture.other:{tool}"), 0),
+    ] {
+        let mut generators = json(TOOL_FIELD_FIXTURE);
+        generators["projectGenerators"][0]["fields"][0]["tool"] = json!(tool);
+        let qualified = project_generator_catalog_command(json!({
+            "plugins": [
+                {"manifest": generators, "enabled": true},
+                {"manifest": json(TOOL_DEFINITION_FIXTURE), "enabled": true},
+            ],
+            "hostCapabilities": host(),
+        }))
+        .unwrap();
+        let providers = &qualified["catalog"]["generators"][0]["tools"][0]["providers"];
+        assert_eq!(
+            providers.as_array().unwrap().len(),
+            provider_count,
+            "{tool}"
+        );
+    }
+    // Version 1 generators have no tool fields.
+    let version_1 = project_generator_catalog_command(json!({
+        "plugins": [{"manifest": json(FIXTURE), "enabled": true}],
+        "hostCapabilities": host(),
+    }))
+    .unwrap();
+    assert_eq!(version_1["catalog"]["generators"][0]["tools"], json!([]));
+}
+
+#[test]
+fn catalog_skips_tool_fields_on_hosts_without_projectgenerators_2() {
+    let result = project_generator_catalog_command(json!({
+        "plugins": [{"manifest": json(TOOL_FIELD_FIXTURE), "enabled": true}],
+        "hostCapabilities": {"projectGenerators": [1]},
+    }))
+    .unwrap();
+    assert_eq!(result["catalog"]["generators"], json!([]));
+    assert_eq!(
+        result["catalog"]["issues"][0]["error"]["field"],
+        "requires.projectGenerators"
+    );
+}
+
+/// A form value naming an installation the host did not list never reaches
+/// the plan: the plan is built from the newest listed installation instead.
+#[test]
+fn a_plan_never_uses_an_installation_the_host_did_not_list() {
+    let plan = project_generation_plan_command(json!({
+        "manifest": json(TOOL_FIELD_FIXTURE),
+        "generatorID": "python-app",
+        "packagePath": fixtures_path(),
+        "form": {
+            "projectName": "demo",
+            "values": {"python": "/tmp/planted"},
+            "tools": {"python": [
+                {"home": "/opt/python-3.12", "executable": "/opt/python-3.12/bin/python3", "version": "3.12.4"}
+            ]},
+        },
+    }))
+    .unwrap();
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(plan["plan"]["toolPins"][0]["home"], "/opt/python-3.12");
+    assert!(!plan.to_string().contains("/tmp/planted"), "{plan}");
 }
 
 #[test]

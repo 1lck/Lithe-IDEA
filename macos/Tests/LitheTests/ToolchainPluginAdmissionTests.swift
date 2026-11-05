@@ -22,12 +22,14 @@ struct ToolchainPluginAdmissionTests {
         #expect(review.programs.map(\.path) == ["bin/mise-provider"])
     }
 
-    @Test func standaloneDefinitionHasEnablementAndRequiresRestart() throws {
+    /// Definitions are data the host reads each time a tool is resolved, so a
+    /// plugin that only carries them applies without a restart.
+    @Test func standaloneDefinitionHasEnablementAndActivatesWithoutARestart() throws {
         let descriptor = try checkAdmission(fixture("toolchains/tool-definition.plugin.json"))
         #expect(!descriptor.declaresBackend)
         #expect(descriptor.pluginManifest.modules.map(\.manifest.id) == [.toolchainsExtension(descriptor.id.rawValue)])
         #expect(descriptor.pluginManifest.modules.allSatisfy { $0.manifest.defaultState == .disabled })
-        #expect(!descriptor.canActivateWithoutRestart)
+        #expect(descriptor.canActivateWithoutRestart)
         let registry = try ValidatedPluginCatalog(manifests: [descriptor.pluginManifest],
                                                   hostVersion: BuiltInPluginCatalog.hostVersion)
         #expect(registry.manifests.count == 1)
