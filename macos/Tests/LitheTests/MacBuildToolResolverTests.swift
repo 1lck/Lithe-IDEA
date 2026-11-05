@@ -41,7 +41,7 @@ struct MacBuildToolResolverTests {
                 "displayName": "Fixture", "version": "1.0.0", "pluginAPIVersion": 3,
                 "requires": ["toolDefinitions": 1, "executableResolution": 2],
                 "vendor": ["id": "org.example", "displayName": "Fixture", "signatureRequirement": "publisherPackage"],
-                "permissions": [], "toolDefinitions": definitions]), isEnabled: true, verifiedOfficial: true)
+                "permissions": [], "toolDefinitions": definitions]), isEnabled: true)
         let defined = MacDefinedToolchainResolver()
         defined.sources = { [source] }
         let runtime = ProjectRuntimeService(runtimeLocator: CanonicalToolchainRuntimeLocator(), store: ToolchainPreferenceStore())

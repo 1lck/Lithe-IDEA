@@ -14,7 +14,7 @@ This directory is the cross-platform source of truth:
 | `native-ui.schema.json` | JSON shape of native UI documents rendered by the host |
 | `plugin-index.schema.json` | JSON shape of a marketplace source index |
 | `fixtures/` | Valid example manifests and golden cases, one folder per contract area (below). Manifests are named after the capability they exercise rather than a published plugin. Case files name their base manifest by file name, so file names are unique across the folders |
-| `toolchains/README.md` | Implemented Core foundation: plugin definitions/provider declarations, verified-origin registry, reply validation, directory pins, snapshot resolution, version matching and discovery plans; macOS uses it for its read-only settings pages and for Build and run tools, Windows is not connected |
+| `toolchains/README.md` | Implemented Core foundation: plugin definitions/provider declarations, registry (a short tool ID defined by several enabled plugins belongs to none of them), reply validation, directory pins, snapshot resolution, version matching and discovery plans; macOS uses it for its read-only settings pages and for Build and run tools, Windows is not connected |
 
 | Fixture folder | Contents |
 | --- | --- |
@@ -64,8 +64,10 @@ and `toolchainProviders: 1` declarations and provides the `toolchains.*` command
 listed there.
 `executableResolution: 2` applies to tool-definition candidates only; it does not
 admit new sources into existing Build candidate sets. Definitions are entirely
-plugin-owned, with reserved short IDs checked against host-verified official
-provenance when constructing the registry.
+plugin-owned. Any plugin may define a short ID such as `compiler` or a qualified
+`<pluginID>:<id>`; the host supplies no provenance evidence. A short ID defined
+by more than one enabled plugin belongs to none of them: the registry omits
+those definitions and reports the contest as a conflict.
 
 macOS advertises these capabilities for its read-only toolchain settings pages.
 The native adapter scans declarations, probes checked executables, queries plugin
@@ -276,7 +278,7 @@ activation event, and a plugin may consist of grammars alone.
 | `runtimeDependencies` | Runtimes the host must discover and pass to the server. API 1 tools are `node` and `go`; API 2 adds `java`. The host exports each path as `LITHE_<TOOL>_PATH` (`LITHE_NODE_PATH`, `LITHE_GO_PATH`; a user-set value takes precedence) and prepends its directory to the server's `PATH`, because servers such as gopls run the tool themselves and an app opened from the Dock does not inherit the shell `PATH`. A project-local copy is never chosen, since servers start automatically when a file opens. |
 
 | `initializationOptions` | API 2. A JSON object sent as the LSP `initializationOptions`. Every string value inside it is a launch template. |
-| `hostIntegration` | API 2, official plugins only. A named integration implemented in the host, with the package resources it reads; see Host integrations. |
+| `hostIntegration` | API 2. Any plugin may declare one. A named integration implemented in the host, with the package resources it reads; see Host integrations. |
 | `requestMethods`, `commands`, `serializedCommands`, `forwardNotifications`, `state`, `remote` | `languageServers` 3. What the plugin backend may ask of the running server and how the host keeps its state; see [Plugin-owned sessions](#plugin-owned-sessions-languageservers-3). |
 
 The host owns the language-server process lifecycle, the LSP session, and
@@ -366,10 +368,16 @@ the files it needs are inside the plugin's own package:
 The plugin owns the files; the host owns the behavior. The host enables an
 integration only for the server that declares it and never matches on a
 language ID or looks for the files anywhere else, so removing the plugin
-removes the integration's inputs with it. Because an integration runs trusted
-host code, only plugins in the `dev.lithe` namespace may declare one; any
-other package, or an ID the host does not implement, is refused with
-`plugin.integration.unsupported`.
+removes the integration's inputs with it. Any plugin may declare one, whatever
+its namespace. The integration is host code, but it reads only resources inside
+the declaring plugin's own package and hands them to the language server or
+helper process that same plugin starts (extension bundles, agents, a test
+runner, debugging); it grants the plugin no permission beyond running its own
+server process, which an installed plugin may already do once the user confirms
+the install review. An ID the host does not implement is refused with
+`plugin.integration.unsupported`. A build system's `hostIntegration` is a
+different declaration and stays limited to official plugins; see
+[Host integrations](#host-integrations) under API level 3: build systems.
 
 Each resource is a package-relative path, or a list of them, that may vary
 only by `${arch}`. An integration defines which names it reads; a missing
@@ -2423,7 +2431,7 @@ tool settings, exactly as the tool's own settings page does.
 
 | Property | Meaning |
 | --- | --- |
-| `tool` | Required. A tool definition ID: the short ID of a verified official definition, otherwise `<pluginID>:<id>`. There is no closed list; a tool nobody declares has no installations. |
+| `tool` | Required. A tool definition ID: a short ID such as `compiler` defined by exactly one enabled plugin, or `<pluginID>:<id>`. There is no closed list; a tool nobody declares has no installations, and neither has a short ID several enabled plugins define, because it belongs to none of them. |
 | `minimumVersion` | Optional, one to three dotted numbers. An installation below it is not selectable. |
 | `pinAs` | Optional. `project` saves the selection as the created project's own tool choice (the same per-directory pin the tool's settings page edits), so the project builds and runs with the installation picked here. Without it the selection only feeds the steps. |
 | `optional` | Optional. Without a usable installation an optional field stays empty and leaves no pin; otherwise the form reports `required`. An installation below `minimumVersion` is not usable. |
@@ -3769,7 +3777,7 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.test.invalidIdentifier` | Core | Empty or multi-line test identifier |
 | `plugin.test.unsupportedProject` | Core | No project marker in the workspace |
 | `plugin.execution.unavailable` | Core | The plugin has no run/test provider for the language |
-| `plugin.integration.unsupported` | Core | A host integration the host does not implement, or one requested by a plugin outside the official namespace |
+| `plugin.integration.unsupported` | Core | A host integration the host does not implement, or a build system's host integration requested by a plugin outside the official namespace |
 | `plugin.launch.unavailable` | Core | The plugin has no language server for the language, no provider process for the build system, or no such VCS provider |
 | `plugin.build.unavailable` | Core | The plugin declares no such build system, or the build system does not declare the requested operation |
 | `plugin.build.invalidSelection` | Core | A build request selects a scope, target, filter, or argument the declaration does not allow, or misses a required path |
@@ -4226,7 +4234,7 @@ including when a prerequisite runtime fails first; they cannot silently fall
 back to Provider discovery.
 Host-managed `java`, `node` or `go` dependencies may select one such candidate,
 while retaining Core's version probe. Maven declares its namespace-owned tool
-and the official Java definition for its Java prerequisite; no Maven-specific
+and uses the short `java` definition for its Java prerequisite; no Maven-specific
 JDK registry entry is added. Its backend bootstrap remains a separate consumer.
 Passive import performs no version or runtime probes; a definition that requires
 verification is not reported as an already verified import executable.

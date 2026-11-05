@@ -4693,6 +4693,7 @@
 "Tokens of context this Agent may use. The context ring reads as full at this size. Codex applies it as its context window; for Claude Code the model decides its own size, so this sets where it compacts when no threshold is given. Leave empty for the Agent's default. Applies after reconnecting." = "该 Agent 可使用的上下文 Token 数，上下文圆环以此为满。Codex 把它作为上下文窗口；Claude Code 的窗口由模型决定，没有设置压缩阈值时，它决定压缩的位置。留空使用 Agent 默认值。重新连接后生效。";
 "Too many files to check for one tool; some installations were skipped." = "单个工具需要检查的文件过多，已跳过部分安装。";
 "Tool" = "工具";
+"Tool %@ is defined by more than one enabled plugin (%@), so none of these definitions is used. Keep only one of these plugins enabled." = "多个已启用的插件都定义了工具 %@（%@），这些定义都不会使用。请只保留其中一个插件启用。";
 "Tool Window" = "工具窗口";
 "Tool Windows" = "工具窗口";
 "Tool activity (%lld)" = "工具操作（%lld）";
@@ -9815,6 +9816,7 @@
 "native.toolchainSettings.theProjectRoot" = "项目根目录";
 "native.toolchainSettings.theSavedToolchainSettingsAreInvalid" = "已保存的工具链设置无效。";
 "native.toolchainSettings.tooManyFilesForOneTool" = "单个工具需要检查的文件过多，已跳过部分安装。";
+"native.toolchainSettings.toolDefinedBySeveralPlugins" = "多个已启用的插件都定义了工具 %1$@（%2$@），这些定义都不会使用。请只保留其中一个插件启用。";
 "native.toolchainSettings.toolDefinitionInfo" = "这一行来自已启用插件的工具定义，Lithe 不内置任何工具。";
 "native.toolchainSettings.toolchainSources" = "环境来源";
 "native.toolchainSettings.toolsInfo" = "每个工具采用第一个有值的来源，依次为固定版本、项目版本文件、全局默认、自动检测。已安装的版本通过运行该工具自己的版本命令来检查。已启用的版本管理器会报告版本文件所要求的版本。";

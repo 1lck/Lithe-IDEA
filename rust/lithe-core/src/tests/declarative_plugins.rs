@@ -326,6 +326,23 @@ fn host_integration_capabilities_are_normalized_and_checked_against_the_integrat
     assert_eq!(rejected_field(owned_twice), field);
 }
 
+/// A host integration only reads files from the declaring plugin's own package
+/// and feeds the process that plugin starts, so it adds no reach and any
+/// namespace may declare one.
+#[test]
+fn community_plugins_may_declare_a_host_integration() {
+    let mut manifest = fixture("language-host-integration.plugin.json");
+    let integration = manifest["languageServers"][0]["hostIntegration"]["id"].clone();
+    manifest["id"] = json!("io.example.host-integration");
+    manifest["vendor"]["signatureRequirement"] = json!("none");
+    let outcome = validate(manifest);
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    assert_eq!(
+        outcome["plugin"]["languageServers"][0]["hostIntegration"]["id"],
+        integration
+    );
+}
+
 #[test]
 fn command_plan_fixtures_match_golden_expansions() {
     let fixtures: Value = serde_json::from_str(COMMAND_PLANS).unwrap();

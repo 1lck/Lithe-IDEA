@@ -229,7 +229,7 @@ final class ToolchainSettingsDemo: NSObject, NSApplicationDelegate {
         manifest["requires"] = requires
         manifest["permissions"] = permissions
         let data = (try? JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])) ?? Data()
-        return ToolchainSettingsPluginSource(pluginID: id, name: name, manifest: data, isEnabled: true, verifiedOfficial: true)
+        return ToolchainSettingsPluginSource(pluginID: id, name: name, manifest: data, isEnabled: true)
     }
 
     private static func tool(

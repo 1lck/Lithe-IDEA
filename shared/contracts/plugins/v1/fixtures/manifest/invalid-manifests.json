@@ -231,12 +231,6 @@
       "expectedCode": "plugin.integration.unsupported"
     },
     {
-      "name": "host integration requested outside the official namespace",
-      "base": "language-host-integration.plugin.json",
-      "edits": [{ "op": "set", "path": "/id", "value": "io.example.java" }, { "op": "set", "path": "/vendor/signatureRequirement", "value": "none" }],
-      "expectedCode": "plugin.integration.unsupported"
-    },
-    {
       "name": "jdt integration without a java runtime launch",
       "base": "language-host-integration.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/launch", "value": { "kind": "packaged", "path": "language-server/bin/jdtls" } }],

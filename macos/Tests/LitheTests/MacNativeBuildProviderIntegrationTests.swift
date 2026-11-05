@@ -31,7 +31,7 @@ struct MacNativeBuildProviderIntegrationTests {
         let sources: [ToolchainSettingsPluginSource] = [
             .init(pluginID: "io.github.lithe-idea.maven-build", name: "Maven", manifest: manifest, isEnabled: true),
             .init(pluginID: "dev.lithe.plugin.java-support", name: "Java", manifest: try Data(contentsOf: javaPackage.appendingPathComponent("plugin.json")),
-                  isEnabled: true, verifiedOfficial: true)
+                  isEnabled: true)
         ]
         let before = try Self.inventory(package), javaBefore = try Self.inventory(javaPackage)
         var pins = ["java": ["home": javaHome, "version": "selected", "provider": "host:manual"]]
@@ -109,7 +109,7 @@ struct MacNativeBuildProviderIntegrationTests {
         let sources: [ToolchainSettingsPluginSource] = [
             .init(pluginID: "io.github.lithe-idea.maven-build", name: "Maven", manifest: manifest, isEnabled: true),
             .init(pluginID: "dev.lithe.plugin.java-support", name: "Java", manifest: try Data(contentsOf: javaPackage.appendingPathComponent("plugin.json")),
-                  isEnabled: true, verifiedOfficial: true)
+                  isEnabled: true)
         ]
         let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-real-default-change-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
@@ -405,7 +405,7 @@ struct MacNativeBuildProviderIntegrationTests {
         let javaManifest = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("Plugins/mac/Official/JavaSupport/plugin.json"))
         let toolSources: [ToolchainSettingsPluginSource] = [
             .init(pluginID: descriptor.id.rawValue, name: "Maven", manifest: descriptor.normalizedManifest, isEnabled: true),
-            .init(pluginID: "dev.lithe.plugin.java-support", name: "Java", manifest: javaManifest, isEnabled: true, verifiedOfficial: true)
+            .init(pluginID: "dev.lithe.plugin.java-support", name: "Java", manifest: javaManifest, isEnabled: true)
         ]
         defined.sources = { toolSources }
         let projectRuntime = ProjectRuntimeService(runtimeLocator: CanonicalToolchainRuntimeLocator(), store: NativeDefinedToolPreferences())

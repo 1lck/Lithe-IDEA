@@ -577,7 +577,7 @@ pub(crate) fn validate_installation(
     checked_installation(home, definition, &facts, &roots, layout_path)
 }
 
-/// Decodes one provider reply using only verified registry and native facts.
+/// Decodes one provider reply using only the revalidated registry and native facts.
 /// No filesystem, process, environment or JSON-RPC transport is accessed here.
 pub(crate) fn decode(input: &Value) -> Validation<Value> {
     object_keys(
@@ -755,7 +755,7 @@ pub(crate) fn decode(input: &Value) -> Validation<Value> {
             reject(
                 "plugin.toolchain.permissionDenied",
                 "pluginID",
-                "The enabled provider is not in the verified registry.",
+                "The enabled provider is not in the revalidated registry.",
             )
         })?;
     let provider = &provider["provider"];

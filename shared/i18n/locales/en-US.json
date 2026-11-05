@@ -9866,6 +9866,7 @@
     "native.toolchainSettings.notAValidInstallation": "Not a valid installation",
     "native.toolchainSettings.notUsable": "Not usable",
     "native.toolchainSettings.installationsCouldNotBeChecked": "Installations of {arg1} could not be checked.",
+    "native.toolchainSettings.toolDefinedBySeveralPlugins": "Tool {arg1} is defined by more than one enabled plugin ({arg2}), so none of these definitions is used. Keep only one of these plugins enabled.",
     "native.toolchainSettings.discoveryDeclarationsUnchecked": "Installed toolchain declarations could not be checked for discovery.",
     "native.toolchainSettings.onlyFirstVersionsChecked": "Only the first {arg1} installation versions were checked.",
     "native.toolchainSettings.versionsNotCheckedInTime": "Some installation versions were not checked in time.",

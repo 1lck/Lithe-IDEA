@@ -33,7 +33,8 @@ fn command(
     })
 }
 
-/// Registers definitions using independently verified host package identities.
+/// Registers the definitions of enabled plugins; a tool ID declared by several plugins
+/// belongs to none of them and is reported in `conflicts` instead.
 pub fn registry_command(input: Value) -> Result<Value, CoreError> {
     command(input, definitions::registry, "registry")
 }

@@ -326,7 +326,7 @@
     "shared/contracts/plugins/v1/fixtures/languages/command-plans.json": {"words":80},
     "shared/contracts/plugins/v1/fixtures/languages/language-host-integration.plugin.json": {"words":17},
     "shared/contracts/plugins/v1/fixtures/languages/runtime-versions.json": {"words":19},
-    "shared/contracts/plugins/v1/fixtures/manifest/invalid-manifests.json": {"words":22},
+    "shared/contracts/plugins/v1/fixtures/manifest/invalid-manifests.json": {"words":21},
     "shared/contracts/plugins/v1/fixtures/marketplace/install-reviews.json": {"words":3},
     "shared/contracts/plugins/v1/fixtures/package-trust/publisher-bundled.plugin.json": {"words":2},
     "shared/contracts/plugins/v1/fixtures/project-generators/project-generator.plugin.json": {"words":13},
