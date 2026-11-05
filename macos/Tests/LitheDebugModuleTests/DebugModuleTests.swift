@@ -488,6 +488,75 @@ struct DebugModuleTests {
     }
 
     @Test
+    func anAdapterThatDeclaredHotCodeReplaceOffersApplyingChangesAndSendsItAfterPreparing() async {
+        let session = DeferredInspectionDebugSession()
+        session.declaredBehavior = DebugAdapterDeclaredBehavior(
+            features: .init(hotCodeReplace: .init(request: "script.reload"))
+        )
+        let feature = makeDeclaredFeature(session: session, rootPath: "/workspace/declared-reload")
+        defer { feature.stop() }
+        #expect(feature.canApplyDeclaredCodeChanges)
+        var prepared = false
+
+        await feature.applyDeclaredCodeChanges {
+            #expect(session.redefineCount == 0)
+            prepared = true
+        }
+
+        #expect(prepared)
+        #expect(session.redefineCount == 1)
+        #expect(session.executionCommands.isEmpty)
+        #expect(feature.serviceUpdateFailed == false)
+        #expect(feature.updatingServiceSessionID == nil)
+    }
+
+    @Test
+    func aDeclaredHotCodeReplaceReplacesTheHostServiceUpdateSoOneButtonShows() async {
+        let session = DeferredInspectionDebugSession()
+        session.declaredBehavior = DebugAdapterDeclaredBehavior(
+            features: .init(hotCodeReplace: .init(request: "script.reload"))
+        )
+        let feature = makeDeferredFeature(session: session, rootPath: "/workspace/declared-over-service")
+        defer { feature.stop() }
+        feature.registerJavaUpdateTarget(JavaDebugLaunchTarget(mainClass: "example.Main", projectName: "app"))
+
+        #expect(feature.canApplyDeclaredCodeChanges)
+        #expect(!feature.canUpdateJavaService)
+    }
+
+    @Test
+    func anAdapterThatDeclaredNothingOffersNoApplyChangesAction() async {
+        let session = DeferredInspectionDebugSession()
+        let feature = makeDeclaredFeature(session: session, rootPath: "/workspace/undeclared-reload")
+        defer { feature.stop() }
+        #expect(!feature.canApplyDeclaredCodeChanges)
+
+        await feature.applyDeclaredCodeChanges { Issue.record("Nothing was declared, so nothing is prepared") }
+
+        #expect(session.redefineCount == 0)
+        #expect(feature.serviceUpdateMessage == nil)
+    }
+
+    @Test
+    func aFailedPreparationNeverAsksTheAdapterToApplyChanges() async {
+        let session = DeferredInspectionDebugSession()
+        session.declaredBehavior = DebugAdapterDeclaredBehavior(
+            features: .init(hotCodeReplace: .init(request: "script.reload"))
+        )
+        let feature = makeDeclaredFeature(session: session, rootPath: "/workspace/declared-reload-failure")
+        defer { feature.stop() }
+
+        await feature.applyDeclaredCodeChanges {
+            throw NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Save failed"])
+        }
+
+        #expect(session.redefineCount == 0)
+        #expect(feature.serviceUpdateFailed)
+        #expect(feature.serviceUpdateMessage?.contains("Save failed") == true)
+        #expect(feature.updatingServiceSessionID == nil)
+    }
+
+    @Test
     func debuggeeOutputPreservesSGRButDiscardsTerminalControlSequences() {
         let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
         let feature = GenericDebugFeatureModel(sessions: manager)
@@ -1004,6 +1073,49 @@ struct DebugModuleTests {
         try session.start(rootURL: URL(fileURLWithPath: "/tmp/lldb-core", isDirectory: true))
 
         #expect(core.lastDisabledCapabilities == ["supportsStepBack", "supportsRestartRequest"])
+    }
+
+    @Test
+    func coreProtocolSessionHandsTheDeclaredFeaturesAndDefaultsToCore() throws {
+        let declared = DebugAdapterDeclaredBehavior(
+            features: .init(
+                hotCodeReplace: .init(request: "reloadModules", changedField: "modules"),
+                stepFilters: .init(argument: "justMyCode")
+            ),
+            defaults: .init(stepFilters: .init(classNameFilters: ["vendor.*"], skipConstructors: true))
+        )
+        let core = RecordingDebugProtocolCore()
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "example-dap",
+            declaredBehavior: declared,
+            transport: RecordingTransport(),
+            core: core,
+            sessionID: "declared-session",
+            deadlineScheduler: RecordingDebugDeadlineScheduler()
+        )
+        defer { session.stop() }
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/declared-core", isDirectory: true))
+
+        #expect(core.lastDeclaredBehavior == declared)
+        #expect(session.declaredBehavior.features?.hotCodeReplace?.request == "reloadModules")
+    }
+
+    @Test
+    func coreProtocolSessionDeclaresNothingUnlessThePluginDid() throws {
+        let core = RecordingDebugProtocolCore()
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "example-dap",
+            transport: RecordingTransport(),
+            core: core,
+            sessionID: "undeclared-session",
+            deadlineScheduler: RecordingDebugDeadlineScheduler()
+        )
+        defer { session.stop() }
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/undeclared-core", isDirectory: true))
+
+        #expect(core.lastDeclaredBehavior == DebugAdapterDeclaredBehavior.none)
     }
 
     @Test
@@ -4988,6 +5100,22 @@ struct DebugModuleTests {
         return feature
     }
 
+    private func makeDeclaredFeature(
+        session: DeferredInspectionDebugSession,
+        rootPath: String
+    ) -> GenericDebugFeatureModel {
+        let descriptor = DebugProviderDescriptor(id: "example-dap", displayName: "Example", fileExtensions: ["ex"])
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let root = URL(fileURLWithPath: rootPath, isDirectory: true)
+        precondition(feature.start(
+            fileURL: root.appendingPathComponent("main.ex"),
+            rootURL: root,
+            configuration: DebugLaunchConfiguration(name: "main", request: .launch, arguments: [:])
+        ))
+        return feature
+    }
+
     // MARK: Declarative adapter start
 
     @Test
@@ -5386,6 +5514,7 @@ private struct RecordingDebugVariablePageRequest: Equatable {
 @MainActor
 private final class DeferredInspectionDebugSession: DebugAdapterControllingSession, DebugAdapterRunInTerminalSession {
     private(set) var redefineCount = 0
+    var declaredBehavior: DebugAdapterDeclaredBehavior = .none
     func redefineClasses(_ completion: @escaping (Result<[String], Error>) -> Void) {
         redefineCount += 1
         completion(.success(["example.Main"]))
@@ -5695,6 +5824,7 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
     private(set) var lastSupportsStartDebuggingRequest: Bool?
     private(set) var lastParentSessionID: String?
     private(set) var lastDisabledCapabilities: [String] = []
+    private(set) var lastDeclaredBehavior: DebugAdapterDeclaredBehavior?
     private(set) var startDebuggingResults: [(requestID: String, succeeded: Bool)] = []
     private(set) var runInTerminalCompletions: [RecordingRunInTerminalCompletion] = []
     let defaultSteppingFilters = DebugSteppingFilters(
@@ -5719,9 +5849,11 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
         supportsRunInTerminalRequest: Bool,
         supportsStartDebuggingRequest: Bool,
         disabledCapabilities: [String],
-        parentSessionID: String?
+        parentSessionID: String?,
+        declared: DebugAdapterDeclaredBehavior
     ) throws -> DebugCoreUpdate {
         if refusesSessions { throw SessionRefused() }
+        lastDeclaredBehavior = declared
         lastDisabledCapabilities = disabledCapabilities
         lastParentSessionID = parentSessionID
         lastSupportsRunInTerminalRequest = supportsRunInTerminalRequest

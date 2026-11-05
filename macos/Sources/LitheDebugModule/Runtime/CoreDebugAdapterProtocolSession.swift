@@ -34,6 +34,8 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     /// Standard DAP capabilities the plugin turned off; Rust Core removes them
     /// from what the adapter advertises.
     private let disabledCapabilities: [String]
+    /// What the plugin declared for the adapter beyond standard DAP; Core follows it.
+    public let declaredBehavior: DebugAdapterDeclaredBehavior
     private let deadlineScheduler: any DebugOperationDeadlineScheduling
     private let operationTimeoutMilliseconds: Int
     private let initializationTimeoutMilliseconds: Int?
@@ -74,6 +76,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         consoleCommands: [DebugConsoleCommand] = [],
         consoleCommandPrefix: String? = nil,
         disabledCapabilities: [String] = [],
+        declaredBehavior: DebugAdapterDeclaredBehavior = .none,
         transport: any DebugAdapterTransport,
         core: any DebugProtocolCore,
         sessionID: String = UUID().uuidString,
@@ -86,6 +89,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         self.logSink = logSink
         self.adapterID = adapterID
         self.disabledCapabilities = disabledCapabilities
+        self.declaredBehavior = declaredBehavior
         self.consoleCommands = consoleCommands
         self.consoleCommandPrefix = consoleCommandPrefix
         self.transport = transport
@@ -142,7 +146,8 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                 supportsRunInTerminalRequest: onRunInTerminalRequest != nil,
                 supportsStartDebuggingRequest: onStartDebuggingRequest != nil,
                 disabledCapabilities: disabledCapabilities,
-                parentSessionID: parentCoreSessionID
+                parentSessionID: parentCoreSessionID,
+                declared: declaredBehavior
             )
             ownsCoreSession = true
             try apply(update)

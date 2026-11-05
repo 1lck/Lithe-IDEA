@@ -79,6 +79,9 @@ final class AppServices {
     /// Static plugin editor resources; `nil` when
     /// the platform loads no plugins.
     var pluginEditorLanguages: (any PluginEditorLanguageProviding)?
+    /// Console links from plugins' output link matchers; `nil` when
+    /// the platform loads no plugins.
+    var pluginOutputLinks: PluginOutputLinkService?
     let moduleRuntime: ModuleRuntime
     let pluginManager: any PluginManaging
     let pluginMarketplace: any PluginMarketplaceServicing

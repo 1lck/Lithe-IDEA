@@ -11,12 +11,7 @@ extension MacToolchainDiscovery {
     func resolve(_ request: Request, tool: String, directory: String, minimumVersion: String?,
                  local: ToolingJSONValue, projectCodeAllowed: Bool,
                  fixed: FixedToolchainSelection? = nil, requiresDirectLaunch: Bool = true) async throws -> Selection? {
-        let plugins: [[String: Any]] = request.sources.filter(\.isEnabled).compactMap { source in
-            guard let manifest = try? JSONSerialization.jsonObject(with: source.manifest) as? [String: Any],
-                  manifest["toolDefinitions"] != nil || manifest["toolchainProviders"] != nil else { return nil }
-            return ["manifest": manifest, "verifiedOfficial": source.verifiedOfficial]
-        }
-        let registry: [String: Any] = ["plugins": plugins]
+        let registry = Self.registry(of: request.sources)
         guard let plan = core("toolchains.discoveryPlan", ["registry": registry, "platform": "macos"])?["plan"] as? [String: Any],
               let tools = plan["tools"] as? [[String: Any]] else { throw Self.unavailable() }
         guard let definition = tools.first(where: { $0["tool"] as? String == tool }) else { return nil }
@@ -184,7 +179,18 @@ extension MacToolchainDiscovery {
         let prepend = selected["pathPrepend"] as? [String] ?? []
         if !prepend.isEmpty { environment["PATH"] = (prepend + [environment["PATH"] ?? ""]).joined(separator: ":") }
         return Selection(executable: URL(fileURLWithPath: executable), environment: environment,
-                         projectCode: selected["projectCode"] as? Bool == true, version: selected["version"] as? String)
+                         projectCode: selected["projectCode"] as? Bool == true, version: selected["version"] as? String,
+                         home: selected["home"] as? String)
+    }
+
+    /// The tool registry Core reads: the enabled plugins that define tools or providers.
+    static func registry(of sources: [ToolchainSettingsPluginSource]) -> [String: Any] {
+        let plugins: [[String: Any]] = sources.filter(\.isEnabled).compactMap { source in
+            guard let manifest = try? JSONSerialization.jsonObject(with: source.manifest) as? [String: Any],
+                  manifest["toolDefinitions"] != nil || manifest["toolchainProviders"] != nil else { return nil }
+            return ["manifest": manifest, "verifiedOfficial": source.verifiedOfficial]
+        }
+        return ["plugins": plugins]
     }
 
     private static func unavailable() -> BuildToolResolutionError {

@@ -1,0 +1,35 @@
+{
+  "id": "plugin-backend-run-start",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "插件后端发起原生运行：后端经 lithe/host/run/start 让宿主在 Run 窗口运行一个进程（可执行文件来自工具定义 ID 或插件包内文件，工作目录限工作区内，环境变量由插件显式给出并优先于工具导出），支持临时文件（Core 校验并替换 ${temporaryFile:名称}，运行结束即删除）、连接式调试（进程监听端口后宿主附加该插件声明的适配器）和再次运行（调用插件声明的函数）；lithe/host/run/stop 只停止调用方插件自己的运行或调试会话；运行结束向启动它的后端会话发送 lithe/host/run/didExit。工具 ID 由用户的工具链层级解析，找不到或不可用时返回 plugin.host.toolUnresolved",
+  "macos": {
+    "evidence": [
+      "shared/contracts/plugins/v1/README.md",
+      "shared/contracts/plugins/v1/fixtures/run/run-start.json",
+      "shared/contracts/plugins/v1/fixtures/run/tool-reference-launch.plugin.json",
+      "rust/lithe-core/src/build/run_start.rs",
+      "rust/lithe-core/src/tests/plugin_run_debug.rs",
+      "rust/lithe-core/src/toolchain/mod.rs",
+      "macos/Sources/Lithe/Core/Ports/PluginRunDecoding.swift",
+      "macos/Sources/Lithe/Core/Rust/RustPluginRunOperations.swift",
+      "macos/Sources/Lithe/Application/Features/PluginRunHostService.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+PluginRun.swift",
+      "macos/Sources/LitheExecutionModule/Services/RunService.swift",
+      "macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift",
+      "macos/Tests/LitheTests/PluginRunHostServiceTests.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "shared/contracts/plugins/v1/README.md"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Extensions / Run",
+  "verification": "macOS：用声明 requires.serverProcess 4 与 permissions run.start 的测试插件，让后端依次发起（1）工具 ID 运行：Run 窗口出现以 label 命名的条目，进程使用用户在设置里选中的安装，参数、工作目录和环境符合请求，插件显式给出的环境变量覆盖工具导出；（2）插件包内可执行文件运行，路径逃出包目录、文件不存在或不可执行时返回 plugin.host.notFound；（3）带 temporaryFiles 的运行，进程内能读到文件内容，结束后临时目录被删除；（4）带 debug.target connection 的运行，进程监听后调试器附加并命中断点，声明 target launch 时返回 plugin.host.unsupportedOption 且不启动进程；（5）带 rerun 的运行，在 Run 窗口点击再次运行会调用插件函数，函数失败时用户看到提示；（6）run/stop 只停止调用方插件的运行，用户点击停止后后端收到不带 exitCode 的 lithe/host/run/didExit，进程自然退出时收到 exitCode。工具未安装时返回 plugin.host.toolUnresolved，details.reason 为 notFound，所选安装不可运行时为 unusable，两种情况都不启动进程。禁用插件或后端退出后，已启动的进程继续运行，后端不再收到通知。远程工作区返回 plugin.host.authorityUnsupported。启动后 app bundle 文件清单不变（scripts/macos/verify/verify-runtime-bundle-immutability.sh）。Windows：宿主尚未接入 run/start，Core 校验通过不代表 Windows 能运行插件请求的进程。",
+  "notes": "serverProcess 4 暂未在 macOS 的 hostCapabilities 中声明：语言服务器启动和 runSelectedRuntime 还不解析工具定义 ID，需随 Java 等插件迁移把 serverProcess 一并声明为 [1,2,3,4]；在此之前声明 requires.serverProcess 4 的插件会被 Core 的能力闸门拒绝。同一时间一个插件只有一个 Run 条目；需要 ${entry} 的工具定义不能经 run/start 的工具 ID 运行；Stop 不报告退出信息。"
+}

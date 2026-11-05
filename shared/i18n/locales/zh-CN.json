@@ -10156,7 +10156,22 @@
     "git.fetch.behavior.source.unknown": "Git 配置",
     "git.fetch.behavior.source.git": "Git 默认值",
     "git.fetch.behavior.source.lithe": "Lithe 默认值",
-    "git.fetch.behavior.source.multiple": "多个来源"
+    "git.fetch.behavior.source.multiple": "多个来源",
+    "native.thisWindowCannotStartRunsForPlugins": "此窗口无法为插件启动运行。",
+    "native.noInstalledToolMatchesTheOneThePluginAskedToRun": "没有已安装的工具与插件要求运行的工具匹配。",
+    "native.thePluginPackageHasNoSuchExecutableFile": "插件包中没有这个可执行文件。",
+    "native.theDebugConfigurationIsTooLarge": "调试配置过大。",
+    "native.thePluginDeclaresNoSuchDebugAdapter": "插件没有声明这个调试适配器。",
+    "native.theProgramDidNotOpenItsDebugPortBeforeTheDeadlineCheckTheRunOutput": "程序没有在限定时间内打开调试端口。请查看“运行”输出。",
+    "native.noSingleDebugAdapterAttachesToTheConfigurationType": "没有唯一的调试适配器可以附加到“{arg1}”配置类型。",
+    "native.theDebugAdapterCouldNotStartCheckThatThePluginThatProvidesItIsEnabled": "调试适配器无法启动。请确认提供它的插件已启用。",
+    "native.savingCodeChanges": "正在保存代码更改…",
+    "native.applyingCodeChanges": "正在应用代码更改…",
+    "native.noCodeChangesToApply": "没有需要应用的代码更改。",
+    "native.codeChangesApplied": "代码更改已应用。",
+    "native.couldNotApplyCodeChanges": "无法应用代码更改：{arg1}",
+    "native.applyCodeChangesToTheRunningProgram": "将代码更改应用到正在运行的程序",
+    "native.thePluginCouldNotFindAFileForThisLink": "插件找不到这个链接对应的文件。"
   },
   "overrides": {
     "macos": {

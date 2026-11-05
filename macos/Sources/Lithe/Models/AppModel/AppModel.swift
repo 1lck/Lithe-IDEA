@@ -216,6 +216,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
     var providerDebugRunObservation: AnyCancellable?
     var providerDebugSession: (operation: String, session: DebugSessionID)?
+    /// The runs and debug sessions plugin backends started in this window.
+    let pluginRunSessions = PluginRunSessions()
     var workspaceFeature: WorkspaceFeatureModel { featureGraph.workspace }
     var githubFeature: GitHubFeatureModel { featureGraph.github }
     var editorTabOrderFeature: EditorTabOrderFeatureModel { featureGraph.editorTabOrder }

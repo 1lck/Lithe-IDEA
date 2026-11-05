@@ -1,6 +1,7 @@
 //! Transport-neutral Debug Adapter Protocol state and normalized debugger models.
 
 pub(crate) mod adapters;
+mod backend_start;
 mod breakpoint_relocation;
 mod capabilities;
 mod endpoint;
@@ -12,6 +13,7 @@ mod shortcut;
 mod transport_lifecycle;
 mod types;
 
+pub(crate) use backend_start::decode_backend_configuration_command;
 pub(crate) use breakpoint_relocation::*;
 pub(crate) use endpoint::*;
 pub(crate) use engine::*;

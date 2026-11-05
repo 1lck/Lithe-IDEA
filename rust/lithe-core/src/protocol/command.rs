@@ -168,6 +168,16 @@ pub enum CoreCommand {
     ToolchainsDiscoveryPlan,
     /// Lists checked installations and the automatic choice for one tool.
     ToolchainsCandidates,
+    /// Expands a tool definition's launch template for a selected executable.
+    ToolchainsInstantiateLaunch,
+    /// Validates a plugin backend's Run start request (`run.decodeStart`).
+    RunDecodeStart,
+    /// Validates a plugin backend's debug start request (`debug.decodeBackendConfiguration`).
+    DebugDecodeBackendConfiguration,
+    /// Finds the output links plugin matchers declare in console lines (`outputLinks.match`).
+    OutputLinksMatch,
+    /// Checks a plugin function's answer to an output link (`outputLinks.decodeResolution`).
+    OutputLinksDecodeResolution,
     /// Finds the build-system instances of a workspace (`build.detect`).
     BuildDetect,
     /// Validates a native team's persisted Build options (`build.projectOptions`).
@@ -804,6 +814,11 @@ impl CoreCommand {
             "toolchains.checkVersion" => Some(Self::ToolchainsCheckVersion),
             "toolchains.discoveryPlan" => Some(Self::ToolchainsDiscoveryPlan),
             "toolchains.candidates" => Some(Self::ToolchainsCandidates),
+            "toolchains.instantiateLaunch" => Some(Self::ToolchainsInstantiateLaunch),
+            "run.decodeStart" => Some(Self::RunDecodeStart),
+            "debug.decodeBackendConfiguration" => Some(Self::DebugDecodeBackendConfiguration),
+            "outputLinks.match" => Some(Self::OutputLinksMatch),
+            "outputLinks.decodeResolution" => Some(Self::OutputLinksDecodeResolution),
             "build.detect" => Some(Self::BuildDetect),
             "build.projectOptions" => Some(Self::BuildProjectOptions),
             "build.resolveStoredOptions" => Some(Self::BuildResolveStoredOptions),
@@ -1212,6 +1227,19 @@ mod tests {
             "debug.transport.policy",
             "debug.transport.handle",
             "debug.transport.release",
+        ] {
+            assert!(CoreCommand::parse(command).is_some(), "missing {command}");
+        }
+    }
+
+    #[test]
+    fn parses_plugin_run_debug_and_output_link_commands() {
+        for command in [
+            "toolchains.instantiateLaunch",
+            "run.decodeStart",
+            "debug.decodeBackendConfiguration",
+            "outputLinks.match",
+            "outputLinks.decodeResolution",
         ] {
             assert!(CoreCommand::parse(command).is_some(), "missing {command}");
         }

@@ -2,6 +2,8 @@
 
 mod build_provider;
 mod client;
+/// Decodes the path of a `file:` URI an extension reply names.
+pub(crate) use client::percent_decode;
 mod document_uri;
 mod engine;
 mod engine_logging;

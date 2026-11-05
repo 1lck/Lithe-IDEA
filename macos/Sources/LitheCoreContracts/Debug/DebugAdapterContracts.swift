@@ -1043,12 +1043,16 @@ public protocol DebugAdapterControllingSession: DebugAdapterSession {
     /// Text the adapter's console reads as "a debugger command follows"; nil when the
     /// plugin declared none.
     var consoleCommandPrefix: String? { get }
+    /// What the adapter's plugin declared beyond standard DAP (`features`, `defaults`); a view
+    /// reads it to decide which extra actions to offer.
+    var declaredBehavior: DebugAdapterDeclaredBehavior { get }
     func cancelPendingOperations()
 }
 
 public extension DebugAdapterControllingSession {
     var consoleCommands: [DebugConsoleCommand] { [] }
     var consoleCommandPrefix: String? { nil }
+    var declaredBehavior: DebugAdapterDeclaredBehavior { .none }
     func evaluateInConsole(
         _ expression: String,
         frameID: Int?,

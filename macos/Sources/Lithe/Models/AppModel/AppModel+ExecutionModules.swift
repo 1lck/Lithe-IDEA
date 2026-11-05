@@ -138,9 +138,12 @@ extension AppModel {
         feature.onSessionStopped = { [weak self] debugSessionID in
             self?.stopDebugTerminalProcesses(for: debugSessionID)
             self?.stopProviderDebugProcess(for: debugSessionID)
+            self?.pluginDebugSessionEnded(debugSessionID)
         }
         feature.onSessionStateChanged = { [weak self] sessionID, state in
-            if state == .failed || state == .terminated { self?.stopProviderDebugProcess(for: sessionID) }
+            guard state == .failed || state == .terminated else { return }
+            self?.stopProviderDebugProcess(for: sessionID)
+            self?.pluginDebugSessionEnded(sessionID)
         }
         feature.onSessionRunInTerminalRequest = { [weak self] debugSessionID, request, completion in
             guard let self else {

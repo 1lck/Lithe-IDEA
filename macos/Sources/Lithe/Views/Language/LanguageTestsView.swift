@@ -575,6 +575,7 @@ struct LanguageTestsView: View {
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
+                .pluginLinks(in: model, scope: .test, searchRoots: [workspaceURL])
             }
         }
     }

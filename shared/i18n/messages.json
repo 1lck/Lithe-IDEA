@@ -98118,6 +98118,181 @@
         "key": "Multiple sources",
         "arguments": []
       }
+    },
+    {
+      "id": "native.thisWindowCannotStartRunsForPlugins",
+      "description": "Native UI: This window cannot start runs for plugins.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This window cannot start runs for plugins.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noInstalledToolMatchesTheOneThePluginAskedToRun",
+      "description": "Native UI: No installed tool matches the one the plugin asked to run.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No installed tool matches the one the plugin asked to run.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginPackageHasNoSuchExecutableFile",
+      "description": "Native UI: The plugin package has no such executable file.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin package has no such executable file.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theDebugConfigurationIsTooLarge",
+      "description": "Native UI: The debug configuration is too large.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug configuration is too large.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginDeclaresNoSuchDebugAdapter",
+      "description": "Native UI: The plugin declares no such debug adapter.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin declares no such debug adapter.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theProgramDidNotOpenItsDebugPortBeforeTheDeadlineCheckTheRunOutput",
+      "description": "Native UI: The program did not open its debug port before the deadline. Check the Run output.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The program did not open its debug port before the deadline. Check the Run output.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noSingleDebugAdapterAttachesToTheConfigurationType",
+      "description": "Native UI: No single debug adapter attaches to the “%@” configuration type.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No single debug adapter attaches to the “%@” configuration type.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theDebugAdapterCouldNotStartCheckThatThePluginThatProvidesItIsEnabled",
+      "description": "Native UI: The debug adapter could not start. Check that the plugin that provides it is enabled.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter could not start. Check that the plugin that provides it is enabled.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.savingCodeChanges",
+      "description": "Native UI: Saving code changes…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Saving code changes…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.applyingCodeChanges",
+      "description": "Native UI: Applying code changes…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Applying code changes…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noCodeChangesToApply",
+      "description": "Native UI: No code changes to apply.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No code changes to apply.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.codeChangesApplied",
+      "description": "Native UI: Code changes applied.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Code changes applied.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotApplyCodeChanges",
+      "description": "Native UI: Could not apply code changes: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not apply code changes: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.applyCodeChangesToTheRunningProgram",
+      "description": "Native UI: Apply code changes to the running program",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Apply code changes to the running program",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginCouldNotFindAFileForThisLink",
+      "description": "Native UI: The plugin could not find a file for this link.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin could not find a file for this link.",
+        "arguments": []
+      }
     }
   ]
 }

@@ -399,8 +399,10 @@
 "Apply Patch" = "应用补丁";
 "Apply Patch…" = "应用补丁…";
 "Apply code changes" = "应用代码更改";
+"Apply code changes to the running program" = "将代码更改应用到正在运行的程序";
 "Apply code changes to this service" = "将代码更改应用到此服务";
 "Apply to" = "应用目标";
+"Applying code changes…" = "正在应用代码更改…";
 "Approval mode" = "权限模式";
 "Approve" = "批准";
 "Approve for me" = "替我审批";
@@ -818,6 +820,7 @@
 "Closing the project stops these services and the processes they started." = "关闭项目会停止这些服务及其启动的进程。";
 "Closing the terminal ends these programs." = "关闭终端会结束这些程序。";
 "Closing this terminal will stop its shell and any running command." = "关闭此终端将停止其 Shell 和所有正在运行的命令。";
+"Code changes applied." = "代码更改已应用。";
 "Code settings" = "代码设置";
 "Codex" = "Codex";
 "Codex Agents require the Responses API. Claude Agents require an Anthropic API key." = "Codex Agent 需要 Responses API，Claude Agent 需要 Anthropic API 密钥。";
@@ -1053,6 +1056,7 @@
 "Copy session ID" = "复制会话 ID";
 "Copy table" = "复制表格";
 "Copy worktree path" = "复制工作树路径";
+"Could not apply code changes: %@" = "无法应用代码更改：%@";
 "Could not apply project indexing exclusions. Try reopening the project." = "无法应用项目索引排除策略，请重新打开项目后重试。";
 "Could not be determined" = "无法确定";
 "Could not change the log directory. Try again." = "无法修改日志目录，请重试。";
@@ -2593,6 +2597,7 @@
 "No callable target at this location" = "当前位置没有可调用目标";
 "No changed files" = "没有更改的文件";
 "No changes" = "没有更改";
+"No code changes to apply." = "没有需要应用的代码更改。";
 "No command" = "无命令";
 "No commit selected" = "未选择提交";
 "No commits" = "没有提交记录";
@@ -2625,6 +2630,7 @@
 "No implementations found" = "没有找到实现";
 "No installation of this tool was found." = "未找到此工具的安装。";
 "No installed plugin supports %@ yet." = "尚未安装支持 %@ 的插件。";
+"No installed tool matches the one the plugin asked to run." = "没有已安装的工具与插件要求运行的工具匹配。";
 "No items" = "暂无项目";
 "No language dependency sources registered" = "未注册语言依赖来源";
 "No language provider handles .%@ files." = "没有语言 Provider 处理 .%@ 文件。";
@@ -2700,6 +2706,7 @@
 "No settings to import yet" = "暂时没有可导入的设置";
 "No shell was found at %@. Choose a detected shell or run detection again." = "在 %@ 未找到 Shell。请选择已检测到的 Shell，或重新执行检测。";
 "No shelves" = "没有 Shelf";
+"No single debug adapter attaches to the “%@” configuration type." = "没有唯一的调试适配器可以附加到“%@”配置类型。";
 "No skills in this scope." = "当前分类暂无技能。";
 "No subagent output yet" = "尚未收到子代理输出";
 "No subagents yet" = "暂无子代理";
@@ -3634,6 +3641,7 @@
 "Saved, not verified" = "已保存，未验证";
 "Saves, connects, and opens the remote folder in this window." = "保存、连接，并在当前窗口打开远程文件夹。";
 "Saving build provider run configurations is unavailable." = "当前无法保存构建提供方运行配置。";
+"Saving code changes…" = "正在保存代码更改…";
 "Saving replaces the current GitHub metadata." = "保存后将替换当前 GitHub 元数据。";
 "Saving writes to" = "保存将写入";
 "Scala Support" = "Scala 支持";
@@ -4282,10 +4290,12 @@
 "The debug adapter connection is stopped." = "调试适配器的连接已停止。";
 "The debug adapter connection timed out." = "调试适配器连接超时。";
 "The debug adapter connection was not approved." = "未批准连接调试适配器。";
+"The debug adapter could not start. Check that the plugin that provides it is enabled." = "调试适配器无法启动。请确认提供它的插件已启用。";
 "The debug adapter did not accept outgoing data in time." = "调试适配器未能及时接收待发送数据。";
 "The debug adapter did not provide a terminal executable." = "调试适配器没有提供终端可执行文件。";
 "The debug adapter outgoing buffer is full." = "调试适配器的发送缓冲区已满。";
 "The debug adapter provided an invalid terminal working directory." = "调试适配器提供的终端工作目录无效。";
+"The debug configuration is too large." = "调试配置过大。";
 "The debugger did not return object fields in time." = "调试器未能及时返回对象字段。";
 "The decoded contents contain non-text characters. Use a suitable file viewer." = "解码后的内容包含非文本字符。请使用适合该格式的查看器。";
 "The default ChangeList cannot be renamed." = "默认更改列表不能重命名。";
@@ -4372,6 +4382,8 @@
 "The plugin backend failed to start." = "插件后端启动失败。";
 "The plugin backend is no longer running." = "插件后端已不在运行。";
 "The plugin backend stopped before it was ready." = "插件后端在就绪前已停止。";
+"The plugin could not find a file for this link." = "插件找不到这个链接对应的文件。";
+"The plugin declares no such debug adapter." = "插件没有声明这个调试适配器。";
 "The plugin does not provide the debug adapter %@." = "插件没有提供调试适配器 %@。";
 "The plugin download address is invalid." = "插件下载地址无效。";
 "The plugin host request could not be completed." = "未能完成插件宿主请求。";
@@ -4383,6 +4395,7 @@
 "The plugin package directory is invalid." = "插件包目录无效。";
 "The plugin package file list does not match its signature." = "插件包文件列表与其签名不一致。";
 "The plugin package file was changed after signing: %@." = "插件包文件在签名后被更改：%@。";
+"The plugin package has no such executable file." = "插件包中没有这个可执行文件。";
 "The plugin package is missing %@. Reinstall the plugin." = "插件包缺少 %@。请重新安装该插件。";
 "The plugin package is signed by key %@, which this version of Lithe does not trust." = "插件包由密钥 %@ 签名，当前版本的 Lithe 不信任该密钥。";
 "The plugin package manifest is invalid." = "插件包清单无效。";
@@ -4412,6 +4425,7 @@
 "The process does not have an open standard-input pipe." = "进程没有打开的标准输入管道。";
 "The process is not running." = "进程未在运行。";
 "The program chosen in the “%@” setting of %@ is missing or not executable: %@" = "在 %2$@ 的“%1$@”设置中选择的程序不存在或不可执行：%3$@";
+"The program did not open its debug port before the deadline. Check the Run output." = "程序没有在限定时间内打开调试端口。请查看“运行”输出。";
 "The project archive from %@ is too large." = "来自 %@ 的项目压缩包过大。";
 "The project directory is unavailable." = "项目目录不可用。";
 "The project folder is unavailable. Restore it, then retry." = "项目目录不可用。请恢复目录后重试。";
@@ -4643,6 +4657,7 @@
 "This version of Lithe cannot read update manifest schema %@. Open the Release page and update manually." = "此版本的 Lithe 无法读取版本为 %@ 的更新清单格式。请打开 Release 页面手动更新。";
 "This will start %lld detected services." = "这将启动检测到的 %lld 个服务。";
 "This window" = "此窗口";
+"This window cannot start runs for plugins." = "此窗口无法为插件启动运行。";
 "This working copy format is not supported. Upgrade it with the command-line client." = "不支持此工作副本格式。请用命令行客户端升级。";
 "This working copy is no longer available. Refresh and try again." = "此工作副本已不可用。请刷新后重试。";
 "This workspace is not open in a window, so only global versions were read." = "此工作区未在窗口中打开，因此只读取了全局版本。";
@@ -5641,11 +5656,13 @@
 "native.appliesTheNextTimeTheLanguageServerStarts" = "下次启动语言服务器时生效。";
 "native.applyAIGeneratedContent" = "要应用 AI 生成的内容吗？";
 "native.applyCodeChanges" = "应用代码更改";
+"native.applyCodeChangesToTheRunningProgram" = "将代码更改应用到正在运行的程序";
 "native.applyCodeChangesToThisService" = "将代码更改应用到此服务";
 "native.applyPatch" = "应用补丁";
 "native.applyPatch.variant2" = "应用补丁…";
 "native.applyTo" = "应用目标";
 "native.applyToTheCurrentBranch" = "将提交 %1$@ 应用到当前分支。";
+"native.applyingCodeChanges" = "正在应用代码更改…";
 "native.approvalMode" = "权限模式";
 "native.approve" = "批准";
 "native.approveForMe" = "替我审批";
@@ -6037,6 +6054,7 @@
 "native.closingThisTerminalWillStopItsShellAndAnyRunningCommand" = "关闭此终端将停止其 Shell 和所有正在运行的命令。";
 "native.cmakeSupport" = "CMake 支持";
 "native.code" = "代码";
+"native.codeChangesApplied" = "代码更改已应用。";
 "native.codex" = "Codex";
 "native.codexAgentsRequireTheResponsesAPIClaudeAgentsRequireAnAnthropicAPIKey" = "Codex Agent 需要 Responses API，Claude Agent 需要 Anthropic API 密钥。";
 "native.codexArchivedHistoryCouldNotBeRead" = "无法读取 Codex 的归档历史。";
@@ -6253,6 +6271,7 @@
 "native.copyThreadName" = "复制线程名";
 "native.copyValue" = "复制值";
 "native.copyWorktreePath" = "复制工作树路径";
+"native.couldNotApplyCodeChanges" = "无法应用代码更改：%1$@";
 "native.couldNotBeReachedCheckYourInternetProxyOrVPNConnectionAndTryAgain" = "无法连接 %1$@。请检查网络、代理或 VPN 后重试。";
 "native.couldNotCheckForUpdates" = "无法检查更新";
 "native.couldNotCheckForUpdates.variant2" = "无法检查更新。";
@@ -7824,6 +7843,7 @@
 "native.noCallableTargetAtThisLocation" = "当前位置没有可调用目标";
 "native.noChangedFiles" = "没有更改的文件";
 "native.noChanges" = "没有更改";
+"native.noCodeChangesToApply" = "没有需要应用的代码更改。";
 "native.noCodexConfigurationWasFound" = "未找到 Codex 配置";
 "native.noColumns" = "没有列";
 "native.noCommand" = "无命令";
@@ -7861,6 +7881,7 @@
 "native.noImplementationsFound" = "没有找到实现";
 "native.noInstallationOfThisToolWasFound" = "未找到此工具的安装。";
 "native.noInstalledPluginSupportsYet" = "尚未安装支持 %1$@ 的插件。";
+"native.noInstalledToolMatchesTheOneThePluginAskedToRun" = "没有已安装的工具与插件要求运行的工具匹配。";
 "native.noItems" = "暂无项目";
 "native.noJDKFoundSetJAVAHOMEInstallAJDKOrChooseAJDKDirectory" = "未找到 JDK。请设置 JAVA_HOME、安装 JDK，或选择 JDK 目录。";
 "native.noJDKIsConfiguredForThisProject" = "此项目没有配置 JDK。";
@@ -7945,6 +7966,7 @@
 "native.noSelectableItems" = "没有可选项";
 "native.noShellWasFoundAtChooseADetectedShellOrRunDetectionAgain" = "在 %1$@ 未找到 Shell。请选择已检测到的 Shell，或重新执行检测。";
 "native.noShelves" = "没有 Shelf";
+"native.noSingleDebugAdapterAttachesToTheConfigurationType" = "没有唯一的调试适配器可以附加到“%1$@”配置类型。";
 "native.noSkillsInThisScope" = "当前分类暂无技能。";
 "native.noSpringBootOrMavenModuleConfigurations" = "没有 Spring Boot 或 Maven Module 配置";
 "native.noSpringMvcEndpointsFound" = "未找到 Spring MVC 端点";
@@ -8784,6 +8806,7 @@
 "native.savedStashInvalidUtf8" = "保存的更改包含非 UTF-8 文本，请使用 Git 查看该暂存记录。";
 "native.savedTo" = "已保存到 %1$@";
 "native.savesConnectsAndOpensTheRemoteFolderInThisWindow" = "保存、连接，并在当前窗口打开远程文件夹。";
+"native.savingCodeChanges" = "正在保存代码更改…";
 "native.savingReplacesTheCurrentGitHubMetadata" = "保存后将替换当前 GitHub 元数据。";
 "native.savingWritesTo" = "保存将写入";
 "native.says" = "“%1$@”提示";
@@ -9313,6 +9336,7 @@
 "native.theCurrentFileWillBeSavedToLocalHistoryBeforeItIsReplaced" = "替换当前文件前，会将其保存到本地历史。";
 "native.theCurrentWorktreeCannotBeRemovedHere" = "不能在这里删除当前工作树。";
 "native.theDebugAdapterConnectionIsStopped" = "调试适配器的连接已停止。";
+"native.theDebugAdapterCouldNotStartCheckThatThePluginThatProvidesItIsEnabled" = "调试适配器无法启动。请确认提供它的插件已启用。";
 "native.theDebugAdapterDidNotProvideATerminal" = "调试适配器没有提供终端可执行文件。";
 "native.theDebugAdapterIsNotInstalledYet" = "%1$@ 调试适配器尚未安装。";
 "native.theDebugAdapterIsNotReady" = "调试适配器未就绪。";
@@ -9325,6 +9349,7 @@
 "native.theDebugAdapterReturnedAnInvalidResponse" = "调试适配器返回了无效的 %1$@ 响应。";
 "native.theDebugAdapterStopped" = "调试适配器已停止。";
 "native.theDebugAdapterUsesTheTransportWhichLitheCannotStartYet" = "调试适配器 %1$@ 使用 %2$@ 传输方式，Lithe 暂时无法启动。目前只支持 stdio 和由语言服务器承载的适配器。";
+"native.theDebugConfigurationIsTooLarge" = "调试配置过大。";
 "native.theDebugProviderDoesNotSupport" = "%1$@ 调试 Provider 不支持 %2$@。";
 "native.theDebuggerDidNotReturnObjectFieldsIn" = "调试器未能及时返回对象字段。";
 "native.theDefaultChangeListCannotBeRenamed" = "默认更改列表不能重命名。";
@@ -9429,6 +9454,8 @@
 "native.thePluginBackendFailedToStart" = "插件后端启动失败。";
 "native.thePluginBackendIsNoLongerRunning" = "插件后端已不在运行。";
 "native.thePluginBackendStoppedBeforeItWasReady" = "插件后端在就绪前已停止。";
+"native.thePluginCouldNotFindAFileForThisLink" = "插件找不到这个链接对应的文件。";
+"native.thePluginDeclaresNoSuchDebugAdapter" = "插件没有声明这个调试适配器。";
 "native.thePluginDoesNotProvideTheDebugAdapter" = "插件没有提供调试适配器 %1$@。";
 "native.thePluginDownloadAddressIsInvalid" = "插件下载地址无效。";
 "native.thePluginIsNotAllowedToUseTheHostService" = "插件无权使用宿主服务 %1$@。";
@@ -9438,6 +9465,7 @@
 "native.thePluginPackageDirectoryIsInvalid" = "插件包目录无效。";
 "native.thePluginPackageFileListDoesNotMatch" = "插件包文件列表与其签名不一致。";
 "native.thePluginPackageFileWasChangedAfterSigning" = "插件包文件在签名后被更改：%1$@。";
+"native.thePluginPackageHasNoSuchExecutableFile" = "插件包中没有这个可执行文件。";
 "native.thePluginPackageIsMissingReinstallThePlugin" = "插件包缺少 %1$@。请重新安装该插件。";
 "native.thePluginPackageIsSignedByKeyWhich" = "插件包由密钥 %1$@ 签名，当前版本的 Lithe 不信任该密钥。";
 "native.thePluginPackageManifestIsInvalid" = "插件包清单无效。";
@@ -9461,6 +9489,7 @@
 "native.theProcessDoesNotHaveAnOpenStandard" = "进程没有打开的标准输入管道。";
 "native.theProcessIsNotRunning" = "进程未在运行。";
 "native.theProgramChosenInTheSettingOfIsMissingOrNotExecutable" = "在 %2$@ 的“%1$@”设置中选择的程序不存在或不可执行：%3$@";
+"native.theProgramDidNotOpenItsDebugPortBeforeTheDeadlineCheckTheRunOutput" = "程序没有在限定时间内打开调试端口。请查看“运行”输出。";
 "native.theProjectArchiveFromIsTooLarge" = "来自 %1$@ 的项目压缩包过大。";
 "native.theProjectDirectoryIsUnavailable" = "项目目录不可用。";
 "native.theProjectFolderOnTheHostBrowseConnectsInstallsTheLitheServerOnTheHostIfNeededAndLetsYouPi" = "主机上的项目文件夹。“浏览”会连接主机，必要时在主机上安装 Lithe 远端服务，然后让你选择文件夹。";
@@ -9650,6 +9679,7 @@
 "native.thisWillStartLldDetectedServices" = "这将启动检测到的 %1$lld 个服务。";
 "native.thisWindow" = "此窗口";
 "native.thisWindow.variant2" = "此窗口";
+"native.thisWindowCannotStartRunsForPlugins" = "此窗口无法为插件启动运行。";
 "native.thisWorkingCopyFormatIsNotSupportedUpgradeItWithTheCommandLineClient" = "不支持此工作副本格式。请用命令行客户端升级。";
 "native.thisWorkingCopyIsNoLongerAvailableRefreshAndTryAgain" = "此工作副本已不可用。请刷新后重试。";
 "native.thisWorktreeHasADetachedHEADPublishItAsABranchBeforeCreatingAPullRequest" = "当前工作树处于分离 HEAD 状态。请先将它发布为分支，再创建拉取请求。";

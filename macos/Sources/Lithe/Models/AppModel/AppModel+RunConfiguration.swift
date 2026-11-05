@@ -284,6 +284,11 @@ extension AppModel {
     }
 
     func restartSelectedRun() {
+        // A plugin's run restarts through the plugin, which knows how it was started.
+        if runFeatureIfActive?.restartPluginRun() == true {
+            showToolWindow(.run)
+            return
+        }
         if let configuration = runFeatureIfActive?.selectedConfiguration,
            configuration.kind != .currentFile {
             startRunConfiguration(configuration)

@@ -68,6 +68,8 @@ pub(crate) struct DeclarationContext<'a> {
     pub(crate) activates_on_workspace_open: bool,
     /// A provider capability may start this backend for a host-owned query.
     pub(crate) provider_query_trigger: bool,
+    /// Whether tool names are host runtimes or tool-definition IDs.
+    pub(crate) runtime_tools: crate::plugins::declarative::RuntimeTools<'a>,
 }
 
 impl BackendDeclaration {
@@ -103,6 +105,7 @@ impl BackendDeclaration {
             context.plugin_api_version,
             context.declared_settings,
             ServerRole::Backend,
+            context.runtime_tools,
         )?;
         // One process serves every workspace, so a launch argument cannot
         // name one of them; version 2 receives the directory per context.

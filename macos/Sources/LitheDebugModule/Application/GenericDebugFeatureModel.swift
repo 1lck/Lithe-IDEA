@@ -256,6 +256,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     public var canUpdateJavaService: Bool {
         guard let id = activeSessionID else { return false }
         return providerID == "java" && canControl && javaUpdateTargets[id] != nil
+            && !adapterDeclaredCodeChanges
     }
 
     public func applyJavaServiceUpdate(
@@ -285,6 +286,50 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             serviceUpdateMessage = "Could not apply changes: " + error.localizedDescription
                 + " Restart the service if this change is not supported."
             append((serviceUpdateMessage ?? "") + "\n")
+        }
+    }
+
+    /// Whether the active session's adapter declared a way to apply changed code to the running
+    /// program (`features.hotCodeReplace`). The declaration wins over the host's own service
+    /// update, which only remains for adapters that declared nothing, so one button shows.
+    public var canApplyDeclaredCodeChanges: Bool {
+        canControl && adapterDeclaredCodeChanges
+    }
+
+    private var adapterDeclaredCodeChanges: Bool {
+        activeSession?.declaredBehavior.features?.hotCodeReplace != nil
+    }
+
+    /// Applies changed code through the request the adapter declared; Core sends it and reads
+    /// the reply by the declared field names. `prepare` runs first, so the caller can save the
+    /// documents the program is built from.
+    public func applyDeclaredCodeChanges(prepare: () async throws -> Void) async {
+        guard updatingServiceSessionID == nil, canApplyDeclaredCodeChanges,
+              let id = activeSessionID, let session = activeSession else { return }
+        updatingServiceSessionID = id
+        serviceUpdateFailed = false
+        serviceUpdateMessage = L10n.string("Saving code changes…")
+        defer { updatingServiceSessionID = nil }
+        do {
+            try await prepare()
+            guard activeSessionID == id, isSessionActive else { return }
+            serviceUpdateMessage = L10n.string("Applying code changes…")
+            let changed: [String] = try await withCheckedThrowingContinuation { continuation in
+                session.redefineClasses { continuation.resume(with: $0) }
+            }
+            guard activeSessionID == id, isSessionActive else { return }
+            // The reply may list nothing when the adapter saw no difference.
+            let message = changed.isEmpty
+                ? L10n.string("No code changes to apply.") : L10n.string("Code changes applied.")
+            serviceUpdateMessage = message
+            append(message + "\n")
+            if state == .paused { inspectThreads() }
+        } catch {
+            guard activeSessionID == id, isSessionActive else { return }
+            serviceUpdateFailed = true
+            let message = L10n.string("Could not apply code changes: \(error.localizedDescription)")
+            serviceUpdateMessage = message
+            append(message + "\n")
         }
     }
 

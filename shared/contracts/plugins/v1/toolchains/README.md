@@ -47,7 +47,9 @@ replies may not contain statements. Providers share the plugin's
 backend; admission permits a host-query trigger without a page or startup event,
 and the macOS host starts the backend on the first query. Bootstrap must be `packaged`, or
 `runtime` with `packagedRuntime`, without discovered runtime dependencies. Existing
-runtime launch tool restrictions remain; generic consumer launches are not added.
+runtime launch tool restrictions remain for `serverProcess` 1 and 2, which name
+a closed set of runtimes. From `serverProcess` 4 a plugin names any tool definition
+by ID instead; see [`instantiateLaunch`](#launching-a-tool-definition).
 
 `toolchains.provide` may influence which program a defined tool launches. It does
 not grant arbitrary command replacement, installation, network or workspace-code
@@ -109,6 +111,7 @@ are not a substitute for that adapter. These commands perform no native I/O.
 | `toolchains.resolvePins` | `{document,directory,tool}` | `resolution` |
 | `toolchains.resolve` | Captured resolver input described below | `resolution` |
 | `toolchains.checkVersion` | `{registry,tool,output,minimumVersion?}` | `version` |
+| `toolchains.instantiateLaunch` | `{registry,tool,executable,home?,entry?,runtimeArguments,arguments}` | `launch` |
 | `toolchains.discoveryPlan` | `{registry,platform}` | `plan` |
 | `toolchains.candidates` | Captured discovery input described below | `candidates` |
 
@@ -332,6 +335,34 @@ qualified `providers` that declare it, and the definition's `homeLayouts`,
 login-shell home variables (`{variable,path}` from its platform-applicable
 `environment` candidates). It neither scans, queries nor executes them; limits
 are 256 roots, 4096 entries and 64 ancestors for the host adapter.
+
+## Launching a tool definition
+
+A plugin that starts a tool by definition ID (a `launch.kind: "tool"` plan, or a
+`run/start` with `{kind: "tool"}`) never writes the tool's argv. The definition's
+`launch` template says how the tool takes an entry file, runtime arguments and
+program arguments, so no host and no plugin branches on a tool name.
+`toolchains.instantiateLaunch` expands it for the executable the host selected:
+
+- `registry` and `tool` are as in `checkVersion`; `executable` is the selected
+  executable (required). `home` is the resolved tool home, `entry` an absolute
+  file path, `runtimeArguments` and `arguments` string lists. A text is at most
+  4096 bytes, a list at most 1024 items of 64 KiB each, and none holds a NUL.
+- `${executable}`, `${home}`, `${entry}`, `${runtimeArguments}` and
+  `${arguments}` are replaced by the matching value, a list expanding in place.
+  Any other template token is passed as written.
+- The result is `{executable, arguments, versionArguments}`: the program, the
+  rest of the argv, and the definition's `version.arguments` for the probe.
+- A value the caller supplies that the template cannot carry (an `entry` for a
+  tool that launches none, or arguments for one that takes none), or a `${home}`
+  or `${entry}` the caller left out, is
+  `plugin.toolchain.launchMismatch`. An unknown or disabled `tool` is
+  `plugin.toolchain.invalidParams` with `field: "tool"`.
+
+The command performs no native I/O. The host selects the executable with the
+four resolution layers and the launch's `minimumVersion`, probes
+`versionArguments`, checks the output with `checkVersion`, and then starts the
+expanded argv.
 
 ## Settings candidates
 

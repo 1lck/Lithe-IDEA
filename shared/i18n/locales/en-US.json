@@ -10156,7 +10156,22 @@
     "git.fetch.behavior.source.unknown": "Git configuration",
     "git.fetch.behavior.source.git": "Git default",
     "git.fetch.behavior.source.lithe": "Lithe default",
-    "git.fetch.behavior.source.multiple": "Multiple sources"
+    "git.fetch.behavior.source.multiple": "Multiple sources",
+    "native.thisWindowCannotStartRunsForPlugins": "This window cannot start runs for plugins.",
+    "native.noInstalledToolMatchesTheOneThePluginAskedToRun": "No installed tool matches the one the plugin asked to run.",
+    "native.thePluginPackageHasNoSuchExecutableFile": "The plugin package has no such executable file.",
+    "native.theDebugConfigurationIsTooLarge": "The debug configuration is too large.",
+    "native.thePluginDeclaresNoSuchDebugAdapter": "The plugin declares no such debug adapter.",
+    "native.theProgramDidNotOpenItsDebugPortBeforeTheDeadlineCheckTheRunOutput": "The program did not open its debug port before the deadline. Check the Run output.",
+    "native.noSingleDebugAdapterAttachesToTheConfigurationType": "No single debug adapter attaches to the “{arg1}” configuration type.",
+    "native.theDebugAdapterCouldNotStartCheckThatThePluginThatProvidesItIsEnabled": "The debug adapter could not start. Check that the plugin that provides it is enabled.",
+    "native.savingCodeChanges": "Saving code changes…",
+    "native.applyingCodeChanges": "Applying code changes…",
+    "native.noCodeChangesToApply": "No code changes to apply.",
+    "native.codeChangesApplied": "Code changes applied.",
+    "native.couldNotApplyCodeChanges": "Could not apply code changes: {arg1}",
+    "native.applyCodeChangesToTheRunningProgram": "Apply code changes to the running program",
+    "native.thePluginCouldNotFindAFileForThisLink": "The plugin could not find a file for this link."
   },
   "overrides": {
     "windows": {

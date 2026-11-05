@@ -392,6 +392,29 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
         CoreCommand::ToolchainsCandidates => {
             plugin_response(id, parsed.payload, crate::toolchain::candidates_command)
         }
+        CoreCommand::ToolchainsInstantiateLaunch => plugin_response(
+            id,
+            parsed.payload,
+            crate::toolchain::instantiate_launch_command,
+        ),
+        CoreCommand::RunDecodeStart => {
+            plugin_response(id, parsed.payload, crate::build::run_decode_start_command)
+        }
+        CoreCommand::DebugDecodeBackendConfiguration => plugin_response(
+            id,
+            parsed.payload,
+            crate::debug::decode_backend_configuration_command,
+        ),
+        CoreCommand::OutputLinksMatch => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::output_links::match_lines,
+        ),
+        CoreCommand::OutputLinksDecodeResolution => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::output_links::decode_resolution,
+        ),
         CoreCommand::BuildDetect => {
             plugin_response(id, parsed.payload, crate::build::build_detect_command)
         }

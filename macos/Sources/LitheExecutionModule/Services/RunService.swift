@@ -162,6 +162,12 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     package private(set) var providerDebugConfigurationID: String?
     private var activeProcessID: Int32?
     package let providerDebugEnded = PassthroughSubject<String, Never>()
+    /// The last run a plugin backend started. It stays after the process ends so the
+    /// console keeps its output and the rerun action keeps working.
+    private var pluginRun: PluginRunRecord?
+    /// Set only while the process is alive; clearing it is what makes `pluginRunEnded` fire once.
+    private var livePluginRunID: String?
+    package let pluginRunEnded = PassthroughSubject<PluginRunEnd, Never>()
     private var moduleProviderSources: [String: BuildSystemPluginSource] = [:]
 
     /// Enabled package identities, rather than tool names, own their running processes.
@@ -1340,6 +1346,76 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         stop()
     }
 
+    /// Whether the primary console currently shows a run a plugin started.
+    package var hasPluginRun: Bool {
+        guard let pluginRun else { return false }
+        return pluginRun.runID == primaryExecutionID
+    }
+
+    package var canRestartPluginRun: Bool { hasPluginRun && pluginRun?.rerun != nil }
+
+    /// Runs the process a plugin backend asked for in the primary console. The plugin
+    /// never sees the process; it only learns about the end through `pluginRunEnded`.
+    package func launchPluginRun(_ launch: PluginRunLaunch, rerun: (@MainActor () -> Void)?) throws {
+        stop()
+        providerDebugConfigurationID = nil
+        output = ""
+        lastExitCode = nil
+        lastRunConfiguration = nil
+        lastCurrentFileURL = nil
+        selectedConfigurationID = RunConfiguration.currentFileID
+        primaryExecutionID = launch.runID
+        activeOperationID = launch.runID
+        pluginRun = PluginRunRecord(runID: launch.runID, rerun: rerun)
+        livePluginRunID = launch.runID
+        configurePrimaryProcess(operationID: launch.runID)
+        runningTitle = launch.title
+        isRunning = true
+        append("$ " + launch.executableURL.lastPathComponent + " " + launch.arguments.joined(separator: " ") + "\n\n")
+        do {
+            try process.start(ProcessRequest(operationID: launch.runID, executablePath: launch.executableURL.path,
+                arguments: launch.arguments, workingDirectory: launch.workingDirectory.path,
+                environment: launch.environment))
+        } catch {
+            // The plugin gets the start error as the answer to its request, so no end event follows.
+            livePluginRunID = nil
+            pluginRun = nil
+            activeOperationID = nil
+            isRunning = false
+            runningTitle = nil
+            lastExitCode = 1
+            append(error.localizedDescription + "\n")
+            throw error
+        }
+    }
+
+    /// Asks the plugin to start the run again. `false` when the console shows no
+    /// plugin run, or the plugin gave no way to rerun it.
+    @discardableResult
+    package func restartPluginRun() -> Bool {
+        guard hasPluginRun, let rerun = pluginRun?.rerun else { return false }
+        rerun()
+        return true
+    }
+
+    package func isPluginRunActive(_ runID: String) -> Bool {
+        livePluginRunID == runID && activeOperationID == runID && isRunning
+    }
+
+    package func pluginRunProcessID(_ runID: String) -> Int32? {
+        isPluginRunActive(runID) ? activeProcessID : nil
+    }
+
+    package func stopPluginRun(_ runID: String) {
+        if livePluginRunID == runID { stop() }
+    }
+
+    private func endPluginRun(exitCode: Int32?) {
+        guard let runID = livePluginRunID else { return }
+        livePluginRunID = nil
+        pluginRunEnded.send(PluginRunEnd(runID: runID, exitCode: exitCode))
+    }
+
     package func restart(javaLaunch: JavaDebugLaunchTarget? = nil) {
         guard let lastRunConfiguration else { return }
         run(
@@ -1627,6 +1703,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         runningTitle = nil
         activeOperationID = nil
         if let debugOperation { providerDebugEnded.send(debugOperation) }
+        endPluginRun(exitCode: nil)
     }
 
     package func reset() {
@@ -1669,6 +1746,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         lastExitCode = nil
         lastRunConfiguration = nil
         primaryExecutionID = nil
+        pluginRun = nil
         lastCurrentFileURL = nil
     }
 
@@ -1959,6 +2037,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         lastExitCode = exitCode
         activeOperationID = nil
         if let debugOperation { providerDebugEnded.send(debugOperation) }
+        endPluginRun(exitCode: exitCode)
     }
 
     private func prepareJavaLaunch(
@@ -1989,6 +2068,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
             if let message = event.message, !message.isEmpty {
                 append("Unable to run: " + message + "\n")
             }
+            endPluginRun(exitCode: event.exitCode)
         }
     }
 
@@ -2848,3 +2928,40 @@ private final class RegisteredLanguageRunExtension {
 /// Compatibility name retained while Java debug remains a provider-specific
 /// consumer of the generic run service.
 package typealias JavaRunService = RunService
+
+/// A process a plugin backend asked the host to run. The host has already
+/// resolved the executable and merged the environment; the service only runs it.
+package struct PluginRunLaunch {
+    package let runID: String
+    package let title: String
+    package let executableURL: URL
+    package let arguments: [String]
+    package let workingDirectory: URL
+    package let environment: [String: String]
+
+    package init(runID: String, title: String, executableURL: URL, arguments: [String],
+                 workingDirectory: URL, environment: [String: String]) {
+        self.runID = runID
+        self.title = title
+        self.executableURL = executableURL
+        self.arguments = arguments
+        self.workingDirectory = workingDirectory
+        self.environment = environment
+    }
+}
+
+package struct PluginRunEnd: Equatable {
+    package let runID: String
+    /// `nil` when the user stopped the run or the process was replaced before it exited.
+    package let exitCode: Int32?
+
+    package init(runID: String, exitCode: Int32?) {
+        self.runID = runID
+        self.exitCode = exitCode
+    }
+}
+
+private struct PluginRunRecord {
+    let runID: String
+    let rerun: (@MainActor () -> Void)?
+}

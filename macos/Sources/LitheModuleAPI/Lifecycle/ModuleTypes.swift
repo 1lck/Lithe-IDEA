@@ -335,6 +335,13 @@ public extension ModuleID {
         ModuleID("\(pluginID).grammars")
     }
 
+    /// The Run and Test console link matchers one declarative plugin declares,
+    /// enabled together. Nothing runs while it is enabled; it only gates the
+    /// matchers.
+    static func outputLinksExtension(_ pluginID: String) -> ModuleID {
+        ModuleID("\(pluginID).output-links")
+    }
+
     /// The New Project entries one declarative plugin declares, enabled
     /// together. Nothing runs while it is enabled; it only gates the entries.
     static func projectGeneratorsExtension(_ pluginID: String) -> ModuleID {

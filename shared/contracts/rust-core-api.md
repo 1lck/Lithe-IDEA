@@ -1379,11 +1379,16 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `toolchains.editConsumerPreferences` | Edit or reset one exact consumer/directory tool preference; return the document and effective input without native writes |
 | `toolchains.resolve` | Resolve the fixed/project/global/automatic layers from one generation-bound snapshot, retaining unmet requirements, unavailable providers with their cause, conflicts and terminal fixed-value failures |
 | `toolchains.checkVersion` | Match captured output with an enabled plugin definition's version expression and compare generic numeric components with an optional minimum; never starts a probe |
+| `toolchains.instantiateLaunch` | Expand an enabled tool definition's `launch` template for a selected executable, entry, runtime arguments and arguments; a part the template cannot carry is `plugin.toolchain.launchMismatch`; performs no I/O |
 | `toolchains.discoveryPlan` | Return platform-filtered definition-owned scan declarations, layouts, probes, PATH entries, login-shell home variables and budgets; never scans native directories |
 | `toolchains.candidates` | List one tool's login-shell homes and host-scanned installations with checked executables, versions or skip reasons, and the automatic-layer choice; never starts a probe |
 | `plugins.declarative.decodeGrammar` | Validate independent static editor resources (`languages` 2) |
 | `plugins.editorActions.decode` | Validate independent action registration, collection or click results |
 | `plugins.editorProviders.decode` | Validate editor provider registrations and provider function results |
+| `run.decodeStart` | Validate a plugin backend's `lithe/host/run/start` params against its manifest and the workspace, and return the normalized start with temporary-file paths substituted |
+| `debug.decodeBackendConfiguration` | Validate a plugin backend's `lithe/host/debug/start` params against its manifest and return the qualified adapter, request, label and configuration |
+| `outputLinks.match` | Find the links plugin `outputLinkMatchers` declare in Run or Test console lines, as UTF-16 ranges with candidate paths or a backend function to resolve them |
+| `outputLinks.decodeResolution` | Check a matcher's `resolve` function reply and return the 1-based file location to open, or `null` |
 | `build.detect` | Find every build-system instance the enabled plugins declare in a workspace, with models that need no process |
 | `build.resolveStoredOptions` | `{ document, local: { version: 1, document, emptySelections?: { <systemID>: { <root>: [optionID] } } } }`, without a manifest | `storage: { document, local, emptySelections }`: checked team/local merge; local values override matching keys, unrelated systems/roots/choices stay intact. No filesystem I/O. Local documents are machine/workspace preferences, not team files or plugin-native configuration. Their storage syntax is [build-local-options-v1.schema.json](build-local-options-v1.schema.json), with additional cross-field membership and byte limits checked by Core. |
 | `build.editStoredOption` | `{ document, local, root, optionID, value, modelValues? }` in the standard manifest/build-system envelope | `edit: { local, options }`: changes one declared local preference. `null` removes the local override and restores team/declaration inheritance. Invalid or partially accepted edits reject before persistence. Workspace multi-selections preserve sibling-only values; explicit per-root empty markers apply only to workspace multi-select declarations. Platforms compare both native source revisions, atomically write only the local document and read back. |
@@ -5045,6 +5050,42 @@ the indices each side keeps as `{server,plugin}`. The server's answer comes
 first; a plugin location equal to one already kept is dropped, and a server
 location that covers the requested position itself (the caret already sits on
 the declaration) yields when a plugin answered.
+
+`toolchains.instantiateLaunch` accepts `{ registry, tool, executable, home?,
+entry?, runtimeArguments, arguments }` and returns `{ status: "ok", launch:
+{ executable, arguments, versionArguments } }`. See
+[Launching a tool definition](plugins/v1/toolchains/README.md#launching-a-tool-definition).
+
+`run.decodeStart` accepts `{ manifest, workspaceRoot, temporaryDirectory?,
+params }`, where `params` are those of `lithe/host/run/start` as the backend sent
+them. It returns `{ status: "ok", start }` with `start` being `{ label,
+executable: { kind: "toolchain" | "packaged", value }, arguments,
+workingDirectory, environment, temporaryFiles: [{ path, contents }], debug?,
+rerun? }`. The tool must be listed in the manifest's `requiresTools`, and the
+working directory must be a relative path of an existing directory inside
+`workspaceRoot`, which Core checks read-only the way it does for run preparation.
+`${temporaryFile:<name>}` in arguments and environment becomes a file path under
+`temporaryDirectory`, which the host supplies when the start has temporary files;
+Core writes nothing, the host writes `temporaryFiles`. A start Core refuses is
+`{ status: "rejected", error }` with `plugin.run.invalidStart` and the failing
+`field`. See the plugin contract's
+[run and debug sessions](plugins/v1/README.md#run-and-debug-sessions-protocol-version-3).
+
+`debug.decodeBackendConfiguration` accepts `{ manifest, params }` with the
+params of `lithe/host/debug/start` and returns `{ status: "ok", start }` with
+`start` being `{ adapterID, request, label, configuration }`, `adapterID` the
+qualified ID. A start Core refuses is `{ status: "rejected", error }` with
+`plugin.debug.invalidStart`, `plugin.debug.unknownAdapter`,
+`plugin.debug.foreignAdapter`, or `plugin.debug.limitExceeded`.
+
+`outputLinks.match` accepts `{ scope, platform, caseSensitive?, workspaceRoots,
+sources: [{ pluginID, matchers }], lines }` and returns `{ links }`;
+`outputLinks.decodeResolution` accepts `{ reply }` and returns the location
+`{ path, line?, column? }` or `null`. Neither takes a manifest: the host passes
+the matchers of each enabled plugin as `plugins.declarative.validate` returned
+them. A request Core cannot accept is `invalid_request`, not a policy outcome.
+See the plugin contract's
+[output link matchers](plugins/v1/README.md#output-link-matchers-outputlinkmatchers-1).
 
 
 The `plugins.marketplace.*` commands are equally pure: hosts fetch indexes and

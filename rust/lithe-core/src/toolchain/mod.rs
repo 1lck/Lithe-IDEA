@@ -73,6 +73,11 @@ pub fn check_version_command(input: Value) -> Result<Value, CoreError> {
     command(input, resolution::check_version, "version")
 }
 
+/// Expands a tool definition's launch template for a selected executable.
+pub fn instantiate_launch_command(input: Value) -> Result<Value, CoreError> {
+    command(input, resolution::instantiate_launch, "launch")
+}
+
 /// Produces bounded scan declarations, not a native scan or tool-name table.
 pub fn discovery_plan_command(input: Value) -> Result<Value, CoreError> {
     command(input, resolution::discovery_plan, "plan")

@@ -18,6 +18,9 @@
       "if": { "required": ["pluginAPIVersion"], "properties": { "pluginAPIVersion": { "maximum": 1 } } },
       "then": { "properties": { "settings": { "maxItems": 0 } } }
     },
+    {"if": {"required": ["requiresTools"]}, "then": {"properties": {"pluginAPIVersion": {"minimum": 4}, "requires": {"required": ["serverProcess"], "properties": {"serverProcess": {"const": 4}}}}}},
+    {"if": {"required": ["outputLinkMatchers"]}, "then": {"properties": {"pluginAPIVersion": {"minimum": 4}, "requires": {"required": ["outputLinkMatchers"]}}}},
+    {"if": {"required": ["requires"], "properties": {"requires": {"required": ["debugAdapters"], "properties": {"debugAdapters": {"const": 3}}}}}, "else": {"properties": {"debugAdapters": {"items": {"properties": {"features": false, "defaults": false}}}}}},
     {"if": {"required": ["toolDefinitions"]}, "then": {"properties": {"pluginAPIVersion": {"minimum": 3}, "requires": {"required": ["toolDefinitions", "executableResolution"], "properties": {"executableResolution": {"const": 2}}}}}},
     {"if": {"required": ["toolchainProviders"]}, "then": {"required": ["backend"], "properties": {"pluginAPIVersion": {"minimum": 3}, "requires": {"required": ["toolchainProviders", "backend", "serverProcess"], "properties": {"backend": {"const": 2}}}, "permissions": {"allOf": [{"contains": {"const": "toolchains.provide"}}, {"contains": {"const": "backend.launch"}}]}}}},
     {"if": {"required": ["pluginFunctions"]}, "then": {"required": ["backend"], "properties": {"pluginAPIVersion": {"minimum": 3}, "requires": {"required": ["pluginFunctions", "backend", "serverProcess"], "properties": {"backend": {"const": 2}}}}}},
@@ -43,14 +46,15 @@
         "buildModelInputs": {"description": "Optional public model sharing between already enabled workspace plugins; no installation, private function, or process authority. Required exactly when modelSharing or modelInputs is used. Consumers require buildProviders 6. Version 1 producers cannot also consume inputs.", "enum": [1]},
         "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support; version 2 adds task execution, version 3 test execution/discovery, version 4 application run preparation, and version 5 native debug preparation; version 6 optional read-only model inputs; version 7 non-sensitive native configuration sources; version 8 inline provider test reports; version 9 opaque semantic test selectors; version 10 typed run options and service/task preparation; version 11 registry-selected adapter and host-owned connection target for service debugging.", "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
         "buildSystems": { "description": "Declarative build detection, models, and command plans; v2 adds the executable setting adapter, v3 instance-scoped options, v4 declarative preparation roles; does not imply buildProviders support.", "enum": [1, 2, 3, 4] },
-        "debugAdapters": { "description": "Required exactly when debugAdapters is non-empty. Version 2 adds bounded target argument and environment bindings. The DAP session itself is negotiated by the adapter in initialize.", "enum": [1, 2] },
+        "debugAdapters": { "description": "Required exactly when debugAdapters is non-empty. Version 2 adds bounded target argument and environment bindings. Version 3 adds debugAdapters[].features and defaults, and is required exactly when one is used. The DAP session itself is negotiated by the adapter in initialize.", "enum": [1, 2, 3] },
         "executableResolution": { "enum": [1, 2], "description": "Shared executable candidate ordering and strict selection." },
         "executionProviders": { "enum": [1] },
         "languageServers": { "description": "Required exactly when languageServers is non-empty. Version 2 adds languageServers[].workspaceConfiguration. Version 3 adds the session fields requestMethods, commands, serializedCommands, forwardNotifications, state, and remote.", "enum": [1, 2, 3] },
         "languages": { "description": "Version 2 adds languages[].grammar and languages[].configuration and is required exactly when one of them is used.", "enum": [1, 2] },
+        "outputLinkMatchers": { "description": "Required exactly when outputLinkMatchers is non-empty.", "const": 1 },
         "packageTrust": { "description": "Required exactly when vendor.bundledSignatureRequirement is present.", "enum": [1] },
         "projectGenerators": { "description": "Entries of the New Project window: fields, requirements, and steps. Version 2 adds the tool field and retires the runtime field.", "enum": [1, 2] },
-        "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, of VCS providers, of debug adapters, and of the plugin backend. Version 2 adds runSelectedRuntime and is required exactly when a debug adapter uses it (pluginAPIVersion 4). Version 3 adds the backend-resolved launch of a language server and is required exactly when one uses it (pluginAPIVersion 4, backend 2).", "enum": [1, 2, 3] },
+        "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, of VCS providers, of debug adapters, and of the plugin backend. Versions are cumulative: declare the lowest version that covers every launch the manifest uses. Version 2 adds runSelectedRuntime for a debug adapter (pluginAPIVersion 4). Version 3 adds the backend-resolved launch of a language server (pluginAPIVersion 4, backend 2). Version 4 names runtimes by tool-definition ID and is declared exactly when requiresTools is present.", "enum": [1, 2, 3, 4] },
         "settings": { "description": "Required exactly when settings or settingActions is non-empty. Version 1 is the API level 2 section: integer, enum, and boolean options. Version 2 adds scope, effect, page, section, the multiSelect, text, file, and directory types, and settingActions.", "enum": [1, 2] },
         "toolDefinitions": { "const": 1 },
         "toolchainProviders": { "const": 1 },
@@ -92,6 +96,8 @@
           "browser.open",
           "window.messages",
           "terminal.create",
+          "run.start",
+          "debug.start",
           "languageServer.request",
           "documents.contentProvider"] }
     },
@@ -104,6 +110,21 @@
       }
     },
     "toolDefinitions": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/toolchainToolDefinition" } },
+    "requiresTools": {
+      "description": "requires.serverProcess 4: every tool definition the plugin starts or names, by ID. A runtime tool of a launch, a runtime dependency, a runSelectedRuntime tool, or the tool of a lithe/host/run/start must be listed here. An ID of another plugin is a qualified ID and needs a verified official origin when short.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/toolchainToolID" }
+    },
+    "outputLinkMatchers": {
+      "description": "requires.outputLinkMatchers 1: patterns that turn Run and Test console text into links.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/outputLinkMatcher" }
+    },
     "toolchainProviders": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "$ref": "#/$defs/toolchainProvider" } },
     "keymapImportProviders": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "$ref": "#/$defs/keymapImportProvider" } },
     "pluginFunctions": { "$ref": "#/$defs/pluginFunctions" },
@@ -477,11 +498,8 @@
               "const": "runSelectedRuntime"
             },
             "tool": {
-              "enum": [
-                "python",
-                "java",
-                "node"
-              ]
+              "description": "serverProcess 2 accepts python, java and node; serverProcess 4 accepts the ID of a tool definition listed in requiresTools.",
+              "$ref": "#/$defs/toolchainToolID"
             }
           }
         },
@@ -859,6 +877,93 @@
         },
         "launch": {
           "$ref": "#/$defs/debugLaunch"
+        },
+        "features": {
+          "description": "debugAdapters 3: adapter-specific DAP extensions the adapter implements.",
+          "$ref": "#/$defs/debugAdapterFeatures"
+        },
+        "defaults": {
+          "description": "debugAdapters 3: values the adapter starts with when the user configured none.",
+          "$ref": "#/$defs/debugAdapterDefaults"
+        }
+      }
+    },
+    "debugDeclaredName": {
+      "description": "A DAP command, event, field or argument name: a letter followed by up to 63 letters, digits, dots, underscores or hyphens.",
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,63}$"
+    },
+    "debugAdapterFeatures": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "hotCodeReplace": {
+          "description": "A custom request that applies changed code to the running debuggee.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["request"],
+          "properties": {
+            "request": { "description": "DAP command sent for a redefineClasses inspection.", "$ref": "#/$defs/debugDeclaredName" },
+            "event": { "description": "DAP event whose message the Debug Console shows as progress.", "$ref": "#/$defs/debugDeclaredName" },
+            "changedField": { "description": "Response body field listing the replaced units.", "$ref": "#/$defs/debugDeclaredName" },
+            "errorField": { "description": "Response body field with a failure message the adapter reports in a successful response.", "$ref": "#/$defs/debugDeclaredName" }
+          }
+        },
+        "stepFilters": {
+          "description": "The launch argument through which the adapter receives {skipClasses, skipSynthetics, skipStaticInitializers, skipConstructors}.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["argument"],
+          "properties": {
+            "argument": { "$ref": "#/$defs/debugDeclaredName" }
+          }
+        }
+      }
+    },
+    "debugAdapterDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "stepFilters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "classNameFilters": {
+              "type": "array",
+              "maxItems": 256,
+              "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+            },
+            "skipSynthetics": { "type": "boolean" },
+            "skipStaticInitializers": { "type": "boolean" },
+            "skipConstructors": { "type": "boolean" },
+            "hideFilteredStackFrames": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "outputLinkMatcher": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "pattern"],
+      "properties": {
+        "id": { "description": "Plugin-local ID, unique in the plugin.", "type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$" },
+        "pattern": {
+          "description": "A Rust regex matched against one console line. Without resolve it captures path and may capture line and column; it must not match empty text.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "scope": { "description": "The console the matcher applies to; both when absent.", "enum": ["run", "test"] },
+        "resolve": {
+          "description": "A function of the plugin's backend 2 process that turns the named groups into a location.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["function"],
+          "properties": {
+            "function": { "type": "string", "minLength": 1 }
+          }
         }
       }
     },
@@ -1442,7 +1547,7 @@
               "required": ["kind", "tool", "entry"],
               "properties": {
                 "kind": { "const": "runtime" },
-                "tool": { "enum": ["java", "node"] },
+                "tool": { "description": "serverProcess 1 and 2 accept java and node; serverProcess 4 accepts the ID of a tool definition listed in requiresTools.", "$ref": "#/$defs/toolchainToolID" },
                 "minimumVersion": { "$ref": "#/$defs/minimumVersion" },
                 "packagedRuntime": { "type": "string", "minLength": 1 },
                 "runtimeArguments": { "type": "array", "items": { "type": "string" } },
@@ -1470,7 +1575,7 @@
             "type": "object",
             "additionalProperties": false,
             "required": ["tool"],
-            "properties": { "tool": { "enum": ["go", "java", "node"] } }
+            "properties": { "tool": { "description": "serverProcess 1 and 2 accept go, java and node; serverProcess 4 accepts the ID of a tool definition listed in requiresTools.", "$ref": "#/$defs/toolchainToolID" } }
           }
         },
         "initializationOptions": {
