@@ -24,7 +24,11 @@ mock.module("@/features/agent/stores/agent-connection-service", () => ({
 }));
 mock.module("@/platform/tauri-core", () => ({
   HostCommandError: class extends Error {},
-  invoke: async (command: string) => { commands.push(command); return resolvedPath; },
+  invoke: async (command: string) => {
+    commands.push(command);
+    // Core's verdict for an exact, unchanged creation (shared edit-review fixture "creation removes only the exact created content").
+    return command === "agent.edits.reversePlan" ? { action: "trash" } : resolvedPath;
+  },
 }));
 mock.module("@/platform/document-files", () => ({ readDocumentFileDetails: async () => {
   diskReads++;
@@ -57,6 +61,7 @@ for (const [name, ordinary, verbatim] of [
   resolvedPath = verbatim;
   const conversation = upsertToolMessage(createConversation(), "edit", {
     kind: "edit", status: "completed", content: [{ type: "diff", path: ordinary, oldText: "before", newText: "after" }],
+    _meta: { lithe: { diffs: [{ path: ordinary, oldText: "before", newText: "after", operation: null, additions: null, deletions: null, truncated: false, revertible: true }] } },
   });
   await act(async () => root.render(<AgentEditReview conversation={conversation} sessionID="fixture" onOpenLocation={() => {}} />));
   const revert = [...container.querySelectorAll("button")].find((button) => button.textContent === "agent.edits.revert")!;
@@ -80,11 +85,12 @@ test("allows the watcher conflict raised by native recovery removal", async () =
   diskContent = "created\n";
   const conversation = upsertToolMessage(createConversation(), "create", {
     kind: "edit", status: "completed", content: [{ type: "diff", path: bufferPath, oldText: null, newText: "created\n", _meta: { kind: "add" } }],
+    _meta: { lithe: { diffs: [{ path: bufferPath, oldText: null, newText: "created\n", operation: "add", additions: null, deletions: null, truncated: false, revertible: true }] } },
   });
   await act(async () => root.render(<AgentEditReview conversation={conversation} sessionID="fixture" onOpenLocation={() => {}} />));
   const revert = [...container.querySelectorAll("button")].find((button) => button.textContent === "agent.edits.revert")!;
   await act(async () => { revert.click(); });
-  expect(commands).toEqual(["resolve_agent_document_path", "resolve_agent_document_path", "trash_agent_document"]);
+  expect(commands).toEqual(["resolve_agent_document_path", "agent.edits.reversePlan", "resolve_agent_document_path", "trash_agent_document"]);
   expect(acknowledgements).toBe(1);
   expect(container.querySelector('[role="alert"]')).toBeNull();
 });
@@ -101,6 +107,7 @@ test("still refuses a user edit made while the conflict is visible", async () =>
   };
   const conversation = upsertToolMessage(createConversation(), "edit", {
     kind: "edit", status: "completed", content: [{ type: "diff", path: bufferPath, oldText: "before", newText: "after" }],
+    _meta: { lithe: { diffs: [{ path: bufferPath, oldText: "before", newText: "after", operation: null, additions: null, deletions: null, truncated: false, revertible: true }] } },
   });
   await act(async () => root.render(<AgentEditReview conversation={conversation} sessionID="fixture" onOpenLocation={() => {}} />));
   const revert = [...container.querySelectorAll("button")].find((button) => button.textContent === "agent.edits.revert")!;

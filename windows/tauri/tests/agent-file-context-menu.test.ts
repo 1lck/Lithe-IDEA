@@ -23,9 +23,9 @@ mock.module("@tauri-apps/plugin-store", () => ({ load: async () => ({
 }) }));
 mock.module("@/platform/tauri-core", () => ({ invoke: async (command: string, args: { expected: unknown; next: unknown }) => {
   if (command === "get_secure_secret") return "fixture-key";
-  if (command === "agent.parseProviderConfiguration") return {
+  if (command === "ai.configuration.parse") return { provider: {
     ...cliProvider, apiProtocol: cliSource === "claude" ? "anthropicMessages" : "responses",
-  };
+  } };
   if (command !== "commit_agent_panel_settings") throw new Error(`Unexpected command: ${command}`);
   if (failCommit) throw new Error("agent.settings.saveFailed");
   if (!isEqual(persisted, args.expected)) throw new Error("agent.settings.conflict");

@@ -11,12 +11,12 @@ const claudeCase = fixture.strictCases.find((entry) => entry.source === "claude"
 
 describe("Imported Agent provider metadata", () => {
   test("reads the metadata the shared parser reported for each format", () => {
-    expect(parseImportedAgentProvider(codexCase?.expected.provider)).toEqual({
+    expect(parseImportedAgentProvider(codexCase?.expected?.provider)).toEqual({
       protocol: "responses",
       baseUrl: "https://example.test/v1",
       model: "fixture-model",
     });
-    expect(parseImportedAgentProvider(claudeCase?.expected.provider)).toEqual({
+    expect(parseImportedAgentProvider(claudeCase?.expected?.provider)).toEqual({
       protocol: "anthropicMessages",
       baseUrl: "https://example.test/v1",
       model: "fixture-model",

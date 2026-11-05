@@ -31,7 +31,7 @@ const plan = {
 
 test("sends provider facts to Core and attaches the credential only to the HTTP request", async () => {
   token.mockResolvedValue("fixture-secret");
-  const response = fixture.decodes[0];
+  const response = fixture.decodes[0] as { editedText: string; response: unknown };
   invoke.mockImplementation((async (command: string) =>
     command === "ai.inlineEdit.plan" ? plan : { editedText: response.editedText }) as never);
   const fetchMock = mock(async () => new Response(JSON.stringify(response.response)));

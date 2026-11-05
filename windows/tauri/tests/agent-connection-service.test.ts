@@ -21,7 +21,7 @@ mock.module("@/features/settings/stores/settings.store", () => ({
 mock.module("@/platform/app-data-directory", () => ({
   resolveAppDataDirectory: async () => "C:/fake-data",
 }));
-mock.module("@/i18n/locale", () => ({ createTranslator: () => (key: string) => key }));
+mock.module("@/i18n/locale", () => ({ createTranslator: () => (key: string) => key, DEFAULT_DISPLAY_LANGUAGE: "en-US" }));
 mock.module("../src/features/agent/services/agent-launch", () => ({
   AgentLaunchError: class extends Error {},
   settingsWithLinkedAgentProvider: (settings: typeof DEFAULT_AGENT_PANEL_SETTINGS) => settings,
