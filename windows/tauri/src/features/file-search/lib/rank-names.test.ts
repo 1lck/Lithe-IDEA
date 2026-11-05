@@ -18,13 +18,13 @@ test("blank queries and empty inventories never cross the native boundary", asyn
 test("the request carries names, explicit context and the per-tier limit", async () => {
   const invoke = spyOn(native, "invoke").mockResolvedValue({ matches: [] } as never);
   try {
-    await rankNames("dh", [{ name: "DeviceHandler.java", path: "src/DeviceHandler.java" }], {
-      openPaths: ["src/DeviceHandler.java"],
+    await rankNames("dh", [{ name: "DeviceHandler.cs", path: "src/DeviceHandler.cs" }], {
+      openPaths: ["src/DeviceHandler.cs"],
     }, 5);
     expect(invoke).toHaveBeenCalledWith("workspace.rankNames", {
       query: "dh",
-      candidates: [{ name: "DeviceHandler.java", path: "src/DeviceHandler.java" }],
-      context: { openPaths: ["src/DeviceHandler.java"], recentPaths: [] },
+      candidates: [{ name: "DeviceHandler.cs", path: "src/DeviceHandler.cs" }],
+      context: { openPaths: ["src/DeviceHandler.cs"], recentPaths: [] },
       limitPerTier: 5,
     });
   } finally {
