@@ -284,55 +284,56 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             return
         }
         isAvailable = true
+        // Core merges by name and definition hash, flags same-name conflicts,
+        // decides ledger ownership and orders the rows; this model only reads
+        // files and maps Core's file identities back to native files.
         let files = store.configurationFiles(workspace: model?.mcpWorkspaceURL)
-        var grouped: [String: (definition: McpServerDefinition, sources: [McpServerSource])] = [:]
-        var globalHashesByName: [String: Set<String>] = [:]
-        var errors: [String] = []
-
+        var readErrors: [String: String] = [:]
+        var inputs: [McpLibraryFileInput] = []
         for file in files {
             do {
-                let content = try store.read(file) ?? ""
-                for server in try store.parse(file, content: content) {
-                    let key = "\(server.name)#\(server.definitionHash)"
-                    let source = McpServerSource(
-                        file: file,
-                        definitionHash: server.definitionHash,
-                        sourceHash: server.sourceHash,
-                        isOwnedByLithe: isOwned(server, in: file)
-                    )
-                    if var entry = grouped[key] {
-                        entry.sources.append(source)
-                        grouped[key] = entry
-                    } else {
-                        grouped[key] = (server, [source])
-                    }
-                    if file.scope == .global {
-                        globalHashesByName[server.name, default: []].insert(server.definitionHash)
-                    }
-                }
+                inputs.append(libraryInput(for: file, content: try store.read(file)))
             } catch {
-                errors.append(String(
-                    format: L10n.string("Could not read %@: %@"),
-                    file.url.path,
-                    error.localizedDescription
-                ))
+                readErrors[Self.identity(of: file)] = error.localizedDescription
             }
         }
-
-        loadErrors = errors
-        rows = grouped.values.map { entry in
-            McpServerRow(
-                id: "\(entry.definition.name)#\(entry.definition.definitionHash)",
-                definition: entry.definition,
-                sources: entry.sources,
-                hasDefinitionConflict: (globalHashesByName[entry.definition.name]?.count ?? 0) > 1
-            )
+        let snapshot: McpLibrarySnapshot
+        do {
+            snapshot = try store.librarySnapshot(inputs)
+        } catch {
+            loadErrors = [error.localizedDescription]
+            rows = []
+            hasLoaded = true
+            tools.reconcile(rows)
+            return
         }
-        .sorted { left, right in
-            let order = left.name.localizedStandardCompare(right.name)
-            if order != .orderedSame { return order == .orderedAscending }
-            if left.isProjectOnly != right.isProjectOnly { return !left.isProjectOnly }
-            return left.definition.definitionHash < right.definition.definitionHash
+        let failures = Dictionary(
+            snapshot.failures.map { ($0.file, $0.message) }, uniquingKeysWith: { first, _ in first }
+        )
+        loadErrors = files.compactMap { file in
+            let id = Self.identity(of: file)
+            guard let reason = readErrors[id] ?? failures[id] else { return nil }
+            return String(format: L10n.string("Could not read %@: %@"), file.url.path, reason)
+        }
+        let filesByID = Dictionary(
+            files.map { (Self.identity(of: $0), $0) }, uniquingKeysWith: { first, _ in first }
+        )
+        rows = snapshot.rows.map { row in
+            McpServerRow(
+                id: row.id,
+                definition: row.definition,
+                sources: row.sources.compactMap { source in
+                    filesByID[source.file].map { file in
+                        McpServerSource(
+                            file: file,
+                            definitionHash: source.definitionHash,
+                            sourceHash: source.sourceHash,
+                            isOwnedByLithe: source.ownedByLithe
+                        )
+                    }
+                },
+                hasDefinitionConflict: row.hasDefinitionConflict
+            )
         }
         hasLoaded = true
         tools.reconcile(rows)
@@ -373,52 +374,55 @@ final class McpServerLibraryFeatureModel: ObservableObject {
 
     /// Returns a user-facing reason when the draft cannot be saved.
     func validationMessage(for draft: McpServerDraft) -> String? {
-        let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if name.isEmpty {
-            return L10n.string("Enter a server name.")
+        switch validate(draft) {
+        case .success(let validation):
+            return validation.issues.first.map(Self.message(for:))
+        case .failure(let error):
+            return error.localizedDescription
         }
-        if name.range(of: "^[A-Za-z0-9][A-Za-z0-9._-]*$", options: .regularExpression) == nil {
-            return L10n.string("Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit.")
+    }
+
+    private func validate(_ draft: McpServerDraft) -> Result<McpDraftValidation, Error> {
+        guard let store = model?.mcpConfigurationStore else { return .failure(McpLibraryError.unavailable) }
+        return Result { try store.validateDraft(Self.payload(for: draft)) }
+    }
+
+    static func payload(for draft: McpServerDraft) -> McpDraftPayload {
+        McpDraftPayload(
+            name: draft.name,
+            transport: draft.transport,
+            command: draft.command,
+            url: draft.url,
+            arguments: draft.arguments,
+            env: draft.env,
+            headers: draft.headers,
+            enabledAgents: McpAgent.allCases.filter(draft.enabledAgents.contains).map(\.sourceName),
+            setup: draft.setup?.rawValue
+        )
+    }
+
+    /// Localizes Core's stable draft issue codes.
+    static func message(for issue: McpDraftIssue) -> String {
+        switch issue.code {
+        case "nameRequired":
+            L10n.string("Enter a server name.")
+        case "nameInvalid":
+            L10n.string("Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit.")
+        case "agentsRequired":
+            L10n.string("Choose at least one Agent.")
+        case "duplicateKeys":
+            L10n.string("Environment variable and header names must be unique.")
+        case "commandRequired":
+            L10n.string("Enter the command that starts this server.")
+        case "urlInvalid":
+            L10n.string("Enter a complete server URL.")
+        case "bearerTokenRequired":
+            L10n.string("Enter an Authorization header with Bearer and your GitHub token.")
+        case "allowedDirectoriesRequired":
+            L10n.string("Add at least one absolute allowed folder path after the Filesystem package argument.")
+        default:
+            L10n.string("MCP configuration management is unavailable.")
         }
-        if draft.enabledAgents.isEmpty {
-            return L10n.string("Choose at least one Agent.")
-        }
-        // Core writes the active transport's entries into an object or table,
-        // which cannot repeat a key. Rejecting duplicates here gives the user a
-        // fixable message instead of a generic invalid-request error.
-        let duplicateEntries = switch draft.transport {
-        case .stdio: hasDuplicateEntryNames(draft.env)
-        case .http, .sse: hasDuplicateEntryNames(draft.headers)
-        }
-        if duplicateEntries {
-            return L10n.string("Environment variable and header names must be unique.")
-        }
-        switch draft.transport {
-        case .stdio:
-            if draft.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return L10n.string("Enter the command that starts this server.")
-            }
-        case .http, .sse:
-            let url = draft.url.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let parsed = URL(string: url), parsed.scheme != nil, parsed.host != nil else {
-                return L10n.string("Enter a complete server URL.")
-            }
-        }
-        switch draft.setup {
-        case .bearerToken:
-            let value = draft.headers.first { $0.key.lowercased() == "authorization" }?.value ?? ""
-            let parts = value.split(whereSeparator: \.isWhitespace)
-            if draft.transport == .stdio || parts.count != 2 || parts[0].lowercased() != "bearer" {
-                return L10n.string("Enter an Authorization header with Bearer and your GitHub token.")
-            }
-        case .allowedDirectories:
-            let folders = Array(draft.arguments.dropFirst(2))
-            if draft.transport != .stdio || folders.isEmpty || folders.contains(where: { !$0.hasPrefix("/") }) {
-                return L10n.string("Add at least one absolute allowed folder path after the Filesystem package argument.")
-            }
-        case nil: break
-        }
-        return nil
     }
 
     // MARK: - Mutations
@@ -430,116 +434,41 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             error = McpLibraryError.unavailable.localizedDescription
             return false
         }
-        if let message = validationMessage(for: draft) {
-            error = message
+        let definition: McpServerDefinition
+        switch validate(draft) {
+        case .success(let validation):
+            if let issue = validation.issues.first {
+                error = Self.message(for: issue)
+                return false
+            }
+            guard let normalized = validation.definition else {
+                error = McpLibraryError.unavailable.localizedDescription
+                return false
+            }
+            definition = normalized
+        case .failure(let failure):
+            error = failure.localizedDescription
             return false
         }
         error = nil
-        let files = store.configurationFiles(workspace: model?.mcpWorkspaceURL)
-            .filter { $0.scope == .global }
-        let targetFiles = files.filter { draft.enabledAgents.contains($0.agent) }
-        let originalName = draft.originalName
         let originalSources = draft.originalSources
-        if let originalName, originalName != draft.name.trimmingCharacters(in: .whitespacesAndNewlines),
+        if let originalName = draft.originalName, originalName != definition.name,
            let original = rows.first(where: { $0.id == draft.originalRowID }) {
             do {
                 try model?.mcpTools?.validateRename(McpToolTarget(definition: original.definition, files: originalSources.map(\.file)))
             } catch { self.error = error.localizedDescription; return false }
         }
-
-        var definition = McpServerDefinition(
-            name: draft.name.trimmingCharacters(in: .whitespacesAndNewlines),
-            transport: draft.transport,
-            command: nil,
-            args: [],
-            env: [],
-            url: nil,
-            headers: []
-        )
-        // Fields belong to exactly one transport. The editor keeps hidden
-        // values when the transport changes (arguments for stdio, URL for
-        // HTTP), and the write path drops the inactive ones; hashing them
-        // would make the fresh entry look externally modified on refresh.
-        switch draft.transport {
-        case .stdio:
-            definition.command = draft.command.trimmingCharacters(in: .whitespacesAndNewlines)
-            definition.args = draft.arguments
-            definition.env = sorted(draft.env)
-        case .http, .sse:
-            definition.url = draft.url.trimmingCharacters(in: .whitespacesAndNewlines)
-            definition.headers = sorted(draft.headers)
-        }
-
-        var operations: [McpConfigurationFile: [Operation]] = [:]
-        let renaming = originalName.map { $0 != definition.name } ?? false
-        if let originalName {
-            // Disabling an Agent still requires explicit ownership; the captured
-            // version also prevents a stale editor removing a newer owned entry.
-            for source in originalSources
-            where !draft.enabledAgents.contains(source.file.agent) {
-                // Ownership can be taken in this same editor after the draft
-                // was captured, so consult the shared ledger at save time.
-                // The captured source version stays a required precondition:
-                // a newer ledger entry alone must not authorize a stale removal.
-                guard let expected = source.sourceHash else {
-                    error = McpLibraryError.notOwned(originalName).localizedDescription
-                    return false
-                }
-                guard ledgerOwns(name: originalName, sourceHash: expected, in: source.file) else {
-                    // A newer complete version, or a record this draft saw as
-                    // owned that is now gone, means the entry changed after
-                    // this draft was captured; refresh is the accurate remedy.
-                    // A legacy record without a sourceHash cannot be refreshed
-                    // into ownership, so it keeps the take-ownership message.
-                    let changedSinceDraft = source.isOwnedByLithe
-                        || ledgerEntries(for: source.file).contains {
-                            $0.name == originalName && $0.sourceHash != nil
-                        }
-                    error = (changedSinceDraft
-                        ? McpLibraryError.externallyModified(originalName)
-                        : McpLibraryError.notOwned(originalName)
-                    ).localizedDescription
-                    return false
-                }
-                operations[source.file, default: []].append(
-                    .remove(originalName, expectedHash: expected)
+        // The captured sources stay the save's precondition, independent of
+        // later refreshes; Core also consults the ledger read at save time,
+        // so ownership taken in this editor after capture still applies.
+        let original = draft.originalName.map { name in
+            McpBatchIntent.Original(name: name, sources: originalSources.map {
+                McpBatchIntent.OriginalSource(
+                    file: Self.identity(of: $0.file), sourceHash: $0.sourceHash, ownedByLithe: $0.isOwnedByLithe
                 )
-            }
+            })
         }
-        for file in targetFiles {
-            let source = originalSources.first { $0.file == file }
-            // A source version must remain the one captured when the editor
-            // opened, independent of refreshes and another window's ledger.
-            if source != nil && source?.sourceHash == nil {
-                error = McpLibraryError.externallyModified(originalName ?? definition.name).localizedDescription
-                return false
-            }
-            let expected = source?.sourceHash
-            let previousName = renaming && source != nil ? originalName : nil
-            operations[file, default: []].append(.set(
-                definition, expectedHash: expected, previousName: previousName
-            ))
-            // Removing the old name after the set lets Core copy the old table
-            // (including Codex-specific fields) before the entry disappears.
-            // The rename remove carries the displayed hash too: without it an
-            // explicit rename of an entry Lithe did not create could update
-            // the new name but never delete the old one.
-            if let previousName {
-                operations[file, default: []].append(
-                    .remove(previousName, expectedHash: expected)
-                )
-            }
-        }
-
-        do {
-            try commit(operations, store: store)
-        } catch {
-            self.error = error.localizedDescription
-            refresh()
-            return false
-        }
-        refresh()
-        return true
+        return perform(.save(draft: Self.payload(for: draft), original: original), store: store)
     }
 
     /// Adds or removes one definition in a single Agent's global configuration.
@@ -549,24 +478,10 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             error = McpLibraryError.unavailable.localizedDescription
             return false
         }
-        guard let file = store.configurationFiles(workspace: model?.mcpWorkspaceURL)
-            .first(where: { $0.scope == .global && $0.agent == agent }) else {
-            error = McpLibraryError.agentHasNoGlobalConfiguration.localizedDescription
-            return false
-        }
         error = nil
-        let operation: Operation = enabled
-            ? .set(row.definition, expectedHash: nil, previousName: nil)
-            : .remove(row.name, expectedHash: nil)
-        do {
-            try commit([file: [operation]], store: store)
-        } catch {
-            self.error = error.localizedDescription
-            refresh()
-            return false
-        }
-        refresh()
-        return true
+        return perform(
+            .setAgent(definition: row.definition, agent: agent.sourceName, enabled: enabled), store: store
+        )
     }
 
     /// Removes a server from every global configuration that Lithe owns it in.
@@ -577,25 +492,9 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             return false
         }
         error = nil
-        guard !row.globalSources.isEmpty else {
-            error = McpLibraryError.notOwned(row.name).localizedDescription
-            return false
-        }
-        var operations: [McpConfigurationFile: [Operation]] = [:]
-        for source in row.globalSources {
-            operations[source.file, default: []].append(
-                .remove(row.name, expectedHash: nil)
-            )
-        }
-        do {
-            try commit(operations, store: store)
-        } catch {
-            self.error = error.localizedDescription
-            refresh()
-            return false
-        }
-        refresh()
-        return true
+        return perform(
+            .delete(name: row.name, files: row.globalSources.map { Self.identity(of: $0.file) }), store: store
+        )
     }
 
     /// Records an externally created entry as Lithe-managed without touching the
@@ -787,17 +686,6 @@ final class McpServerLibraryFeatureModel: ObservableObject {
 
     // MARK: - Planning and writing
 
-    private enum Operation {
-        /// `expectedHash` is the complete source version shown when editing.
-        /// Core requires it to match even when the shared ledger is newer.
-        /// `previousName` is set when the edit renames the entry, so Core can
-        /// carry unmodeled configuration over to the new name.
-        case set(McpServerDefinition, expectedHash: String?, previousName: String?)
-        /// `expectedHash` authorizes removing the displayed definition during
-        /// a rename of an entry Lithe did not create.
-        case remove(String, expectedHash: String?)
-    }
-
     private func request(
         for file: McpConfigurationFile,
         content: String,
@@ -823,112 +711,89 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         )
     }
 
-    /// Plans every operation against the current bytes first, then writes the
-    /// changed files. A conflict anywhere aborts before disk is touched.
-    private func commit(
-        _ operations: [McpConfigurationFile: [Operation]],
-        store: any McpConfigurationStore
-    ) throws {
-        var planned: [(
-            file: McpConfigurationFile,
-            source: String?,
-            content: String,
-            entries: [McpOwnedEntry],
-            changed: Bool
-        )] = []
-        for (file, fileOperations) in operations {
-            let source = try store.read(file)
-            var content = source ?? ""
-            var entries = ledgerEntries(for: file)
-            var completedRenames: [String: String] = [:]
-            var changed = false
-            for operation in fileOperations {
-                let plan: McpWritePlan
-                switch operation {
-                case .set(let server, let expectedHash, let previousName):
-                    plan = try store.planWrite(
-                        request(
-                            for: file,
-                            content: content,
-                            operation: "set",
-                            server: server,
-                            name: nil,
-                            previousName: previousName,
-                            owned: entries,
-                            expectedHash: expectedHash
-                        ),
-                        for: file
-                    )
-                    if let conflict = plan.conflict {
-                        throw conflictError(conflict, name: server.name, file: file)
-                    }
-                    content = plan.content
-                    changed = changed || plan.changed
-                    if let previousName, let expectedHash,
-                       try !store.parse(file, content: content).contains(where: { $0.name == previousName }) {
-                        completedRenames[previousName] = expectedHash
-                    }
-                    if let hash = plan.definitionHash {
-                        let filters = entries.first { $0.name == server.name }?.toolFilters
-                        entries.removeAll { $0.name == server.name }
-                        entries.append(McpOwnedEntry(
-                            name: server.name, definitionHash: hash, sourceHash: plan.sourceHash, toolFilters: filters
-                        ))
-                    }
-                case .remove(let name, let expectedHash):
-                    // Codex can move the original while planning the set. Only
-                    // that already-authenticated move satisfies this removal;
-                    // an original missing before planning still conflicts.
-                    if let expectedHash, completedRenames[name] == expectedHash {
-                        entries.removeAll { $0.name == name }
-                        continue
-                    }
-                    plan = try store.planWrite(
-                        request(
-                            for: file,
-                            content: content,
-                            operation: "remove",
-                            server: nil,
-                            name: name,
-                            owned: entries,
-                            expectedHash: expectedHash
-                        ),
-                        for: file
-                    )
-                    if let conflict = plan.conflict {
-                        throw conflictError(conflict, name: name, file: file)
-                    }
-                    content = plan.content
-                    changed = changed || plan.changed
-                    // Rename already carries the native fields to the new name.
-                    // Ordinary removal retains only non-secret restrictions,
-                    // without a source hash that could authorize a future edit.
-                    if plan.action == "removed" {
-                        var filters = entries.first { $0.name == name }?.toolFilters ?? [:]
-                        filters[file.url.path] = plan.toolFilters
-                        entries.removeAll { $0.name == name }
-                        if !filters.isEmpty, let hash = plan.definitionHash {
-                            entries.append(McpOwnedEntry(name: name, definitionHash: hash, toolFilters: filters))
-                        }
-                    }
-                }
-            }
-            planned.append((file, source, content, entries, changed))
-        }
+    private func libraryInput(for file: McpConfigurationFile, content: String?) -> McpLibraryFileInput {
+        McpLibraryFileInput(
+            id: Self.identity(of: file),
+            source: file.agent.sourceName,
+            scope: file.scope.rawValue,
+            projectPath: file.projectPath,
+            path: file.url.path,
+            content: content,
+            owned: ledgerEntries(for: file)
+        )
+    }
 
-        let changes = planned.filter { $0.changed }.map {
-            McpConfigurationChange(file: $0.file, source: $0.source, content: $0.content)
-        }
-        let receipts = try store.writeBatch(changes)
-        lastBackupURL = receipts.last?.backupURL ?? lastBackupURL
-        // A later failure must not publish ownership for an earlier write.
-        for entry in planned where entry.changed {
-            for operation in operations[entry.file] ?? [] {
-                if case .set(let server, _, let previousName?) = operation {
-                    model?.mcpTools?.serverRenamed(from: previousName, to: server.name, in: entry.file)
-                }
+    /// Lets Core plan the edit across every global file against the current
+    /// bytes and ledger, then writes the changed files as one batch. A
+    /// conflict anywhere aborts before disk is touched, and ownership is
+    /// published only after every write succeeded.
+    private func perform(_ intent: McpBatchIntent, store: any McpConfigurationStore) -> Bool {
+        let files = store.configurationFiles(workspace: model?.mcpWorkspaceURL)
+            .filter { $0.scope == .global }
+        let filesByID = Dictionary(
+            files.map { (Self.identity(of: $0), $0) }, uniquingKeysWith: { first, _ in first }
+        )
+        do {
+            var inputs: [McpLibraryFileInput] = []
+            for file in files {
+                inputs.append(libraryInput(for: file, content: try store.read(file)))
             }
-            setLedger(entry.entries, for: entry.file)
+            let outcome = try store.batchPlan(files: inputs, intent: intent)
+            switch outcome.status {
+            case "ready":
+                break
+            case "invalid":
+                error = outcome.issues?.first.map(Self.message(for:))
+                    ?? McpLibraryError.unavailable.localizedDescription
+                return false
+            default:
+                guard let rejection = outcome.rejection else { throw McpLibraryError.unavailable }
+                error = rejectionError(rejection, file: rejection.file.flatMap { filesByID[$0] })
+                    .localizedDescription
+                // Plan conflicts mean the files moved on; refresh shows them.
+                if rejection.file != nil { refresh() }
+                return false
+            }
+            let sources = Dictionary(
+                inputs.map { ($0.id, $0.content) }, uniquingKeysWith: { first, _ in first }
+            )
+            let changes = (outcome.changes ?? []).filter(\.changed)
+            let batch = try changes.map { change in
+                guard let file = filesByID[change.file], let content = change.content else {
+                    throw McpLibraryError.unavailable
+                }
+                return McpConfigurationChange(file: file, source: sources[change.file] ?? nil, content: content)
+            }
+            let receipts = try store.writeBatch(batch)
+            lastBackupURL = receipts.last?.backupURL ?? lastBackupURL
+            // A later failure must not publish ownership for an earlier write.
+            for change in changes {
+                guard let file = filesByID[change.file] else { continue }
+                for rename in change.renames {
+                    model?.mcpTools?.serverRenamed(from: rename.from, to: rename.to, in: file)
+                }
+                setLedger(change.owned, for: file)
+            }
+        } catch {
+            self.error = error.localizedDescription
+            refresh()
+            return false
+        }
+        refresh()
+        return true
+    }
+
+    private func rejectionError(
+        _ rejection: McpBatchOutcome.Rejection, file: McpConfigurationFile?
+    ) -> McpLibraryError {
+        switch rejection.code {
+        case "externallyModified":
+            let name = file.map { "\(rejection.name) (\($0.agent.displayName))" } ?? rejection.name
+            return .externallyModified(name)
+        case "agentHasNoGlobalConfiguration":
+            return .agentHasNoGlobalConfiguration
+        default:
+            return .notOwned(rejection.name)
         }
     }
 
@@ -950,20 +815,6 @@ final class McpServerLibraryFeatureModel: ObservableObject {
     }
 
     // MARK: - Ownership ledger
-
-    private func isOwned(_ server: McpServerDefinition, in file: McpConfigurationFile) -> Bool {
-        guard let sourceHash = server.sourceHash else { return false }
-        return ledgerOwns(name: server.name, sourceHash: sourceHash, in: file)
-    }
-
-    /// Whether the latest shared ledger recorded this exact complete entry.
-    private func ledgerOwns(
-        name: String, sourceHash: String, in file: McpConfigurationFile
-    ) -> Bool {
-        ledgerEntries(for: file).contains {
-            $0.name == name && $0.sourceHash == sourceHash
-        }
-    }
 
     private func ledgerEntries(for file: McpConfigurationFile) -> [McpOwnedEntry] {
         ledgerSnapshot()[Self.identity(of: file)] ?? []
@@ -1002,21 +853,5 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         }
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         model?.mcpLedgerStore.set(data, forKey: Self.ledgerKey)
-    }
-
-    private func sorted(_ entries: [McpKeyValue]) -> [McpKeyValue] {
-        entries
-            .filter { !$0.key.trimmingCharacters(in: .whitespaces).isEmpty }
-            .sorted { $0.key.localizedStandardCompare($1.key) == .orderedAscending }
-    }
-
-    /// Empty rows are dropped on save, so only written names can collide.
-    private func hasDuplicateEntryNames(_ entries: [McpKeyValue]) -> Bool {
-        var names = Set<String>()
-        for entry in entries
-        where !entry.key.trimmingCharacters(in: .whitespaces).isEmpty {
-            if !names.insert(entry.key).inserted { return true }
-        }
-        return false
     }
 }

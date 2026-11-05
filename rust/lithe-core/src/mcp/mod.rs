@@ -5,6 +5,7 @@
 //! content. It never consults the filesystem, the environment, or the network.
 
 mod json_edit;
+mod library;
 mod model;
 mod parse;
 mod plan;
@@ -13,6 +14,7 @@ mod source_hash;
 mod toml_edit;
 mod tools;
 
+pub use library::{batch_plan, library_snapshot, validate_draft};
 pub use model::{McpKeyValue, McpServer, McpTransport};
 pub use parse::parse_configuration;
 pub use plan::plan_write;
@@ -60,5 +62,7 @@ pub(crate) fn probe(
     })
 }
 
+#[cfg(test)]
+mod library_tests;
 #[cfg(test)]
 mod tests;
