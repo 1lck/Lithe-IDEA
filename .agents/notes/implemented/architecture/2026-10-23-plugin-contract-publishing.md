@@ -92,7 +92,7 @@ Store 的 `validate-index.mjs` 仍然实现索引规则。它的 CI 原来比较
 - 主仓库的 `verify-shared-contracts.sh` 检查目录下每个 `.md`，拒绝离开目录、指向目录或指向不存在文件的相对链接。
 - docs 仓库的 `contract.mjs` 在同步和校验时也拒绝这类链接。
 
-主仓库的检查必须和 docs 的同步规则一样严格。2026-11-01 同步 #1581 时，`proposals/toolchains/README.md` 里指向 `fixtures/` 的链接被 docs 拒绝：主仓库当时只检查顶层 README，而且允许链接指向目录，所以这个问题在合并前没被发现，只能再提一个 PR 修复后重新同步。
+主仓库的检查必须和 docs 的同步规则一样严格。2026-11-01 同步 #1581 时，`toolchains/proposal/README.md` 里指向 `fixtures/` 的链接被 docs 拒绝：主仓库当时只检查顶层 README，而且允许链接指向目录，所以这个问题在合并前没被发现，只能再提一个 PR 修复后重新同步。
 
 ### `plugin.json` 里不能写 `$schema`
 
@@ -123,7 +123,7 @@ fixture 的内容仍然用 Cargo、Go、Gradle、Maven 作为真实输入，契�
 SDK 是给插件开发者用的库，不是契约。开发者要读它的 README、看示例、提问题、下载发布包，这些都应该在 lithe-plugin-docs 完成，所以 `sdk/`、SDK 端到端测试和两个发版工作流都从主仓库移走，主仓库只保留契约。
 
 - **发版**：lithe-plugin-docs 打 `sdk-node-v<版本>` 或 `sdk-java-v<版本>` 标签，`release-node-sdk.yml`、`release-java-sdk.yml` 发布包和 `.sha256`。具体规则见 [官方插件后端 SDK](2026-10-20-plugin-backend-sdk.md)。Java SDK 0.1.0 是迁移前从主仓库发布的，那个 Release 保留，Maven 插件锁定的下载地址不变。
-- **单元测试**：SDK 自己的测试读 `contract/v1/fixtures/function-protocol.json`，也就是契约副本，不再读主仓库。
+- **单元测试**：SDK 自己的测试读 `contract/v1/fixtures/backend/function-protocol.json`，也就是契约副本，不再读主仓库。
 - **端到端测试**：场景仍是 Rust 测试，要链接 Rust Core。`sdk-e2e.mjs` 把锁文件记录的主仓库 commit 稀疏检出到 `.artifacts/lithe`（只取 `rust/` 和 `shared/`），把 `sdk/e2e` 复制进它的 `rust/lithe-core/tests/`，再用 `cargo test --locked` 运行。`LITHE_PLUGIN_SDK_ROOT` 告诉测试示例插件在哪里。这和 Cargo 插件测 Core 的方式相同。
 - **两个版本的 Core**：每次提交测契约副本锁定的那个 commit，保证 SDK、契约副本和 Core 是同一个版本；每周再用 `--ref preview` 测主仓库 `preview` 分支的最新 Core，提前发现 Core 的改动破坏了 SDK。
 

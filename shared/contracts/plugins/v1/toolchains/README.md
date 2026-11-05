@@ -11,16 +11,14 @@ runs the definition's version probe on executables Core returns from
 whole snapshot. Nothing is saved by these pages. The pinned Stage D integration
 adds a separate fresh-resolution adapter for macOS Build and Provider Run;
 settings detections are never used as launch permits. Existing Java and
-language-server consumers still use their previous adapters. Windows now has
-native Build plumbing for directory pins, declared scans, shell candidates and
-operation-owned provider queries through Core's LSP transport. A window-bound
-cancellation owner covers preparation and backend cleanup; this does not provide
-a general background services host. Publisher signatures provide independent
-origin evidence when present; legacy unsigned records never do. Windows product
-capability admission remains closed.
-The [broader proposal](proposals/toolchains/README.md) still describes unsupported
+language-server consumers still use their previous adapters. Windows has no
+toolchain adapter and does not advertise `toolDefinitions` or
+`toolchainProviders`, so Core refuses packages that require them there.
+Publisher signatures provide independent origin evidence when present; legacy
+unsigned records never do.
+The [broader proposal](proposal/README.md) still describes unsupported
 consumer migration, native lifecycle, persistence and manager-plugin work.
-The active shape is [plugin-manifest.schema.json](plugin-manifest.schema.json),
+The active shape is [plugin-manifest.schema.json](../plugin-manifest.schema.json),
 not the proposal envelopes.
 
 ## Manifest admission and registry
@@ -167,7 +165,7 @@ remote authority, unsafe paths and malformed error mappings reject it.
 The snapshot contains `{installations,statements,watch,diagnostics}`; normalized
 entries carry qualified `<pluginID>:<providerID>` provenance and project source
 directory. JSON-RPC errors are checked against the distinct semantic/numeric map
-in the [protocol proposal](proposals/toolchains/protocol.md#stable-failure-mapping).
+in the [protocol proposal](proposal/protocol.md#stable-failure-mapping).
 Cancellation, deadlines, cache invalidation and whole-generation requery remain
 native-client implementation work, not behavior performed by this decoder.
 
@@ -295,8 +293,8 @@ workspace root are refused before any probe, so a project program is never run
 to read its version. The macOS host bounds probes by count, concurrency and
 total time, and reports skipped work as diagnostics rather than a missing tool.
 
-Production-shape examples are [tool-definition.plugin.json](fixtures/tool-definition.plugin.json)
-and [toolchain-provider.plugin.json](fixtures/toolchain-provider.plugin.json).
+Production-shape examples are [tool-definition.plugin.json](../fixtures/toolchains/tool-definition.plugin.json)
+and [toolchain-provider.plugin.json](../fixtures/toolchains/toolchain-provider.plugin.json).
 Core acceptance vectors are in
 [toolchain_definitions.rs](https://github.com/1lck/Lithe-IDEA/blob/preview/rust/lithe-core/src/tests/toolchain_definitions.rs),
 with sibling pins/query/resolution suites. Passing them is not native product

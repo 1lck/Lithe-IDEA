@@ -26,7 +26,7 @@
 | 部分 | 负责方 | 落点 |
 | --- | --- | --- |
 | 声明的校验、表单求值（派生默认值、显示条件、错误码）、生成计划、压缩包解压 | Rust Core | `rust/lithe-core/src/project_generators/`，命令 `project.*` |
-| 契约与标准答案 | 共享契约 | `shared/contracts/plugins/v1/README.md` 的 Project generators 一节，`fixtures/project-generator.plugin.json`、`fixtures/project-plans.json` |
+| 契约与标准答案 | 共享契约 | `shared/contracts/plugins/v1/README.md` 的 Project generators 一节，`fixtures/project-generators/project-generator.plugin.json`、`fixtures/project-generators/project-plans.json` |
 | 窗口、名称、位置、Git、空项目、启用插件提示 | macOS 宿主 | `NewProjectView`、`NewProjectFeatureModel` |
 | 执行计划：临时目录、写文件、跑命令、下载、移动到位 | macOS 宿主 | `ProjectGenerationService`（编排）+ `MacProjectGenerationPlatform`（平台操作） |
 | Java、Maven Archetype、Spring Boot 的字段、模板和步骤 | 插件 | `Plugins/mac/Official/JavaSupport/`（`plugin.json` 的 `projectGenerators`、`icons/`、`templates/`） |

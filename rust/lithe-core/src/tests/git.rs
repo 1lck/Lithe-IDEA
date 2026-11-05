@@ -7208,3 +7208,61 @@ fn git_create_tag_applies_the_explicit_lightweight_form() {
         );
     }
 }
+#[test]
+fn git_metadata_classification_matches_shared_fixture() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/metadata-classification-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let context = &fixture["contexts"][case["context"].as_str().unwrap()];
+        let response: serde_json::Value = serde_json::from_str(&crate::execute_json(
+            &serde_json::json!({"command":"git.classifyMetadataChanges", "payload":{
+                "context":context, "paths":[case["path"]]
+            }})
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+        assert_eq!(
+            response["data"]["events"][0]["kind"], case["kind"],
+            "{}",
+            case["name"]
+        );
+        assert_eq!(
+            response["data"]["events"][0]["indexOnly"], case["indexOnly"],
+            "{}",
+            case["name"]
+        );
+    }
+}
+
+#[test]
+fn git_metadata_classification_rejects_invalid_or_unbounded_pages() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/git/metadata-classification-v1.json"
+    ))
+    .unwrap();
+    let context = &fixture["contexts"]["main"];
+    for (test_context, paths) in [
+        (
+            context.clone(),
+            serde_json::json!(vec!["workspace/main/.git/index"; 257]),
+        ),
+        (context.clone(), serde_json::json!([""])),
+        (
+            serde_json::json!({"repositoryRoot":"", "gitDirectory":"g", "gitCommonDirectory":"g"}),
+            serde_json::json!([]),
+        ),
+    ] {
+        let response: serde_json::Value = serde_json::from_str(&crate::execute_json(
+            &serde_json::json!({"command":"git.classifyMetadataChanges", "payload":{
+                "context":test_context, "paths":paths
+            }})
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], false, "{response}");
+        assert_eq!(response["error"]["code"], "invalid_request");
+    }
+}

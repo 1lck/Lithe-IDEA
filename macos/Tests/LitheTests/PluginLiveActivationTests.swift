@@ -67,8 +67,8 @@ struct PluginLiveActivationTests {
     }
 
     @Test(arguments: [
-        "language-packaged-server", "language-system-command", "build-provider",
-        "vcs-provider", "hello-lithe"
+        "languages/language-packaged-server", "languages/language-system-command",
+        "build-providers/build-provider", "vcs/vcs-provider", "manifest/hello-lithe"
     ])
     func pluginsWithOtherContributionsStillNeedARestart(_ fixture: String) throws {
         let descriptor = try Self.fixtureDescriptor(fixture)
@@ -78,7 +78,10 @@ struct PluginLiveActivationTests {
     /// Generators are listed when the New Project window loads, and tool
     /// definitions are read each time a tool is resolved, so neither needs the
     /// module graph built at launch.
-    @Test(arguments: ["project-generator", "project-generator-tool-field", "tool-definition"])
+    @Test(arguments: [
+        "project-generators/project-generator", "project-generators/project-generator-tool-field",
+        "toolchains/tool-definition"
+    ])
     func generatorsAndToolDefinitionsActivateWithoutARestart(_ fixture: String) throws {
         let descriptor = try Self.fixtureDescriptor(fixture)
         #expect(!descriptor.declaresBackend)
@@ -89,7 +92,7 @@ struct PluginLiveActivationTests {
     /// module graph.
     @Test
     func aToolchainProviderStillNeedsARestart() throws {
-        let descriptor = try Self.fixtureDescriptor("toolchain-provider")
+        let descriptor = try Self.fixtureDescriptor("toolchains/toolchain-provider")
         #expect(descriptor.declaresBackend)
         #expect(!descriptor.canActivateWithoutRestart)
     }

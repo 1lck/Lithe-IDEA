@@ -19,7 +19,7 @@
         {"id": "venv", "type": "boolean", "title": "Create a virtual environment", "default": true}
       ],
       "steps": [
-        {"kind": "files", "source": "project-generator-templates/tool-field"},
+        {"kind": "files", "source": "templates/tool-field"},
         {"kind": "command", "command": "uv", "mayUseNetwork": false,
          "arguments": ["venv", "--python", "${field.python.executable}"],
          "environment": {"PYTHON_HOME": "${field.python}"},

@@ -334,7 +334,7 @@ struct PluginPackageStoreTests {
         let store = makeStore(root: root)
         let package = root.appendingPathComponent("sources/backend", isDirectory: true)
         let fixtureURL = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/backend.plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/backend/backend.plugin.json")
         let object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any])
         _ = try DeclarativePluginTestSupport.writePackage(at: package, manifest: object)
         try FileManager.default.createDirectory(at: package.appendingPathComponent("ui"), withIntermediateDirectories: true)
@@ -840,7 +840,7 @@ struct PluginPackageStoreTests {
     /// `launch` is given. A packaged launch gets an executable script.
     private func makeProviderPackage(root: URL, launch: [String: Any]?) throws -> URL {
         let fixtureURL = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-provider.plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-providers/build-provider.plugin.json")
         var manifest = try #require(
             try JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any]
         )

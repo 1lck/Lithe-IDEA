@@ -114,7 +114,7 @@ mod tests {
     #[test]
     fn shared_plugin_logging_fixture_matches_ingress_and_catalog() {
         let fixture: Value = serde_json::from_str(include_str!(
-            "../../../../../shared/contracts/plugins/v1/fixtures/plugin-logging.json"
+            "../../../../../shared/contracts/plugins/v1/fixtures/backend/plugin-logging.json"
         ))
         .unwrap();
         let functions = fixture["registeredFunctions"]

@@ -120,7 +120,7 @@ Maven、Gradle 这类插件需要在后端里调用 JVM 生态的工具，并长
 
 以下命令都在 lithe-plugin-docs 中运行：
 
-- `node --test sdk/node/test/*.test.mjs`：协商、ID 规则（对照 `contract/v1/fixtures/function-protocol.json`）、保留方法、调用/进度/错误/取消、运行时注册、构建结果、生命周期和退出码、分帧、进程树取消、状态存储与只读包拒绝、类型声明与运行时导出一致。
+- `node --test sdk/node/test/*.test.mjs`：协商、ID 规则（对照 `contract/v1/fixtures/backend/function-protocol.json`）、保留方法、调用/进度/错误/取消、运行时注册、构建结果、生命周期和退出码、分帧、进程树取消、状态存储与只读包拒绝、类型声明与运行时导出一致。
 - `mvn -B -f sdk/java/pom.xml verify [-Djvm=<java8>]`：Java SDK 的 JUnit 测试，覆盖与 Node 测试相同的协议场景，另含 JSON、分帧、进程树取消和状态存储。
 - `node scripts/sdk-e2e.mjs`：把 `sdk/e2e` 复制进锁定版本主仓库的 `rust/lithe-core/tests/`，运行 `plugin_sdk_node` 和 `plugin_sdk_java`。Node 示例经 Core 校验、启动计划、版本检查、构建模型/依赖、函数结果/进度/失败/取消、重启后状态恢复，最后确认插件包文件清单不变；Java 示例按插件实际打包方式（`plugin.json` + shade 后的 JAR）装进临时包目录，跑同一套场景。设置 `LITHE_PLUGIN_SDK_JAVA_RUNTIME` 时，Java 示例在该运行时（CI 为 Java 8）上运行。
 - `node scripts/sdk-e2e.mjs --ref preview`：同上，换成主仓库 `preview` 分支的最新 Core；CI 每周运行。

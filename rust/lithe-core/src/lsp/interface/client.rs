@@ -942,8 +942,8 @@ fn validate_uri(value: &str) -> Result<(), CoreError> {
 /// Code's URI library (used by Intelephense, typescript-language-server, and
 /// others) percent-encodes the Windows drive colon (`d:` becomes `d%3A`) and
 /// lowercases the drive letter. A raw map lookup therefore misses even though
-/// the document is open. Comparison happens on the decoded form with the
-/// Windows drive letter case-folded, which keeps Unix URIs case-sensitive.
+/// the document is open. Comparison preserves URI component boundaries and
+/// folds the Windows drive letter while keeping Unix paths case-sensitive.
 fn open_document_for_published_uri<'a>(
     documents: &'a std::collections::BTreeMap<String, LspClientDocument>,
     uri: &str,
@@ -959,25 +959,50 @@ fn open_document_for_published_uri<'a>(
 }
 
 fn normalize_uri_for_comparison(uri: &str) -> String {
-    let decoded = percent_decode(uri);
-    // Fold the Windows drive letter inside a file URI path (`file:///D:/...`)
-    // to lowercase; NTFS paths are case-insensitive and servers standardize on
-    // the lowercase form. The drive letter starts right after `file:///`.
+    let serialized = url::Url::parse(uri)
+        .map(|url| url.to_string())
+        .unwrap_or_else(|_| uri.to_owned());
+    let bytes = serialized.as_bytes();
+    let mut canonical = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let (Some(high), Some(low)) =
+                (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
+            {
+                let decoded = (high << 4) | low;
+                if decoded.is_ascii_alphanumeric() || b"-._~".contains(&decoded) {
+                    canonical.push(decoded);
+                } else {
+                    canonical.extend_from_slice(&[b'%', HEX[high as usize], HEX[low as usize]]);
+                }
+                index += 3;
+                continue;
+            }
+        }
+        canonical.push(bytes[index]);
+        index += 1;
+    }
+    // The input was UTF-8 and only ASCII escapes were replaced.
+    let mut normalized = String::from_utf8(canonical).expect("URI normalization preserves UTF-8");
     const FILE_PREFIX: &str = "file:///";
-    if let Some(path) = decoded.strip_prefix(FILE_PREFIX) {
+    if let Some(path) = normalized.strip_prefix(FILE_PREFIX) {
         let bytes = path.as_bytes();
-        if bytes.len() >= 2
-            && bytes[1] == b':'
-            && bytes[0].is_ascii_alphabetic()
-            && bytes[0].is_ascii_uppercase()
-        {
-            let mut normalized = decoded;
+        if bytes.len() >= 4 && bytes[0].is_ascii_alphabetic() && &bytes[1..4] == b"%3A" {
             let drive_index = FILE_PREFIX.len();
+            normalized.replace_range(drive_index + 1..drive_index + 4, ":");
+        }
+        let bytes = normalized.as_bytes();
+        let drive_index = FILE_PREFIX.len();
+        if bytes.len() > drive_index + 1
+            && bytes[drive_index].is_ascii_alphabetic()
+            && bytes[drive_index + 1] == b':'
+        {
             normalized[drive_index..drive_index + 1].make_ascii_lowercase();
-            return normalized;
         }
     }
-    decoded
+    normalized
 }
 
 fn workspace_name_from_uri(uri: &str) -> String {

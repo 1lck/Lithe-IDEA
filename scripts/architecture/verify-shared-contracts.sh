@@ -162,6 +162,14 @@ done
 /usr/bin/ruby -rjson -e '
   root = ARGV.fetch(0)
   published_base = ARGV.fetch(1)
+  # Fixtures sit in one folder per contract area. Case files name a base
+  # manifest by file name only, so names stay unique across those folders.
+  fixtures = File.join(root, "fixtures")
+  loose = Dir.children(fixtures).map { |name| File.join(fixtures, name) }.select { |path| File.file?(path) }
+  abort "#{loose.sort.join(", ")}: fixtures belong in an area folder under #{fixtures}" unless loose.empty?
+  fixture_json = Dir[File.join(fixtures, "**", "*.json")]
+  duplicates = fixture_json.group_by { |path| File.basename(path) }.select { |_, paths| paths.length > 1 }
+  duplicates.each { |name, paths| abort "fixture file name #{name} is not unique: #{paths.sort.join(", ")}" }
   schema = JSON.parse(File.read(File.join(root, "plugin-manifest.schema.json")))
   abort "plugin manifest schema ID mismatch" unless schema.fetch("$id") == "#{published_base}/plugin-manifest.schema.json"
   native_schema = JSON.parse(File.read(File.join(root, "native-ui.schema.json")))
@@ -183,7 +191,7 @@ done
     abort "#{path}: $id must be #{expected}" unless JSON.parse(File.read(path))["$id"] == expected
   end
   documented = readme.scan(/`(plugin\.[a-zA-Z.]+)`/).flatten
-  manifests = Dir[File.join(root, "fixtures", "*.plugin.json")]
+  manifests = Dir[File.join(fixtures, "**", "*.plugin.json")]
   abort "declarative plugin fixtures are missing" if manifests.empty?
   manifests.each do |path|
     manifest = JSON.parse(File.read(path))
@@ -191,12 +199,12 @@ done
     abort "#{path}: fixture IDs must use dev.lithe.fixture." unless manifest.fetch("id").start_with?("dev.lithe.fixture.")
   end
   fixture_names = manifests.map { |path| File.basename(path) }
-  invalid = JSON.parse(File.read(File.join(root, "fixtures", "invalid-manifests.json"))).fetch("cases")
+  invalid = JSON.parse(File.read(File.join(fixtures, "manifest", "invalid-manifests.json"))).fetch("cases")
   invalid.each do |item|
     abort "invalid case #{item.fetch("name")} uses an unknown base" unless fixture_names.include?(item.fetch("base"))
     abort "invalid case #{item.fetch("name")} uses an undocumented code" unless documented.include?(item.fetch("expectedCode"))
   end
-  plans = JSON.parse(File.read(File.join(root, "fixtures", "command-plans.json"))).fetch("cases")
+  plans = JSON.parse(File.read(File.join(fixtures, "languages", "command-plans.json"))).fetch("cases")
   plans.each do |item|
     abort "plan case #{item.fetch("name")} uses an unknown plugin" unless fixture_names.include?(item.fetch("plugin"))
     abort "plan case #{item.fetch("name")} uses an unknown operation" unless %w[runPlan discoverTests testPlan languageServerLaunchPlan].include?(item.fetch("operation"))
@@ -215,7 +223,7 @@ done
     invocationPlan checkToolVersion resolveOptions modelPlan taskPlan testPlan dependencyPlan
     decodeModel decodeTestResults decodeDiagnostics decodeDependencies syncFingerprint
   ]
-  build_plans = JSON.parse(File.read(File.join(root, "fixtures", "build-plans.json")))
+  build_plans = JSON.parse(File.read(File.join(fixtures, "build-systems", "build-plans.json")))
   abort "build plan fixture schema must be 1" unless build_plans.fetch("schemaVersion") == 1
   build_names = build_plans.fetch("cases").map { |item| item.fetch("name") }
   abort "build plan case names must be unique" unless build_names.uniq.length == build_names.length
@@ -228,7 +236,7 @@ done
     end
     abort "build plan case #{item.fetch("name")} contains a machine path" if JSON.generate(item).match?(%r{/(?:Users|home|var/folders|private/var)/|[A-Za-z]:\\\\})
   end
-  functions = JSON.parse(File.read(File.join(root, "fixtures", "function-protocol.json")))
+  functions = JSON.parse(File.read(File.join(fixtures, "backend", "function-protocol.json")))
   abort "function protocol fixture schema must be 1" unless functions.fetch("schemaVersion") == 1
   abort "function protocol fixture must describe litheFunctions" unless functions.fetch("protocol") == "litheFunctions"
   function_sections = %w[negotiation registration invocations outcomes progress backendRequests hostRequests]
@@ -250,7 +258,7 @@ done
   index_schema = JSON.parse(File.read(File.join(root, "plugin-index.schema.json")))
   abort "plugin index schema ID mismatch" unless index_schema.fetch("$id") == "#{published_base}/plugin-index.schema.json"
   abort "plugin indexes must use schemaVersion 1" unless index_schema.fetch("properties").fetch("schemaVersion").fetch("const") == 1
-  marketplace = File.join(root, "fixtures", "marketplace")
+  marketplace = File.join(fixtures, "marketplace")
   index = JSON.parse(File.read(File.join(marketplace, "index.json")))
   abort "marketplace fixture index must use schemaVersion 1" unless index.fetch("schemaVersion") == 1
   JSON.parse(File.read(File.join(marketplace, "index-cases.json"))).fetch("cases").each do |item|

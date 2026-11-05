@@ -21,7 +21,7 @@ const MODEL: &str = include_str!(concat!(
 ));
 const SVN_PROVIDER: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../shared/contracts/plugins/v1/fixtures/vcs-provider.plugin.json"
+    "/../../shared/contracts/plugins/v1/fixtures/vcs/vcs-provider.plugin.json"
 ));
 
 fn model() -> Value {

@@ -33,6 +33,7 @@ private struct MacDirectoryWatcherFactory: DirectoryWatcherFactory {
         }
         return MacDirectoryWatcher(
             configuration: configuration,
+            logSink: logSink,
             visibilityRules: visibilityRules,
             onChange: onChange
         )
