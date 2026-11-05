@@ -3223,12 +3223,6 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
         CoreCommand::GitReferenceTree => {
             plugin_response(id, parsed.payload, crate::git::reference_tree_command)
         }
-        CoreCommand::GitUpdatePlan => {
-            plugin_response(id, parsed.payload, crate::git::update_plan_command)
-        }
-        CoreCommand::GitHistoryWindow => {
-            plugin_response(id, parsed.payload, crate::git::history_window_command)
-        }
         CoreCommand::GitPrepareCommitSelection => plugin_response(
             id,
             parsed.payload,

@@ -680,10 +680,6 @@ pub enum CoreCommand {
     GitRebasePlanPreview,
     /// Groups one kind of loaded references into an ordered tree (`git.referenceTree`).
     GitReferenceTree,
-    /// Plans the next step of a branch Update from collected facts (`git.updatePlan`).
-    GitUpdatePlan,
-    /// Plans history refresh windows, page merges, and selection retention (`git.historyWindow`).
-    GitHistoryWindow,
     /// Resolves the destination and commits for a branch push (`git.pushPreview`).
     GitPushPreview,
     /// Resolves metadata for one commit (`git.commit`).
@@ -1086,8 +1082,6 @@ impl CoreCommand {
             "git.normalizeChangeTargets" => Some(Self::GitNormalizeChangeTargets),
             "git.rebasePlanPreview" => Some(Self::GitRebasePlanPreview),
             "git.referenceTree" => Some(Self::GitReferenceTree),
-            "git.updatePlan" => Some(Self::GitUpdatePlan),
-            "git.historyWindow" => Some(Self::GitHistoryWindow),
             "git.pushPreview" => Some(Self::GitPushPreview),
             "git.commit" => Some(Self::GitCommit),
             "git.commitFiles" => Some(Self::GitCommitFiles),
