@@ -57,7 +57,9 @@ pub(crate) const VCS_PROVIDERS: &str = "vcsProviders";
 /// `workspace` host service; it needs plugin-function protocol 3 for that.
 pub(crate) const BACKEND: &str = "backend";
 
-/// `projectGenerators[]`: entries of the New Project window.
+/// `projectGenerators[]`: entries of the New Project window. Version 1 lets a
+/// field select a host-managed runtime; version 2 selects installations of
+/// any plugin-defined tool with a `tool` field instead.
 pub(crate) const PROJECT_GENERATORS: &str = "projectGenerators";
 
 /// `debugAdapters[]`: debug adapters implemented by a plugin process; see
@@ -90,7 +92,7 @@ pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (LANGUAGE_SERVERS, &[1, 2]),
     (LANGUAGES, &[1, 2]),
     (PACKAGE_TRUST, &[1]),
-    (PROJECT_GENERATORS, &[1]),
+    (PROJECT_GENERATORS, &[1, 2]),
     (SERVER_PROCESS, &[1, 2]),
     (SETTINGS, &[1, 2]),
     (TOOL_DEFINITIONS, &[1]),

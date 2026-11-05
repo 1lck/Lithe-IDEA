@@ -195,7 +195,9 @@ fn configuration_only_contribution_decodes_without_grammar() {
         .unwrap()
         .remove("grammar");
     // A backend is a complete tool plugin, with no language-server ownership.
-    let tool = manifest(contract_file!("fixtures/backend/backend-workspace.plugin.json"));
+    let tool = manifest(contract_file!(
+        "fixtures/backend/backend-workspace.plugin.json"
+    ));
     plugin["backend"] = tool["backend"].clone();
     plugin["requires"]["backend"] = json!(2);
     plugin["requires"]["serverProcess"] = json!(1);

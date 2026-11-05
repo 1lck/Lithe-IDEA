@@ -20,7 +20,8 @@ const SOURCE_URLS: &str = contract_file!("fixtures/marketplace/source-urls.json"
 const INSTALL_REVIEWS: &str = contract_file!("fixtures/marketplace/install-reviews.json");
 const PHP_FIXTURE: &str = contract_file!("fixtures/languages/language-packaged-server.plugin.json");
 const GO_FIXTURE: &str = contract_file!("fixtures/languages/language-system-command.plugin.json");
-const MIX_FIXTURE: &str = contract_file!("fixtures/build-providers/build-provider-language-server.plugin.json");
+const MIX_FIXTURE: &str =
+    contract_file!("fixtures/build-providers/build-provider-language-server.plugin.json");
 const GRADLE_FIXTURE: &str = contract_file!("fixtures/build-providers/build-provider.plugin.json");
 const CARGO_FIXTURE: &str = contract_file!("fixtures/build-systems/build-static-file.plugin.json");
 const OFFICIAL_INDEX: &str = include_str!(concat!(

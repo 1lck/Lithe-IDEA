@@ -5032,6 +5032,13 @@ answers. Results use the `plugins.declarative.*` envelope: `catalog`, `form`,
 `plan`, `name`, and `extracted`. Commands that take a manifest revalidate it
 and answer `plugin.project.unavailable` for an undeclared generator.
 
+A `projectGenerators` 2 generator picks tool installations with `tool` fields.
+The host lists the installations of each field's tool and sends them as the
+form's `tools`; Core chooses among them, checks `minimumVersion`, expands
+`${field.<id>.executable}`, and returns `toolPins` in the plan. Core lists no
+installations itself, so the commands touch neither the file system nor a
+process for tools.
+
 `project.generationPlan` reads template files below `packagePath` (bounded,
 no symbolic links). `project.extractArchive` is the only command that writes:
 it extracts into an existing staging directory the host created and never

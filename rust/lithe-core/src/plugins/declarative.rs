@@ -1065,7 +1065,13 @@ impl DeclarativePluginManifest {
                 "Project generators require plugin API level 3.",
             ));
         }
-        crate::project_generators::validate_declarations(&self.project_generators)?;
+        crate::project_generators::validate_declarations(
+            &self.project_generators,
+            self.requires
+                .get(capabilities::PROJECT_GENERATORS)
+                .copied()
+                .unwrap_or(1),
+        )?;
         crate::build::validate_declarations(
             &mut self.build_systems,
             &crate::build::DeclarationContext {
@@ -1721,6 +1727,21 @@ impl DeclarativePluginManifest {
     /// IDs of the languages the plugin declares.
     pub(crate) fn language_ids(&self) -> impl Iterator<Item = &str> {
         self.languages.iter().map(|language| language.id.as_str())
+    }
+
+    /// Whether the plugin declares a definition that `tool` names. A
+    /// definition is addressed by its short ID (verified official plugins) or
+    /// as `<pluginID>:<id>`; which of the two the host honors is its registry's
+    /// decision, so both spellings count as a declaration here.
+    pub(crate) fn declares_tool(&self, tool: &str) -> bool {
+        // `Some(local)` when `tool` is spelled `<this plugin>:<local>`.
+        let local_name = tool
+            .strip_prefix(self.id.as_str())
+            .and_then(|rest| rest.strip_prefix(':'));
+        self.tool_definitions
+            .iter()
+            .filter_map(|definition| definition["id"].as_str())
+            .any(|id| tool == id || local_name == Some(id))
     }
 
     /// Validated project generators, in declaration order.

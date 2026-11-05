@@ -12,6 +12,7 @@
 "%@ (%lld)" = "%@（%lld）";
 "%@ (default)" = "%@（默认）";
 "%@ (not available for this Lithe or Mac)" = "%@（当前 Lithe 或这台 Mac 无法使用）";
+"%@ (older than required)" = "%@（低于要求的版本）";
 "%@ / %@ rows · line %@" = "%@ / %@ 条 · 第 %@ 行";
 "%@ already exists. Choose another name or location." = "%@ 已存在，请更换名称或位置。";
 "%@ answered with status %lld. %@" = "%1$@ 返回状态 %2$lld。%3$@";
@@ -1079,6 +1080,7 @@
 "Could not load service dependencies" = "无法加载服务依赖";
 "Could not load the changed files." = "无法加载更改的文件。";
 "Could not load this image" = "无法加载此图片";
+"Could not look for installed tools: %@" = "无法查找已安装的工具：%@";
 "Could not move the editor tab. Its content could not be synchronized." = "无法移动编辑标签，未能同步其内容。";
 "Could not open %@: %@" = "无法打开 %@：%@";
 "Could not open %@: %@ %@" = "无法打开 %@：%@ %@";
@@ -2306,6 +2308,7 @@
 "Looked in: %@" = "已查找：%@";
 "Looking for Git…" = "正在查找 Git…";
 "Looking for installed JDKs…" = "正在查找已安装的 JDK…";
+"Looking for installed tools…" = "正在查找已安装的工具…";
 "Looking up the location sends this address to ipinfo.io. Lithe does this only when you click Look Up." = "查询地区会把这个地址发送给 ipinfo.io。只有你点击“查询地区”时 Lithe 才会这样做。";
 "Low" = "低";
 "Low (recommended)" = "低（推荐）";
@@ -2614,6 +2617,7 @@
 "No history recorded yet" = "还没有历史记录";
 "No host yet" = "尚未填写主机";
 "No implementations found" = "没有找到实现";
+"No installation of this tool was found." = "未找到此工具的安装。";
 "No installed plugin supports %@ yet." = "尚未安装支持 %@ 的插件。";
 "No items" = "暂无项目";
 "No language dependency sources registered" = "未注册语言依赖来源";
@@ -4401,6 +4405,7 @@
 "The project folder on the host; empty uses the home directory. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder." = "主机上的项目文件夹，留空时使用主目录。“浏览”会连接主机，必要时在主机上安装 Lithe 远端服务，然后让你选择文件夹。";
 "The project model is not loaded." = "项目模型尚未加载。";
 "The project was created, but Git could not be set up: %@" = "项目已创建，但无法初始化 Git 仓库：%@";
+"The project was created, but the tool you chose could not be saved for it: %@" = "项目已创建，但无法为它保存你选择的工具：%@";
 "The provider looks up the build tool itself: %@" = "Provider 自行查找构建工具：%@";
 "The proxy answered with HTTP %@." = "代理返回了 HTTP %@。";
 "The proxy server's host name or IP address, for example 127.0.0.1." = "代理服务器的主机名或 IP 地址，例如 127.0.0.1。";
@@ -4575,6 +4580,7 @@
 "This folder cannot be read." = "无法读取此文件夹。";
 "This folder is empty" = "此文件夹为空";
 "This host cannot receive a compatible plugin package. Update the remote server." = "此主机无法接收兼容的插件包，请更新远程服务。";
+"This installation is older than the generator requires." = "此安装版本低于模板要求。";
 "This native configuration source is read-only. Installed applications and plugin packages cannot be edited." = "此原生配置来源为只读。不能编辑已安装的应用和插件包。";
 "This page" = "此页面";
 "This panel needs exactly one matching plugin instance in the workspace." = "此面板要求工作区中恰好有一个匹配的插件实例。";
@@ -6251,6 +6257,7 @@
 "native.couldNotLoadServiceDependencies" = "无法加载服务依赖";
 "native.couldNotLoadTheChangedFiles" = "无法加载更改的文件。";
 "native.couldNotLoadThisImage" = "无法加载此图片";
+"native.couldNotLookForInstalledTools" = "无法查找已安装的工具：%1$@";
 "native.couldNotMoveTheEditorTabItsContentCouldNotBeSynchronized" = "无法移动编辑标签，未能同步其内容。";
 "native.couldNotOpenHTMLInBrowser" = "无法在浏览器中打开 HTML";
 "native.couldNotOpenTheRemoteFolder" = "无法打开远程文件夹：%1$@";
@@ -7536,6 +7543,7 @@
 "native.lookedIn" = "已查找：%1$@";
 "native.lookingForGit" = "正在查找 Git…";
 "native.lookingForInstalledJDKs" = "正在查找已安装的 JDK…";
+"native.lookingForInstalledTools" = "正在查找已安装的工具…";
 "native.lookingUpTheLocationSendsThisAddressToIpinfoIoLitheDoesThisOnlyWhenYouClickLookUp" = "查询地区会把这个地址发送给 ipinfo.io。只有你点击“查询地区”时 Lithe 才会这样做。";
 "native.low" = "低";
 "native.lowEffortAndASmallOutputLimitAreRecommendedForFastCommitMessageGeneration" = "为了快速生成提交信息，建议使用低推理强度和较小的输出限制。";
@@ -7831,6 +7839,7 @@
 "native.noHooksYet" = "还没有 Hook。";
 "native.noHostYet" = "尚未填写主机";
 "native.noImplementationsFound" = "没有找到实现";
+"native.noInstallationOfThisToolWasFound" = "未找到此工具的安装。";
 "native.noInstalledPluginSupportsYet" = "尚未安装支持 %1$@ 的插件。";
 "native.noItems" = "暂无项目";
 "native.noJDKFoundSetJAVAHOMEInstallAJDKOrChooseAJDKDirectory" = "未找到 JDK。请设置 JAVA_HOME、安装 JDK，或选择 JDK 目录。";
@@ -7981,6 +7990,7 @@
 "native.officialPluginDeclaresASignaturePolicyThatDoes" = "官方插件 %1$@ 声明的签名策略与宿主信任策略不一致。";
 "native.olderCommitsAreNotListed" = "更早的提交未列出。";
 "native.olderCommitsAreOutsideTheLoadedHistory" = "更早的提交不在当前加载的历史范围内";
+"native.olderThanRequired" = "%1$@（低于要求的版本）";
 "native.on" = "开启";
 "native.oneArgumentPerLineArgumentsKeepSpacesWithoutQuoting" = "每行一个参数。参数中的空格无需额外引号。";
 "native.oneEntryPerLineDirectoryNamesHideMatchingFoldersFileEntriesSupportAnd" = "每行输入一项。目录名用于隐藏匹配的文件夹；文件条目支持 * 和 ?。";
@@ -9428,6 +9438,7 @@
 "native.theProjectFolderOnTheHostEmptyUsesTheHomeDirectoryBrowseConnectsInstallsTheLitheServerOnTh" = "主机上的项目文件夹，留空时使用主目录。“浏览”会连接主机，必要时在主机上安装 Lithe 远端服务，然后让你选择文件夹。";
 "native.theProjectModelIsNotLoaded" = "项目模型尚未加载。";
 "native.theProjectWasCreatedButGitCouldNotBeSetUp" = "项目已创建，但无法初始化 Git 仓库：%1$@";
+"native.theProjectWasCreatedButTheToolYouChoseCouldNotBeSavedForIt" = "项目已创建，但无法为它保存你选择的工具：%1$@";
 "native.theProviderDoesNotSupport" = "%1$@ Provider 不支持 %2$@。";
 "native.theProviderLooksUpTheBuildToolItself" = "Provider 自行查找构建工具：%1$@";
 "native.thePublishedUpdateManifestIsInvalidAndCannotBeTrustedOpenTheReleasePageAndDowna6815c0bf9" = "已发布的更新清单无效，无法信任。请打开 Release 页面手动下载更新。";
@@ -9562,6 +9573,7 @@
 "native.thisFolderCannotBeRead" = "无法读取此文件夹。";
 "native.thisFolderIsEmpty" = "此文件夹为空";
 "native.thisHookNoLongerExistsReloadTheLibrary" = "该 Hook 已不存在，请重新加载资源库。";
+"native.thisInstallationIsOlderThanTheGeneratorRequires" = "此安装版本低于模板要求。";
 "native.thisMac" = "本机";
 "native.thisMacOnly" = "仅本机";
 "native.thisMarkdownDocumentIsReadOnly" = "此 Markdown 文档为只读";
