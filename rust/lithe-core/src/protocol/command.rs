@@ -513,6 +513,8 @@ pub enum CoreCommand {
     GitWorkspaceCommitPrepare,
     /// Executes one guarded workspace commit/push (`git.workspaceCommitStep`).
     GitWorkspaceCommitStep,
+    /// Classifies a bounded page of Git watcher paths (`git.classifyMetadataChanges`).
+    GitClassifyMetadataChanges,
     /// Resolves paths a Git-aware watcher must observe (`git.watchContext`).
     GitWatchContext,
     /// Lists worktrees registered for the repository (`git.worktrees`).
@@ -956,6 +958,7 @@ impl CoreCommand {
             "git.commitState" => Some(Self::GitCommitState),
             "git.workspaceCommitPrepare" => Some(Self::GitWorkspaceCommitPrepare),
             "git.workspaceCommitStep" => Some(Self::GitWorkspaceCommitStep),
+            "git.classifyMetadataChanges" => Some(Self::GitClassifyMetadataChanges),
             "git.watchContext" => Some(Self::GitWatchContext),
             "git.worktrees" => Some(Self::GitWorktrees),
             "git.pullRequestContext" => Some(Self::GitPullRequestContext),

@@ -121,16 +121,6 @@ fn document_uri(path: &str, platform: Platform) -> Result<String, CoreError> {
 /// round trip. Only URI fields of named LSP operations are interpreted; opaque
 /// server payloads and virtual URIs remain untouched.
 pub(crate) fn resolve_request_paths(command: &str, payload: &mut Value) -> Result<(), CoreError> {
-    fn resolve_field(parent: &mut Value, key: &str) -> Result<(), CoreError> {
-        let Some(value) = parent.get_mut(key) else {
-            return Ok(());
-        };
-        if value.is_object() {
-            let request: Request = serde_json::from_value(value.take()).map_err(|_| invalid())?;
-            *value = Value::String(document_uri(&request.path, request.platform)?);
-        }
-        Ok(())
-    }
     match command {
         "lsp.startServer" => resolve_field(payload, "rootUri"),
         "lsp.request" => {
@@ -152,11 +142,9 @@ pub(crate) fn resolve_request_paths(command: &str, payload: &mut Value) -> Resul
             }
             Ok(())
         }
-        "lsp.syncDocument"
-        | "lsp.saveDocument"
-        | "lsp.closeDocument"
-        | "java.navigationMarkers"
-        | "java.resolveNavigation" => resolve_field(payload, "uri"),
+        "lsp.syncDocument" | "lsp.saveDocument" | "lsp.closeDocument" => {
+            resolve_field(payload, "uri")
+        }
         "lsp.workspaceFilesChanged" => {
             if let Some(changes) = payload.get_mut("changes").and_then(Value::as_array_mut) {
                 for change in changes {
@@ -167,6 +155,18 @@ pub(crate) fn resolve_request_paths(command: &str, payload: &mut Value) -> Resul
         }
         _ => Ok(()),
     }
+}
+
+/// Resolve a named URI field at a command-specific boundary.
+pub(crate) fn resolve_field(parent: &mut Value, key: &str) -> Result<(), CoreError> {
+    let Some(value) = parent.get_mut(key) else {
+        return Ok(());
+    };
+    if value.is_object() {
+        let request: Request = serde_json::from_value(value.take()).map_err(|_| invalid())?;
+        *value = Value::String(document_uri(&request.path, request.platform)?);
+    }
+    Ok(())
 }
 
 fn invalid() -> CoreError {

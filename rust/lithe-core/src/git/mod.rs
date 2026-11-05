@@ -26,6 +26,7 @@ mod github_checkout;
 pub(crate) mod graph;
 mod history;
 mod history_query;
+mod metadata_watch;
 mod mutations;
 mod patch_exchange;
 mod progress;
@@ -68,6 +69,11 @@ pub use history::{
     GitHistoryRequest, GitReferencesRequest,
 };
 pub(crate) use history_query::query_command as history_query_command;
+pub(crate) use metadata_watch::classify_command as metadata_classification_command;
+pub use metadata_watch::{
+    classify_git_metadata_change, GitMetadataChangeKind, GitMetadataEventClassification,
+    GitMetadataWatchContext,
+};
 pub use patch_exchange::{
     apply_reviewed as apply_patch_reviewed, export as export_patch, preview as preview_patch,
     PatchApplyRequest, PatchExportRequest, PatchPreviewRequest,

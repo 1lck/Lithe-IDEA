@@ -116,6 +116,9 @@ function readyEvents(sessionId: string) {
   ];
 }
 
+// The provider-specific navigation command is reused by the shared adapter cases.
+const resolveNavigationCommand = "java_resolve_navigation";
+
 const executeCore = mock(
   async (request: { id: string; command: string; payload?: Record<string, unknown> }) => {
     commands.push(request.command);
@@ -416,7 +419,7 @@ const executeCore = mock(
       syncEntered?.();
       await syncGate;
       const uriInput = request.payload?.uri as { path: string };
-      const uri = documentUriFixture.cases.find((item) => item.path === uriInput?.path)?.uri ?? "file:///C:/work/Main.java";
+      const uri = documentUriFixture.cases.find((item) => item.path === uriInput?.path)?.uri ?? "file:///C:/work/Main.txt";
       return { id: request.id, ok: true as const, data: {
         documentVersion: 17, changed: true, ...(omitSynchronizedURI ? {} : { uri }),
       } };
@@ -1209,7 +1212,7 @@ describe("Rust Core LSP adapter failures", () => {
       serverPath: "C:/Lithe/jdtls.bat",
     });
 
-    const result = await invokeLsp("java_resolve_navigation", {
+    const result = await invokeLsp(resolveNavigationCommand, {
       filePath,
       line: 3,
       character: 9,
@@ -1231,7 +1234,7 @@ describe("Rust Core LSP adapter failures", () => {
     });
     expect(requestPayload).toEqual({
       sessionId: "java-session",
-      uri: { path: "C:/work/Main.java", platform: "auto" },
+      uri: { path: filePath, platform: "auto" },
       line: 3,
       utf16Column: 9,
       direction: "down",
@@ -1544,20 +1547,20 @@ describe("Rust Core LSP adapter failures", () => {
     const example = documentUriFixture.cases.find((item) => item.name === "auto detects windows drive")!;
     const filePath = example.path;
     await invokeLsp("lsp_start_for_file", {
-      workspacePath: "C:/work", filePath, languageId: "java",
-      providerId: "java", serverPath: "C:/Lithe/jdtls.bat",
+      workspacePath: "C:/work", filePath, languageId: "example",
+      providerId: "example", serverPath: "C:/tools/server",
     });
     expect(startPayload?.rootUri).toEqual({ path: "C:/work", platform: "auto" });
     await invokeLsp("lsp_document_open", { filePath, content: "before" });
     expect(requestPayload?.uri).toEqual({ path: filePath, platform: "auto" });
     await invokeLsp("lsp_document_change", { filePath, content: "after" });
     expect(requestPayload?.uri).toEqual({ path: filePath, platform: "auto" });
-    await invokeLsp("java_resolve_navigation", {
+    await invokeLsp(resolveNavigationCommand, {
       filePath, documentUri: example.uri, line: 0, character: 0, direction: "down", relation: "interface",
     });
     expect(requestPayload?.uri).toBe(example.uri);
     expect(requestPayload?.documentVersion).toBe(17);
-    await invokeLsp("java_resolve_navigation", {
+    await invokeLsp(resolveNavigationCommand, {
       filePath, line: 0, character: 0, direction: "down", relation: "interface",
     });
     expect(requestPayload?.uri).toEqual({ path: filePath, platform: "auto" });
@@ -1567,8 +1570,8 @@ describe("Rust Core LSP adapter failures", () => {
 
   test("does not give a replacement attachment the previous document version", async () => {
     scenario = "semantic-request";
-    const filePath = "C:/work/Main.java";
-    const start = { workspacePath: "C:/work", filePath, languageId: "java", serverPath: "java-lsp" };
+    const filePath = "C:/work/Main.txt";
+    const start = { workspacePath: "C:/work", filePath, languageId: "example", serverPath: "example-lsp" };
     await invokeLsp("lsp_start_for_file", { ...start, attachmentId: "old" });
     syncGate = new Promise<void>((resolve) => { releaseSync = resolve; });
     const entered = new Promise<void>((resolve) => { syncEntered = resolve; });
@@ -1578,7 +1581,7 @@ describe("Rust Core LSP adapter failures", () => {
       await invokeLsp("lsp_start_for_file", { ...start, attachmentId: "new" });
       releaseSync!();
       await oldSync;
-      await invokeLsp("java_resolve_navigation", {
+      await invokeLsp(resolveNavigationCommand, {
         filePath, line: 0, character: 0, direction: "down", relation: "interface",
       });
       expect(requestPayload?.documentVersion).toBeUndefined();
@@ -1590,9 +1593,9 @@ describe("Rust Core LSP adapter failures", () => {
 
   test("reports an invalid Core response when synchronization omits its document URI", async () => {
     scenario = "capabilities";
-    const filePath = "C:/work/Main.java";
+    const filePath = "C:/work/Main.txt";
     await invokeLsp("lsp_start_for_file", {
-      workspacePath: "C:/work", filePath, languageId: "java", serverPath: "java-lsp",
+      workspacePath: "C:/work", filePath, languageId: "example", serverPath: "example-lsp",
     });
     omitSynchronizedURI = true;
     await expect(invokeLsp("lsp_document_open", { filePath, content: "text" }))

@@ -3230,6 +3230,11 @@ package final class GitFeatureModel: ObservableObject {
         await service.consolePresentation(request)
     }
 
+    /// Index churn updates working-tree status without reloading history or worktrees.
+    package func refreshGitFromIndexChange() async {
+        await GitExecutionSource.$current.withValue(.background) { await refreshGit() }
+    }
+
     package func refreshGitFromMetadataChange(since historyVersion: Int? = nil) async {
         await GitExecutionSource.$current.withValue(.background) {
             await refreshGitMetadata(since: historyVersion)

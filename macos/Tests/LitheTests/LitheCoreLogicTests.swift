@@ -4084,6 +4084,39 @@ struct EditorDocumentTests {
         #expect(!hiddenMatches.contains { $0.path == "services/alpha/.factorypath" })
     }
 
+    @Test(arguments: [false, true]) @MainActor
+    func indexOnlyWatcherRefreshCoalescesWithoutLosingBroaderEvents(includeMetadata: Bool) async throws {
+        let workspace = URL(fileURLWithPath: "/in-memory/lithe-index-refresh")
+        let factory = TestDirectoryWatcherFactory()
+        let firstStarted = TestGate(), secondStarted = TestGate(), release = TestGate(), refreshed = TestGate()
+        var active = false, fullCount = 0, indexCount = 0
+        let model = makeWorkspaceObservationUnitModel(
+            operations: SequencedWorkspaceOperations(snapshotAvailability: [true], files: []),
+            provider: SequencedGitWatchContextProvider([nil]), watcherFactory: factory,
+            refreshGit: { if active { fullCount += 1; refreshed.open() } },
+            refreshGitIndexOnly: { indexCount += 1; refreshed.open() },
+            observationDelay: { _ in
+                if !firstStarted.isOpen { firstStarted.open() } else { secondStarted.open() }
+                guard await release.waitUntilOpen() else { throw CancellationError() }
+                try Task.checkCancellation()
+            })
+        defer { release.open(); model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        _ = await model.rebuild(at: workspace, rules: .default, isCurrent: { true })
+        active = true
+        let source = try #require(factory.source)
+        source.emit(DirectoryChangeBatch(gitStateMayHaveChanged: true, gitMetadataMayHaveChanged: true, gitIndexOnly: true))
+        try #require(await firstStarted.waitUntilOpen())
+        if includeMetadata {
+            source.emit(DirectoryChangeBatch(gitStateMayHaveChanged: true, gitMetadataMayHaveChanged: true))
+            try #require(await secondStarted.waitUntilOpen())
+        }
+        release.open()
+        try #require(await refreshed.waitUntilOpen())
+        #expect(indexCount == (includeMetadata ? 0 : 1))
+        #expect(fullCount == (includeMetadata ? 1 : 0))
+    }
+
     @Test
     @MainActor
     func gitOperationFreezeBatchesWatcherRefreshUntilTheOuterOperationEnds() async throws {
@@ -4248,6 +4281,11 @@ struct EditorDocumentTests {
         #expect(classified.gitStateMayHaveChanged)
         #expect(!classified.requiresFullRescan)
         #expect(!classified.watchRootsChanged)
+        #expect(!classified.gitIndexOnly)
+        let indexOnly = watcher.classify(paths: [index, gitDirectory.appendingPathComponent("index.lock").path], eventFlags: [0, 0])
+        #expect(indexOnly.gitIndexOnly)
+        let mixedMetadata = watcher.classify(paths: [index, gitDirectory.appendingPathComponent("HEAD").path], eventFlags: [0, 0])
+        #expect(!mixedMetadata.gitIndexOnly)
 
         let workspaceOnly = DirectoryWatchConfiguration(workspaceRoot: workspace, gitContext: nil)
         let workspaceWatcher = MacDirectoryWatcher(configuration: workspaceOnly) { _ in }
@@ -6331,7 +6369,7 @@ struct EditorDocumentTests {
     }
 
     @Test
-    func directoryWatchConfigurationIgnoresNestedWorktreesAndOtherWorktreeState() {
+    func directoryWatchConfigurationIgnoresNestedWorktreesAndClassifiesOtherWorktreeState() {
         let repository = URL(fileURLWithPath: "/in-memory/lithe-watch-ignore/repository")
         let commonDirectory = repository.appendingPathComponent(".git")
         let nestedWorktree = repository.appendingPathComponent(".claude/worktrees/agent")
@@ -6346,17 +6384,17 @@ struct EditorDocumentTests {
         )
 
         #expect(main.isIgnored(nestedWorktree.appendingPathComponent("src/App.java")))
-        #expect(main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/index")))
-        #expect(main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/index.lock")))
-        #expect(main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/logs/HEAD")))
-        // Shared semantic state must keep refreshing Git: the Worktrees panel
-        // shows whether a sibling worktree is locked and which commit it is on.
-        #expect(!main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/HEAD")))
-        #expect(!main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/locked")))
-        #expect(!main.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent")))
-        #expect(!main.isIgnored(commonDirectory.appendingPathComponent("index")))
-        #expect(!main.isIgnored(commonDirectory.appendingPathComponent("refs/heads/agent")))
         #expect(!main.isIgnored(repository.appendingPathComponent(".claude/settings.json")))
+        let classifier = RustGitMetadataClassifier(core: RustCoreBridge())
+        let privatePaths = ["index", "index.lock", "logs/HEAD"].map {
+            commonDirectory.appendingPathComponent("worktrees/agent/" + $0).path
+        }
+        let semanticPaths = ["worktrees/agent/HEAD", "worktrees/agent/locked", "worktrees/agent", "index", "refs/heads/agent"].map {
+            commonDirectory.appendingPathComponent($0).path
+        }
+        let events = try? classifier.classify(paths: privatePaths + semanticPaths, configuration: main).get()
+        #expect(events?.prefix(privatePaths.count).allSatisfy { $0.kind == .ignored } == true)
+        #expect(events?.suffix(semanticPaths.count).allSatisfy { $0.kind == .metadata } == true)
 
         // Only a structural change or the `.git` marker can end the exclusion;
         // ordinary work inside the worktree cannot.
@@ -6375,8 +6413,12 @@ struct EditorDocumentTests {
                 gitCommonDirectory: commonDirectory
             )
         )
-        #expect(!linked.isIgnored(linkedGitDirectory.appendingPathComponent("index")))
-        #expect(linked.isIgnored(commonDirectory.appendingPathComponent("worktrees/agent/index")))
+        let linkedEvents = try? classifier.classify(paths: [
+            linkedGitDirectory.appendingPathComponent("index").path,
+            commonDirectory.appendingPathComponent("worktrees/agent/index").path,
+        ], configuration: linked).get()
+        #expect(linkedEvents?.map(\.kind) == [.metadata, .ignored])
+        #expect(linkedEvents?.first?.indexOnly == true)
     }
 
     @Test
@@ -6452,6 +6494,7 @@ private func makeWorkspaceObservationUnitModel(
     provider: any GitWatchContextProviding,
     watcherFactory: TestDirectoryWatcherFactory,
     refreshGit: @escaping @MainActor () async -> Void,
+    refreshGitIndexOnly: (@MainActor @Sendable () async -> Void)? = nil,
     processExternalChanges: @escaping @MainActor ([URL]) -> Bool = { _ in false },
     notifyWorkspaceFileChanges: @escaping @MainActor ([WorkspaceFileChange]) -> Void = { _ in },
     reloadProjectServices: @escaping @MainActor () async -> Void = {},
@@ -6489,6 +6532,7 @@ private func makeWorkspaceObservationUnitModel(
         notifyWorkspaceFileChanges: notifyWorkspaceFileChanges,
         reloadProjectServices: reloadProjectServices,
         refreshGit: refreshGit,
+        refreshGitIndexOnly: refreshGitIndexOnly,
         updateHistoryVisibilityRules: { _ in },
         onSnapshotLoaded: { _, _, _ in }
     )
