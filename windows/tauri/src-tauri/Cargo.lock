@@ -2912,6 +2912,7 @@ dependencies = [
  "toml_edit 0.25.13+spec-1.1.0",
  "tree-sitter",
  "tree-sitter-java",
+ "unicode-normalization",
  "url",
  "zip 2.4.2",
 ]

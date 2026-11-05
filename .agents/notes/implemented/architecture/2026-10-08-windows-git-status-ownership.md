@@ -103,6 +103,12 @@ worktree 列表；macOS 的既有状态读取仍会附带 stash 等查询。合�
 
 ## 适用范围
 
+- `rust/lithe-core/src/git/metadata_watch.rs`
+- `shared/fixtures/git/metadata-classification-v1.json`
+- `windows/tauri/crates/project/src/git_watcher.rs`
+- `macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDirectoryWatcher.swift`
+- `macos/Sources/Lithe/Services/Remote/RemoteDirectoryObservation.swift`
+- `macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift`
 - `windows/tauri/src/features/git/stores/git.store.ts`
 - `windows/tauri/src/features/git/runtime/git-status-refresh-host.tsx`
 - `windows/tauri/src/features/git/runtime/git-metadata-watch-host.tsx`
