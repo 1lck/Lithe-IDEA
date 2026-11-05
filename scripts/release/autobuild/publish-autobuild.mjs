@@ -8,6 +8,10 @@ import { fileURLToPath } from 'node:url';
 
 export const releaseTag = 'AutoBuild';
 const oldTag = 'preview-0.3.0';
+// AutoBuild ships Apple Silicon only. Intel stays in stable releases; stale
+// x86_64 feeds, archives and installers are pruned like any other old asset.
+export const macArchitectures = Object.freeze(['arm64']);
+const platforms = Object.freeze([...macArchitectures, 'windows-x64']);
 const safeName = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 function digest(file) {
   const hash = createHash('sha256'), buffer = Buffer.allocUnsafe(1024 * 1024);
@@ -68,13 +72,13 @@ export function publishAutoBuild(config, { run = runCommand } = {}) {
     add(file); add(`${file}.sha256`);
   }
   try {
-    for (const platform of ['arm64', 'x86_64', 'windows-x64']) {
+    for (const platform of platforms) {
       const identity = JSON.parse(fs.readFileSync(path.join(dist, `identity-${platform}.json`)));
       if (identity.source !== source || identity.build !== build || identity.version !== version || identity.timestamp !== timestamp) throw new Error(`Artifact identity mismatch: ${platform}`);
       checksum(path.join(dist, `Lithe-${version}-${platform}.${platform === 'windows-x64' ? 'exe' : 'dmg'}`));
     }
     const prefix = `https://github.com/${repository}/releases/download/${releaseTag}/`;
-    for (const architecture of ['arm64', 'x86_64']) {
+    for (const architecture of macArchitectures) {
       const directory = path.join(dist, `sparkle-${architecture}`);
       const feed = path.join(directory, `appcast-preview-${architecture}.xml`);
       run('ruby', ['scripts/release/sparkle/verify-sparkle-appcast.rb', feed, build, timestamp]);
@@ -122,7 +126,7 @@ export function publishAutoBuild(config, { run = runCommand } = {}) {
         if (!resume && previous.timestamp >= timestamp) throw new Error('Conflicting AutoBuild publication: checkpoint is newer or has different content at the same timestamp');
       }
       const resumingBaseline = baselineTag === releaseTag && resume;
-      for (const architecture of ['arm64', 'x86_64']) {
+      for (const architecture of macArchitectures) {
         const name = `appcast-preview-${architecture}.xml`;
         const matches = assets.filter(asset => asset.name === name);
         if (matches.length === 0) {
