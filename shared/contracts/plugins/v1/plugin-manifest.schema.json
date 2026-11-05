@@ -1274,7 +1274,7 @@
       "allOf": [
         {
           "if": { "required": ["launch"], "properties": { "launch": { "required": ["kind"], "properties": { "kind": { "const": "backend" } } } } },
-          "then": { "properties": { "arguments": false, "validationArguments": false, "runtimeDependencies": false, "initializationOptions": false, "hostIntegration": false } }
+          "then": { "properties": { "arguments": false, "validationArguments": false, "runtimeDependencies": false, "initializationOptions": false }, "not": { "required": ["hostIntegration"] } }
         }
       ],
       "properties": {

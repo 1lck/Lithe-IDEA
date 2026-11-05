@@ -306,14 +306,29 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
-        startPluginLanguageServer(
-            pluginID: pluginID, providerID: providerID, executableURL: executableURL, arguments: arguments,
-            environment: environment, rootURL: rootURL, initializationOptions: initializationOptions,
-            workspaceConfiguration: workspaceConfiguration, sessionPolicy: nil, hostServices: hostServices,
-            hostIntegrationLaunch: hostIntegrationLaunch, cacheDirectoryURL: cacheDirectoryURL,
-            workspaceFingerprint: workspaceFingerprint, mavenContext: mavenContext, javaGradle: javaGradle,
-            initializeTimeout: initializeTimeout, requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
-        )
+        lspStartServer(
+            providerID: providerID,
+            pluginID: pluginID,
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: environment,
+            rootURL: rootURL,
+            workingDirectoryURL: rootURL,
+            initializationOptions: initializationOptions,
+            workspaceConfiguration: workspaceConfiguration,
+            hostServices: hostServices,
+            runtimeExecutableURL: hostIntegrationLaunch?.runtimeExecutableURL,
+            jdtlsLaunchResources: hostIntegrationLaunch?.coreLaunch?.jdtlsLaunchResources,
+            cacheDirectoryURL: cacheDirectoryURL,
+            workspaceFingerprint: workspaceFingerprint,
+            mavenContext: mavenContext,
+            javaGradle: javaGradle,
+            initializeTimeout: initializeTimeout,
+            requestTimeout: requestTimeout,
+            shutdownTimeout: shutdownTimeout
+        ).map {
+            LanguageServerRuntimeStart(sessionID: $0.sessionId, state: $0.state, processID: $0.processId)
+        }.mapError(Self.runtimeFailure)
     }
 
     func startPluginLanguageServer(
@@ -325,13 +340,10 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         rootURL: URL,
         initializationOptions: ToolingJSONValue?,
         workspaceConfiguration: ToolingJSONValue?,
-        sessionPolicy: ToolingJSONValue?,
+        sessionPolicy: ToolingJSONValue,
         hostServices: [String],
-        hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?,
         cacheDirectoryURL: URL?,
         workspaceFingerprint: String?,
-        mavenContext: MavenLaunchContext?,
-        javaGradle: JavaGradleImportConfiguration?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -348,12 +360,8 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             workspaceConfiguration: workspaceConfiguration,
             hostServices: hostServices,
             sessionPolicy: sessionPolicy,
-            runtimeExecutableURL: hostIntegrationLaunch?.runtimeExecutableURL,
-            jdtlsLaunchResources: hostIntegrationLaunch?.coreLaunch?.jdtlsLaunchResources,
             cacheDirectoryURL: cacheDirectoryURL,
             workspaceFingerprint: workspaceFingerprint,
-            mavenContext: mavenContext,
-            javaGradle: javaGradle,
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,
             shutdownTimeout: shutdownTimeout

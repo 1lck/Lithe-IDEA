@@ -602,13 +602,10 @@ package protocol LanguageServerRuntimeCore: Sendable {
         rootURL: URL,
         initializationOptions: ToolingJSONValue?,
         workspaceConfiguration: ToolingJSONValue?,
-        sessionPolicy: ToolingJSONValue?,
+        sessionPolicy: ToolingJSONValue,
         hostServices: [String],
-        hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?,
         cacheDirectoryURL: URL?,
         workspaceFingerprint: String?,
-        mavenContext: MavenLaunchContext?,
-        javaGradle: JavaGradleImportConfiguration?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -922,8 +919,9 @@ package extension LanguageServerRuntimeCore {
         )
     }
 
-    /// Runtimes that cannot enforce a session policy start the server without
-    /// one, so the plugin's backend has no route to it.
+    /// Runtimes that cannot enforce a session policy start the process as a
+    /// plain plugin backend: without the policy, so the plugin's backend has
+    /// no route to the server, and without workspace configuration.
     func startPluginLanguageServer(
         pluginID: String,
         providerID: String,
@@ -932,14 +930,11 @@ package extension LanguageServerRuntimeCore {
         environment: [String: String],
         rootURL: URL,
         initializationOptions: ToolingJSONValue?,
-        workspaceConfiguration: ToolingJSONValue?,
-        sessionPolicy _: ToolingJSONValue?,
+        workspaceConfiguration _: ToolingJSONValue?,
+        sessionPolicy _: ToolingJSONValue,
         hostServices: [String],
-        hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?,
-        cacheDirectoryURL: URL?,
-        workspaceFingerprint: String?,
-        mavenContext: MavenLaunchContext?,
-        javaGradle: JavaGradleImportConfiguration?,
+        cacheDirectoryURL _: URL?,
+        workspaceFingerprint _: String?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -947,9 +942,7 @@ package extension LanguageServerRuntimeCore {
         startPluginLanguageServer(
             pluginID: pluginID, providerID: providerID, executableURL: executableURL, arguments: arguments,
             environment: environment, rootURL: rootURL, initializationOptions: initializationOptions,
-            workspaceConfiguration: workspaceConfiguration, hostServices: hostServices,
-            hostIntegrationLaunch: hostIntegrationLaunch, cacheDirectoryURL: cacheDirectoryURL,
-            workspaceFingerprint: workspaceFingerprint, mavenContext: mavenContext, javaGradle: javaGradle,
+            hostServices: hostServices,
             initializeTimeout: initializeTimeout, requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
         )
     }

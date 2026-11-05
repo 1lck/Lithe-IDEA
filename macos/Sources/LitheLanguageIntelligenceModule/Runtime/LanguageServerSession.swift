@@ -364,7 +364,9 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                     requestTimeout: requestTimeout,
                     shutdownTimeout: shutdownTimeout
                 )
-            } else if let pluginID {
+            } else if let pluginID, let resolvedPolicy, hostIntegrationLaunch == nil {
+                // A server with session fields belongs to its plugin; a host
+                // integration keeps the start below and is not exposed.
                 core.startPluginLanguageServer(
                     pluginID: pluginID,
                     providerID: providerID,
@@ -375,6 +377,23 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                     initializationOptions: resolvedOptions,
                     workspaceConfiguration: resolvedConfiguration,
                     sessionPolicy: resolvedPolicy,
+                    hostServices: hostServices,
+                    cacheDirectoryURL: cacheDirectoryURL,
+                    workspaceFingerprint: workspaceFingerprint,
+                    initializeTimeout: initializeTimeout,
+                    requestTimeout: requestTimeout,
+                    shutdownTimeout: shutdownTimeout
+                )
+            } else if let pluginID {
+                core.startPluginLanguageServer(
+                    pluginID: pluginID,
+                    providerID: providerID,
+                    executableURL: executableURL,
+                    arguments: resolvedArguments,
+                    environment: environment,
+                    rootURL: normalizedRoot,
+                    initializationOptions: resolvedOptions,
+                    workspaceConfiguration: resolvedConfiguration,
                     hostServices: hostServices,
                     hostIntegrationLaunch: hostIntegrationLaunch,
                     cacheDirectoryURL: cacheDirectoryURL,
