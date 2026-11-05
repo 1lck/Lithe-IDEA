@@ -133,61 +133,6 @@ fn navigation_history_keeps_only_the_newest_entries() {
     assert_eq!(forward[0]["line"], 5);
 }
 
-/// Locks the shared tab group rules both hosts consume; each case runs through
-/// the public JSON command so routing and encoding are covered as well.
-#[test]
-fn workbench_state_matches_shared_fixture() {
-    let fixture: Value = serde_json::from_str(include_str!(
-        "../../../../shared/fixtures/editor/workbench-state-v1.json"
-    ))
-    .unwrap();
-    let run = |state: &Value, action: &Value| -> Value {
-        serde_json::from_str(&crate::execute_json(
-            &json!({"command":"editor.workbenchState.reduce",
-                "payload":{"state":state, "action":action}})
-            .to_string(),
-        ))
-        .unwrap()
-    };
-    for case in fixture["cases"].as_array().unwrap() {
-        let response = run(&case["state"], &case["action"]);
-        assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
-        assert_eq!(
-            response["data"]["applied"], case["applied"],
-            "{}",
-            case["name"]
-        );
-        assert_eq!(
-            response["data"]["state"], case["expected"],
-            "{}",
-            case["name"]
-        );
-        // A returned state is already normalized: reducing it again with a
-        // no-op sync must not change it.
-        let tabs: Vec<Value> = case["expected"]["tabs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|tab| tab["id"].clone())
-            .collect();
-        let again = run(&case["expected"], &json!({"type":"sync", "tabs":tabs}));
-        assert_eq!(
-            again["data"]["applied"], false,
-            "{} idempotence",
-            case["name"]
-        );
-    }
-    for case in fixture["invalid"].as_array().unwrap() {
-        let response = run(&case["state"], &case["action"]);
-        assert_eq!(response["ok"], false, "{}: {response}", case["name"]);
-        assert_eq!(
-            response["error"]["code"], "invalid_request",
-            "{}",
-            case["name"]
-        );
-    }
-}
-
 fn edit(
     operation: &str,
     source: &str,

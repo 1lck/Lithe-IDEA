@@ -1373,23 +1373,6 @@ struct EditorTabOrderFeatureModelTests {
         #expect(appModel.activeDocumentID == firstDocument.id)
         #expect(appModel.activeEditorTerminalSession == nil)
     }
-    /// Core owns selection convergence: closing the selected tab selects the tab
-    /// that slides into its slot (shared fixture `workbench-state-v1.json`),
-    /// not the group's first tab.
-    @Test func closingTheSelectedTabSelectsTheTabThatTakesItsPlace() throws {
-        let feature = EditorTabOrderFeatureModel()
-        let a = UUID(), b = UUID(), c = UUID()
-        feature.reconcileDocuments(orderedIDs: [a, b, c])
-        let group = try #require(feature.groupLayout.groups.first)
-        feature.focus(.document(b))
-        feature.reconcileDocuments(orderedIDs: [a, c])
-        #expect(feature.selectedItem(in: group) == .document(c))
-        feature.focus(.document(c))
-        feature.reconcileDocuments(orderedIDs: [a])
-        #expect(feature.selectedItem(in: group) == .document(a))
-        #expect(feature.focusedItem == .document(a))
-    }
-
     @Test func editorGroupsMoveTabsKeepSelectionAndCollapseEmptySplits() throws {
         let feature = EditorTabOrderFeatureModel()
         let a = UUID(), b = UUID(), c = UUID()

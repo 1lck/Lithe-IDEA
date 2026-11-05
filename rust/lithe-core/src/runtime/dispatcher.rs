@@ -1919,11 +1919,6 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
-        CoreCommand::EditorWorkbenchStateReduce => plugin_response(
-            id,
-            parsed.payload,
-            crate::editor::workbench_state::reduce_command,
-        ),
         CoreCommand::NetworkProxyPolicy => {
             match serde_json::from_value::<crate::network::NetworkProxyPolicyRequest>(
                 parsed.payload,

@@ -432,9 +432,6 @@ pub enum CoreCommand {
     /// Resolves the line comment token for a file extension
     /// (`editor.lineCommentToken`).
     EditorLineCommentToken,
-    /// Reduces editor tab group membership, selection and focus
-    /// (`editor.workbenchState.reduce`).
-    EditorWorkbenchStateReduce,
     /// Normalizes the stored proxy settings into the policy a network stack
     /// must apply (`network.proxyPolicy`).
     NetworkProxyPolicy,
@@ -991,7 +988,6 @@ impl CoreCommand {
             "editor.parseNavigationInput" => Some(Self::EditorParseNavigationInput),
             "editor.navigationHistory.reduce" => Some(Self::EditorNavigationHistoryReduce),
             "editor.lineCommentToken" => Some(Self::EditorLineCommentToken),
-            "editor.workbenchState.reduce" => Some(Self::EditorWorkbenchStateReduce),
             "network.proxyPolicy" => Some(Self::NetworkProxyPolicy),
             "lsp.plainSnippet" => Some(Self::LspPlainSnippet),
             "lsp.builtinCompletions" => Some(Self::LspBuiltinCompletions),

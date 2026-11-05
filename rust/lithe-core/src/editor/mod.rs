@@ -10,7 +10,6 @@ pub(crate) mod line_edit;
 pub(crate) mod navigation_history;
 pub(crate) mod navigation_input;
 pub(crate) mod text_edit_plan;
-pub(crate) mod workbench_state;
 
 pub(crate) use line_edit::{
     line_comment_token, line_edit, LineCommentTokenRequest, LineEditRequest,
