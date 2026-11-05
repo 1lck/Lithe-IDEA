@@ -57,6 +57,14 @@ struct PluginPublicHostAPITests {
         #expect(dispatcher.supportedGrants(["lithe/host/editor/applyEdits", "lithe/host/editor/missing"]) == ["lithe/host/editor/applyEdits"])
     }
 
+    /// Core answers `functions` (calls between plugins) itself, so the host
+    /// has no handler for it; a plugin that declares calls is still granted it.
+    @Test
+    func theFunctionsServiceIsGrantedThoughCoreAnswersIt() {
+        let dispatcher = PluginHostServiceDispatcher(contexts: PluginWorkspaceContexts())
+        #expect(dispatcher.supportedGrants(["functions", "lithe/host/functions/missing"]) == ["functions"])
+    }
+
     @Test
     func closingContextCancelsAnInflightRequestExactlyOnce() async throws {
         let contexts = PluginWorkspaceContexts()

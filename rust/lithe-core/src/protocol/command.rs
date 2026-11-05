@@ -451,6 +451,9 @@ pub enum CoreCommand {
     LspKeymapImportRequest,
     /// Invokes one plugin function (`lsp.functionRequest`).
     LspFunctionRequest,
+    /// Replaces the plugins and workspace contexts the cross-plugin function
+    /// relay checks calls against (`lsp.configureFunctionRelay`).
+    LspConfigureFunctionRelay,
     /// Answers a plugin backend's host-service request (`lsp.hostResponse`).
     LspHostResponse,
     /// Sends a plugin backend one host notification (`lsp.hostNotify`).
@@ -941,6 +944,7 @@ impl CoreCommand {
             "lsp.toolchainRequest" => Some(Self::LspToolchainRequest),
             "lsp.keymapImportRequest" => Some(Self::LspKeymapImportRequest),
             "lsp.functionRequest" => Some(Self::LspFunctionRequest),
+            "lsp.configureFunctionRelay" => Some(Self::LspConfigureFunctionRelay),
             "lsp.hostResponse" => Some(Self::LspHostResponse),
             "lsp.hostNotify" => Some(Self::LspHostNotify),
             "lsp.pluginServerRequest" => Some(Self::LspPluginServerRequest),
@@ -1107,6 +1111,7 @@ mod tests {
             "lsp.toolchainRequest",
             "lsp.keymapImportRequest",
             "lsp.functionRequest",
+            "lsp.configureFunctionRelay",
             "lsp.hostResponse",
             "lsp.hostNotify",
             "lsp.pluginServerRequest",

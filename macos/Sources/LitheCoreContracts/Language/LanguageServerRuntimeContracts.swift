@@ -641,6 +641,12 @@ package protocol LanguageServerRuntimeCore: Sendable {
         method: String,
         params: ToolingJSONValue
     ) -> Result<Bool, LanguageServerRuntimeFailure>
+    /// Replaces what Core's relay between plugin backends knows about the
+    /// enabled plugins and the live workspace contexts. Calls in flight that
+    /// the new snapshot no longer allows end with an explicit error.
+    func configurePluginFunctionRelay(
+        _ snapshot: PluginFunctionRelaySnapshot
+    ) -> Result<Void, LanguageServerRuntimeFailure>
     /// Replaces the configuration a running plugin server reads and tells it
     /// through `workspace/didChangeConfiguration`.
     func updateWorkspaceConfiguration(
@@ -1038,6 +1044,13 @@ package extension LanguageServerRuntimeCore {
         ))
     }
 
+    /// A runtime without the relay has no calls between plugins to configure.
+    func configurePluginFunctionRelay(
+        _: PluginFunctionRelaySnapshot
+    ) -> Result<Void, LanguageServerRuntimeFailure> {
+        .success(())
+    }
+
     func updateWorkspaceConfiguration(
         sessionID _: String,
         configuration _: ToolingJSONValue
@@ -1193,6 +1206,47 @@ package struct PluginWorkspaceContextReference: Hashable, Sendable {
     package init(contextID: String, generation: Int) {
         self.contextID = contextID
         self.generation = generation
+    }
+}
+
+/// What Core's relay between plugin backends needs from the host: which
+/// plugins are enabled, and which workspace contexts are live. The host
+/// reports facts only; Core decides what each call may do with them.
+package struct PluginFunctionRelaySnapshot: Equatable, Sendable {
+    package struct Plugin: Equatable, Sendable {
+        package let pluginID: String
+        /// The manifest's `pluginFunctions.exports`, as Core normalized them.
+        package let exports: [ToolingJSONValue]
+        /// The manifest's `pluginFunctions.calls`, as Core normalized them.
+        package let calls: [ToolingJSONValue]
+
+        package init(pluginID: String, exports: [ToolingJSONValue], calls: [ToolingJSONValue]) {
+            self.pluginID = pluginID
+            self.exports = exports
+            self.calls = calls
+        }
+    }
+
+    package struct Context: Equatable, Sendable {
+        package let contextID: String
+        package let generation: Int
+        /// Whether the workspace is on an SSH host; Core refuses relayed
+        /// calls in it.
+        package let isRemote: Bool
+
+        package init(contextID: String, generation: Int, isRemote: Bool) {
+            self.contextID = contextID
+            self.generation = generation
+            self.isRemote = isRemote
+        }
+    }
+
+    package let plugins: [Plugin]
+    package let contexts: [Context]
+
+    package init(plugins: [Plugin], contexts: [Context]) {
+        self.plugins = plugins
+        self.contexts = contexts
     }
 }
 

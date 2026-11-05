@@ -4359,6 +4359,37 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         ).map { (response: LspHostNotifyResponse) in response.delivered }
     }
 
+    private struct LspConfigureFunctionRelayRequest: Encodable {
+        struct Plugin: Encodable {
+            let pluginID: String
+            let exports: [ToolingJSONValue]
+            let calls: [ToolingJSONValue]
+        }
+
+        struct Context: Encodable {
+            let contextID: String
+            let generation: Int
+            let authority: String
+        }
+
+        let plugins: [Plugin]
+        let contexts: [Context]
+    }
+
+    /// Replaces the enabled plugins and live workspace contexts that Core's
+    /// relay between plugin backends works from.
+    func lspConfigureFunctionRelay(_ snapshot: PluginFunctionRelaySnapshot) -> Result<Void, CoreCallError> {
+        executeVoid(
+            command: "lsp.configureFunctionRelay",
+            payload: LspConfigureFunctionRelayRequest(
+                plugins: snapshot.plugins.map { .init(pluginID: $0.pluginID, exports: $0.exports, calls: $0.calls) },
+                contexts: snapshot.contexts.map {
+                    .init(contextID: $0.contextID, generation: $0.generation, authority: $0.isRemote ? "remote" : "local")
+                }
+            )
+        )
+    }
+
     /// Cancels a pending operation. Its completion event still arrives, carrying
     /// a cancellation error, so callers never leak a continuation.
     func lspCancelOperation(sessionID: String, operationID: String) {
