@@ -111,7 +111,7 @@
     },
     "toolDefinitions": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/toolchainToolDefinition" } },
     "requiresTools": {
-      "description": "requires.serverProcess 4: every tool definition the plugin starts or names, by ID. A runtime tool of a launch, a runtime dependency, a runSelectedRuntime tool, or the tool of a lithe/host/run/start must be listed here. An ID of another plugin is a qualified ID and needs a verified official origin when short.",
+      "description": "requires.serverProcess 4: every tool definition the plugin starts or names, by ID. A runtime tool of a launch, a runtime dependency, a runSelectedRuntime tool, or the tool of a lithe/host/run/start must be listed here. An ID is short or <pluginID>:<id>; a short ID defined by more than one enabled plugin belongs to none of them.",
       "type": "array",
       "minItems": 1,
       "maxItems": 32,
