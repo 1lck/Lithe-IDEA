@@ -10894,6 +10894,31 @@ mod tests {
         );
     }
 
+    /// A path descriptor reaches the server with reserved characters escaped.
+    #[test]
+    fn native_path_emits_the_canonical_uri_on_the_lsp_wire() {
+        let harness = Harness::ready();
+        let mut payload = json!({"sessionId":harness.session_id, "languageId":"go", "text":"package main",
+            "uri":{"path":"/workspace/A#B.go","platform":"posix"}});
+        crate::lsp::resolve_request_paths("lsp.syncDocument", &mut payload).unwrap();
+        let request: SyncDocumentRequest = serde_json::from_value(payload).unwrap();
+        harness
+            .session()
+            .sync_document(request)
+            .expect("document should synchronize");
+        assert!(harness.server.await_notification("textDocument/didOpen"));
+        let opened = harness
+            .server
+            .messages()
+            .into_iter()
+            .find(|message| message["method"] == "textDocument/didOpen")
+            .unwrap();
+        assert_eq!(
+            opened["params"]["textDocument"]["uri"],
+            "file:///workspace/A%23B.go"
+        );
+    }
+
     /// Criterion 3: two syncs emit open version 1 then change version 2.
     #[test]
     fn consecutive_syncs_open_at_version_one_and_change_to_version_two() {

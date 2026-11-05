@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import type { CompletionList } from "vscode-languageserver-protocol";
 import diagnosticFixture from "../../../../shared/fixtures/lsp/diagnostic-code-actions-v1.json";
+import documentUriFixture from "../../../../shared/fixtures/lsp/document-uri-v1.json";
 
 const emit = mock(async () => undefined);
 const emitTo = mock(async () => undefined);
@@ -62,6 +63,10 @@ let onSemanticRequest: (() => void) | undefined;
 let semanticRefreshOnReady = false;
 let eventsAroundReady: { before: unknown[]; after: unknown[] } = { before: [], after: [] };
 let releaseInitialization: (() => void) | undefined;
+let syncGate: Promise<void> | undefined;
+let releaseSync: (() => void) | undefined;
+let syncEntered: (() => void) | undefined;
+let omitSynchronizedURI = false;
 
 /** A queued semantic outcome that Core reports as a structured request error. */
 interface CoreRequestFailure {
@@ -408,7 +413,13 @@ const executeCore = mock(
     }
     if (request.command === "lsp.syncDocument") {
       requestPayload = request.payload;
-      return { id: request.id, ok: true as const, data: { documentVersion: 17, changed: true } };
+      syncEntered?.();
+      await syncGate;
+      const uriInput = request.payload?.uri as { path: string };
+      const uri = documentUriFixture.cases.find((item) => item.path === uriInput?.path)?.uri ?? "file:///C:/work/Main.java";
+      return { id: request.id, ok: true as const, data: {
+        documentVersion: 17, changed: true, ...(omitSynchronizedURI ? {} : { uri }),
+      } };
     }
     if (request.command === "lsp.saveDocument") {
       requestPayload = request.payload;
@@ -479,6 +490,10 @@ describe("Rust Core LSP adapter failures", () => {
     eventsAroundReady = { before: [], after: [] };
     releaseInitialization = undefined;
     releaseRuntimeReady = undefined;
+    syncGate = undefined;
+    releaseSync = undefined;
+    syncEntered = undefined;
+    omitSynchronizedURI = false;
     emit.mockClear();
     frontendTrace.mockClear();
     executeCore.mockClear();
@@ -488,6 +503,7 @@ describe("Rust Core LSP adapter failures", () => {
     releaseSemanticResult?.();
     releaseInitialization?.();
     releaseRuntimeReady?.();
+    releaseSync?.();
     await invokeLsp("lsp_stop", { workspacePath: "C:/work/project" });
     await invokeLsp("lsp_stop", { workspacePath: "C:/work" });
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -921,7 +937,7 @@ describe("Rust Core LSP adapter failures", () => {
     expect(requestPayloads[requestPayloads.length - 1]).toEqual({
       sessionId: "java-session",
       operation: "javaTestItems",
-      uri: "file:///C:/work/src/test/java/demo/OddlyNamedSpec.java",
+      uri: { path: "C:/work/src/test/java/demo/OddlyNamedSpec.java", platform: "auto" },
     });
   });
 
@@ -953,7 +969,7 @@ describe("Rust Core LSP adapter failures", () => {
     expect(requestPayloads[requestPayloads.length - 1]).toEqual({
       sessionId: "java-session",
       operation: "javaMainMethods",
-      uri: "file:///C:/work/src/main/java/demo/App.java",
+      uri: { path: "C:/work/src/main/java/demo/App.java", platform: "auto" },
     });
   });
 
@@ -1163,7 +1179,7 @@ describe("Rust Core LSP adapter failures", () => {
     expect(requestPayload).toEqual({
       sessionId: "java-session",
       operation: "resolveCompletion",
-      uri: "file:///C:/work/index.php",
+      uri: { path: "C:/work/index.php", platform: "auto" },
       completionItem,
     });
 
@@ -1215,7 +1231,7 @@ describe("Rust Core LSP adapter failures", () => {
     });
     expect(requestPayload).toEqual({
       sessionId: "java-session",
-      uri: "file:///C:/work/Main.java",
+      uri: { path: "C:/work/Main.java", platform: "auto" },
       line: 3,
       utf16Column: 9,
       direction: "down",
@@ -1304,7 +1320,7 @@ describe("Rust Core LSP adapter failures", () => {
     const filePath = "C:/work/Main.java";
     await invokeLsp("lsp_start_for_file", { workspacePath: "C:/work", filePath, languageId: "java", serverPath: "java-lsp" });
     expect(await invokeLsp("lsp_get_semantic_tokens", { filePath })).toEqual(fixture.expectedResult);
-    expect(requestPayload).toEqual({ sessionId: "java-session", operation: "semanticTokens", uri: "file:///C:/work/Main.java" });
+    expect(requestPayload).toEqual({ sessionId: "java-session", operation: "semanticTokens", uri: { path: "C:/work/Main.java", platform: "auto" } });
     semanticRequestResult = null;
     expect(await invokeLsp("lsp_get_semantic_tokens", { filePath })).toBeNull();
     semanticRequestResult = { coreError: { code: "cancelled", message: "Document changed" } };
@@ -1375,7 +1391,7 @@ describe("Rust Core LSP adapter failures", () => {
       filePath: "C:/work/Main.java", range: original.range, diagnostics: publication!.diagnostics,
     });
     expect(requestPayload).toEqual({
-      sessionId: "java-session", operation: "codeActions", uri: diagnosticFixture.uri,
+      sessionId: "java-session", operation: "codeActions", uri: { path: "C:/work/Main.java", platform: "auto" },
       range: original.range, diagnostics: [original],
     });
   });
@@ -1523,6 +1539,66 @@ describe("Rust Core LSP adapter failures", () => {
       .toEqual({ documentVersion: 17, changed: true });
   });
 
+  test("sends reserved filenames within existing document requests without another URI call", async () => {
+    scenario = "semantic-request";
+    const example = documentUriFixture.cases.find((item) => item.name === "auto detects windows drive")!;
+    const filePath = example.path;
+    await invokeLsp("lsp_start_for_file", {
+      workspacePath: "C:/work", filePath, languageId: "java",
+      providerId: "java", serverPath: "C:/Lithe/jdtls.bat",
+    });
+    expect(startPayload?.rootUri).toEqual({ path: "C:/work", platform: "auto" });
+    await invokeLsp("lsp_document_open", { filePath, content: "before" });
+    expect(requestPayload?.uri).toEqual({ path: filePath, platform: "auto" });
+    await invokeLsp("lsp_document_change", { filePath, content: "after" });
+    expect(requestPayload?.uri).toEqual({ path: filePath, platform: "auto" });
+    await invokeLsp("java_resolve_navigation", {
+      filePath, documentUri: example.uri, line: 0, character: 0, direction: "down", relation: "interface",
+    });
+    expect(requestPayload?.uri).toBe(example.uri);
+    expect(requestPayload?.documentVersion).toBe(17);
+    await invokeLsp("java_resolve_navigation", {
+      filePath, line: 0, character: 0, direction: "down", relation: "interface",
+    });
+    expect(requestPayload?.uri).toEqual({ path: filePath, platform: "auto" });
+    expect(requestPayload?.documentVersion).toBe(17);
+    expect(commands.filter((command) => command === "lsp.documentUri")).toHaveLength(0);
+  });
+
+  test("does not give a replacement attachment the previous document version", async () => {
+    scenario = "semantic-request";
+    const filePath = "C:/work/Main.java";
+    const start = { workspacePath: "C:/work", filePath, languageId: "java", serverPath: "java-lsp" };
+    await invokeLsp("lsp_start_for_file", { ...start, attachmentId: "old" });
+    syncGate = new Promise<void>((resolve) => { releaseSync = resolve; });
+    const entered = new Promise<void>((resolve) => { syncEntered = resolve; });
+    const oldSync = invokeLsp("lsp_document_open", { filePath, attachmentId: "old", content: "old" });
+    try {
+      await entered;
+      await invokeLsp("lsp_start_for_file", { ...start, attachmentId: "new" });
+      releaseSync!();
+      await oldSync;
+      await invokeLsp("java_resolve_navigation", {
+        filePath, line: 0, character: 0, direction: "down", relation: "interface",
+      });
+      expect(requestPayload?.documentVersion).toBeUndefined();
+    } finally {
+      releaseSync!();
+      await oldSync.catch(() => undefined);
+    }
+  });
+
+  test("reports an invalid Core response when synchronization omits its document URI", async () => {
+    scenario = "capabilities";
+    const filePath = "C:/work/Main.java";
+    await invokeLsp("lsp_start_for_file", {
+      workspacePath: "C:/work", filePath, languageId: "java", serverPath: "java-lsp",
+    });
+    omitSynchronizedURI = true;
+    await expect(invokeLsp("lsp_document_open", { filePath, content: "text" }))
+      .rejects.toMatchObject({ code: "invalid_response" });
+  });
+
   test("reports a disk save without turning it into an editor change", async () => {
     scenario = "capabilities";
     await invokeLsp("lsp_start_for_file", {
@@ -1534,7 +1610,7 @@ describe("Rust Core LSP adapter failures", () => {
     await invokeLsp("lsp_document_save", { filePath: "C:/work/Main.java", content: example.savedText });
     expect(commands).toContain("lsp.saveDocument");
     expect(commands).not.toContain("lsp.syncDocument");
-    expect(requestPayload).toEqual({ sessionId: "java-session", uri: "file:///C:/work/Main.java", text: example.savedText });
+    expect(requestPayload).toEqual({ sessionId: "java-session", uri: { path: "C:/work/Main.java", platform: "auto" }, text: example.savedText });
   });
 
   test("shares an in-flight server start across files and normalizes Windows paths", async () => {

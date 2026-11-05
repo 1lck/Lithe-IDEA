@@ -137,7 +137,7 @@ struct RustLanguageServerLaunchTests {
 
     @Test(arguments: [false, true])
     func startupMapsIdentityConfigurationServicesAndJdtContextThroughCore(useJdt: Bool) async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugin-core-launch-\(UUID().uuidString)")
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugin-core-launch-#\(UUID().uuidString)", isDirectory: true)
         let installed = root.appendingPathComponent("installed")
         let configuration = installed.appendingPathComponent("config_arm64")
         let cache = root.appendingPathComponent("cache")
@@ -212,6 +212,25 @@ struct RustLanguageServerLaunchTests {
         }
         let initialize = try #require(read("initialize", root) as? [String: Any])
         let params = try #require(initialize["params"] as? [String: Any])
+        #expect(params["rootUri"] as? String == root.standardizedFileURL.absoluteString)
+        struct URI: Encodable { let path: String; let platform = "posix" }
+        struct SyncRequest: Encodable { let sessionId: String; let uri: URI; let languageId = "fixture"; let text = "example" }
+        struct SyncResponse: Decodable { let uri: String; let documentVersion: Int }
+        let document = root.appendingPathComponent("A#B.java")
+        let synchronized: SyncResponse = try core.executeResult(command: "lsp.syncDocument", payload:
+            SyncRequest(sessionId: started.sessionID, uri: URI(path: document.path))).get()
+        #expect(synchronized.uri == document.absoluteString)
+        #expect(synchronized.documentVersion == 1)
+        let openDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+        var didOpen: [String: Any]?
+        while ContinuousClock.now < openDeadline {
+            if let message = read("did-open", root) as? [String: Any] { didOpen = message; break }
+            await Task.yield()
+        }
+        let openMessage = try #require(didOpen, "Backend did not receive didOpen")
+        let openParams = try #require(openMessage["params"] as? [String: Any])
+        let openDocument = try #require(openParams["textDocument"] as? [String: Any])
+        #expect(openDocument["uri"] as? String == document.absoluteString)
         let options = try #require(params["initializationOptions"] as? [String: Any])
         #expect(options["fixtureOption"] as? String == "preserved")
         if useJdt { #expect((options["bundles"] as? [String])?.contains(extensionJar.path) == true) }
@@ -412,7 +431,9 @@ while True:
         experimental = {'litheFunctions':{'version':2,'functions':[{'id':'snapshot.refresh'}]}}
         offered = message.get('params', {}).get('capabilities', {}).get('experimental', {}).get('litheKeymapImport')
         if offered: experimental['litheKeymapImport'] = {'version':1, 'providers':offered['providers']}
-        send({'jsonrpc':'2.0','id':message['id'],'result':{'capabilities':{'experimental':experimental}}})
+        send({'jsonrpc':'2.0','id':message['id'],'result':{'capabilities':{'experimental':experimental, 'textDocumentSync':{'openClose':True,'change':2}}}})
+    elif method == 'textDocument/didOpen':
+        record('did-open', message)
     elif method == '$/setTrace':
         record('trace', message['params']['value'])
     elif method == 'lithe/keymap/import':

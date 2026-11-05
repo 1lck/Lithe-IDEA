@@ -43,9 +43,10 @@ pub fn execute_json(request: &str) -> String {
 /// Unlike a wire request, this also preserves ownership when the first write
 /// fails and the ordinary start command returns an error.
 pub fn start_lsp_owned(
-    payload: serde_json::Value,
+    mut payload: serde_json::Value,
     registered: impl FnOnce(&str),
 ) -> Result<serde_json::Value, CoreError> {
+    lsp::resolve_request_paths("lsp.startServer", &mut payload)?;
     let request = serde_json::from_value(payload).map_err(|error| {
         CoreError::new(ErrorCode::InvalidRequest, "Invalid language-server launch.")
             .with_details(error.to_string())
