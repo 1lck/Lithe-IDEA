@@ -1,6 +1,6 @@
-import { parseRemotePath } from "@/features/remote/utils/remote-path";
-import { buildWslPath, parseWslPath } from "@/features/wsl/utils/wsl-path";
-import { joinPath } from "@/utils/path-helpers";
+import { homeDir } from "@tauri-apps/api/path";
+import { stat } from "@tauri-apps/plugin-fs";
+import { invoke } from "@/platform/tauri-core";
 
 export interface TerminalFileLink {
   text: string;
@@ -11,150 +11,96 @@ export interface TerminalFileLink {
   endIndex: number;
 }
 
+type CoreLinkTarget =
+  | { kind: "file"; path: string; line: number | null; column: number | null; explicit: boolean }
+  | { kind: "external"; url: string };
+
+interface Token {
+  text: string;
+  startIndex: number;
+  endIndex: number;
+}
+
+/** Providers whose files cannot be stat'ed from the webview. */
+const PROVIDER_SCHEMES = ["remote", "wsl"];
+const MAX_CANDIDATES_PER_LINE = 64;
 const LEADING_TRIM_RE = /^[`"'(<[{]+/;
 const TRAILING_TRIM_RE = /[`"')>\]},.;!:]+$/;
-const LINE_COLUMN_RE = /^(.*?)(?::(\d+))(?::(\d+))?$/;
-const SUPPORTED_URI_RE = /^(file|remote|wsl):\/\//i;
-const UNSUPPORTED_URI_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
-const WINDOWS_ABSOLUTE_RE = /^[A-Za-z]:[\\/]/;
-const EXTENSIONLESS_FILENAMES = new Set([
-  "AGENTS",
-  "Brewfile",
-  "Dockerfile",
-  "Gemfile",
-  "Justfile",
-  "LICENSE",
-  "Makefile",
-  "Procfile",
-  "Rakefile",
-  "README",
-]);
 
-function trimToken(rawToken: string, tokenStart: number) {
+let homeDirectory: Promise<string | undefined> | undefined;
+function getHomeDirectory(): Promise<string | undefined> {
+  homeDirectory ??= homeDir().catch(() => undefined);
+  return homeDirectory;
+}
+
+/** Hit region of a whitespace-delimited token without surrounding punctuation. */
+function trimToken(rawToken: string, tokenStart: number): Token {
   let text = rawToken;
   let startIndex = tokenStart;
-
-  const leadingMatch = text.match(LEADING_TRIM_RE);
-  if (leadingMatch?.[0]) {
-    text = text.slice(leadingMatch[0].length);
-    startIndex += leadingMatch[0].length;
+  const leading = text.match(LEADING_TRIM_RE)?.[0];
+  if (leading) {
+    text = text.slice(leading.length);
+    startIndex += leading.length;
   }
-
   text = text.replace(TRAILING_TRIM_RE, "");
-
-  return {
-    text,
-    startIndex,
-    endIndex: startIndex + text.length,
-  };
+  return { text, startIndex, endIndex: startIndex + text.length };
 }
 
-function decodeFileUri(path: string) {
-  if (!path.toLowerCase().startsWith("file://")) return path;
+function isProviderPath(path: string): boolean {
+  return PROVIDER_SCHEMES.some((scheme) => path.toLowerCase().startsWith(`${scheme}://`));
+}
 
+/**
+ * Whether the path is a real file. Provider files cannot be checked here, so they only
+ * count when the text carries an explicit `:line` location.
+ */
+async function fileExists(path: string, hasLocation: boolean): Promise<boolean> {
+  if (isProviderPath(path)) return hasLocation;
   try {
-    const url = new URL(path);
-    if (url.protocol !== "file:") return path;
-    return decodeURIComponent(url.pathname.replace(/^\/([A-Za-z]:\/)/, "$1"));
+    return (await stat(path)).isFile;
   } catch {
-    return path.slice("file://".length);
+    return false;
   }
 }
 
-function extractLineColumn(text: string) {
-  const match = text.match(LINE_COLUMN_RE);
-  if (!match) return { path: text };
-
-  const [, path, lineText, columnText] = match;
-  if (!path || WINDOWS_ABSOLUTE_RE.test(text)) {
-    if (WINDOWS_ABSOLUTE_RE.test(text) && !lineText) return { path: text };
-  }
-
-  return {
-    path,
-    line: Number(lineText),
-    column: columnText ? Number(columnText) : undefined,
-  };
-}
-
-function getBaseName(path: string) {
-  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
-  return normalized.split("/").filter(Boolean).pop() ?? "";
-}
-
-function hasPathShape(path: string) {
-  if (SUPPORTED_URI_RE.test(path)) return true;
-  if (path.startsWith("/") || WINDOWS_ABSOLUTE_RE.test(path)) return true;
-  if (path.startsWith("./") || path.startsWith("../")) return true;
-  return path.includes("/") || path.includes("\\");
-}
-
-function hasFileNameShape(path: string) {
-  const baseName = getBaseName(path);
-  if (!baseName || baseName === "." || baseName === "..") return false;
-  if (baseName.includes(".")) return true;
-  return EXTENSIONLESS_FILENAMES.has(baseName);
-}
-
-function isAbsoluteLikePath(path: string) {
-  return (
-    path.startsWith("/") ||
-    WINDOWS_ABSOLUTE_RE.test(path) ||
-    /^remote:\/\//i.test(path) ||
-    /^wsl:\/\//i.test(path)
-  );
-}
-
-function resolveProviderAbsolutePath(path: string, workspaceRoot: string | undefined) {
-  if (!path.startsWith("/") || !workspaceRoot) return null;
-
-  const remoteRoot = parseRemotePath(workspaceRoot);
-  if (remoteRoot) return `remote://${remoteRoot.connectionId}${path}`;
-
-  const wslRoot = parseWslPath(workspaceRoot);
-  if (wslRoot) return buildWslPath(wslRoot.distro, path);
-
-  return null;
-}
-
-function resolveCandidatePath(path: string, workspaceRoot: string | undefined) {
-  if (UNSUPPORTED_URI_RE.test(path) && !SUPPORTED_URI_RE.test(path)) return null;
-
-  const decodedPath = decodeFileUri(path);
-  if (!hasPathShape(decodedPath) || !hasFileNameShape(decodedPath)) return null;
-  const providerAbsolutePath = resolveProviderAbsolutePath(decodedPath, workspaceRoot);
-  if (providerAbsolutePath) return providerAbsolutePath;
-  if (isAbsoluteLikePath(decodedPath)) return decodedPath;
-  if (!workspaceRoot) return null;
-
-  return joinPath(workspaceRoot, decodedPath.replace(/^\.\//, ""));
-}
-
-export function parseTerminalFileLinks(
+/**
+ * Finds file links in one terminal line. Token boundaries (the hit regions) and the
+ * existence check stay here; Core decides what each token means and where it points.
+ * No extension list is consulted: a token is a link exactly when its target is a file.
+ */
+export async function findTerminalFileLinks(
   lineText: string,
   workspaceRoot: string | undefined,
-): TerminalFileLink[] {
-  const links: TerminalFileLink[] = [];
-  const tokenRe = /\S+/g;
-  let match: RegExpExecArray | null;
-
-  while ((match = tokenRe.exec(lineText))) {
-    const token = trimToken(match[0], match.index);
-    if (!token.text) continue;
-
-    const { path, line, column } = extractLineColumn(token.text);
-    const resolvedPath = resolveCandidatePath(path, workspaceRoot);
-    if (!resolvedPath) continue;
-
-    links.push({
-      text: token.text,
-      path: resolvedPath,
-      line,
-      column,
-      startIndex: token.startIndex,
-      endIndex: token.endIndex,
-    });
+): Promise<TerminalFileLink[]> {
+  const tokens: Token[] = [];
+  for (const match of lineText.matchAll(/\S+/g)) {
+    const token = trimToken(match[0], match.index ?? 0);
+    if (token.text) tokens.push(token);
+    if (tokens.length === MAX_CANDIDATES_PER_LINE) break;
   }
+  if (tokens.length === 0) return [];
 
-  return links;
+  const { targets } = await invoke<{ targets: (CoreLinkTarget | null)[] }>(
+    "terminal.parseLinkTarget",
+    {
+      texts: tokens.map((token) => token.text),
+      baseDirectory: workspaceRoot,
+      homeDirectory: await getHomeDirectory(),
+      providerSchemes: PROVIDER_SCHEMES,
+    },
+  );
+
+  const checks = tokens.map(async (token, index): Promise<TerminalFileLink | null> => {
+    const target = targets[index];
+    // Web links are handled by the web-links addon.
+    if (target?.kind !== "file" || !target.explicit) return null;
+    if (!(await fileExists(target.path, target.line !== null))) return null;
+    return {
+      ...token,
+      path: target.path,
+      line: target.line ?? undefined,
+      column: target.column ?? undefined,
+    };
+  });
+  return (await Promise.all(checks)).filter((link): link is TerminalFileLink => link !== null);
 }
