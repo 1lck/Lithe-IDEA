@@ -32,6 +32,8 @@ enum ProjectGeneratorSection: String, Decodable, Sendable {
 struct ProjectGeneratorField: Decodable, Equatable, Sendable, Identifiable {
     enum Kind: String, Decodable, Sendable {
         case text, `enum`, boolean, multiSelect, runtime
+        /// An installation of the tool `tool` names (projectGenerators 2).
+        case tool
     }
 
     enum Presentation: String, Decodable, Sendable {
@@ -54,11 +56,13 @@ struct ProjectGeneratorField: Decodable, Equatable, Sendable, Identifiable {
     let placeholder: String?
     let optional: Bool
     let runtime: String?
+    /// The tool definition a `tool` field picks an installation of.
+    let tool: String?
     let minimumVersion: String?
 
     private enum CodingKeys: String, CodingKey {
         case id, kind = "type", title, description, advanced, options, presentation, placeholder, optional
-        case runtime, minimumVersion
+        case runtime, tool, minimumVersion
     }
 
     init(from decoder: Decoder) throws {
@@ -73,6 +77,7 @@ struct ProjectGeneratorField: Decodable, Equatable, Sendable, Identifiable {
         placeholder = try values.decodeIfPresent(String.self, forKey: .placeholder)
         optional = try values.decodeIfPresent(Bool.self, forKey: .optional) ?? false
         runtime = try values.decodeIfPresent(String.self, forKey: .runtime)
+        tool = try values.decodeIfPresent(String.self, forKey: .tool)
         minimumVersion = try values.decodeIfPresent(String.self, forKey: .minimumVersion)
     }
 }
@@ -115,6 +120,14 @@ struct ProjectGeneratorRequirement: Decodable, Equatable, Sendable {
     }
 }
 
+/// The plugins that declare the tool one `tool` field selects.
+struct ProjectToolProviders: Decodable, Equatable, Sendable {
+    let fieldID: String
+    /// Tool definition ID, as the generator wrote it.
+    let tool: String
+    let providers: [ProjectRequirementProvider]
+}
+
 /// One entry of `project.generatorCatalog`.
 struct ProjectGeneratorEntry: Decodable, Equatable, Sendable, Identifiable {
     struct Generator: Decodable, Equatable, Sendable {
@@ -145,6 +158,8 @@ struct ProjectGeneratorEntry: Decodable, Equatable, Sendable, Identifiable {
     let pluginEnabled: Bool
     let generator: Generator
     let requirements: [ProjectGeneratorRequirement]
+    /// One element per `tool` field of the generator.
+    let tools: [ProjectToolProviders]
     let usesNetwork: Bool
 
     var id: String { "\(pluginID)/\(generator.id)" }
@@ -171,11 +186,20 @@ struct CoreRejection: Decodable, Equatable, Sendable, Error {
 /// Why Rust Core does not accept a value. Hosts localize by code.
 enum ProjectFieldProblem: String, Decodable, Equatable, Sendable {
     case required, tooLong, invalidFormat, unsupportedValue, runtimeTooOld, versionTooHigh
+    case toolTooOld
 }
 
 /// A selected runtime installation of a runtime field.
 struct ProjectRuntimeSelection: Encodable, Equatable, Sendable {
     let home: String
+    let version: String
+}
+
+/// An installation of a tool the host found, offered to a `tool` field. Core
+/// accepts only a `home` that is in this list.
+struct ProjectToolInstallation: Codable, Equatable, Sendable {
+    let home: String
+    let executable: String
     let version: String
 }
 
@@ -187,9 +211,12 @@ struct ProjectGeneratorFormInput: Encodable, Equatable, Sendable {
     /// Text fields the user typed in; the others follow their defaults.
     var edited: Set<String> = []
     var runtimes: [String: ProjectRuntimeSelection] = [:]
+    /// The installations found for each `tool` field, by field ID. A tool
+    /// field's entry in `values` is the `home` of the one the user chose.
+    var tools: [String: [ProjectToolInstallation]] = [:]
 
     private enum CodingKeys: String, CodingKey {
-        case projectName, values, edited, runtimes
+        case projectName, values, edited, runtimes, tools
     }
 
     func encode(to encoder: Encoder) throws {
@@ -198,6 +225,7 @@ struct ProjectGeneratorFormInput: Encodable, Equatable, Sendable {
         try container.encode(values, forKey: .values)
         try container.encode(edited.sorted(), forKey: .edited)
         try container.encode(runtimes, forKey: .runtimes)
+        try container.encode(tools, forKey: .tools)
     }
 }
 
@@ -207,11 +235,34 @@ struct ProjectGeneratorFormState: Decodable, Equatable, Sendable {
         let problem: ProjectFieldProblem?
     }
 
+    /// An installation a `tool` field offers, with Core's verdict on its version.
+    struct ToolChoice: Decodable, Equatable, Sendable {
+        let home: String
+        let executable: String
+        let version: String
+        let meetsMinimum: Bool
+    }
+
     struct FieldState: Decodable, Equatable, Sendable {
         let id: String
         let visible: Bool
         let value: ToolingJSONValue
         let problem: ProjectFieldProblem?
+        /// Only `tool` fields list installations; Core omits the key otherwise.
+        let installations: [ToolChoice]
+
+        private enum CodingKeys: String, CodingKey {
+            case id, visible, value, problem, installations
+        }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            id = try values.decode(String.self, forKey: .id)
+            visible = try values.decode(Bool.self, forKey: .visible)
+            value = try values.decode(ToolingJSONValue.self, forKey: .value)
+            problem = try values.decodeIfPresent(ProjectFieldProblem.self, forKey: .problem)
+            installations = try values.decodeIfPresent([ToolChoice].self, forKey: .installations) ?? []
+        }
     }
 
     let projectName: NameState
@@ -277,9 +328,21 @@ struct ProjectGenerationPlan: Decodable, Equatable, Sendable {
         let version: String
     }
 
+    /// The installation a `tool` field chose, to record in the project's tool
+    /// pins once the project exists.
+    struct ToolPin: Decodable, Equatable, Sendable {
+        let field: String
+        /// Tool definition ID, as the generator wrote it.
+        let tool: String
+        let pinAs: String
+        let home: String
+        let executable: String
+    }
+
     let projectName: String
     let steps: [Step]
     let openFiles: [String]
     let runtimes: [Runtime]
+    let toolPins: [ToolPin]
     let usesNetwork: Bool
 }

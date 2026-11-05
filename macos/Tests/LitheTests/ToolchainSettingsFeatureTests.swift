@@ -201,6 +201,22 @@ struct ToolchainSettingsFeatureTests {
         #expect(loader.workspaces == [root, root])
     }
 
+    /// A live plugin change rereads an open page, and does nothing before the page loads.
+    @Test
+    func pluginChangesReloadAnOpenPageOnly() async {
+        let loader = SettingsSnapshotLoader(snapshots: [snapshot(), snapshot()])
+        let model = ToolchainSettingsFeatureModel(loader: loader, reloadDelay: .zero)
+        defer { model.close() }
+        model.pluginsChanged()
+        #expect(loader.workspaces.isEmpty)
+        await model.load(workspace: root)
+        let reloaded = AsyncGate()
+        loader.beforeReturn = { index in if index == 1 { reloaded.open() } }
+        model.pluginsChanged()
+        #expect(await reloaded.wait(timeout: .seconds(5)))
+        #expect(loader.workspaces == [root, root])
+    }
+
     /// Inputs outside the workspace are watched per snapshot; closing ends the observation.
     @Test
     func providerInputsOutsideTheWorkspaceAreWatchedUntilClose() async {

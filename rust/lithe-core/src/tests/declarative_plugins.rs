@@ -19,27 +19,41 @@ const PHP_FIXTURE: &str = contract_file!("fixtures/languages/language-packaged-s
 const HELLO_FIXTURE: &str = contract_file!("fixtures/manifest/hello-lithe.plugin.json");
 const WEB_PANEL_FIXTURE: &str = contract_file!("fixtures/ui/web-panel.plugin.json");
 const GO_FIXTURE: &str = contract_file!("fixtures/languages/language-system-command.plugin.json");
-const JAVA_FIXTURE: &str = contract_file!("fixtures/languages/language-host-integration.plugin.json");
+const JAVA_FIXTURE: &str =
+    contract_file!("fixtures/languages/language-host-integration.plugin.json");
 const NODE_RUNTIME_FIXTURE: &str = contract_file!("fixtures/languages/node-runtime.plugin.json");
-const PUBLISHER_BUNDLED_FIXTURE: &str = contract_file!("fixtures/package-trust/publisher-bundled.plugin.json");
-const CARGO_BUILD_FIXTURE: &str = contract_file!("fixtures/build-systems/build-static-file.plugin.json");
-const GO_BUILD_FIXTURE: &str = contract_file!("fixtures/build-systems/build-command-stdout.plugin.json");
-const GRADLE_BUILD_FIXTURE: &str = contract_file!("fixtures/build-systems/build-command-output-file.plugin.json");
-const MAVEN_BUILD_FIXTURE: &str = contract_file!("fixtures/build-systems/build-host-integration.plugin.json");
-const GRADLE_PROVIDER_FIXTURE: &str = contract_file!("fixtures/build-providers/build-provider.plugin.json");
+const PUBLISHER_BUNDLED_FIXTURE: &str =
+    contract_file!("fixtures/package-trust/publisher-bundled.plugin.json");
+const CARGO_BUILD_FIXTURE: &str =
+    contract_file!("fixtures/build-systems/build-static-file.plugin.json");
+const GO_BUILD_FIXTURE: &str =
+    contract_file!("fixtures/build-systems/build-command-stdout.plugin.json");
+const GRADLE_BUILD_FIXTURE: &str =
+    contract_file!("fixtures/build-systems/build-command-output-file.plugin.json");
+const MAVEN_BUILD_FIXTURE: &str =
+    contract_file!("fixtures/build-systems/build-host-integration.plugin.json");
+const GRADLE_PROVIDER_FIXTURE: &str =
+    contract_file!("fixtures/build-providers/build-provider.plugin.json");
 const MIX_PROVIDER_FIXTURE: &str =
     contract_file!("fixtures/build-providers/build-provider-language-server.plugin.json");
 const SETTINGS_V2_FIXTURE: &str = contract_file!("fixtures/settings/settings-v2.plugin.json");
 const BACKEND_FIXTURE: &str = contract_file!("fixtures/backend/backend.plugin.json");
-const WORKSPACE_BACKEND_FIXTURE: &str = contract_file!("fixtures/backend/backend-workspace.plugin.json");
-const DEBUG_ADAPTER_FIXTURE: &str = contract_file!("fixtures/debug-adapters/debug-adapter.plugin.json");
+const WORKSPACE_BACKEND_FIXTURE: &str =
+    contract_file!("fixtures/backend/backend-workspace.plugin.json");
+const DEBUG_ADAPTER_FIXTURE: &str =
+    contract_file!("fixtures/debug-adapters/debug-adapter.plugin.json");
 const DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE: &str =
     contract_file!("fixtures/debug-adapters/debug-adapter-language-server.plugin.json");
 const DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE: &str =
     contract_file!("fixtures/debug-adapters/debug-adapter-remote-attach.plugin.json");
-const DEBUG_ADAPTER_REJECTIONS: &str = contract_file!("fixtures/debug-adapters/debug-adapter-rejections.json");
+const DEBUG_ADAPTER_REJECTIONS: &str =
+    contract_file!("fixtures/debug-adapters/debug-adapter-rejections.json");
 const EDITOR_ACTIONS_FIXTURE: &str = contract_file!("fixtures/editor/editor-actions.plugin.json");
 const GRAMMAR_FIXTURE: &str = contract_file!("fixtures/languages/language-grammar.plugin.json");
+const PROJECT_GENERATOR_FIXTURE: &str =
+    contract_file!("fixtures/project-generators/project-generator.plugin.json");
+const PROJECT_GENERATOR_TOOL_FIXTURE: &str =
+    contract_file!("fixtures/project-generators/project-generator-tool-field.plugin.json");
 const INVALID_MANIFESTS: &str = contract_file!("fixtures/manifest/invalid-manifests.json");
 const COMMAND_PLANS: &str = contract_file!("fixtures/languages/command-plans.json");
 const RUNTIME_VERSIONS: &str = contract_file!("fixtures/languages/runtime-versions.json");
@@ -69,6 +83,8 @@ fn fixture(name: &str) -> Value {
         "debug-adapter-language-server.plugin.json" => DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE,
         "debug-adapter-remote-attach.plugin.json" => DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE,
         "language-grammar.plugin.json" => GRAMMAR_FIXTURE,
+        "project-generator.plugin.json" => PROJECT_GENERATOR_FIXTURE,
+        "project-generator-tool-field.plugin.json" => PROJECT_GENERATOR_TOOL_FIXTURE,
         other => panic!("unknown fixture {other}"),
     };
     serde_json::from_str(source).expect("fixture manifest is JSON")
@@ -94,6 +110,7 @@ fn contract_fixtures_and_official_plugins_validate() {
         DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE,
         GRAMMAR_FIXTURE,
         EDITOR_ACTIONS_FIXTURE,
+        PROJECT_GENERATOR_TOOL_FIXTURE,
         OFFICIAL_JAVA,
     ] {
         let outcome = validate(serde_json::from_str(source).unwrap());
@@ -2096,8 +2113,10 @@ fn debug_start_arguments_refuse_stale_registrations_and_missing_target_facts() {
 /// only their own methods rather than an entire growing service namespace.
 #[test]
 fn pure_backend_commands_require_ui_4_and_grant_methods_individually() {
-    let manifest: Value =
-        serde_json::from_str(contract_file!("fixtures/backend/command-backend.plugin.json")).unwrap();
+    let manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/backend/command-backend.plugin.json"
+    ))
+    .unwrap();
     assert_eq!(validate(manifest.clone())["status"], "ok");
     let mut old = manifest.clone();
     old["requires"]["ui"] = json!(3);
@@ -2117,8 +2136,10 @@ fn pure_backend_commands_require_ui_4_and_grant_methods_individually() {
 
 #[test]
 fn terminal_permission_grants_only_owned_terminal_methods_and_requires_backend_two() {
-    let manifest: Value =
-        serde_json::from_str(contract_file!("fixtures/backend/terminal-backend.plugin.json")).unwrap();
+    let manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/backend/terminal-backend.plugin.json"
+    ))
+    .unwrap();
     assert_eq!(validate(manifest.clone())["status"], "ok");
     let plan = language_server_launch_plan_command(json!({
         "manifest": manifest, "backend": true,

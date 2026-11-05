@@ -12,6 +12,10 @@ struct CreatedProject: Equatable, Sendable {
     /// Set when the project exists but its Git repository could not be
     /// created; the project is still opened.
     let gitWarning: String?
+    /// Set when the project exists but the tool installations its generator
+    /// chose could not be saved as the project's pins; the project is still
+    /// opened and resolves those tools as it would without a pin.
+    var toolPinWarning: String? = nil
 }
 
 /// Runs what Rust Core planned for the New Project window. Every step
@@ -24,21 +28,26 @@ final class ProjectGenerationService: Sendable {
     private let platform: any ProjectGenerationPlatform
     private let initializeGitRepository: @Sendable (URL) -> String?
     private let recordJavaHome: @Sendable (URL, String) async throws -> Void
+    private let saveToolPin: @Sendable (URL, ProjectGenerationPlan.ToolPin) async throws -> Void
 
     /// - Parameters:
     ///   - initializeGitRepository: Creates a repository at the URL and
     ///     returns an error message, or nil on success.
     ///   - recordJavaHome: Stores a JDK as the new project's runtime.
+    ///   - saveToolPin: Stores the installation a `tool` field chose in the
+    ///     project at the URL, where every later tool resolution reads it.
     init(
         planner: any ProjectGeneratorPlanning,
         platform: any ProjectGenerationPlatform,
         initializeGitRepository: @escaping @Sendable (URL) -> String?,
-        recordJavaHome: @escaping @Sendable (URL, String) async throws -> Void
+        recordJavaHome: @escaping @Sendable (URL, String) async throws -> Void,
+        saveToolPin: @escaping @Sendable (URL, ProjectGenerationPlan.ToolPin) async throws -> Void = { _, _ in }
     ) {
         self.planner = planner
         self.platform = platform
         self.initializeGitRepository = initializeGitRepository
         self.recordJavaHome = recordJavaHome
+        self.saveToolPin = saveToolPin
     }
 
     /// The host's own empty project: a directory, optionally with Git.
@@ -100,11 +109,29 @@ final class ProjectGenerationService: Sendable {
         for runtime in plan.runtimes where runtime.runtime == "java" {
             try await recordJavaHome(destination, runtime.home)
         }
+        let toolPinWarning = await pinTools(of: plan, in: destination)
         return CreatedProject(
             url: destination,
             openFiles: plan.openFiles.map { destination.appendingPathComponent($0) },
-            gitWarning: createGitRepository ? initializeGitRepository(destination) : nil
+            gitWarning: createGitRepository ? initializeGitRepository(destination) : nil,
+            toolPinWarning: toolPinWarning
         )
+    }
+
+    /// Records the chosen tool installations in the new project. The project is
+    /// complete by now, so a failure is reported next to it instead of undoing
+    /// it; the user can pin the tool later in the project's settings.
+    /// - Returns: The first failure's message, or nil when every pin was saved.
+    private func pinTools(of plan: ProjectGenerationPlan, in destination: URL) async -> String? {
+        var firstFailure: String?
+        for pin in plan.toolPins {
+            do {
+                try await saveToolPin(destination, pin)
+            } catch {
+                firstFailure = firstFailure ?? error.localizedDescription
+            }
+        }
+        return firstFailure
     }
 
     private func run(
@@ -152,6 +179,7 @@ final class ProjectGenerationService: Sendable {
         case .invalidFormat: L10n.string("The value is not in the expected format.")
         case .unsupportedValue: L10n.string("Choose one of the offered values.")
         case .runtimeTooOld: L10n.string("This runtime is older than the generator requires.")
+        case .toolTooOld: L10n.string("This installation is older than the generator requires.")
         case .versionTooHigh: L10n.string("This version is newer than the selected runtime supports.")
         }
     }
