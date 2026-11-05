@@ -41,20 +41,67 @@ struct RankCandidate {
     path: Option<String>,
 }
 
-#[derive(Deserialize, Default)]
+/// Open and recently visited paths that break ties between equally good name matches.
+///
+/// `workspace.rankNames` compares them with the candidate's `path`; `workspace.searchEverywhere`
+/// compares them with the workspace-relative, `/`-separated path of each file under its root.
+#[derive(Deserialize, Serialize, Default, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct RankContext {
+pub(crate) struct RankContext {
     /// Paths of open editors, including the active one.
     #[serde(default)]
-    open_paths: Vec<String>,
+    pub(crate) open_paths: Vec<String>,
     /// Recently visited paths, most recent first.
     #[serde(default)]
-    recent_paths: Vec<String>,
+    pub(crate) recent_paths: Vec<String>,
+}
+
+/// A degree scaled by this factor leaves room for the context bonus without reordering degrees.
+const CONTEXT_SCALE: i32 = 1024;
+
+/// Lookup tables built once per request from a [`RankContext`].
+pub(crate) struct ContextIndex<'a> {
+    open: std::collections::HashSet<&'a str>,
+    recent: HashMap<&'a str, usize>,
+}
+
+impl<'a> ContextIndex<'a> {
+    pub(crate) fn new(context: &'a RankContext) -> Self {
+        let mut recent = HashMap::new();
+        for (rank, path) in context.recent_paths.iter().enumerate() {
+            recent.entry(path.as_str()).or_insert(rank);
+        }
+        Self {
+            open: context.open_paths.iter().map(String::as_str).collect(),
+            recent,
+        }
+    }
+
+    fn classify(&self, identity: &str) -> (Tier, usize) {
+        if self.open.contains(identity) {
+            (Tier::Open, usize::MAX)
+        } else if let Some(rank) = self.recent.get(identity) {
+            (Tier::Recent, *rank)
+        } else {
+            (Tier::Other, usize::MAX)
+        }
+    }
+
+    /// Folds the context into a degree so one integer order also serves paged search cursors:
+    /// among equal degrees open files come first, then recent files by recency.
+    pub(crate) fn contextual_degree(&self, degree: i32, identity: &str) -> i32 {
+        let bonus = match self.classify(identity) {
+            (Tier::Open, _) => CONTEXT_SCALE - 1,
+            (Tier::Recent, rank) => CONTEXT_SCALE - 2 - rank.min(CONTEXT_SCALE as usize - 3) as i32,
+            (Tier::Other, _) => 0,
+        };
+        degree * CONTEXT_SCALE + bonus
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "camelCase")]
-enum Tier {
+pub(crate) enum Tier {
     Open,
     Recent,
     Other,
@@ -104,16 +151,7 @@ pub(crate) fn rank_names_command(payload: Value) -> Result<Value, CoreError> {
     if query.is_empty() {
         return Ok(serde_json::json!({ "matches": [] }));
     }
-    let open: std::collections::HashSet<&str> = request
-        .context
-        .open_paths
-        .iter()
-        .map(String::as_str)
-        .collect();
-    let mut recent: HashMap<&str, usize> = HashMap::new();
-    for (rank, path) in request.context.recent_paths.iter().enumerate() {
-        recent.entry(path.as_str()).or_insert(rank);
-    }
+    let context = ContextIndex::new(&request.context);
 
     struct Hit {
         ranked: RankedName,
@@ -134,14 +172,7 @@ pub(crate) fn rank_names_command(payload: Value) -> Result<Value, CoreError> {
             continue;
         };
         let identity = candidate.path.as_deref().unwrap_or(&candidate.name);
-        let recent_rank = recent.get(identity).copied();
-        let tier = if open.contains(identity) {
-            Tier::Open
-        } else if recent_rank.is_some() {
-            Tier::Recent
-        } else {
-            Tier::Other
-        };
+        let (tier, recent_rank) = context.classify(identity);
         hits.push(Hit {
             ranked: RankedName {
                 index,
@@ -149,7 +180,7 @@ pub(crate) fn rank_names_command(payload: Value) -> Result<Value, CoreError> {
                 tier,
                 name_match_ranges: ranges,
             },
-            recent_rank: recent_rank.unwrap_or(usize::MAX),
+            recent_rank,
             key: FileNameKey::new(&candidate.name),
         });
     }

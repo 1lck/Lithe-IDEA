@@ -3,7 +3,8 @@ import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getOpenBufferSearchSnapshot } from "@/features/editor/utils/open-buffer-search-snapshot";
 import { useRecentFilesStore } from "@/features/file-system/stores/recent-files.store";
 import type { RecentFile } from "@/features/file-system/types/recent-files.types";
-import { rankNames, type RankedName } from "@/features/file-search/lib/rank-names";
+import { searchFileNames } from "@/features/file-search/lib/file-search-api";
+import { rankNames, type RankTier } from "@/features/file-search/lib/rank-names";
 import {
   MAX_OPEN_BUFFERS_SHOWN,
   MAX_OTHER_FILES_SHOWN,
@@ -16,6 +17,9 @@ import { filterQuickOpenRecentFiles, shouldIgnoreFile } from "../utils/file-filt
 interface FileSearchOptions {
   hasLoadedFiles?: boolean;
   rootFolderPath?: string | null;
+  /** Roots Core indexes itself; when present, queries go to its name index. */
+  nativeRootPaths?: readonly string[];
+  workspaceId?: string;
 }
 
 function insertSortedLimited<T>(
@@ -55,19 +59,16 @@ function recentFileToItem(file: RecentFile): FileItem {
   };
 }
 
-/** Buckets Core's ranked hits; Core already ordered them and limited each tier. */
+/** Buckets hits already ordered by Core; the tier only chooses the section. */
 function categorizeRankedHits(
-  files: readonly FileItem[],
-  hits: readonly RankedName[],
+  hits: ReadonlyArray<{ file: FileItem; tier: RankTier }>,
 ): CategorizedFiles {
   const openBuffers: FileItem[] = [];
   const recent: FileItem[] = [];
   const others: FileItem[] = [];
-  for (const hit of hits) {
-    const file = files[hit.index];
-    if (!file) continue;
-    if (hit.tier === "open") openBuffers.push(file);
-    else if (hit.tier === "recent") recent.push(file);
+  for (const { file, tier } of hits) {
+    if (tier === "open") openBuffers.push(file);
+    else if (tier === "recent") recent.push(file);
     else others.push(file);
   }
 
@@ -80,6 +81,9 @@ function categorizeRankedHits(
 
   return { openBufferFiles, recentFilesInResults, otherFiles };
 }
+
+/** How many hits Core returns before the sections apply their own caps. */
+const NATIVE_HIT_LIMIT = 200;
 
 const EMPTY_RESULT: CategorizedFiles = {
   openBufferFiles: [],
@@ -182,25 +186,65 @@ export const useFileSearch = (
       latestRequestRef.current += 1;
       return;
     }
-    const key = JSON.stringify([trimmedQuery, filesIdentity, switcherAndContext.context]);
+    const key = JSON.stringify([
+      trimmedQuery,
+      filesIdentity,
+      switcherAndContext.context,
+      options.nativeRootPaths ?? [],
+    ]);
     if (issuedKeyRef.current === key) return;
     issuedKeyRef.current = key;
     const request = ++latestRequestRef.current;
-    rankNames(
-      trimmedQuery,
-      files.map((file) => ({ name: file.name, path: file.path })),
-      switcherAndContext.context,
-      MAX_RESULTS,
-    )
-      .then((hits) => {
-        if (request === latestRequestRef.current) setRanked(categorizeRankedHits(files, hits));
+    const { context } = switcherAndContext;
+    const native = options.nativeRootPaths ?? [];
+    const tierOf = (path: string): RankTier =>
+      context.openPaths.includes(path)
+        ? "open"
+        : context.recentPaths.includes(path)
+          ? "recent"
+          : "other";
+    const ranking: Promise<CategorizedFiles> =
+      native.length > 0
+        ? // Core's own name index ranks local roots; nothing but the query and context is sent.
+          searchFileNames(trimmedQuery, native, NATIVE_HIT_LIMIT, options.workspaceId, context).then(
+            (hits) =>
+              categorizeRankedHits(
+                hits.map((hit) => ({
+                  file: { name: hit.name, path: hit.path, isDir: false },
+                  tier: tierOf(hit.path),
+                })),
+              ),
+          )
+        : // Remote and WSL roots are listed by the platform; Core scores the candidate names.
+          rankNames(
+            trimmedQuery,
+            files.map((file) => ({ name: file.name, path: file.path })),
+            context,
+            MAX_RESULTS,
+          ).then((hits) =>
+            categorizeRankedHits(
+              hits.flatMap((hit) =>
+                files[hit.index] ? [{ file: files[hit.index]!, tier: hit.tier }] : [],
+              ),
+            ),
+          );
+    ranking
+      .then((result) => {
+        if (request === latestRequestRef.current) setRanked(result);
       })
       .catch((error) => {
         // Keep the previous list; the next query retries with a fresh key.
         if (request === latestRequestRef.current) issuedKeyRef.current = null;
         console.error("Quick Open ranking failed:", error);
       });
-  }, [files, filesIdentity, switcherAndContext, trimmedQuery]);
+  }, [
+    files,
+    filesIdentity,
+    options.nativeRootPaths,
+    options.workspaceId,
+    switcherAndContext,
+    trimmedQuery,
+  ]);
 
   return trimmedQuery ? ranked : switcherAndContext.switcher;
 };

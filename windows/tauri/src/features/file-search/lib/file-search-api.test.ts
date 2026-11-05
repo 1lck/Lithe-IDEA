@@ -5,7 +5,7 @@ import {
   DEFAULT_HIDDEN_DIRECTORY_PATTERNS,
   DEFAULT_HIDDEN_FILE_PATTERNS,
 } from "@/features/settings/config/default-settings";
-import { fffListFiles, searchFilesContent } from "./file-search-api";
+import { fffListFiles, searchFileNames, searchFilesContent } from "./file-search-api";
 import { mergeSearchResults } from "@/features/global-search/utils/content-search-results";
 
 test("continues a Core content cursor and keeps same-file ranges across pages", async () => {
@@ -140,6 +140,45 @@ test("workspace file listing asks Core for flat files without allocating a tree"
       includeTree: false,
       hiddenDirectoryNames: [...DEFAULT_HIDDEN_DIRECTORY_PATTERNS],
       hiddenFilePatterns: [...DEFAULT_HIDDEN_FILE_PATTERNS],
+    });
+  } finally {
+    execute.mockRestore(); configure.mockRestore();
+  }
+});
+
+test("file-name search asks Core's index for files only, with relative context and hidden rules", async () => {
+  const root = "C:/work/project";
+  const configure = spyOn(indexing, "configureWorkspaceIndexing").mockResolvedValue({
+    revision: 1, excludedDirectories: {}, gitIgnoreFailed: false,
+  });
+  const requests: Array<core.CoreRequest> = [];
+  const execute = spyOn(core, "executeCore").mockImplementation(async <T, P = unknown>(request: core.CoreRequest<P>) => {
+    requests.push(request);
+    return {id: request.id, ok: true as const, data: {matches: [
+      {kind: "file", path: "src/a.ts", line: null, preview: "", matchingDegree: 2048},
+      {kind: "file", path: "src/b.ts", line: null, preview: "", matchingDegree: 1024},
+    ]} as T};
+  });
+  try {
+    const hits = await searchFileNames("a", [root], 50, undefined, {
+      openPaths: ["C:/work/project/src/a.ts", "D:/elsewhere/x.ts"],
+      recentPaths: ["C:\\work\\project\\src\\b.ts"],
+    });
+    expect(hits.map((hit) => [hit.relative_path, hit.score])).toEqual([
+      ["src/a.ts", 2048],
+      ["src/b.ts", 1024],
+    ]);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.command).toBe("workspace.searchEverywhere");
+    expect(requests[0]?.payload).toMatchObject({
+      root,
+      query: "a",
+      resultKinds: ["file"],
+      maxFileResults: 50,
+      maxSymbolResults: 0,
+      maxContentResults: 0,
+      context: {openPaths: ["src/a.ts"], recentPaths: ["src/b.ts"]},
+      hiddenDirectoryNames: [...DEFAULT_HIDDEN_DIRECTORY_PATTERNS],
     });
   } finally {
     execute.mockRestore(); configure.mockRestore();

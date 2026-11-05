@@ -2,7 +2,6 @@ import { configureWorkspaceIndexing } from "@/features/file-explorer/stores/work
 import { executeCore } from "@/core/lithe-core-client";
 import { getFilenameFromPath } from "@/features/file-system/controllers/file-utils";
 import { hiddenPathRules } from "@/features/settings/lib/hidden-path-rules";
-import { rankNames } from "./rank-names";
 import { joinPath, getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 
 export interface SearchMatchRange {
@@ -84,6 +83,7 @@ interface CoreSearchMatch {
   preview: string;
   sourceLine?: string;
   contentMatchRanges?: Array<{ start: number; length: number }>;
+  matchingDegree?: number;
 }
 
 function coreData<T>(response: Awaited<ReturnType<typeof executeCore<T>>>): T {
@@ -235,23 +235,84 @@ export async function fffScanStatus(
   };
 }
 
+/** Open and recent absolute paths that break ties between equal name matches. */
+export interface FileNameSearchContext {
+  openPaths?: readonly string[];
+  /** Most recent first. */
+  recentPaths?: readonly string[];
+}
+
+export interface FileNameSearchHit {
+  path: string;
+  name: string;
+  relative_path: string;
+  /** Core's degree; scaled by the context tie-break when a context was sent. */
+  score: number;
+}
+
+/**
+ * Ranks file names inside Core's own name index (`workspace.searchEverywhere`, files only) so a
+ * query never ships the inventory back to Core. The context travels as paths relative to each
+ * root; Core folds it into the degree with the same code `workspace.rankNames` uses.
+ */
+export async function searchFileNames(
+  query: string,
+  rootPaths: readonly string[],
+  limit: number,
+  workspaceId?: string,
+  context: FileNameSearchContext = {},
+): Promise<FileNameSearchHit[]> {
+  const trimmed = query.trim();
+  if (!trimmed || rootPaths.length === 0) return [];
+  const relativeTo = (root: string, paths: readonly string[] | undefined) =>
+    (paths ?? [])
+      .filter((path) => pathStartsWithRoot(path, root))
+      .map((path) => getRelativePath(path, root).replace(/\\/g, "/"));
+  const perRoot = await Promise.all(
+    rootPaths.map(async (root) => {
+      await configureWorkspaceIndexing(root, [], false, workspaceId);
+      const response = await executeCore<{ matches: CoreSearchMatch[] }>({
+        id: crypto.randomUUID(),
+        command: "workspace.searchEverywhere",
+        payload: {
+          root,
+          workspaceRoots: rootPaths,
+          query: trimmed,
+          resultKinds: ["file"],
+          maxResults: limit,
+          maxFileResults: limit,
+          maxSymbolResults: 0,
+          maxContentResults: 0,
+          context: {
+            openPaths: relativeTo(root, context.openPaths),
+            recentPaths: relativeTo(root, context.recentPaths),
+          },
+          ...hiddenPathRules(),
+        },
+      });
+      return coreData(response)
+        .matches.filter((match) => match.kind === "file")
+        .map((match) => ({
+          path: joinPath(root, match.path),
+          name: getFilenameFromPath(match.path),
+          relative_path: match.path,
+          score: match.matchingDegree ?? 0,
+        }));
+    }),
+  );
+  return perRoot
+    .flat()
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
 export async function fffSearchFiles(
   query: string,
   rootPaths: readonly string[],
   limit = 100,
   workspaceId?: string,
 ): Promise<FffSearchHit[]> {
-  const files = await fffListFiles(rootPaths, workspaceId);
-  // Scoring belongs to Core; the inventory is the only thing this adapter contributes.
-  const ranked = await rankNames(
-    query.trim(),
-    files.map((file) => ({ name: file.name, path: file.relative_path })),
-    {},
-    limit,
-  );
-  return ranked
-    .slice(0, limit)
-    .map((hit) => ({ ...files[hit.index], score: hit.degree }));
+  return searchFileNames(query, rootPaths, limit, workspaceId);
 }
 
 export async function fffListFiles(

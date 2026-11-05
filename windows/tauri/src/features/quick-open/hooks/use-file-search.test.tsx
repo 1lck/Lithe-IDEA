@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { createPaneContent } from "@/features/editor/stores/buffer-content-factory";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import * as searchApi from "@/features/file-search/lib/file-search-api";
 import * as rankApi from "@/features/file-search/lib/rank-names";
 import { useRecentFilesStore } from "@/features/file-system/stores/recent-files.store";
 import { installHappyDom } from "@/test-utils/happy-dom";
@@ -34,10 +35,19 @@ let previousRecent: ReturnType<typeof useRecentFilesStore.getState>["recentFiles
 let results: CategorizedFiles | undefined;
 const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 
-function Probe({ query, list = files }: { query: string; list?: typeof files }) {
+function Probe({
+  query,
+  list = files,
+  native = [],
+}: {
+  query: string;
+  list?: typeof files;
+  native?: string[];
+}) {
   results = useFileSearch(list, query, {
     hasLoadedFiles: true,
     rootFolderPath: "D:/fixture/project",
+    nativeRootPaths: native,
   });
   return null;
 }
@@ -129,5 +139,28 @@ test("identical requests are issued once, stale answers are dropped, and the lis
     expect(results?.otherFiles.map((file) => file.path)).toEqual([gitignore.path]);
   } finally {
     rank.mockRestore();
+  }
+});
+
+test("local roots query Core's name index with the context and never send the inventory back", async () => {
+  const rank = spyOn(rankApi, "rankNames");
+  const search = spyOn(searchApi, "searchFileNames").mockResolvedValue([
+    { ...target, relative_path: "src/independent-commit-diff.ts", score: 2048 },
+    { ...other, relative_path: "src/other.ts", score: 1024 },
+  ]);
+  try {
+    await act(async () => root.render(<Probe query="o" native={["D:/fixture/project"]} />));
+    expect(rank).not.toHaveBeenCalled();
+    expect(search).toHaveBeenCalledTimes(1);
+    const [query, roots, , , context] = search.mock.calls[0]!;
+    expect(query).toBe("o");
+    expect(roots).toEqual(["D:/fixture/project"]);
+    expect(context).toEqual({ openPaths: [target.path], recentPaths: [] });
+    // Core's order is kept; the active editor is the open section, the rest are other files.
+    expect(results?.openBufferFiles.map((file) => file.path)).toEqual([target.path]);
+    expect(results?.otherFiles.map((file) => file.path)).toEqual([other.path]);
+  } finally {
+    rank.mockRestore();
+    search.mockRestore();
   }
 });

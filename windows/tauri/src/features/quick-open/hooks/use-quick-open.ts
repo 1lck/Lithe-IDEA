@@ -67,6 +67,8 @@ export const useQuickOpen = () => {
     isLoadingFiles,
     isIndexing,
     rootFolderPath: loaderRootFolder,
+    nativeRootPaths,
+    workspaceId,
   } = useFileLoader(isQuickOpenVisible);
 
   const { openBufferFiles, recentFilesInResults, otherFiles } = useFileSearch(
@@ -75,6 +77,8 @@ export const useQuickOpen = () => {
     {
       hasLoadedFiles,
       rootFolderPath,
+      nativeRootPaths,
+      workspaceId,
     },
   );
 
