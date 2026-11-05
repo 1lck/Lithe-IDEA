@@ -2247,13 +2247,18 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
             }
         }
         CoreCommand::JavaNavigationMarkers => {
-            match serde_json::from_value::<crate::lsp::JavaNavigationMarkersRequest>(parsed.payload)
-                .map_err(|error| {
-                    CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "Invalid Java navigation-markers request",
+            match crate::lsp::resolve_uri_field(&mut parsed.payload, "uri")
+                .and_then(|_| {
+                    serde_json::from_value::<crate::lsp::JavaNavigationMarkersRequest>(
+                        parsed.payload,
                     )
-                    .with_details(error.to_string())
+                    .map_err(|error| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Invalid Java navigation-markers request",
+                        )
+                        .with_details(error.to_string())
+                    })
                 })
                 .and_then(crate::lsp::java_navigation_markers)
             {
@@ -2266,13 +2271,18 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
             }
         }
         CoreCommand::JavaResolveNavigation => {
-            match serde_json::from_value::<crate::lsp::JavaResolveNavigationRequest>(parsed.payload)
-                .map_err(|error| {
-                    CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "Invalid Java resolve-navigation request",
+            match crate::lsp::resolve_uri_field(&mut parsed.payload, "uri")
+                .and_then(|_| {
+                    serde_json::from_value::<crate::lsp::JavaResolveNavigationRequest>(
+                        parsed.payload,
                     )
-                    .with_details(error.to_string())
+                    .map_err(|error| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Invalid Java resolve-navigation request",
+                        )
+                        .with_details(error.to_string())
+                    })
                 })
                 .and_then(crate::lsp::java_resolve_navigation)
             {

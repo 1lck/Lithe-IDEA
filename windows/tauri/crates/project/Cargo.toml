@@ -13,8 +13,6 @@ notify = "8.1.0"
 notify-debouncer-full = "0.7.0"
 notify-debouncer-mini = "0.6.0"
 serde = { version = "1.0", features = ["derive"] }
-
-[dev-dependencies]
 serde_json = "1.0"
 
 [target.'cfg(windows)'.dependencies]
