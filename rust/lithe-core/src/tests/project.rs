@@ -1933,3 +1933,60 @@ fn search_everywhere_pages_all_sources_past_200_without_duplicates_or_missing_ma
         assert_eq!(call(invalid)["ok"], false);
     }
 }
+
+#[test]
+fn recent_project_reductions_match_shared_fixture() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/workspace/recent-projects-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let response: serde_json::Value = serde_json::from_str(&crate::execute_json(
+            &serde_json::json!({"command": fixture["command"], "payload": case["request"]})
+                .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{}: {response}", case["name"]);
+        assert_eq!(response["data"], case["expected"], "{}", case["name"]);
+    }
+    for case in fixture["invalid"].as_array().unwrap() {
+        let response: serde_json::Value = serde_json::from_str(&crate::execute_json(
+            &serde_json::json!({"command": fixture["command"], "payload": case["request"]})
+                .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], false, "{}", case["name"]);
+        assert_eq!(
+            response["error"]["code"], "invalid_request",
+            "{}",
+            case["name"]
+        );
+    }
+}
+
+#[test]
+fn recent_projects_default_capacity_keeps_the_newest_unpinned_projects() {
+    // The fixture documents the default; this guards the shared constant
+    // without a 21-entry JSON case.
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/workspace/recent-projects-v1.json"
+    ))
+    .unwrap();
+    let capacity = crate::project::recent_projects::DEFAULT_RECENT_PROJECT_CAPACITY;
+    assert_eq!(fixture["defaultCapacity"], capacity);
+    let entries: Vec<_> = (0..=capacity)
+        .map(|index| serde_json::json!({"path": format!("/p{index}"), "lastOpenedAt": index}))
+        .collect();
+    let response: serde_json::Value = serde_json::from_str(&crate::execute_json(
+        &serde_json::json!({
+            "command": "workspace.recentProjects.reduce",
+            "payload": {"entries": entries, "action": {"kind": "normalize"}}
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    let kept = response["data"]["entries"].as_array().unwrap();
+    assert_eq!(kept.len(), capacity);
+    assert_eq!(kept[0]["path"], format!("/p{capacity}"));
+    assert_eq!(response["data"]["removed"], serde_json::json!(["/p0"]));
+}
