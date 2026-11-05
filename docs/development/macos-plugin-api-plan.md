@@ -55,7 +55,7 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | API-30 | 既有能力 | 已有 debugAdapters 1/2 与 DAP 宿主；本 PR 不重建调试协议；Java 拆分计划（C-RUN）：debug/start、debugAdapters 3 的 features 与 defaults |
 | API-31 | 既有能力 | 已有 vcsProviders:1；不包含内置 Git 公共读取面 |
 | API-32 | 未做 | 通用 ServiceProvider 仍为提案 |
-| API-33 | 既有能力 | 已有 projectGenerators:1；新 hooks 不在本轮；Java 拆分计划（C-PROJ）：projectGenerators 2 增加 type:"tool" |
+| API-33 | 部分完成 | projectGenerators 2 增加通用工具字段（`type:"tool"`，工具来自 `toolDefinitions`，选择写入项目的工具 pin），即 Java 拆分计划（C-PROJ）所需的版本；项目生成器与工具定义插件免重启生效；新 hooks 不在本轮 |
 | API-34 | 未做 | 插件公共 IDE/AI/MCP 授权面未开放；独立 broker 不能直接转授 |
 | API-35 | 第一阶段进行中 | 第一阶段是 Java 拆分所需的 Core 中转插件函数调用（插件 1 → Core → 插件 2，C-IMPORT，进行中，不是安装依赖）；依赖/导出安装闭包、版本求解、远程 Provider 剩余接续未完成 |
 | API-36 | 未做 | WASM/WASI 非本轮前置，未引入运行时 |
@@ -158,7 +158,7 @@ Windows 不在本轮，平台矩阵的 partial/pending 保持真实。
 | 内置 Git | Git 在 `LitheGitModule`，按 2026-10-22 评审不接入统一 VCS 层；IDE broker 的 13 个工具没有 Git 工具 [S15/S21] | API-31 只覆盖插件提供的 VCS，插件没有读取内置 Git 状态的公共入口 |
 | Agent 侧 | Skills、Hooks、MCP 是用户管理的 Codex/Claude 原生配置，宿主只读取并编辑用户选定的来源 [S22] | 插件没有贡献来源；不能让插件绕过用户确认写入这些配置 |
 
-Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`buildProviders:1–6`、`buildSystems:1/2`、`debugAdapters:1/2`、`executionProviders:1`、`executableResolution:1`、`languageServers:1/2`、`languages:1`、`packageTrust:1`、`projectGenerators:1`、`serverProcess:1`、`settings:1/2`、`ui:1/2/3`、`vcsProviders:1`。Core 能校验某版本不等于 Mac 会执行它：Core 的 `serverProcess` 声明 1/2，而 Mac 只声明 1，不能因此给 Mac 标记支持 `serverProcess:2`。以上以 `PluginTypes.swift` 的 `hostCapabilities` 为准，与 Core 的 `SUPPORTED_CAPABILITIES` 逐项比对过，唯一差异是 `serverProcess`。
+Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`buildProviders:1–6`、`buildSystems:1/2`、`debugAdapters:1/2`、`executionProviders:1`、`executableResolution:1`、`languageServers:1/2`、`languages:1`、`packageTrust:1`、`projectGenerators:1/2`、`serverProcess:1`、`settings:1/2`、`ui:1/2/3`、`vcsProviders:1`。Core 能校验某版本不等于 Mac 会执行它：Core 的 `serverProcess` 声明 1/2，而 Mac 只声明 1，不能因此给 Mac 标记支持 `serverProcess:2`。以上以 `PluginTypes.swift` 的 `hostCapabilities` 为准，与 Core 的 `SUPPORTED_CAPABILITIES` 逐项比对过，唯一差异是 `serverProcess`。
 
 当前 Web bridge 的方法白名单为 `build.instances/refresh/runTask/runTests/cancel/dependencies/setOptions`、`workspace.openFile`、`ui.getState/setState`、`functions.list/invoke/cancel`、`dialog.openFile/saveFile`。后两个选择文件方法已在 Mac bridge v2 实现；盘点不能只依据较早 README 的列表。网页调用权限也不自动转授给后端进程。
 
@@ -245,7 +245,7 @@ Mac 当前声明的能力版本为：`backend:1`、`buildModelInputs:1`、`build
 | API-30 P/C/E | Debug Adapter 注册、配置和会话事件；已有 DAP 宿主 [S14] | 进程/连接授权、launch 与 attach 所有权、终止和断开区别；复用断点/调试 UI。高级内存/反汇编按独立提案，不阻塞基础 API | M4；Java 拆分（C-RUN）：debug/start、features 与 defaults |
 | API-31 P/C | VCS 仓库/状态/diff/提交等领域能力；已有 vcsProviders 1 [S14]，只覆盖插件提供的 VCS，内置 Git 见 API-42 | 读取与修改仓库分权；危险操作有明确确认，结果有仓库/操作身份。插件私有函数不能代替宿主可理解的 VCS 协议 | M4 |
 | API-32 P/C/E | Services 的实例/状态/动作/日志；数据库已有自身路径，通用 ServiceProvider 仍为提案 [S17] | 插件拥有的连接/进程与用户外部服务分开；停用只清理前者，不默认停用户数据库/容器。服务接入现有 Services，不再画一套工作台 | 后续 |
-| API-33 P/C | 项目生成器发现、参数、预览与生成；已有 projectGenerators 1 [S14] | 写目标目录需确认，禁止路径逃逸/无提示覆盖；只生成选择的项目，不下载未声明程序。先补现有文档，再评估新增 hooks | M4；Java 拆分（C-PROJ）：projectGenerators 2 |
+| API-33 P/C | 项目生成器发现、参数、预览与生成；已有 projectGenerators 1，projectGenerators 2 增加通用工具字段 [S14] | 写目标目录需确认，禁止路径逃逸/无提示覆盖；只生成选择的项目，不下载未声明程序。工具字段只通过工具定义的通用解析列出候选，选择写入项目已有的工具 pin，生成器不能自带工具发现。版本 1 的 `runtime` 字段保持不变，待 Java 逻辑迁出后再移除。先补现有文档，再评估新增 hooks | M4；Java 拆分（C-PROJ）：projectGenerators 2 |
 | API-34 H/P | 受限 IDE/AI/MCP 能力；已有单独 IDE broker [S15] | 项目 opt-in 和 read/configure/execute 分权不变；不转交 broker token、全量 dispatcher 或 Agent 历史。是否开放、哪些调用方可用需独立威胁建模 | 后续 |
 | API-35 H/P/C | 插件依赖、显式导出服务；远程 Provider 适配的剩余部分（原生 Java 集成、Agent、SSH 调试）[S17/S20] | 跨插件调用需要新授权/版本/循环依赖规则。远程 authority 基线已移到 API-40（M0），本项只在其上扩展；未实现的环境继续明确拒绝，不静默本地执行。第一阶段（Java 拆分，进行中）只做 Core 中转的插件函数调用：接收方在清单里显式导出函数 ID，未列出的函数仍然私有；调用方声明函数 ID（相当于接口名），安装和启用确认时显示会匹配到哪些插件；Core 校验双方都已声明且已启用，记录调用链并拒绝环路，限制深度、并发、参数与结果字节数和超时，取消沿调用链向下传；信任不传递，被调方用自己的权限执行，调用方不获得任何权限；远程工作区按 API-40 拒绝；旧的 `wrongPlugin` 与 `recursiveCall` 检查原样保留，`lithe/build/*` 仍然不对后端开放；它不是安装依赖，不参与安装闭包，也不做版本求解 | 第一阶段：Core 中转的插件函数调用（进行中）；后续：依赖闭包与导出服务 |
 | API-36 运行时 | 可选 WASM Component/WASI 宿主；当前能力表无 WASM [S1] | 复用相同公共 API/权限；独立验证 WIT 版本、fuel/内存/时间预算、取消、沙盒可达性、签名、工具链和分发。不得预挂载整个 HOME/工作区或绕过主进程隔离 | 后续，非 M0–M4 前置 |

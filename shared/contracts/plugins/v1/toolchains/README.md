@@ -16,10 +16,9 @@ toolchain adapter and does not advertise `toolDefinitions` or
 `toolchainProviders`, so Core refuses packages that require them there.
 Publisher signatures provide independent origin evidence when present; legacy
 unsigned records never do.
-The [broader proposal](proposal/README.md) still describes unsupported
-consumer migration, native lifecycle, persistence and manager-plugin work.
-The active shape is [plugin-manifest.schema.json](../plugin-manifest.schema.json),
-not the proposal envelopes.
+Consumer migration, the native query lifecycle and cache, pin saving and
+version-manager plugins are not specified yet. The manifest shape is
+[plugin-manifest.schema.json](../plugin-manifest.schema.json).
 
 ## Manifest admission and registry
 
@@ -121,6 +120,46 @@ providers:[{pluginID,provider}]}` in stable order. Duplicate plugin/tool ownersh
 rejects the batch without replacing earlier owners. Limits are 128 plugins,
 512 aggregate definitions and 256 aggregate providers.
 
+## Provider backend negotiation
+
+A provider answers over its plugin backend's JSON-RPC connection, the same
+`serverProcess` transport other backend requests use. The backend need not
+declare a language, language server, Build provider or callable function.
+
+The host starts the backend with `lsp.startServer` and passes the manifest's
+provider IDs as `toolchainProviders`. Only a plugin-owned session that declares
+at least one provider is offered the protocol, in the client capabilities of
+`initialize`:
+
+```json
+{"experimental": {"litheToolchains": {"versions": [1], "providers": ["first", "second"]}}}
+```
+
+`providers` lists the declared IDs in sorted order. The backend selects in the
+server capabilities of its `initialize` result:
+
+```json
+{"experimental": {"litheToolchains": {"version": 1, "providers": ["first"]}}}
+```
+
+`version` must be an offered version and `providers` a non-empty list of
+offered IDs without repeats; other fields are ignored. Any other answer, including
+an unoffered version, an undeclared, repeated or non-string ID, or an empty list,
+enables no provider at all rather than a partial set, and no query is sent. On
+success Core emits a `toolchainProviders` runtime event with `result: {providers}`.
+
+The host sends each query with `lsp.toolchainRequest`
+`{sessionId, operationId?, params, timeoutMilliseconds?}`, where `params` is the
+`toolchains/query` params described below; Core writes the request with that
+method and its own JSON-RPC ID. A `params.providerID` the backend did not select
+is refused with `not_supported` and details `plugin.toolchain.providerUnavailable`,
+and nothing is written. `timeoutMilliseconds` is clamped to 1-60,000; without it
+the session's request timeout applies. Completion carries `result.value: {id,
+response}`: the wire ID and the complete, unvalidated response, error replies
+included. The host passes it with the same `params` to `decodeReply`.
+Cancellation and late results follow
+[`lsp.toolchainRequest`](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/rust-core-api.md).
+
 ## Provider reply validation
 
 `decodeReply` takes `{registry,pluginID,request,response,currentGeneration,
@@ -164,10 +203,46 @@ remote authority, unsafe paths and malformed error mappings reject it.
 
 The snapshot contains `{installations,statements,watch,diagnostics}`; normalized
 entries carry qualified `<pluginID>:<providerID>` provenance and project source
-directory. JSON-RPC errors are checked against the distinct semantic/numeric map
-in the [protocol proposal](proposal/protocol.md#stable-failure-mapping).
-Cancellation, deadlines, cache invalidation and whole-generation requery remain
-native-client implementation work, not behavior performed by this decoder.
+directory. Cancellation, deadlines, cache invalidation and whole-generation
+requery remain native-client implementation work, not behavior performed by this
+decoder.
+
+### Error replies
+
+A provider that cannot answer returns a JSON-RPC `error` instead of `result`.
+`error` has exactly `{code,message,data}`, and `data` has `{code,operationID,
+providerID}` plus an optional `details`:
+
+- `code` is a number from the table below and `data.code` is the stable code
+  on its row. Each number has exactly one stable code.
+- `operationID` and `providerID` equal those of the request `params`.
+- `message` is non-empty diagnostic text of at most 1,024 UTF-8 bytes without
+  control characters. It is shown as provider text and never selects behavior.
+- `details`, when present, is an object of at most 4,096 bytes serialized. It
+  must not carry credentials.
+
+`decodeReply` then refuses with the stable code and the provider's `message`.
+An error reply that breaks any of these rules, including an unknown number or a
+number that does not match `data.code`, is refused as
+`plugin.toolchain.invalidReply`.
+
+| JSON-RPC | Stable code | Meaning |
+| --- | --- | --- |
+| `-32601` | `plugin.toolchain.methodUnavailable` | The backend does not serve the query method |
+| `-32602` | `plugin.toolchain.invalidParams` | Malformed request or invalid declared input |
+| `-32800` | `plugin.toolchain.cancelled` | The caller cancelled the request |
+| `-32070` | `plugin.toolchain.permissionDenied` | A permission, review or enabled-state prerequisite is missing |
+| `-32071` | `plugin.toolchain.authorityUnsupported` | The provider cannot serve the requested authority |
+| `-32072` | `plugin.toolchain.timeout` | The local deadline passed |
+| `-32073` | `plugin.toolchain.providerUnavailable` | The backend failed to start, disconnected, or its upstream query failed |
+| `-32074` | `plugin.toolchain.invalidReply` | Malformed reply, or an installation reference to another tool |
+| `-32075` | `plugin.toolchain.limitExceeded` | A reply, scan or watch budget was exceeded |
+| `-32076` | `plugin.toolchain.unsafePath` | A path is not absolute, escapes its containment or fails executable checks |
+| `-32077` | `plugin.toolchain.operationExpired` | The context or generation was already stale when the query was sent |
+
+A missing installation, an incompatible version or conflicting requirements are
+not errors: report them in `result` (an unmet requirement has
+`installation:null`) and let the resolver give the reason.
 
 When a query gets no reply at all, the host asks `failureReply` for one. `params`
 is the query's own `params` and `code` is `plugin.toolchain.timeout` (the local
@@ -297,7 +372,9 @@ Production-shape examples are [tool-definition.plugin.json](../fixtures/toolchai
 and [toolchain-provider.plugin.json](../fixtures/toolchains/toolchain-provider.plugin.json).
 Core acceptance vectors are in
 [toolchain_definitions.rs](https://github.com/1lck/Lithe-IDEA/blob/preview/rust/lithe-core/src/tests/toolchain_definitions.rs),
-with sibling pins/query/resolution suites. Passing them is not native product
-verification. Contract changes must be mirrored after merge with
+with sibling pins/query/resolution suites. The pin document, query exchange and
+one error reply per stable code that those suites share are inline in
+[toolchain_vectors.rs](https://github.com/1lck/Lithe-IDEA/blob/preview/rust/lithe-core/src/tests/toolchain_vectors.rs).
+Passing them is not native product verification. Contract changes must be mirrored after merge with
 `node scripts/contract.mjs sync --revision <merged-preview-commit>` in
 [lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs).

@@ -7,7 +7,7 @@
 
 use super::archive;
 use super::form::{self, FormInput};
-use super::manifest::{GeneratorSection, ProjectGeneratorDeclaration};
+use super::manifest::{GeneratorSection, ProjectGeneratorDeclaration, FIELD_TOOL};
 use super::plan;
 use crate::plugins::capabilities::HostCapabilities;
 use crate::plugins::declarative::{
@@ -139,6 +139,7 @@ pub(crate) fn project_generator_catalog_command(payload: Value) -> Result<Value,
                     json!({ key: id, "providers": found })
                 })
                 .collect();
+            let tools = tool_providers(generator, &providers);
             entries.push((
                 generator.section,
                 generator.order,
@@ -149,6 +150,7 @@ pub(crate) fn project_generator_catalog_command(payload: Value) -> Result<Value,
                     "pluginEnabled": enabled,
                     "generator": generator,
                     "requirements": requirements,
+                    "tools": tools,
                     "usesNetwork": generator.steps.iter().any(|step| step.uses_network()),
                 }),
             ));
@@ -163,6 +165,29 @@ pub(crate) fn project_generator_catalog_command(payload: Value) -> Result<Value,
         "catalog",
         json!({"generators": generators, "issues": issues}),
     ))))
+}
+
+/// The plugins that declare the tool each tool field selects, so a field with
+/// no installation can tell the user which plugin to enable or install. Core
+/// only names declarations; whether a definition is trusted, and whether the
+/// tool is installed, is the host's registry and discovery.
+fn tool_providers(
+    generator: &ProjectGeneratorDeclaration,
+    providers: &dyn Fn(&dyn Fn(&DeclarativePluginManifest) -> bool) -> Vec<Value>,
+) -> Vec<Value> {
+    generator
+        .fields
+        .iter()
+        .filter(|field| field.is(FIELD_TOOL))
+        .filter_map(|field| {
+            let tool = field.tool.as_deref()?;
+            Some(json!({
+                "fieldID": field.id,
+                "tool": tool,
+                "providers": providers(&|candidate| candidate.declares_tool(tool)),
+            }))
+        })
+        .collect()
 }
 
 /// `project.generatorForm`: field values, visibility, and problems.

@@ -1,13 +1,12 @@
 //! Exercises shared tool selection through production commands and inert native facts.
 
+use super::toolchain_vectors::{local_pins, query_request, query_response, HOME, WORKSPACE};
 use crate::toolchain::{
     candidates_command, check_version_command, discovery_plan_command, failure_reply_command,
     resolve_command,
 };
 use serde_json::{json, Value};
 
-const WORKSPACE: &str = "/opt/lithe-fixtures/workspace";
-const HOME: &str = "/opt/lithe-fixtures/installs/java/21.0.4";
 const OLD: &str = "/opt/lithe-fixtures/installs/java/17.0.12";
 
 /// Reads review data as test inputs, never as an installed plugin or live path.
@@ -20,14 +19,6 @@ fn contract(name: &str) -> Value {
         "mise" => include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../shared/contracts/plugins/v1/fixtures/toolchains/toolchain-provider.plugin.json"
-        )),
-        "query" => include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../shared/contracts/plugins/v1/fixtures/toolchains/proposal/query-cases.json"
-        )),
-        "local" => include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../shared/contracts/plugins/v1/fixtures/toolchains/proposal/local.json"
         )),
         _ => panic!("unknown fixture"),
     };
@@ -71,8 +62,7 @@ fn resolve(input: &Value) -> Value {
 
 /// Captures a fake backend exchange that the resolver must decode itself.
 fn query(input: &Value) -> Value {
-    let case = &contract("query")["cases"][0];
-    json!({"registry":input["registry"],"pluginID":"dev.lithe.fixture.mise","request":case["request"],"response":case["response"],
+    json!({"registry":input["registry"],"pluginID":"dev.lithe.fixture.mise","request":query_request(),"response":query_response(),
         "currentGeneration":1,"platform":"macos","filesystem":input["filesystem"]})
 }
 
@@ -215,7 +205,7 @@ fn toolchain_resolution_pins_inherit_nearest_ancestor_without_sibling_prefixes()
     let manual = "/opt/lithe-fixtures/manual/java/17.0.12";
     installation(&mut value, HOME, "21.0.4");
     installation(&mut value, manual, "17.0.12");
-    value["local"] = contract("local");
+    value["local"] = local_pins();
     value["directory"] = json!("apps/web/src");
     let result = resolve(&value);
     assert_eq!(result["outcome"]["selection"]["home"], manual);
@@ -438,7 +428,7 @@ fn toolchain_commands_cross_the_json_dispatch_boundary() {
         ),
         (
             "toolchains.resolvePins",
-            json!({"document":contract("local"),"directory":"apps/web/src","tool":"java"}),
+            json!({"document":local_pins(),"directory":"apps/web/src","tool":"java"}),
             "resolution",
         ),
         (
@@ -884,7 +874,7 @@ fn toolchain_resolution_environment_candidate_uses_its_declared_layout() {
 fn toolchain_resolution_disabled_definition_cannot_reactivate_a_saved_pin() {
     let mut value = input();
     installation(&mut value, HOME, "21.0.4");
-    value["local"] = contract("local");
+    value["local"] = local_pins();
     value["registry"]["plugins"]
         .as_array_mut()
         .unwrap()

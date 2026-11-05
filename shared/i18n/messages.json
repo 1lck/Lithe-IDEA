@@ -33344,6 +33344,22 @@
       }
     },
     {
+      "id": "native.couldNotLookForInstalledTools",
+      "description": "Native UI: Could not look for installed tools: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not look for installed tools: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.couldNotMoveTheEditorTabItsContentCouldNotBeSynchronized",
       "description": "Native UI: Could not move the editor tab. Its content could not be synchronized.",
       "platforms": [
@@ -44292,6 +44308,17 @@
       }
     },
     {
+      "id": "native.lookingForInstalledTools",
+      "description": "Native UI: Looking for installed tools…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Looking for installed tools…",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.low",
       "description": "Native UI: Low",
       "platforms": [
@@ -46892,6 +46919,17 @@
       }
     },
     {
+      "id": "native.noInstallationOfThisToolWasFound",
+      "description": "Native UI: No installation of this tool was found.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No installation of this tool was found.",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.noJDKFoundSetJAVAHOMEInstallAJDKOrChooseAJDKDirectory",
       "description": "Native UI: No JDK found. Set JAVA_HOME, install a JDK, or choose a JDK directory.",
       "platforms": [
@@ -48222,6 +48260,22 @@
       "macos": {
         "key": "Older commits are outside the loaded history",
         "arguments": []
+      }
+    },
+    {
+      "id": "native.olderThanRequired",
+      "description": "Native UI: %@ (older than required)",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ (older than required)",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
       }
     },
     {
@@ -59822,6 +59876,22 @@
       }
     },
     {
+      "id": "native.theProjectWasCreatedButTheToolYouChoseCouldNotBeSavedForIt",
+      "description": "Native UI: The project was created, but the tool you chose could not be saved for it: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The project was created, but the tool you chose could not be saved for it: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.thePublishedUpdateManifestIsInvalidAndCannotBeTrustedOpenTheReleasePageAndDowna6815c0bf9",
       "description": "Native UI: The published update manifest is invalid and cannot be trusted. Open the Release page and download the update manually.",
       "platforms": [
@@ -60593,6 +60663,17 @@
       ],
       "macos": {
         "key": "This folder already belongs to a Git repository",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisInstallationIsOlderThanTheGeneratorRequires",
+      "description": "Native UI: This installation is older than the generator requires.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This installation is older than the generator requires.",
         "arguments": []
       }
     },

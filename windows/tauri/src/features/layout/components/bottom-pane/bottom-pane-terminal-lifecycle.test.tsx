@@ -8,6 +8,8 @@ import {
 } from "@/features/terminal/utils/terminal-launch-actions";
 import { openNewTerminalFromGlobalEntry } from "@/features/terminal/utils/terminal-pane-visibility";
 import { defaultSettings } from "@/features/settings/config/default-settings";
+import { normalizeSettingValue } from "@/features/settings/lib/settings-normalization";
+import type { Settings } from "@/features/settings/types/settings.types";
 
 const restoreDom = installHappyDom();
 afterAll(restoreDom);
@@ -47,7 +49,11 @@ const settings = create(() => ({
   actions: {
     updateSetting: (key: string, value: unknown) => {
       writes.push([key, value]);
-      settings.setState((state) => ({ settings: { ...state.settings, [key]: value } }));
+      const normalized = normalizeSettingValue(
+        key as keyof Settings,
+        value as Settings[keyof Settings],
+      );
+      settings.setState((state) => ({ settings: { ...state.settings, [key]: normalized } }));
     },
   },
 }));
@@ -507,6 +513,25 @@ test("terminal docking supports a keyboard click, bounded resizing and other too
     expect(writes).toEqual([]);
     await fixture.pointer("pointerup", -5000, 200);
     expect(writes).toEqual([["terminalDockWidth", 640]]);
+    expect(settings.getState().settings.terminalDockWidth).toBe(640);
+    // A click without movement and a second drag must start at the committed width.
+    await fixture.pointer(
+      "pointerdown",
+      460,
+      200,
+      fixture.host.querySelector('[role="separator"]')!,
+    );
+    await fixture.pointer("pointerup", 460, 200);
+    expect(settings.getState().settings.terminalDockWidth).toBe(640);
+    await fixture.pointer(
+      "pointerdown",
+      460,
+      200,
+      fixture.host.querySelector('[role="separator"]')!,
+    );
+    await fixture.pointer("pointermove", 480, 200);
+    await fixture.pointer("pointerup", 480, 200);
+    expect(settings.getState().settings.terminalDockWidth).toBe(620);
     await act(async () => ui.getState().setBottomPaneActiveTab("run"));
     expect(fixture.grid.dataset.terminalDock).toBe("bottom");
     expect(fixture.host.querySelector('[role="separator"]')?.getAttribute("aria-orientation")).toBe(

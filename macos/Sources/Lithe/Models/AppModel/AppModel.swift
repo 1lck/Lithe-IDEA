@@ -616,10 +616,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             guard let self, let root = self.workspaceURL else { return }
             self.searchFeatureIfActive?.invalidateIndex(at: root, visibilityRules: self.settings.searchEverywhereVisibilityRules.searchRules)
         }
-        // The language catalog follows plugins that apply without a restart, so
-        // a debugger installed now is offered now.
+        // The language catalog and the toolchain page follow plugins that apply
+        // without a restart, so a debugger or tool definition installed now is
+        // offered now.
         livePluginObservation = services.pluginRegistrationChanges?.sink { [weak self] in
             self?.languageToolingFeature.refreshCatalog()
+            self?.toolchainSettingsFeature.pluginsChanged()
         }
         suggestDatabasePluginIfNeeded()
         detectedAIConfigurations = loadAIConfigurations()

@@ -214,6 +214,11 @@ done
       abort "plan case #{item.fetch("name")} uses an undocumented code" unless documented.include?(expected.fetch("code"))
     end
   end
+  # A project plan case runs against the version 1 generator fixture unless it names another.
+  JSON.parse(File.read(File.join(fixtures, "project-generators", "project-plans.json"))).fetch("cases").each do |item|
+    next unless item.key?("manifest")
+    abort "project plan case #{item.fetch("name")} uses an unknown manifest" unless fixture_names.include?(item.fetch("manifest"))
+  end
   build_operations = %w[
     invocationPlan checkToolVersion resolveOptions modelPlan taskPlan testPlan dependencyPlan
     decodeModel decodeTestResults decodeDiagnostics decodeDependencies syncFingerprint

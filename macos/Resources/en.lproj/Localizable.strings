@@ -12,6 +12,7 @@
 "%@ (%lld)" = "%@ (%lld)";
 "%@ (default)" = "%@ (default)";
 "%@ (not available for this Lithe or Mac)" = "%@ (not available for this Lithe or Mac)";
+"%@ (older than required)" = "%@ (older than required)";
 "%@ / %@ rows · line %@" = "%@ / %@ rows · line %@";
 "%@ already exists. Choose another name or location." = "%@ already exists. Choose another name or location.";
 "%@ answered with status %lld. %@" = "%@ answered with status %lld. %@";
@@ -1080,6 +1081,7 @@
 "Could not load service dependencies" = "Could not load service dependencies";
 "Could not load the changed files." = "Could not load the changed files.";
 "Could not load this image" = "Could not load this image";
+"Could not look for installed tools: %@" = "Could not look for installed tools: %@";
 "Could not move the editor tab. Its content could not be synchronized." = "Could not move the editor tab. Its content could not be synchronized.";
 "Could not open %@: %@" = "Could not open %@: %@";
 "Could not open %@: %@ %@" = "Could not open %@: %@ %@";
@@ -2307,6 +2309,7 @@
 "Looked in: %@" = "Looked in: %@";
 "Looking for Git…" = "Looking for Git…";
 "Looking for installed JDKs…" = "Looking for installed JDKs…";
+"Looking for installed tools…" = "Looking for installed tools…";
 "Looking up the location sends this address to ipinfo.io. Lithe does this only when you click Look Up." = "Looking up the location sends this address to ipinfo.io. Lithe does this only when you click Look Up.";
 "Low" = "Low";
 "Low (recommended)" = "Low (recommended)";
@@ -2615,6 +2618,7 @@
 "No history recorded yet" = "No history recorded yet";
 "No host yet" = "No host yet";
 "No implementations found" = "No implementations found";
+"No installation of this tool was found." = "No installation of this tool was found.";
 "No installed plugin supports %@ yet." = "No installed plugin supports %@ yet.";
 "No items" = "No items";
 "No language dependency sources registered" = "No language dependency sources registered";
@@ -4402,6 +4406,7 @@
 "The project folder on the host; empty uses the home directory. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder." = "The project folder on the host; empty uses the home directory. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder.";
 "The project model is not loaded." = "The project model is not loaded.";
 "The project was created, but Git could not be set up: %@" = "The project was created, but Git could not be set up: %@";
+"The project was created, but the tool you chose could not be saved for it: %@" = "The project was created, but the tool you chose could not be saved for it: %@";
 "The provider looks up the build tool itself: %@" = "The provider looks up the build tool itself: %@";
 "The proxy answered with HTTP %@." = "The proxy answered with HTTP %@.";
 "The proxy server's host name or IP address, for example 127.0.0.1." = "The proxy server's host name or IP address, for example 127.0.0.1.";
@@ -4576,6 +4581,7 @@
 "This folder cannot be read." = "This folder cannot be read.";
 "This folder is empty" = "This folder is empty";
 "This host cannot receive a compatible plugin package. Update the remote server." = "This host cannot receive a compatible plugin package. Update the remote server.";
+"This installation is older than the generator requires." = "This installation is older than the generator requires.";
 "This native configuration source is read-only. Installed applications and plugin packages cannot be edited." = "This native configuration source is read-only. Installed applications and plugin packages cannot be edited.";
 "This page" = "This page";
 "This panel needs exactly one matching plugin instance in the workspace." = "This panel needs exactly one matching plugin instance in the workspace.";
@@ -6253,6 +6259,7 @@
 "native.couldNotLoadServiceDependencies" = "Could not load service dependencies";
 "native.couldNotLoadTheChangedFiles" = "Could not load the changed files.";
 "native.couldNotLoadThisImage" = "Could not load this image";
+"native.couldNotLookForInstalledTools" = "Could not look for installed tools: %1$@";
 "native.couldNotMoveTheEditorTabItsContentCouldNotBeSynchronized" = "Could not move the editor tab. Its content could not be synchronized.";
 "native.couldNotOpenHTMLInBrowser" = "Could not open HTML in browser";
 "native.couldNotOpenTheRemoteFolder" = "Could not open the remote folder: %1$@";
@@ -7538,6 +7545,7 @@
 "native.lookedIn" = "Looked in: %1$@";
 "native.lookingForGit" = "Looking for Git…";
 "native.lookingForInstalledJDKs" = "Looking for installed JDKs…";
+"native.lookingForInstalledTools" = "Looking for installed tools…";
 "native.lookingUpTheLocationSendsThisAddressToIpinfoIoLitheDoesThisOnlyWhenYouClickLookUp" = "Looking up the location sends this address to ipinfo.io. Lithe does this only when you click Look Up.";
 "native.low" = "Low";
 "native.lowEffortAndASmallOutputLimitAreRecommendedForFastCommitMessageGeneration" = "Low effort and a small output limit are recommended for fast commit-message generation.";
@@ -7833,6 +7841,7 @@
 "native.noHooksYet" = "No Hooks yet.";
 "native.noHostYet" = "No host yet";
 "native.noImplementationsFound" = "No implementations found";
+"native.noInstallationOfThisToolWasFound" = "No installation of this tool was found.";
 "native.noInstalledPluginSupportsYet" = "No installed plugin supports %1$@ yet.";
 "native.noItems" = "No items";
 "native.noJDKFoundSetJAVAHOMEInstallAJDKOrChooseAJDKDirectory" = "No JDK found. Set JAVA_HOME, install a JDK, or choose a JDK directory.";
@@ -7983,6 +7992,7 @@
 "native.officialPluginDeclaresASignaturePolicyThatDoes" = "Official plugin %1$@ declares a signature policy that does not match the host trust policy.";
 "native.olderCommitsAreNotListed" = "Older commits are not listed.";
 "native.olderCommitsAreOutsideTheLoadedHistory" = "Older commits are outside the loaded history";
+"native.olderThanRequired" = "%1$@ (older than required)";
 "native.on" = "On";
 "native.oneArgumentPerLineArgumentsKeepSpacesWithoutQuoting" = "One argument per line. Arguments keep spaces without quoting.";
 "native.oneEntryPerLineDirectoryNamesHideMatchingFoldersFileEntriesSupportAnd" = "One entry per line. Directory names hide matching folders; file entries support * and ?.";
@@ -9430,6 +9440,7 @@
 "native.theProjectFolderOnTheHostEmptyUsesTheHomeDirectoryBrowseConnectsInstallsTheLitheServerOnTh" = "The project folder on the host; empty uses the home directory. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder.";
 "native.theProjectModelIsNotLoaded" = "The project model is not loaded.";
 "native.theProjectWasCreatedButGitCouldNotBeSetUp" = "The project was created, but Git could not be set up: %1$@";
+"native.theProjectWasCreatedButTheToolYouChoseCouldNotBeSavedForIt" = "The project was created, but the tool you chose could not be saved for it: %1$@";
 "native.theProviderDoesNotSupport" = "The %1$@ provider does not support %2$@.";
 "native.theProviderLooksUpTheBuildToolItself" = "The provider looks up the build tool itself: %1$@";
 "native.thePublishedUpdateManifestIsInvalidAndCannotBeTrustedOpenTheReleasePageAndDowna6815c0bf9" = "The published update manifest is invalid and cannot be trusted. Open the Release page and download the update manually.";
@@ -9564,6 +9575,7 @@
 "native.thisFolderCannotBeRead" = "This folder cannot be read.";
 "native.thisFolderIsEmpty" = "This folder is empty";
 "native.thisHookNoLongerExistsReloadTheLibrary" = "This Hook no longer exists. Reload the library.";
+"native.thisInstallationIsOlderThanTheGeneratorRequires" = "This installation is older than the generator requires.";
 "native.thisMac" = "This Mac";
 "native.thisMacOnly" = "This Mac only";
 "native.thisMarkdownDocumentIsReadOnly" = "This Markdown document is read-only";

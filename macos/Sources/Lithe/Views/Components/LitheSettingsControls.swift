@@ -388,6 +388,8 @@ struct LitheSettingsSelect<Value: Hashable>: View {
     private let expandsToFitOptions: Bool
     private let isAvailable: (Value) -> Bool
     private let onUnavailableSelection: ((Value) -> Void)?
+    /// Why an unavailable option cannot be chosen, shown when hovering it.
+    private let unavailableHelp: LocalizedStringKey
     /// When set, the popup shows a search field above the rows and filters the
     /// options as the user types. Existing callers leave it nil and keep the
     /// plain, unfiltered list.
@@ -408,6 +410,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         expandsToFitOptions: Bool = false,
         isAvailable: @escaping (Value) -> Bool = { _ in true },
         onUnavailableSelection: ((Value) -> Void)? = nil,
+        unavailableHelp: LocalizedStringKey = "Shell is not available at this path",
         searchPrompt: LocalizedStringKey? = nil,
         searchText: ((Value) -> String)? = nil
     ) {
@@ -420,6 +423,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         self.expandsToFitOptions = expandsToFitOptions
         self.isAvailable = isAvailable
         self.onUnavailableSelection = onUnavailableSelection
+        self.unavailableHelp = unavailableHelp
         self.searchPrompt = searchPrompt
         self.searchText = searchText ?? title
     }
@@ -494,6 +498,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             localizesTitles: localizesTitles,
             expandsToFitOptions: expandsToFitOptions,
             isAvailable: isAvailable,
+            unavailableHelp: unavailableHelp,
             searchPrompt: searchPrompt
         )
         let popupHeight = searchPrompt == nil
@@ -694,6 +699,7 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
     let localizesTitles: Bool
     let expandsToFitOptions: Bool
     let isAvailable: (Value) -> Bool
+    let unavailableHelp: LocalizedStringKey
     let searchPrompt: LocalizedStringKey?
 
     var body: some View {
@@ -773,7 +779,7 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
                     if hovering { state.highlightedIndex = row }
                 }
                 .id(row)
-                .help(isAvailable(option) ? "" : "Shell is not available at this path")
+                .help(isAvailable(option) ? "" : unavailableHelp)
             }
         }
         .padding(SettingsSelectMetrics.popupPadding)
