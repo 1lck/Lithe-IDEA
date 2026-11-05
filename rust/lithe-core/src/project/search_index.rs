@@ -601,6 +601,8 @@ pub(crate) fn make_symbol_match(indexed: &IndexedSymbol, path: String) -> Search
         preview: indexed.signature.clone(),
         symbol_name: Some(indexed.name.clone()),
         name_match_ranges: Vec::new(),
+        source_line: None,
+        content_match_ranges: Vec::new(),
         matching_degree: None,
         is_ignored: None,
     }

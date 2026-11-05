@@ -62,6 +62,8 @@ pub struct LaunchCommandPlanRequest {
     pub limit: Option<usize>,
     /// JDK feature version read by the host from its `release` file.
     pub java_feature_version: Option<u32>,
+    /// Host-read release files, nearest first; Core interprets their contents.
+    pub java_release_contents: Option<Vec<String>>,
 }
 
 /// JSON response for [`LaunchCommandPlanRequest`].
@@ -97,12 +99,24 @@ impl From<LaunchCommandPlan> for LaunchCommandPlanResponse {
 
 /// Plans a launch through the shared JSON command dispatcher.
 pub fn plan_launch_command_request(request: LaunchCommandPlanRequest) -> LaunchCommandPlanResponse {
+    let version = request.java_feature_version.or_else(|| {
+        request
+            .java_release_contents
+            .as_ref()?
+            .iter()
+            .find(|contents| {
+                contents
+                    .lines()
+                    .any(|line| line.trim().starts_with("JAVA_VERSION="))
+            })
+            .and_then(|contents| java_feature_version_from_release(contents))
+    });
     plan_launch_command(
         &request.executable,
         &request.arguments,
         Path::new(&request.argfile_path),
         request.limit,
-        request.java_feature_version,
+        version,
     )
     .into()
 }
@@ -521,6 +535,32 @@ mod tests {
             plan_launch_command("java.exe", &disabled, &argfile(), None, Some(21)),
             LaunchCommandPlan::Direct
         );
+    }
+
+    #[test]
+    fn launch_command_uses_host_read_release_contents_for_jdk_version() {
+        let mut request = serde_json::json!({
+            "id": "java-version", "command": "execution.planLaunchCommand",
+            "payload": {
+                "executable": "/jdk/bin/java", "arguments": ["-cp", classpath(500), "Main"],
+                "argfilePath": "/tmp/launch.args", "javaReleaseContents": [
+                    "IMPLEMENTOR=\"fixture\"\n", "JAVA_VERSION=\"21.0.2\"\n"
+                ]
+            }
+        });
+        let response: serde_json::Value =
+            serde_json::from_str(&crate::execute_json(&request.to_string())).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["data"]["kind"], "argfile");
+        request["payload"]["javaReleaseContents"] =
+            serde_json::json!(["JAVA_VERSION=\"unknown\"\n", "JAVA_VERSION=\"21\"\n"]);
+        let response: serde_json::Value =
+            serde_json::from_str(&crate::execute_json(&request.to_string())).unwrap();
+        assert_eq!(response["data"]["kind"], "direct");
+        request["payload"]["javaFeatureVersion"] = serde_json::json!(21);
+        let response: serde_json::Value =
+            serde_json::from_str(&crate::execute_json(&request.to_string())).unwrap();
+        assert_eq!(response["data"]["kind"], "argfile");
     }
 
     #[test]

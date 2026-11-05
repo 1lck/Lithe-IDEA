@@ -41,8 +41,8 @@ struct RunLaunchEnvironmentTests {
     }
 
     @Test
-    func guiLaunchPathReachesTheDiscoveredNodeInterpreter() {
-        let environment = RunLaunchEnvironment.augmenting(
+    func guiLaunchPathReachesTheDiscoveredNodeInterpreter() throws {
+        let environment = try RunLaunchEnvironment.augmenting(
             ["PATH": "/usr/bin:/bin"],
             executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/pnpm"),
             nodeCandidates: [
@@ -52,14 +52,15 @@ struct RunLaunchEnvironmentTests {
                     source: .environment
                 )
             ],
-            projectURL: projectURL
+            projectURL: projectURL,
+            resolver: RustCoreBridge()
         )
 
         #expect(environment["PATH"] == "/usr/bin:/bin:/Users/fixture/.local/share/fnm/aliases/default/bin:/opt/homebrew/bin")
     }
 
     @Test
-    func projectProvidedNodeCannotCaptureTheLaunchedScript() {
+    func projectProvidedNodeCannotCaptureTheLaunchedScript() throws {
         let projectNode = RuntimeToolCandidate(
             command: "node",
             executableURL: projectURL.appendingPathComponent(".lithe/bin/node"),
@@ -71,17 +72,19 @@ struct RunLaunchEnvironmentTests {
             source: .homebrew
         )
 
-        let withFallback = RunLaunchEnvironment.augmenting(
+        let withFallback = try RunLaunchEnvironment.augmenting(
             ["PATH": "/usr/bin:/bin"],
             executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/pnpm"),
             nodeCandidates: [projectNode, homebrewNode],
-            projectURL: projectURL
+            projectURL: projectURL,
+            resolver: RustCoreBridge()
         )
-        let projectNodeOnly = RunLaunchEnvironment.augmenting(
+        let projectNodeOnly = try RunLaunchEnvironment.augmenting(
             ["PATH": "/usr/bin:/bin"],
             executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/pnpm"),
             nodeCandidates: [projectNode],
-            projectURL: projectURL
+            projectURL: projectURL,
+            resolver: RustCoreBridge()
         )
 
         #expect(withFallback["PATH"] == "/usr/bin:/bin:/opt/homebrew/bin")
@@ -89,20 +92,21 @@ struct RunLaunchEnvironmentTests {
     }
 
     @Test
-    func projectWrapperDoesNotPutTheRepositoryOnTheLaunchPath() {
-        let environment = RunLaunchEnvironment.augmenting(
+    func projectWrapperDoesNotPutTheRepositoryOnTheLaunchPath() throws {
+        let environment = try RunLaunchEnvironment.augmenting(
             ["PATH": "/usr/bin:/bin"],
             executableURL: projectURL.appendingPathComponent("mvnw"),
             nodeCandidates: [],
-            projectURL: projectURL
+            projectURL: projectURL,
+            resolver: RustCoreBridge()
         )
 
         #expect(environment["PATH"] == "/usr/bin:/bin")
     }
 
     @Test
-    func existingEntriesKeepTheirOrderAndAreNotDuplicated() {
-        let environment = RunLaunchEnvironment.augmenting(
+    func existingEntriesKeepTheirOrderAndAreNotDuplicated() throws {
+        let environment = try RunLaunchEnvironment.augmenting(
             ["PATH": "/opt/homebrew/bin:/usr/bin:/bin"],
             executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/pnpm"),
             nodeCandidates: [
@@ -112,15 +116,16 @@ struct RunLaunchEnvironmentTests {
                     source: .homebrew
                 )
             ],
-            projectURL: projectURL
+            projectURL: projectURL,
+            resolver: RustCoreBridge()
         )
 
         #expect(environment["PATH"] == "/opt/homebrew/bin:/usr/bin:/bin")
     }
 
     @Test
-    func explicitPathEntriesKeepTheirPriority() {
-        let environment = RunLaunchEnvironment.augmenting(
+    func explicitPathEntriesKeepTheirPriority() throws {
+        let environment = try RunLaunchEnvironment.augmenting(
             ["PATH": "/custom/node/bin:/usr/bin:/bin"],
             executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/pnpm"),
             nodeCandidates: [
@@ -130,22 +135,24 @@ struct RunLaunchEnvironmentTests {
                     source: .environment
                 )
             ],
-            projectURL: projectURL
+            projectURL: projectURL,
+            resolver: RustCoreBridge()
         )
 
         #expect(environment["PATH"] == "/custom/node/bin:/usr/bin:/bin:/fixture-node/bin:/opt/homebrew/bin")
     }
 
     @Test(arguments: [nil, "", "/explicit/bin"] as [String?])
-    func missingPathUsesOnlyTheInjectedSystemDefault(path: String?) {
+    func missingPathUsesOnlyTheInjectedSystemDefault(path: String?) throws {
         var original = ["HOME": "/Users/fixture"]
         original["PATH"] = path
-        let environment = RunLaunchEnvironment.augmenting(
+        let environment = try RunLaunchEnvironment.augmenting(
             original,
             executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/pnpm"),
             nodeCandidates: [],
             projectURL: projectURL,
-            defaultSearchPath: "/fixture-system/bin:/fixture-system/sbin"
+            defaultSearchPath: "/fixture-system/bin:/fixture-system/sbin",
+            resolver: RustCoreBridge()
         )
 
         let prefix = path == nil ? "/fixture-system/bin:/fixture-system/sbin:" : (path == "" ? "" : path! + ":")

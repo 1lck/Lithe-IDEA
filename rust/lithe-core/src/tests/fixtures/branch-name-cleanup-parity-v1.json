@@ -1,0 +1,1065 @@
+{
+  "generatedBy": "git-branch-name.ts reference",
+  "cases": [
+    {
+      "rawName": "",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": " ",
+      "typingCleanedName": "-",
+      "cleanedName": "-"
+    },
+    {
+      "rawName": "  ",
+      "typingCleanedName": "-",
+      "cleanedName": "-"
+    },
+    {
+      "rawName": "my new branch",
+      "typingCleanedName": "my-new-branch",
+      "cleanedName": "my-new-branch"
+    },
+    {
+      "rawName": "a~b:c^d?e*f",
+      "typingCleanedName": "abcdef",
+      "cleanedName": "abcdef"
+    },
+    {
+      "rawName": "a..b//c",
+      "typingCleanedName": "a.b/c",
+      "cleanedName": "a.b/c"
+    },
+    {
+      "rawName": ".hidden",
+      "typingCleanedName": "hidden",
+      "cleanedName": "hidden"
+    },
+    {
+      "rawName": "-flag",
+      "typingCleanedName": "flag",
+      "cleanedName": "flag"
+    },
+    {
+      "rawName": "a@{b",
+      "typingCleanedName": "ab",
+      "cleanedName": "ab"
+    },
+    {
+      "rawName": "feature/",
+      "typingCleanedName": "feature/",
+      "cleanedName": "feature"
+    },
+    {
+      "rawName": "feature//x",
+      "typingCleanedName": "feature/x",
+      "cleanedName": "feature/x"
+    },
+    {
+      "rawName": "a...b",
+      "typingCleanedName": "a.b",
+      "cleanedName": "a.b"
+    },
+    {
+      "rawName": "a....b",
+      "typingCleanedName": "a.b",
+      "cleanedName": "a.b"
+    },
+    {
+      "rawName": ".",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "..",
+      "typingCleanedName": ".",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "...",
+      "typingCleanedName": ".",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "....",
+      "typingCleanedName": ".",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "/",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "//",
+      "typingCleanedName": "/",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "///",
+      "typingCleanedName": "/",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "/a",
+      "typingCleanedName": "a",
+      "cleanedName": "a"
+    },
+    {
+      "rawName": "-a",
+      "typingCleanedName": "a",
+      "cleanedName": "a"
+    },
+    {
+      "rawName": "--a",
+      "typingCleanedName": "-a",
+      "cleanedName": "-a"
+    },
+    {
+      "rawName": "..a",
+      "typingCleanedName": ".a",
+      "cleanedName": ".a"
+    },
+    {
+      "rawName": "a..",
+      "typingCleanedName": "a.",
+      "cleanedName": "a"
+    },
+    {
+      "rawName": "a.lock",
+      "typingCleanedName": "a.lock",
+      "cleanedName": "a"
+    },
+    {
+      "rawName": "a/.lock",
+      "typingCleanedName": "a/lock",
+      "cleanedName": "a/lock"
+    },
+    {
+      "rawName": "a/b.lock",
+      "typingCleanedName": "a/b.lock",
+      "cleanedName": "a/b"
+    },
+    {
+      "rawName": "a/.b",
+      "typingCleanedName": "a/b",
+      "cleanedName": "a/b"
+    },
+    {
+      "rawName": "a./b",
+      "typingCleanedName": "a/b",
+      "cleanedName": "a/b"
+    },
+    {
+      "rawName": "a .b",
+      "typingCleanedName": "a-.b",
+      "cleanedName": "a-.b"
+    },
+    {
+      "rawName": "a\tb",
+      "typingCleanedName": "a-b",
+      "cleanedName": "a-b"
+    },
+    {
+      "rawName": "a\nb",
+      "typingCleanedName": "a-b",
+      "cleanedName": "a-b"
+    },
+    {
+      "rawName": "a\rb",
+      "typingCleanedName": "a-b",
+      "cleanedName": "a-b"
+    },
+    {
+      "rawName": "a\u0000b",
+      "typingCleanedName": "a-b",
+      "cleanedName": "a-b"
+    },
+    {
+      "rawName": "ab",
+      "typingCleanedName": "a-b",
+      "cleanedName": "a-b"
+    },
+    {
+      "rawName": "haed",
+      "typingCleanedName": "haed",
+      "cleanedName": "haed"
+    },
+    {
+      "rawName": "HEAD",
+      "typingCleanedName": "HEAD",
+      "cleanedName": "HEAD"
+    },
+    {
+      "rawName": "Head",
+      "typingCleanedName": "Head",
+      "cleanedName": "Head"
+    },
+    {
+      "rawName": "hEaD",
+      "typingCleanedName": "hEaD",
+      "cleanedName": "hEaD"
+    },
+    {
+      "rawName": "a@b",
+      "typingCleanedName": "a@b",
+      "cleanedName": "a@b"
+    },
+    {
+      "rawName": "@{",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "@@",
+      "typingCleanedName": "@@",
+      "cleanedName": "@@"
+    },
+    {
+      "rawName": "@@@{",
+      "typingCleanedName": "@@",
+      "cleanedName": "@@"
+    },
+    {
+      "rawName": "{@",
+      "typingCleanedName": "{@",
+      "cleanedName": "{@"
+    },
+    {
+      "rawName": "a{b",
+      "typingCleanedName": "a{b",
+      "cleanedName": "a{b"
+    },
+    {
+      "rawName": "a b",
+      "typingCleanedName": "a-b",
+      "cleanedName": "a-b"
+    },
+    {
+      "rawName": "a  b",
+      "typingCleanedName": "a-b",
+      "cleanedName": "a-b"
+    },
+    {
+      "rawName": " a",
+      "typingCleanedName": "-a",
+      "cleanedName": "-a"
+    },
+    {
+      "rawName": "a ",
+      "typingCleanedName": "a-",
+      "cleanedName": "a-"
+    },
+    {
+      "rawName": "a  ",
+      "typingCleanedName": "a-",
+      "cleanedName": "a-"
+    },
+    {
+      "rawName": "中文 分支",
+      "typingCleanedName": "中文-分支",
+      "cleanedName": "中文-分支"
+    },
+    {
+      "rawName": "中/文",
+      "typingCleanedName": "中/文",
+      "cleanedName": "中/文"
+    },
+    {
+      "rawName": "a b",
+      "typingCleanedName": "a b",
+      "cleanedName": "a b"
+    },
+    {
+      "rawName": "a ",
+      "typingCleanedName": "a ",
+      "cleanedName": "a "
+    },
+    {
+      "rawName": "feature/foo-bar",
+      "typingCleanedName": "feature/foo-bar",
+      "cleanedName": "feature/foo-bar"
+    },
+    {
+      "rawName": "x/y/z",
+      "typingCleanedName": "x/y/z",
+      "cleanedName": "x/y/z"
+    },
+    {
+      "rawName": "x/y/",
+      "typingCleanedName": "x/y/",
+      "cleanedName": "x/y"
+    },
+    {
+      "rawName": "x/.y/z",
+      "typingCleanedName": "x/y/z",
+      "cleanedName": "x/y/z"
+    },
+    {
+      "rawName": "x/y./z",
+      "typingCleanedName": "x/y/z",
+      "cleanedName": "x/y/z"
+    },
+    {
+      "rawName": "release-1.0.lock",
+      "typingCleanedName": "release-1.0.lock",
+      "cleanedName": "release-1.0"
+    },
+    {
+      "rawName": "release-1.0.",
+      "typingCleanedName": "release-1.0.",
+      "cleanedName": "release-1.0"
+    },
+    {
+      "rawName": "release-1.0/",
+      "typingCleanedName": "release-1.0/",
+      "cleanedName": "release-1.0"
+    },
+    {
+      "rawName": "a.b",
+      "typingCleanedName": "a.b",
+      "cleanedName": "a.b"
+    },
+    {
+      "rawName": "a/b",
+      "typingCleanedName": "a/b",
+      "cleanedName": "a/b"
+    },
+    {
+      "rawName": "a//b",
+      "typingCleanedName": "a/b",
+      "cleanedName": "a/b"
+    },
+    {
+      "rawName": "a///b",
+      "typingCleanedName": "a/b",
+      "cleanedName": "a/b"
+    },
+    {
+      "rawName": "a////b",
+      "typingCleanedName": "a/b",
+      "cleanedName": "a/b"
+    },
+    {
+      "rawName": "a/./b",
+      "typingCleanedName": "a//b",
+      "cleanedName": "a//b"
+    },
+    {
+      "rawName": "a/../b",
+      "typingCleanedName": "a//b",
+      "cleanedName": "a//b"
+    },
+    {
+      "rawName": ".a.b",
+      "typingCleanedName": "a.b",
+      "cleanedName": "a.b"
+    },
+    {
+      "rawName": "a.b.",
+      "typingCleanedName": "a.b.",
+      "cleanedName": "a.b"
+    },
+    {
+      "rawName": "~",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "^",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "?",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "*",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "\"",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "[",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "\\",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "]",
+      "typingCleanedName": "]",
+      "cleanedName": "]"
+    },
+    {
+      "rawName": "a]b",
+      "typingCleanedName": "a]b",
+      "cleanedName": "a]b"
+    },
+    {
+      "rawName": "a{b}",
+      "typingCleanedName": "a{b}",
+      "cleanedName": "a{b}"
+    },
+    {
+      "rawName": "a}b{",
+      "typingCleanedName": "a}b{",
+      "cleanedName": "a}b{"
+    },
+    {
+      "rawName": "-",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": ".",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "/",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "feature/.hidden",
+      "typingCleanedName": "feature/hidden",
+      "cleanedName": "feature/hidden"
+    },
+    {
+      "rawName": "feature/a.lock",
+      "typingCleanedName": "feature/a.lock",
+      "cleanedName": "feature/a"
+    },
+    {
+      "rawName": "feature/a.lock/b",
+      "typingCleanedName": "feature/a.lock/b",
+      "cleanedName": "feature/a.lock/b"
+    },
+    {
+      "rawName": "tab\there",
+      "typingCleanedName": "tab-here",
+      "cleanedName": "tab-here"
+    },
+    {
+      "rawName": "  lead",
+      "typingCleanedName": "-lead",
+      "cleanedName": "-lead"
+    },
+    {
+      "rawName": "trail  ",
+      "typingCleanedName": "trail-",
+      "cleanedName": "trail-"
+    },
+    {
+      "rawName": "\u0001}\"_\t{",
+      "typingCleanedName": "-}_-{-",
+      "cleanedName": "-}_-{-"
+    },
+    {
+      "rawName": "[{~\\",
+      "typingCleanedName": "{",
+      "cleanedName": "{"
+    },
+    {
+      "rawName": "_@*b中[}@\\}\n[中\té b",
+      "typingCleanedName": "_@b中}@}-中-é b",
+      "cleanedName": "_@b中}@}-中-é b"
+    },
+    {
+      "rawName": "\ré-:\n?",
+      "typingCleanedName": "--é--",
+      "cleanedName": "--é--"
+    },
+    {
+      "rawName": "\n\u0001\\a中^*^\u0001\u0001~\t^",
+      "typingCleanedName": "--a中---",
+      "cleanedName": "--a中---"
+    },
+    {
+      "rawName": "",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "b\"{\\",
+      "typingCleanedName": "b{",
+      "cleanedName": "b{"
+    },
+    {
+      "rawName": "\u0001中\n.^^{ *\t",
+      "typingCleanedName": "-中-.{--",
+      "cleanedName": "-中-.{--"
+    },
+    {
+      "rawName": "}",
+      "typingCleanedName": "}",
+      "cleanedName": "}"
+    },
+    {
+      "rawName": "?é?\"_{b[\"~",
+      "typingCleanedName": "é_{b",
+      "cleanedName": "é_{b"
+    },
+    {
+      "rawName": "b@}:@é^\"-}\r* ?*a",
+      "typingCleanedName": "b@}@é-}- a",
+      "cleanedName": "b@}@é-}- a"
+    },
+    {
+      "rawName": "\r*\"\u0001",
+      "typingCleanedName": "--",
+      "cleanedName": "--"
+    },
+    {
+      "rawName": "é",
+      "typingCleanedName": "é",
+      "cleanedName": "é"
+    },
+    {
+      "rawName": "中:中??@\n~*[b ",
+      "typingCleanedName": "中中@--b ",
+      "cleanedName": "中中@--b "
+    },
+    {
+      "rawName": "~}{a~\t \\\"",
+      "typingCleanedName": "}{a- ",
+      "cleanedName": "}{a- "
+    },
+    {
+      "rawName": "",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "^\u0001: ~中.^?[",
+      "typingCleanedName": "- 中.",
+      "cleanedName": "- 中"
+    },
+    {
+      "rawName": "\u0001bé \n*é@^*._@?a.",
+      "typingCleanedName": "-bé -é@._@a.",
+      "cleanedName": "-bé -é@._@a"
+    },
+    {
+      "rawName": "{[\t中",
+      "typingCleanedName": "{--中",
+      "cleanedName": "{--中"
+    },
+    {
+      "rawName": "/_*~",
+      "typingCleanedName": "_",
+      "cleanedName": "_"
+    },
+    {
+      "rawName": "?:_中_}\n\\\": ::\t-é",
+      "typingCleanedName": "_中_}-- --é",
+      "cleanedName": "_中_}-- --é"
+    },
+    {
+      "rawName": "中^@é~~中",
+      "typingCleanedName": "中@é中",
+      "cleanedName": "中@é中"
+    },
+    {
+      "rawName": "?*",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "\u0001",
+      "typingCleanedName": "-",
+      "cleanedName": "-"
+    },
+    {
+      "rawName": "*}[: \"}@",
+      "typingCleanedName": "}- }@",
+      "cleanedName": "}- }@"
+    },
+    {
+      "rawName": "\u0001a{ }?\\@\t* \t.{\u0001\t",
+      "typingCleanedName": "-a{-}@----.{--",
+      "cleanedName": "-a{-}@----.{--"
+    },
+    {
+      "rawName": "@{b}\n-_\u0001.\u0001-\n\"\\[_",
+      "typingCleanedName": "b}--_--.---_",
+      "cleanedName": "b}--_--.---_"
+    },
+    {
+      "rawName": "\n?-",
+      "typingCleanedName": "--",
+      "cleanedName": "--"
+    },
+    {
+      "rawName": "/\n\n{ ",
+      "typingCleanedName": "--{-",
+      "cleanedName": "--{-"
+    },
+    {
+      "rawName": "_ \n-[.@[a[",
+      "typingCleanedName": "_---.@a",
+      "cleanedName": "_---.@a"
+    },
+    {
+      "rawName": "b\\bé_",
+      "typingCleanedName": "bbé_",
+      "cleanedName": "bbé_"
+    },
+    {
+      "rawName": ".~b",
+      "typingCleanedName": "b",
+      "cleanedName": "b"
+    },
+    {
+      "rawName": "~中\ta*\\ }.\t: é",
+      "typingCleanedName": "中-a- }.--é",
+      "cleanedName": "中-a- }.--é"
+    },
+    {
+      "rawName": "-\"\t*\\_\"\u0001b:é",
+      "typingCleanedName": "---_-bé",
+      "cleanedName": "---_-bé"
+    },
+    {
+      "rawName": "b*_ /\r éé{\n}",
+      "typingCleanedName": "b_-/--éé{-}",
+      "cleanedName": "b_-/--éé{-}"
+    },
+    {
+      "rawName": "?/\\{^@~",
+      "typingCleanedName": "/{@",
+      "cleanedName": "/{@"
+    },
+    {
+      "rawName": ":@a\"-中",
+      "typingCleanedName": "@a-中",
+      "cleanedName": "@a-中"
+    },
+    {
+      "rawName": "?}*_/\r",
+      "typingCleanedName": "}_/-",
+      "cleanedName": "}_/-"
+    },
+    {
+      "rawName": "@\t\"a",
+      "typingCleanedName": "@-a",
+      "cleanedName": "@-a"
+    },
+    {
+      "rawName": "\t@/\\@}[\u0001^",
+      "typingCleanedName": "-@/@}-",
+      "cleanedName": "-@/@}-"
+    },
+    {
+      "rawName": "{{:{^\rb\\\ta\u0001\t}\".{中",
+      "typingCleanedName": "{{{-b-a--}.{中",
+      "cleanedName": "{{{-b-a--}.{中"
+    },
+    {
+      "rawName": "b\\\r\n}\"{_{/",
+      "typingCleanedName": "b--}{_{/",
+      "cleanedName": "b--}{_{"
+    },
+    {
+      "rawName": "/中.\u0001\r }é\t_{\r\\-\\?*",
+      "typingCleanedName": "中.---}é-_{--",
+      "cleanedName": "中.---}é-_{--"
+    },
+    {
+      "rawName": "a/é*\"*--*.}@_\nb",
+      "typingCleanedName": "a/é--.}@_-b",
+      "cleanedName": "a/é--.}@_-b"
+    },
+    {
+      "rawName": "^_@{\r\n",
+      "typingCleanedName": "-_--",
+      "cleanedName": "-_--"
+    },
+    {
+      "rawName": "é\t}~[中\\é?",
+      "typingCleanedName": "é-}中é",
+      "cleanedName": "é-}中é"
+    },
+    {
+      "rawName": " /[\n@-}{中-é?.?中b",
+      "typingCleanedName": "-/-@-}{中-é.中b",
+      "cleanedName": "-/-@-}{中-é.中b"
+    },
+    {
+      "rawName": "b*@",
+      "typingCleanedName": "b@",
+      "cleanedName": "b@"
+    },
+    {
+      "rawName": "\r\n.:\u0001^^\n{ ^{}",
+      "typingCleanedName": "--.--{ {}",
+      "cleanedName": "--.--{ {}"
+    },
+    {
+      "rawName": "~[\u0001\"/\r \r?a\u0001\t{中",
+      "typingCleanedName": "--/---a--{中",
+      "cleanedName": "--/---a--{中"
+    },
+    {
+      "rawName": "\"[.中\t}-\r*\\-~*\t",
+      "typingCleanedName": ".-中-}----",
+      "cleanedName": ".-中-}----"
+    },
+    {
+      "rawName": "**/~ba:",
+      "typingCleanedName": "/ba",
+      "cleanedName": "/ba"
+    },
+    {
+      "rawName": "/:b\t ~",
+      "typingCleanedName": "-/b--",
+      "cleanedName": "-/b--"
+    },
+    {
+      "rawName": "^é:b^/*^b*",
+      "typingCleanedName": "éb/b",
+      "cleanedName": "éb/b"
+    },
+    {
+      "rawName": "\\\u0001_\u0001~\u0001\n\"\u0001.*}~ _",
+      "typingCleanedName": "-_-----.}-_",
+      "cleanedName": "-_-----.}-_"
+    },
+    {
+      "rawName": "\t b\\_é",
+      "typingCleanedName": "----b_é",
+      "cleanedName": "----b_é"
+    },
+    {
+      "rawName": "/\\:b \r.\"*",
+      "typingCleanedName": "-b -.",
+      "cleanedName": "-b -"
+    },
+    {
+      "rawName": "{",
+      "typingCleanedName": "{",
+      "cleanedName": "{"
+    },
+    {
+      "rawName": "~\t{@??@\n\u0001",
+      "typingCleanedName": "-{@-@--",
+      "cleanedName": "-{@-@--"
+    },
+    {
+      "rawName": ".",
+      "typingCleanedName": "-",
+      "cleanedName": "-"
+    },
+    {
+      "rawName": "a-^-.\\",
+      "typingCleanedName": "a--.",
+      "cleanedName": "a--"
+    },
+    {
+      "rawName": "é-\u0001[~._/:-",
+      "typingCleanedName": "é--._/-",
+      "cleanedName": "é--._/-"
+    },
+    {
+      "rawName": "{[a:/\t.:\" ",
+      "typingCleanedName": "{a/-.-",
+      "cleanedName": "{a/-.-"
+    },
+    {
+      "rawName": "[\n\r[[*\u0001é~_{?",
+      "typingCleanedName": "---é_{",
+      "cleanedName": "---é_{"
+    },
+    {
+      "rawName": "\r 中^_é^",
+      "typingCleanedName": "--中_é",
+      "cleanedName": "--中_é"
+    },
+    {
+      "rawName": "@.}.\r\n",
+      "typingCleanedName": "-@.}.--",
+      "cleanedName": "-@.}.--"
+    },
+    {
+      "rawName": "/中\t*\"_\\b{",
+      "typingCleanedName": "中-_b{",
+      "cleanedName": "中-_b{"
+    },
+    {
+      "rawName": "*[{",
+      "typingCleanedName": "{",
+      "cleanedName": "{"
+    },
+    {
+      "rawName": "\u0001 *\n**/\r_?",
+      "typingCleanedName": "---/-_",
+      "cleanedName": "---/-_"
+    },
+    {
+      "rawName": "\r -}-@\n_\r a^[\u0001?",
+      "typingCleanedName": "---}-@-_--a-",
+      "cleanedName": "---}-@-_--a-"
+    },
+    {
+      "rawName": " \t@\u0001\n-a~*",
+      "typingCleanedName": " -@---a",
+      "cleanedName": " -@---a"
+    },
+    {
+      "rawName": "@~b中中* é{\"[^ -..",
+      "typingCleanedName": "@b中中 é{--.",
+      "cleanedName": "@b中中 é{--"
+    },
+    {
+      "rawName": "} ",
+      "typingCleanedName": "}-",
+      "cleanedName": "}-"
+    },
+    {
+      "rawName": "ab_*./",
+      "typingCleanedName": "ab_/",
+      "cleanedName": "ab_"
+    },
+    {
+      "rawName": "}\n 中\\é:",
+      "typingCleanedName": "}- 中é",
+      "cleanedName": "}- 中é"
+    },
+    {
+      "rawName": "\réaé\"é ",
+      "typingCleanedName": "-éaéé-",
+      "cleanedName": "-éaéé-"
+    },
+    {
+      "rawName": "\u0001 :\n中~中",
+      "typingCleanedName": "---中中",
+      "cleanedName": "---中中"
+    },
+    {
+      "rawName": "\u0001?@**}^",
+      "typingCleanedName": "-@-}",
+      "cleanedName": "-@-}"
+    },
+    {
+      "rawName": ":中__",
+      "typingCleanedName": "中__",
+      "cleanedName": "中__"
+    },
+    {
+      "rawName": "*\\\n*\t a@\u0001}\téé*",
+      "typingCleanedName": "----a@-}-éé",
+      "cleanedName": "----a@-}-éé"
+    },
+    {
+      "rawName": "?中  \r@\r\\-\"",
+      "typingCleanedName": "中-  -@----",
+      "cleanedName": "中-  -@----"
+    },
+    {
+      "rawName": "* /\\?@é\"\t\"\n",
+      "typingCleanedName": " /@é--",
+      "cleanedName": " /@é--"
+    },
+    {
+      "rawName": "?é? \"/:/ {",
+      "typingCleanedName": "-é //--{",
+      "cleanedName": "-é //--{"
+    },
+    {
+      "rawName": "~_^.~b:aa ~",
+      "typingCleanedName": "_.baa -",
+      "cleanedName": "_.baa -"
+    },
+    {
+      "rawName": " ?\"\t ~\\a",
+      "typingCleanedName": " - a",
+      "cleanedName": " - a"
+    },
+    {
+      "rawName": " }  \n/",
+      "typingCleanedName": " }- -/",
+      "cleanedName": " }- -"
+    },
+    {
+      "rawName": "}[{*@?\\ é*?a?\t",
+      "typingCleanedName": "}{@ éa-",
+      "cleanedName": "}{@ éa-"
+    },
+    {
+      "rawName": "\"\"}[\"/é*\u0001.?{\t ^\n",
+      "typingCleanedName": "}/é-.{-- -",
+      "cleanedName": "}/é-.{-- -"
+    },
+    {
+      "rawName": " _é}aé@[",
+      "typingCleanedName": " _-é}a-é@",
+      "cleanedName": " _-é}a-é@"
+    },
+    {
+      "rawName": "\u0001\na[}",
+      "typingCleanedName": "--a-}",
+      "cleanedName": "--a-}"
+    },
+    {
+      "rawName": "\n 中a @_ }:\u0001ab?\"",
+      "typingCleanedName": "--中-a-@_-}-ab",
+      "cleanedName": "--中-a-@_-}-ab"
+    },
+    {
+      "rawName": "\r\\\t{b\u0001é//\n}",
+      "typingCleanedName": "--{b-é/-}",
+      "cleanedName": "--{b-é/-}"
+    },
+    {
+      "rawName": " \n } é@^\n\t[",
+      "typingCleanedName": "-- }-é@--",
+      "cleanedName": "-- }-é@--"
+    },
+    {
+      "rawName": " ?\né",
+      "typingCleanedName": "---é",
+      "cleanedName": "---é"
+    },
+    {
+      "rawName": "-*\r}a\t:^?-?~a",
+      "typingCleanedName": "-}a--a",
+      "cleanedName": "-}a--a"
+    },
+    {
+      "rawName": "b?@\\  -\r\n[ ",
+      "typingCleanedName": "b@---- ",
+      "cleanedName": "b@---- "
+    },
+    {
+      "rawName": "",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": ":é/a\t?@",
+      "typingCleanedName": "é/a-@",
+      "cleanedName": "é/a-@"
+    },
+    {
+      "rawName": "\u0001{:?b@.@\té\":..}",
+      "typingCleanedName": "-{b@.@-é.-}",
+      "cleanedName": "-{b@.@-é.-}"
+    },
+    {
+      "rawName": "中?[*??..-.bb [\n中",
+      "typingCleanedName": "中.-.bb -中",
+      "cleanedName": "中.-.bb -中"
+    },
+    {
+      "rawName": ". b[:\\_\ré中",
+      "typingCleanedName": " b_-é中",
+      "cleanedName": " b_-é中"
+    },
+    {
+      "rawName": "é{bb中\r^*[^b\n",
+      "typingCleanedName": "é{bb中-b-",
+      "cleanedName": "é{bb中-b-"
+    },
+    {
+      "rawName": "\u0001中\r\n",
+      "typingCleanedName": "-中--",
+      "cleanedName": "-中--"
+    },
+    {
+      "rawName": "{中a_:中@\\:.{é\n",
+      "typingCleanedName": "{中a_中@-.{é-",
+      "cleanedName": "{中a_中@-.{é-"
+    },
+    {
+      "rawName": "\\.[\rb\" :?\u0001中\"@ ",
+      "typingCleanedName": ".-b--中-@ ",
+      "cleanedName": ".-b--中-@ "
+    },
+    {
+      "rawName": "_[\u0001*./*@ {b*.a^",
+      "typingCleanedName": "_-/-@-{b.a",
+      "cleanedName": "_-/-@-{b.a"
+    },
+    {
+      "rawName": "*\n{\ta\":éé a@*:",
+      "typingCleanedName": "-{-aéé a@-",
+      "cleanedName": "-{-aéé a@-"
+    },
+    {
+      "rawName": "a[{é{@b中 \u0001*\u0001中\"}",
+      "typingCleanedName": "a{é{@b中---中}",
+      "cleanedName": "a{é{@b中---中}"
+    },
+    {
+      "rawName": "/??}\u0001~\\\té~a~\u0001@bé",
+      "typingCleanedName": "}--éa-@bé",
+      "cleanedName": "}--éa-@bé"
+    },
+    {
+      "rawName": "/@中\u0001\"",
+      "typingCleanedName": "@中-",
+      "cleanedName": "@中-"
+    },
+    {
+      "rawName": "",
+      "typingCleanedName": "",
+      "cleanedName": ""
+    },
+    {
+      "rawName": "é\\éé",
+      "typingCleanedName": "ééé",
+      "cleanedName": "ééé"
+    },
+    {
+      "rawName": "\u0001a:\u0001[",
+      "typingCleanedName": "-a-",
+      "cleanedName": "-a-"
+    },
+    {
+      "rawName": "*-中}\\-.-^ ",
+      "typingCleanedName": "-中}-.--",
+      "cleanedName": "-中}-.--"
+    },
+    {
+      "rawName": "b}_\t{ :\u0001\"\n",
+      "typingCleanedName": "b}_-{ --",
+      "cleanedName": "b}_-{ --"
+    },
+    {
+      "rawName": "{\r}[{{中?\"中\r\\\u0001}é?",
+      "typingCleanedName": "{-}{{中中--}é",
+      "cleanedName": "{-}{{中中--}é"
+    },
+    {
+      "rawName": "}{/\n^?@_\"\\",
+      "typingCleanedName": "}{/--@_",
+      "cleanedName": "}{/--@_"
+    },
+    {
+      "rawName": "\"\tb\"?{\"",
+      "typingCleanedName": "-b-{",
+      "cleanedName": "-b-{"
+    },
+    {
+      "rawName": "^\"\u0001a/}/_} *.é~* ",
+      "typingCleanedName": "-a/}/_} .é-",
+      "cleanedName": "-a/}/_} .é-"
+    }
+  ]
+}

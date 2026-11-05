@@ -396,6 +396,11 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var isPerformingBranchOperation = false
     @Published package private(set) var isCloningRepository = false
     @Published package private(set) var availableRepositoryRoots: [URL] = []
+    @Published package private(set) var repositoryRootsGeneration: UInt64 = 0
+    /// Resolve once per ordered root list, away from row rendering.
+    package func repositoryColors(for roots: [URL]) async -> GitRepositoryColors? {
+        await service.repositoryColors(roots)
+    }
     /// Roots whose latest status read failed; their last confirmed rows remain visible.
     @Published package private(set) var failedStatusRepositoryRoots: Set<URL> = []
     private var confirmedStatusBranches: [URL: String] = [:]
@@ -482,6 +487,9 @@ package final class GitFeatureModel: ObservableObject {
     private var worktreeCommitFeatures: [URL: GitFeatureModel] = [:]
     private var worktreeCommitSubscriptions: [URL: AnyCancellable] = [:]
     private static let gitHistoryPageSize = 100
+    /// Upper bound on the pages a blame/editor jump reads while locating a
+    /// commit outside the loaded window; matches Core's default budget.
+    private static let gitHistoryLocateMaxPages = 20
     private var gitHistoryCursor: String?
     private var gitHistoryGeneration = UUID()
     private var activeGitHistoryOperationIDs: Set<String> = []
@@ -630,6 +638,7 @@ package final class GitFeatureModel: ObservableObject {
         }
         scoped.gitRepositoryRoot = root
         scoped.availableRepositoryRoots = [root]
+        scoped.repositoryRootsGeneration &+= 1
         scoped.currentBranch = worktree.branchName ?? "Detached HEAD"
         if let inspection = gitWorktreeInspection, inspection.worktreeID == worktree.id, inspection.hasLoadedChanges {
             scoped.gitChanges = inspection.changes
@@ -734,6 +743,7 @@ package final class GitFeatureModel: ObservableObject {
         worktreeChangesRequestGeneration &+= 1
         gitRepositoryRoot = nil
         availableRepositoryRoots = []
+        repositoryRootsGeneration &+= 1
         requestedRepositoryRoot = nil
         requestedRepositoryReference = nil
         currentBranch = "No Git"
@@ -887,6 +897,7 @@ package final class GitFeatureModel: ObservableObject {
               workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
         if availableRepositoryRoots != repositoryRoots {
             availableRepositoryRoots = repositoryRoots
+            repositoryRootsGeneration &+= 1
             didChange = true
             historyContextChanged = true
         }
@@ -2990,6 +3001,10 @@ package final class GitFeatureModel: ObservableObject {
         return blame
     }
 
+    /// Selects a commit referenced by blame or the editor. Commits already in
+    /// the loaded window are selected directly; otherwise Core walks forward
+    /// from the cursor the list already owns, within a bounded page budget, and
+    /// the commits it read are appended before the target is selected.
     package func showGitCommit(_ hash: String) async {
         guard gitRepositoryRoot != nil, !hash.allSatisfy({ $0 == "0" }) else { return }
         if gitCommits.isEmpty {
@@ -2999,12 +3014,64 @@ package final class GitFeatureModel: ObservableObject {
             await selectGitCommit(commit)
             return
         }
+        // The loaded window cannot reach the commit. Reading forward from its
+        // cursor appends exactly the history between the window's end and the
+        // target, so the commit keeps its normal list position instead of being
+        // inserted as an out-of-order first row.
         guard let gitRepositoryRoot,
-              let loaded = await service.commit(withHash: hash, at: gitRepositoryRoot) else { return }
-        if !gitCommits.contains(where: { $0.hash == loaded.hash }) {
-            gitCommits.insert(loaded, at: 0)
+              let cursor = gitHistoryCursor,
+              canLoadMoreGitHistory,
+              !isLoadingGitHistory,
+              !isLoadingMoreGitHistory else { return }
+        let generation = gitHistoryGeneration
+        let selectedReference = selectedGitReference
+        let showsAllReferences = isShowingAllGitReferences
+        let historyReference = showsAllReferences
+            ? nil
+            : (selectedReference ?? currentCheckoutHistoryReference)
+        let operationID = gitHistoryOperationID(kind: "locate", generation: generation)
+        activeGitHistoryOperationIDs.insert(operationID)
+        isLoadingMoreGitHistory = true
+        gitHistoryCursor = nil
+        let result = await service.historyLocate(
+            at: gitRepositoryRoot,
+            reference: historyReference,
+            target: hash,
+            cursor: cursor,
+            limit: Self.gitHistoryPageSize,
+            maxPages: Self.gitHistoryLocateMaxPages,
+            operationID: operationID
+        )
+        activeGitHistoryOperationIDs.remove(operationID)
+        guard gitHistoryGeneration == generation,
+              self.gitRepositoryRoot == gitRepositoryRoot,
+              selectedGitReference == selectedReference,
+              isShowingAllGitReferences == showsAllReferences else {
+            if let nextCursor = result?.nextCursor {
+                service.closeHistoryCursor(at: gitRepositoryRoot, cursor: nextCursor)
+            }
+            return
         }
-        await selectGitCommit(loaded)
+        isLoadingMoreGitHistory = false
+        guard let result else {
+            // A failed read is not a miss. Keep the existing failure signal so
+            // the list retries instead of silently treating the commit as absent.
+            if !Task.isCancelled { gitHistoryPageFailed = true }
+            return
+        }
+
+        var loadedHashes = Set(gitCommits.map(\.hash))
+        let fresh = result.commits.filter { loadedHashes.insert($0.hash).inserted }
+        gitCommits.append(contentsOf: fresh)
+        canLoadMoreGitHistory = result.hasMore && result.nextCursor != nil && !fresh.isEmpty
+        gitHistoryCursor = canLoadMoreGitHistory ? result.nextCursor : nil
+        if !canLoadMoreGitHistory, let nextCursor = result.nextCursor {
+            service.closeHistoryCursor(at: gitRepositoryRoot, cursor: nextCursor)
+        }
+        guard result.found,
+              let located = result.commits.first(where: { $0.hash == hash })
+                ?? gitCommits.first(where: { $0.hash == hash }) else { return }
+        await selectGitCommit(located)
     }
 
     package func showComparisonWithWorkingTree(for reference: GitReference, session: GitRepositoryDiffSession? = nil, repositoryRoot: URL? = nil) async {
@@ -3704,6 +3771,22 @@ package final class GitFeatureModel: ObservableObject {
             ? L10n.string("Repaired worktree records")
             : trimmedMessage(result))
         await refreshWorktrees()
+    }
+
+    /// Core-owned cleanup and conflict validation for the new-branch dialog.
+    /// The references are the facts already loaded for the current repository;
+    /// Core never runs Git for this preview.
+    package func branchNamePreview(
+        rawName: String,
+        requireName: Bool,
+        reference: GitReference?
+    ) async -> GitBranchNamePreview? {
+        await service.branchNamePreview(
+            rawName: rawName,
+            requireName: requireName,
+            references: gitReferences,
+            reference: reference
+        )
     }
 
     package func createBranch(named rawName: String, from reference: GitReference, checkout: Bool) async {

@@ -1,6 +1,18 @@
 import Foundation
 
 extension RustCoreBridge: RunLaunchEnvironmentResolving {
+    private struct SearchPathPayload: Encodable {
+        let existing: [String]
+        let candidates: [RunSearchPathCandidate]
+        let caseInsensitive = false
+    }
+
+    func resolveSearchPath(existing: [String], candidates: [RunSearchPathCandidate]) throws -> [String] {
+        try executeResult(command: "execution.resolveSearchPath", payload: SearchPathPayload(
+            existing: existing, candidates: candidates
+        )).get()
+    }
+
     private struct LaunchEnvironmentPayload: Encodable {
         let toolchain: String?
         let javaHome: String?

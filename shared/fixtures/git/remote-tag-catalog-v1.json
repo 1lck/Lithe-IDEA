@@ -1,0 +1,10 @@
+{
+  "expected": {
+    "remotes": [{ "name": "origin", "url": "https://example.invalid/team path" }],
+    "tags": [
+      { "name": "nested", "isAnnotated": true, "message": "nested subject" },
+      { "name": "shared", "isAnnotated": true, "message": "annotated subject" },
+      { "name": "v-light", "isAnnotated": false }
+    ]
+  }
+}

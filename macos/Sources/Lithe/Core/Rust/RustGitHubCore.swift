@@ -4,6 +4,10 @@ import LitheCoreContracts
 struct RustGitHubCore: GitHubCorePlanning, Sendable {
     let bridge: RustCoreBridge
 
+    func deviceAuthorizationTransition(_ request: GitHubDeviceTransitionRequest) throws -> GitHubDeviceTransition {
+        try bridge.executeResult(command: "github.deviceAuthorizationTransition", payload: request).get()
+    }
+
     func parseRemote(_ remoteURL: String) throws -> GitHubRepository {
         try bridge.githubParseRemote(remoteURL).get()
     }

@@ -59,6 +59,11 @@ module and Bun cases by their JUnit class or suite.
 
 History-rewrite integration tests create and rewrite real repositories with many
 Git subprocesses, sometimes rebuilding several repositories in one case. The
+Fetch configuration integration case also gets a 30-second process budget: it
+creates a real remote and exercises multiple configuration and dry-run Fetch
+scenarios, taking 12.5 seconds on Lithe-dev. Its individual Core requests keep
+their own five-second deadlines.
+The
 SharedRust lane assigns the `tests::git_history_rewrite::` module and the older
 `tests::git::git_write_squashes_`, `git_write_deletes_a_local_commit_`, and
 `git_write_edits_a_local_commit_message_` scenarios a 30-second process budget.
@@ -85,6 +90,12 @@ and `shelf_roundtrip_preserves_staged_rename_with_recreated_source`) use the sam
 cases measured 51.8 and 54.9 seconds on Windows. `patch_exchange_distinguishes_sources_and_commit_direction`
 gets 30 seconds after its real-Git source exports passed assertions but took
 15.1 seconds under the default 15-second process budget.
+`shelf_clean_and_retry_restore_preserve_staged_working_and_untracked` has a
+60-second SharedRust allowance: GitHub run 41846985240 hit the 15-second
+watchdog twice, while an isolated Windows cloud run completed all assertions in
+17.025 seconds. It captures and cleans staged and working layers, then restores
+and retries both; each Core request retains its own five-second deadline and
+the suite deadline is unchanged.
 Each patch request still has its own 15-second deadline, and the enclosing
 suite deadline remains unchanged. Both SharedRust and the real-JDT lane use
 these narrowly scoped budgets. Core rebase requests use a nested 20-second

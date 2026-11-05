@@ -1,0 +1,16 @@
+{
+  "cases": [
+    {"name":"initial clamp", "request":{"event":"start","expiresIn":0,"interval":0,"elapsedMilliseconds":0}, "expected":{"action":"wait","intervalSeconds":1,"waitMilliseconds":1000}},
+    {"name":"pending retains interval", "request":{"event":"pending","expiresIn":120,"interval":5,"elapsedMilliseconds":6000}, "expected":{"action":"wait","intervalSeconds":5,"waitMilliseconds":5000}},
+    {"name":"slow down increases interval", "request":{"event":"slowDown","expiresIn":120,"interval":5,"suggestedInterval":10,"elapsedMilliseconds":6000}, "expected":{"action":"wait","intervalSeconds":15,"waitMilliseconds":15000}},
+    {"name":"bounded slow down", "request":{"event":"slowDown","expiresIn":120,"interval":59,"suggestedInterval":18446744073709551615,"elapsedMilliseconds":1000}, "expected":{"action":"wait","intervalSeconds":86400,"waitMilliseconds":119000}},
+    {"name":"slow down above previous limit", "request":{"event":"slowDown","expiresIn":120,"interval":60,"elapsedMilliseconds":1000}, "expected":{"action":"wait","intervalSeconds":65,"waitMilliseconds":65000}},
+    {"name":"do not wait past expiration", "request":{"event":"pending","expiresIn":10,"interval":5,"elapsedMilliseconds":8001}, "expected":{"action":"wait","intervalSeconds":5,"waitMilliseconds":1999}},
+    {"name":"poll before expiration", "request":{"event":"tick","expiresIn":10,"interval":5,"elapsedMilliseconds":5000}, "expected":{"action":"poll","intervalSeconds":5,"waitMilliseconds":0}},
+    {"name":"expire at deadline", "request":{"event":"tick","expiresIn":10,"interval":5,"elapsedMilliseconds":10000}, "expected":{"action":"expired","intervalSeconds":5,"waitMilliseconds":0}},
+    {"name":"server authorization is authoritative", "request":{"event":"authorized","expiresIn":10,"interval":5,"elapsedMilliseconds":11000}, "expected":{"action":"authorize","intervalSeconds":5,"waitMilliseconds":0}},
+    {"name":"server denial", "request":{"event":"denied","expiresIn":10,"interval":5,"elapsedMilliseconds":1000}, "expected":{"action":"denied","intervalSeconds":5,"waitMilliseconds":0}},
+    {"name":"server expiry", "request":{"event":"expired","expiresIn":10,"interval":5,"elapsedMilliseconds":1000}, "expected":{"action":"expired","intervalSeconds":5,"waitMilliseconds":0}},
+    {"name":"server failure", "request":{"event":"failed","expiresIn":10,"interval":5,"elapsedMilliseconds":1000}, "expected":{"action":"failed","intervalSeconds":5,"waitMilliseconds":0}}
+  ]
+}

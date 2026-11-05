@@ -2746,6 +2746,270 @@ struct GitModuleTests {
         #expect(feature.gitCommits == commits)
     }
 
+    // MARK: - Issue #1662 GIT-16: Core-owned new branch name preview
+
+    @Test
+    func branchNamePreviewUsesLoadedReferencesAndCoreError() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let local = GitReference(fullName: "refs/heads/main", shortName: "main", kind: .local,
+                                 peelsToCommit: true, isCurrent: true, upstreamShortName: nil)
+        let remote = GitReference(fullName: "refs/remotes/origin/feature/a", shortName: "origin/feature/a",
+                                  kind: .remote, peelsToCommit: true, isCurrent: false, upstreamShortName: nil)
+        let recorder = BranchNamePreviewRecorder()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            referencesValue: GitReferenceSnapshot(references: [local, remote]),
+            branchNamePreviewHandler: { rawName, requireName, references, reference in
+                recorder.record(rawName: rawName, requireName: requireName, references: references, reference: reference)
+                return GitBranchNamePreview(
+                    typingCleanedName: "feature-a",
+                    cleanedName: "feature-a",
+                    initialName: "feature/a",
+                    error: GitBranchNameError(
+                        code: .clashesWithBranchPrefix,
+                        name: "feature-a",
+                        branch: "feature"
+                    )
+                )
+            }
+        )))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { true },
+                          notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        #expect(feature.gitReferences.map(\.shortName) == ["main", "origin/feature/a"])
+
+        let preview = await feature.branchNamePreview(rawName: "feature/a ", requireName: false, reference: remote)
+
+        #expect(preview?.typingCleanedName == "feature-a")
+        #expect(preview?.cleanedName == "feature-a")
+        #expect(preview?.initialName == "feature/a")
+        #expect(preview?.error?.code == .clashesWithBranchPrefix)
+        let call = try #require(recorder.recorded.first)
+        #expect(call.rawName == "feature/a ")
+        #expect(!call.requireName)
+        #expect(call.references.map(\.shortName) == ["main", "origin/feature/a"])
+        #expect(call.reference?.fullName == remote.fullName)
+    }
+
+    @Test
+    func branchNameErrorUsesSharedEntriesWithNameBeforeBranch() {
+        #expect(GitBranchNameError(code: .empty).localization.key == "git.log.branchNameEmpty")
+        #expect(GitBranchNameError(code: .empty).localization.arguments.isEmpty)
+        #expect(GitBranchNameError(code: .head).localization.key == "git.log.branchNameHead")
+        #expect(GitBranchNameError(code: .clashesWithRemote, name: "origin/main").localization.key
+            == "git.log.branchNameClashesWithRemote")
+        #expect(GitBranchNameError(code: .clashesWithRemote, name: "origin/main").localization.arguments
+            == ["origin/main"])
+        #expect(GitBranchNameError(code: .clashesWithDirectory, name: "feature").localization.key
+            == "git.log.branchNameClashesWithDirectory")
+        #expect(GitBranchNameError(code: .alreadyExists, name: "main").localization.key
+            == "git.log.branchNameAlreadyExists")
+        #expect(GitBranchNameError(code: .clashesWithBranchPrefix, name: "feature/a", branch: "feature")
+            .localization.key == "git.log.branchNameClashesWithBranchPrefix")
+        #expect(GitBranchNameError(code: .clashesWithBranchPrefix, name: "feature/a", branch: "feature")
+            .localization.arguments == ["feature/a", "feature"])
+    }
+
+    // MARK: - Issue #1662 GIT-17: locating a commit outside the loaded window
+
+    @Test
+    func showGitCommitSelectsLoadedCommitWithoutLocating() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let first = makeTestCommit(hash: "commit-0", subject: "First")
+        let locateRecorder = HistoryLocateRecorder()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            historyPageRequestHandler: { _, cursor, _ in
+                guard cursor == nil else { return nil }
+                return GitHistoryPage(commits: [first], nextCursor: "cursor-1", hasMore: true)
+            },
+            historyLocateHandler: { reference, target, cursor, limit, maxPages in
+                locateRecorder.record(reference: reference, target: target, cursor: cursor, limit: limit, maxPages: maxPages)
+                return nil
+            }
+        )))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { true },
+                          notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        #expect(feature.gitCommits.map(\.hash) == ["commit-0"])
+
+        await feature.showGitCommit("commit-0")
+
+        #expect(feature.selectedGitCommit?.hash == "commit-0")
+        #expect(locateRecorder.recorded.isEmpty)
+    }
+
+    @Test
+    func showGitCommitAppendsLocatedHistoryAndSelectsTarget() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let reference = GitReference(fullName: "refs/heads/main", shortName: "main", kind: .local,
+                                     peelsToCommit: true, isCurrent: true, upstreamShortName: nil)
+        let first = makeTestCommit(hash: "commit-0", subject: "First")
+        let second = makeTestCommit(hash: "commit-1", subject: "Second")
+        let target = makeTestCommit(hash: "commit-5", subject: "Target")
+        let tail = makeTestCommit(hash: "commit-6", subject: "Tail")
+        let locateRecorder = HistoryLocateRecorder()
+        let cursorRecorder = HistoryPageCursorRecorder()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            referencesValue: GitReferenceSnapshot(references: [reference]),
+            historyPageRequestHandler: { _, cursor, _ in
+                cursorRecorder.record(cursor)
+                guard cursor == nil else {
+                    return GitHistoryPage(commits: [tail], nextCursor: nil, hasMore: false)
+                }
+                return GitHistoryPage(commits: [first], nextCursor: "cursor-1", hasMore: true)
+            },
+            historyLocateHandler: { reference, targetHash, cursor, limit, maxPages in
+                locateRecorder.record(reference: reference, target: targetHash, cursor: cursor,
+                                      limit: limit, maxPages: maxPages)
+                return GitHistoryLocateResult(
+                    found: true,
+                    // The already loaded commit must be deduplicated, not repeated.
+                    commits: [first, second, target],
+                    nextCursor: "cursor-2",
+                    hasMore: true,
+                    pagesLoaded: 2
+                )
+            }
+        )))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { true },
+                          notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        await feature.selectGitReference(reference)
+        #expect(feature.gitCommits.map(\.hash) == ["commit-0"])
+
+        await feature.showGitCommit("commit-5")
+
+        #expect(locateRecorder.recorded.count == 1)
+        let call = try #require(locateRecorder.recorded.first)
+        #expect(call.reference?.fullName == "refs/heads/main")
+        #expect(call.target == "commit-5")
+        #expect(call.cursor == "cursor-1")
+        #expect(call.limit == 100)
+        #expect(call.maxPages == 20)
+        #expect(feature.gitCommits.map(\.hash) == ["commit-0", "commit-1", "commit-5"])
+        #expect(feature.selectedGitCommit?.hash == "commit-5")
+        #expect(feature.canLoadMoreGitHistory)
+
+        // The locate result's cursor becomes the list's next page cursor.
+        await feature.loadMoreGitHistory()
+        #expect(cursorRecorder.recorded.last == "cursor-2")
+        #expect(feature.gitCommits.map(\.hash) == ["commit-0", "commit-1", "commit-5", "commit-6"])
+        #expect(!feature.canLoadMoreGitHistory)
+    }
+
+    @Test
+    func showGitCommitWithoutHitAppendsReadPagesWithoutSelectingOrNotifying() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let first = makeTestCommit(hash: "commit-0", subject: "First")
+        let second = makeTestCommit(hash: "commit-1", subject: "Second")
+        var notifications: [String] = []
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            historyPageRequestHandler: { _, cursor, _ in
+                guard cursor == nil else { return nil }
+                return GitHistoryPage(commits: [first], nextCursor: "cursor-1", hasMore: true)
+            },
+            historyLocateHandler: { _, _, _, _, _ in
+                // The page budget is spent without reaching the target.
+                GitHistoryLocateResult(
+                    found: false,
+                    commits: [second],
+                    nextCursor: "cursor-20",
+                    hasMore: true,
+                    pagesLoaded: 20
+                )
+            }
+        )))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { true },
+                          notify: { notifications.append($0) }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        #expect(feature.selectedGitCommit?.hash == "commit-0")
+
+        await feature.showGitCommit("commit-missing")
+
+        #expect(feature.gitCommits.map(\.hash) == ["commit-0", "commit-1"])
+        #expect(feature.selectedGitCommit?.hash == "commit-0")
+        #expect(notifications.isEmpty)
+        #expect(feature.canLoadMoreGitHistory)
+        #expect(!feature.gitHistoryPageFailed)
+    }
+
+    @Test
+    func showGitCommitAfterHistoryIsExhaustedDoesNotSelectOrNotify() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let first = makeTestCommit(hash: "commit-0", subject: "First")
+        let second = makeTestCommit(hash: "commit-1", subject: "Second")
+        let locateRecorder = HistoryLocateRecorder()
+        var notifications: [String] = []
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            historyPageRequestHandler: { _, cursor, _ in
+                guard cursor == nil else { return nil }
+                return GitHistoryPage(commits: [first], nextCursor: "cursor-1", hasMore: true)
+            },
+            historyLocateHandler: { reference, target, cursor, limit, maxPages in
+                locateRecorder.record(reference: reference, target: target, cursor: cursor,
+                                      limit: limit, maxPages: maxPages)
+                // The walk reached the end of history without finding the target.
+                return GitHistoryLocateResult(
+                    found: false,
+                    commits: [second],
+                    nextCursor: nil,
+                    hasMore: false,
+                    pagesLoaded: 3
+                )
+            }
+        )))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { true },
+                          notify: { notifications.append($0) }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+
+        await feature.showGitCommit("commit-missing")
+
+        #expect(feature.gitCommits.map(\.hash) == ["commit-0", "commit-1"])
+        #expect(feature.selectedGitCommit?.hash == "commit-0")
+        #expect(notifications.isEmpty)
+        #expect(!feature.canLoadMoreGitHistory)
+
+        // Exhausted history has no cursor left, so another jump does not read again.
+        await feature.showGitCommit("commit-missing-again")
+        #expect(locateRecorder.recorded.count == 1)
+        #expect(feature.gitCommits.map(\.hash) == ["commit-0", "commit-1"])
+    }
+
+    @Test
+    func showGitCommitReadFailureIsNotTreatedAsMissingCommit() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let first = makeTestCommit(hash: "commit-0", subject: "First")
+        var notifications: [String] = []
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            historyPageRequestHandler: { _, cursor, _ in
+                guard cursor == nil else { return nil }
+                return GitHistoryPage(commits: [first], nextCursor: "cursor-1", hasMore: true)
+            },
+            historyLocateHandler: { _, _, _, _, _ in nil }
+        )))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { true },
+                          notify: { notifications.append($0) }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+
+        await feature.showGitCommit("commit-missing")
+
+        #expect(feature.gitHistoryPageFailed)
+        #expect(feature.gitCommits.map(\.hash) == ["commit-0"])
+        #expect(feature.selectedGitCommit?.hash == "commit-0")
+        #expect(notifications.isEmpty)
+    }
+
     @Test
     func repositoryGraphIsSeparateFromVisiblePagingAndReleasesItsCursor() async {
         let root = URL(fileURLWithPath: "/workspace")
@@ -5346,7 +5610,7 @@ struct GitModuleTests {
 
 
     @Test
-    func workingTreeComparisonMergesTrackedAndUntrackedFiles() async {
+    func workingTreeComparisonUsesTheCoreResultWithoutAnotherSnapshot() async {
         let root = URL(fileURLWithPath: "/workspace")
         let reference = GitReference(
             fullName: "refs/heads/main",
@@ -5373,15 +5637,16 @@ struct GitModuleTests {
             ),
             GitChange(
                 repositoryRoot: root,
-                path: "qa-untracked.txt",
+                path: "must-not-merge.txt",
                 originalPath: nil,
                 indexStatus: "?",
                 workTreeStatus: "?"
             )
         ])
         let trackedComparison = GitBranchComparison(reference: reference, files: [
-            GitBranchComparisonFile(status: "D", path: "src/UserRepository.java"),
-            GitBranchComparisonFile(status: "M", path: "README.md")
+            GitBranchComparisonFile(status: "M", path: "README.md"),
+            GitBranchComparisonFile(status: "A", path: "qa-untracked.txt", isUntracked: true),
+            GitBranchComparisonFile(status: "D", path: "src/UserRepository.java")
         ])
         let service = GitService(operations: TestGitOperations(
             snapshotValue: snapshot,
@@ -6296,6 +6561,72 @@ private final class TagCallRecorder: @unchecked Sendable {
     }
 }
 
+private final class BranchNamePreviewRecorder: @unchecked Sendable {
+    struct Call: Equatable {
+        let rawName: String
+        let requireName: Bool
+        let references: [GitReference]
+        let reference: GitReference?
+    }
+
+    private let lock = NSLock()
+    private var calls: [Call] = []
+
+    func record(rawName: String, requireName: Bool, references: [GitReference], reference: GitReference?) {
+        lock.lock()
+        calls.append(Call(rawName: rawName, requireName: requireName, references: references, reference: reference))
+        lock.unlock()
+    }
+
+    var recorded: [Call] {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+}
+
+private final class HistoryLocateRecorder: @unchecked Sendable {
+    struct Call: Equatable {
+        let reference: GitReference?
+        let target: String
+        let cursor: String?
+        let limit: Int
+        let maxPages: Int
+    }
+
+    private let lock = NSLock()
+    private var calls: [Call] = []
+
+    func record(reference: GitReference?, target: String, cursor: String?, limit: Int, maxPages: Int) {
+        lock.lock()
+        calls.append(Call(reference: reference, target: target, cursor: cursor, limit: limit, maxPages: maxPages))
+        lock.unlock()
+    }
+
+    var recorded: [Call] {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+}
+
+private final class HistoryPageCursorRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cursors: [String?] = []
+
+    func record(_ cursor: String?) {
+        lock.lock()
+        cursors.append(cursor)
+        lock.unlock()
+    }
+
+    var recorded: [String?] {
+        lock.lock()
+        defer { lock.unlock() }
+        return cursors
+    }
+}
+
 /// Records branch create/delete arguments for the branch restore flow.
 private final class BranchCallRecorder: @unchecked Sendable {
     struct Call: Equatable {
@@ -6586,6 +6917,8 @@ private struct TestGitOperations: GitOperations {
     private let historyPageValues: [String: GitHistoryPage]?
     private let historyPageHandler: (@Sendable () -> GitHistoryPage?)?
     private let historyPageByReferenceHandler: (@Sendable (GitReference?, String?) -> GitHistoryPage?)?
+    private let branchNamePreviewHandler: (@Sendable (String, Bool, [GitReference], GitReference?) -> GitBranchNamePreview?)?
+    private let historyLocateHandler: (@Sendable (GitReference?, String, String?, Int, Int) -> GitHistoryLocateResult?)?
     private let repositoryHistoryProbe: GitRepositoryHistoryProbe?
     private let graphHistoryProbe: GitGraphHistoryProbe?
     private let historyController: GitHistoryLoadController?
@@ -6645,6 +6978,8 @@ private struct TestGitOperations: GitOperations {
         historyPageValues: [String: GitHistoryPage]? = nil,
         historyPageHandler: (@Sendable () -> GitHistoryPage?)? = nil,
         historyPageByReferenceHandler: (@Sendable (GitReference?, String?) -> GitHistoryPage?)? = nil,
+        branchNamePreviewHandler: (@Sendable (String, Bool, [GitReference], GitReference?) -> GitBranchNamePreview?)? = nil,
+        historyLocateHandler: (@Sendable (GitReference?, String, String?, Int, Int) -> GitHistoryLocateResult?)? = nil,
         repositoryHistoryProbe: GitRepositoryHistoryProbe? = nil,
         graphHistoryProbe: GitGraphHistoryProbe? = nil,
         historyController: GitHistoryLoadController? = nil,
@@ -6713,6 +7048,8 @@ private struct TestGitOperations: GitOperations {
         self.historyPageValues = historyPageValues
         self.historyPageHandler = historyPageHandler
         self.historyPageByReferenceHandler = historyPageByReferenceHandler
+        self.branchNamePreviewHandler = branchNamePreviewHandler
+        self.historyLocateHandler = historyLocateHandler
         self.repositoryHistoryProbe = repositoryHistoryProbe
         self.graphHistoryProbe = graphHistoryProbe
         self.historyController = historyController
@@ -6881,6 +7218,25 @@ private struct TestGitOperations: GitOperations {
             nextCursor: hasMore ? String(offset + commits.count) : nil,
             hasMore: hasMore
         )
+    }
+    func branchNamePreview(
+        rawName: String,
+        requireName: Bool,
+        references: [GitReference],
+        reference: GitReference?
+    ) -> GitBranchNamePreview? {
+        branchNamePreviewHandler?(rawName, requireName, references, reference)
+    }
+    func historyLocate(
+        at rootURL: URL,
+        reference: GitReference?,
+        target: String,
+        cursor: String?,
+        limit: Int,
+        maxPages: Int,
+        operationID: String
+    ) -> GitHistoryLocateResult? {
+        historyLocateHandler?(reference, target, cursor, limit, maxPages)
     }
     func closeHistoryCursor(at rootURL: URL, cursor: String) -> Bool {
         worktreeHistoryProbe?.close(cursor)

@@ -7,6 +7,7 @@ import { supportsDevToolsUpdate, updateJavaService } from "../services/java-serv
 import type { JavaServiceUpdateContext } from "../types/run.types";
 import { createStore } from "zustand/vanilla";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
@@ -350,14 +351,17 @@ function mavenProcessPaths(
 }
 
 function optionsFromConfiguration(configuration: RunConfiguration): RunOptions {
+  if (!configuration.editorArgumentText) {
+    throw new Error(createTranslator(useSettingsStore.getState().settings.displayLanguage)("run.invalidTitle"));
+  }
   return {
     javaHomePath: configuration.javaHomePath,
     mavenExecutablePath: configuration.mavenExecutablePath,
     mavenJavaHomePath: configuration.mavenJavaHomePath,
     mavenSkipTests: configuration.mavenSkipTests,
     workingDirectoryPath: configuration.cwd,
-    vmArguments: configuration.jvmArguments.join(" "),
-    programArguments: configuration.programArguments.join(" "),
+    vmArguments: configuration.editorArgumentText.vm,
+    programArguments: configuration.editorArgumentText.program,
     environment: configuration.env,
   };
 }

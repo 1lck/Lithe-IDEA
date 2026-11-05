@@ -1,0 +1,25 @@
+{
+  "id": "github-device-authorization",
+  "area": "协作",
+  "group": "GitHub",
+  "capability": "GitHub 设备授权",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Services/GitHub/GitHubService.swift",
+      "macos/Tests/LitheTests/GitHubServiceTests.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/config/backend-capabilities.ts",
+      "shared/contracts/github.md"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "GitHub",
+  "verification": "使用可控时钟验证待授权、退避、过期和成功授权；实际 GitHub OAuth 与钥匙串流程仍需在 macOS 上验收。",
+  "notes": "Windows 的 GitHub 后端能力当前关闭；不得把共享 Core 命令误记为 Windows 产品入口。"
+}

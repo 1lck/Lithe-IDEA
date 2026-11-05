@@ -83,7 +83,8 @@ extension AppModel {
             selectedID: runFeature.selectedConfigurationID,
             sourcePath: sourcePath,
             mainClass: mainClass,
-            source: runFeature.source(for:)
+            source: runFeature.source(for:),
+            select: services.javaMavenOperations.selectContextConfiguration
         )
         if configuration == nil {
             // The marker proves JDT can launch the class; the configuration
@@ -94,7 +95,8 @@ extension AppModel {
                 selectedID: runFeature.selectedConfigurationID,
                 sourcePath: sourcePath,
                 mainClass: mainClass,
-                source: runFeature.source(for:)
+                source: runFeature.source(for:),
+                select: services.javaMavenOperations.selectContextConfiguration
             )
         }
         guard let configuration else {
@@ -123,16 +125,23 @@ extension AppModel {
         selectedID: String,
         sourcePath: String,
         mainClass: String,
-        source: (RunConfiguration) -> RunConfigurationSource
+        source: (RunConfiguration) -> RunConfigurationSource,
+        select: (RunContextSelectionRequest) -> String?
     ) -> RunConfiguration? {
-        let matches = configurations.filter {
-            !$0.disabled && $0.mainClass == mainClass && $0.sourcePath == sourcePath
-        }
-        return matches.min { left, right in
-            let leftRank = (left.id == selectedID ? 0 : 2) + (source(left) == .generated ? 1 : 0)
-            let rightRank = (right.id == selectedID ? 0 : 2) + (source(right) == .generated ? 1 : 0)
-            return leftRank < rightRank
-        }
+        let request = RunContextSelectionRequest(
+            sourcePath: sourcePath,
+            symbol: mainClass,
+            preferredId: selectedID,
+            caseInsensitivePaths: false,
+            candidates: configurations.map {
+                RunContextSelectionRequest.Candidate(
+                    id: $0.id, sourcePath: $0.sourcePath, symbol: $0.mainClass,
+                    generated: source($0) == .generated, disabled: $0.disabled
+                )
+            }
+        )
+        guard let id = select(request) else { return nil }
+        return configurations.first { $0.id == id }
     }
 
     private func javaRunMarkerSource<Value>(

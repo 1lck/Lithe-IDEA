@@ -63,6 +63,8 @@ macOS 的 PHP 插件现在是 Lithe Store 社区插件 `io.github.lithe-idea.php
 
 插件构建产物、PHPUnit 的 vendor 和应用语言工具缓存没有可靠的跨工作树身份标记，均在 `scripts/resources/worktree-resources.json` 的 excludedResources 中排除。不得把它们共享为可变缓存。
 
+Windows 休眠的 Run Actions 宿主不再扫描其他语言的 manifest 或自行拼运行命令；插件发现路径仍由扩展宿主执行。此功能重新启用前应使用 Core 运行配置或插件提供者，不能恢复本地解析器。
+
 ## 验证
 
 - `bun scripts/windows/build/build-windows-php-plugin.ts` 与 `node scripts/windows/verify/verify-windows-plugin-isolation.mjs`：构建独立 Worker 包并确认宿主没有 PHP 实现导入。

@@ -15,6 +15,23 @@ interface CheckoutTagResult {
   message: string;
 }
 
+/** Shared `git.write` response fields needed to detect a failed Git invocation. */
+interface GitWriteResult {
+  output?: string;
+  exitCode?: number;
+}
+
+/**
+ * Core reports a failure that happens after a Git subprocess starts on the
+ * response instead of rejecting the command. Surface it as an error so a tag
+ * write never claims success for a failed Git invocation.
+ */
+function requireSuccessfulTagWrite(result: GitWriteResult | null | undefined, fallback: string): void {
+  if (typeof result?.exitCode === "number" && result.exitCode !== 0) {
+    throw new Error(result.output?.trim() || fallback);
+  }
+}
+
 export const getTags = async (repoPath: string): Promise<GitTag[]> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPath(repoPath);
@@ -43,14 +60,21 @@ export const createTag = async (
 ): Promise<boolean> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-    await tauriInvoke("git_create_tag", {
+    // Legacy Windows semantics: an empty target means HEAD and an empty message
+    // means a lightweight tag. Core's typed createTag requires an explicit
+    // revision and treats any explicit message as annotated, so normalize here.
+    const revision = commit?.trim() ? commit : "HEAD";
+    const tagMessage = message?.trim() ? message : undefined;
+    const result = await tauriInvoke<GitWriteResult>("git.write", {
       repoPath: resolvedRepoPath,
+      operation: "createTag",
       name,
-      message,
-      commit,
+      revision,
       signed,
+      ...(tagMessage === undefined ? {} : { message: tagMessage }),
       ...(options?.lightweight ? { lightweight: true } : {}),
     });
+    requireSuccessfulTagWrite(result, "Git tag creation failed");
     emitGitChanged({
       repoPath: resolvedRepoPath,
       scopes: ["refs"],
@@ -58,6 +82,8 @@ export const createTag = async (
     });
     return true;
   } catch (error) {
+    // The exported signature reports only success/failure; keep Git's reason in
+    // the console log so a failed tag creation is diagnosable.
     console.error("Failed to create tag:", error);
     return false;
   }
@@ -137,7 +163,12 @@ export const checkoutTag = async (repoPath: string, name: string): Promise<Check
 export const deleteTag = async (repoPath: string, name: string): Promise<boolean> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
-    await tauriInvoke("git_delete_tag", { repoPath: resolvedRepoPath, name });
+    const result = await tauriInvoke<GitWriteResult>("git.write", {
+      repoPath: resolvedRepoPath,
+      operation: "deleteTag",
+      name,
+    });
+    requireSuccessfulTagWrite(result, "Git tag deletion failed");
     emitGitChanged({
       repoPath: resolvedRepoPath,
       scopes: ["refs"],

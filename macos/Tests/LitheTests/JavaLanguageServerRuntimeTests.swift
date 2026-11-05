@@ -3,6 +3,7 @@ import LitheApplicationKernel
 import LitheModuleAPI
 import CryptoKit
 import LitheCoreContracts
+import LitheExecutionModule
 import LitheLanguageIntelligenceModule
 import Testing
 @testable import Lithe
@@ -61,7 +62,48 @@ struct JavaLanguageServerRuntimeTests {
         try Data("JAVA_VERSION=\"21.0.2\"\n".utf8)
             .write(to: jdkRoot.appendingPathComponent("Contents/Home/release"))
 
-        #expect(RustCoreBridge.javaFeatureVersion(executable.path) == 21)
+        let arguments = ["-cp", String(repeating: "/jars/example.jar:", count: 3000), "Main"]
+        let preparation = try RustCoreBridge().prepareJavaLaunch(executablePath: executable.path, arguments: arguments)
+        #expect(preparation.arguments.first?.hasPrefix("@") == true)
+        #expect(preparation.lease != nil)
+        try Data("JAVA_VERSION=\"1.8.0_392\"\n".utf8)
+            .write(to: jdkRoot.appendingPathComponent("Contents/Home/release"))
+        let legacy = try RustCoreBridge().prepareJavaLaunch(executablePath: executable.path, arguments: arguments)
+        #expect(legacy.arguments == arguments)
+        #expect(legacy.lease == nil)
+    }
+
+    @Test
+    @MainActor
+    func mainMarkerUsesCoreToSelectThePreferredMatchingConfiguration() {
+        let generated = RunConfiguration(
+            id: "generated", name: "Generated", kind: .javaMain,
+            modulePath: nil, mainClass: "demo.App", sourcePath: "src/App.java"
+        )
+        let edited = RunConfiguration(
+            id: "local", name: "Local", kind: .javaMain,
+            modulePath: nil, mainClass: "demo.App", sourcePath: "src/App.java"
+        )
+        let operations = RustJavaMavenOperations(core: RustCoreBridge())
+        let candidates = [generated, edited]
+        let source: (RunConfiguration) -> RunConfigurationSource = {
+            $0.id == "generated" ? .generated : .local
+        }
+        let selected = AppModel.javaMainConfiguration(
+            in: candidates, selectedID: "generated", sourcePath: "src/App.java", mainClass: "demo.App",
+            source: source, select: operations.selectContextConfiguration
+        )
+        #expect(selected?.id == "generated")
+        let fallback = AppModel.javaMainConfiguration(
+            in: candidates, selectedID: "none", sourcePath: "src/App.java", mainClass: "demo.App",
+            source: source, select: operations.selectContextConfiguration
+        )
+        #expect(fallback?.id == "local")
+        let absent = AppModel.javaMainConfiguration(
+            in: candidates, selectedID: "none", sourcePath: "src/Other.java", mainClass: "demo.App",
+            source: source, select: operations.selectContextConfiguration
+        )
+        #expect(absent == nil)
     }
 
     @Test

@@ -32,6 +32,7 @@ struct ChangesSidebarView: View {
     @State private var pendingDropShelf: GitShelfEntry?
     @State private var selection = GitChangeSelection()
     @State private var sectionsCache = GitChangeSectionsCache()
+    @State private var repositoryColors: GitRepositoryColors?
 
     var body: some View {
         let _ = LitheSignpost.bodyEvaluated("ChangesSidebarView")
@@ -96,6 +97,14 @@ struct ChangesSidebarView: View {
             }
         }
         .background(hasBackgroundImage ? Color.clear : LitheTheme.sidebar)
+        .task(id: feature.repositoryRootsGeneration) {
+            let generation = feature.repositoryRootsGeneration
+            let roots = feature.availableRepositoryRoots
+            repositoryColors = nil
+            let colors = await feature.repositoryColors(for: roots)
+            guard !Task.isCancelled, generation == feature.repositoryRootsGeneration else { return }
+            repositoryColors = colors
+        }
         .background(LitheToolWindowActivityTracker(isActive: $commitToolActive))
         .onAppear {
             selectRequestedStashIfNeeded()
@@ -436,7 +445,7 @@ struct ChangesSidebarView: View {
         return HStack(spacing: LitheTheme.Tree.iconTextGap) {
             inclusionCheckbox(changes)
             Image(systemName: "folder.fill")
-                .foregroundStyle(GitRepositoryColor.color(for: repository.root, in: feature.availableRepositoryRoots))
+                .foregroundStyle(repositoryColors.map { GitRepositoryColor.color(at: $0.slot(for: repository.root)) } ?? LitheTheme.secondaryText)
             Text(repositoryDisplayName(repository.root)).font(LitheTheme.uiFont(size: 13, weight: .semibold))
             Text(String(repository.fileCount)).foregroundStyle(LitheTheme.Tree.secondaryText)
         }

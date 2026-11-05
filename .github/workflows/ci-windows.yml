@@ -286,7 +286,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-java-workspace.json -- src/features/editor/lsp/java-workspace-language-server.test.ts src/features/editor/lsp/java-workspace-change-scheduler.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-document-sync.json -- src/features/editor/lsp/lsp-client-document-change.test.ts src/features/editor/utils/editor-text-change.test.ts
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-document-sync.json -- src/features/editor/lsp/lsp-client-document-change.test.ts src/features/editor/lsp/lsp-client-diagnostics-batch.test.ts src/features/keymaps/commands/navigation-command-actions.references.test.ts src/features/editor/utils/editor-text-change.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-java-syntax-definition.json -- src/features/editor/lsp/java-syntax-definition.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -627,6 +627,11 @@ jobs:
         shell: pwsh
         # Isolate this suite's filesystem, settings and search-provider mocks.
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-content-search-indexing.json -- src/features/global-search/hooks/use-content-search.integration.test.tsx src/features/global-search/stores/global-search.store.test.ts
+
+      - name: Test provider content search
+        shell: pwsh
+        # The indexing suite above replaces this module process-wide.
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-provider-content-search.json -- src/features/global-search/services/provider-content-search.test.ts
 
       - name: Test wheel scroll animation and container wheel ownership
         shell: pwsh

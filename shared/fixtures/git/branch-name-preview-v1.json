@@ -1,0 +1,219 @@
+{
+  "protocolVersion": 1,
+  "cases": [
+    {
+      "name": "typing cleanup replaces spaces and drops invalid characters",
+      "request": {
+        "rawName": "my new branch",
+        "requireName": false,
+        "references": [{"kind": "local", "shortName": "main"}],
+        "reference": null
+      },
+      "response": {
+        "typingCleanedName": "my-new-branch",
+        "cleanedName": "my-new-branch",
+        "initialName": "",
+        "error": null
+      }
+    },
+    {
+      "name": "submit cleanup strips a trailing dot, slash, or lock suffix",
+      "request": {
+        "rawName": "topic.lock",
+        "requireName": true,
+        "references": [{"kind": "local", "shortName": "main"}],
+        "reference": null
+      },
+      "response": {
+        "typingCleanedName": "topic.lock",
+        "cleanedName": "topic",
+        "initialName": "",
+        "error": null
+      }
+    },
+    {
+      "name": "a trailing slash stays while typing and is stripped on submit",
+      "request": {
+        "rawName": "feature/",
+        "requireName": false,
+        "references": [{"kind": "local", "shortName": "main"}],
+        "reference": null
+      },
+      "response": {
+        "typingCleanedName": "feature/",
+        "cleanedName": "feature",
+        "initialName": "",
+        "error": null
+      }
+    },
+    {
+      "name": "a remote base proposes the name without its remote prefix",
+      "request": {
+        "rawName": "feature/login",
+        "requireName": false,
+        "references": [
+          {"kind": "local", "shortName": "main"},
+          {"kind": "remote", "shortName": "origin/main"}
+        ],
+        "reference": {"kind": "remote", "shortName": "origin/feature/login"}
+      },
+      "response": {
+        "typingCleanedName": "feature/login",
+        "cleanedName": "feature/login",
+        "initialName": "feature/login",
+        "error": null
+      }
+    },
+    {
+      "name": "an empty name is allowed while typing",
+      "request": {
+        "rawName": "",
+        "requireName": false,
+        "references": [{"kind": "local", "shortName": "main"}],
+        "reference": null
+      },
+      "response": {
+        "typingCleanedName": "",
+        "cleanedName": "",
+        "initialName": "",
+        "error": null
+      }
+    },
+    {
+      "name": "an empty name fails on apply",
+      "request": {
+        "rawName": "",
+        "requireName": true,
+        "references": [{"kind": "local", "shortName": "main"}],
+        "reference": null
+      },
+      "response": {
+        "typingCleanedName": "",
+        "cleanedName": "",
+        "initialName": "",
+        "error": {"code": "empty"}
+      }
+    },
+    {
+      "name": "spaces fold into the cleanup symbol",
+      "request": {
+        "rawName": "  ",
+        "requireName": true,
+        "references": [{"kind": "local", "shortName": "main"}],
+        "reference": null
+      },
+      "response": {
+        "typingCleanedName": "-",
+        "cleanedName": "-",
+        "initialName": "",
+        "error": null
+      }
+    },
+    {
+      "name": "HEAD is reserved regardless of case",
+      "request": {
+        "rawName": "Head",
+        "requireName": true,
+        "references": [{"kind": "local", "shortName": "main"}],
+        "reference": null
+      },
+      "response": {
+        "typingCleanedName": "Head",
+        "cleanedName": "Head",
+        "initialName": "",
+        "error": {"code": "head"}
+      }
+    },
+    {
+      "name": "a remote-tracking branch already uses the name",
+      "request": {
+        "rawName": "origin/main",
+        "requireName": true,
+        "references": [
+          {"kind": "local", "shortName": "main"},
+          {"kind": "remote", "shortName": "origin/main"}
+        ],
+        "reference": null
+      },
+      "response": {
+        "typingCleanedName": "origin/main",
+        "cleanedName": "origin/main",
+        "initialName": "",
+        "error": {"code": "clashesWithRemote", "name": "origin/main"}
+      }
+    },
+    {
+      "name": "local branches already store the name as a directory",
+      "request": {
+        "rawName": "feature",
+        "requireName": true,
+        "references": [
+          {"kind": "local", "shortName": "main"},
+          {"kind": "local", "shortName": "feature/login"}
+        ],
+        "reference": null
+      },
+      "response": {
+        "typingCleanedName": "feature",
+        "cleanedName": "feature",
+        "initialName": "",
+        "error": {"code": "clashesWithDirectory", "name": "feature"}
+      }
+    },
+    {
+      "name": "a local branch already uses the name",
+      "request": {
+        "rawName": "main",
+        "requireName": true,
+        "references": [{"kind": "local", "shortName": "main"}],
+        "reference": null
+      },
+      "response": {
+        "typingCleanedName": "main",
+        "cleanedName": "main",
+        "initialName": "",
+        "error": {"code": "alreadyExists", "name": "main"}
+      }
+    },
+    {
+      "name": "a local branch occupies one of the name slash prefixes",
+      "request": {
+        "rawName": "feature/signup",
+        "requireName": true,
+        "references": [
+          {"kind": "local", "shortName": "main"},
+          {"kind": "local", "shortName": "feature"}
+        ],
+        "reference": null
+      },
+      "response": {
+        "typingCleanedName": "feature/signup",
+        "cleanedName": "feature/signup",
+        "initialName": "",
+        "error": {
+          "code": "clashesWithBranchPrefix",
+          "name": "feature/signup",
+          "branch": "feature"
+        }
+      }
+    },
+    {
+      "name": "tags do not occupy the branch namespace",
+      "request": {
+        "rawName": "v1",
+        "requireName": true,
+        "references": [
+          {"kind": "local", "shortName": "main"},
+          {"kind": "tag", "shortName": "v1"}
+        ],
+        "reference": {"kind": "local", "shortName": "main"}
+      },
+      "response": {
+        "typingCleanedName": "v1",
+        "cleanedName": "v1",
+        "initialName": "main",
+        "error": null
+      }
+    }
+  ]
+}

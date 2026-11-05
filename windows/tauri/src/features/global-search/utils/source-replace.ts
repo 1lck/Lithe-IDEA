@@ -1,9 +1,22 @@
+import { executeCore } from "@/core/lithe-core-client";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import type { EditorContent } from "@/features/panes/types/pane-content.types";
 import { requireLoadedBufferContent } from "@/features/editor/utils/buffer-load-state";
-import { getSourceEditorBufferByPath } from "@/features/editor/utils/buffer-index";
-import { buildSearchRegex } from "@/features/editor/utils/search";
+import {
+  areBufferPathsEqual,
+  getSourceEditorBufferByPath,
+} from "@/features/editor/utils/buffer-index";
 import { readFileContent } from "@/features/file-system/controllers/file-operations";
 import { writeFile } from "@/features/file-system/controllers/platform";
+import { createTranslator } from "@/i18n/locale";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import {
+  isLocalDocumentPath,
+  readDocumentFileDetails,
+  saveDocumentFile,
+  type DocumentReadDetails,
+} from "@/platform/document-files";
 import type { ContentSearchOptions } from "../types/global-search.types";
 
 interface ReplaceTarget {
@@ -15,78 +28,144 @@ interface ReplaceTarget {
 interface SourceContent {
   bufferId: string | null;
   content: string;
+  disk?: DocumentReadDetails;
 }
 
 const REPLACE_ALL_CONCURRENCY = 8;
 
-function lineColumnToOffset(content: string, line: number, column: number): number {
-  const lines = content.split("\n");
-  let offset = 0;
-
-  for (let index = 0; index < Math.max(0, line - 1) && index < lines.length; index++) {
-    offset += lines[index].length + 1;
-  }
-
-  return offset + Math.max(0, Math.min(column - 1, lines[line - 1]?.length ?? 0));
+type BufferStore = ReturnType<typeof useBufferStore.getStore>;
+interface ReplacementOwner {
+  workspaceId: string;
+  lifetime: ReturnType<typeof workspaceRuntimeRegistry.getWorkspace>;
+  buffers: BufferStore;
 }
 
-function getSourceContent(filePath: string): SourceContent | null {
-  const { buffers } = useBufferStore.getState();
-  const openSourceBuffer = getSourceEditorBufferByPath(buffers, filePath);
-
-  if (openSourceBuffer) {
-    requireLoadedBufferContent(openSourceBuffer);
-    return { bufferId: openSourceBuffer.id, content: openSourceBuffer.content };
-  }
-
-  return null;
-}
-
-function getOpenSourceContentByPath(filePaths: string[]): Map<string, SourceContent> {
-  const sourcesByPath = new Map<string, SourceContent>();
-  const targets = new Set(filePaths);
-
-  for (const buffer of useBufferStore.getState().buffers) {
-    if (buffer.type === "editor" && !buffer.isVirtual && targets.has(buffer.path)) {
-      requireLoadedBufferContent(buffer);
-      sourcesByPath.set(buffer.path, { bufferId: buffer.id, content: buffer.content });
-    }
-  }
-
-  return sourcesByPath;
-}
-
-async function readSource(
-  filePath: string,
-  openSourcesByPath?: ReadonlyMap<string, SourceContent>,
-): Promise<SourceContent> {
-  const openSource = openSourcesByPath?.get(filePath) ?? getSourceContent(filePath);
-  if (openSource) return openSource;
-
+function replacementOwner(workspaceId: string): ReplacementOwner {
   return {
-    bufferId: null,
-    content: await readFileContent(filePath),
+    workspaceId,
+    lifetime: workspaceRuntimeRegistry.getWorkspace(workspaceId),
+    buffers: useBufferStore.getStore(workspaceId),
   };
 }
 
-async function writeSource(filePath: string, bufferId: string | null, content: string) {
-  if (bufferId) {
-    useBufferStore.getState().actions.updateBufferContent(bufferId, content, true);
-  } else {
-    await writeFile(filePath, content);
-  }
+function checkOwner(owner: ReplacementOwner): void {
+  if (
+    !owner.lifetime ||
+    workspaceRuntimeRegistry.getWorkspace(owner.workspaceId) !== owner.lifetime
+  )
+    throw changedSourceError();
 }
 
-function replacementText(
-  match: RegExpExecArray,
-  regex: RegExp,
-  replacement: string,
-  useRegex: boolean,
-): string {
-  if (!useRegex) return replacement;
+function changedSourceError(): Error {
+  return new Error(
+    createTranslator(useSettingsStore.getState().settings.displayLanguage)(
+      "search.replaceMatchesFailed",
+    ),
+  );
+}
 
-  const flags = regex.flags.replace(/g/g, "");
-  return match[0].replace(new RegExp(regex.source, flags), replacement);
+function getSourceContent(owner: ReplacementOwner, filePath: string): SourceContent | null {
+  checkOwner(owner);
+  const buffers = owner.buffers.getState().buffers;
+  const buffer =
+    getSourceEditorBufferByPath(buffers, filePath) ??
+    buffers.find(
+      (item): item is EditorContent =>
+        item.type === "editor" && !item.isVirtual && areBufferPathsEqual(item.path, filePath),
+    );
+  if (!buffer) return null;
+  requireLoadedBufferContent(buffer);
+  if (buffer.readOnly) throw changedSourceError();
+  return { bufferId: buffer.id, content: buffer.content };
+}
+
+function getOpenSourceContentByPath(
+  owner: ReplacementOwner,
+  filePaths: string[],
+): Map<string, SourceContent> {
+  const sources = new Map<string, SourceContent>();
+  for (const path of filePaths) {
+    const source = getSourceContent(owner, path);
+    if (source) sources.set(path, source);
+  }
+  return sources;
+}
+
+async function readSource(
+  owner: ReplacementOwner,
+  filePath: string,
+  openSources?: ReadonlyMap<string, SourceContent>,
+): Promise<SourceContent> {
+  checkOwner(owner);
+  const openSource = openSources?.get(filePath) ?? getSourceContent(owner, filePath);
+  if (openSource) return openSource;
+  if (isLocalDocumentPath(filePath.replace(/\\/g, "/"))) {
+    const disk = await readDocumentFileDetails(filePath);
+    if (!disk) throw changedSourceError();
+    return { bufferId: null, content: disk.content, disk };
+  }
+  return { bufferId: null, content: await readFileContent(filePath) };
+}
+
+async function writeSource(
+  owner: ReplacementOwner,
+  filePath: string,
+  source: SourceContent,
+  content: string,
+): Promise<void> {
+  const currentBuffer = getSourceContent(owner, filePath);
+  if (source.bufferId) {
+    if (
+      !currentBuffer ||
+      currentBuffer.bufferId !== source.bufferId ||
+      currentBuffer.content !== source.content
+    ) {
+      throw changedSourceError();
+    }
+    owner.buffers.getState().actions.updateBufferContent(source.bufferId, content, true);
+    return;
+  }
+  if (currentBuffer) throw changedSourceError();
+  if (source.disk) {
+    const result = await saveDocumentFile(
+      filePath,
+      content,
+      source.content,
+      source.disk.encoding,
+      source.disk.encoding,
+      source.disk.identity,
+    );
+    if (result.status !== "saved") throw changedSourceError();
+    return;
+  }
+  // Provider files do not expose native byte identities; detect changes before writing.
+  if ((await readFileContent(filePath)) !== source.content || getSourceContent(owner, filePath))
+    throw changedSourceError();
+  await writeFile(filePath, content);
+}
+
+async function planReplacement(
+  source: SourceContent,
+  query: string,
+  replacement: string,
+  options: ContentSearchOptions,
+  from?: { line: number; column: number },
+) {
+  const result = await executeCore<{ text: string; count: number }>({
+    id: crypto.randomUUID(),
+    command: "workspace.replaceText",
+    payload: {
+      text: source.content,
+      query,
+      replacement,
+      caseSensitive: options.caseSensitive,
+      wholeWords: options.wholeWord,
+      regularExpression: options.useRegex,
+      from,
+    },
+  });
+  if (!result.ok) throw new Error(result.error.message);
+  return result.data;
 }
 
 export async function replaceNextInSource(
@@ -94,33 +173,16 @@ export async function replaceNextInSource(
   query: string,
   replacement: string,
   options: ContentSearchOptions,
+  workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId(),
 ): Promise<boolean> {
-  const regex = buildSearchRegex(query, options);
-  if (!regex) return false;
-
-  const source = await readSource(target.filePath);
-  const targetOffset = lineColumnToOffset(source.content, target.line, target.column);
-  let selectedMatch: RegExpExecArray | null = null;
-  let match = regex.exec(source.content);
-
-  while (match) {
-    const matchEnd = match.index + match[0].length;
-    if (match.index >= targetOffset || (targetOffset >= match.index && targetOffset <= matchEnd)) {
-      selectedMatch = match;
-      break;
-    }
-    if (match.index === regex.lastIndex) regex.lastIndex++;
-    match = regex.exec(source.content);
-  }
-
-  if (!selectedMatch) return false;
-
-  const nextContent =
-    source.content.slice(0, selectedMatch.index) +
-    replacementText(selectedMatch, regex, replacement, options.useRegex) +
-    source.content.slice(selectedMatch.index + selectedMatch[0].length);
-
-  await writeSource(target.filePath, source.bufferId, nextContent);
+  const owner = replacementOwner(workspaceId);
+  const source = await readSource(owner, target.filePath);
+  const result = await planReplacement(source, query, replacement, options, {
+    line: target.line,
+    column: target.column,
+  });
+  if (result.count === 0 || result.text === source.content) return false;
+  await writeSource(owner, target.filePath, source, result.text);
   return true;
 }
 
@@ -129,42 +191,33 @@ export async function replaceAllInSources(
   query: string,
   replacement: string,
   options: ContentSearchOptions,
+  workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId(),
 ): Promise<number> {
-  const regex = buildSearchRegex(query, options);
-  if (!regex) return 0;
-  const openSourcesByPath = getOpenSourceContentByPath(filePaths);
+  const owner = replacementOwner(workspaceId);
+  const openSources = getOpenSourceContentByPath(owner, filePaths);
   let nextFileIndex = 0;
   let totalReplacements = 0;
-
+  let failure: unknown;
   const replaceWorker = async () => {
-    while (nextFileIndex < filePaths.length) {
-      const filePath = filePaths[nextFileIndex];
-      nextFileIndex++;
+    while (failure === undefined && nextFileIndex < filePaths.length) {
+      const filePath = filePaths[nextFileIndex++];
       if (!filePath) continue;
-
-      const source = await readSource(filePath, openSourcesByPath);
-      let matchCount = 0;
-      const fileRegex = buildSearchRegex(query, options);
-      if (!fileRegex) continue;
-      const replacementRegex = options.useRegex
-        ? new RegExp(fileRegex.source, fileRegex.flags.replace(/g/g, ""))
-        : null;
-      const nextContent = source.content.replace(fileRegex, (...args) => {
-        matchCount++;
-        const matchText = args[0] as string;
-        return options.useRegex ? matchText.replace(replacementRegex!, replacement) : replacement;
-      });
-
-      if (matchCount > 0 && nextContent !== source.content) {
-        await writeSource(filePath, source.bufferId, nextContent);
-        totalReplacements += matchCount;
+      try {
+        const source = await readSource(owner, filePath, openSources);
+        const result = await planReplacement(source, query, replacement, options);
+        if (failure !== undefined) return;
+        if (result.count > 0 && result.text !== source.content) {
+          await writeSource(owner, filePath, source, result.text);
+          totalReplacements += result.count;
+        }
+      } catch (error) {
+        failure ??= error ?? changedSourceError();
       }
     }
   };
-
   await Promise.all(
     Array.from({ length: Math.min(REPLACE_ALL_CONCURRENCY, filePaths.length) }, replaceWorker),
   );
-
+  if (failure !== undefined) throw failure;
   return totalReplacements;
 }
