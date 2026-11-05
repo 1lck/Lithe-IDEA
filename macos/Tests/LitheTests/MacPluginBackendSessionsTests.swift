@@ -13,7 +13,7 @@ struct MacPluginBackendSessionsTests {
     @Test
     func shortcutImportProviderIDsComeFromThePluginManifest() throws {
         let fixture = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/keymap-import-provider.plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/keymap-import/keymap-import-provider.plugin.json")
         let manifest = try Data(contentsOf: fixture)
         #expect(MacPluginBackendSessions.keymapImportProviderIDs(ofManifest: manifest) == ["first", "second"])
         #expect(MacPluginBackendSessions.isKeymapOnlyBackend(manifest: manifest))
@@ -310,7 +310,7 @@ private struct BackendFixture {
         packageURL = root.appendingPathComponent("package", isDirectory: true)
         stateRoot = root.appendingPathComponent("state", isDirectory: true)
         let fixtureURL = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/backend.plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/backend/backend.plugin.json")
         var object = try #require(
             try JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any]
         )

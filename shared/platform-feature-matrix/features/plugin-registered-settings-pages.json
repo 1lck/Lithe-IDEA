@@ -13,7 +13,7 @@
       "macos/Sources/Lithe/Views/App/PluginSettingsSection.swift",
       "macos/Sources/Lithe/Views/App/SettingsView.swift",
       "macos/Tests/LitheTests/PluginSettingsTests.swift",
-      "shared/contracts/plugins/v1/fixtures/settings-v2.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/settings/settings-v2.plugin.json",
       "shared/contracts/plugins/v1/plugin-manifest.schema.json",
       "scripts/plugins/plugin-settings-schema.test.mjs",
       "macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift",

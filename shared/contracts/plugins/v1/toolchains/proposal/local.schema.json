@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/proposals/toolchains/local.schema.json",
+  "$id": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/toolchains/proposal/local.schema.json",
   "title": "Proposed local toolchain pins extension (not implemented)",
   "description": "Review-only complete document shape for .lithe/toolchains/local.json. The active toolchain-local-v1.schema.json remains unchanged and does not accept pins.",
   "type": "object",

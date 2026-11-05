@@ -27,11 +27,11 @@
       "shared/fixtures/maven/testcase-durations-v1.json",
       "macos/Sources/LitheExecutionModule/Services/BuildLanguageTests.swift",
       "macos/Tests/LitheTests/MacNativeBuildProviderIntegrationTests.swift",
-      "shared/contracts/plugins/v1/fixtures/build-provider-selectors.plugin.json",
-      "shared/contracts/plugins/v1/fixtures/build-test-durations.json",
+      "shared/contracts/plugins/v1/fixtures/build-providers/build-provider-selectors.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/build-providers/build-test-durations.json",
       "shared/fixtures/run-configuration/provider-prepared-java.json",
       "shared/fixtures/build-provider/test-results-v1.json",
-      "shared/contracts/plugins/v1/fixtures/build-provider-preparation.plugin.json"
+      "shared/contracts/plugins/v1/fixtures/build-providers/build-provider-preparation.plugin.json"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

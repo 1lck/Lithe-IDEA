@@ -1,7 +1,7 @@
 # Plugin-injected toolchains (draft)
 
 > **Status: broader proposal; a Core-only foundation is now implemented.**
-> The implemented subset is specified in [the active contract](../../toolchains.md).
+> The implemented subset is specified in [the active contract](../README.md).
 > This directory remains a review artifact for
 > [PR #1581's replacement plan](https://github.com/1lck/Lithe-IDEA/pull/1581#issuecomment-6541366112).
 > It is not an extension of the currently accepted `plugin.json` format.

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/proposals/toolchains/manifest-contributions.schema.json",
+  "$id": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/toolchains/proposal/manifest-contributions.schema.json",
   "title": "PROPOSAL: toolchain contribution projections, not a plugin manifest",
   "description": "A standalone review envelope for proposed manifest fields. Passing this schema does not make a plugin installable and does not prove signature, registry, filesystem or executable safety. See manifest.md.",
   "type": "object",

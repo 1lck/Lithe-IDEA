@@ -41,7 +41,7 @@ struct RustLanguageServerLaunchTests {
         try session.start(rootURL: root, workspaceFingerprint: nil)
         try #require(await ready.waitUntilOpen(timeout: .seconds(5)))
         let manifestURL = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/keymap-import-provider.plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/keymap-import/keymap-import-provider.plugin.json")
         let plan = try RustKeymapImportOperations(core: RustCoreBridge()).planSources(
             manifest: Data(contentsOf: manifestURL), providerID: "first")
         let snapshot = try MacKeymapImportSnapshot(root: source, plan: plan)

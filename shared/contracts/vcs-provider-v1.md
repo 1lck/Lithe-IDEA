@@ -6,7 +6,7 @@
 > The decision record is
 > [Unified VCS model and providers](../../.agents/notes/proposed/architecture/2026-10-22-unified-vcs-provider-model.md);
 > example data is in [`shared/fixtures/vcs/model-v1.json`](../fixtures/vcs/model-v1.json)
-> and [`plugins/v1/fixtures/vcs-provider.plugin.json`](plugins/v1/fixtures/vcs-provider.plugin.json).
+> and [`plugins/v1/fixtures/vcs/vcs-provider.plugin.json`](plugins/v1/fixtures/vcs/vcs-provider.plugin.json).
 
 This contract defines one VCS-neutral model for the features every version
 control system has: roots, file status, base content, history, annotation,

@@ -70,7 +70,7 @@ struct ToolchainSettingsLoaderTests {
 
     @Test func buildConsumersComeFromTheCurrentCoreInvocationAndDisappearWhenDisabled() async throws {
         let definition = try source()
-        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-toolchains.plugin.json")
+        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-systems/build-toolchains.plugin.json")
         let data = Data(try String(contentsOf: fixture, encoding: .utf8)
             .replacingOccurrences(of: "dev.lithe.fixture.build-toolchains:compiler", with: "compiler").utf8)
         let build = ToolchainSettingsPluginSource(pluginID: "dev.lithe.fixture.build-toolchains", name: "Build fixture",

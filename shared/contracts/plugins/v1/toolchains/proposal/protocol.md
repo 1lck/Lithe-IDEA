@@ -2,7 +2,7 @@
 
 **Status: broader proposal; the macOS settings pages query providers read-only, and SDK support is not implemented.**
 The Core-only validation/resolution subset is specified by
-[the active contract](../../toolchains.md). These files remain review vectors,
+[the active contract](../README.md). These files remain review vectors,
 not an advertised native capability or an SDK guide. The existing local-toolchain
 writer/schema is unchanged. The design follows the
 [latest #1581 review](https://github.com/1lck/Lithe-IDEA/pull/1581#issuecomment-6541366112).

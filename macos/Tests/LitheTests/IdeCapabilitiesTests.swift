@@ -143,7 +143,7 @@ struct IdeCapabilitiesTests {
             .deletingLastPathComponent().deletingLastPathComponent()
         let core = RustCoreBridge()
         let descriptor = try RustDeclarativePluginOperations(core: core).validate(manifest: Data(contentsOf:
-            repository.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-provider-execution.plugin.json")))
+            repository.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-providers/build-provider-execution.plugin.json")))
         let source = BuildSystemPluginSource(pluginID: descriptor.id.rawValue, manifest: descriptor.normalizedManifest,
             packageURL: fixture.root, buildSystems: descriptor.buildSystems)
         let provider = CapabilityBuildProviderFixture(exitCode: exitCode)

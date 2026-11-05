@@ -10,7 +10,7 @@
       "rust/lithe-core/src/vcs",
       "rust/lithe-core/src/lsp/interface/vcs_provider.rs",
       "rust/lithe-core/src/tests/vcs.rs",
-      "shared/contracts/plugins/v1/fixtures/vcs-provider.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/vcs/vcs-provider.plugin.json",
       "Plugins/mac/README.md",
       "macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift",
       "macos/Sources/LitheCoreContracts/Vcs/VcsProviderContracts.swift",
@@ -44,7 +44,7 @@
       "rust/lithe-core/src/vcs",
       "rust/lithe-core/src/lsp/interface/vcs_provider.rs",
       "rust/lithe-core/src/tests/vcs.rs",
-      "shared/contracts/plugins/v1/fixtures/vcs-provider.plugin.json"
+      "shared/contracts/plugins/v1/fixtures/vcs/vcs-provider.plugin.json"
     ],
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"

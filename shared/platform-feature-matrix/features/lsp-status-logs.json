@@ -39,7 +39,7 @@
       "macos/Sources/Lithe/Views/Editor/EditorAreaView.swift",
       "macos/Tests/LitheTests/LogWindowReviewTests.swift",
       "rust/lithe-core/src/lsp/interface/plugin_logging.rs",
-      "shared/contracts/plugins/v1/fixtures/plugin-logging.json",
+      "shared/contracts/plugins/v1/fixtures/backend/plugin-logging.json",
       "macos/Sources/Lithe/Views/Language/LanguageServerLogText.swift",
       "macos/Tests/LitheTests/LanguageServerLogTextTests.swift"
     ],

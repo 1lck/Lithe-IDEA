@@ -10,7 +10,7 @@ fn local_option_edits_check_declarations_preserve_siblings_and_reset_to_team_val
     ))
     .unwrap();
     let mut manifest: Value = serde_json::from_str(include_str!(
-        "../../../../shared/contracts/plugins/v1/fixtures/build-instance-options.plugin.json"
+        "../../../../shared/contracts/plugins/v1/fixtures/build-systems/build-instance-options.plugin.json"
     ))
     .unwrap();
     // Exercise a workspace option with model-owned choices as well as the

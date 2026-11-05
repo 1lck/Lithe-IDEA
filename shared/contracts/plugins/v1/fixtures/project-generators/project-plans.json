@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "description": "Golden answers of the project.* commands for project-generator.plugin.json. generationPlan cases read templates with the fixtures directory as the package path.",
+  "description": "Golden answers of the project.* commands for project-generator.plugin.json. generationPlan cases read templates with fixtures/project-generators as the package path.",
   "cases": [
     {
       "name": "form defaults",
