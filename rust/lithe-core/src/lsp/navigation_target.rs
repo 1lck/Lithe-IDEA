@@ -107,7 +107,8 @@ mod tests {
         .unwrap();
         for case in fixture["cases"].as_array().unwrap() {
             let response: Value = serde_json::from_str(&crate::execute_json(
-                &json!({"command": "lsp.classifyNavigationTarget", "payload": case["request"]}).to_string(),
+                &json!({"command": "lsp.classifyNavigationTarget", "payload": case["request"]})
+                    .to_string(),
             ))
             .unwrap();
             if let Some(code) = case.get("expectedError") {

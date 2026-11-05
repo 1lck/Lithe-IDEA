@@ -78,8 +78,11 @@ fn reason_name(reason: EditRejectionReason) -> &'static str {
 /// the document's line ending.
 pub(crate) fn plan_command(payload: Value) -> Result<Value, CoreError> {
     let request: Request = serde_json::from_value(payload).map_err(|error| {
-        CoreError::new(ErrorCode::InvalidRequest, "Invalid editor text edit plan request")
-            .with_details(error.to_string())
+        CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Invalid editor text edit plan request",
+        )
+        .with_details(error.to_string())
     })?;
     let index = TextLineIndex::new(&request.text);
     let line_ending = index.line_ending();

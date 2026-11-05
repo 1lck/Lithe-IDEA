@@ -5,7 +5,9 @@ use serde_json::{json, Value};
 
 fn run_fixture(command: &str, fixture: &str) {
     let fixture: Value = serde_json::from_str(fixture).expect("fixture should be JSON");
-    let cases = fixture["cases"].as_array().expect("fixture should list cases");
+    let cases = fixture["cases"]
+        .as_array()
+        .expect("fixture should list cases");
     assert!(!cases.is_empty(), "{command} fixture has no cases");
     for case in cases {
         let response: Value = serde_json::from_str(&crate::execute_json(
@@ -57,10 +59,19 @@ fn completion_merge_matches_shared_fixture() {
 #[test]
 fn malformed_requests_fail_with_invalid_request() {
     for (command, payload) in [
-        ("lsp.problems.query", json!({"diagnostics": [{"fileKey": "a"}]})),
-        ("lsp.problems.query", json!({"diagnostics": [], "groupBy": "type"})),
+        (
+            "lsp.problems.query",
+            json!({"diagnostics": [{"fileKey": "a"}]}),
+        ),
+        (
+            "lsp.problems.query",
+            json!({"diagnostics": [], "groupBy": "type"}),
+        ),
         ("lsp.activationPolicy", json!({"event": "automaticStart"})),
-        ("lsp.activationPolicy", json!({"event": "crashed", "nowMs": 1})),
+        (
+            "lsp.activationPolicy",
+            json!({"event": "crashed", "nowMs": 1}),
+        ),
         ("lsp.mergeCompletions", json!({"lists": [{"items": []}]})),
     ] {
         let response: Value = serde_json::from_str(&crate::execute_json(

@@ -74,8 +74,7 @@ fn native_path(key: &str) -> Option<String> {
         _ => key.to_string(),
     };
     let bytes = path.as_bytes();
-    if bytes.len() >= 3 && bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b':'
-    {
+    if bytes.len() >= 3 && bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b':' {
         return Some(path[1..].to_string());
     }
     Some(path)
@@ -104,7 +103,9 @@ pub(crate) fn plan_command(payload: Value) -> Result<Value, CoreError> {
         .with_details(error.to_string())
     })?;
     let scope = WorkspaceScope::new(&request.workspace_root, request.platform)?;
-    let reject = |code: &str, path: &str| Ok(json!({"rejection": {"code": code, "path": path}, "targets": []}));
+    let reject = |code: &str, path: &str| {
+        Ok(json!({"rejection": {"code": code, "path": path}, "targets": []}))
+    };
     let mut targets: Vec<Target> = Vec::new();
     // serde_json maps iterate in key order, which keeps rejection and merge
     // order deterministic for the same edit.
@@ -171,7 +172,8 @@ mod tests {
         .unwrap();
         for case in fixture["cases"].as_array().unwrap() {
             let response: Value = serde_json::from_str(&crate::execute_json(
-                &json!({"command": "lsp.planWorkspaceEdit", "payload": case["request"]}).to_string(),
+                &json!({"command": "lsp.planWorkspaceEdit", "payload": case["request"]})
+                    .to_string(),
             ))
             .unwrap();
             if let Some(code) = case.get("expectedError") {

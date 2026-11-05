@@ -47,8 +47,11 @@ struct Response {
 /// Executes `lsp.mergeCompletions`.
 pub(crate) fn merge_command(payload: Value) -> Result<Value, CoreError> {
     let request: Request = serde_json::from_value(payload).map_err(|error| {
-        CoreError::new(ErrorCode::InvalidRequest, "Invalid completion merge request")
-            .with_details(error.to_string())
+        CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Invalid completion merge request",
+        )
+        .with_details(error.to_string())
     })?;
     Ok(serde_json::to_value(merge(&request)).expect("completion merge response should encode"))
 }

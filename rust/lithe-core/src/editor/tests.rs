@@ -54,7 +54,12 @@ fn text_edit_plan_matches_shared_fixture() {
                 let replacement: Vec<u16> = edit["text"].as_str().unwrap().encode_utf16().collect();
                 units.splice(offset..offset + length, replacement);
             }
-            assert_eq!(String::from_utf16(&units).unwrap(), expected, "{}", case["name"]);
+            assert_eq!(
+                String::from_utf16(&units).unwrap(),
+                expected,
+                "{}",
+                case["name"]
+            );
         }
     }
 }
