@@ -282,6 +282,7 @@ fn observes_git_execution(command: &str) -> bool {
         && command != "git.consolePresentation"
         && command != "git.changelists"
         && command != "git.repositoryColorAssignments"
+        && command != "git.classifyMetadataChanges"
 }
 
 /// Kind the shared Core uses for npm transfer progress. `agent.install` and
@@ -1135,6 +1136,7 @@ mod tests {
         assert!(!super::observes_git_execution("git.consolePresentation"));
         assert!(!super::observes_git_execution("git.changelists"));
         assert!(!super::observes_git_execution("git.repositoryColorAssignments"));
+        assert!(!super::observes_git_execution("git.classifyMetadataChanges"));
         assert!(!super::observes_git_execution("workspace.scan"));
     }
 

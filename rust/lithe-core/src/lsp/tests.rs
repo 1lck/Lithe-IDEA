@@ -461,27 +461,27 @@ fn document_uri_matches_shared_fixture() {
 
 #[test]
 fn document_paths_resolve_inside_lsp_requests_without_changing_virtual_uris() {
-    let mut request = json!({"uri":{"path":"C:\\work\\A#B.java","platform":"auto"},
-        "virtualUri":"jdt://contents/A#B", "text":"unchanged",
-        "diagnostics":[{"relatedInformation":[{"location":{"uri":{"path":"/work/A#B.java","platform":"posix"}}},
-            {"location":{"uri":"jdt://contents/A#B"}}]}]});
+    let mut request = json!({"uri":{"path":"C:\\work\\A#B.txt","platform":"auto"},
+        "virtualUri":"untitled://contents/A#B", "text":"unchanged",
+        "diagnostics":[{"relatedInformation":[{"location":{"uri":{"path":"/work/A#B.txt","platform":"posix"}}},
+            {"location":{"uri":"untitled://contents/A#B"}}]}]});
     resolve_request_paths("lsp.request", &mut request).unwrap();
-    assert_eq!(request["uri"], "file:///C:/work/A%23B.java");
-    assert_eq!(request["virtualUri"], "jdt://contents/A#B");
+    assert_eq!(request["uri"], "file:///C:/work/A%23B.txt");
+    assert_eq!(request["virtualUri"], "untitled://contents/A#B");
     assert_eq!(
         request["diagnostics"][0]["relatedInformation"][0]["location"]["uri"],
-        "file:///work/A%23B.java"
+        "file:///work/A%23B.txt"
     );
     assert_eq!(
         request["diagnostics"][0]["relatedInformation"][1]["location"]["uri"],
-        "jdt://contents/A#B"
+        "untitled://contents/A#B"
     );
     let mut changes = json!({"changes":[
-        {"uri":{"path":"/work/A?.java","platform":"posix"},"kind":"changed"},
+        {"uri":{"path":"/work/A?.txt","platform":"posix"},"kind":"changed"},
         {"uri":"file:///already%20encoded","kind":"deleted"}
     ]});
     resolve_request_paths("lsp.workspaceFilesChanged", &mut changes).unwrap();
-    assert_eq!(changes["changes"][0]["uri"], "file:///work/A%3F.java");
+    assert_eq!(changes["changes"][0]["uri"], "file:///work/A%3F.txt");
     assert_eq!(changes["changes"][1]["uri"], "file:///already%20encoded");
     let mut invalid = json!({"uri":{"path":"relative","platform":"posix"}});
     assert!(resolve_request_paths("lsp.syncDocument", &mut invalid).is_err());
@@ -489,7 +489,7 @@ fn document_paths_resolve_inside_lsp_requests_without_changing_virtual_uris() {
 
 #[test]
 fn document_uri_accepts_non_ascii_windows_extended_length_paths() {
-    let path = format!("C:\\{}\\Main.java", vec!["目".repeat(100); 120].join("\\"));
+    let path = format!("C:\\{}\\Main.txt", vec!["目".repeat(100); 120].join("\\"));
     assert!(path.len() > 32_768);
     assert!(path.encode_utf16().count() < 32_767);
     let response: Value = serde_json::from_str(&crate::execute_json(

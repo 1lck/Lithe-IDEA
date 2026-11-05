@@ -1,5 +1,6 @@
 import CoreServices
 import Foundation
+import LitheModuleAPI
 
 final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
     private final class CallbackContext {
@@ -10,7 +11,7 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
         }
     }
 
-    private let core = RustCoreBridge()
+    private let core: RustCoreBridge
     private let configuration: DirectoryWatchConfiguration
     private let visibilityRules: FileVisibilityRules
     private let queue = DispatchQueue(label: "app.lithe.file-events", qos: .utility)
@@ -19,10 +20,12 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
 
     init(
         configuration: DirectoryWatchConfiguration,
+        logSink: (any LogSink)? = nil,
         visibilityRules: FileVisibilityRules = .default,
         onChange: @escaping @Sendable (DirectoryChangeBatch) -> Void
     ) {
         self.configuration = configuration
+        self.core = RustCoreBridge(coreLogSink: logSink)
         self.visibilityRules = visibilityRules
         self.onChange = onChange
     }
@@ -132,43 +135,58 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
 
         guard !batch.requiresFullRescan else { return batch }
 
+        let urls = paths.prefix(eventFlags.count).map {
+            URL(fileURLWithPath: $0).standardizedFileURL.resolvingSymlinksInPath()
+        }
+        let decisions: [GitMetadataClassification]
+        switch RustGitMetadataClassifier(core: core).classify(paths: urls.map(\.path), configuration: configuration) {
+        case .success(let events):
+            decisions = events
+        case .failure(let error):
+            core.coreLogSink?.emit(AppCoreFallbackSelected(
+                error: LogFailure(domain: "RustCore", code: error.code), stage: "git.classifyMetadataChanges"))
+            batch.requiresFullRescan = true
+            batch.gitStateMayHaveChanged = true
+            batch.gitMetadataMayHaveChanged = true
+            batch.watchRootsChanged = true
+            return batch
+        }
         var workspacePaths = Set<String>()
+        var sawIndex = false
+        var onlyIndex = true
         var revalidatesIgnoredDirectory = false
-        for (path, flags) in zip(paths, eventFlags) {
-            let url = URL(fileURLWithPath: path).standardizedFileURL
+        for ((url, flags), decision) in zip(zip(urls, eventFlags), decisions) {
             if configuration.ignoredDirectoryRoot(containing: url) != nil {
-                // Ordinary churn below an excluded linked worktree stays
-                // dropped. Recreating, removing, renaming, or changing the
-                // `.git` marker of the worktree itself can end the exclusion,
-                // and only a scan can re-run those rules.
                 if configuration.revalidatesIgnoredDirectory(
-                    url,
-                    isStructuralChange: flags & structuralMutationMask != 0
+                    url, isStructuralChange: flags & structuralMutationMask != 0
                 ) {
                     revalidatesIgnoredDirectory = true
                 }
                 continue
             }
-            if configuration.isIgnored(url) {
+            switch decision.kind {
+            case .ignored:
                 continue
-            }
-            if configuration.isGitContextPointer(url) {
+            case .context:
+                onlyIndex = false
                 batch.gitStateMayHaveChanged = true
                 batch.gitMetadataMayHaveChanged = true
                 batch.watchRootsChanged = true
                 continue
-            }
-            if configuration.containsGitMetadataPath(url) {
+            case .metadata:
+                sawIndex = sawIndex || decision.indexOnly
+                onlyIndex = onlyIndex && decision.indexOnly
                 batch.gitStateMayHaveChanged = true
                 batch.gitMetadataMayHaveChanged = true
                 continue
-            }
-            if configuration.containsRepositoryPath(url) {
+            case .ignoreRule:
+                onlyIndex = false
                 batch.gitStateMayHaveChanged = true
-                // Ignore rules matter even when hidden from the tree or when
-                // the repository root is above the opened workspace folder.
-                if url.lastPathComponent == ".gitignore" {
-                    batch.gitMetadataMayHaveChanged = true
+                batch.gitMetadataMayHaveChanged = true
+            case .other:
+                if configuration.containsRepositoryPath(url) {
+                    onlyIndex = false
+                    batch.gitStateMayHaveChanged = true
                 }
             }
             // `.lithe` may be hidden from the tree, yet its JSON files still
@@ -179,6 +197,7 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
                 workspacePaths.insert(url.path)
             }
         }
+        batch.gitIndexOnly = configuration.gitDirectory != nil && sawIndex && onlyIndex && !revalidatesIgnoredDirectory
         if revalidatesIgnoredDirectory {
             batch.requiresFullRescan = true
             batch.gitStateMayHaveChanged = true

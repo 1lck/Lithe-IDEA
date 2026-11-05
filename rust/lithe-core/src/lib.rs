@@ -104,6 +104,12 @@ pub fn git_askpass_main(prompt: &str) -> i32 {
 /// Shared classification for ordinary project watcher events after root resolution.
 pub use project::is_workspace_event_relevant;
 
+/// Shared, IO-free classification for coalesced native Git watcher events.
+pub use git::{
+    classify_git_metadata_change, GitMetadataChangeKind, GitMetadataEventClassification,
+    GitMetadataWatchContext,
+};
+
 /// Rewrites `<localRepository>` in a Maven settings document while keeping
 /// every other element and comment, so hosts editing the user's own
 /// `settings.xml` share the writer JDT LS settings generation already uses.

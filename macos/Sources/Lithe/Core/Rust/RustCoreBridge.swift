@@ -4496,7 +4496,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 details: nil
             ))
         }
-        let observesGit = command.hasPrefix("git.") && command != "git.authRespond" && command != "git.consolePresentation" && command != "git.changelists"
+        let observesGit = command.hasPrefix("git.") && command != "git.authRespond" && command != "git.consolePresentation" && command != "git.changelists" && command != "git.classifyMetadataChanges"
         let execution = observesGit ? GitExecutionContext.current : nil
         if execution?.isCancellationRequested == true {
             return .failure(CoreCallError(code: "cancelled", message: "Operation was cancelled", details: nil))
