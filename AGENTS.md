@@ -72,7 +72,7 @@
 ## 开发与协作
 1. 每次进行功能开发或者 bug 修复都单独从最新的 preview 分支创建新分支，如果有对应的 issue 分支名最好与 issue 编号相关
 2. 开发的时候如果涉及到 github 相关的操作麻烦使用 gh CLI 来进行操作而不是使用 Compute rUse 的 Skill。由于沙盒影响可能导致需要反复的 gh 授权，每次需要授权的时候麻烦先申请更高的权限去主环境中查看对应是否有 gh 的Token，如果有就直接复用，这个时候找不到才要求登录 gh
-3. 开发完成提交 PR 的时候需要说清楚对应改动的功能点，哪怕是一些细小的改动也是需要包含在内的，需要确保 code reviewer 马上就可以理解这个改动是什么
+3. 开发完成提交 PR 的时候需要说清楚对应改动的功能点，哪怕是一些细小的改动也是需要包含在内的，需要确保 code reviewer 马上就可以理解这个改动是什么。PR 描述必须以 `.github/pull_request_template.md` 为骨架：最前面是关联 Issue，再选 feat / fix / docs / release 类型；只实现单一平台的 feat 必须为另一平台提交跟进 Issue；功能矩阵、统一日志系统等检查项逐项回答。`gh pr create` 带 `--body` 或 `--body-file` 时不会自动套用模板，必须先读取模板再按它填写
 4. 如果让你修复有关 CI 的流程，记得使用 gh 或者 curl 之类的去查看(优先 gh)而不是使用 Computer Use
 5. 提交 PR 时默认创建 Draft PR（`gh pr create --draft`）。Draft PR 只运行 Linux 检查，不占用 macOS 和 Windows runner。开发完成、本地验证通过、可以评审时，再用 `gh pr ready` 标记为 ready，这时才会运行完整 CI。标记为 ready 之后，把修改攒在一起再 push：每次 push 都会重新运行完整 CI，并取消上一轮还没跑完的 CI。仓库曾因 Actions 用量过高被 GitHub 判定为滥用，所以不要为了看 CI 结果而反复 push；能在本地验证的先在本地验证。
 
