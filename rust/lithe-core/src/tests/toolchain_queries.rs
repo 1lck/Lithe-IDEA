@@ -28,7 +28,7 @@ fn fact(path: &str, kind: &str, executable: bool) -> Value {
 }
 
 fn input() -> Value {
-    json!({"registry":{"plugins":[{"manifest":manifest(&contract("java")),"verifiedOfficial":true},{"manifest":manifest(&contract("mise")),"verifiedOfficial":false}]},
+    json!({"registry":{"plugins":[{"manifest":manifest(&contract("java"))},{"manifest":manifest(&contract("mise"))}]},
         "pluginID":"dev.lithe.fixture.mise","request":query_request(),"response":query_response(),"currentGeneration":1,"platform":"macos",
         "filesystem":[fact(WORKSPACE,"directory",false),fact(HOME,"directory",false),fact(&format!("{HOME}/bin/java"),"file",true),fact(&format!("{WORKSPACE}/mise.toml"),"file",false)]})
 }

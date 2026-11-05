@@ -1021,7 +1021,7 @@
         "optional": { "type": "boolean" },
         "runtime": { "enum": ["java"] },
         "tool": {
-          "description": "tool: a tool definition ID, the short ID of a verified official definition or <pluginID>:<id>.",
+          "description": "tool: a tool definition ID, a short ID or <pluginID>:<id>; a short ID that several enabled plugins define belongs to none of them.",
           "type": "string",
           "maxLength": 192,
           "pattern": "^([a-z0-9]+([.-][a-z0-9]+)*:)?[a-z][a-z0-9-]{0,63}$"
@@ -1486,7 +1486,7 @@
           "enum": ["supported", "unsupported"]
         },
         "hostIntegration": {
-          "description": "pluginAPIVersion 2, official plugins only: a named host integration and the package resources it reads.",
+          "description": "pluginAPIVersion 2: a named host integration and the package resources it reads.",
           "type": "object",
           "additionalProperties": false,
           "required": ["id"],

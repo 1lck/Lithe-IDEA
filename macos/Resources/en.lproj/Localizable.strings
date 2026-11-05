@@ -4693,6 +4693,7 @@
 "Tokens of context this Agent may use. The context ring reads as full at this size. Codex applies it as its context window; for Claude Code the model decides its own size, so this sets where it compacts when no threshold is given. Leave empty for the Agent's default. Applies after reconnecting." = "Tokens of context this Agent may use. The context ring reads as full at this size. Codex applies it as its context window; for Claude Code the model decides its own size, so this sets where it compacts when no threshold is given. Leave empty for the Agent's default. Applies after reconnecting.";
 "Too many files to check for one tool; some installations were skipped." = "Too many files to check for one tool; some installations were skipped.";
 "Tool" = "Tool";
+"Tool %@ is defined by more than one enabled plugin (%@), so none of these definitions is used. Keep only one of these plugins enabled." = "Tool %@ is defined by more than one enabled plugin (%@), so none of these definitions is used. Keep only one of these plugins enabled.";
 "Tool Window" = "Tool Window";
 "Tool Windows" = "Tool Windows";
 "Tool activity (%lld)" = "Tool activity (%lld)";
@@ -9815,6 +9816,7 @@
 "native.toolchainSettings.theProjectRoot" = "the project root";
 "native.toolchainSettings.theSavedToolchainSettingsAreInvalid" = "The saved toolchain settings are invalid.";
 "native.toolchainSettings.tooManyFilesForOneTool" = "Too many files to check for one tool; some installations were skipped.";
+"native.toolchainSettings.toolDefinedBySeveralPlugins" = "Tool %1$@ is defined by more than one enabled plugin (%2$@), so none of these definitions is used. Keep only one of these plugins enabled.";
 "native.toolchainSettings.toolDefinitionInfo" = "This row comes from the tool definition of an enabled plugin. Lithe has no built-in tools.";
 "native.toolchainSettings.toolchainSources" = "Toolchain Sources";
 "native.toolchainSettings.toolsInfo" = "Each tool uses the first source that has a value: a fixed version, then project version files, then global defaults, then automatic discovery. Installed versions are checked by running each tool's own version command. Enabled version managers report what version files ask for.";

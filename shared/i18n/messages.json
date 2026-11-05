@@ -94800,6 +94800,24 @@
       }
     },
     {
+      "id": "native.toolchainSettings.toolDefinedBySeveralPlugins",
+      "description": "Several enabled plugins define the same tool ID, so none of their definitions is used",
+      "platforms": [
+        "macos"
+      ],
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      },
+      "macos": {
+        "key": "Tool %@ is defined by more than one enabled plugin (%@), so none of these definitions is used. Keep only one of these plugins enabled.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      }
+    },
+    {
       "id": "native.toolchainSettings.discoveryDeclarationsUnchecked",
       "description": "Installed tool declarations could not be checked, so automatic discovery did not run",
       "platforms": [

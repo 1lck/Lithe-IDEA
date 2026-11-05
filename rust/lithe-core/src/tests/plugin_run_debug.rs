@@ -383,7 +383,7 @@ fn output_link_matchers_alone_are_a_complete_plugin() {
 
 fn instantiate(tool_definition: Value, parts: Value) -> Value {
     let mut input = json!({
-        "registry": { "plugins": [{ "manifest": tool_definition, "verifiedOfficial": true }] },
+        "registry": { "plugins": [{ "manifest": tool_definition }] },
         "tool": "interpreter",
         "executable": "/opt/interpreter/bin/interpreter",
     });
@@ -449,7 +449,6 @@ fn launching_a_tool_nobody_defined_is_refused() {
     let outcome = instantiate_launch_command(json!({
         "registry": { "plugins": [{
             "manifest": parse(TOOL_REFERENCE_MANIFEST),
-            "verifiedOfficial": true,
         }] },
         "tool": "missing-tool",
         "executable": "/opt/missing/bin/tool",

@@ -188,7 +188,7 @@ extension MacToolchainDiscovery {
         let plugins: [[String: Any]] = sources.filter(\.isEnabled).compactMap { source in
             guard let manifest = try? JSONSerialization.jsonObject(with: source.manifest) as? [String: Any],
                   manifest["toolDefinitions"] != nil || manifest["toolchainProviders"] != nil else { return nil }
-            return ["manifest": manifest, "verifiedOfficial": source.verifiedOfficial]
+            return ["manifest": manifest]
         }
         return ["plugins": plugins]
     }

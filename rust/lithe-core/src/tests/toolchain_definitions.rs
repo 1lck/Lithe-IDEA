@@ -34,13 +34,13 @@ fn tool_definitions_are_complete_contributions_without_languages_or_backend() {
         definition("dev.lithe.fixture.compiler:compiler"),
     );
     assert!(validate_manifest_value(plugin.clone()).is_ok());
-    let result =
-        registry(&json!({"plugins":[{"manifest":plugin,"verifiedOfficial":false}]})).unwrap();
+    let result = registry(&json!({"plugins":[{"manifest":plugin}]})).unwrap();
     assert_eq!(
         result["definitions"][0]["definition"]["id"],
         "dev.lithe.fixture.compiler:compiler"
     );
     assert_eq!(result["providers"], json!([]));
+    assert_eq!(result["conflicts"], json!([]));
 }
 
 #[test]
@@ -56,25 +56,83 @@ fn tool_definitions_second_tool_needs_only_plugin_data() {
     }
 }
 
+/// Every plugin is a community plugin, so a short ID needs no host-attested origin.
 #[test]
-fn registry_short_ids_require_independent_origin_not_vendor_or_namespace() {
+fn registry_accepts_short_ids_from_any_enabled_plugin() {
     let plugin = manifest("dev.lithe.fixture.compiler", definition("compiler"));
     assert!(validate_manifest_value(plugin.clone()).is_ok());
-    assert!(registry(&json!({"plugins":[{"manifest":plugin,"verifiedOfficial":false}]})).is_err());
-    assert!(registry(&json!({"plugins":[{"manifest":plugin,"verifiedOfficial":true}]})).is_ok());
-    assert!(registry(&json!({"plugins":[{"manifest":plugin}]})).is_err());
+    let result = registry(&json!({"plugins":[{"manifest":plugin}]})).unwrap();
+    assert_eq!(result["definitions"][0]["definition"]["id"], "compiler");
+    assert_eq!(
+        result["definitions"][0]["pluginID"],
+        "dev.lithe.fixture.compiler"
+    );
+    assert_eq!(result["conflicts"], json!([]));
+    // The retired host-supplied origin flag is an unknown field, not silently ignored.
+    assert!(registry(&json!({"plugins":[{"manifest":plugin,"verifiedOfficial":true}]})).is_err());
 }
 
+/// Install order and plugin ID must not pick an owner, so a contested ID has none.
 #[test]
-fn registry_never_replaces_existing_tool_owner() {
+fn registry_leaves_a_contested_tool_id_unowned_and_registers_the_rest() {
     let first = manifest("dev.lithe.fixture.first", definition("compiler"));
     let second = manifest("dev.lithe.fixture.second", definition("compiler"));
-    assert!(registry(&json!({"plugins":[{"manifest":first,"verifiedOfficial":true},{"manifest":second,"verifiedOfficial":true}]})).is_err());
+    let mut third = manifest("dev.lithe.fixture.third", definition("renderer"));
+    third["toolDefinitions"]
+        .as_array_mut()
+        .unwrap()
+        .push(definition("dev.lithe.fixture.third:private"));
+    for plugins in [
+        json!([{"manifest":first},{"manifest":second},{"manifest":third}]),
+        json!([{"manifest":third},{"manifest":second},{"manifest":first}]),
+    ] {
+        let result = registry(&json!({"plugins":plugins})).unwrap();
+        let ids: Vec<_> = result["definitions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["definition"]["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, ["dev.lithe.fixture.third:private", "renderer"]);
+        assert_eq!(
+            result["conflicts"],
+            json!([{"tool":"compiler","pluginIDs":["dev.lithe.fixture.first","dev.lithe.fixture.second"]}])
+        );
+    }
     assert!(validate_manifest_value(manifest(
         "dev.lithe.fixture.first",
         definition("dev.lithe.fixture.second:compiler")
     ))
     .is_err());
+}
+
+/// A provider that lists a contested tool still registers; only the definition is withheld.
+#[test]
+fn registry_keeps_providers_that_name_a_contested_tool() {
+    let first = manifest("dev.lithe.fixture.first", definition("compiler"));
+    let second = manifest("dev.lithe.fixture.second", definition("compiler"));
+    let provider = json!({"schemaVersion":2,"id":"dev.lithe.fixture.provider","displayName":"Provider","version":"1.0.0",
+        "pluginAPIVersion":3,"requires":{"toolchainProviders":1,"backend":2,"serverProcess":1},
+        "vendor":{"id":"org.example","displayName":"Fixture","signatureRequirement":"publisherPackage"},
+        "permissions":["backend.launch","toolchains.provide"],
+        "toolchainProviders":[{"id":"installs","displayName":"Installs","tools":["compiler"]}],
+        "backend":{"launch":{"kind":"packaged","path":"bin/provider"}}});
+    let plugins = json!([{"manifest":first},{"manifest":second},{"manifest":provider}]);
+    let result = registry(&json!({"plugins":plugins})).unwrap();
+    assert_eq!(result["definitions"], json!([]));
+    assert_eq!(
+        result["providers"][0]["pluginID"],
+        "dev.lithe.fixture.provider"
+    );
+    assert_eq!(result["conflicts"][0]["tool"], "compiler");
+}
+
+/// The same plugin ID twice makes the enabled set ambiguous, so the whole batch is refused.
+#[test]
+fn registry_rejects_duplicate_plugin_ids() {
+    let first = manifest("dev.lithe.fixture.compiler", definition("compiler"));
+    let second = manifest("dev.lithe.fixture.compiler", definition("renderer"));
+    assert!(registry(&json!({"plugins":[{"manifest":first},{"manifest":second}]})).is_err());
 }
 
 #[test]
@@ -143,8 +201,7 @@ fn definitions_reuse_shared_candidate_graph_ordering() {
         json!({"id":"alternative","kind":"command","command":"compiler-alt","insertAfter":"shell"}),
     );
     let plugin = manifest("dev.lithe.fixture.compiler", value);
-    let result =
-        registry(&json!({"plugins":[{"manifest":plugin,"verifiedOfficial":false}]})).unwrap();
+    let result = registry(&json!({"plugins":[{"manifest":plugin}]})).unwrap();
     assert_eq!(
         result["definitions"][0]["definition"]["executables"][4]["id"],
         "shell"
@@ -212,8 +269,7 @@ fn a_definition_plugin_may_provide_installations_of_its_own_tool() {
         json!([{"id":"installs","displayName":"Installs","tools":[format!("{id}:compiler")]}]);
     plugin["backend"] = json!({"launch":{"kind":"packaged","path":"bin/provider"}});
     assert!(validate_manifest_value(plugin.clone()).is_ok());
-    let result =
-        registry(&json!({"plugins":[{"manifest":plugin,"verifiedOfficial":false}]})).unwrap();
+    let result = registry(&json!({"plugins":[{"manifest":plugin}]})).unwrap();
     assert_eq!(result["definitions"][0]["pluginID"], id);
     assert_eq!(result["providers"][0]["pluginID"], id);
 }

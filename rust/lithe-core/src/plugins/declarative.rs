@@ -107,8 +107,10 @@ const MAX_REQUIRED_TOOLS: usize = 32;
 /// Host integration that feeds JDT LS's project model, virtual class files,
 /// and Java test and debug support from the files a plugin declares.
 const HOST_INTEGRATION_JDT: &str = "jdt";
-/// Native host integrations a language server may ask for. Each one is code
-/// in the host, so only plugins in the official namespace may declare one.
+/// Native host integrations a language server may ask for. Any plugin may
+/// declare one: each is host code that only reads files from the declaring
+/// plugin's own package and hands them to a process that plugin starts, so it
+/// grants no extra reach. A name the host does not implement is still rejected.
 const KNOWN_HOST_INTEGRATIONS: &[&str] = &[HOST_INTEGRATION_JDT];
 /// Host capability: starting a program of the language under a debugger.
 const HOST_CAPABILITY_DEBUG: &str = "debug";
@@ -491,7 +493,7 @@ struct LanguageServerDeclaration {
     #[serde(flatten)]
     process: ServerProcess,
     /// Native host integration this server needs, with the package files it
-    /// consumes. API level 2, official plugins only.
+    /// consumes. API level 2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     host_integration: Option<HostIntegrationDeclaration>,
     /// Settings the server reads through `workspace/configuration` and
@@ -1055,7 +1057,6 @@ impl DeclarativePluginManifest {
                 &field,
                 self.plugin_api_version,
                 server_version,
-                is_official_namespace(&self.id),
                 &declared_settings,
                 runtime_tools,
             )?;
@@ -1970,9 +1971,10 @@ impl DeclarativePluginManifest {
     }
 
     /// Whether the plugin declares a definition that `tool` names. A
-    /// definition is addressed by its short ID (verified official plugins) or
-    /// as `<pluginID>:<id>`; which of the two the host honors is its registry's
-    /// decision, so both spellings count as a declaration here.
+    /// definition is addressed by its short ID or as `<pluginID>:<id>`; both
+    /// spellings count as a declaration here. Whether the host adopts the
+    /// short ID is its registry's decision: when several enabled plugins define
+    /// the same short ID, it belongs to none of them.
     pub(crate) fn declares_tool(&self, tool: &str) -> bool {
         // `Some(local)` when `tool` is spelled `<this plugin>:<local>`.
         let local_name = tool
@@ -2402,7 +2404,6 @@ impl LanguageServerDeclaration {
         field: &str,
         api_version: u32,
         capability_version: u32,
-        official: bool,
         declared_settings: &DeclaredSettings,
         runtime_tools: RuntimeTools<'_>,
     ) -> Validation<()> {
@@ -2455,7 +2456,7 @@ impl LanguageServerDeclaration {
         }
         if let Some(integration) = &self.host_integration {
             let templated = api_version >= LAUNCH_TEMPLATES_API_VERSION;
-            self.validate_host_integration(integration, field, templated, official)?;
+            self.validate_host_integration(integration, field, templated)?;
         }
         Ok(())
     }
@@ -2465,7 +2466,6 @@ impl LanguageServerDeclaration {
         integration: &HostIntegrationDeclaration,
         field: &str,
         templated: bool,
-        official: bool,
     ) -> Validation<()> {
         let field = format!("{field}.hostIntegration");
         if !templated {
@@ -2476,15 +2476,6 @@ impl LanguageServerDeclaration {
                 "plugin.integration.unsupported",
                 format!("{field}.id"),
                 format!("The host has no integration named {}.", integration.id),
-            ));
-        }
-        // An integration runs trusted host code against the plugin's files,
-        // so a community package must not be able to request one.
-        if !official {
-            return Err(PluginRejection::at(
-                "plugin.integration.unsupported",
-                format!("{field}.id"),
-                "Host integrations are reserved to official plugins.",
             ));
         }
         // (capability, resources the host code behind it reads)

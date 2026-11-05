@@ -102,7 +102,7 @@ struct MacToolchainDiscovery: Sendable {
             guard let manifest = try? JSONSerialization.jsonObject(with: source.manifest) as? [String: Any],
                   manifest["toolDefinitions"] != nil || manifest["toolchainProviders"] != nil
             else { return nil }
-            return ["manifest": manifest, "verifiedOfficial": source.verifiedOfficial]
+            return ["manifest": manifest]
         }
         guard !plugins.isEmpty else { return result }
         let registry: [String: Any] = ["plugins": plugins]

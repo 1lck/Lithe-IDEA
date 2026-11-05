@@ -190,8 +190,7 @@ struct MacToolchainDiscoveryTests {
     }
 
     private static func source(complete: Bool = true) -> ToolchainSettingsPluginSource {
-        .init(pluginID: pluginID, name: "Discovery fixture", manifest: manifest(complete: complete), isEnabled: true,
-              verifiedOfficial: true)
+        .init(pluginID: pluginID, name: "Discovery fixture", manifest: manifest(complete: complete), isEnabled: true)
     }
 
     @Test func installedToolDeclarationsPassTheProductionHostAdmission() throws {
@@ -212,7 +211,7 @@ struct MacToolchainDiscoveryTests {
         definitions[0]["launch"] = ["${executable}", "--fixture", "${arguments}"]
         manifest["toolDefinitions"] = definitions
         let source = ToolchainSettingsPluginSource(pluginID: Self.pluginID, name: "Fixture",
-            manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: true, verifiedOfficial: true)
+            manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: true)
         let local: ToolingJSONValue = .object(["version": .number(1), "toolchains": .object([:])])
         await #expect(throws: BuildToolResolutionError.self) {
             try await discovery(root: root, probes: probes).resolve(
@@ -233,7 +232,7 @@ struct MacToolchainDiscoveryTests {
         definitions[0]["exports"] = [["name": "COMPILER_HOME", "value": "${home}"]]
         manifest["toolDefinitions"] = definitions
         let source = ToolchainSettingsPluginSource(pluginID: Self.pluginID, name: "Runtime",
-            manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: true, verifiedOfficial: true)
+            manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: true)
         let selected = try await discovery(root: root, probes: probes).resolve(
             .init(workspace: root.url("workspace"), sources: [source], environment: [:]), tool: "compiler",
             directory: ".", minimumVersion: "17", local: .object(["version": .number(1), "toolchains": .object([:])]),
@@ -308,6 +307,75 @@ struct MacToolchainDiscoveryTests {
         #expect(probes.calls.isEmpty)
     }
 
+    /// A definition for `tool` whose installations sit in `home/<folder>/*.kit/Contents/Home`, so two
+    /// tools of one fixture never see each other's installations.
+    private static func scannedDefinition(tool: String, folder: String) -> [String: Any] {
+        [
+            "id": tool, "displayName": "Fixture \(tool)", "icon": ["host": "plugin"],
+            "executableLayouts": [["path": "bin/\(tool)"]],
+            "executables": [
+                ["id": "shell", "kind": "command", "command": tool],
+                ["id": "detected", "kind": "toolchain", "scope": "installed"]
+            ],
+            "version": ["arguments": ["--version"], "pattern": #"\#(tool) (\d+(?:\.\d+)*)"#],
+            "homeLayouts": [["match": "*.kit", "home": "Contents/Home"]],
+            "discovery": [["root": ["kind": "home"], "pattern": "\(folder)/*"]],
+            "commands": [tool], "wrappers": [], "exports": [],
+            "pathPrepend": ["${home}/bin"], "launch": ["${executable}", "${arguments}"]
+        ]
+    }
+
+    /// An enabled plugin with its own ID that defines the given tools by their short IDs.
+    private static func definingPlugin(id: String, name: String, tools: [(id: String, folder: String)]) throws
+        -> ToolchainSettingsPluginSource {
+        let manifest: [String: Any] = [
+            "schemaVersion": 2, "id": id, "displayName": name, "version": "1.0.0", "pluginAPIVersion": 3,
+            "requires": ["toolDefinitions": 1, "executableResolution": 2],
+            "vendor": ["id": "org.example", "displayName": "Fixture publisher", "signatureRequirement": "publisherPackage"],
+            "permissions": [], "toolDefinitions": tools.map { scannedDefinition(tool: $0.id, folder: $0.folder) }
+        ]
+        return .init(pluginID: id, name: name, manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: true)
+    }
+
+    /// A short tool ID defined by two enabled plugins belongs to neither, so install order cannot
+    /// decide the owner. Only that tool leaves discovery and resolution; every other tool still works.
+    @Test func aShortToolDefinedByTwoEnabledPluginsIsNeitherDiscoveredNorResolved() async throws {
+        let root = try DiscoveryFixtureRoot()
+        defer { root.remove() }
+        let contested = try root.installation("home/Kits/contested.kit/Contents/Home")
+        let linter = try root.installation("home/Linters/lint.kit/Contents/Home", executable: "linter")
+        let probes = DiscoveryProbes(outputs: [contested + "/bin/compiler": "compiler 21", linter + "/bin/linter": "linter 3.2"])
+        let alpha = try Self.definingPlugin(id: "io.example.alpha", name: "Alpha",
+                                            tools: [(id: "compiler", folder: "Kits"), (id: "linter", folder: "Linters")])
+        let beta = try Self.definingPlugin(id: "io.example.beta", name: "Beta", tools: [(id: "compiler", folder: "Kits")])
+        let request = MacToolchainDiscovery.Request(workspace: root.url("workspace"), sources: [alpha, beta], environment: [:])
+        let resolver = discovery(root: root, probes: probes)
+
+        let result = await resolver.discover(request)
+        #expect(result.detections["compiler"] == nil)
+        #expect(result.resolutions["."]?["compiler"] == nil)
+        let detection = try #require(result.detections["linter"])
+        #expect(detection.installations.map(\.home) == [linter] && detection.selected == linter)
+        #expect(result.resolutions["."]?["linter"] == .init(layer: .automatic, outcome: .resolved(
+            home: linter, executable: linter + "/bin/linter", version: "3.2", provider: "host:system")))
+        #expect(result.unchecked.isEmpty && result.unresolved.isEmpty && result.diagnostics.isEmpty)
+        // The contested tool's installation is never probed, only the tool nobody else defines.
+        #expect(probes.calls == [.init(executable: linter + "/bin/linter", arguments: ["--version"])])
+
+        let local: ToolingJSONValue = .object(["version": .number(1), "toolchains": .object([:])])
+        let automatic = try await resolver.resolve(request, tool: "compiler", directory: ".", minimumVersion: nil,
+                                                   local: local, projectCodeAllowed: true)
+        #expect(automatic == nil)
+        // A fixed home cannot give the contested tool an owner either.
+        let fixed = try await resolver.resolve(request, tool: "compiler", directory: ".", minimumVersion: nil,
+                                               local: local, projectCodeAllowed: true, fixed: .installation(home: contested))
+        #expect(fixed == nil)
+        let other = try await resolver.resolve(request, tool: "linter", directory: ".", minimumVersion: nil,
+                                               local: local, projectCodeAllowed: true, fixed: .installation(home: linter))
+        #expect(other?.executable.path == linter + "/bin/linter" && other?.version == "3.2")
+        #expect(!probes.calls.contains { $0.executable == contested + "/bin/compiler" })
+    }
+
     /// The definition plugin as its own provider, as a version-manager plugin declares one. Its
     /// definition gains the project and global layers, where provider statements decide.
     private static func providerSource(providers: [String] = ["kits"]) throws -> ToolchainSettingsPluginSource {
@@ -326,7 +394,7 @@ struct MacToolchainDiscoveryTests {
         }
         manifest["backend"] = ["launch": ["kind": "packaged", "path": "bin/kits"]]
         return .init(pluginID: pluginID, name: "Discovery fixture",
-                     manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: true, verifiedOfficial: true)
+                     manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: true)
     }
 
     /// A provider reports an alias link; Core keeps the canonical home, the project
@@ -519,7 +587,7 @@ struct MacToolchainDiscoveryTests {
     /// The settings preview scans this Mac for real, so its sample manifests must pass Core's admission.
     @MainActor @Test func previewSamplesAreAdmittedByCore() throws {
         let plugins: [[String: Any]] = try ToolchainSettingsDemo.samplePlugins.map { source in
-            ["manifest": try JSONSerialization.jsonObject(with: source.manifest), "verifiedOfficial": source.verifiedOfficial]
+            ["manifest": try JSONSerialization.jsonObject(with: source.manifest)]
         }
         let plan = MacToolchainDiscovery.callCore("toolchains.discoveryPlan",
                                                   ["registry": ["plugins": plugins], "platform": "macos"])?["plan"]
@@ -622,7 +690,7 @@ struct MacToolchainDiscoveryTests {
         definitions[0]["wrappers"] = [["path": "compilerw"]]
         manifest["toolDefinitions"] = definitions
         let source = ToolchainSettingsPluginSource(pluginID: Self.pluginID, name: "Fixture",
-            manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: true, verifiedOfficial: true)
+            manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: true)
         let probes = DiscoveryProbes(outputs: [wrapper.path: "compiler 21"])
         let discovery = discovery(root: root, probes: probes)
         let request = MacToolchainDiscovery.Request(workspace: root.url("workspace"), sources: [source], environment: [:])
@@ -778,9 +846,9 @@ private struct DiscoveryFixtureRoot {
 
     func url(_ relative: String) -> URL { URL(fileURLWithPath: path + "/" + relative) }
 
-    /// A home with an executable `bin/compiler`; returns the home path.
-    func installation(_ relative: String) throws -> String {
-        let executable = url(relative + "/bin/compiler")
+    /// A home with an executable `bin/<executable>`; returns the home path.
+    func installation(_ relative: String, executable name: String = "compiler") throws -> String {
+        let executable = url(relative + "/bin/" + name)
         try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("#!/bin/sh\n".utf8).write(to: executable)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)

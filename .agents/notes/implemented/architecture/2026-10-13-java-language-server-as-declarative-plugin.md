@@ -42,7 +42,7 @@ Java 的语言服务器 JDT LS（Eclipse 的 Java 语言服务器，提供补全
 - `launch.kind: "runtime"`：用运行时启动包内入口文件，不需要启动脚本。运行时有两种来源：插件自带（`packagedRuntime`，宿主只启动包内这一个文件），或由宿主发现并按 `minimumVersion` 检查版本。
 - 启动模板变量 `${pluginDir}`、`${stateDir}`、`${workspaceStateDir}`、`${arch}`，以及 `initializationOptions`。
 - `settings`：用户可调的选项（整数、枚举、布尔），在启动模板里写 `${setting:<id>}` 引用。Java Support 用它暴露 JDT LS 的最大堆内存和日志级别，决策见 [声明式插件设置](../feature/2026-10-14-declarative-plugin-settings.md)。
-- `hostIntegration`：`{ id, capabilities, resources }`。只有 `dev.lithe` 命名空间的插件可以声明，因为它让受信任的宿主代码去读插件的文件。
+- `hostIntegration`：`{ id, capabilities, resources }`。任何插件都可以声明，不再限于 `dev.lithe` 命名空间（最初只给官方命名空间，2026-11-05 放开）。放开的理由：集成虽然是宿主代码，但只读取声明它的插件自己包内的资源，并把它们交给该插件自己启动的语言服务器或 Java 子进程（扩展 bundle、Lombok agent、测试运行器、调试），没有给插件增加任何权限；普通插件经用户在安装确认窗口确认后，本来就能运行自带的服务器进程。宿主不认识的集成名仍以 `plugin.integration.unsupported` 拒绝。构建系统的 `hostIntegration`（目前只有 `maven`）是另一个声明，仍只给官方命名空间，规则见[构建系统插件契约](2026-10-17-build-system-plugin-contract.md)。
 - 两个 Core 命令：`plugins.declarative.languageServerLaunchPlan` 展开启动计划，`plugins.declarative.checkRuntimeVersion` 解析并比较运行时版本。
 
 API 1 的行为完全不变：已发布的 PHP、Go 包声明 API 1，其参数里的 `${...}` 仍按字面量传递。
@@ -176,6 +176,10 @@ dev.lithe.plugin.java-support/
 ### 引入进程外插件协议，让插件自带逻辑
 
 能把 Java 的全部逻辑搬出宿主，也是 Maven 这类带业务逻辑的模块最终需要的形态。但它要先设计取消、超时、崩溃隔离和权限，而 JDT LS 的启动和资源归属用声明就能解决。两者不冲突，协议可以之后单独提案。
+
+### `hostIntegration` 继续只给官方命名空间
+
+最初的做法。它假定“集成运行受信任的宿主代码，所以只能让官方插件用”。2026-11-05 放弃：Java 插件改为普通插件（不再区分官方和普通插件），这条限制会让它的下载版被宿主拒绝；而且限制没有保护到东西，因为集成读取的路径都必须在声明它的插件包内，交给的也只是这个插件自己启动的进程，普通插件经用户确认安装后本来就能运行自带的服务器进程。放开后宿主仍只执行自己实现的集成，不认识的名字被拒绝，所以普通插件拿到的是“按名字启用一段宿主已有的逻辑”，不是执行任意代码的新途径。
 
 ## 后果
 

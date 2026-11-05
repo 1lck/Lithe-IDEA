@@ -37,9 +37,9 @@ fn fact(path: &str, kind: &str, executable: bool) -> Value {
     json!({"path":path,"canonicalPath":path,"kind":kind,"executable":executable})
 }
 
-/// Starts with a verified definition and provider but no selected installation.
+/// Starts with an enabled definition and provider but no selected installation.
 fn input() -> Value {
-    json!({"registry":{"plugins":[{"manifest":manifest(&contract("java")),"verifiedOfficial":true},{"manifest":manifest(&contract("mise")),"verifiedOfficial":false}]},
+    json!({"registry":{"plugins":[{"manifest":manifest(&contract("java"))},{"manifest":manifest(&contract("mise"))}]},
         "operationID":"resolve-1","generation":1,"context":{"contextID":"context-1","generation":1},"tool":"java","directory":".","platform":"macos","workspaceRoot":WORKSPACE,
         "filesystem":[fact(WORKSPACE,"directory",false)],"probes":[],"queries":[],"systemInstallations":[],"environment":{},"commandHomes":{}})
 }
@@ -388,7 +388,7 @@ fn toolchain_resolution_conflicting_global_providers_follow_shell_not_plugin_id(
     value["registry"]["plugins"]
         .as_array_mut()
         .unwrap()
-        .push(json!({"manifest":second,"verifiedOfficial":false}));
+        .push(json!({"manifest":second}));
     for source in [
         "/opt/lithe-fixtures/global/mise.toml",
         "/opt/lithe-fixtures/alternative/mise.toml",
@@ -888,6 +888,33 @@ fn toolchain_resolution_disabled_definition_cannot_reactivate_a_saved_pin() {
     assert_eq!(result["outcome"]["reason"]["code"], "definitionUnavailable");
     assert!(result["outcome"].get("selection").is_none());
     assert_eq!(value["local"], before);
+}
+
+/// A short ID claimed by two enabled plugins has no owner, so every consumer sees no definition.
+#[test]
+fn toolchain_resolution_contested_tool_id_is_unowned_for_every_consumer() {
+    let mut value = input();
+    let tool = value["tool"].as_str().unwrap().to_owned();
+    installation(&mut value, HOME, "21.0.4");
+    value["local"] = local_pins();
+    value["commandHomes"][tool.as_str()] = json!(HOME);
+    // The rival is a copy of the defining plugin under another ID.
+    let mut rival = value["registry"]["plugins"][0]["manifest"].clone();
+    rival["id"] = json!("io.example.rival");
+    value["registry"]["plugins"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"manifest":rival}));
+    let plan =
+        discovery_plan_command(json!({"registry":value["registry"],"platform":"macos"})).unwrap();
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(plan["plan"]["tools"], json!([]));
+    let request = json!({"registry":value["registry"],"tool":tool,"output":"21.0.4"});
+    let checked = check_version_command(request).unwrap();
+    assert_eq!(checked["status"], "rejected", "{checked}");
+    let result = resolve(&value);
+    assert_eq!(result["outcome"]["kind"], "skip");
+    assert_eq!(result["outcome"]["reason"]["code"], "definitionUnavailable");
 }
 
 #[test]

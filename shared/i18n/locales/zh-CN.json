@@ -9866,6 +9866,7 @@
     "native.toolchainSettings.notAValidInstallation": "不是有效的安装",
     "native.toolchainSettings.notUsable": "不可用",
     "native.toolchainSettings.installationsCouldNotBeChecked": "无法检查 {arg1} 的安装。",
+    "native.toolchainSettings.toolDefinedBySeveralPlugins": "多个已启用的插件都定义了工具 {arg1}（{arg2}），这些定义都不会使用。请只保留其中一个插件启用。",
     "native.toolchainSettings.discoveryDeclarationsUnchecked": "无法检查已安装的工具链声明，未进行自动检测。",
     "native.toolchainSettings.onlyFirstVersionsChecked": "只检查了前 {arg1} 个安装的版本。",
     "native.toolchainSettings.versionsNotCheckedInTime": "部分安装的版本未能及时检查。",
