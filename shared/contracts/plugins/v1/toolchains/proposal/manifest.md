@@ -144,7 +144,7 @@ rejected candidate never leak into the next candidate's environment.
 ## One candidate resolver, four product layers
 
 The draft extends the
-[existing candidate model](../../README.md#shared-executable-candidates-executableresolution-1)
+[existing candidate model](../../README.md#shared-executable-candidates-executableresolution-12)
 rather than building a second runtime resolver:
 
 - `setting` gains mandatory `layer: "project" | "global"` in this projection.
