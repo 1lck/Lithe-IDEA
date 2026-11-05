@@ -1,6 +1,7 @@
 import Foundation
 import LitheCoreContracts
 import LitheLanguageIntelligenceModule
+import LitheModuleAPI
 
 // Note: 插件自有语言服务器会话与后端决定启动方式见 .agents/notes/implemented/architecture/2026-11-04-plugin-owned-language-server-sessions.md
 

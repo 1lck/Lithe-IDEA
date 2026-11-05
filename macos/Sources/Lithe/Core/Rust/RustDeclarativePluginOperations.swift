@@ -142,7 +142,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         activeNames: [String]
     ) throws -> [String] {
         // This command answers with its data only, without a status.
-        let result: Result<StateRetentionResult, CoreCallError> = core.executeResult(
+        let result: Result<StateRetentionResult, RustCoreBridge.CoreCallError> = core.executeResult(
             command: "plugins.languageServers.stateRetention",
             payload: StateRetentionPayload(
                 retention: .init(maxEntries: retention.maxEntries, maxAgeDays: retention.maxAgeDays),
