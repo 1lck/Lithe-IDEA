@@ -653,7 +653,7 @@ mod tests {
     fn contract_fixture_cases() {
         let fixture: Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../shared/contracts/plugins/v1/fixtures/editor-actions-v2.json"
+            "/../../shared/contracts/plugins/v1/fixtures/editor/editor-actions-v2.json"
         )))
         .unwrap();
         let host: EditorHostOptions = serde_json::from_value(fixture["host"].clone()).unwrap();

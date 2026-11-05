@@ -5,10 +5,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { publishAutoBuild, ghCommand, validateBuildIdentity, runCommand } from './publish-autobuild.mjs';
+import { publishAutoBuild, ghCommand, validateBuildIdentity, runCommand, macArchitectures } from './publish-autobuild.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const source = 'a'.repeat(40);
+// AutoBuild publishes Apple Silicon and Windows only; Intel remains a stable-release target.
+const macOS = ['arm64'];
+const platforms = [...macOS, 'windows-x64'];
 function fixture(t, options = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lithe-autobuild-test-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -16,36 +19,45 @@ function fixture(t, options = {}) {
   fs.mkdirSync(dist); fs.mkdirSync(temp);
   const config = { repository: 'example/lithe', source, build: options.build ?? '20261015.124354', timestamp: options.timestamp ?? '2026-10-15T12:43:54Z', version: '0.4.0', dist, runnerTemp: temp };
   function write(name, bytes) { const file = path.join(dist, name); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, bytes); }
-  for (const platform of ['arm64', 'x86_64', 'windows-x64']) {
+  for (const platform of platforms) {
     write(`identity-${platform}.json`, JSON.stringify({ source, build: config.build, timestamp: config.timestamp, version: config.version }));
     const name = `Lithe-${config.version}-${platform}.${platform === 'windows-x64' ? 'exe' : 'dmg'}`;
     write(name, name); write(`${name}.sha256`, `${hash(name)}  ${name}\n`);
   }
-  for (const architecture of ['arm64', 'x86_64']) {
+  for (const architecture of macOS) {
     const names = [`Lithe-preview-${config.build}-${architecture}.zip`, `${options.appName ?? 'Lithe'}${config.build}-${options.baselineBuild ?? '58.1'}-${architecture}.delta`];
     for (const name of names) write(`sparkle-${architecture}/${name}`, name);
     write(`sparkle-${architecture}/orphan.delta`, 'not in manifest');
-    const quote = architecture === 'arm64' ? "'" : '"';
+    const quote = options.quote ?? "'";
     const enclosures = names.map(name => `<enclosure url=${quote}https://github.com/example/lithe/releases/download/AutoBuild/${name}${quote} length="${Buffer.byteLength(name)}" sparkle:edSignature="${Buffer.alloc(64).toString('base64')}"/>`);
     write(`sparkle-${architecture}/appcast-preview-${architecture}.xml`, `<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><item><sparkle:version>${config.build}</sparkle:version><pubDate>${new Date(config.timestamp).toUTCString()}</pubDate>${enclosures[0]}<sparkle:deltas>${enclosures[1]}</sparkle:deltas></item></channel></rss>`);
   }
   const stale = ['Lithe-0.3.0-arm64.dmg', 'Lithe-preview-58.1-arm64.zip', 'PHP-0.9.0.zip', 'old-windows.exe'];
   let assets = stale.map((name, i) => ({ id: i + 1, name, size: 1, state: 'uploaded', digest: `sha256:${hash('x')}` }));
   const remoteBytes = new Map(), legacyBytes = new Map(), legacyAssets = [];
-  if (options.legacyBaselineTimestamp) for (const architecture of ['arm64', 'x86_64']) {
+  if (options.legacyBaselineTimestamp) for (const architecture of macOS) {
     const name = `appcast-preview-${architecture}.xml`;
     const bytes = Buffer.from(`<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><item><sparkle:version>58.1</sparkle:version><pubDate>${new Date(options.legacyBaselineTimestamp).toUTCString()}</pubDate></item></channel></rss>`);
     legacyBytes.set(name, bytes);
     legacyAssets.push({ id: 90 + legacyAssets.length, name, size: bytes.length, state: 'uploaded' });
   }
-  if (!options.bootstrap) for (const architecture of ['arm64', 'x86_64']) {
+  if (!options.bootstrap) for (const architecture of macOS) {
     const name = `appcast-preview-${architecture}.xml`;
     const baselineBuild = options.baselineBuild ?? '58.1';
-    const baselineTime = options[`${architecture}BaselineTimestamp`] ?? options.baselineTimestamp ?? '2026-10-14T12:43:54Z';
+    const baselineTime = options.baselineTimestamp ?? '2026-10-14T12:43:54Z';
     if (options.missingBaseline === architecture) continue;
     const bytes = Buffer.from(options.malformedBaseline ? '<rss>' : `<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><item><sparkle:version>${baselineBuild}</sparkle:version><pubDate>${new Date(baselineTime).toUTCString()}</pubDate></item></channel></rss>`);
     assets.push({ id: 90 + assets.length, name, size: bytes.length, state: 'uploaded', digest: `sha256:${hash(bytes)}` });
     remoteBytes.set(name, bytes);
+  }
+  const intel = [];
+  if (options.publishedIntel) {
+    const feed = Buffer.from(`<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><item><sparkle:version>20261016.000000</sparkle:version><pubDate>${new Date('2026-10-16T00:00:00Z').toUTCString()}</pubDate></item></channel></rss>`);
+    for (const [name, bytes] of [['appcast-preview-x86_64.xml', feed], ['Lithe-preview-58.1-x86_64.zip', 'zip'], ['Lithe58.1-57.1-x86_64.delta', 'delta'], ['Lithe-0.3.0-x86_64.dmg', 'dmg'], ['Lithe-0.3.0-x86_64.dmg.sha256', 'sha']]) {
+      const content = Buffer.from(bytes);
+      assets.push({ id: 80 + intel.length, name, size: content.length, state: 'uploaded', digest: `sha256:${hash(content)}` });
+      remoteBytes.set(name, content); intel.push(name);
+    }
   }
   let downloadAttempts = 0;
   let releaseTitle = 'AutoBuild';
@@ -102,7 +114,7 @@ function fixture(t, options = {}) {
       }
     }
     if (args.includes('--paginate')) {
-      if (['arm64', 'x86_64'].every(architecture => remoteBytes.get(`appcast-preview-${architecture}.xml`)?.equals(fs.readFileSync(path.join(dist, `sparkle-${architecture}/appcast-preview-${architecture}.xml`))))) interrupt('verification');
+      if (macOS.every(architecture => remoteBytes.get(`appcast-preview-${architecture}.xml`)?.equals(fs.readFileSync(path.join(dist, `sparkle-${architecture}/appcast-preview-${architecture}.xml`))))) interrupt('verification');
       return JSON.stringify([args.some(arg => arg.includes('/releases/2/assets')) ? legacyAssets : assets]);
     }
     const endpoint = args.find(arg => arg.startsWith('repos/'));
@@ -120,16 +132,16 @@ function fixture(t, options = {}) {
     if (endpoint.endsWith('/git/ref/tags/preview-0.3.0')) { if (!legacyRef) throw new Error('HTTP 404'); return '{}'; }
     assert.fail(`Unexpected command: ${command} ${args.join(' ')}`);
   };
-  return { config, run, calls, temp, dist, stale, remoteBytes, assets: () => assets, state: () => ({ ref, legacy, legacyRef }), removeAsset: name => { assets = assets.filter(asset => asset.name !== name); remoteBytes.delete(name); } };
+  return { config, run, calls, temp, dist, stale, intel, remoteBytes, assets: () => assets, state: () => ({ ref, legacy, legacyRef }), removeAsset: name => { assets = assets.filter(asset => asset.name !== name); remoteBytes.delete(name); } };
 }
 const deletes = f => f.calls.filter(call => call.includes('DELETE'));
 const uploads = f => f.calls.filter(call => call[1] === 'release' && call[2] === 'upload');
 
 for (const appName of ['Lithe', 'Lithe-Dev']) {
-  await test(`publication accepts ${appName} Sparkle delta names for both architectures`, { timeout: 5000 }, t => {
+  await test(`publication accepts ${appName} Sparkle delta names for Apple Silicon`, { timeout: 5000 }, t => {
     const f = fixture(t, { appName, build: '20261017.074424', timestamp: '2026-10-17T07:44:24Z', baselineBuild: '20261016.101031', baselineTimestamp: '2026-10-16T10:10:31Z' });
     const manifest = publishAutoBuild(f.config, { run: f.run });
-    for (const architecture of ['arm64', 'x86_64']) {
+    for (const architecture of macOS) {
       const name = `${appName}20261017.074424-20261016.101031-${architecture}.delta`;
       assert.ok(manifest.includes(name));
       assert.deepEqual(f.remoteBytes.get(name), Buffer.from(name));
@@ -163,11 +175,10 @@ for (const failAt of [
   'uploaded:autobuild-publication.json',
   'starter:autobuild-publication.json',
   'starter:appcast-preview-arm64.xml',
-  'starter:appcast-preview-x86_64.xml',
   'upload:Lithe-0.4.0-windows-x64.exe',
   'uploaded:Lithe-preview-20261015.124354-arm64.zip',
+  'upload:appcast-preview-arm64.xml',
   'uploaded:appcast-preview-arm64.xml',
-  'upload:appcast-preview-x86_64.xml',
   'verification', 'tag', 'metadata', 'cleanup', 'legacy-release', 'legacy-tag',
 ]) await test(`same publication resumes after ${failAt}`, { timeout: 5000 }, t => {
   const f = fixture(t, { failAt });
@@ -189,7 +200,7 @@ for (const failAt of [
 });
 
 await test('same identity with changed installer bytes fails before mutation', { timeout: 5000 }, t => {
-  const f = fixture(t, { failAt: 'upload:appcast-preview-x86_64.xml' });
+  const f = fixture(t, { failAt: 'upload:appcast-preview-arm64.xml' });
   assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /interrupted at/);
   const installer = `Lithe-${f.config.version}-windows-x64.exe`;
   fs.writeFileSync(path.join(f.dist, installer), 'different but locally checksummed bytes');
@@ -219,9 +230,9 @@ await test('same build without its publication checkpoint remains rejected', { t
 });
 
 for (const bootstrap of [false, true]) await test(`same plan repairs a missing feed after interrupted clobber (bootstrap=${bootstrap})`, { timeout: 5000 }, t => {
-  const f = fixture(t, { bootstrap, failAt: 'upload:appcast-preview-x86_64.xml' });
+  const f = fixture(t, { bootstrap, failAt: 'upload:appcast-preview-arm64.xml' });
   assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /interrupted at/);
-  f.removeAsset('appcast-preview-x86_64.xml');
+  f.removeAsset('appcast-preview-arm64.xml');
   const names = publishAutoBuild(f.config, { run: f.run });
   assert.deepEqual(f.assets().map(asset => asset.name).sort(), names);
   assert.deepEqual(f.state(), { ref: source, legacy: false, legacyRef: false });
@@ -233,7 +244,7 @@ for (const change of ['source', 'feed']) await test(`same identity rejects chang
   assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /interrupted at/);
   if (change === 'source') {
     f.config.source = 'c'.repeat(40);
-    for (const platform of ['arm64', 'x86_64', 'windows-x64']) {
+    for (const platform of platforms) {
       const file = path.join(f.dist, `identity-${platform}.json`);
       fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), source: f.config.source }));
     }
@@ -313,11 +324,11 @@ await test('publication needs no plugin catalog or upstream releases and keeps o
   const f = fixture(t);
   const manifest = publishAutoBuild(f.config, { run: f.run });
   const expected = ['autobuild-publication.json'];
-  for (const platform of ['arm64', 'x86_64', 'windows-x64']) {
+  for (const platform of platforms) {
     const name = `Lithe-${f.config.version}-${platform}.${platform === 'windows-x64' ? 'exe' : 'dmg'}`;
     expected.push(name, `${name}.sha256`);
   }
-  for (const architecture of ['arm64', 'x86_64']) {
+  for (const architecture of macOS) {
     expected.push(`appcast-preview-${architecture}.xml`, `Lithe-preview-${f.config.build}-${architecture}.zip`, `Lithe${f.config.build}-58.1-${architecture}.delta`);
   }
   assert.deepEqual(manifest, expected.sort());
@@ -389,7 +400,8 @@ await test('missing server digests trigger bounded byte verification before clea
   const f = fixture(t, { noDigest: true });
   const manifest = publishAutoBuild(f.config, { run: f.run });
   const verified = f.calls.filter(call => call[2] === 'download' && call[3] === 'AutoBuild');
-  assert.equal(verified.length, manifest.length * 2 + 2);
+  // Two verification passes per asset, plus one appcast baseline per macOS architecture.
+  assert.equal(verified.length, manifest.length * 2 + macOS.length);
   assert.ok(f.calls.findIndex(call => call[2] === 'download' && call[3] === 'AutoBuild') < f.calls.findIndex(call => call.includes('DELETE')));
   assert.deepEqual(fs.readdirSync(f.temp), []);
 });
@@ -424,10 +436,28 @@ for (const baselineTimestamp of ['2026-10-15T12:43:54Z', '2026-10-15T12:43:55Z',
     assert.deepEqual(fs.readdirSync(f.temp), []);
   });
 }
-await test('both appcast baselines must be older even when only Intel is ahead', { timeout: 5000 }, t => {
-  const f = fixture(t, { x86_64BaselineTimestamp: '2026-10-15T12:43:55Z' });
-  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /strictly newer than appcast baseline/);
-  assert.equal(uploads(f).length, 0);
+await test('AutoBuild publishes Apple Silicon only and prunes previously published Intel assets', { timeout: 5000 }, t => {
+  const f = fixture(t, { publishedIntel: true });
+  assert.ok(!fs.readdirSync(f.dist).some(name => name.includes('x86_64')), 'the fixture provides no Intel build output');
+  const manifest = publishAutoBuild(f.config, { run: f.run });
+  assert.ok(!manifest.some(name => name.includes('x86_64')));
+  // The newer Intel feed is neither a timestamp baseline nor kept after cleanup.
+  assert.ok(!f.calls.some(call => call[2] === 'download' && call.includes('appcast-preview-x86_64.xml')));
+  assert.deepEqual(f.assets().map(asset => asset.name).sort(), manifest);
+  for (const name of f.intel) assert.ok(!f.assets().some(asset => asset.name === name), `${name} must be pruned`);
+  assert.deepEqual(fs.readdirSync(f.temp), []);
+});
+await test('AutoBuild workflow matrix matches the publisher architecture list', { timeout: 5000 }, () => {
+  assert.deepEqual(macArchitectures, macOS);
+  const workflow = fs.readFileSync(new URL('../../../.github/workflows/release-preview-macos.yml', import.meta.url), 'utf8');
+  const matrix = workflow.match(/\n      matrix:\n(?: +#.*\n)* +architecture:\n((?: +- .+\n)+)/);
+  assert.ok(matrix, 'release-preview-macos.yml must declare a build architecture matrix');
+  assert.deepEqual(matrix[1].trim().split('\n').map(line => line.trim().replace(/^- /, '')), macArchitectures);
+});
+for (const quote of ["'", '"']) await test(`appcast enclosure URLs accept ${quote === '"' ? 'double' : 'single'} quotes`, { timeout: 5000 }, t => {
+  const f = fixture(t, { quote });
+  const manifest = publishAutoBuild(f.config, { run: f.run });
+  assert.ok(manifest.includes(`Lithe-preview-${f.config.build}-arm64.zip`));
 });
 await test('timestamp baseline identity must agree with its published date', { timeout: 5000 }, t => {
   const f = fixture(t, { baselineBuild: '20261014.124353' });

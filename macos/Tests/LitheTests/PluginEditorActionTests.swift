@@ -93,7 +93,7 @@ struct PluginEditorActionTests {
     func aMarkerOffersItsAlternativesAndTheClickedFunctionsAreAllKnown() throws {
         let service = PluginEditorActionHostService(
             contexts: PluginWorkspaceContexts(), decoder: DeclarativePluginTestSupport.operations, host: .macOS)
-        let fixture = try contractFixture("editor-actions-v2.json")
+        let fixture = try contractFixture("editor/editor-actions-v2.json")
         let marker = try #require(fixture.member("cases")?.elements.first)
 
         let actions = try service.decode(
@@ -114,7 +114,7 @@ struct PluginEditorActionTests {
     func aClickedActionMayRevealLocationsAndNothingElseIsInterpreted() throws {
         let service = PluginEditorActionHostService(
             contexts: PluginWorkspaceContexts(), decoder: DeclarativePluginTestSupport.operations, host: .macOS)
-        let cases = try #require(contractFixture("editor-actions-v2.json").member("cases")).elements
+        let cases = try #require(contractFixture("editor/editor-actions-v2.json").member("cases")).elements
         func result(_ name: String) throws -> ToolingJSONValue {
             try #require(cases.first { $0.member("name")?.textValue?.hasPrefix(name) == true }?.member("value"))
         }
@@ -130,7 +130,7 @@ struct PluginEditorActionTests {
 
     @Test
     func contractFixtureCasesMatchCore() throws {
-        let fixture = try contractFixture("editor-actions-v2.json")
+        let fixture = try contractFixture("editor/editor-actions-v2.json")
         let host = try #require(fixture.member("host"))
         let options = PluginEditorHostOptions(
             actionIcons: try #require(host.member("actionIcons")).elements.compactMap(\.textValue),

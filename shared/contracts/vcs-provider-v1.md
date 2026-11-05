@@ -1,12 +1,13 @@
 # VCS provider contract v1
 
-> **Status: Core implemented (P1); no host uses it yet.** Core accepts the
-> `vcsProviders` manifest capability and the commands below. The macOS and
-> Windows hosts do not start providers yet, so no build shows a plugin VCS.
+> **Status: Core implemented; macOS hosts providers.** Core accepts the
+> `vcsProviders` manifest capability and the commands below. macOS advertises
+> `vcsProviders` 1 and starts providers for the roots it detects. Windows does
+> not advertise the capability.
 > The decision record is
 > [Unified VCS model and providers](../../.agents/notes/proposed/architecture/2026-10-22-unified-vcs-provider-model.md);
 > example data is in [`shared/fixtures/vcs/model-v1.json`](../fixtures/vcs/model-v1.json)
-> and [`plugins/v1/fixtures/vcs-provider.plugin.json`](plugins/v1/fixtures/vcs-provider.plugin.json).
+> and [`plugins/v1/fixtures/vcs/vcs-provider.plugin.json`](plugins/v1/fixtures/vcs/vcs-provider.plugin.json).
 
 This contract defines one VCS-neutral model for the features every version
 control system has: roots, file status, base content, history, annotation,

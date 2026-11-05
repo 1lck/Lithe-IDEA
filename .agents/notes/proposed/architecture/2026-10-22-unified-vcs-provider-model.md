@@ -133,7 +133,7 @@ P2 已完成（2026-10-23），同日改为社区插件：
 
 - 插件在独立仓库 [lithe-plugin-svn](https://github.com/Lithe-IDEA/lithe-plugin-svn)，ID 是 `io.github.lithe-idea.svn-support`，`vendor.signatureRequirement` 为 `none`。仓库结构照搬 [Cargo 插件](../../implemented/feature/2026-10-22-cargo-build-plugin.md)：`sdk.lock.json` 按上游提交和逐文件 SHA-256 固定 Node SDK，打包前校验；安装包发在插件仓库的 GitHub Releases，Lithe Store 索引记录下载地址和 SHA-256。
 - 插件仓库自己的 CI 按 `sdk.lock.json` 的同一个宿主提交检出 Core，经公开 JSON 接口在 `svnadmin create` 建立的 `file://` 仓库上跑状态、提交、更新、冲突、回滚、移动、历史和 Annotate。svn 怎样映射到每个操作、svn 错误码怎样映射到契约错误码，都写在插件仓库的 README 里，主仓库的契约只留一个指向。
-- 主仓库不再有 SVN 专属的代码和测试，CI 也不用装 svn。它保留通用的部分：契约、fixtures 和 Core 测试，以及宿主测试用的 `shared/contracts/plugins/v1/fixtures/vcs-provider.plugin.json`（只有清单，没有实现）。样例 Provider `sample-vcs` 和它的端到端场景随 SDK 在 lithe-plugin-docs。
+- 主仓库不再有 SVN 专属的代码和测试，CI 也不用装 svn。它保留通用的部分：契约、fixtures 和 Core 测试，以及宿主测试用的 `shared/contracts/plugins/v1/fixtures/vcs/vcs-provider.plugin.json`（只有清单，没有实现）。样例 Provider `sample-vcs` 和它的端到端场景随 SDK 在 lithe-plugin-docs。
 
 正确做法：主仓库改 VCS 契约或 Core 时，用 fixtures 和 Core 测试验证，合并前在 lithe-plugin-docs 用 `scripts/sdk-e2e.mjs --ref <分支>` 跑样例 Provider；SVN 插件升级 `sdk.lock.json` 后在自己的 CI 里验证。
 不要这样做：在主仓库测试里引用隔壁的 SVN 插件 checkout，或者为 SVN 在宿主代码里加按名字判断的分支。

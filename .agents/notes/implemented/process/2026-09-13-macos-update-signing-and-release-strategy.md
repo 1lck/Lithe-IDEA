@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-更新包和独立官方插件包的真实性分别由 Sparkle EdDSA 与 Lithe Ed25519 签名保证，Developer ID 签名是可选的分发能力，不是这两类内容信任的唯一依据。正式版与旧共享身份客户端默认选择正式版，用户确认风险后才能选择从 preview 分支构建的 AutoBuild；独立安装的 `Lithe-Dev` 首次启动默认使用 AutoBuild。两个渠道跨版本安装和回滚不混用版本比较规则。AutoBuild 以统一 UTC 构建时间作为更新身份，界面显示“构建自”时间，回滚和插件安装仍只接受内置公钥信任的内容。
+更新包和独立官方插件包的真实性分别由 Sparkle EdDSA 与 Lithe Ed25519 签名保证，Developer ID 签名是可选的分发能力，不是这两类内容信任的唯一依据。正式版与旧共享身份客户端默认选择正式版，用户确认风险后才能选择从 preview 分支构建的 AutoBuild；独立安装的 `Lithe-Dev` 首次启动默认使用 AutoBuild。两个渠道跨版本安装和回滚不混用版本比较规则。AutoBuild 以统一 UTC 构建时间作为更新身份，界面显示“构建自”时间，回滚和插件安装仍只接受内置公钥信任的内容。AutoBuild 的 macOS 只构建 Apple Silicon（`arm64`），Intel（`x86_64`）只随正式版发布。
 
 ## 问题
 
@@ -52,7 +52,7 @@ Preview 应用工作流不构建或重签独立插件包，也不注入插件私
 删除插件私钥检查、独立插件构建及其两处上传步骤的修复必须合入 `main`。
 只修改 `preview` 工作流不能修复下一次定时任务；只删除构建而保留上传也会
 因缺少插件包继续失败。手动运行时，`--ref` 选择工作流版本，`source_branch`
-只选择源码。恢复后的发布应确认两个 macOS 架构、Windows 构建与 publish job 全部成功。
+只选择源码。恢复后的发布应确认 arm64 macOS、Windows 构建与 publish job 全部成功。
 
 客户端信任的是一张“key ID → 公钥”的表（`trustedPublisherKeysBase64`），
 验签时按签名文档里的 `keyID` 选公钥，签名内容也绑定这个 `keyID`。这样以后轮换
@@ -123,6 +123,26 @@ Sparkle 处理和发布校验，不改变签名、哈希或 appcast 的接受条
 正确做法是保留分阶段期限并为上传、校验和清理留出总预算；不要取消所有
 期限，或反复重跑仍含 30 分钟上限的旧任务。上述下载保护仍位于两个渠道
 共用的发布脚本内，不改变签名与基线验证。
+
+### AutoBuild 只构建 Apple Silicon
+
+AutoBuild 的 macOS 构建矩阵只有 `arm64`；Intel（`x86_64`）安装包、ZIP、delta 和
+`appcast-preview-x86_64.xml` 只在正式版发布。原因是 Intel 冷编译持续逼近并最终
+超过 35 分钟打包期限：运行 41826256404 中 Swift 编译缓存版本未知，需要清空后重新
+编译，主模块 `Lithe` 在 x86_64 上编译超过 25 分钟仍未结束（同次 arm64 约 14 分钟），
+打包步骤被期限取消，publish 因此跳过，当天 AutoBuild 没有发布。此前最近多次 Intel 打包
+也在 22～30 分钟之间。AutoBuild 每天运行，只要 Intel 失败，arm64 和 Windows 的
+新构建也一起无法发布。
+
+开发者需要做的事：
+- 工作流矩阵与 `publish-autobuild.mjs` 的 `macArchitectures` 必须一致；离线测试会
+  解析工作流并比较两者，改其中一处时同时改另一处。
+- 发布器不读取、不要求 Intel 产物，也不把旧 Intel appcast 当时间基线；停止构建前
+  留下的 Intel 资产与其他过期资产一样，在新资源完整验证后被清理。
+- 正式版工作流和共用的 Sparkle 脚本继续支持 `x86_64`，不要因为 AutoBuild 删除了
+  Intel 而一起删除。
+- 不要直接放宽 AutoBuild 的打包期限来恢复 Intel：稳定版与 AutoBuild 共用同一组期限
+  断言，放宽只会把每天的失败推迟到更长的等待之后。
 
 ### 独立开发版身份与运行状态
 
@@ -230,7 +250,7 @@ AutoBuild 使用独立的 `LitheUpdateChannel=autobuild`（兼容读取旧 `prev
 `.autobuild`）。两个渠道共用同一把 EdDSA key，但跳过版本和自动检查
 偏好不跨渠道迁移；用户切换渠道必须显式确认并全量安装。Build 号使用 UTC `YYYYMMDD.HHMMSS`，例如
 `20261015.124354`。prepare 只采样一次 UTC，同秒生成 compact build 与标准 ISO
-时间 `2026-10-15T12:43:54Z`，全部平台共享。新发布必须严格晚于双架构已有
+时间 `2026-10-15T12:43:54Z`，全部平台共享。新发布必须严格晚于已有 arm64
 appcast 的 `pubDate` 且数值 build 递增；新发布同秒或时钟倒退直接拒绝，不能补计数。
 旧 `58.1` 只兼容作为历史基线，新发布不能再使用计数身份。部分发布失败后，
 保留原 artifacts 重跑 publish，由下面的发布检查点证明这是同一次发布；
@@ -242,21 +262,21 @@ appcast 的 `pubDate` 且数值 build 递增；新发布同秒或时钟倒退直
 `AutoBuild — 构建自 YYYY-MM-DD HH:mm:ss UTC`。公开渠道为 `autobuild`，基础设施
 兼容旧 `preview` 开关与 appcast 文件名。保留原工作流文件，身份顺序完全来自 UTC
 构建时间，与工作流计数无关。prepare 一次固定源码 SHA、版本、build 与时间；
-macOS 双架构和 Windows 复用工作流共同消费这些输入。Windows 只产出 artifact，
-没有独立定时任务或 release 写权限，publish 等待三个平台全部完成，并逐项检查
+arm64 macOS 和 Windows 复用工作流共同消费这些输入。Windows 只产出 artifact，
+没有独立定时任务或 release 写权限，publish 等待两者全部完成，并逐项检查
 artifact identity（包括时间）及 build/ISO 精确对应，避免把不同源码或 build 的安装包混在同一个入口。
 
 发布检查点是记录这次发布完整目标的 `autobuild-publication.json`。发布器先验证
-本地应用输入和两个历史 feed，再上传包含源码、版本、共享时间及全部目标文件
+本地应用输入和历史 arm64 feed，再上传包含源码、版本、共享时间及全部目标文件
 大小与 SHA-256 的确定性清单，之后才写数据和 feed。重跑时，只有远端检查点
 与本地逐字节相同，才允许完成同一次发布：相同字节的当前 feed 按身份验证，
 较旧 feed 仍按严格时间顺序验证，被 clobber 删除或留下空 `starter` 的 feed 可补齐。
 同时间但源码或任何目标字节变化、较旧构建遇到较新检查点、相同时间却不同字节的
 远端 feed 都拒绝，检查点也纳入最终资产校验和保留清单。
 
-例如 arm64 feed 已发布而 Intel 上传失败，应使用原 artifacts 重跑 publish；
+例如 macOS 数据已上传而 arm64 feed 上传失败，应使用原 artifacts 重跑 publish；
 不要在重跑前重新打包、重签或改时间。直接允许所有相同 build 的 feed 虽然更简单，
-却无法证明两架构和安装包来自同一份内容；要求每次失败都重新构建则无法原样完成
+却无法证明 feed 和安装包来自同一份内容；要求每次失败都重新构建则无法原样完成
 已提交的发布。因此采用先记录完整目标、再恢复相同目标的办法。
 
 定时任务从 main 使用受审查的工作流；publish 按 `github.workflow_sha` 检出
@@ -265,7 +285,7 @@ helper，不能从 preview 工作树加载未受本次工作流审查的发布�
 Java 尚未上架或插件下载失败都不影响应用发布；插件由各自发布流程和市场负责，
 其签名、哈希、兼容性检查及 canonical URL 不变。
 
-正确做法是应用发布只验证并上传三个平台的应用产物，让插件独立交付；
+正确做法是应用发布只验证并上传 arm64 macOS 与 Windows 的应用产物，让插件独立交付；
 不要只删插件验哈希却继续上传未验证的 ZIP，也不要提前启用 Java 发布或伪造索引。
 仅跳过暂停且未上架插件的方案仍使应用依赖插件目录和下载服务，因此删除整个镜像步骤。
 代价是 AutoBuild 不再提供手动插件下载镜像，原有镜像在新应用资源完整验证后按过期资产清理，
@@ -286,12 +306,13 @@ Java 尚未上架或插件下载失败都不影响应用发布；插件由各自
 
 完整目标清单只有最新 macOS DMG、Windows 安装包及 checksum、当前 build 的
 完整 ZIP/目标 delta/feed，以及发布检查点，不包含独立插件包。
-发布器先验证本地应用输入、安装包哈希和已有双架构 appcast 的时间顺序，再上传
+发布器先验证本地应用输入、安装包哈希和已有 arm64 appcast 的时间顺序，再上传
 所有数据，最后替换 XML。compact 历史 build 必须与 pubDate 一致，旧计数基线
 仍验证 pubDate；缺少整个历史入口才允许首次发布。远端清单
 必须逐个通过 asset SHA-256 digest 验证，缺失 digest 时有界下载并校验。之后
 显式 force PATCH `git/refs/tags/AutoBuild` 指向源码 SHA，更新并复查 release
-元数据，才按完整清单清理所有旧资产，包括旧版本 DMG、Windows 安装包和插件。
+元数据，才按完整清单清理所有旧资产，包括旧版本 DMG、Windows 安装包、插件和
+停止构建前留下的 Intel 资产。
 `gh release edit --target` 本身不会移动已存在 tag，不能用它替代 Git ref 更新。
 下载、哈希、上传或清单校验失败均不清理旧资源，不能在上传前先清空 release。
 
@@ -337,6 +358,15 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
 - **使用 workflow run number/attempt 作为滚动版本**：可以区分重跑，但用户无法从
   序号识别构建时间，也使工作流身份影响版本先后，因此改用一次采样的 UTC 时间。
   只重跑发布 job 必须继续使用产物原时间，不允许为旧字节重新贴新时间。
+- **继续为 AutoBuild 构建 Intel，只放宽打包期限或缓存 Swift 编译结果**：能保留
+  Intel 的每日构建，但期限与稳定版共用同一组断言，放宽后每天仍要多占一台 macOS
+  runner 30 分钟以上；Swift 缓存在编译器版本变化时必须清空，冷编译仍会出现，
+  失败时还会拖住 arm64 和 Windows 的发布。因此 AutoBuild 删除 Intel，只在正式版
+  构建 `x86_64`。
+- **AutoBuild 删除 Intel 构建，但保留最后一份 Intel feed 和 ZIP**：老的 Intel
+  AutoBuild 用户不会看到更新错误，但会一直停在旧构建且没有任何提示；发布器还要
+  为“不在本次目标里却不能删”的资产单独开例外，破坏只保留当前快照的规则。因此
+  旧 Intel 资产按过期资产清理，用户通过 Return to Stable 回到正式版。
 - **保留 30 个 build 与三个历史 ZIP**：可以延长缓存兼容窗口，但不满足仅保留最新
   应用及插件的要求，因此改为发布完整验证之后清理，仅保留当前快照。
 - **基线下载失败就发布不含该 delta 的全量 feed**：可提高表面成功率，
@@ -372,6 +402,11 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
   可能引用已删除文件，旧客户端需重新检查并使用全量更新，迁移旧 tag 还需一次
   手动重装。固定 tag 多文件更新不具原子性；精确检查点让原 artifacts 可重跑完成，
   代价是额外保留并校验一个清单资产，且同秒重打包或重签后的不同字节不能冒充恢复。
+- AutoBuild 只构建 Apple Silicon 后，每天少用一台 macOS runner，Intel 冷编译不再
+  阻塞 arm64 和 Windows 的发布。代价是 Intel Mac 没有 AutoBuild：已经安装 Intel
+  AutoBuild 的用户检查更新时会因 feed 不存在而失败，需要用 Return to Stable 或手动
+  安装正式版；Intel 编译问题只在 `preview` 合并后的 universal 包和正式发布时暴露。
+  设置页仍允许 Intel 用户选择 AutoBuild，是否在 Intel 上隐藏该选项由后续改动决定。
 - 时间身份让用户能直接识别构建时间，代价是需要可信的 UTC 时钟；时间倒退或同秒
   的新发布必须失败，只有检查点和目标字节完全相同的发布恢复可复用原时间。
 - 回滚路径的安全性依赖客户端内置公钥永不改变；如果需要轮换

@@ -13,8 +13,8 @@
       "frontend/editor/src/plugin-editor-actions.ts",
       "frontend/editor/src/plugin-editor-action-rules.ts",
       "macos/Tests/LitheTests/PluginEditorActionTests.swift",
-      "shared/contracts/plugins/v1/fixtures/editor-actions.plugin.json",
-      "shared/contracts/plugins/v1/fixtures/editor-actions-v2.json"
+      "shared/contracts/plugins/v1/fixtures/editor/editor-actions.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/editor/editor-actions-v2.json"
     ]
   },
   "windows": {

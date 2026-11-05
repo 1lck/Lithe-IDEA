@@ -358,7 +358,7 @@ struct PluginEditorProviderTests {
 
     @Test
     func theMacOSHostDeclaresTheOptionsTheContractFixtureAssumes() throws {
-        let fixture = try contractFixture("editor-providers.json")
+        let fixture = try contractFixture("editor/editor-providers.json")
         let types = try #require(fixture.member("host")?.member("providerTypes"))
         #expect(types == .array(PluginEditorHostOptions.macOS.providerTypes.map { .string($0) }))
 
@@ -371,7 +371,7 @@ struct PluginEditorProviderTests {
 
     @Test
     func contractFixtureRegistrationsAndResultsMatchCore() throws {
-        let fixture = try contractFixture("editor-providers.json")
+        let fixture = try contractFixture("editor/editor-providers.json")
         let operations = DeclarativePluginTestSupport.operations
         let types = try #require(fixture.member("host")?.member("providerTypes")).elements.compactMap(\.textValue)
 

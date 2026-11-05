@@ -14,8 +14,8 @@
       "frontend/editor/src/plugin-editor-providers.ts",
       "frontend/editor/src/plugin-editor-provider-rules.ts",
       "macos/Tests/LitheTests/PluginEditorProviderTests.swift",
-      "shared/contracts/plugins/v1/fixtures/editor-providers.json",
-      "shared/contracts/plugins/v1/fixtures/editor-providers.plugin.json"
+      "shared/contracts/plugins/v1/fixtures/editor/editor-providers.json",
+      "shared/contracts/plugins/v1/fixtures/editor/editor-providers.plugin.json"
     ]
   },
   "windows": {

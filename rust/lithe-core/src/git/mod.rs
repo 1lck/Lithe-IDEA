@@ -26,12 +26,14 @@ mod github_checkout;
 pub(crate) mod graph;
 mod history;
 mod history_query;
+mod metadata_watch;
 mod mutations;
 mod patch_exchange;
 mod progress;
 mod rebase_session;
 mod remote_history;
 mod remote_process;
+mod repository_colors;
 mod rewrite;
 mod rollback;
 mod setup;
@@ -67,6 +69,11 @@ pub use history::{
     GitHistoryRequest, GitReferencesRequest,
 };
 pub(crate) use history_query::query_command as history_query_command;
+pub(crate) use metadata_watch::classify_command as metadata_classification_command;
+pub use metadata_watch::{
+    classify_git_metadata_change, GitMetadataChangeKind, GitMetadataEventClassification,
+    GitMetadataWatchContext,
+};
 pub use patch_exchange::{
     apply_reviewed as apply_patch_reviewed, export as export_patch, preview as preview_patch,
     PatchApplyRequest, PatchExportRequest, PatchPreviewRequest,
@@ -76,6 +83,7 @@ pub use rebase_session::{
     start as rebase_start, GitRebaseControlRequest, GitRebasePreviewRequest,
     GitRebaseSessionRequest, GitRebaseStartRequest,
 };
+pub(crate) use repository_colors::assign_command as repository_color_assignments_command;
 pub(crate) use rollback::{rollback_plan_command, rollback_prepare_command};
 pub(crate) use shelf::shelf_command;
 

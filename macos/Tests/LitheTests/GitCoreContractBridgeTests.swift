@@ -48,6 +48,20 @@ struct GitCoreContractBridgeTests {
     }
 
     @Test(.enabled(if: RustCoreBridge().isAvailable, "Requires the linked Rust Core integration library"))
+    func repositoryColorsUseCoreAcrossPagesAndPreserveFallback() async throws {
+        let service = GitService(operations: RustGitOperations(core: core))
+        let roots = (0..<130).map { URL(fileURLWithPath: "/workspace/repo-\($0)") }
+        let colors = try #require(await service.repositoryColors(roots))
+        #expect(colors.showColors)
+        #expect(colors.slot(for: roots[1]) == 1)
+        #expect(colors.slot(for: roots[128]) == 0)
+        #expect(colors.slot(for: roots[129]) == 1)
+        #expect(colors.slot(for: URL(fileURLWithPath: "/unknown")) == colors.fallbackSlot)
+        let single = try #require(await service.repositoryColors([roots[0]]))
+        #expect(!single.showColors)
+    }
+
+    @Test(.enabled(if: RustCoreBridge().isAvailable, "Requires the linked Rust Core integration library"))
     func worktreeComparisonDecodesUntrackedIdentityFromCore() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-comparison-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

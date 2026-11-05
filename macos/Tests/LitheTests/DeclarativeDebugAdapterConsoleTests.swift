@@ -8,7 +8,7 @@ struct DeclarativeDebugAdapterConsoleTests {
     @Test
     func hostReceivesTheCommandsTheCoreNormalizedFromTheContractFixture() throws {
         let fixture = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/debug-adapter.plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter.plugin.json")
         let descriptor = try DeclarativePluginTestSupport.operations.validate(
             manifest: Data(contentsOf: fixture)
         )

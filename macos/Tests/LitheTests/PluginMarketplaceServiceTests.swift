@@ -377,7 +377,7 @@ struct PluginMarketplaceServiceTests {
     @Test(arguments: ["build-provider", "build-provider-language-server"])
     func buildProvidersAreAcceptedByTheMacOSHost(_ fixture: String) throws {
         let fixtures = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-providers")
         let manifest = try Data(contentsOf: fixtures.appendingPathComponent("\(fixture).plugin.json"))
         // The host declares `buildProviders`, so the requirement no longer
         // blocks the review; a rejection here would name another field.
@@ -393,7 +393,7 @@ struct PluginMarketplaceServiceTests {
     func changedRunArgumentsNeedApprovalAgainAfterStorage() throws {
         let fixtures = DeclarativePluginTestSupport.repositoryRoot
             .appendingPathComponent("shared/contracts/plugins/v1/fixtures")
-        let original = try Data(contentsOf: fixtures.appendingPathComponent("language-packaged-server.plugin.json"))
+        let original = try Data(contentsOf: fixtures.appendingPathComponent("languages/language-packaged-server.plugin.json"))
         var manifest = try #require(JSONSerialization.jsonObject(with: original) as? [String: Any])
         var providers = try #require(manifest["executionProviders"] as? [[String: Any]])
         var run = try #require(providers[0]["run"] as? [String: Any])

@@ -867,7 +867,7 @@ mod tests {
     fn contract_fixture_cases() {
         let fixture: Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../shared/contracts/plugins/v1/fixtures/editor-providers.json"
+            "/../../shared/contracts/plugins/v1/fixtures/editor/editor-providers.json"
         )))
         .unwrap();
         let types = &fixture["host"]["providerTypes"];

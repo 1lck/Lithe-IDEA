@@ -396,6 +396,11 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var isPerformingBranchOperation = false
     @Published package private(set) var isCloningRepository = false
     @Published package private(set) var availableRepositoryRoots: [URL] = []
+    @Published package private(set) var repositoryRootsGeneration: UInt64 = 0
+    /// Resolve once per ordered root list, away from row rendering.
+    package func repositoryColors(for roots: [URL]) async -> GitRepositoryColors? {
+        await service.repositoryColors(roots)
+    }
     /// Roots whose latest status read failed; their last confirmed rows remain visible.
     @Published package private(set) var failedStatusRepositoryRoots: Set<URL> = []
     private var confirmedStatusBranches: [URL: String] = [:]
@@ -633,6 +638,7 @@ package final class GitFeatureModel: ObservableObject {
         }
         scoped.gitRepositoryRoot = root
         scoped.availableRepositoryRoots = [root]
+        scoped.repositoryRootsGeneration &+= 1
         scoped.currentBranch = worktree.branchName ?? "Detached HEAD"
         if let inspection = gitWorktreeInspection, inspection.worktreeID == worktree.id, inspection.hasLoadedChanges {
             scoped.gitChanges = inspection.changes
@@ -737,6 +743,7 @@ package final class GitFeatureModel: ObservableObject {
         worktreeChangesRequestGeneration &+= 1
         gitRepositoryRoot = nil
         availableRepositoryRoots = []
+        repositoryRootsGeneration &+= 1
         requestedRepositoryRoot = nil
         requestedRepositoryReference = nil
         currentBranch = "No Git"
@@ -890,6 +897,7 @@ package final class GitFeatureModel: ObservableObject {
               workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
         if availableRepositoryRoots != repositoryRoots {
             availableRepositoryRoots = repositoryRoots
+            repositoryRootsGeneration &+= 1
             didChange = true
             historyContextChanged = true
         }
@@ -3220,6 +3228,11 @@ package final class GitFeatureModel: ObservableObject {
     /// Another checkout can move shared refs while this worktree's status stays unchanged.
     package func consolePresentation(_ request: GitConsolePresentationRequest) async -> GitConsolePresentation? {
         await service.consolePresentation(request)
+    }
+
+    /// Index churn updates working-tree status without reloading history or worktrees.
+    package func refreshGitFromIndexChange() async {
+        await GitExecutionSource.$current.withValue(.background) { await refreshGit() }
     }
 
     package func refreshGitFromMetadataChange(since historyVersion: Int? = nil) async {

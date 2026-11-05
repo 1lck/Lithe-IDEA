@@ -5,10 +5,10 @@
   "capability": "插件提供调试适配器：声明式 debugAdapters 经共享 Core 校验，宿主按已安装插件拉起适配器、启动与附加调试、调试控制台提示符与补全，安装、更新、启停、卸载免重启生效；原生启动配置保留明确适配器身份，支持无源文件目标及同语言多适配器的会话路由；debugAdapters v2 绑定受限的目标参数与环境，并接收同包 Provider 原生调试准备；DAP 生命周期与稳定失败分类进入统一结构化日志，取消不作为失败，协议和程序内容不落盘",
   "macos": {
     "evidence": [
-      "shared/contracts/plugins/v1/fixtures/debug-adapter.plugin.json",
-      "shared/contracts/plugins/v1/fixtures/debug-adapter-language-server.plugin.json",
-      "shared/contracts/plugins/v1/fixtures/debug-adapter-remote-attach.plugin.json",
-      "shared/contracts/plugins/v1/fixtures/debug-adapter-rejections.json",
+      "shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter-language-server.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter-remote-attach.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter-rejections.json",
       "rust/lithe-core/src/debug/adapters.rs",
       "macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift",
       "macos/Sources/Lithe/Platform/MacOS/Plugins/MacLivePluginRegistry.swift",
@@ -42,9 +42,9 @@
   "windows": {
     "evidence": [
       "rust/lithe-core/src/debug/adapters.rs",
-      "shared/contracts/plugins/v1/fixtures/debug-adapter.plugin.json",
-      "shared/contracts/plugins/v1/fixtures/debug-adapter-language-server.plugin.json",
-      "shared/contracts/plugins/v1/fixtures/debug-adapter-remote-attach.plugin.json"
+      "shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter-language-server.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter-remote-attach.plugin.json"
     ],
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"

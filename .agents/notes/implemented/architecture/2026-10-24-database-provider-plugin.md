@@ -106,7 +106,7 @@
 
 - SQL 分析、语句拆分、标识符引用、DDL 生成和危险语句判定，全部只在插件的 Rust 后端里实现。界面要不要弹出确认框、执行时要不要拦截，都使用同一个分析结果。
 - 插件仓库维护数据库专属的黄金样例。必须覆盖：换行或制表符分隔的 `WHERE`、开头的行注释和块注释、`WITH … DELETE`、多语句、无法识别的语句。
-- 主仓库只维护通用能力的样例（`fixtures/backend.plugin.json`、`function-protocol.json` 的 `hostRequests`），不再维护数据库样例。
+- 主仓库只维护通用能力的样例（`fixtures/backend/backend.plugin.json`、`function-protocol.json` 的 `hostRequests`），不再维护数据库样例。
 
 ### 六、老用户迁移
 

@@ -210,7 +210,7 @@ pub(crate) fn is_hot(method: &str) -> bool {
         // File watchers forward one batch per debounce window.
         || matches!(
             method,
-            "workspace.filterChanges" | "lsp.workspaceFilesChanged"
+            "workspace.filterChanges" | "lsp.workspaceFilesChanged" | "git.classifyMetadataChanges"
         )
 }
 
@@ -291,6 +291,7 @@ mod tests {
             "document.lifecycle",
             "workspace.search",
             "workspace.filterChanges",
+            "git.classifyMetadataChanges",
             "debug.transport.handle",
         ] {
             assert!(is_hot(method), "{method}");

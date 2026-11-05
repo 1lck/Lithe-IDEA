@@ -10,7 +10,7 @@
       "Plugins/mac/README.md",
       "docs/ci-builds.md",
       ".agents/notes/implemented/feature/2026-10-22-cargo-build-plugin.md",
-      "shared/contracts/plugins/v1/fixtures/build-tool-path.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/build-systems/build-tool-path.plugin.json",
       "rust/lithe-core/src/plugins/executables.rs",
       "macos/Sources/LitheCoreContracts/Execution/ExecutableResolution.swift"
     ]

@@ -63,10 +63,7 @@ import {
   isLinkedWorktreeRepository,
   resolveVisibleRepositoryPaths,
 } from "../../utils/git-workspace-repositories";
-import {
-  GIT_REPOSITORY_COLOR_PALETTE,
-  buildGitRepositoryColorMap,
-} from "../../utils/git-repository-colors";
+import { useRepositoryColors } from "../../utils/git-repository-colors";
 import { GitTrackingCounts } from "../git-tracking-counts";
 import { GitFetchIcon, GitUpdateIcon, LocateHeadIcon } from "./git-reference-toolbar-icons";
 
@@ -849,10 +846,7 @@ export function GitReferenceTree({
   );
   // Colors are keyed off the full repository list so hiding a worktree never
   // shifts the colors of the repositories that remain visible.
-  const repositoryColorByKey = useMemo(
-    () => buildGitRepositoryColorMap(repositoryPaths ?? []),
-    [repositoryPaths],
-  );
+  const repositoryColors = useRepositoryColors(repositoryPaths);
 
   const repositoryGroups = useMemo<GitReferenceRepositoryGroup[]>(() => {
     // Remote symbolic HEAD aliases are hidden so `origin/HEAD` does not appear
@@ -1094,8 +1088,7 @@ export function GitReferenceTree({
                 // it as the active repository.
                 const actionsEnabled = group.repositoryKey === activeRepositoryKey;
                 const repositoryColor =
-                  repositoryColorByKey.get(group.repositoryKey) ??
-                  GIT_REPOSITORY_COLOR_PALETTE[0];
+                  repositoryColors?.colors.get(group.repositoryKey) ?? repositoryColors?.fallback;
                 const repositoryError = actionsEnabled
                   ? undefined
                   : referenceErrorsByRepository?.get(group.repositoryKey);

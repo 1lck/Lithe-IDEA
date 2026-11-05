@@ -9,13 +9,13 @@ use serde_json::{json, Value};
 
 fn manifest() -> Value {
     serde_json::from_str(include_str!(
-        "../../../../shared/contracts/plugins/v1/fixtures/build-provider-configuration.plugin.json"
+        "../../../../shared/contracts/plugins/v1/fixtures/build-providers/build-provider-configuration.plugin.json"
     ))
     .unwrap()
 }
 fn snapshot() -> Value {
     let mut value: Value = serde_json::from_str(include_str!(
-        "../../../../shared/contracts/plugins/v1/fixtures/build-configuration.json"
+        "../../../../shared/contracts/plugins/v1/fixtures/build-providers/build-configuration.json"
     ))
     .unwrap();
     if cfg!(windows) {

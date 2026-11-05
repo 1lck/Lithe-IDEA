@@ -51,6 +51,7 @@ import { createTranslator } from "@/i18n/locale";
 import { logger } from "@/features/editor/utils/logger";
 import { normalizePath } from "@/utils/path-helpers";
 import { showPromptDialog } from "@/ui/dialog";
+import { invoke } from "@/platform/tauri-core";
 import { toast } from "sonner";
 
 type LspNavigationClient = {
@@ -88,6 +89,7 @@ type LspNavigationClient = {
 
 const NAVIGATION_LANGUAGE_SERVER_TOAST_ID = "navigation-language-server-readiness";
 const NAVIGATION_PENDING_TOAST_ID = "navigation-request-pending";
+const NAVIGATION_INPUT_TRANSPORT_LIMIT = 128;
 const navigationPendingNotice = sharedSlowRequestNotice(() =>
   toast.dismiss(NAVIGATION_PENDING_TOAST_ID),
 );
@@ -586,19 +588,33 @@ async function goToActiveLspLocation(
 
 export async function promptGoToLine(): Promise<void> {
   const t = getCurrentTranslator();
+  const workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId();
+  const bufferId = useBufferStore.getState().activeBufferId;
   const lineText = await showPromptDialog(t("navigation.goToLinePrompt"), {
     title: t("navigation.goToLine"),
     placeholder: t("navigation.lineNumber"),
   });
   if (!lineText) return;
-
-  const line = Number.parseInt(lineText, 10);
-  if (!Number.isFinite(line) || line < 1) {
+  // UTF-8 cannot be shorter than UTF-16 for valid input; reject oversized
+  // pastes before serializing them across the WebView boundary.
+  if (lineText.length > NAVIGATION_INPUT_TRANSPORT_LIMIT) {
     toast.warning(t("navigation.enterValidLineNumber"));
     return;
   }
 
-  window.dispatchEvent(new CustomEvent("menu-go-to-line", { detail: { line } }));
+  const { target } = await invoke<{ target: { line: number; column: number; selectsWholeLine: boolean } | null }>(
+    "editor.parseNavigationInput", { text: lineText },
+  );
+  if (workspaceRuntimeRegistry.getActiveWorkspaceId() !== workspaceId ||
+      useBufferStore.getState().activeBufferId !== bufferId) return;
+  if (!target) {
+    toast.warning(t("navigation.enterValidLineNumber"));
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent("menu-go-to-line", { detail: {
+    line: target.line + 1, column: target.column + 1, selectsWholeLine: target.selectsWholeLine,
+  } }));
 }
 
 export function openOutlinePicker(): void {

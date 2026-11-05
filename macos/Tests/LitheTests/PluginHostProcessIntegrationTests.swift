@@ -35,7 +35,7 @@ struct PluginHostProcessIntegrationTests {
         let script = try Data(contentsOf: repository.appendingPathComponent("macos/Tests/LitheTests/Fixtures/PluginHostAPI/backend.mjs"))
         try script.write(to: package.appendingPathComponent("backend.mjs"))
         var manifest = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: repository.appendingPathComponent(
-            "shared/contracts/plugins/v1/fixtures/command-backend.plugin.json"))) as? [String: Any])
+            "shared/contracts/plugins/v1/fixtures/backend/command-backend.plugin.json"))) as? [String: Any])
         manifest["backend"] = ["launch": ["kind": "runtime", "tool": "node", "entry": "backend.mjs"]]
         let manifestData = try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])
         try manifestData.write(to: package.appendingPathComponent("plugin.json"))

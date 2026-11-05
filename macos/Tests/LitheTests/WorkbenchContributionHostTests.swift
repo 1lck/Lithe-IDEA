@@ -13,7 +13,7 @@ import LitheCoreContracts
 struct WorkbenchContributionHostTests {
     private func descriptor() throws -> DeclarativePluginDescriptor {
         let data = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/hello-lithe.plugin.json"))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/manifest/hello-lithe.plugin.json"))
         return try DeclarativePluginTestSupport.operations.validate(manifest: data)
     }
 
@@ -710,7 +710,7 @@ struct WorkbenchContributionHostTests {
         let package = root.appendingPathComponent("source")
         try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
         let source = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/hello-lithe.plugin.json"))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/manifest/hello-lithe.plugin.json"))
         try source.write(to: package.appendingPathComponent("plugin.json"))
         let store = MacPluginPackageStore(
             rootURL: root.appendingPathComponent("installed"), validator: DeclarativePluginTestSupport.operations,

@@ -118,7 +118,7 @@ struct PluginManagerTests {
         // host declares `vcsProviders`, and one module carries its enablement.
         #expect(PluginManifest.hostCapabilities["vcsProviders"] == [1])
         let manifest = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/vcs-provider.plugin.json"))
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/vcs/vcs-provider.plugin.json"))
         let sample = try DeclarativePluginTestSupport.operations.validate(manifest: manifest)
         #expect(sample.vcsProviders == [DeclarativeVcsProvider(id: "svn", displayName: "Subversion")])
         #expect(sample.pluginManifest.modules.map(\.manifest.id) == [.vcsProvidersExtension(sample.id.rawValue)])

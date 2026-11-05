@@ -71,6 +71,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private var visibilityRulesRefreshTask: Task<Void, Never>?
     private var pendingExternalPaths: Set<String> = []
     private var pendingGitRefresh = false
+    private var pendingGitIndexOnly = false
     private var pendingIndexingRuleRefresh = false
     private var pendingFullRescan = false
     private var pendingWatchRootsChanged = false
@@ -110,6 +111,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private var notifyWorkspaceFileChanges: (@MainActor ([WorkspaceFileChange]) -> Void)?
     private var reloadProjectServices: (@MainActor () async -> Void)?
     private var refreshGit: (@MainActor () async -> Void)?
+    private var refreshGitIndexOnly: (@MainActor () async -> Void)?
     private var updateHistoryVisibilityRules: (@MainActor (FileVisibilityRules) async -> Void)?
     private var onSnapshotLoaded: (@MainActor (WorkspaceSnapshot, Bool) async -> Void)?
     private var warmSearchIndex: (@MainActor (URL, FileVisibilityRules) -> Void)?
@@ -156,6 +158,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         notifyWorkspaceFileChanges: @escaping @MainActor ([WorkspaceFileChange]) -> Void = { _ in },
         reloadProjectServices: @escaping @MainActor () async -> Void,
         refreshGit: @escaping @MainActor () async -> Void,
+        refreshGitIndexOnly: (@MainActor () async -> Void)? = nil,
         updateHistoryVisibilityRules: @escaping @MainActor (FileVisibilityRules) async -> Void,
         onSnapshotLoaded: @escaping @MainActor (WorkspaceSnapshot, Bool) async -> Void,
         warmSearchIndex: @escaping @MainActor (URL, FileVisibilityRules) -> Void,
@@ -178,6 +181,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         self.notifyWorkspaceFileChanges = notifyWorkspaceFileChanges
         self.reloadProjectServices = reloadProjectServices
         self.refreshGit = refreshGit
+        self.refreshGitIndexOnly = refreshGitIndexOnly
         self.updateHistoryVisibilityRules = updateHistoryVisibilityRules
         self.onSnapshotLoaded = onSnapshotLoaded
         self.warmSearchIndex = warmSearchIndex
@@ -1432,7 +1436,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         if batch.watchRootsChanged || batch.requiresFullRescan {
             pendingWatchRootsChanged = pendingWatchRootsChanged || batch.watchRootsChanged
             pendingFullRescan = pendingFullRescan || batch.requiresFullRescan
-            pendingGitRefresh = true
+            enqueueGitRefresh(indexOnly: false)
             refreshTask?.cancel()
             refreshTask = nil
             gitRefreshTask?.cancel()
@@ -1447,7 +1451,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         // These are independent owned debounce lanes: tree/index/project work
         // must not delay Git or cancel the last chance to publish a file batch.
         if batch.gitStateMayHaveChanged || batch.gitMetadataMayHaveChanged {
-            scheduleGitRefresh()
+            scheduleGitRefresh(indexOnly: batch.gitIndexOnly)
         }
     }
 
@@ -1539,8 +1543,14 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
     }
 
-    private func scheduleGitRefresh() {
+    private func enqueueGitRefresh(indexOnly: Bool) {
+        pendingGitIndexOnly = pendingGitRefresh ? pendingGitIndexOnly && indexOnly : indexOnly
         pendingGitRefresh = true
+    }
+
+    private func scheduleGitRefresh(indexOnly: Bool? = nil) {
+        if let indexOnly { enqueueGitRefresh(indexOnly: indexOnly) }
+        else if !pendingGitRefresh { enqueueGitRefresh(indexOnly: false) }
         gitRefreshGeneration += 1
         guard gitOperationFreezeDepth == 0, activeGitRefreshID == nil else { return }
         let generation = gitRefreshGeneration
@@ -1557,7 +1567,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     private func requestGitRefreshNow() async {
-        pendingGitRefresh = true
+        enqueueGitRefresh(indexOnly: false)
         gitRefreshGeneration += 1
         if activeGitRefreshID == nil {
             gitRefreshTask?.cancel()
@@ -1580,8 +1590,11 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
         while pendingGitRefresh, gitOperationFreezeDepth == 0, !Task.isCancelled,
               workspaceGeneration == generation, activeGitRefreshID == refreshID {
+            let indexOnly = pendingGitIndexOnly
             pendingGitRefresh = false
-            await refreshGit?()
+            pendingGitIndexOnly = false
+            if indexOnly, let refreshGitIndexOnly { await refreshGitIndexOnly() }
+            else { await refreshGit?() }
         }
         guard !Task.isCancelled, workspaceGeneration == generation, activeGitRefreshID == refreshID else { return }
         if pendingIndexingRuleRefresh, !isLoadingWorkspace, !isRefreshingWorkspace {
@@ -1595,7 +1608,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         let generation = workspaceGeneration
         guard gitOperationFreezeDepth == 0 else {
             pendingExternalPaths.formUnion(paths)
-            pendingGitRefresh = true
+            enqueueGitRefresh(indexOnly: false)
             return
         }
         if isLoadingWorkspace || isRefreshingWorkspace {

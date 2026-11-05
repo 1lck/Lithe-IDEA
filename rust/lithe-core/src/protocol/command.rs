@@ -385,6 +385,8 @@ pub enum CoreCommand {
     /// Applies a deterministic line-level editing transform
     /// (`editor.lineEdit`).
     EditorLineEdit,
+    /// Parses a line or line:column navigation input (`editor.parseNavigationInput`).
+    EditorParseNavigationInput,
     /// Resolves the line comment token for a file extension
     /// (`editor.lineCommentToken`).
     EditorLineCommentToken,
@@ -421,6 +423,8 @@ pub enum CoreCommand {
     /// Replaces the plugin settings a plugin-provided server reads
     /// (`lsp.updateWorkspaceConfiguration`).
     LspUpdateWorkspaceConfiguration,
+    /// Converts an absolute path to a file URI (`lsp.documentUri`).
+    LspDocumentUri,
     /// Opens or updates a synchronized document (`lsp.syncDocument`).
     LspSyncDocument,
     /// Reports a successful native document save (`lsp.saveDocument`).
@@ -511,6 +515,8 @@ pub enum CoreCommand {
     GitWorkspaceCommitPrepare,
     /// Executes one guarded workspace commit/push (`git.workspaceCommitStep`).
     GitWorkspaceCommitStep,
+    /// Classifies a bounded page of Git watcher paths (`git.classifyMetadataChanges`).
+    GitClassifyMetadataChanges,
     /// Resolves paths a Git-aware watcher must observe (`git.watchContext`).
     GitWatchContext,
     /// Lists worktrees registered for the repository (`git.worktrees`).
@@ -637,6 +643,8 @@ pub enum CoreCommand {
     GitHistoryLocate,
     /// Cleans and validates a new branch name in loaded references (`git.branchNamePreview`).
     GitBranchNamePreview,
+    /// Assigns palette slots to a page of ordered repository identities.
+    GitRepositoryColorAssignments,
     /// Resolves the destination and commits for a branch push (`git.pushPreview`).
     GitPushPreview,
     /// Resolves metadata for one commit (`git.commit`).
@@ -888,6 +896,7 @@ impl CoreCommand {
             "debug.destroySession" => Some(Self::DebugDestroySession),
             "lsp.applyTextEdits" => Some(Self::LspApplyTextEdits),
             "editor.lineEdit" => Some(Self::EditorLineEdit),
+            "editor.parseNavigationInput" => Some(Self::EditorParseNavigationInput),
             "editor.lineCommentToken" => Some(Self::EditorLineCommentToken),
             "network.proxyPolicy" => Some(Self::NetworkProxyPolicy),
             "lsp.plainSnippet" => Some(Self::LspPlainSnippet),
@@ -904,6 +913,7 @@ impl CoreCommand {
             "lsp.retryMavenProfiles" => Some(Self::LspRetryMavenProfiles),
             "lsp.updateMavenConfiguration" => Some(Self::LspUpdateMavenConfiguration),
             "lsp.updateWorkspaceConfiguration" => Some(Self::LspUpdateWorkspaceConfiguration),
+            "lsp.documentUri" => Some(Self::LspDocumentUri),
             "lsp.syncDocument" => Some(Self::LspSyncDocument),
             "lsp.saveDocument" => Some(Self::LspSaveDocument),
             "lsp.workspaceFilesChanged" => Some(Self::LspWorkspaceFilesChanged),
@@ -951,6 +961,7 @@ impl CoreCommand {
             "git.commitState" => Some(Self::GitCommitState),
             "git.workspaceCommitPrepare" => Some(Self::GitWorkspaceCommitPrepare),
             "git.workspaceCommitStep" => Some(Self::GitWorkspaceCommitStep),
+            "git.classifyMetadataChanges" => Some(Self::GitClassifyMetadataChanges),
             "git.watchContext" => Some(Self::GitWatchContext),
             "git.worktrees" => Some(Self::GitWorktrees),
             "git.pullRequestContext" => Some(Self::GitPullRequestContext),
@@ -1014,6 +1025,7 @@ impl CoreCommand {
             "git.historyCursorClose" => Some(Self::GitHistoryCursorClose),
             "git.historyLocate" => Some(Self::GitHistoryLocate),
             "git.branchNamePreview" => Some(Self::GitBranchNamePreview),
+            "git.repositoryColorAssignments" => Some(Self::GitRepositoryColorAssignments),
             "git.pushPreview" => Some(Self::GitPushPreview),
             "git.commit" => Some(Self::GitCommit),
             "git.commitFiles" => Some(Self::GitCommitFiles),

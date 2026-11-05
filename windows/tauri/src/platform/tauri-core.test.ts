@@ -136,10 +136,22 @@ test("pure console projection bypasses execution events and Git settings", async
   expect(tauriInvoke).toHaveBeenCalledWith("platform_invoke", { command: "git.consolePresentation", args }, undefined);
 });
 
+test("Git metadata classification bypasses execution events and Git settings", async () => {
+  const args = { context: {}, paths: [] };
+  await invoke("git.classifyMetadataChanges", args);
+  expect(tauriInvoke).toHaveBeenCalledWith("platform_invoke", { command: "git.classifyMetadataChanges", args }, undefined);
+});
+
 test("pure ChangeList projection bypasses Git events and execution settings", async () => {
   const args = { state: { lists: [{ id: "default", name: "" }], activeId: "default", assignments: {} }, files: [], repositories: [] };
   await invoke("git.changelists", args);
   expect(tauriInvoke).toHaveBeenCalledWith("platform_invoke", { command: "git.changelists", args }, undefined);
+});
+
+test("repository color pages bypass Git events and execution settings", async () => {
+  const args = { offset: 0, totalCount: 1, repositoryIds: ["C:/repo"] };
+  await invoke("git.repositoryColorAssignments", args);
+  expect(tauriInvoke).toHaveBeenCalledWith("platform_invoke", { command: "git.repositoryColorAssignments", args }, undefined);
 });
 
 test("explicit automatic provenance is forwarded separately from native invoke options", async () => {

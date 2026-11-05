@@ -6,7 +6,7 @@
   "macos": {
     "evidence": [
       "rust/lithe-core/src/build/plans.rs",
-      "shared/contracts/plugins/v1/fixtures/build-plans.json",
+      "shared/contracts/plugins/v1/fixtures/build-systems/build-plans.json",
       "shared/contracts/plugins/v1/README.md",
       "macos/Sources/Lithe/Core/Rust/RustBuildSystemOperations.swift",
       "macos/Sources/LitheCoreContracts/Execution/BuildSystemContracts.swift",
@@ -23,7 +23,7 @@
   "windows": {
     "evidence": [
       "rust/lithe-core/src/build/plans.rs",
-      "shared/contracts/plugins/v1/fixtures/build-plans.json"
+      "shared/contracts/plugins/v1/fixtures/build-systems/build-plans.json"
     ],
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"

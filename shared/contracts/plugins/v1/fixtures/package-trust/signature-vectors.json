@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "description": "Public cross-platform test vectors for the plugin package signature (macOS PluginPackageSignature and the Windows plugin_host signature module). The Ed25519 key is the RFC 8032 test key; it must never sign real packages. Regenerating requires updating both platform tests in the same change.",
+  "description": "Public cross-platform test vectors for the plugin package signature. macOS PluginPackageSignature tests consume them; Windows does not verify package signatures yet, and its verifier must consume the same vectors. The Ed25519 key is the RFC 8032 test key; it must never sign real packages. Regenerating requires updating every platform test that consumes them in the same change.",
   "ed25519": {
     "seedHex": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
     "publicKeyHex": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",

@@ -10,7 +10,7 @@ import Testing
 @MainActor
 struct ToolchainPluginAdmissionTests {
     @Test func providerIsAvailableReviewedAndLoadedWithBackendEnablement() throws {
-        let manifest = try fixture("toolchain-provider.plugin.json")
+        let manifest = try fixture("toolchains/toolchain-provider.plugin.json")
         let descriptor = try checkAdmission(manifest)
         #expect(descriptor.declaresBackend)
         #expect(descriptor.pluginManifest.modules.map(\.manifest.id) == [.backendExtension(descriptor.id.rawValue)])
@@ -23,7 +23,7 @@ struct ToolchainPluginAdmissionTests {
     }
 
     @Test func standaloneDefinitionHasEnablementAndRequiresRestart() throws {
-        let descriptor = try checkAdmission(fixture("tool-definition.plugin.json"))
+        let descriptor = try checkAdmission(fixture("toolchains/tool-definition.plugin.json"))
         #expect(!descriptor.declaresBackend)
         #expect(descriptor.pluginManifest.modules.map(\.manifest.id) == [.toolchainsExtension(descriptor.id.rawValue)])
         #expect(descriptor.pluginManifest.modules.allSatisfy { $0.manifest.defaultState == .disabled })
