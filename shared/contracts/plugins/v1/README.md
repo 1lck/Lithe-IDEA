@@ -1735,13 +1735,15 @@ The manifest only says how to start the provider and which sources use it.
 Everything else is negotiated in the LSP `initialize` exchange, so a provider
 can add optional data within a negotiated protocol version:
 
-- The host sends `capabilities.experimental.litheBuild: { "versions": [8, 7, 6, 5, 4, 3, 2, 1] }`,
+- The host sends `capabilities.experimental.litheBuild: { "versions": [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1] }`,
   the build-provider protocol versions it speaks. Version 1 is the two
   requests above with the params and result formats of this section;
   version 2 adds typed task execution; version 3 adds typed test execution
   and discovery; version 4 adds application run preparation; version 5 adds native debug preparation;
   version 6 accepts the host's explicitly declared read-only model inputs;
-  version 7 adds source-backed native configuration; version 8 adds inline test reports.
+  version 7 adds source-backed native configuration; version 8 adds inline test reports;
+  version 9 adds opaque semantic test selectors; version 10 adds typed run options and
+  service/task run preparation; version 11 adds registry connection debugging.
 - The provider answers `capabilities.experimental.litheBuild: { "version": 1 }`
   with the version it chose from that list. A provider that answers no
   version, or one the host did not offer, is not used for build requests; a
