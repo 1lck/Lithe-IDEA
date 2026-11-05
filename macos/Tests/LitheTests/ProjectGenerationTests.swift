@@ -737,16 +737,23 @@ struct ProjectGenerationTests {
 
     // MARK: Tool field fixtures
 
-    private static var fixturesURL: URL {
+    /// The project-generator fixtures. The tool-field manifest's
+    /// `templates/tool-field` source resolves against this directory.
+    private static var generatorFixturesURL: URL {
         DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures", isDirectory: true)
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/project-generators", isDirectory: true)
+    }
+
+    private static var toolchainFixturesURL: URL {
+        DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/toolchains", isDirectory: true)
     }
 
     /// The tool-field fixture's `plugin.json`. `tool` points its `python` field
     /// at another tool, to test fields whose tool a different plugin defines.
     private static func toolFieldManifest(tool: String? = nil) throws -> Data {
         let text = try String(
-            contentsOf: fixturesURL.appendingPathComponent("project-generator-tool-field.plugin.json"),
+            contentsOf: generatorFixturesURL.appendingPathComponent("project-generator-tool-field.plugin.json"),
             encoding: .utf8
         )
         guard let tool else { return Data(text.utf8) }
@@ -756,14 +763,14 @@ struct ProjectGenerationTests {
     private static func toolFieldSource(tool: String? = nil, enabled: Bool) throws -> ProjectGeneratorPluginSource {
         ProjectGeneratorPluginSource(
             pluginID: toolFieldPluginID, manifest: try toolFieldManifest(tool: tool),
-            packageURL: fixturesURL, isEnabled: enabled
+            packageURL: generatorFixturesURL, isEnabled: enabled
         )
     }
 
     private static func toolFieldTarget(_ generatorID: String) throws -> ProjectGeneratorTarget {
         ProjectGeneratorTarget(
             pluginID: toolFieldPluginID, generatorID: generatorID,
-            manifest: try toolFieldManifest(), packageURL: fixturesURL
+            manifest: try toolFieldManifest(), packageURL: generatorFixturesURL
         )
     }
 
@@ -771,8 +778,8 @@ struct ProjectGenerationTests {
     private static func toolDefinitionSource() throws -> ProjectGeneratorPluginSource {
         ProjectGeneratorPluginSource(
             pluginID: toolDefinitionPluginID,
-            manifest: try Data(contentsOf: fixturesURL.appendingPathComponent("tool-definition.plugin.json")),
-            packageURL: fixturesURL, isEnabled: false
+            manifest: try Data(contentsOf: toolchainFixturesURL.appendingPathComponent("tool-definition.plugin.json")),
+            packageURL: toolchainFixturesURL, isEnabled: false
         )
     }
 

@@ -174,9 +174,17 @@ fn catalog_skips_plugins_the_host_cannot_run() {
 /// nobody declares has no provider, which is how an unknown ID shows up.
 #[test]
 fn catalog_names_the_plugins_that_define_each_tool() {
+    // Read the names from the definition fixture, so the test follows it and
+    // the host keeps no tool name of its own.
+    let definition = json(TOOL_DEFINITION_FIXTURE);
+    let definer = definition["id"].as_str().unwrap().to_string();
+    let tool = definition["toolDefinitions"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let mut generators = json(TOOL_FIELD_FIXTURE);
-    // The definition fixture declares `java`, so point the first field at it.
-    generators["projectGenerators"][0]["fields"][0]["tool"] = json!("java");
+    // Point the first field at the tool the definition fixture declares.
+    generators["projectGenerators"][0]["fields"][0]["tool"] = json!(tool);
     let result = project_generator_catalog_command(json!({
         "plugins": [
             {"manifest": generators, "enabled": true},
@@ -191,9 +199,9 @@ fn catalog_names_the_plugins_that_define_each_tool() {
     assert_eq!(
         entries[0]["tools"],
         json!([{
-            "fieldID": "python", "tool": "java",
+            "fieldID": "python", "tool": tool,
             "providers": [{
-                "pluginID": "dev.lithe.fixture.java-support",
+                "pluginID": definer,
                 "pluginName": "Tool definition fixture",
                 "enabled": false
             }]
@@ -206,8 +214,8 @@ fn catalog_names_the_plugins_that_define_each_tool() {
     // A third-party definition is addressed as `<pluginID>:<id>`; that spelling
     // names the same declaration, but another plugin's prefix does not.
     for (tool, provider_count) in [
-        ("dev.lithe.fixture.java-support:java", 1),
-        ("dev.lithe.fixture.other:java", 0),
+        (format!("{definer}:{tool}"), 1),
+        (format!("dev.lithe.fixture.other:{tool}"), 0),
     ] {
         let mut generators = json(TOOL_FIELD_FIXTURE);
         generators["projectGenerators"][0]["fields"][0]["tool"] = json!(tool);

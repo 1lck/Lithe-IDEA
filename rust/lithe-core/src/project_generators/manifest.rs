@@ -86,7 +86,7 @@ pub(crate) const FIELD_RUNTIME: &str = "runtime";
 pub(crate) const FIELD_TOOL: &str = "tool";
 /// Host-managed runtimes a runtime field may select. The host discovers
 /// installations; Core only checks the version.
-const KNOWN_RUNTIMES: &[&str] = &["java"];
+pub(super) const KNOWN_RUNTIMES: &[&str] = &["java"];
 /// The `requires.projectGenerators` version that introduces tool fields and
 /// retires runtime fields. A generator declared with version 2 selects every
 /// tool through its definition; version 1 keeps the runtime field.

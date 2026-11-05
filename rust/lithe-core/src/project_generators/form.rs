@@ -463,6 +463,7 @@ pub(crate) fn project_name_problem(name: &str) -> Option<FieldProblem> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::manifest::KNOWN_RUNTIMES;
     use super::*;
 
     fn generator(fields: Value) -> ProjectGeneratorDeclaration {
@@ -727,18 +728,20 @@ mod tests {
         let state = evaluate(&tool_generator(false), &form);
         assert_eq!(field(&state, "sdk").value, json!("/first"));
 
+        // Runtime fields compare the same way; the runtime is whichever one the
+        // manifest accepts, so the test names none itself.
         let runtime = generator(json!([
-            {"id": "jdk", "type": "runtime", "title": "JDK", "runtime": "java", "minimumVersion": "17.0"}
+            {"id": "sdk", "type": "runtime", "title": "SDK", "runtime": KNOWN_RUNTIMES[0], "minimumVersion": "17.0"}
         ]));
         let mut form = input("demo", json!({}), &[]);
         form.runtimes.insert(
-            "jdk".into(),
+            "sdk".into(),
             RuntimeSelection {
-                home: "/jdk".into(),
+                home: "/sdk".into(),
                 version: "17".into(),
             },
         );
-        assert_eq!(field(&evaluate(&runtime, &form), "jdk").problem, None);
+        assert_eq!(field(&evaluate(&runtime, &form), "sdk").problem, None);
     }
 
     /// An old copy of an optional tool must not block a project that could be
