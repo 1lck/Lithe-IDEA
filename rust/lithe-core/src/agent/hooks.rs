@@ -18,3 +18,9 @@ pub(crate) fn execute(request: hooks::Request) -> Result<Value, CoreError> {
     serde_json::to_value(library)
         .map_err(|issue| CoreError::new(ErrorCode::Unknown, issue.to_string()))
 }
+
+/// Field-level draft verdict from the same rules `save` enforces; reads no files.
+pub(crate) fn validate_draft(request: hooks::DraftRequest) -> Result<Value, CoreError> {
+    serde_json::to_value(hooks::validate_draft(&request))
+        .map_err(|issue| CoreError::new(ErrorCode::Unknown, issue.to_string()))
+}

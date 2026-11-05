@@ -47,7 +47,7 @@ struct AgentHooksSettingsView: View {
                         Text(feature.query.isEmpty ? key("No Hooks yet.") : key("No matching Hooks."))
                             .foregroundStyle(LitheTheme.secondaryText)
                         if feature.query.isEmpty {
-                            Button(key("Add Hook")) { feature.draft = AgentHook(); showsEditor = true }
+                            Button(key("Add Hook")) { feature.beginEditing(AgentHook()); showsEditor = true }
                                 .buttonStyle(LitheActionButtonStyle()).disabled(feature.isBusy)
                         }
                     }.frame(maxWidth: .infinity).padding(.vertical, 35)
@@ -65,7 +65,7 @@ struct AgentHooksSettingsView: View {
                             })).labelsHidden().toggleStyle(.switch).controlSize(.small)
                                 .disabled(feature.isBusy || entry.hook.pendingRemoval)
                                 .accessibilityLabel(Text(verbatim: entry.hook.name + ": " + localized("Enable Hook")))
-                            Button(key("Edit")) { feature.draft = entry.hook; showsEditor = true }
+                            Button(key("Edit")) { feature.beginEditing(entry.hook); showsEditor = true }
                                 .buttonStyle(LitheActionButtonStyle()).disabled(feature.isBusy || entry.hook.pendingRemoval)
                             Button(key("Delete")) { removal = entry }.buttonStyle(LitheActionButtonStyle()).disabled(feature.isBusy)
                         }
@@ -102,7 +102,7 @@ struct AgentHooksSettingsView: View {
     }
     @ViewBuilder private var toolbar: some View {
         Button(key("Reload from disk")) { run { await feature.load() } }.buttonStyle(LitheActionButtonStyle())
-        Button(key("Add Hook")) { feature.draft = AgentHook(); showsEditor = true }
+        Button(key("Add Hook")) { feature.beginEditing(AgentHook()); showsEditor = true }
             .buttonStyle(LitheActionButtonStyle(isPrimary: true)).disabled(feature.library == nil)
     }
     private func localized(_ value: String.LocalizationValue) -> String {
@@ -125,7 +125,6 @@ private struct AgentHookEditor: View {
     @ObservedObject var feature: AgentHooksFeatureModel
     let onSave: () -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var timeout = ""
     @FocusState private var nameFocused: Bool
     @FocusState private var descriptionFocused: Bool
 
@@ -143,7 +142,11 @@ private struct AgentHookEditor: View {
         AgentLocalization.string(value, locale: locale, bundle: localizationBundle)
     }
     private func key(_ value: String.LocalizationValue) -> LocalizedStringKey { LocalizedStringKey(localized(value)) }
-    private var timeoutValid: Bool { timeout.isEmpty || (Int(timeout).map { (1...86400).contains($0) } ?? false) }
+    /// Core issue keys shown inline; an empty name or command only disables saving.
+    private var visibleIssueKeys: [String] {
+        (feature.draftValidation?.issues ?? []).filter { !($0.code == "required" && ["name", "command"].contains($0.field)) }
+            .map { "agent.hooks.draft.\($0.field).\($0.code)" }
+    }
     private var isNew: Bool { !(feature.library?.hooks.contains { $0.id == feature.draft?.id } ?? false) }
     var body: some View {
         VStack(spacing: 0) {
@@ -185,10 +188,9 @@ private struct AgentHookEditor: View {
                             .accessibilityLabel(Text(key("Hook command"))).accessibilityIdentifier("hook-editor.command")
                     }
                     row("Timeout (seconds)", info: "Leave empty to use the Agent default, or enter an integer from 1 to 86400.") {
-                        LitheTextField(key("Agent default"), text: $timeout)
+                        LitheTextField(key("Agent default"), text: $feature.timeoutText)
                             .frame(width: 200).accessibilityLabel(Text(key("Timeout (seconds)")))
                             .accessibilityIdentifier("hook-editor.timeout")
-                            .onChange(of: timeout) { value in feature.draft?.timeoutSeconds = value.isEmpty ? nil : Int(value) }
                     }
                     row("Agent") {
                         HStack(spacing: 8) {
@@ -205,6 +207,7 @@ private struct AgentHookEditor: View {
                             }
                         }
                     }
+                    ForEach(visibleIssueKeys, id: \.self) { AgentSettingsIssue(localized(String.LocalizationValue($0))) }
                     if case .failed(let message) = feature.phase { AgentSettingsIssue(localized(String.LocalizationValue(message))) }
                 }.padding(Layout.padding)
             }.frame(maxHeight: 510).fixedSize(horizontal: false, vertical: true)
@@ -215,14 +218,11 @@ private struct AgentHookEditor: View {
                 Button(key("Cancel")) { feature.draft = nil; dismiss() }.buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction)
                 Button(isNew ? key("Add Hook") : key("Save Hook"), action: onSave)
                     .buttonStyle(LitheActionButtonStyle(isPrimary: true))
-                    .disabled(!feature.canSave || !timeoutValid).keyboardShortcut(.defaultAction)
+                    .disabled(!feature.canSave).keyboardShortcut(.defaultAction)
             }.padding(Layout.padding)
         }.font(LitheTheme.settingsFont).frame(width: Layout.width).background(LitheTheme.settingsSurface)
             .disabled(feature.isBusy)
-            .onAppear {
-                timeout = feature.draft?.timeoutSeconds.map(String.init) ?? ""
-                nameFocused = true
-            }
+            .onAppear { nameFocused = true }
             .onChange(of: feature.draft?.event) { event in if event?.supportsMatcher != true { feature.draft?.matcher = .all } }
             .interactiveDismissDisabled(feature.isBusy)
     }

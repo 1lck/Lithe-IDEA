@@ -6,32 +6,90 @@ import LitheCoreContracts
 @Suite("Agent Hook settings")
 @MainActor
 struct AgentHooksFeatureModelTests {
-    @Test func validatesDraftsWithoutExecutingOrSavingThem() async {
+    @Test(.enabled(if: RustCoreBridge().isAvailable, "Requires the linked Rust Core integration library"))
+    func validatesDraftsThroughCoreWithoutExecutingOrSavingThem() async {
         let stub = HookTestService()
         let feature = AgentHooksFeatureModel(service: stub)
         await feature.load()
-        feature.draft = AgentHook(name: "remind", description: "结束提醒", command: "printf done")
+        feature.beginEditing(AgentHook(name: "remind", description: "结束提醒", command: "printf done"))
         #expect(feature.canSave)
-        for name in ["", "../escape", "spaces here", String(repeating: "a", count: 81)] {
+        for name in ["", "../escape", "spaces here", String(repeating: "a", count: 81), "NOTIFY"] {
             feature.draft?.name = name
             #expect(!feature.canSave)
         }
         feature.draft?.name = "valid_1"
-        feature.draft?.timeoutSeconds = 0
+        feature.timeoutText = "0"
         #expect(!feature.canSave)
-        feature.draft?.timeoutSeconds = 86400
+        #expect(feature.draftValidation?.issues == [AgentHookDraftIssue(field: "timeout", code: "out_of_range")])
+        feature.timeoutText = "86400"
         #expect(feature.canSave)
+        // Swift used to accept these; the host rejected them only when saving.
+        feature.draft?.agents = ["codex-acp", "codex-acp"]
+        #expect(!feature.canSave)
+        feature.draft?.agents = ["codex-acp"]
+        feature.draft?.matcher = .shell
+        #expect(feature.draftValidation?.issues == [AgentHookDraftIssue(field: "matcher", code: "incompatible_event")])
+        feature.draft?.matcher = .all
         feature.draft?.agents = []
         #expect(!feature.canSave)
         #expect(await stub.writes == 0)
     }
 
-    @Test func failedSaveRetainsTheDraftAndExplicitReloadRefreshesGuards() async {
+    @Test(.enabled(if: RustCoreBridge().isAvailable, "Requires the linked Rust Core integration library"))
+    func savingStoresTheTimeoutCoreParsed() async {
+        let stub = HookTestService()
+        let feature = AgentHooksFeatureModel(service: stub)
+        await feature.load()
+        feature.beginEditing(AgentHook(name: "timed", command: "printf done"))
+        feature.timeoutText = "30"
+        await feature.save()
+        #expect(await stub.lastSaved?.timeoutSeconds == 30)
+    }
+
+    @Test(.enabled(if: RustCoreBridge().isAvailable, "Requires the linked Rust Core integration library"))
+    func bridgeReturnsTheSharedFixtureVerdicts() throws {
+        struct Fixture: Decodable {
+            struct Case: Decodable {
+                struct Request: Decodable {
+                    struct Draft: Decodable {
+                        let id, name, description: String
+                        let event: AgentHookEvent
+                        let matcher: AgentHookMatcher
+                        let command, timeoutText: String
+                        let agents: [String]
+                    }
+                    struct Existing: Decodable { let id, name: String }
+                    let hook: Draft
+                    let existingHooks: [Existing]
+                }
+                let name: String
+                let request: Request
+                let expected: AgentHookDraftValidation
+            }
+            let cases: [Case]
+        }
+        let url = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/fixtures/agent/hook-draft-validation-v1.json")
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
+        let service = RustAgentHooksService(core: RustCoreBridge(), directory: URL(fileURLWithPath: "/fixture/library"))
+        for item in fixture.cases {
+            let draft = item.request.hook
+            let hook = AgentHook(id: draft.id, name: draft.name, description: draft.description, event: draft.event,
+                                 matcher: draft.matcher, command: draft.command, agents: draft.agents)
+            let library = AgentHookLibrary(revision: "fixture", hooks: item.request.existingHooks.map {
+                AgentHookEntry(hook: AgentHook(id: $0.id, name: $0.name, command: "printf done"), configuredAgents: [], needsSync: false)
+            }, targets: [])
+            let result = try service.validateDraft(hook, timeoutText: draft.timeoutText, library: library)
+            #expect(result == item.expected, "\(item.name)")
+        }
+    }
+
+    @Test(.enabled(if: RustCoreBridge().isAvailable, "Requires the linked Rust Core integration library"))
+    func failedSaveRetainsTheDraftAndExplicitReloadRefreshesGuards() async {
         let stub = HookTestService()
         let feature = AgentHooksFeatureModel(service: stub)
         await feature.load()
         let draft = AgentHook(name: "new-hook", command: "printf new")
-        feature.draft = draft
+        feature.beginEditing(draft)
         await stub.setFailure(true)
         await feature.save()
         #expect(feature.draft == draft)
@@ -44,11 +102,12 @@ struct AgentHooksFeatureModelTests {
         #expect(feature.library?.hooks.last?.id == draft.id)
     }
 
-    @Test func mutationsDoNotOverlapAndPartialSynchronizationRemainsVisible() async {
+    @Test(.enabled(if: RustCoreBridge().isAvailable, "Requires the linked Rust Core integration library"))
+    func mutationsDoNotOverlapAndPartialSynchronizationRemainsVisible() async {
         let stub = HookTestService()
         let feature = AgentHooksFeatureModel(service: stub)
         await feature.load()
-        feature.draft = AgentHook(name: "new-hook", command: "printf new")
+        feature.beginEditing(AgentHook(name: "new-hook", command: "printf new"))
         await stub.onSave {
             await MainActor.run { #expect(feature.isBusy && !feature.canSave) }
             await feature.load()
@@ -101,6 +160,11 @@ actor HookTestService: AgentHooksService {
     func setFailure(_ value: Bool) { failure = value }
     func onSave(_ action: @escaping @Sendable () async -> Void) { saving = action }
     struct Failure: LocalizedError { var errorDescription: String? { "Fixture conflict" } }
+    /// Draft rules are Core's; the stub only replaces file-backed operations.
+    nonisolated func validateDraft(_ hook: AgentHook, timeoutText: String, library: AgentHookLibrary) throws -> AgentHookDraftValidation {
+        try RustAgentHooksService(core: RustCoreBridge(), directory: URL(fileURLWithPath: "/fixture/library"))
+            .validateDraft(hook, timeoutText: timeoutText, library: library)
+    }
     func load() throws -> AgentHookLibrary {
         reads += 1
         if failure { throw Failure() }
