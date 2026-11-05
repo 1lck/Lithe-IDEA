@@ -1,21 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import fixture from "../../../../../../shared/fixtures/agent/provider-configuration-v1.json";
+import fixture from "../../../../../../shared/fixtures/ai/cli-configuration-v1.json";
 import {
   agentProviderConfigSource,
   importedProviderMatchesAgent,
   parseImportedAgentProvider,
 } from "./agent-provider-import";
 
-const [codexCase, claudeCase] = fixture.cases;
+const codexCase = fixture.strictCases.find((entry) => entry.source === "codex");
+const claudeCase = fixture.strictCases.find((entry) => entry.source === "claude");
 
 describe("Imported Agent provider metadata", () => {
   test("reads the metadata the shared parser reported for each format", () => {
-    expect(parseImportedAgentProvider(codexCase?.expected)).toEqual({
+    expect(parseImportedAgentProvider(codexCase?.expected.provider)).toEqual({
       protocol: "responses",
       baseUrl: "https://example.test/v1",
       model: "fixture-model",
     });
-    expect(parseImportedAgentProvider(claudeCase?.expected)).toEqual({
+    expect(parseImportedAgentProvider(claudeCase?.expected.provider)).toEqual({
       protocol: "anthropicMessages",
       baseUrl: "https://example.test/v1",
       model: "fixture-model",
