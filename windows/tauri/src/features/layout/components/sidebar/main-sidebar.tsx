@@ -37,6 +37,7 @@ import {
 } from "@/features/layout/actions/workbench-tool-window-actions";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import {
+  toggleBuildPane,
   toggleGitLogPane,
   toggleRunPane,
   toggleTerminalPane,
@@ -75,6 +76,7 @@ import {
   ProblemsToolWindowIcon,
   RunToolWindowIcon,
   TerminalWindowIcon,
+  WrenchIcon,
 } from "@/ui/icons";
 
 interface MainSidebarProps {
@@ -188,6 +190,7 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
       ["git", { id: "git", label: t("workbench.commit"), icon: <GitCommitIcon /> }],
       ["search", { id: "search", label: t("workbench.search"), icon: <MagnifyingGlassIcon /> }],
       ["run", { id: "run", label: t("workbench.run"), icon: <RunToolWindowIcon /> }],
+      ["build", { id: "build", label: t("workbench.build"), icon: <WrenchIcon /> }],
       [
         "terminal",
         { id: "terminal", label: t("workbench.terminal"), icon: <TerminalWindowIcon /> },
@@ -636,6 +639,8 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
                   isDiagnosticsActive={isBottomPaneVisible && bottomPaneActiveTab === "diagnostics"}
                   onRunClick={() => toggleRunPane()}
                   isRunActive={isBottomPaneVisible && bottomPaneActiveTab === "run"}
+                  onBuildClick={() => toggleBuildPane()}
+                  isBuildActive={isBottomPaneVisible && bottomPaneActiveTab === "build"}
                   compact={!expanded}
                   showLabels={expanded}
                   orientation="vertical"

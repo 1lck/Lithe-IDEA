@@ -32,7 +32,7 @@ describe("sidebar activity order", () => {
         terminal: true,
         diagnostics: true,
       }),
-    ).toEqual(["files", "git", "search", "run", "terminal", "diagnostics", "gitLog"]);
+    ).toEqual(["files", "git", "search", "run", "build", "terminal", "diagnostics", "gitLog"]);
     expect([...SIDEBAR_ACTIVITY_ITEM_IDS]).not.toContain("maven");
   });
 
@@ -51,6 +51,7 @@ describe("sidebar activity order", () => {
   test("keeps bottom activity items ordered after the primary views", () => {
     expect([...SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS]).toEqual([
       "run",
+      "build",
       "terminal",
       "diagnostics",
       "gitLog",
@@ -63,6 +64,7 @@ describe("sidebar activity order", () => {
       "files",
       "git",
       "search",
+      "build",
       "terminal",
       "diagnostics",
       "gitLog",

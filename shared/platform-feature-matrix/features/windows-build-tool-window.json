@@ -1,0 +1,30 @@
+{
+  "id": "windows-build-tool-window",
+  "area": "构建与运行",
+  "group": "工具窗口",
+  "capability": "构建工具窗口：左侧活动栏的构建入口打开底部构建面板，Java 项目导入进度与语言服务入口状态在该面板内展示，运行面板不再在顶部堆叠这些状态行。",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Run/BuildOutputView.swift",
+      "macos/Sources/LitheExecutionModule/Application/BuildOutputSourcePath.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/build/components/build-pane.tsx",
+      "windows/tauri/src/features/layout/config/item-order.ts",
+      "windows/tauri/src/features/layout/components/sidebar/sidebar-pane-selector.tsx",
+      "windows/tauri/src/features/layout/components/bottom-pane/bottom-pane.tsx",
+      "windows/tauri/src/features/keymaps/commands/view-command-actions.ts",
+      "windows/tauri/src/features/window/stores/ui-state/types/ui-state.types.ts",
+      "windows/tauri/src/features/layout/config/item-order.test.ts"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Run",
+  "verification": "打开 Java 工作区，确认左侧活动栏底部出现构建入口，点击后底部打开标题为“构建”的面板；语言服务准备项目期间，导入进度与“正在等待 Java 语言服务列出可运行的类”出现在该面板内，运行面板顶部不再出现这些状态行，运行配置列表从面板标题行下方直接开始；没有构建或导入活动时面板显示空状态说明。再次点击入口收起面板，隐藏该活动栏项后入口消失且持久化顺序不保留该项。自动化：bun test src/features/layout src/features/run。",
+  "notes": "Windows 侧此前没有独立的构建工具窗口，导入进度与 Java 入口发现状态直接渲染在运行面板顶部，每多一行都会压缩运行配置列表的可视高度。本次改动把这两处状态迁入专属面板，与 macOS 的 Build Output 对齐；Maven 任务输出仍保留在既有的 maven 底部标签页，未并入该面板。"
+}

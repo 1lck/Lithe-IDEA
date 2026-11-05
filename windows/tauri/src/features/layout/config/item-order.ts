@@ -5,12 +5,14 @@ export const SIDEBAR_ACTIVITY_ITEM_IDS = [
   "git",
   "search",
   "run",
+  "build",
   "terminal",
   "diagnostics",
   "gitLog",
 ] as const;
 export const SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS = [
   "run",
+  "build",
   "terminal",
   "diagnostics",
   "gitLog",

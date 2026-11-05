@@ -39,6 +39,16 @@ export function toggleRunPane(): void {
   }
 }
 
+export function toggleBuildPane(): void {
+  const state = useUIState.getState();
+  if (state.isBottomPaneVisible && state.bottomPaneActiveTab === "build") {
+    state.setIsBottomPaneVisible(false);
+  } else {
+    state.setBottomPaneActiveTab("build");
+    state.setIsBottomPaneVisible(true);
+  }
+}
+
 export function toggleMavenPane(): void {
   toggleMavenToolWindow();
 }

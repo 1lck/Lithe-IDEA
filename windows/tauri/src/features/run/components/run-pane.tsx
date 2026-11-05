@@ -1,5 +1,4 @@
 import { supportsDevToolsUpdate } from "../services/java-service-update";
-import { ProjectPreparationStatus } from "./project-preparation-status";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw, WrapText } from "lucide-react";
 import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
@@ -61,33 +60,6 @@ function snapshotRunOutput(output: string, tabLabel: string): void {
   if (opened?.type === "editor") {
     bufferStore.actions.updateBuffer({ ...opened, isPinned: true });
   }
-}
-
-/** Explains when the Java entries shown are not JDT's current answer. */
-function JavaDiscoveryNotice() {
-  const status = useRunStore((state) => state.javaDiscovery);
-  const message = useRunStore((state) => state.javaDiscoveryMessage);
-  const { t } = useTranslation();
-  if (status === "idle" || status === "ready") return null;
-  return (
-    <div
-      className="flex items-center gap-1 border-border/70 border-b px-3 py-1.5 ui-text-sm"
-      aria-live="polite"
-    >
-      {status === "failed" ? (
-        <span className="text-destructive">
-          {t("run.javaDiscoveryFailed", { message: message ?? "" })}
-        </span>
-      ) : (
-        <>
-          <Spinner compact />
-          <span className="text-subtle-foreground">
-            {t(status === "stale" ? "run.javaDiscoveryStale" : "run.javaDiscoveryLoading")}
-          </span>
-        </>
-      )}
-    </div>
-  );
 }
 
 export default function RunPane() {
@@ -222,8 +194,6 @@ export default function RunPane() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <ProjectPreparationStatus />
-      <JavaDiscoveryNotice />
       {isSelectedRunning && serviceUpdate?.message ? (
         <div role="status" className="px-3 py-2 ui-text-sm">
           {serviceUpdate.message}
