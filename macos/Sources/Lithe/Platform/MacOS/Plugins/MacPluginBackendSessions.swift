@@ -91,6 +91,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
     /// Reports a backend that an activation event failed to start; the
     /// workspace or command goes on without it.
     var editorActions: PluginEditorActionHostService?
+    var contentProviders: PluginContentProviderHostService?
     var editorProviders: PluginEditorProviderHostService?
     var onActivationFailure: (@MainActor (_ pluginID: String, _ error: Error) -> Void)?
     private static let maximumBackgroundStarts = 2
@@ -487,6 +488,16 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         }
     }
 
+    /// Tells a running backend about a language server its plugin owns.
+    /// Core refuses these notifications to a session without a
+    /// `languageServer` method grant, and a refused notification stops the
+    /// backend, so they are only sent to one that holds one.
+    func notifyLanguageServer(pluginID: String, method: String, params: ToolingJSONValue) {
+        guard let entry = running[pluginID],
+              entry.hostServices.contains(where: { $0.hasPrefix("lithe/host/languageServer/") }) else { return }
+        notify(pluginID: pluginID, method: method, params: params)
+    }
+
     /// Sends a host notification to the plugin's running backend, after the
     /// ones sent before it. A backend that is not running, or negotiated a
     /// protocol without the notification, does not receive it.
@@ -751,6 +762,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         entry.hostServices = Set(hostServices)
         session.onFunctionsChange = { [weak self] ids in
             self?.editorActions?.updateFunctions(pluginID: pluginID, sessionID: sessionToken, ids: ids)
+            self?.contentProviders?.updateFunctions(pluginID: pluginID, sessionID: sessionToken, ids: ids)
             self?.editorProviders?.updateFunctions(pluginID: pluginID, sessionID: sessionToken, ids: ids)
         }
         session.onHostRequest = { [weak session] request in

@@ -852,6 +852,9 @@ package protocol LanguageServerSession: AnyObject {
     /// Sessions that never start a declarative process ignore it.
     func observePluginStartup(_ attempt: PluginOperationAttempt)
     var onProjectPreparation: ((ProjectPreparationSnapshot) -> Void)? { get set }
+    /// Called with each server notification Core forwards to the owning
+    /// plugin's backend (plan API-25).
+    var onPluginServerNotification: ((PluginServerNotification) -> Void)? { get set }
     var onMavenProfileTask: ((String) -> Void)? { get set }
     var onMavenProfileProject: ((MavenProfileProjectResult) -> Void)? { get set }
     var isRunning: Bool { get }
@@ -1064,6 +1067,30 @@ package extension LanguageServerSession {
     @discardableResult
     func updateWorkspaceConfigurationAsync(_: ToolingJSONValue) async -> WorkspaceConfigurationUpdateResult { .failed }
 
+    /// Sends one request of the owning plugin's backend to this server. Core
+    /// checks the plugin's whitelist and gates before it reaches the server.
+    func requestPluginServer(
+        pluginID _: String,
+        serverID _: String,
+        method _: String,
+        params _: ToolingJSONValue,
+        timeout _: TimeInterval?
+    ) async -> Result<ToolingJSONValue, PluginHostRequestFailure> {
+        .failure(.languageServerUnavailable)
+    }
+
+    /// Sends one notification of the owning plugin's backend to this server.
+    /// `true` when it was written; `false` when the server is not initialized
+    /// yet and reads the stored configuration with `initialized` instead.
+    func notifyPluginServer(
+        pluginID _: String,
+        serverID _: String,
+        method _: String,
+        params _: ToolingJSONValue
+    ) async -> Result<Bool, PluginHostRequestFailure> {
+        .failure(.languageServerUnavailable)
+    }
+
     func buildRequest(method _: String, params _: ToolingJSONValue, timeout _: TimeInterval) async throws
         -> ToolingJSONValue {
         throw LanguageServerRuntimeFailure(
@@ -1080,6 +1107,10 @@ package extension LanguageServerSession {
         completion(.success(.empty))
     }
     var onProjectPreparation: ((ProjectPreparationSnapshot) -> Void)? {
+        get { nil }
+        set {}
+    }
+    var onPluginServerNotification: ((PluginServerNotification) -> Void)? {
         get { nil }
         set {}
     }

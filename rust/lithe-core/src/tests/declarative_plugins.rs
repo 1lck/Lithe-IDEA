@@ -53,6 +53,8 @@ const DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE: &str =
 const DEBUG_ADAPTER_REJECTIONS: &str =
     contract_file!("fixtures/debug-adapters/debug-adapter-rejections.json");
 const EDITOR_ACTIONS_FIXTURE: &str = contract_file!("fixtures/editor/editor-actions.plugin.json");
+const LANGUAGE_SERVER_BACKEND_FIXTURE: &str =
+    contract_file!("fixtures/languages/language-server-backend-launch.plugin.json");
 const EDITOR_PROVIDERS_FIXTURE: &str =
     contract_file!("fixtures/editor/editor-providers.plugin.json");
 const GRAMMAR_FIXTURE: &str = contract_file!("fixtures/languages/language-grammar.plugin.json");
@@ -91,6 +93,7 @@ fn fixture(name: &str) -> Value {
         "debug-adapter-language-server.plugin.json" => DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE,
         "debug-adapter-remote-attach.plugin.json" => DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE,
         "language-grammar.plugin.json" => GRAMMAR_FIXTURE,
+        "language-server-backend-launch.plugin.json" => LANGUAGE_SERVER_BACKEND_FIXTURE,
         "editor-providers.plugin.json" => EDITOR_PROVIDERS_FIXTURE,
         "project-generator.plugin.json" => PROJECT_GENERATOR_FIXTURE,
         "project-generator-tool-field.plugin.json" => PROJECT_GENERATOR_TOOL_FIXTURE,
@@ -121,6 +124,7 @@ fn contract_fixtures_and_official_plugins_validate() {
         DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE,
         GRAMMAR_FIXTURE,
         EDITOR_ACTIONS_FIXTURE,
+        LANGUAGE_SERVER_BACKEND_FIXTURE,
         EDITOR_PROVIDERS_FIXTURE,
         PROJECT_GENERATOR_TOOL_FIXTURE,
         OFFICIAL_JAVA,

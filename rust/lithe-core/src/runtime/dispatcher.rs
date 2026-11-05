@@ -260,6 +260,21 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
             parsed.payload,
             crate::plugins::declarative::language_server_launch_plan_command,
         ),
+        CoreCommand::PluginsLanguageServersDecodeLaunch => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::decode_language_server_launch_command,
+        ),
+        CoreCommand::PluginsLanguageServersStateRetention => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::language_server_sessions::state_retention_command,
+        ),
+        CoreCommand::PluginsContentProvidersDecode => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::content_providers::decode_content_command,
+        ),
         CoreCommand::DebugValidateAdapterEndpoint => {
             match crate::debug::validate_adapter_endpoint(parsed.payload) {
                 Ok(data) => CoreResponse::success(id, data),
@@ -2334,6 +2349,44 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Host notification response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspPluginServerRequest => {
+            match serde_json::from_value::<crate::lsp::PluginServerRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid plugin language-server request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::plugin_server_request)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Plugin language-server response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspPluginServerNotify => {
+            match serde_json::from_value::<crate::lsp::PluginServerNotify>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid plugin language-server notification",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::plugin_server_notify)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Plugin language-server notification response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

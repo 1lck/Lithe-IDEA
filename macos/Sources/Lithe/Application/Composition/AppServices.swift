@@ -74,6 +74,7 @@ final class AppServices {
     /// `nil` when the platform runs no plugin backends.
     var pluginBackendActivation: (any PluginBackendActivating)?
     var pluginEditorActions: PluginEditorActionHostService?
+    var pluginContentProviders: PluginContentProviderHostService?
     var pluginEditorProviders: PluginEditorProviderHostService?
     /// Static plugin editor resources; `nil` when
     /// the platform loads no plugins.

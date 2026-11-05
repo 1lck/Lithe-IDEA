@@ -508,6 +508,7 @@ struct PluginDetailView<Icon: View>: View {
             String(format: localized(packagedRuntime ? "Runs on %@ shipped with the plugin" : "Runs on %@ installed on this Mac"), tool)
         case .systemServer(let commands):
             String(format: localized("Installed on this Mac: %@"), commands.joined(separator: " | "))
+        case .backendServer: localized("Started by the plugin")
         case .hostIntegration: localized("Provided by Lithe for this language")
         case .tasks(let count): String(format: localized("Tasks: %d"), count)
         }

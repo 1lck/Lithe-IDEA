@@ -23,7 +23,9 @@
     {"if": {"required": ["pluginFunctions"]}, "then": {"required": ["backend"], "properties": {"pluginAPIVersion": {"minimum": 3}, "requires": {"required": ["pluginFunctions", "backend", "serverProcess"], "properties": {"backend": {"const": 2}}}}}},
     {"if": {"required": ["keymapImportProviders"]}, "then": {"required": ["backend", "permissions"], "properties": {"pluginAPIVersion": {"minimum": 3}, "requires": {"required": ["keymapImportProviders", "backend", "serverProcess"], "properties": {"backend": {"const": 2}}}, "permissions": {"allOf": [{"contains": {"const": "keymaps.provide"}}, {"contains": {"const": "keymaps.readSelectedSources"}}, {"contains": {"const": "backend.launch"}}]}}}},
     {"if": {"required": ["requires"], "properties": {"requires": {"required": ["settings"], "properties": {"settings": {"const": 2}}}}}, "else": {"properties": {"settings": {"items": {"$ref": "#/$defs/settingVersion1"}}, "settingActions": {"maxItems": 0}}}},
-    {"if": {"required": ["requires"], "properties": {"requires": {"required": ["languageServers"], "properties": {"languageServers": {"const": 2}}}}}, "else": {"properties": {"languageServers": {"items": {"properties": {"workspaceConfiguration": false}}}}}}
+    {"if": {"required": ["requires"], "properties": {"requires": {"required": ["languageServers"], "properties": {"languageServers": {"minimum": 2}}}}}, "else": {"properties": {"languageServers": {"items": {"properties": {"workspaceConfiguration": false}}}}}},
+    {"if": {"required": ["requires"], "properties": {"requires": {"required": ["languageServers"], "properties": {"languageServers": {"const": 3}}}}}, "else": {"properties": {"languageServers": {"items": {"properties": {"requestMethods": false, "commands": false, "serializedCommands": false, "forwardNotifications": false, "state": false, "remote": false}}}}}},
+    {"if": {"required": ["languageServers"], "properties": {"languageServers": {"contains": {"required": ["launch"], "properties": {"launch": {"required": ["kind"], "properties": {"kind": {"const": "backend"}}}}}}}}, "then": {"required": ["backend"], "properties": {"pluginAPIVersion": {"minimum": 4}, "requires": {"required": ["backend", "serverProcess"], "properties": {"backend": {"const": 2}, "serverProcess": {"const": 3}}}}}}
   ],
   "properties": {
     "schemaVersion": { "const": 2 },
@@ -44,11 +46,11 @@
         "debugAdapters": { "description": "Required exactly when debugAdapters is non-empty. Version 2 adds bounded target argument and environment bindings. The DAP session itself is negotiated by the adapter in initialize.", "enum": [1, 2] },
         "executableResolution": { "enum": [1, 2], "description": "Shared executable candidate ordering and strict selection." },
         "executionProviders": { "enum": [1] },
-        "languageServers": { "description": "Required exactly when languageServers is non-empty. Version 2 adds languageServers[].workspaceConfiguration.", "enum": [1, 2] },
+        "languageServers": { "description": "Required exactly when languageServers is non-empty. Version 2 adds languageServers[].workspaceConfiguration. Version 3 adds the session fields requestMethods, commands, serializedCommands, forwardNotifications, state, and remote.", "enum": [1, 2, 3] },
         "languages": { "description": "Version 2 adds languages[].grammar and languages[].configuration and is required exactly when one of them is used.", "enum": [1, 2] },
         "packageTrust": { "description": "Required exactly when vendor.bundledSignatureRequirement is present.", "enum": [1] },
         "projectGenerators": { "description": "Entries of the New Project window: fields, requirements, and steps. Version 2 adds the tool field and retires the runtime field.", "enum": [1, 2] },
-        "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, of VCS providers, of debug adapters, and of the plugin backend. Version 2 adds runSelectedRuntime and is required exactly when a debug adapter uses it (pluginAPIVersion 4).", "enum": [1, 2] },
+        "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, of VCS providers, of debug adapters, and of the plugin backend. Version 2 adds runSelectedRuntime and is required exactly when a debug adapter uses it (pluginAPIVersion 4). Version 3 adds the backend-resolved launch of a language server and is required exactly when one uses it (pluginAPIVersion 4, backend 2).", "enum": [1, 2, 3] },
         "settings": { "description": "Required exactly when settings or settingActions is non-empty. Version 1 is the API level 2 section: integer, enum, and boolean options. Version 2 adds scope, effect, page, section, the multiSelect, text, file, and directory types, and settingActions.", "enum": [1, 2] },
         "toolDefinitions": { "const": 1 },
         "toolchainProviders": { "const": 1 },
@@ -89,7 +91,9 @@
           "keymaps.readSelectedSources",
           "browser.open",
           "window.messages",
-          "terminal.create"] }
+          "terminal.create",
+          "languageServer.request",
+          "documents.contentProvider"] }
     },
     "activationEvents": {
       "type": "array",
@@ -1301,17 +1305,80 @@
       "maxItems": 2,
       "items": { "$ref": "#/$defs/editorDelimiter" }
     },
+    "protocolName": {
+      "description": "An LSP method or command name: non-empty text of at most 256 bytes without whitespace or control characters.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\s\\u0000-\\u001f\\u007f]+$"
+    },
     "languageServer": {
       "type": "object",
       "$ref": "#/$defs/serverProcess",
       "unevaluatedProperties": false,
       "required": ["languageID"],
+      "allOf": [
+        {
+          "if": { "required": ["launch"], "properties": { "launch": { "required": ["kind"], "properties": { "kind": { "const": "backend" } } } } },
+          "then": { "properties": { "arguments": false, "validationArguments": false, "runtimeDependencies": false, "initializationOptions": false }, "not": { "required": ["hostIntegration"] } }
+        }
+      ],
       "properties": {
         "languageID": { "type": "string" },
         "languageIdentifier": { "type": "string", "minLength": 1 },
         "workspaceConfiguration": {
           "description": "languageServers 2: what the server reads through workspace/configuration and receives again in workspace/didChangeConfiguration. String leaves may be ${setting:<id>} templates, including settings whose effect is immediate, and no other variable.",
           "type": "object"
+        },
+        "requestMethods": {
+          "description": "languageServers 3: LSP methods the plugin backend may send with languageServer/request or languageServer/notify. The methods the host sends itself are refused. Requires the languageServer.request permission.",
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/protocolName" }
+        },
+        "commands": {
+          "description": "languageServers 3: workspace/executeCommand commands the backend may run. Declared exactly when requestMethods lists workspace/executeCommand.",
+          "type": "array",
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/protocolName" }
+        },
+        "serializedCommands": {
+          "description": "languageServers 3: commands that run one at a time; a later request for a running command joins it. Each is also listed in commands.",
+          "type": "array",
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/protocolName" }
+        },
+        "forwardNotifications": {
+          "description": "languageServers 3: server notifications the host forwards to the backend. Requires the languageServer.request permission.",
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/protocolName" }
+        },
+        "state": {
+          "description": "languageServers 3: how the host keeps the server's per-workspace state directories.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scope", "retention"],
+          "properties": {
+            "scope": { "const": "workspace" },
+            "retention": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["maxEntries", "maxAgeDays"],
+              "properties": {
+                "maxEntries": { "type": "integer", "minimum": 1, "maximum": 64 },
+                "maxAgeDays": { "type": "integer", "minimum": 1, "maximum": 365 }
+              }
+            }
+          }
+        },
+        "remote": {
+          "description": "languageServers 3: whether the server works on a remote workspace. Supported when absent.",
+          "enum": ["supported", "unsupported"]
         },
         "hostIntegration": {
           "description": "pluginAPIVersion 2, official plugins only: a named host integration and the package resources it reads.",
@@ -1380,6 +1447,17 @@
                 "packagedRuntime": { "type": "string", "minLength": 1 },
                 "runtimeArguments": { "type": "array", "items": { "type": "string" } },
                 "entry": { "type": "string", "minLength": 1 }
+              }
+            },
+            {
+              "description": "serverProcess 3, language servers only: the plugin backend answers the command line each time the server starts. Core refuses it in any other process.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "function"],
+              "properties": {
+                "kind": { "const": "backend" },
+                "function": { "description": "Plugin function ID: dot-separated lowerCamelCase segments.", "type": "string", "maxLength": 128, "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)*(?![\\s\\S])" },
+                "timeoutMilliseconds": { "type": "integer", "minimum": 1000, "maximum": 120000 }
               }
             }
           ]

@@ -165,7 +165,9 @@ final class MacRemotePluginLaunchPreparer {
                 switch directory {
                 case .state: url = state
                 case .workspaceState: url = workspaceState
-                case .log: throw CocoaError(.featureUnsupported)
+                // A remote workspace never runs a plugin-resolved launch, which
+                // is the only one that asks for log or scratch directories.
+                case .log, .temporary: throw CocoaError(.featureUnsupported)
                 }
                 _ = try await host.pluginRequest("fs.createDir", params: .object([
                     "path": .string(url.path), "recursive": .bool(true), "mode": .integer(0o700)]), session: binding.sessionID)

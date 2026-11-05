@@ -564,7 +564,10 @@ pub(super) fn client_apply_server_message_for_plugin(
                             result: Some(json!({
                                 "id": id,
                                 "service": service,
-                                "params": message.get("params").cloned().unwrap_or(Value::Null),
+                                "params": plugin_function::forwarded_host_params(
+                                    method,
+                                    message.get("params"),
+                                ),
                             })),
                             error: None,
                         })

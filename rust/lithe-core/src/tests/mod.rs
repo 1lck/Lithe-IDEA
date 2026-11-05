@@ -18,6 +18,7 @@ mod git_repository_setup;
 mod git_untracked_directories;
 mod git_workspace_commit;
 mod github;
+mod language_server_sessions;
 mod languages;
 mod marketplace_plugins;
 mod mybatis;

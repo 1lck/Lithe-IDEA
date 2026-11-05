@@ -14,6 +14,15 @@ protocol PluginBackendActivating: AnyObject {
     /// starts when it declares `onCommand:<id>`, and the running backend
     /// receives `lithe/host/commands/didRun` with the window's context.
     func runCommand(_ commandID: String, owner: ModuleID, context: PluginWorkspaceContextReference?)
+    /// Tells the plugin's running backend about a language server the plugin
+    /// owns: `lithe/host/languageServer/didChangeState` or
+    /// `didReceiveNotification`. A backend that holds no `languageServer`
+    /// host method grant does not receive it.
+    func notifyLanguageServer(pluginID: String, method: String, params: ToolingJSONValue)
+}
+
+extension PluginBackendActivating {
+    func notifyLanguageServer(pluginID _: String, method _: String, params _: ToolingJSONValue) {}
 }
 
 /// How a host service failed, as a function protocol 3 backend sees it.
@@ -52,6 +61,17 @@ enum PluginHostErrorCode: String, Sendable, CaseIterable {
     /// The backend went away while the host worked on its request.
     case backendExited = "plugin.backend.exited"
     case failed = "plugin.host.failed"
+    /// The plugin's language server is not running (stopped, still starting,
+    /// or never started with a session policy).
+    case languageServerUnavailable = "plugin.host.languageServerUnavailable"
+    /// The language server answered the request with a JSON-RPC error; the
+    /// server's own `{ code, message }` is in the details.
+    case languageServerError = "plugin.host.languageServerError"
+    /// The method, or the `workspace/executeCommand` command, is not one the
+    /// plugin's manifest declares for the server.
+    case methodNotDeclared = "plugin.host.methodNotDeclared"
+    /// The server or document scheme belongs to another plugin.
+    case foreignContribution = "plugin.host.foreignContribution"
 }
 
 /// A failed host service request. The message reaches the backend, so it
@@ -76,6 +96,19 @@ struct PluginHostServiceError: Error, Equatable, Sendable {
 
     var failure: PluginHostRequestFailure {
         PluginHostRequestFailure(message: message, code: code.rawValue, details: details.map { .object($0) })
+    }
+
+    /// An answer Rust Core or a session already put into the backend's
+    /// shape. A code this host does not know reaches the backend as `failed`,
+    /// as it would from Core.
+    init(_ failure: PluginHostRequestFailure) {
+        var details: [String: ToolingJSONValue]?
+        if case .object(let members)? = failure.details { details = members }
+        self.init(
+            failure.code.flatMap(PluginHostErrorCode.init(rawValue:)) ?? .failed,
+            failure.message,
+            details: details
+        )
     }
 }
 
@@ -325,10 +358,15 @@ final class PluginHostServiceDispatcher {
             contextID = Self.contextReference(value)?.contextID
         } else { contextID = nil }
         // User-choice messages have no clock deadline; their session, context
-        // and cancellation own dismissal. Machine operations are locally bounded.
-        let waitsForUser = request.method.hasPrefix("lithe/host/window/show")
-            || ["lithe/host/terminal/create", "lithe/host/terminal/reopen"].contains(request.method)
-        let deadline: Task<Void, Never>? = waitsForUser ? nil : Task { @MainActor [weak self] in
+        // and cancellation own dismissal. A language server request ends by the
+        // timeout Core enforces (default 60 s, at most 300 s), which the 30 s
+        // host deadline would cut short. Other machine operations are locally bounded.
+        let hasOwnDeadline = request.method.hasPrefix("lithe/host/window/show")
+            || [
+                "lithe/host/terminal/create", "lithe/host/terminal/reopen",
+                "lithe/host/languageServer/request",
+            ].contains(request.method)
+        let deadline: Task<Void, Never>? = hasOwnDeadline ? nil : Task { @MainActor [weak self] in
             // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             do { try await Task.sleep(for: .seconds(30)) } catch { return }
             guard let self, self.sessionIDs[pluginID] == currentSession,

@@ -26,9 +26,14 @@ pub(crate) const CAPABILITIES_API_VERSION: u32 = 3;
 /// declarative `grammar` and an editing `configuration`; see `super::grammar`.
 pub(crate) const LANGUAGES: &str = "languages";
 /// `languageServers[]` apart from their launch fields. Version 2 adds
-/// `workspaceConfiguration`.
+/// `workspaceConfiguration`. Version 3 adds the session fields a plugin
+/// backend uses to talk to its own server: `requestMethods`, `commands`,
+/// `serializedCommands`, `forwardNotifications`, `state`, and `remote`.
 pub(crate) const LANGUAGE_SERVERS: &str = "languageServers";
 /// The launch fields language servers and own build providers share.
+/// Version 2 adds `runSelectedRuntime` for debug adapters; version 3 adds
+/// `launch.kind: "backend"`, a language server whose command line the
+/// plugin backend resolves.
 pub(crate) const SERVER_PROCESS: &str = "serverProcess";
 /// `vendor.bundledSignatureRequirement`: origin-scoped host-seal trust for a
 /// package whose independently installed versions require a publisher signature.
@@ -92,12 +97,12 @@ pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (EXECUTION_PROVIDERS, &[1]),
     (EXECUTABLE_RESOLUTION, &[1, 2]),
     (KEYMAP_IMPORT_PROVIDERS, &[1]),
-    (LANGUAGE_SERVERS, &[1, 2]),
+    (LANGUAGE_SERVERS, &[1, 2, 3]),
     (LANGUAGES, &[1, 2]),
     (PACKAGE_TRUST, &[1]),
     (PLUGIN_FUNCTIONS, &[1]),
     (PROJECT_GENERATORS, &[1, 2]),
-    (SERVER_PROCESS, &[1, 2]),
+    (SERVER_PROCESS, &[1, 2, 3]),
     (SETTINGS, &[1, 2]),
     (TOOL_DEFINITIONS, &[1]),
     (TOOLCHAIN_PROVIDERS, &[1]),

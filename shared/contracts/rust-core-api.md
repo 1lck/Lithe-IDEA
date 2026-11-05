@@ -1236,6 +1236,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.functionRequest` | Invoke one registered plugin function on a session its plugin started |
 | `lsp.hostResponse` | Answer one host-service request a plugin backend sent |
 | `lsp.hostNotify` | Send one host notification to a plugin backend that negotiated it |
+| `lsp.pluginServerRequest` | Send one request of a plugin backend to the plugin's own language server, under the plugin's declared session policy |
+| `lsp.pluginServerNotify` | Send one notification of a plugin backend to the plugin's own language server |
 | `lsp.configureFunctionRelay` | Replace the enabled plugins and live workspace contexts Core's plugin-to-plugin function relay checks calls against |
 | `lsp.toolchainRequest` | Send one `toolchains/query` to a plugin backend that negotiated the provider |
 | `lsp.keymapImportRequest` | Send one shortcut import request to a negotiated plugin provider |
@@ -1361,6 +1363,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
 | `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server, build-provider, VCS-provider, backend, or debug-adapter launch with host directories and architecture |
+| `plugins.languageServers.decodeLaunch` | Bound the answer of a plugin backend that resolved a language server's launch and return the plan the host starts |
+| `plugins.languageServers.stateRetention` | Choose which inactive per-workspace state directories of a plugin language server the host deletes |
+| `plugins.contentProviders.decode` | Bound the answer of a plugin content provider function and return the document text |
 | `debug.adapters.startArguments` | Check one debug start against a plugin's `debugAdapters[]` entry and return its DAP launch arguments |
 | `debug.adapters.executablePlan` | Say where to look for the program a launch debugs: the user's setting and the adapter's candidate paths |
 | `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
@@ -3513,6 +3518,43 @@ ungranted service, malformed or oversized params, a session that is not
 plugin-owned, or one that is not ready is `invalid_request` with the
 `plugin.host.*` code in `details`.
 
+`lsp.pluginServerRequest` accepts `{ sessionId, operationId?, pluginId,
+serverID, method, params?, timeoutMilliseconds? }` and returns `{ operationId }`;
+`params` defaults to `{}` and the deadline to 60000 milliseconds (at most
+300000). The host resolves `{context, serverID}` of a backend's
+`lithe/host/languageServer/request` to the session and calls this command; Core
+checks that the session belongs to `pluginId` and `serverID` and enforces the
+server's declared session policy: the `requestMethods` whitelist, the
+`commands` of `workspace/executeCommand`, `serializedCommands` (a request for a
+command already running joins it), and `gates` (a request waits, in order, until
+every gate has seen its notification; at most 128 wait, then the request fails
+as `plugin.host.busy`). The answer arrives as a `requestCompleted` event whose
+`result.value` is the server's result. A failure carries its `plugin.host.*`
+code as the event's `error.code` and its details as `error.details`; the host
+returns both to the backend unchanged. The codes are
+`plugin.host.languageServerUnavailable` (-32022: the session is not ready or
+has stopped), `plugin.host.languageServerError` (-32023: the server answered
+with an error, in `details.code` and `details.message`),
+`plugin.host.methodNotDeclared` (-32024), `plugin.host.foreignContribution`
+(-32026), `plugin.host.timeout`, `plugin.host.cancelled`, `plugin.host.busy`,
+and `plugin.host.limitExceeded`. The
+[plugin contract](plugins/v1/README.md#language-server-host-methods) owns their
+meaning.
+
+`lsp.pluginServerNotify` accepts `{ sessionId, pluginId, serverID, method,
+params? }` and returns `{ delivered }`. It sends `workspace/didChangeConfiguration`
+and every declared `requestMethods` entry except `workspace/executeCommand`; a
+notification is never held behind a gate. `delivered: false` means the server
+was not initialized yet and receives the stored configuration with its
+`initialized` notification instead. A notification the server sends and
+`forwardNotifications` lists is queued as a `pluginServerNotification` event
+with `result: { serverID, method, params? }` for the host to relay as
+`lithe/host/languageServer/didReceiveNotification`.
+
+`lsp.startServer` for a plugin-owned server whose manifest declares
+`remote: "unsupported"` fails with `not_supported` when the workspace is
+remote, before any process is started.
+
 A session that negotiated `litheFunctions` version 4 and holds the `functions`
 grant may call another plugin's exported function through the
 [plugin-to-plugin relay](plugins/v1/README.md#cross-plugin-calls-protocol-version-4).
@@ -4842,6 +4884,51 @@ architecture or an empty directory is refused with
 `plugin.launch.invalidRequest`; a language without a server, an undeclared
 build system, and a build system without a provider with
 `plugin.launch.unavailable`.
+
+A language server declared with `launch.kind: "backend"` (`serverProcess` 3) has
+no command line in its manifest; the plugin's backend chooses it. The plan this
+command returns is then only the first step: `launch` is `{ kind: "backend",
+function, timeoutMilliseconds }` (30000 when absent) and `resolveParams` is the
+params the host sends to that backend function, `{ serverID, platform: { os,
+arch }, stateDirectory, workspaceStateDirectory, logDirectory,
+temporaryDirectory, settings }`; the host adds `context` and, when the plugin
+declares tool definitions, `tools`. The request must carry all four of
+`stateDirectory`, `workspaceStateDirectory`, `logDirectory`, and
+`temporaryDirectory`, and the plan lists them in `requiredDirectories`. A server
+below `languageServers` 3 has no `sessionPolicy`; a version 3 plan carries it
+(`serverID`, `requestMethods`, `commands`, `serializedCommands`,
+`forwardNotifications`, `remote`, `gates`, `state`) for the engine to enforce.
+
+`plugins.languageServers.decodeLaunch` is the second step. It accepts
+`{ manifest, languageID, request, result }`, where `request` is the first
+step's request and `result` is what the backend function returned, and answers
+`{ status: "ok", plan }` with the plan the host starts like any other (launch
+`packaged` or `tool`, `arguments`, `environment`, `writablePaths`,
+`requiredDirectories`, `initializationOptions?`, `workspaceConfiguration?`, and
+`sessionPolicy` with the answer's `gates`) or `{ status: "rejected", error }`.
+Refusals are `plugin.launch.unavailable` (no such server),
+`plugin.launch.notBackend` (the server is not launched by a backend),
+`plugin.launch.invalidRequest` (a missing directory), and
+`plugin.launch.invalidResult`, `plugin.launch.outsidePackage`,
+`plugin.launch.undeclaredTool`, and `plugin.launch.unwritablePath` for the
+answer. The golden cases are
+`shared/contracts/plugins/v1/fixtures/languages/language-server-launch-resolution.json`.
+
+`plugins.languageServers.stateRetention` accepts `{ retention: { maxEntries,
+maxAgeDays }, nowUnixSeconds, entries: [{ name, lastModifiedUnixSeconds }],
+activeNames }` and returns `{ expiredNames }`: the inactive per-workspace state
+directories the host deletes. Directories used by a running session
+(`activeNames`) are never listed and count against `maxEntries`; of the others,
+those older than `maxAgeDays` and those beyond the newest that fit are listed.
+The host lists and deletes only directories under its own state storage, never
+inside an app bundle or installation directory.
+
+`plugins.contentProviders.decode` accepts `{ result }`, the value a plugin
+function returned for a document of its content scheme, and returns
+`{ content }`. `result` is a string, or an object whose only member is
+`content: string`; anything else is `invalid_request`, and so is text of more
+than 1 MiB (1,048,576 UTF-8 bytes). The host opens `content` as a read-only
+document and never interprets it.
 
 A `debugAdapterID` selects a `debugAdapters[]` entry with a `serverProcess`
 or a `tcpLanguageServer` transport (naming it together with another selector is

@@ -19,7 +19,7 @@ This directory is the cross-platform source of truth:
 | Fixture folder | Contents |
 | --- | --- |
 | `fixtures/manifest/` | `hello-lithe.plugin.json`, the smallest UI plugin, and `invalid-manifests.json`: edits to a valid manifest and the rejection code every host must report |
-| `fixtures/languages/` | Language support: packaged, system-command, and host-integration language servers, `node-runtime` for a discovered runtime, and `language-grammar` with `grammars/`; `command-plans.json` holds golden run/test command expansions and language-server launch plans, `runtime-versions.json` the golden outcomes of the launch runtime version check |
+| `fixtures/languages/` | Language support: packaged, system-command, and host-integration language servers, `node-runtime` for a discovered runtime, and `language-grammar` with `grammars/`; `command-plans.json` holds golden run/test command expansions and language-server launch plans, `runtime-versions.json` the golden outcomes of the launch runtime version check; `language-server-backend-launch.plugin.json` is a language server whose backend resolves the launch and a session policy (`languageServers` 3, `serverProcess` 3), and `language-server-launch-resolution.json` holds its golden first-step plans and decoded answers |
 | `fixtures/backend/` | Plugin backends (`backend`, `backend-workspace`, `command-backend`, `terminal-backend`); cross-plugin calls (`plugin-functions-exporter`, `plugin-functions-caller`); `function-protocol.json` holds golden plugin-function negotiation, registration, invocation, outcome, progress, and refusal cases, `plugin-logging.json` the golden `litheLogging` negotiation and notifications |
 | `fixtures/editor/` | Editor actions served by a backend: `editor-actions.plugin.json`, version 2 icons, alternatives and click results in `editor-actions-v2.json`; editor providers in `editor-providers.plugin.json` with registration and result cases in `editor-providers.json` |
 | `fixtures/ui/` | Native controls, forms, and panels, and a web panel |
@@ -269,13 +269,14 @@ activation event, and a plugin may consist of grammars alone.
 | --- | --- |
 | `languageID` | A declared language. |
 | `languageIdentifier` | LSP `languageId` for documents; defaults to `languageID`. |
-| `launch` | `{"kind": "packaged", "path": …}` runs an executable inside the package. `{"kind": "systemCommand", "commands": [...]}` lists bare command names the host resolves with its tool discovery (PATH, project toolchains, user overrides). API 2 adds `{"kind": "runtime", …}`; see Runtime launch. |
+| `launch` | `{"kind": "packaged", "path": …}` runs an executable inside the package. `{"kind": "systemCommand", "commands": [...]}` lists bare command names the host resolves with its tool discovery (PATH, project toolchains, user overrides). API 2 adds `{"kind": "runtime", …}`; see Runtime launch. `serverProcess` 3 adds `{"kind": "backend", …}`, whose command line the plugin backend answers at each start; see [Backend-resolved launch](#backend-resolved-launch-serverprocess-3). |
 | `arguments` | Arguments passed to the server. Literal text at API 1; launch templates at API 2. |
 | `validationArguments` | Probe that must exit with status 0 before a candidate is used; empty means the host trusts the candidate and lets the LSP handshake decide. |
 | `runtimeDependencies` | Runtimes the host must discover and pass to the server. API 1 tools are `node` and `go`; API 2 adds `java`. The host exports each path as `LITHE_<TOOL>_PATH` (`LITHE_NODE_PATH`, `LITHE_GO_PATH`; a user-set value takes precedence) and prepends its directory to the server's `PATH`, because servers such as gopls run the tool themselves and an app opened from the Dock does not inherit the shell `PATH`. A project-local copy is never chosen, since servers start automatically when a file opens. |
 
 | `initializationOptions` | API 2. A JSON object sent as the LSP `initializationOptions`. Every string value inside it is a launch template. |
 | `hostIntegration` | API 2, official plugins only. A named integration implemented in the host, with the package resources it reads; see Host integrations. |
+| `requestMethods`, `commands`, `serializedCommands`, `forwardNotifications`, `state`, `remote` | `languageServers` 3. What the plugin backend may ask of the running server and how the host keeps its state; see [Plugin-owned sessions](#plugin-owned-sessions-languageservers-3). |
 
 The host owns the language-server process lifecycle, the LSP session, and
 stopping the process when the provider is disabled. An API 3 build provider is
@@ -381,21 +382,24 @@ contains a machine path, and the host decides where state lives.
 host selects the process with exactly one of `languageID` (a language server),
 `buildSystemID` (a build provider), `vcsProviderID` (a VCS provider), and
 `backend: true` (the [plugin backend](#plugin-backend)), passes `{pluginDirectory,
-stateDirectory, workspaceStateDirectory?, logDirectory?, architecture, settings?}`, and
-receives. `workspaceStateDirectory` may be omitted only when the selected
+stateDirectory, workspaceStateDirectory?, logDirectory?, temporaryDirectory?, architecture,
+settings?}`, and receives. `workspaceStateDirectory` may be omitted only when the selected
 process does not use `${workspaceStateDir}`; otherwise the request is
 `plugin.launch.invalidRequest`. The same error applies when a template uses `${logDir}` but `logDirectory` is absent, empty, or not absolute.
 
 | Field | Meaning |
 | --- | --- |
-| `launch` | `{kind: "packaged", path}`, `{kind: "systemCommand", commands}`, or `{kind: "runtime", tool, entry, packagedRuntime?, minimumVersion?, versionArguments?}`: what the host resolves to an executable. `packagedRuntime` is the expanded package-relative path of a shipped runtime. `minimumVersion` and `versionArguments` appear together when a discovered runtime must meet a minimum version. |
+| `launch` | `{kind: "packaged", path}`, `{kind: "systemCommand", commands}`, or `{kind: "runtime", tool, entry, packagedRuntime?, minimumVersion?, versionArguments?}`: what the host resolves to an executable. `packagedRuntime` is the expanded package-relative path of a shipped runtime. `minimumVersion` and `versionArguments` appear together when a discovered runtime must meet a minimum version. A [backend-resolved launch](#backend-resolved-launch-serverprocess-3) returns `{kind: "backend", function, timeoutMilliseconds}` here, and `{kind: "tool", tool}` appears in the plan `plugins.languageServers.decodeLaunch` returns. |
 | `arguments` | Complete argument list after the executable, including `-jar` and the entry of a runtime launch. |
 | `validationArguments` | Expanded probe arguments. |
 | `runtimeRequirements` | `{tool, minimumVersion?}` for every runtime the host must discover, a discovered launch tool included, sorted by tool. A packaged runtime is not listed. Only the launch tool can carry a minimum version. |
 | `initializationOptions` | Expanded options; absent when the server declares none. |
-| `requiredDirectories` | `state`, `workspaceState`, and/or `log`: the directories the host must create before starting the server. |
+| `requiredDirectories` | `state`, `workspaceState`, `log`, and/or `temporary`: the directories the host must create before starting the server. |
 | `requiredPackagePaths` | Sorted package-relative paths the launch points at. The host verifies each is inside the package and not a symbolic link before starting the server. |
 | `settings` | Effective value of every declared setting that produced this plan; absent when the plugin declares none. |
+| `resolveParams` | Present only for a backend-resolved launch: the params of the launch function, without the `context` and the optional `tools` the host adds. |
+| `environment`, `writablePaths` | Present only in the plan `decodeLaunch` returns: the variables of the process, and the paths it writes. |
+| `sessionPolicy` | Present for a language server of `languageServers` 3: the [session policy](#plugin-owned-sessions-languageservers-3) the host passes to `lsp.startServer` unchanged. |
 | `buildProvider` | Present only for a `buildSystemID` selection: `{buildSystemID, executesProjectCode, mayUseNetwork, languageServer?}`. `languageServer` names the language whose server is the provider; the rest of the plan is then that server's plan, and the host reuses its running session instead of starting a second process. |
 | `vcsProvider` | Present only for a `vcsProviderID` selection: the [provider descriptor](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/vcs-provider-v1.md#provider-descriptor) the host keeps for the session. |
 | `backend` | Present only for a `backend` selection: `{hostServices}`, the sorted [host services](#host-services-protocol-version-2) the plugin's permissions grant, plus `version: 2` for a [`backend` 2](#backend-2-workspace-contexts) process. The host passes `hostServices` to `lsp.startServer.hostServices` unchanged. |
@@ -595,6 +599,181 @@ requests by section path from it, and sends
 value with `lsp.updateWorkspaceConfiguration` when an `immediate` setting
 changes; the running server receives it without a restart.
 
+#### Backend-resolved launch (`serverProcess` 3)
+
+A server whose command line depends on what the plugin finds when it starts
+(a version it resolves, a tool it bootstraps, options it derives from the
+project) lets the plugin backend answer the command line each time instead of
+declaring one:
+
+```json
+"launch": {"kind": "backend", "function": "launch.resolve", "timeoutMilliseconds": 30000}
+```
+
+- Only a language server can use it. `requires.serverProcess` is exactly `3`
+  (the lowest version covering it), the plugin declares a `backend` of
+  version 2 or later, and `pluginAPIVersion` is at least 4. `function` is a
+  plugin function ID. `timeoutMilliseconds` is 1000 to 120000 and defaults to
+  30000.
+- The server declares none of `arguments`, `validationArguments`,
+  `runtimeDependencies`, `initializationOptions`, or `hostIntegration`: the
+  answer carries the first four, and a host integration is host code, which
+  this launch exists to avoid. `workspaceConfiguration` stays declarative
+  unless the answer carries its own.
+- `plugins.declarative.languageServerLaunchPlan` for such a server returns the
+  first step, not a command line: `launch: {kind: "backend", function,
+  timeoutMilliseconds}`, `resolveParams`, `requiredDirectories` (always
+  `state`, `workspaceState`, `log`, and `temporary`), `settings`, and
+  `sessionPolicy`. Its request adds `temporaryDirectory`, an absolute scratch
+  directory of this start; the launch needs all four directories, so a request
+  without one is `plugin.launch.invalidRequest`.
+- The host creates the directories, starts the plugin backend if it is not
+  running, and calls `function` through `lithe/function/invoke` with
+  `resolveParams` and the workspace `context`. A host may also send `tools`,
+  `{<toolID>: {executable, home, version}}`, the resolution of each tool it
+  could find; Core does not validate it. The macOS host does not send `tools`
+  yet, so a function must not require it: it answers `{kind: "tool"}` and
+  lets the host resolve the tool. A failed or timed-out call, or an answer
+  for a context whose generation has changed, ends this start without a
+  process.
+- The host passes `{manifest, languageID, request, result}` to
+  `plugins.languageServers.decodeLaunch`, which returns `{status: "ok", plan}`
+  or a rejection. The plan is an ordinary launch plan (`launch` is `packaged`
+  or `tool`) whose `sessionPolicy` also carries the answer's `gates`; the host
+  starts it like any other. A server that is not launched by the backend is
+  `plugin.launch.notBackend`, so a host never runs an answer it did not ask
+  for.
+
+`resolveParams`:
+
+| Field | Meaning |
+| --- | --- |
+| `serverID` | The server's `languageID`; also its ID in the `languageServer` host methods. |
+| `platform` | `{os, arch}`: the host operating system and CPU architecture (`arm64` or `x86_64`). |
+| `stateDirectory`, `workspaceStateDirectory`, `logDirectory`, `temporaryDirectory` | The writable directories of this start, absolute and outside the package and the application bundle. |
+| `settings` | The effective value of every declared plugin setting. |
+
+The answer is an object with these fields; an unknown field is refused.
+
+| Field | Meaning |
+| --- | --- |
+| `executable` | `{kind: "packaged", path}` is a file inside the plugin package, read-only, listed in the plan's `requiredPackagePaths`. `{kind: "tool", tool}` names a tool definition of the plugin; the host resolves it like any tool launch. |
+| `arguments` | At most 1024 strings of at most 32 KiB, without NUL. |
+| `environment` | At most 256 variables; a name is non-empty without `=`, a value is at most 32 KiB. |
+| `initializationOptions`, `workspaceConfiguration` | JSON objects of at most 1 MiB each. |
+| `gates` | At most 8; see [Plugin-owned sessions](#plugin-owned-sessions-languageservers-3). |
+| `writablePaths` | At most 32 paths the server writes. Each lies inside one of the four directories; `.` and `..` components are refused. The plan carries them sorted, and the host creates their parent directories before the start. |
+
+Rejections: `plugin.launch.invalidResult` for a malformed or oversized answer
+or gate, `plugin.launch.outsidePackage` for a packaged path that leaves the
+package, `plugin.launch.undeclaredTool` for a tool the plugin does not
+define, `plugin.launch.unwritablePath` for a writable path outside the host
+directories, `plugin.launch.invalidRequest` for a request without a usable
+directory, `plugin.launch.unavailable` for a language without a server, and
+`plugin.launch.notBackend`. See `fixtures/languages/language-server-backend-launch.plugin.json`
+and `fixtures/languages/language-server-launch-resolution.json`.
+
+Host limits of the macOS host today: a `{kind: "tool"}` answer is resolved
+with the user's tool choice and discovery, and a program that lies inside the
+project is refused, because opening a project must not run it; a server whose
+launch the backend resolves does not start in a remote workspace; and the
+scratch `temporaryDirectory` is removed when the server process ends.
+
+#### Plugin-owned sessions (`languageServers` 3)
+
+A plugin backend drives its own server only through what the server
+declares. With `requires.languageServers: 3` a server may declare:
+
+| Field | Meaning |
+| --- | --- |
+| `requestMethods` | LSP methods the backend may send with `languageServer/request` or `languageServer/notify`; at most 64. |
+| `commands` | The `workspace/executeCommand` commands the backend may run; at most 128. Declared exactly when `requestMethods` lists `workspace/executeCommand`. |
+| `serializedCommands` | A subset of `commands` that runs one at a time: a request for a command already running joins it and receives the same answer. |
+| `forwardNotifications` | Server notifications the host forwards to the backend; at most 32. |
+| `state` | `{scope: "workspace", retention: {maxEntries, maxAgeDays}}`. The host prunes the server's per-workspace state directories (see below). `maxEntries` is 1 to 64, `maxAgeDays` 1 to 365. |
+| `remote` | `supported` (default) or `unsupported`. |
+
+- A name is non-empty text of at most 256 bytes without whitespace or control
+  characters, unique within its list. Names the host sends itself
+  (`initialize`, `initialized`, `shutdown`, `exit`, `textDocument/didOpen`,
+  `didChange`, `didClose`, `didSave`, `willSave`, `willSaveWaitUntil`,
+  `workspace/didChangeWorkspaceFolders`, and every `$/` method) cannot appear
+  in `requestMethods` or `forwardNotifications`.
+- Below `languageServers` 3 each of these fields is `plugin.manifest.invalid`.
+  A server that lists `requestMethods` or `forwardNotifications` requires the
+  `languageServer.request` permission; declaring the permission without such a
+  server is `plugin.manifest.invalid`.
+- The launch plan's `sessionPolicy` is these fields as sorted lists plus
+  `serverID` (the `languageID`) and `gates`. The host sends it unchanged as
+  `lsp.startServer.sessionPolicy`; Core's LSP engine enforces it, so a host
+  cannot widen it and a backend cannot step outside it.
+- A server with `remote: "unsupported"` is not started for a remote
+  workspace: `lsp.startServer` answers `not_supported`.
+
+What the engine enforces on `lsp.pluginServerRequest` and
+`lsp.pluginServerNotify`, the two commands behind the host methods:
+
+- A request must be in `requestMethods`, and a `workspace/executeCommand`
+  must carry a `params.command` in `commands`; anything else is
+  `plugin.host.methodNotDeclared`. A notification may be
+  `workspace/didChangeConfiguration` (the backend always knows the server's
+  settings; the value also becomes the settings the server reads through
+  `workspace/configuration`) or a `requestMethods` entry other than
+  `workspace/executeCommand`. The host's own methods stay refused.
+- The session must belong to the calling plugin
+  (`plugin.host.foreignContribution` otherwise) and be running
+  (`plugin.host.languageServerUnavailable` otherwise, including every request
+  still pending when the process stops, crashes, restarts, or the plugin is
+  disabled).
+- A request waits at most `timeoutMilliseconds` (default 60000, at most
+  300000) and ends with `plugin.host.timeout`; cancelling it sends the server
+  `$/cancelRequest` and ends it with `plugin.host.cancelled`. A server's JSON-RPC
+  error is `plugin.host.languageServerError` with `details: {code, message}`;
+  the server's `data` is not forwarded. A result over the host's result bound
+  is `plugin.host.limitExceeded`.
+- A **gate** is `{id, until: "notification", method, match}`, declared by the
+  launch answer. It opens when the server sends a notification with that
+  `method` whose params contain every member of `match` (nested objects match
+  the same way). Until every gate has opened, `request` calls wait in order,
+  at most 128; the 129th is `plugin.host.busy`. A waiting request still obeys
+  its timeout and cancellation. Notifications are never held.
+- The first request for a `serializedCommands` command runs; a later request
+  for the same command, while the first is running or waiting, joins it and is
+  answered with the first one's outcome. Cancelling the first request ends the
+  joined requests with it.
+- `forwardNotifications` reach the backend as
+  `lithe/host/languageServer/didReceiveNotification`.
+  `workspace/didChangeConfiguration` is the only notification Core consumes
+  itself.
+
+**State and retention.** The host keeps one state directory per workspace for
+each server, under the plugin's storage (never under the package or application
+bundle), and gives the server its own as `workspaceStateDirectory`. The
+directories survive disabling and updating the plugin. The plugin chooses the
+sub-directory names inside its `workspaceStateDirectory`; the host chooses the
+names of the per-workspace directories themselves and never looks inside them.
+
+The host refreshes a workspace directory's modification time on every start of
+the server and sweeps in the background after a start. It asks
+`plugins.languageServers.stateRetention` with `{retention, nowUnixSeconds,
+entries: [{name, lastModifiedUnixSeconds}], activeNames}`, where `entries` are
+the per-workspace directories it found and `activeNames` are those of open
+workspaces, and deletes the `expiredNames` it returns: a directory older than
+`maxAgeDays` and, of the rest, all but the newest `maxEntries` that open
+workspaces leave free. A workspace that is open is never pruned. Names that are
+not a single path component are ignored, and the host deletes only names it
+listed. A plugin that declares no `state.retention` keeps everything.
+
+The host can also discard the state of one workspace; the server rebuilds it
+the next time it starts. In this version that is an engine path only, with no
+user-facing action yet.
+
+**Preparation status.** `languageServer/setStatus` reports how ready the
+server is. It exists because `lithe/function/progress` belongs to a call that
+is running, while preparation (importing a build, indexing) outlives any call.
+
+Example package: `fixtures/languages/language-server-backend-launch.plugin.json`.
+
 ### Execution providers
 
 `run` and `test` each name an `executable`: exactly one of a bare `command`
@@ -663,8 +842,8 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | --- | --- | --- |
 | `languages` | `languages[]` | `1`, `2` (adds [`grammar` and `configuration`](#grammars-and-editor-configuration-languages-2)) |
 | `packageTrust` | `vendor.bundledSignatureRequirement`: origin-scoped trust for a host-sealed bundled copy of a publisher-signed plugin | `1` |
-| `languageServers` | `languageServers[]` apart from their launch fields | `1`, `2` (adds [`workspaceConfiguration`](#workspace-configuration-languageservers-2)) |
-| `serverProcess` | The launch fields of language servers, of build providers with a process of their own, of VCS providers, and of the plugin backend: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1`, `2` (adds `runSelectedRuntime` for [debug adapters](#api-level-4-debug-adapters); level 4; v2 Core only, macOS and Windows advertise `1`) |
+| `languageServers` | `languageServers[]` apart from their launch fields | `1`, `2` (adds [`workspaceConfiguration`](#workspace-configuration-languageservers-2)), `3` (adds the [session fields](#plugin-owned-sessions-languageservers-3)) |
+| `serverProcess` | The launch fields of language servers, of build providers with a process of their own, of VCS providers, and of the plugin backend: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1`, `2` (adds `runSelectedRuntime` for [debug adapters](#api-level-4-debug-adapters); level 4; v2 Core only), `3` (adds the [backend-resolved launch](#backend-resolved-launch-serverprocess-3) of a language server). macOS advertises `1` and `3`, Windows `1` |
 | `executionProviders` | `executionProviders[]` | `1` |
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (web content), `3` (native controls), `4` ([backend-only commands](#backend-only-commands-ui-4)) |
@@ -774,6 +953,8 @@ Rules for publishing across levels and capability versions:
 | `editor.actions` | the backend registers independent editor actions; requires `backend` 2 and `documents.read`, grants only `editor/registerActions`, not document edits or domain execution |
 | `editor.providers` | the backend supplies [editor language features](#editor-language-feature-providers-protocol-version-3) for matching files; requires `backend` 2 and `documents.read`, grants only `editor/registerProviders`, not document edits |
 | `terminal.create` | the backend creates and manages its own [native terminals](#plugin-owned-native-terminals-function-protocol-3), including bounded display history for reopen; requires `backend` 2 |
+| `languageServer.request` | a `languageServers` 3 server lists `requestMethods` or `forwardNotifications`, and only then; requires `backend` 2. Grants the [`languageServer` host methods](#language-server-host-methods) for the plugin's own servers and their two notifications, nothing else |
+| `documents.contentProvider` | the backend registers a [content provider](#content-providers); requires `backend` 2. Grants `documents/registerContentProvider` only, not reading or editing documents |
 
 | Activation event | Meaning |
 | --- | --- |
@@ -2006,8 +2187,11 @@ process starts and what it learns about workspaces.
 
 - It may start without a page. It needs at least one way to start: a web
   tool window (first page call, as in version 1), a `ui.commands[]` entry
-  (its `onCommand:<id>` also starts the backend), or the `onWorkspaceOpen`
-  event. A backend 2 with none of them is `plugin.manifest.invalid`.
+  (its `onCommand:<id>` also starts the backend), the `onWorkspaceOpen`
+  event, or a provider the host queries: a toolchain or keymap import
+  provider, or a language server with `launch.kind: "backend"`, whose start
+  asks the backend for its command line. A backend 2 with none of them is
+  `plugin.manifest.invalid`.
 - It is still one process per plugin, shared by every open workspace and
   window, on the machine that runs Lithe, also for remote workspaces. No
   workspace is process state: each call names its workspace explicitly
@@ -2541,6 +2725,10 @@ notifications.
   | `plugin.host.preconditionFailed` | `-32019` | A state the request requires does not hold, such as a missing user confirmation |
   | `plugin.host.busy` | `-32020` | The resource is in use; retry later |
   | `plugin.host.rateLimited` | `-32021` | Too many requests in a period; retry after `details.retryAfterMilliseconds` when given |
+  | `plugin.host.languageServerUnavailable` | `-32022` | The plugin's language server is not running for the context, or stopped while the request was in flight |
+  | `plugin.host.languageServerError` | `-32023` | The language server answered with a JSON-RPC error; `details` is `{code, message}` |
+  | `plugin.host.methodNotDeclared` | `-32024` | The method, or the `workspace/executeCommand` command, is not in the server's declared session |
+  | `plugin.host.foreignContribution` | `-32026` | The named server or contribution belongs to another plugin |
 
   JSON-RPC reserves `-32768` to `-32000` for the protocol and lets
   implementations define `-32099` to `-32000` as server errors. `-32000`
@@ -2574,6 +2762,8 @@ then never sees them.
 | `lithe/host/workspace/didChangeContexts` | `{ revision }` | `workspace.metadata` |
 | `lithe/host/subscriptions/notify` | `{ subscriptionID, sequence, event }` | every plugin-owned session |
 | `lithe/host/commands/didRun` | `{ commandID, context? }` | every plugin-owned session |
+| `lithe/host/languageServer/didChangeState` | `{ context, serverID, state, generation }` | `languageServer.request` |
+| `lithe/host/languageServer/didReceiveNotification` | `{ context, serverID, generation, method, params?, truncated? }` | `languageServer.request` |
 
 - `didChangeContexts` follows every change `revision` of `listContexts`
   counts; the backend calls `listContexts` for the contexts. A backend that
@@ -2713,6 +2903,98 @@ may already have committed. The SDK must not replay a mutation on these failures
 On `versionConflict`, reread and recompute; on `contextExpired`, resolve the
 original target again, never substitute the focused window. `busy`/`rateLimited`
 may be retried with bounds; `permissionDenied`/`readOnly` need user intervention.
+
+### Language server host methods
+
+The `languageServer` host service lets a plugin backend talk to the language
+servers its own plugin declares. It is granted by the `languageServer.request`
+permission, only for a `languageServers` 3 server that lists `requestMethods`
+or `forwardNotifications`, and each method is granted by its full name.
+`getCapabilities` lists the methods this host implements. Windows does not
+advertise `backend` support.
+
+Every method takes `context: {contextID, generation}` and `serverID`, the
+`languageID` of one of the calling plugin's servers. A server of another
+plugin is `plugin.host.foreignContribution`.
+
+| Methods (prefix `lithe/host/languageServer/`) | Params in addition to `context`, `serverID` | Result |
+| --- | --- | --- |
+| `request` | `method`, `params?` (an object, default `{}`), `timeoutMilliseconds?` (1 to 300000, default 60000) | `{value}`: the server's JSON-RPC `result`, which may be `null`. |
+| `notify` | `method`, `params?` | `{delivered}`. `false` only for `workspace/didChangeConfiguration` sent before the server is initialized; the value is then sent with `initialized`. |
+| `setStatus` | `state` (`preparing`, `ready`, `degraded`, or `failed`), `message?`, `percentage?` (a whole number from 0 to 100) | `{}` |
+
+- `request` and `notify` are checked by the [session policy](#plugin-owned-sessions-languageservers-3):
+  `plugin.host.methodNotDeclared` for a method or command the server did not
+  declare, `plugin.host.languageServerUnavailable` when the server is not
+  running for this context, `plugin.host.languageServerError` when the server
+  answers with an error (`details: {code, message}`), `plugin.host.timeout`,
+  `plugin.host.cancelled`, `plugin.host.busy` for the 129th waiting request,
+  and `plugin.host.limitExceeded` for a result over the host's result bound.
+  Cancelling the host request (`$/cancelRequest`) cancels the server request.
+- `setStatus` shows the plugin's own preparation state next to the server in
+  the host's status UI: `preparing` with an optional `message` and
+  `percentage` while the plugin imports a project or indexes, `ready` when the
+  server can answer, `degraded` when it works with reduced results, and
+  `failed` when it cannot. `message` is user-facing text of the plugin, shown
+  as given and cut to 1024 bytes on a character boundary. The latest status
+  replaces the earlier one of the same server; a new
+  server `generation` starts without one, and the host removes it when the
+  server stops. It is not `lithe/function/progress`, which belongs to the
+  function call that is running, while preparation outlives every call.
+- The language server keeps no state of its own in the host: when the process
+  stops or crashes, every request in flight ends with
+  `plugin.host.languageServerUnavailable`, and the backend asks again after
+  `didChangeState` reports `running` with a new `generation`.
+
+Notifications to the backend, granted by the same permission:
+
+| Notification | Params | Meaning |
+| --- | --- | --- |
+| `lithe/host/languageServer/didChangeState` | `{context, serverID, state, generation}` | `state` is `starting`, `running`, `stopped`, or `crashed`. |
+| `lithe/host/languageServer/didReceiveNotification` | `{context, serverID, generation, method, params?, truncated?}` | A notification the server sent and `forwardNotifications` lists. |
+
+`generation` is a positive integer the host raises each time it starts the
+server for this context, so a backend can tell which process a state or a
+notification belongs to; the host never delivers one of a replaced process
+after the new one has started. A forwarded notification larger than
+`limits.notificationBytes` is delivered once with `truncated: true` and
+without `params`. Core enforces the request policy (whitelist, gates,
+serialization, timeouts) when it relays a request, and
+`fixtures/backend/function-protocol.json` holds the request, response, and
+notification shapes every host must reproduce.
+
+### Content providers
+
+A plugin whose server hands out documents that have no file (for example the
+decompiled source of a library class) serves them as a URI scheme:
+
+```json
+{
+  "context": {"contextID": "w1", "generation": 1},
+  "scheme": "metals-library",
+  "function": "documents.read"
+}
+```
+
+`lithe/host/documents/registerContentProvider`, granted by
+`documents.contentProvider`, returns `{subscriptionID}`; dispose it with the
+existing subscription API. Registration only records the binding and never
+calls the backend; the function must already be registered on the session.
+
+- A scheme is 1 to 64 lowercase ASCII letters, digits, `+`, `-`, or `.`, and
+  starts with a letter. The schemes the host or the platform resolves are
+  refused: `about`, `blob`, `data`, `file`, `ftp`, `http`, `https`,
+  `javascript`, `lithe`, `mailto`, `untitled`, `ws`, and `wss`. A scheme has
+  one provider per workspace window; registering it again is
+  `plugin.host.preconditionFailed`.
+- When a document whose URI has that scheme is opened, the host calls the
+  function through `lithe/function/invoke` with the workspace `context` and
+  `{uri}`. The answer is a string, or `{content: string}`, of at most 1 MiB.
+  The document opens read-only; any other answer, a failure, or a timeout
+  (the host waits 30 seconds) shows the user an error and opens nothing.
+- The provider is the only source of the text. The host keeps no copy once
+  the document closes, and it asks again when the document is reopened.
+  Ending the session or closing the context withdraws the provider.
 
 ### Backend-only commands (`ui` 4)
 
@@ -3266,6 +3548,11 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.build.invalidSelection` | Core | A build request selects a scope, target, filter, or argument the declaration does not allow, or misses a required path |
 | `plugin.build.invalidOutput` | Core | Build-tool output or a report does not fit its decoder |
 | `plugin.launch.invalidRequest` | Core | A launch plan request has an unusable directory or an unknown architecture |
+| `plugin.launch.notBackend` | Core | `decodeLaunch` named a language server that the plugin backend does not launch |
+| `plugin.launch.invalidResult` | Core | A [backend-resolved launch](#backend-resolved-launch-serverprocess-3) answer is malformed, unknown in a field, or over a bound |
+| `plugin.launch.outsidePackage` | Core | The answer's packaged executable leaves the plugin package |
+| `plugin.launch.undeclaredTool` | Core | The answer's tool is not one of the plugin's tool definitions |
+| `plugin.launch.unwritablePath` | Core | The answer writes outside the state, workspace state, log, and temporary directories |
 | `plugin.grammar.invalid` | Core | A language's grammar file is not a Monarch grammar Core accepts; `field` names the failing part |
 | `plugin.grammar.unavailable` | Core | The plugin declares no grammar for the language |
 | `plugin.vcs.reserved` | Core | A VCS provider claims the ID of the built-in Git support |
@@ -3316,6 +3603,10 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.host.preconditionFailed` | Host | A state the request requires does not hold |
 | `plugin.host.busy` | Host | The resource is in use; retry later |
 | `plugin.host.rateLimited` | Host | Too many requests in a period |
+| `plugin.host.languageServerUnavailable` | Core | The plugin's language server is not running for the context, or stopped while a request was in flight |
+| `plugin.host.languageServerError` | Core | The language server answered a forwarded request with an error; `details` is `{code, message}` |
+| `plugin.host.methodNotDeclared` | Core | A forwarded method or command is not in the server's declared session |
+| `plugin.host.foreignContribution` | Core | The named language server belongs to another plugin |
 | `plugin.backend.exited` | Host | A page's call, or a host operation for the backend, ended because the backend process exited |
 
 Host-facing plugin states are `notInstalled`, `installed` (enabled or
