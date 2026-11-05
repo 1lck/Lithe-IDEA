@@ -3,20 +3,25 @@ import { invoke } from "@/platform/tauri-core";
 /** Each failed probe adds one existing name, so this bounds a single destination search. */
 const MAX_NAME_ATTEMPTS = 512;
 
+/** True when a provider reports that the destination name appeared after it was planned. */
+export const isDestinationExists = (error: unknown): boolean =>
+  String(error instanceof Error ? error.message : error).includes("destination_exists");
+
 /**
- * Names the copy of a project item. Rust Core owns the rule (`workspace.planDuplicate`):
- * `foo.txt` becomes `foo copy.txt`, then `foo copy 2.txt`. This host only reports which
- * planned names already exist, and Core plans again around them.
- *
- * @param exists Reports whether a planned sibling name is taken in the destination.
+ * Names the copy of a project item and runs `create` with it. Rust Core owns the rule
+ * (`workspace.planDuplicate`): `foo.txt` becomes `foo copy.txt`, then `foo copy 2.txt`.
+ * `listNames` reads the names that actually exist in the destination directory from the
+ * provider (never the in-memory tree). When `create` fails with `destination_exists` the
+ * name is added to the facts and Core plans again.
  */
-export async function planDuplicateName(options: {
+export async function duplicateWithPlannedName<T>(options: {
   name: string;
   isDirectory: boolean;
-  exists: (name: string) => boolean | Promise<boolean>;
+  listNames: () => Promise<string[]>;
+  create: (name: string) => Promise<T>;
   caseInsensitive?: boolean;
-}): Promise<string> {
-  const existing: string[] = [];
+}): Promise<{ name: string; result: T }> {
+  const existing = [...(await options.listNames())];
   for (let attempt = 0; attempt < MAX_NAME_ATTEMPTS; attempt += 1) {
     const { name } = await invoke<{ name: string }>("workspace.planDuplicate", {
       name: options.name,
@@ -24,8 +29,12 @@ export async function planDuplicateName(options: {
       existing,
       caseInsensitive: options.caseInsensitive ?? false,
     });
-    if (!(await options.exists(name))) return name;
-    existing.push(name);
+    try {
+      return { name, result: await options.create(name) };
+    } catch (error) {
+      if (!isDestinationExists(error) || existing.includes(name)) throw error;
+      existing.push(name);
+    }
   }
   throw new Error(`destination_exists: no free name for ${options.name}`);
 }

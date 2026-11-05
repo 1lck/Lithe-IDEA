@@ -5,7 +5,7 @@ import { loadFileContent } from "../controllers/workspace-session-restore";
 import { invoke } from "@/platform/tauri-core";
 import { LspOperationLog } from "@/platform/lsp-session-lifecycle";
 import { basename, dirname, extname, join } from "@tauri-apps/api/path";
-import { planDuplicateName } from "../utils/copy-names";
+import { duplicateWithPlannedName } from "../utils/copy-names";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { immer } from "zustand/middleware/immer";
 import type { StoreApi } from "zustand";
@@ -2814,22 +2814,26 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           const pathParts = remotePath.split("/");
           const base = pathParts.pop() || "";
           const dir = pathParts.join("/") || "/";
-          const finalName = await planDuplicateName({
+          const { name: finalName, result: finalPath } = await duplicateWithPlannedName({
             name: base,
             isDirectory: fileEntry.isDir,
-            exists: (name) =>
-              !!findFileInTree(
-                get().files,
-                `remote://${remoteInfo.connectionId}${dir === "/" ? `/${name}` : `${dir}/${name}`}`,
-              ),
-          });
-          const finalPath = dir === "/" ? `/${finalName}` : `${dir}/${finalName}`;
-
-          await invoke("ssh_copy_path", {
-            connectionId: remoteInfo.connectionId,
-            sourcePath: remoteInfo.remotePath,
-            targetPath: finalPath,
-            isDirectory: fileEntry.isDir,
+            listNames: async () =>
+              (
+                await invoke<Array<{ name: string }>>("ssh_read_directory", {
+                  connectionId: remoteInfo.connectionId,
+                  path: dir,
+                })
+              ).map((entry) => entry.name),
+            create: async (name) => {
+              const targetPath = dir === "/" ? `/${name}` : `${dir}/${name}`;
+              await invoke("ssh_copy_path", {
+                connectionId: remoteInfo.connectionId,
+                sourcePath: remoteInfo.remotePath,
+                targetPath,
+                isDirectory: fileEntry.isDir,
+              });
+              return targetPath;
+            },
           });
 
           const newEntry: FileEntry = {
@@ -2859,21 +2863,28 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           const base = pathParts.pop() || "";
           const dir = pathParts.join("/") || "/";
           const linuxPathOf = (name: string) => (dir === "/" ? `/${name}` : `${dir}/${name}`);
-          const finalName = await planDuplicateName({
+          const { name: finalName, result: finalLinuxPath } = await duplicateWithPlannedName({
             name: base,
             isDirectory: fileEntry.isDir,
-            exists: (name) =>
-              !!findFileInTree(get().files, buildWslPath(wslInfo.distro, linuxPathOf(name))),
+            listNames: async () =>
+              (
+                await invoke<Array<{ name: string }>>("wsl_read_directory", {
+                  distro: wslInfo.distro,
+                  path: dir,
+                })
+              ).map((entry) => entry.name),
+            create: async (name) => {
+              const targetPath = linuxPathOf(name);
+              await invoke("wsl_copy_path", {
+                distro: wslInfo.distro,
+                sourcePath: wslInfo.linuxPath,
+                targetPath,
+                isDirectory: fileEntry.isDir,
+              });
+              return targetPath;
+            },
           });
-          const finalLinuxPath = linuxPathOf(finalName);
           const finalPath = buildWslPath(wslInfo.distro, finalLinuxPath);
-
-          await invoke("wsl_copy_path", {
-            distro: wslInfo.distro,
-            sourcePath: wslInfo.linuxPath,
-            targetPath: finalLinuxPath,
-            isDirectory: fileEntry.isDir,
-          });
 
           const newEntry: FileEntry = {
             name: finalName,

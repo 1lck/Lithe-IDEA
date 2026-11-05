@@ -1,40 +1,68 @@
 import { expect, spyOn, test } from "bun:test";
 import * as native from "@/platform/tauri-core";
-import { planDuplicateName } from "./copy-names";
+import { duplicateWithPlannedName } from "./copy-names";
 
-test("a planned name that exists becomes a fact and Core plans around it", async () => {
-  const requests: unknown[] = [];
-  // Core's answers for foo.txt, as pinned by shared/fixtures/workspace/file-copy-names-v1.json.
-  const answers = ["foo copy.txt", "foo copy 2.txt"];
-  const invoke = spyOn(native, "invoke").mockImplementation((async (_command: string, payload?: unknown) => {
-    requests.push(JSON.parse(JSON.stringify(payload)));
-    return { name: answers[requests.length - 1] };
+/** Core's rule for foo.txt, as pinned by shared/fixtures/workspace/file-copy-names-v1.json. */
+const coreAnswer = (existing: string[]) =>
+  ["foo copy.txt", "foo copy 2.txt", "foo copy 3.txt"].find((name) => !existing.includes(name))!;
+
+const installCore = (requests: unknown[]) =>
+  spyOn(native, "invoke").mockImplementation((async (_command: string, payload?: unknown) => {
+    const request = JSON.parse(JSON.stringify(payload)) as { existing: string[] };
+    requests.push(request);
+    return { name: coreAnswer(request.existing) };
   }) as typeof native.invoke);
+
+test("names the provider lists but the in-memory tree lacks are avoided", async () => {
+  const requests: unknown[] = [];
+  const invoke = installCore(requests);
   try {
-    const name = await planDuplicateName({
+    const created: string[] = [];
+    const { name } = await duplicateWithPlannedName({
       name: "foo.txt",
       isDirectory: false,
-      exists: (candidate) => candidate === "foo copy.txt",
-      caseInsensitive: true,
+      listNames: async () => ["foo.txt", "foo copy.txt"],
+      create: async (candidate) => { created.push(candidate); },
     });
     expect(name).toBe("foo copy 2.txt");
+    expect(created).toEqual(["foo copy 2.txt"]);
     expect(requests).toEqual([
-      { name: "foo.txt", isDirectory: false, existing: [], caseInsensitive: true },
-      { name: "foo.txt", isDirectory: false, existing: ["foo copy.txt"], caseInsensitive: true },
+      { name: "foo.txt", isDirectory: false, existing: ["foo.txt", "foo copy.txt"], caseInsensitive: false },
     ]);
   } finally {
     invoke.mockRestore();
   }
 });
 
-test("a destination that never frees up fails with the stable destination_exists code", async () => {
-  let count = 0;
-  const invoke = spyOn(native, "invoke").mockImplementation((async () => ({ name: `n${count++}` })) as typeof native.invoke);
+test("destination_exists from the backend adds the name to the facts and plans again", async () => {
+  const requests: unknown[] = [];
+  const invoke = installCore(requests);
   try {
-    await expect(
-      planDuplicateName({ name: "a", isDirectory: false, exists: () => true }),
-    ).rejects.toThrow("destination_exists");
-    expect(count).toBe(512);
+    const attempts: string[] = [];
+    const { name } = await duplicateWithPlannedName({
+      name: "foo.txt",
+      isDirectory: false,
+      listNames: async () => ["foo.txt"],
+      create: async (candidate) => {
+        attempts.push(candidate);
+        if (candidate === "foo copy.txt") throw new Error("destination_exists: foo copy.txt");
+      },
+    });
+    expect(attempts).toEqual(["foo copy.txt", "foo copy 2.txt"]);
+    expect(name).toBe("foo copy 2.txt");
+    expect((requests[1] as { existing: string[] }).existing).toEqual(["foo.txt", "foo copy.txt"]);
+  } finally {
+    invoke.mockRestore();
+  }
+});
+
+test("other backend errors and an endless race are not retried forever", async () => {
+  const invoke = spyOn(native, "invoke").mockImplementation((async () => ({ name: "x" })) as typeof native.invoke);
+  try {
+    await expect(duplicateWithPlannedName({
+      name: "a", isDirectory: false, listNames: async () => [],
+      create: async () => { throw new Error("permission denied"); },
+    })).rejects.toThrow("permission denied");
   } finally {
     invoke.mockRestore();
   }
