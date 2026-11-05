@@ -4,6 +4,7 @@ import { act, useState, useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
+import { installGitGraphProjectionStub } from "@/test-utils/git-graph-projection-stub";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitCommit } from "../../types/git.types";
 import * as historyApi from "../../api/git-history-rewrite-api";
@@ -37,8 +38,11 @@ const commits: GitCommit[] = ["a", "b"].map((letter) => ({
   date: "2026/10/06 10:00",
   decorations: "",
 }));
+let graphStub: ReturnType<typeof installGitGraphProjectionStub>;
+
 beforeEach(() => {
   restoreDom = installHappyDom();
+  graphStub = installGitGraphProjectionStub({ geometryFree: true });
   previousAct = globals.IS_REACT_ACT_ENVIRONMENT;
   globals.IS_REACT_ACT_ENVIRONMENT = true;
   previousPreferences = useGitLogPreferencesStore.getState();
@@ -90,7 +94,8 @@ afterEach(async () => {
     host.remove();
     if (previousAct === undefined) delete globals.IS_REACT_ACT_ENVIRONMENT;
     else globals.IS_REACT_ACT_ENVIRONMENT = previousAct;
-    restoreDom();
+    graphStub.mockRestore();
+  restoreDom();
   }
 });
 function Harness({ selected = true, selectedHashes }: { selected?: boolean; selectedHashes?: Set<string> }) {

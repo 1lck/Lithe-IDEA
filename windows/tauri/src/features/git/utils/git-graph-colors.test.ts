@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { graphColor, graphColorIdForName } from "./git-graph-colors";
+import { graphColor } from "./git-graph-colors";
 
 test("light/dark RGB matches the real IntelliJ generator, including signed integer overflow", () => {
   const oracle = readFileSync(
@@ -16,8 +16,7 @@ test("light/dark RGB matches the real IntelliJ generator, including signed integ
   }
 });
 
-test("keeps full Java IDs and uses foreground for unreferenced fragments", () => {
-  expect(graphColorIdForName("main")).toBe(3343801);
+test("uses foreground for unreferenced fragments and distinct hues for distinct IDs", () => {
   expect(graphColor(0)).toBe("var(--foreground)");
   expect(graphColor(0, true)).toBe("var(--foreground)");
   expect(graphColor(1)).not.toBe(graphColor(7));

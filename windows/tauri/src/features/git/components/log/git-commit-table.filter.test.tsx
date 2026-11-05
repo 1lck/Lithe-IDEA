@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
+import { installGitGraphProjectionStub } from "@/test-utils/git-graph-projection-stub";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitCommit } from "../../types/git.types";
 import { GitCommitTable } from "./git-commit-table";
@@ -16,8 +17,11 @@ let previousPreferences: ReturnType<typeof useGitLogPreferencesStore.getState>;
 const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 let previousActEnvironment: boolean | undefined;
 
+let graphStub: ReturnType<typeof installGitGraphProjectionStub>;
+
 beforeEach(() => {
   restoreDom = installHappyDom();
+  graphStub = installGitGraphProjectionStub();
   previousActEnvironment = environment.IS_REACT_ACT_ENVIRONMENT;
   environment.IS_REACT_ACT_ENVIRONMENT = true;
   previousPreferences = useGitLogPreferencesStore.getState();
@@ -48,6 +52,7 @@ afterEach(async () => {
   viewportSpy.mockRestore();
   useGitLogPreferencesStore.setState(previousPreferences, true);
   environment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+  graphStub.mockRestore();
   restoreDom();
 });
 

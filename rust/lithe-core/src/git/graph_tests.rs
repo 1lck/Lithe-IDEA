@@ -822,6 +822,27 @@ fn current_branch_ancestry_follows_every_merge_parent_and_never_guesses() {
     assert!(project(&detached, COMPACT).current_branch_hashes.is_empty());
 }
 
+#[test]
+fn current_branch_ancestry_is_bounded_and_prefers_the_scoped_commit() {
+    // A cycle in malformed input is walked once.
+    let mut cyclic = new_request(vec![commit("a", &["b"], "main"), commit("b", &["a"], "")]);
+    cyclic.current_branch = Some("main".to_string());
+    assert_eq!(project(&cyclic, COMPACT).current_branch_hashes, ["a", "b"]);
+    // The scoped commit wins over a stale duplicate in the repository context, and
+    // ancestry extends through context-only commits.
+    let mut scoped = new_request(vec![commit("main", &["new"], "main")]);
+    scoped.repository_commits = vec![
+        commit("main", &["stale"], "main"),
+        commit("new", &["root"], ""),
+        commit("root", &[], ""),
+    ];
+    scoped.current_branch = Some("main".to_string());
+    assert_eq!(
+        project(&scoped, COMPACT).current_branch_hashes,
+        ["main", "new", "root"]
+    );
+}
+
 // MARK: - scale
 
 #[test]

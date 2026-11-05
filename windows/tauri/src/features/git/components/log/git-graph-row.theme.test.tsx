@@ -7,7 +7,7 @@ import themes from "@/extensions/themes/builtin/lithe.json";
 import { toThemeDefinition } from "@/extensions/themes/theme-file";
 import { themeRegistry } from "@/extensions/themes/theme-registry";
 import type { ThemeFile } from "@/extensions/themes/theme-schema";
-import { layoutGitGraph } from "../../utils/git-graph-layout";
+import { graphFixtureLayout } from "@/test-utils/git-graph-projection-stub";
 import { gitGraphPaintMetrics } from "../../utils/git-graph-geometry";
 import { GitGraphCanvas, gitGraphWidth } from "./git-graph-row";
 
@@ -32,26 +32,7 @@ for (const [themeId, color] of [
     function Harness() {
       const layout = useMemo(() => {
         layoutBuilds += 1;
-        return layoutGitGraph([
-          {
-            hash: "tip",
-            shortHash: "tip",
-            parentHashes: ["root"],
-            message: "tip",
-            author: "Fixture",
-            date: "unknown",
-            decorations: "HEAD -> main",
-          },
-          {
-            hash: "root",
-            shortHash: "root",
-            parentHashes: [],
-            message: "root",
-            author: "Fixture",
-            date: "unknown",
-            decorations: "",
-          },
-        ]);
+        return graphFixtureLayout("headAndRoot");
       }, []);
       const paint = gitGraphPaintMetrics();
       return (

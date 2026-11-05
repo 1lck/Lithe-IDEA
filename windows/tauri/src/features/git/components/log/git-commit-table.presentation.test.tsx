@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import * as virtual from "@tanstack/react-virtual";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
+import { installGitGraphProjectionStub } from "@/test-utils/git-graph-projection-stub";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitCommit, GitReference } from "../../types/git.types";
 import { GitCommitTable } from "./git-commit-table";
@@ -94,8 +95,11 @@ function Harness({ scope = null }: { scope?: GitReference | null }) {
   );
 }
 
+let graphStub: ReturnType<typeof installGitGraphProjectionStub>;
+
 beforeEach(() => {
   restoreDom = installHappyDom();
+  graphStub = installGitGraphProjectionStub({ geometryFree: true });
   actEnvironment = environment.IS_REACT_ACT_ENVIRONMENT;
   environment.IS_REACT_ACT_ENVIRONMENT = true;
   preferences = useGitLogPreferencesStore.getState();
@@ -161,6 +165,7 @@ afterEach(async () => {
   else Reflect.deleteProperty(globalThis, "ResizeObserver");
   useGitLogPreferencesStore.setState(preferences, true);
   environment.IS_REACT_ACT_ENVIRONMENT = actEnvironment;
+  graphStub.mockRestore();
   restoreDom();
 });
 const render = async (scope: GitReference | null = null) => {
