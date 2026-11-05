@@ -810,7 +810,7 @@ struct RustGitOperations: GitOperations, Sendable {
         _ command: GitCorePlanCommand,
         _ request: Request
     ) -> Response? {
-        let result: Result<Response, CoreCallError> = core.executeResult(command: command.rawValue, payload: request)
+        let result: Result<Response, RustCoreBridge.CoreCallError> = core.executeResult(command: command.rawValue, payload: request)
         return try? result.get()
     }
 

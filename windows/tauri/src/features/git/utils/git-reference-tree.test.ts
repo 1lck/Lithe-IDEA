@@ -1,13 +1,36 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import type { GitReference } from "../types/git.types";
-import {
-  buildGitReferenceTree,
+import * as tauriCoreModule from "@/platform/tauri-core";
+
+const invoke = mock(async (_command: string, args: { references: { name: string }[] }) => {
+  // Stands in for Core: shared/fixtures/git/reference-tree-v1.json owns the grouping rules.
+  const [first] = args.references;
+  return {
+    nodes: [
+      {
+        name: "origin",
+        path: "origin",
+        reference: null,
+        children: args.references.map((item, index) => ({
+          name: item.name.slice("origin/".length),
+          path: item.name,
+          reference: index,
+          children: [],
+        })),
+      },
+    ].filter(() => first),
+  };
+});
+mock.module("@/platform/tauri-core", () => ({ ...tauriCoreModule, invoke }));
+
+const {
+  loadGitReferenceTree,
   collectGitReferenceGroupIds,
   countGitReferencesByKind,
   filterGitLogReferences,
   filterSelectableGitReferences,
   isRemoteSymbolicHeadReference,
-} from "./git-reference-tree";
+} = await import("./git-reference-tree");
 
 const reference = (shortName: string): GitReference => ({
   fullName: `refs/remotes/${shortName}`,
@@ -18,20 +41,20 @@ const reference = (shortName: string): GitReference => ({
 });
 
 describe("Git reference tree", () => {
-  test("groups slash-delimited references without losing leaf references", () => {
-    const tree = buildGitReferenceTree(
-      [reference("origin/main"), reference("origin/feature/orders")],
+  test("attaches loaded references and row identities to the Core plan", async () => {
+    const tree = await loadGitReferenceTree(
+      [reference("origin/main"), reference("origin/orders")],
       "remote",
+      new Set(),
+      "A:",
     );
 
-    expect(tree).toHaveLength(1);
-    expect(tree[0].name).toBe("origin");
-    expect(tree[0].children.map((node) => node.name)).toEqual(["feature", "main"]);
-    expect(tree[0].children[0].children[0].reference?.shortName).toBe("origin/feature/orders");
-    expect(collectGitReferenceGroupIds(tree)).toEqual([
-      "remote:origin",
-      "remote:origin/feature",
-    ]);
+    expect(invoke).toHaveBeenCalledWith("git.referenceTree", {
+      references: [{ name: "origin/main" }, { name: "origin/orders" }],
+    });
+    expect(tree[0].id).toBe("A:remote:origin");
+    expect(tree[0].children[1].reference?.shortName).toBe("origin/orders");
+    expect(collectGitReferenceGroupIds(tree)).toEqual(["A:remote:origin"]);
   });
 
   test("counts references instead of top-level namespace nodes", () => {
@@ -47,28 +70,27 @@ describe("Git reference tree", () => {
       },
     ];
 
-    expect(buildGitReferenceTree(references, "remote")).toHaveLength(1);
     expect(countGitReferencesByKind(references, "remote")).toBe(2);
     expect(countGitReferencesByKind(references, "local")).toBe(1);
   });
 
-  test("sorts marked local branches before groups and ordinary branches", () => {
-    const localReference = (shortName: string): GitReference => ({
+  test("sends marked local branches as prioritized references", async () => {
+    const local = (shortName: string): GitReference => ({
       fullName: `refs/heads/${shortName}`,
       shortName,
       kind: "local",
       peelsToCommit: true,
       isCurrent: false,
     });
-    const references = [
-      localReference("feature/orders"),
-      localReference("develop"),
-      localReference("main"),
-    ];
+    await loadGitReferenceTree(
+      [local("develop"), local("main")],
+      "local",
+      new Set(["refs/heads/main"]),
+    );
 
-    const tree = buildGitReferenceTree(references, "local", new Set(["refs/heads/main"]));
-
-    expect(tree.map((node) => node.name)).toEqual(["main", "feature", "develop"]);
+    expect(invoke).toHaveBeenLastCalledWith("git.referenceTree", {
+      references: [{ name: "develop" }, { name: "main", prioritized: true }],
+    });
   });
 
   test("shows current, marked, and current-upstream references in my branches mode", () => {

@@ -88,7 +88,6 @@ describe("untracked directory summaries", () => {
     expect(isGitGutterFileUntracked(files, "C:/workspace/A", "src/main.rs")).toBe(false);
   });
 });
-});
 
 test("directory rows consume the Core projection and unknown membership fails closed", () => {
   const first = untracked("target/a.o", undefined, "A");

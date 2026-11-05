@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { invoke } from "@/platform/tauri-core";
 import type { GitReference, GitReferenceKind } from "../types/git.types";
 
 export interface GitReferenceTreeNode {
@@ -6,10 +8,6 @@ export interface GitReferenceTreeNode {
   path: string;
   reference?: GitReference;
   children: GitReferenceTreeNode[];
-}
-
-interface MutableReferenceNode extends GitReferenceTreeNode {
-  children: MutableReferenceNode[];
 }
 
 export function countGitReferencesByKind(
@@ -67,58 +65,91 @@ export function collectGitReferenceGroupIds(nodes: GitReferenceTreeNode[]): stri
   ]);
 }
 
-export function buildGitReferenceTree(
-  references: GitReference[],
+/** One node of the tree `git.referenceTree` returns; `reference` indexes the request. */
+interface CoreReferenceTreeNode {
+  name: string;
+  path: string;
+  reference: number | null;
+  children: CoreReferenceTreeNode[];
+}
+
+/**
+ * Asks Core to group and order the references of one kind (`git.referenceTree`).
+ *
+ * Core owns the `/` grouping and the sibling order; this only attaches the
+ * loaded references and the view's row identities to the planned nodes.
+ */
+export async function loadGitReferenceTree(
+  references: readonly GitReference[],
   kind: GitReferenceKind,
   markedReferenceFullNames: ReadonlySet<string> = new Set(),
   idPrefix = "",
-): GitReferenceTreeNode[] {
-  const roots: MutableReferenceNode[] = [];
-
-  for (const reference of references.filter((item) => item.kind === kind)) {
-    const parts = reference.shortName.split("/").filter(Boolean);
-    let siblings = roots;
-    let path = "";
-
-    parts.forEach((part, index) => {
-      path = path ? `${path}/${part}` : part;
-      let node = siblings.find((candidate) => candidate.name === part);
-      if (!node) {
-        node = { id: `${idPrefix}${kind}:${path}`, name: part, path, children: [] };
-        siblings.push(node);
-      }
-      if (index === parts.length - 1) node.reference = reference;
-      siblings = node.children;
-    });
-  }
-
-  const containsMarkedReference = (node: MutableReferenceNode): boolean =>
-    Boolean(node.reference && markedReferenceFullNames.has(node.reference.fullName)) ||
-    node.children.some(containsMarkedReference);
-
-  const sortNodes = (nodes: MutableReferenceNode[]) => {
-    nodes.sort((left, right) => {
-      const leftIsMarked = Boolean(
-        left.reference && markedReferenceFullNames.has(left.reference.fullName),
-      );
-      const rightIsMarked = Boolean(
-        right.reference && markedReferenceFullNames.has(right.reference.fullName),
-      );
-      if (leftIsMarked !== rightIsMarked) return leftIsMarked ? -1 : 1;
-
-      const leftContainsMarked = containsMarkedReference(left);
-      const rightContainsMarked = containsMarkedReference(right);
-      if (leftContainsMarked !== rightContainsMarked) return leftContainsMarked ? -1 : 1;
-
-      if (Boolean(left.children.length) !== Boolean(right.children.length)) {
-        return left.children.length ? -1 : 1;
-      }
-      return left.name.localeCompare(right.name);
-    });
-    nodes.forEach((node) => sortNodes(node.children));
+): Promise<GitReferenceTreeNode[]> {
+  const ofKind = references.filter((item) => item.kind === kind);
+  if (ofKind.length === 0) return [];
+  const plan = await invoke<{ nodes: CoreReferenceTreeNode[] }>("git.referenceTree", {
+    references: ofKind.map((item) => ({
+      name: item.shortName,
+      ...(markedReferenceFullNames.has(item.fullName) ? { prioritized: true } : {}),
+    })),
+  });
+  const attach = (node: CoreReferenceTreeNode): GitReferenceTreeNode => {
+    const reference = node.reference === null ? undefined : ofKind[node.reference];
+    if (node.reference !== null && !reference) throw new Error("Invalid Git reference tree plan");
+    return {
+      id: `${idPrefix}${kind}:${node.path}`,
+      name: node.name,
+      path: node.path,
+      ...(reference ? { reference } : {}),
+      children: node.children.map(attach),
+    };
   };
-  sortNodes(roots);
-  return roots;
+  return plan.nodes.map(attach);
+}
+
+export interface GitReferenceTreeSource {
+  key: string;
+  references: readonly GitReference[];
+  kind: GitReferenceKind;
+  marked?: ReadonlySet<string>;
+  idPrefix?: string;
+}
+
+/**
+ * Trees for several sources, planned by Core outside rendering. `null` until the
+ * latest sources resolve; stale results are discarded.
+ */
+export function useGitReferenceTrees(
+  sources: readonly GitReferenceTreeSource[],
+): ReadonlyMap<string, GitReferenceTreeNode[]> | null {
+  const [snapshot, setSnapshot] = useState<{
+    sources: readonly GitReferenceTreeSource[];
+    trees: Map<string, GitReferenceTreeNode[]>;
+  } | null>(null);
+  useEffect(() => {
+    let current = true;
+    void Promise.all(
+      sources.map(async (source) => [
+        source.key,
+        await loadGitReferenceTree(
+          source.references,
+          source.kind,
+          source.marked,
+          source.idPrefix,
+        ),
+      ] as const),
+    )
+      .then((entries) => {
+        if (current) setSnapshot({ sources, trees: new Map(entries) });
+      })
+      .catch((error) => {
+        if (current) console.error("Failed to plan Git reference trees:", error);
+      });
+    return () => {
+      current = false;
+    };
+  }, [sources]);
+  return snapshot?.sources === sources ? snapshot.trees : null;
 }
 
 /**
