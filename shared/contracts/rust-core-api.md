@@ -161,6 +161,10 @@ without a Windows-only setting. The planner requires a Java executable and a
 known JDK feature version of at least 9, obtained through
 `java_feature_version_from_release`; other launches remain unchanged. It stops
 at the application target (class, JAR, or module), preserving all program arguments.
+JSON hosts may instead supply `javaReleaseContents`, an array of host-read
+release files ordered nearest first. Core reads the first `JAVA_VERSION` entry;
+an unrecognized version remains unknown rather than falling back to an ancestor.
+An explicit `javaFeatureVersion` takes precedence over the supplied contents.
 Core owns the Unicode argument-file text and quoting. The Windows host encodes
 that text losslessly using the launcher's actual system code page, independently
 of the JDK feature version: JEP 400 does not make native launcher arguments UTF-8.
@@ -1146,6 +1150,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `community.discourse.categories` | List normalized visible categories |
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
+| `editor.parseNavigationInput` | Parse a bounded line or line:column input into zero-based editor coordinates |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
 | `workspace.releaseIndexing` | Retire a policy and clear index/cache data at project close; accepts `root`, optional `ownerId`, and that owner's last observed `revision`, returns `released`; an old close must not retire a new generation |
 | `workspace.refreshIndexing` | Refresh external Git decisions for a live `root`, `ownerId`, `revision` lease without changing preferences or release tokens; returns lazy `IndexingStatus` |
@@ -1158,6 +1163,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
 | `workspace.replacePreview` | Return deterministic replacement lines and complete replacement text |
+| `workspace.replaceText` | Plan replacement against a host-captured text snapshot without writing |
+| `workspace.searchTextBatch` | Search provider-captured text snapshots using workspace matching rules |
 | `file.read` | Read a UTF-8 file using a workspace-relative path |
 | `file.write` | Write a UTF-8 file using a workspace-relative path |
 | `document.lifecycle` | Reduce a shared document save, external-change, or conflict event without reading text or disk |
@@ -1173,6 +1180,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
 | `execution.resolveEnvironment` | Merge native `inherited` string values, selected `javaHome`/`mavenJavaHome` for the current `toolchain`, and `overrides` into `{ environment }`. `caseInsensitive: true` canonicalizes Windows keys to uppercase. Maven uses Maven JDK with project-JDK fallback; Java uses project JDK. String overrides win; structured `{ toolchain, property: "home" }` bindings use the current step's home for JAVA_HOME, and the named toolchain for other variables. Unknown bindings are omitted. |
+| `execution.resolveSearchPath` | Preserve existing path precedence, sort platform candidates by priority and identity, and deduplicate using the requested case policy. |
 | `execution.planLaunchCommand` | Move oversized Java path-list options into a JDK argument file |
 | `processLifecycle.resolve` | Decide how each process or resource of one Lithe instance ends |
 | `processLifecycle.inventory` | Group a process snapshot of one Lithe instance into terminals, Agent tasks and background services |
@@ -1251,8 +1259,10 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `runConfig.projectToolchain` | Read saved project tool paths for one Provider root, with the nearest path override |
 | `runConfig.generate` | Generate deterministic Java/Maven configurations and toolchain requirements |
 | `runConfig.resolve` | Merge generated, project, and local layers and return diagnostics |
+| `runConfig.selectContextConfiguration` | Choose a matching effective configuration for a provider-supplied source and entry identity |
 | `runConfig.updateOptions` | Apply typed option edits and return an updated project or local document |
 | `runConfig.updateToolPreferences` | Replace only generic preferences in a captured local Run document, preserving legacy defaults and unrelated metadata |
+| `runConfig.argumentText` | Format a batch of exact argument vectors as reversible editor text |
 | `runConfig.saveEditorChanges` | Prepare the local and optional project documents for one editor save |
 | `runConfig.createUserConfiguration` | Validate a typed user configuration and return an updated document |
 | `runConfig.createLaunchPlan` | Project one effective configuration into a platform-neutral Run or Debug plan |
@@ -1272,6 +1282,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
 | `git.worktrees` | Return deterministic registered-worktree metadata without scanning each checkout |
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
+| `git.pullRequestCheckoutPreview` | Inspect and review a non-destructive PR checkout plan |
+| `git.pullRequestCheckout` | Recheck and execute a reviewed PR checkout without resetting an existing branch |
 | `git.command` | Execute one argument-based Git operation and return its arguments, streams, exit code, and ordered subprocess invocations |
 | `git.repositoryRoot` | Resolve the repository root containing a workspace path without acquiring repository write coordination |
 | `git.resolveFileContext` | Resolve a file to its owning Git checkout and relative path |
@@ -1299,9 +1311,16 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
 | `git.history` | Return the legacy combined reference snapshot and first bounded commit page |
 | `git.references` | Return deterministic refs, recent local branches, ahead/behind state, and effective Git identity without scanning commit history |
+| `git.remotes` | Return configured fetch remote names and URLs |
+| `git.tags` | Return tag names, tag object IDs, target IDs, dates, and annotations |
+| `git.parseCheckoutMetadata` | Interpret bounded HEAD text without filesystem access |
+| `git.parseGitdirPointer` | Interpret a bounded gitdir pointer without filesystem access |
 | `git.historyPage` | Return one bounded commit page, author date, UTC offset, optional Unix timestamp, and an opaque continuation cursor |
 | `git.historyQuery` | Compare bounded commit date identities with explicit absolute time bounds |
 | `git.historyCursorClose` | Release an unfinished incremental history cursor and its Git process |
+| `git.historyLocate` | Append bounded history pages until one commit is found and report the budget, window cursor, and exhaustion |
+| `git.branchNamePreview` | Clean and validate a new branch name against already loaded references without running Git |
+| `git.repositoryColorAssignments` | Assign color slots to a bounded page of ordered repository identities |
 | `git.pushPreview` | Resolve a local branch push destination and the bounded commits not present on that remote base |
 | `git.commit` | Return one structured commit by revision with its full message body |
 | `git.commitFiles` | Return files changed by one commit |
@@ -1317,6 +1336,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `github.parseRemote` | Parse a canonical GitHub HTTPS or SSH remote into owner/name |
 | `github.requestPlan` | Validate one GitHub operation and produce a trusted platform HTTP request plan |
 | `github.normalizeResponse` | Normalize raw GitHub JSON and HTTP status into deterministic data or a stable error |
+| `github.deviceAuthorizationTransition` | Plan the next device-authorization action, polling interval, and deadline-bounded wait |
+| `github.pullRequestCheckoutPlan` | Plan a PR's safe local branch and report an existing-ref conflict |
 | `diagnostics.prepareLogEvent` | Normalize a bounded application event and recursively redact structured fields |
 | `diagnostics.queryLogs` | Merge and filter bounded host-collected module log tails |
 | `diagnostics.encodeLogBatch` | Encode independent structured v2 log events with per-item errors |
@@ -1688,7 +1709,7 @@ it is not console output. See `shared/fixtures/git/remote-url-v1.json`.
 
 `git.executionInspect` takes `{ root, scope?: "local" | "global" }`, default local.
 It returns `{ executable, version, scope, entries, fields, temporaryConfig,
-fetchOptions, fetchError, fetchSources, credentialHelperEnabled,
+fetchOptions, fetchError, fetchSources, resolvedFetchBehavior, credentialHelperEnabled,
 interactiveAuthentication }`. Entries are `{ key, value, scope, origin, effective }`
 in Git precedence order, limited to relevant configuration and redacted. Effective
 `fetch.prunetags` and `remote.<name>.prunetags` entry values use Git's boolean
@@ -1699,6 +1720,17 @@ the selected file without expanding includes. `configuredValues` retain the raw
 values for optimistic edit checks, even when an effective entry is normalized.
 Fetch source values are `{ scope, origin }` per preference; application sources have null origins. Invalid repository
 preferences return null `fetchOptions` and a structured `fetchError`.
+`resolvedFetchBehavior.tags` is `{ value, source, basis, reasonCode }`, or the
+whole `resolvedFetchBehavior` is null when Fetch options cannot be resolved.
+The value is `reachable`, `all`, `none`, `prune`, `custom`, `remoteDependent`,
+or `unavailable`. `source` is an optional `{ scope, origin }`, `basis` is `git`
+`lithe`, or `multiple` when no single source explains all remotes; `reasonCode` distinguishes `noRemotes` from
+`invalidConfiguration`. Repeated `remote.<name>.fetch` entries remain additive.
+Git's explicit tag refspec and `pruneTags` may fetch tags even with `--no-tags`;
+partial or negative tag refspecs are reported as `custom` rather than guessed.
+All occurrences of relevant boolean settings are checked with Git's parser so
+an invalid shadowed value is not silently interpreted as valid. Inputs and
+outputs are illustrated by `shared/fixtures/git/fetch-behavior-v1.json`.
 
 `git.executionConfigure` adds `{ key, value: string | null, expectedValues:
 string[] }` to the same request. It permits `fetch.prune`, `fetch.prunetags`,
@@ -1845,7 +1877,7 @@ same status and races after the last check are not an atomic snapshot guarantee.
 `fetch`, `pull`, `push`, `checkout`, `checkoutAndRebase`, `checkoutRevision`, `clone`, `stashPush`,
 `stashApply`, `stashPop`, `stashDrop`, `deleteRemoteBranch`, `operationContinue`,
 `operationAbort`, `operationSkip`, `createTag`, and `deleteTag`. Optional fields are `paths`, `reference`, `referenceKind`,
-`gitReference`, `revision`, `revisions`, `name`, `message`, `remote`, `destination`, `mode`,
+`gitReference`, `revision`, `revisions`, `name`, `message`, `lightweight`, `signed`, `remote`, `destination`, `mode`,
 `includeUntracked`, `checkout`, `amend`, `force`, `pushTags`, `expectedPush`, `autoStash`,
 `worktreeMode`, `noCheckout`, `expectedBranch`, and `expectedState`. The four history actions require the reviewed `expectedState`
 described below; earlier unreviewed history-write callers must migrate.
@@ -2127,7 +2159,16 @@ empty value), it creates an annotated tag (`git tag -a`); an absent field
 creates a lightweight tag. UI callers trim new user-entered messages. Core
 passes the supplied annotation with verbatim cleanup so restore preserves
 CRLF and trailing blank lines, and an explicit empty value preserves an empty
-annotated tag. Tag names must satisfy the `git check-ref-format` refname rules and must not
+annotated tag. Two optional typed fields refine that legacy choice:
+`lightweight: true` forces a lightweight tag with `--no-sign`, overriding
+`tag.gpgSign`, and rejects a non-blank `message` or `signed: true` with
+`invalid_request` and the stable message
+`Lightweight tags cannot include a message or signature` before any
+subprocess; `signed: true` adds `-s`, which creates a signed annotated tag
+when a message is present. Omitting both fields preserves the existing
+behavior, so callers that predate the fields are unaffected. The argument
+matrix is pinned by `shared/fixtures/git/tag-write-v1.json`.
+Tag names must satisfy the `git check-ref-format` refname rules and must not
 begin with a dash; `shared/fixtures/git/tag-names.json` pins the boundary cases
 for Core and host-side validation. Before invoking Git, `createTag` probes the
 repository so a duplicate tag (`A tag named '<name>' already exists`) and an unresolvable
@@ -2216,7 +2257,12 @@ range comparisons.
 
 `git.comparison` accepts `root` plus the same `reference` or `gitReference` /
 `targetGitReference` forms and returns the deterministically ordered changed
-files. Platforms must not construct a two-ref range themselves.
+files. `includeUntracked: true` adds untracked worktree files with status `A`
+and `isUntracked: true`, deduplicated by path; omitted or false keeps the
+previous response. The flag is invalid for a two-reference range. If status
+cannot be read, the request fails rather than returning an incomplete result.
+See `shared/fixtures/git/comparison-untracked-v1.json`. Platforms must not
+construct a two-ref range themselves.
 `git.apply` accepts `root`, `patch`, and `mode`; supported modes are `stage`,
 `unstage`, `discard`, `restoreIndex`, `worktree`, `restoreIndexCheck`, and
 `worktreeCheck`. The two `*Check` modes only test whether the reverse patch
@@ -2225,6 +2271,16 @@ It returns the normal Git process result. `restoreIndex` applies a saved
 index patch to both the index and worktree; `worktree` applies only to the
 worktree. Pathspecs must be workspace-relative and must not contain absolute
 paths or `..` components.
+
+`git.remotes` returns `{remotes: [{name, url}]}` for fetch entries. `git.tags`
+returns `{tags: [{name, objectId, targetId, message, date, isAnnotated}]}`;
+names come from full `refs/tags/` identities even when a branch has the same
+name, and `targetId` is the dereferenced object when Git reports one. These
+commands own Git output parsing and return errors for malformed output.
+`git.parseCheckoutMetadata` and `git.parseGitdirPointer` each accept `{text}`
+of at most 4096 UTF-8 bytes and return `{branch}` or `{path}`, respectively;
+the host reads files and resolves relative paths. Examples live in
+`shared/fixtures/git/remote-tag-catalog-v1.json` and `checkout-metadata-v1.json`.
 
 `git.history` accepts `root`, an optional full `reference`, and `limit` (the
 core clamps it to `1...5000`). It remains the compatibility command that
@@ -2271,6 +2327,63 @@ For compatibility, a request that explicitly contains the deprecated numeric
 `nextOffset`; it honors the same optional `order`. New clients must omit
 `offset`; repository size does not select
 between the two protocols.
+
+`git.historyLocate` accepts `root`, nullable `reference`, nullable opaque
+`cursor`, optional `order` (`"topo"` or `"date"`), a complete 40-character
+`target` commit hash, `limit` (`1..=500`, default `300`), and `maxPages`
+(`1..=100`, default `20`). It reads pages from the platform's current window
+cursor until `target` is found, the page budget is spent, or the history ends,
+and returns `{ "found": boolean, "commits": GitCommitResponse[], "nextCursor":
+string?, "hasMore": boolean, "pagesLoaded": number }`. `commits` lists every
+commit read in reading order, including the complete page that contains
+`target`, so hosts append them after hash deduplication without leaving a gap
+before the returned cursor. A hit stops reading and returns that page's
+`nextCursor` and `hasMore`. Exhausted history returns `found: false`, a null
+cursor, and `hasMore: false`; a spent budget returns `found: false`, the last
+page's cursor, and `hasMore: true` so the host can continue later. A `limit`,
+`maxPages`, or `target` outside the contract fails with `invalid_request`
+before any Git process starts. Git read failures keep their stable error codes
+instead of becoming "not found". Core owns the intermediate stream and only
+returns a cursor the host can continue; a failed read releases it. Requests
+without a cursor start at the first page and continuations must repeat the same
+`root`, `reference`, and `order`. Portable request and response examples are in
+`shared/fixtures/git/history-locate-v1.json`.
+
+`git.repositoryColorAssignments` accepts `{ offset, totalCount, repositoryIds }`.
+IDs are the host's already normalized, unique repository identities in the full
+ordered workspace list, before worktree visibility filtering. Each request carries
+at most 128 IDs and their global offset; IDs are nonempty and at most 4,096 bytes.
+Core rejects duplicates within a page and out-of-range offsets with
+`invalid_request`. The response contains ordered `{ id, slot }` assignments,
+`fallbackSlot` for unknown IDs, and `showColors` for multi-repository views.
+Callers must keep pages from the same list generation together, cancel or discard
+stale results, and never recompute the slots per row. Color palettes remain native
+presentation. See `shared/fixtures/git/repository-colors-v1.json`.
+
+`git.branchNamePreview` is pure: it never starts Git and only reads the
+reference facts the host already loaded. It accepts `rawName` (at most 1,024
+characters; longer input is `invalid_request`), `requireName` (`true` on submit,
+where an empty name is an error, and `false` while typing), `references`
+(loaded `{ "kind": "local" | "remote" | "tag", "shortName": string }` facts),
+and an optional `reference` describing the base reference. The response is
+`{ "typingCleanedName": string, "cleanedName": string, "initialName": string,
+"error": null | { "code": string, "name"?: string, "branch"?: string } }`.
+`typingCleanedName` mirrors IDEA's `GitRefNameValidator` typing cleanup: it
+drops characters that cannot appear in a branch refname, drops a leading `.`,
+`-`, or `/`, drops one slash of a doubled slash, keeps only the last dot of a
+dot run, drops dots next to slashes and `@{` sequences, and replaces space runs
+and ASCII control characters with `-`. `cleanedName` is the submit-time form:
+the same cleanup plus removal of one trailing `.`, `/`, or `.lock`, trimmed at
+the edges. `initialName` is the loaded base reference's short name, or that name
+without its first remote segment when the reference is remote; it is empty
+without a reference. `error.code` is one of `empty`, `head`,
+`clashesWithRemote`, `clashesWithDirectory`, `alreadyExists`, or
+`clashesWithBranchPrefix`, checked in IDEA's order; `empty` appears only when
+`requireName` is true. The conflict codes carry the candidate `name`, and
+`clashesWithBranchPrefix` also carries the existing local `branch` that occupies
+one of the candidate's slash prefixes. Refname validity itself stays with
+`git check-ref-format` when the branch is created. Portable examples are in
+`shared/fixtures/git/branch-name-preview-v1.json`.
 
 `git.commit` accepts `root` and a revision, returning one `commit` object with
 the same fields as a history page entry and a `body` string. `body` is the
@@ -2366,6 +2479,12 @@ Name/symbol continuation scans the existing index to select the next ranked page
 text pages follow path/line order and stop after the lookahead match. Pages observe
 the live index: edits inserting a match before the cursor require a fresh query.
 Requests without pageSize retain the legacy capped response and schema.
+Optional `includePathPatterns`, `excludePathPatterns`, and `pathFilterPrefix`
+filter paths before the page limit. Patterns are case-insensitive glob fragments:
+`*` excludes separators, `**` crosses them, and `?` matches one non-separator.
+When `includeContentRanges` is true, content matches also return the original
+`sourceLine` and `contentMatchRanges` in UTF-16 units; existing callers keep the
+trimmed `preview` and do not pay for those fields.
 
 Observed `workspace.searchEverywhere` calls may emit
 `{ "type": "searchResults", "operationId": "…", "results": { "matches": […] } }`
@@ -2443,6 +2562,19 @@ where each file contains replacement matches and the complete
 `replacementText` to write. The command never writes files; callers can record
 history before using `file.write` for the selected files.
 
+`workspace.replaceText` accepts a host-captured `text`, `query`, `replacement`,
+the same case, whole-word and regex options, and an optional one-based `{line,
+column}` UTF-16 `from` position. It returns `{text, count}` after replacing all
+matches or the first match at or after that position. Matching is per line, and
+the command never writes. The host must verify the captured workspace and buffer
+or disk identity before publishing a result. `workspace.searchTextBatch` applies
+the same matcher to at most 32 host-read `{path, text}` snapshots (at most 2 MiB
+per file and 16 MiB in total) and returns
+unmodified paths, matching lines, UTF-16 ranges and requested surrounding lines.
+The host owns provider I/O and controls continuation between batches.
+Examples for these commands and filtered content pages live in
+`shared/fixtures/search/text-snapshot-v1.json`.
+
 `lsp.applyTextEdits` accepts `{ "text": string, "edits": [] }`, where each edit
 has an LSP range with zero-based `line` and UTF-16 `utf16Column` fields plus
 `newText`. Ranges are validated and overlapping edits return
@@ -2462,6 +2594,16 @@ reversed ranges and overlapping replacements are rejected.
 after removing LSP tab stops and replacing simple placeholder defaults such as
 `${1:name}` with `name`.
 
+
+`editor.parseNavigationInput` accepts `{ text }` and returns `{ target }`.
+`target` is null for invalid input, otherwise `{ line, column, selectsWholeLine }`
+contains zero-based line and UTF-16 column. One-based positive decimal line and
+optional column may have surrounding horizontal whitespace; line terminators,
+extra characters, zero, negatives and values above JavaScript's maximum safe
+integer are invalid. Text over 128 UTF-8 bytes is invalid. A line-only input
+selects its content without the terminator; an explicit column places the caret.
+Hosts clamp against the current document, not an old snapshot. See
+`shared/fixtures/editor/navigation-input-v1.json`.
 
 `editor.lineEdit` applies one deterministic line-level transform. All offsets
 are UTF-16 code units so both hosts can feed the result straight into their
@@ -3788,6 +3930,16 @@ module selector. Generated fingerprints include both project inputs and the
 detector revision; either changing marks the detected layer stale and requires
 regeneration.
 
+`runConfig.selectContextConfiguration` accepts a provider-supplied `sourcePath`
+and opaque `symbol`, a `preferredId`, platform path-comparison policy, and an
+ordered list of effective candidate IDs, identities, disabled state, and
+generated state. It returns `{configurationId}` (null when none match).
+Disabled or differently identified entries never match; an existing preferred
+match wins, followed by an edited configuration, with input order breaking ties.
+Windows compares paths case-insensitively and treats both separators alike;
+case-sensitive hosts compare the supplied path exactly. Discovery remains with
+the provider, and clients must reject results made stale by workspace changes.
+
 `runConfig.resolve` accepts `root`, optional local `toolchainCandidates`, and
 optional `localDocument` / `teamDocument`. A supplied document replaces that layer
 for this read-only resolution; omitted layers come from `.lithe/run/local.json` /
@@ -3969,6 +4121,19 @@ subproject migration; a saved empty map is an explicit choice. Old platform
 preferences are copied and read back before cleanup, with already saved choices
 remaining authoritative. See `shared/fixtures/run-configuration/subproject-toolchains.json`.
 
+
+`execution.resolveSearchPath` accepts already-split `existing` directories and
+`candidates` carrying `priority`, opaque `id`, and `path`; lower priority sorts
+first, then ID and path. The result appends candidates after existing directories,
+omits empty entries, and deduplicates exactly or with ASCII case folding when
+`caseInsensitive` is true. The host owns path splitting, joining, discovery, and
+filesystem trust. See `shared/fixtures/execution/search-path-v1.json`.
+
+`runConfig.argumentText` accepts `{ "argumentLists": [["--name", "Alice Smith"], []] }`
+and returns one editor string per input vector in the same order. Quoting and escaping
+are reversible by the existing run-configuration option parser; there is no shell
+expansion or execution. Empty arguments remain explicit. The shared cases are in
+`shared/fixtures/run-configuration/argument-text.json`.
 
 `runConfig.saveEditorChanges` accepts the normal option-edit payload plus the
 required `toolchain` object. In addition to Java and Maven paths, that object

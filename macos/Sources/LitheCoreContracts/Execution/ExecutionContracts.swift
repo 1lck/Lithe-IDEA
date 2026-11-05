@@ -1,15 +1,5 @@
 import Foundation
 
-/// Reversible editor text for Core's argv grammar, without expansion or execution.
-package enum RunArgumentText {
-    package static func format(_ values: [String]) -> String {
-        values.map { value in
-            if !value.isEmpty, !value.unicodeScalars.contains(where: { $0.properties.isWhitespace || "\"'\\".unicodeScalars.contains($0) }) { return value }
-            return "\"" + value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
-        }.joined(separator: " ")
-    }
-}
-
 package struct RunOptions: Codable, Hashable, Sendable {
     package struct JavaCapability: Codable, Hashable, Sendable {
         package var homePath = ""

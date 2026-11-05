@@ -17,6 +17,23 @@ beforeEach(() => {
   tauriInvoke.mockClear();
 });
 
+test("Git remote and tag adapters consume typed Core catalogs", async () => {
+  tauriInvoke.mockImplementationOnce((async () => ({
+    remotes: [{ name: "origin", url: "https://example.invalid/team path" }],
+  })) as never);
+  expect(await invoke<unknown>("git_get_remotes", { repoPath: "C:/repo" })).toEqual([
+    { name: "origin", url: "https://example.invalid/team path" },
+  ]);
+  tauriInvoke.mockImplementationOnce((async () => ({
+    tags: [{ name: "shared", objectId: "tag-oid", targetId: "commit-oid",
+      message: "release", date: "2026-11-04", isAnnotated: true }],
+  })) as never);
+  expect(await invoke<unknown>("git_get_tags", { repoPath: "C:/repo" })).toEqual([
+    { name: "shared", commit: "commit-oid", object_id: "tag-oid", message: "release",
+      date: "2026-11-04", is_annotated: true },
+  ]);
+});
+
 test("Java index maintenance routes directly to the Tauri host", async () => {
   const args = {
     workspacePath: "C:/fixture/project",
@@ -123,6 +140,12 @@ test("pure ChangeList projection bypasses Git events and execution settings", as
   const args = { state: { lists: [{ id: "default", name: "" }], activeId: "default", assignments: {} }, files: [], repositories: [] };
   await invoke("git.changelists", args);
   expect(tauriInvoke).toHaveBeenCalledWith("platform_invoke", { command: "git.changelists", args }, undefined);
+});
+
+test("repository color pages bypass Git events and execution settings", async () => {
+  const args = { offset: 0, totalCount: 1, repositoryIds: ["C:/repo"] };
+  await invoke("git.repositoryColorAssignments", args);
+  expect(tauriInvoke).toHaveBeenCalledWith("platform_invoke", { command: "git.repositoryColorAssignments", args }, undefined);
 });
 
 test("explicit automatic provenance is forwarded separately from native invoke options", async () => {

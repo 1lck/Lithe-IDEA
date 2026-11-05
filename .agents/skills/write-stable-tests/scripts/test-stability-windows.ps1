@@ -78,6 +78,9 @@ function Invoke-TimedRustTests {
             # These cases start real Git and the production TypeScript module
             # in Node. One Node startup hit its old 10s local deadline on CI.
             $arguments += @("--test-budget", "git_paths_roundtrip_=60000")
+            # A real remote and repeated Git configuration/fetch subprocesses
+            # took 12.5s on Lithe-dev; retain a bounded allowance for CI jitter.
+            $arguments += @("--test-budget", "git::configuration::inherited_tag_tests::inspection_matches_git_when_tags_are_forced_or_configuration_is_invalid=30000")
             # Integration tests that create multiple real repositories or push
             # through Git subprocesses need a bounded allowance on Windows.
             foreach ($prefix in @(
@@ -113,6 +116,12 @@ function Invoke-TimedRustTests {
             # These retained-path Shelf cases also perform four preview/apply cycles.
             $arguments += @("--test-budget", "tests::git_patch_exchange::shelf_roundtrip_preserves_staged_deletions_with_retained_paths=60000")
             $arguments += @("--test-budget", "tests::git_patch_exchange::shelf_roundtrip_preserves_staged_rename_with_recreated_source=60000")
+            # This Shelf clean/restore and retry roundtrip exceeded 15s twice on
+            # hosted Windows; a complete cloud Windows run passed in 17.025s.
+            $arguments += @("--test-budget", "tests::git_patch_exchange::shelf_clean_and_retry_restore_preserve_staged_working_and_untracked=60000")
+            # The conflict/resolve roundtrip hit the hosted 15s deadline and
+            # passed on the Windows cloud host in 15.111s with a bounded budget.
+            $arguments += @("--test-budget", "tests::git_patch_exchange::shelf_restore_conflict_preserves_worktree_and_allows_retry_after_resolution=60000")
             # Two repositories, three confirmation previews and two pushes invoke
             # 287 Git processes; this integration case measured 49.9s on Windows.
             $arguments += @("--test-budget", "tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately=60000")

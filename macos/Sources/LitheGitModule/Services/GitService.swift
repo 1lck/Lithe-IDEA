@@ -43,6 +43,7 @@ package protocol GitOperations: Sendable {
     /// Immediate files and subdirectory summaries of an untracked directory summary.
     func untrackedDirectoryChildren(of directory: GitChange, repositoryRoots: [URL]) -> [GitChange]?
     func repositories(in workspaceURL: URL) -> [URL]
+    func repositoryColorAssignments(_ request: GitRepositoryColorPageRequest) -> GitRepositoryColorPage?
     func watchContext(at rootURL: URL) -> GitWatchContext?
     func worktrees(at rootURL: URL) -> [GitWorktree]?
 
@@ -96,6 +97,13 @@ package protocol GitOperations: Sendable {
         limit: Int
     ) -> GitHistorySnapshot?
     func references(at rootURL: URL, operationID: String) -> GitReferenceSnapshot?
+    /// Core-owned cleanup and conflict validation for a new branch name.
+    func branchNamePreview(
+        rawName: String,
+        requireName: Bool,
+        references: [GitReference],
+        reference: GitReference?
+    ) -> GitBranchNamePreview?
     func historyPage(
         at rootURL: URL,
         reference: GitReference?,
@@ -103,6 +111,17 @@ package protocol GitOperations: Sendable {
         limit: Int,
         operationID: String
     ) -> GitHistoryPage?
+    /// Reads forward from `cursor` until `target` is found or the page budget
+    /// is spent; the commits read are returned so the caller can append them.
+    func historyLocate(
+        at rootURL: URL,
+        reference: GitReference?,
+        target: String,
+        cursor: String?,
+        limit: Int,
+        maxPages: Int,
+        operationID: String
+    ) -> GitHistoryLocateResult?
     func closeHistoryCursor(at rootURL: URL, cursor: String) -> Bool
     func cancel(operationID: String) -> Bool
 
@@ -323,6 +342,7 @@ package extension GitOperations {
     func repositories(in workspaceURL: URL) -> [URL] {
         snapshot(at: workspaceURL).map { [$0.repositoryRoot] } ?? []
     }
+    func repositoryColorAssignments(_ request: GitRepositoryColorPageRequest) -> GitRepositoryColorPage? { nil }
 
     func references(at rootURL: URL, operationID: String) -> GitReferenceSnapshot? {
         guard let snapshot = history(at: rootURL, reference: nil, limit: 1) else { return nil }
@@ -332,6 +352,13 @@ package extension GitOperations {
             identity: snapshot.identity
         )
     }
+
+    func branchNamePreview(
+        rawName: String,
+        requireName: Bool,
+        references: [GitReference],
+        reference: GitReference?
+    ) -> GitBranchNamePreview? { nil }
 
     func historyPage(
         at rootURL: URL,
@@ -354,6 +381,16 @@ package extension GitOperations {
             hasMore: hasMore
         )
     }
+
+    func historyLocate(
+        at rootURL: URL,
+        reference: GitReference?,
+        target: String,
+        cursor: String?,
+        limit: Int,
+        maxPages: Int,
+        operationID: String
+    ) -> GitHistoryLocateResult? { nil }
 
     func closeHistoryCursor(at rootURL: URL, cursor: String) -> Bool { false }
     func cancel(operationID: String) -> Bool { false }
@@ -401,6 +438,7 @@ private actor GitHistoryCache {
 /// process execution live behind the shared Rust operations port.
 package struct GitService: Sendable {
     private static let historyDateBatchSize = 4096
+    private static let repositoryColorPageSize = 128
     private let operations: any GitOperations
     private let historyCache = GitHistoryCache()
     private let performanceLogger: any GitPerformanceLogger
@@ -483,6 +521,33 @@ package struct GitService: Sendable {
 
     func repositories(in workspace: URL) async -> [URL] {
         await read(priority: .utility) { $0.repositories(in: workspace) } ?? []
+    }
+
+    /// Build the presentation cache off the main actor, sending only bounded pages.
+    package func repositoryColors(_ roots: [URL]) async -> GitRepositoryColors? {
+        await read(priority: .utility) { operations in
+            let pageSize = Self.repositoryColorPageSize
+            var slots: [String: Int] = [:]
+            var firstPage: GitRepositoryColorPage?
+            var offset = 0
+            repeat {
+                guard !Task.isCancelled else { return nil }
+                let end = min(offset + pageSize, roots.count)
+                let ids = roots[offset..<end].map { $0.standardizedFileURL.path }
+                let request = GitRepositoryColorPageRequest(offset: offset, totalCount: roots.count, repositoryIds: ids)
+                guard let page = operations.repositoryColorAssignments(request),
+                      page.assignments.count == ids.count,
+                      page.fallbackSlot >= 0,
+                      zip(page.assignments, ids).allSatisfy({ $0.id == $1 && $0.slot >= 0 }),
+                      firstPage.map({ $0.fallbackSlot == page.fallbackSlot && $0.showColors == page.showColors }) ?? true
+                else { return nil }
+                if firstPage == nil { firstPage = page }
+                for assignment in page.assignments { slots[assignment.id] = assignment.slot }
+                offset = end
+            } while offset < roots.count
+            guard let firstPage else { return nil }
+            return GitRepositoryColors(slots: slots, fallbackSlot: firstPage.fallbackSlot, showColors: firstPage.showColors)
+        }
     }
 
     func changelistProjection(_ request: GitChangelistCoreRequest) async -> GitChangelistCoreProjection? {
@@ -939,6 +1004,22 @@ package struct GitService: Sendable {
         }
     }
 
+    func branchNamePreview(
+        rawName: String,
+        requireName: Bool,
+        references: [GitReference],
+        reference: GitReference?
+    ) async -> GitBranchNamePreview? {
+        await read {
+            $0.branchNamePreview(
+                rawName: rawName,
+                requireName: requireName,
+                references: references,
+                reference: reference
+            )
+        }
+    }
+
     func historyPage(
         at repositoryRoot: URL,
         reference: GitReference?,
@@ -952,6 +1033,28 @@ package struct GitService: Sendable {
                 reference: reference,
                 cursor: cursor,
                 limit: limit,
+                operationID: operationID
+            )
+        }
+    }
+
+    func historyLocate(
+        at repositoryRoot: URL,
+        reference: GitReference?,
+        target: String,
+        cursor: String?,
+        limit: Int,
+        maxPages: Int,
+        operationID: String
+    ) async -> GitHistoryLocateResult? {
+        await cancellableRead(operationID: operationID) {
+            $0.historyLocate(
+                at: repositoryRoot,
+                reference: reference,
+                target: target,
+                cursor: cursor,
+                limit: limit,
+                maxPages: maxPages,
                 operationID: operationID
             )
         }
@@ -999,41 +1102,14 @@ package struct GitService: Sendable {
         } ?? []
     }
 
-    func commit(withHash hash: String, at repositoryRoot: URL) async -> GitCommit? {
-        await read(priority: .utility) { $0.commit(at: repositoryRoot, hash: hash) }
-    }
-
     func comparisonWithWorkingTree(
         for reference: GitReference,
         at repositoryRoot: URL
     ) async -> GitBranchComparison {
-        async let trackedComparison: GitBranchComparison? = read(priority: .utility) {
+        let comparison: GitBranchComparison? = await read(priority: .utility) {
             $0.comparison(for: reference, at: repositoryRoot)
         }
-        async let workingTreeSnapshot: GitSnapshot? = read(priority: .utility) {
-            $0.snapshot(at: repositoryRoot)
-        }
-
-        let (comparison, snapshot) = await (trackedComparison, workingTreeSnapshot)
-        var filesByPath: [String: GitBranchComparisonFile] = [:]
-        for file in comparison?.files ?? [] {
-            filesByPath[file.path] = file
-        }
-        for change in snapshot?.changes ?? [] where change.isUntracked {
-            if filesByPath[change.path] == nil {
-                filesByPath[change.path] = GitBranchComparisonFile(
-                    status: "A",
-                    path: change.path,
-                    isUntracked: true
-                )
-            }
-        }
-
-        let files = filesByPath.values.sorted { lhs, rhs in
-            if lhs.path == rhs.path { return lhs.status < rhs.status }
-            return lhs.path < rhs.path
-        }
-        return GitBranchComparison(reference: reference, files: files)
+        return GitBranchComparison(reference: reference, files: comparison?.files ?? [])
     }
 
     func comparison(

@@ -11,6 +11,7 @@ import { Checkbox } from "@/ui/checkbox";
 import Section from "./settings-section";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { WorkspaceIndexingSettings } from "./workspace-indexing-settings";
+import { GitFetchTagBehavior, type GitResolvedTagBehavior } from "./git-fetch-tag-behavior";
 
 type Field = { key: string; choices: string[]; configuredValues: string[] };
 type Snapshot = {
@@ -21,6 +22,7 @@ type Snapshot = {
   temporaryConfig: string[][];
   entries: { key: string; value: string; origin: string; scope: string; effective: boolean }[];
   fetchOptions?: { prune: boolean; submodules: string; tags: string };
+  resolvedFetchBehavior?: { tags: GitResolvedTagBehavior } | null;
   fetchSources?: Record<string, { scope: string; origin: string | null }>;
   fetchError?: { message: string } | null;
 };
@@ -175,7 +177,7 @@ export function GitExecutionSettings() {
               <div className="font-mono text-xs">
                 <p>{t("git.execution.effectiveFetch")}</p>
                 {Object.entries(snapshot.fetchOptions)
-                  .filter(([key]) => key !== "remote")
+                  .filter(([key]) => key !== "remote" && key !== "tags")
                   .map(([key, value]) => (
                     <p key={key}>
                       {key} = {String(value)} ·{" "}
@@ -183,6 +185,9 @@ export function GitExecutionSettings() {
                       {snapshot.fetchSources?.[key]?.origin ?? "Lithe"}
                     </p>
                   ))}
+                {snapshot.resolvedFetchBehavior && (
+                  <GitFetchTagBehavior behavior={snapshot.resolvedFetchBehavior.tags} />
+                )}
               </div>
             )}
             {snapshot.fetchError && (

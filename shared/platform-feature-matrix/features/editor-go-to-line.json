@@ -1,0 +1,31 @@
+{
+  "id": "editor-go-to-line",
+  "area": "编辑器",
+  "group": "导航",
+  "capability": "跳转到行或行列并选择目标",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Models/Editor/GoToLineInput.swift",
+      "macos/Sources/Lithe/Views/Editor/GoToLineDialog.swift",
+      "macos/Tests/LitheTests/GoToLineInputTests.swift",
+      "macos/Tests/LitheTests/GoToLineDialogValidationTests.swift",
+      "rust/lithe-core/src/editor/navigation_input.rs"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/keymaps/commands/navigation-command-actions.ts",
+      "windows/tauri/src/features/keymaps/commands/navigation-command-actions.goto.test.ts",
+      "windows/tauri/src/features/editor/components/code-editor.tsx",
+      "windows/tauri/src/features/editor/utils/go-to-line.test.ts",
+      "shared/fixtures/editor/navigation-input-v1.json"
+    ]
+  },
+  "owner": "Editor",
+  "notes": "双端通过 Core 解析行和列，单独输入行号选中行内容，明确输入列号放置光标；macOS 异步校验并丢弃过期结果。",
+  "verification": "两端打开实际编辑器，分别输入 120、120:35、12abc、空值及超出文档范围的数字；确认整行选择、UTF-16 列位置、无效输入和活动文档不变。快速修改 macOS 输入确认旧校验不能启用确认按钮；共享 fixture、Windows 命令与行选择和 macOS 模态窗口测试覆盖；完整原生界面验收 pending。"
+}

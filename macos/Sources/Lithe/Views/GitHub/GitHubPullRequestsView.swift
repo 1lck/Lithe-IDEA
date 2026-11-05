@@ -379,6 +379,7 @@ struct GitHubPullRequestDetailView: View {
     @State private var isEditPresented = false
     @State private var shouldConfirmClose = false
     @State private var pendingMergeChoice: GitHubMergeChoice?
+    @State private var pendingCheckout: GitHubCheckoutIntent?
 
     var body: some View {
         Group {
@@ -421,6 +422,26 @@ struct GitHubPullRequestDetailView: View {
         .sheet(isPresented: $isEditPresented) {
             GitHubEditPullRequestView(request: request, isPresented: $isEditPresented)
                 .environmentObject(model)
+        }
+        .confirmationDialog(
+            "Check out pull request?",
+            isPresented: Binding(
+                get: { pendingCheckout != nil },
+                set: { if !$0 { pendingCheckout = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Checkout") {
+                guard let intent = pendingCheckout else { return }
+                pendingCheckout = nil
+                Task { await model.checkoutSelectedPullRequest(intent) }
+            }
+            Button("Cancel", role: .cancel) { pendingCheckout = nil }
+        } message: {
+            if let intent = pendingCheckout {
+                Text("Fetch the pull request and create a local branch. Existing branches will not be reset.")
+                    + Text(verbatim: "\n") + Text("Local branch: ") + Text(verbatim: intent.preview.plan.branch)
+            }
         }
         .confirmationDialog(
             LocalizedStringKey(
@@ -492,7 +513,9 @@ struct GitHubPullRequestDetailView: View {
                 .lineLimit(1)
             }
             Spacer(minLength: 12)
-            Button("Checkout") { Task { await model.checkoutSelectedPullRequest() } }
+            Button("Checkout") {
+                Task { pendingCheckout = await model.githubFeature.prepareCheckout(workspaceURL: model.workspaceURL) }
+            }
                 .disabled(isOperationRunning)
             Button {
                 if let url = URL(string: request.url) { model.platformUI.open(url) }

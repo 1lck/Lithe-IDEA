@@ -159,7 +159,13 @@ const GitTagManager = ({
         newTagCommit.trim() || undefined,
         newTagSigned,
       );
-      if (!success) return;
+      // Core rejects targets that cannot be tagged (for example a tree or an
+      // already existing name); report the failed action instead of silently
+      // leaving the form open.
+      if (!success) {
+        toast.error(t("git.actionFailed", { action: t("git.createTag") }));
+        return;
+      }
       setNewTagName("");
       setNewTagMessage("");
       setNewTagCommit("");

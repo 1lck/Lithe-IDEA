@@ -1,0 +1,104 @@
+{
+  "cases": [
+    {
+      "name": "line",
+      "input": "120",
+      "target": {
+        "line": 119,
+        "column": 0,
+        "selectsWholeLine": true
+      }
+    },
+    {
+      "name": "line and column",
+      "input": "120:35",
+      "target": {
+        "line": 119,
+        "column": 34,
+        "selectsWholeLine": false
+      }
+    },
+    {
+      "name": "spaces",
+      "input": " 12 : 34 ",
+      "target": {
+        "line": 11,
+        "column": 33,
+        "selectsWholeLine": false
+      }
+    },
+    {
+      "name": "plus sign",
+      "input": "+1:+2",
+      "target": {
+        "line": 0,
+        "column": 1,
+        "selectsWholeLine": false
+      }
+    },
+    {
+      "name": "empty",
+      "input": "",
+      "target": null
+    },
+    {
+      "name": "trailing text",
+      "input": "12abc",
+      "target": null
+    },
+    {
+      "name": "multiple colons",
+      "input": "1:2:3",
+      "target": null
+    },
+    {
+      "name": "missing column",
+      "input": "120:",
+      "target": null
+    },
+    {
+      "name": "zero",
+      "input": "0",
+      "target": null
+    },
+    {
+      "name": "negative",
+      "input": "-1",
+      "target": null
+    },
+    {
+      "name": "newline",
+      "input": "1\n",
+      "target": null
+    },
+    {
+      "name": "overflow",
+      "input": "9007199254740992",
+      "target": null
+    },
+    {
+      "name": "vertical tab is not horizontal whitespace",
+      "input": "1\u000b",
+      "target": null
+    },
+    {
+      "name": "form feed is not horizontal whitespace",
+      "input": "1\f",
+      "target": null
+    },
+    {
+      "name": "nonbreaking spaces are accepted",
+      "input": " 12 : 3 ",
+      "target": {
+        "line": 11,
+        "column": 2,
+        "selectsWholeLine": false
+      }
+    },
+    {
+      "name": "oversized input is rejected",
+      "input": "111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+      "target": null
+    }
+  ]
+}

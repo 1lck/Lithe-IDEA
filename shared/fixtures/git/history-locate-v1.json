@@ -1,0 +1,51 @@
+{
+  "protocolVersion": 1,
+  "request": {
+    "root": ".",
+    "reference": "refs/heads/main",
+    "order": "topo",
+    "target": "0123456789abcdef0123456789abcdef01234567",
+    "cursor": "git-history-cursor-fixture",
+    "limit": 100,
+    "maxPages": 20
+  },
+  "minimalRequest": {
+    "root": ".",
+    "target": "0123456789abcdef0123456789abcdef01234567"
+  },
+  "responses": {
+    "found": {
+      "found": true,
+      "commits": [
+        {
+          "hash": "0123456789abcdef0123456789abcdef01234567",
+          "shortHash": "0123456",
+          "parentHashes": [],
+          "authorName": "Lithe Test",
+          "authorEmail": "test@example.invalid",
+          "date": "2026/08/30 12:00",
+          "dateUtcOffsetMinutes": 480,
+          "subject": "Located commit",
+          "decorations": "HEAD -> feature/recent"
+        }
+      ],
+      "nextCursor": "git-history-cursor-fixture",
+      "hasMore": true,
+      "pagesLoaded": 2
+    },
+    "exhausted": {
+      "found": false,
+      "commits": [],
+      "nextCursor": null,
+      "hasMore": false,
+      "pagesLoaded": 1
+    },
+    "budgetExhausted": {
+      "found": false,
+      "commits": [],
+      "nextCursor": "git-history-cursor-fixture",
+      "hasMore": true,
+      "pagesLoaded": 3
+    }
+  }
+}

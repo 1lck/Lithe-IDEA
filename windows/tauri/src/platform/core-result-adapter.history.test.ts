@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type {
+  GitHistoryLocateResult,
   GitHistoryPage,
   GitHistorySnapshot,
   GitReferenceSnapshot,
@@ -197,6 +198,57 @@ describe("git history result adaptation", () => {
       ],
       nextCursor: "cursor-50",
       hasMore: true,
+    });
+  });
+
+  test("adapts a commit locate result with the same commit shape as history pages", () => {
+    const result = adaptCoreResult<GitHistoryLocateResult>("git.historyLocate", undefined, {
+      found: true,
+      commits: [
+        {
+          hash: "abc1234",
+          shortHash: "abc1234",
+          parentHashes: ["parent1"],
+          subject: "Hit commit",
+          authorName: "Developer",
+          authorEmail: "developer@example.invalid",
+          date: "2026/08/16 10:00",
+          dateUtcOffsetMinutes: -300,
+          decorations: "",
+        },
+      ],
+      nextCursor: "cursor-2",
+      hasMore: true,
+      pagesLoaded: 2,
+    });
+
+    expect(result).toEqual({
+      found: true,
+      commits: [
+        {
+          hash: "abc1234",
+          shortHash: "abc1234",
+          parentHashes: ["parent1"],
+          message: "Hit commit",
+          author: "Developer",
+          email: "developer@example.invalid",
+          date: "2026/08/16 10:00",
+          dateUtcOffsetMinutes: -300,
+          dateUnixSeconds: undefined,
+          decorations: "",
+        },
+      ],
+      nextCursor: "cursor-2",
+      hasMore: true,
+      pagesLoaded: 2,
+    });
+    // An exhausted walk reports no hit without inventing fields.
+    expect(adaptCoreResult<GitHistoryLocateResult>("git.historyLocate", undefined, {})).toEqual({
+      found: false,
+      commits: [],
+      nextCursor: undefined,
+      hasMore: false,
+      pagesLoaded: 0,
     });
   });
 });

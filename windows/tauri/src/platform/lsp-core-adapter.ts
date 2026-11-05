@@ -1442,7 +1442,7 @@ async function synchronizeDocument(
   session: Session,
   filePath: string,
   payload: JsonRecord,
-): Promise<void> {
+): Promise<{ documentVersion: number; changed: boolean }> {
   const operation = new LspOperationLog(operationName, crypto.randomUUID(), {
     sessionId: session.id,
     filePath,
@@ -1459,6 +1459,7 @@ async function synchronizeDocument(
       documentVersion: sync.documentVersion,
       changed: sync.changed,
     });
+    return sync;
   } catch (reason) {
     operation.failed(reason);
     throw reason;
@@ -1648,13 +1649,13 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
   }
   if (command === "lsp_document_open") {
     const session = sessionForFile(args.filePath, args.attachmentId);
-    await synchronizeDocument("documentOpen", session, args.filePath, {
+    const sync = await synchronizeDocument("documentOpen", session, args.filePath, {
       sessionId: session.id,
       uri: fileUri(args.filePath),
       languageId: args.languageId ?? session.languageId,
       text: args.content ?? "",
     });
-    return undefined as T;
+    return sync as T;
   }
   if (command === "lsp_document_change") {
     const session = sessionForFile(args.filePath, args.attachmentId);
@@ -1679,7 +1680,7 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
           })
           .filter(Boolean)
       : [];
-    await synchronizeDocument("documentChange", session, args.filePath, {
+    const sync = await synchronizeDocument("documentChange", session, args.filePath, {
       sessionId: session.id,
       uri: fileUri(args.filePath),
       languageId: args.languageId ?? session.languageId,
@@ -1687,7 +1688,7 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
       text: args.content ?? "",
       ...(contentChanges.length > 0 ? { contentChanges } : {}),
     });
-    return undefined as T;
+    return sync as T;
   }
   if (command === "lsp_document_save") {
     const session = sessionForFile(args.filePath, args.attachmentId);

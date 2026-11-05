@@ -138,6 +138,28 @@ function adaptDiffStats(args: JsonRecord | undefined, value: unknown): unknown {
   });
 }
 
+/** Projects one Core history commit into the Windows commit shape. */
+function adaptHistoryCommit(commit: JsonRecord) {
+  return {
+    hash: commit.hash,
+    shortHash: commit.shortHash ?? String(commit.hash ?? "").slice(0, 7),
+    parentHashes: Array.isArray(commit.parentHashes) ? commit.parentHashes : [],
+    message: commit.subject,
+    author: commit.authorName,
+    email: commit.authorEmail,
+    date: commit.date,
+    dateUtcOffsetMinutes:
+      typeof commit.dateUtcOffsetMinutes === "number" ? commit.dateUtcOffsetMinutes : undefined,
+    dateUnixSeconds:
+      typeof commit.dateUnixSeconds === "number" ? commit.dateUnixSeconds : undefined,
+    decorations: commit.decorations ?? "",
+  };
+}
+
+function adaptHistoryCommits(value: unknown) {
+  return Array.isArray(value) ? value.map((commit: JsonRecord) => adaptHistoryCommit(commit)) : [];
+}
+
 export function adaptCoreResult<T>(
   command: string,
   args: JsonRecord | undefined,
@@ -190,24 +212,7 @@ export function adaptCoreResult<T>(
               behind: typeof reference.behind === "number" ? reference.behind : 0,
             }))
           : [],
-        commits: Array.isArray(data.commits)
-          ? data.commits.map((commit: JsonRecord) => ({
-              hash: commit.hash,
-              shortHash: commit.shortHash ?? String(commit.hash ?? "").slice(0, 7),
-              parentHashes: Array.isArray(commit.parentHashes) ? commit.parentHashes : [],
-              message: commit.subject,
-              author: commit.authorName,
-              email: commit.authorEmail,
-              date: commit.date,
-              dateUtcOffsetMinutes:
-                typeof commit.dateUtcOffsetMinutes === "number"
-                  ? commit.dateUtcOffsetMinutes
-                  : undefined,
-              dateUnixSeconds:
-                typeof commit.dateUnixSeconds === "number" ? commit.dateUnixSeconds : undefined,
-              decorations: commit.decorations ?? "",
-            }))
-          : [],
+        commits: adaptHistoryCommits(data.commits),
         hasMore: Boolean(data.hasMore),
       } as T;
     case "git_references":
@@ -239,26 +244,17 @@ export function adaptCoreResult<T>(
       } as T;
     case "git_history_page":
       return {
-        commits: Array.isArray(data.commits)
-          ? data.commits.map((commit: JsonRecord) => ({
-              hash: commit.hash,
-              shortHash: commit.shortHash ?? String(commit.hash ?? "").slice(0, 7),
-              parentHashes: Array.isArray(commit.parentHashes) ? commit.parentHashes : [],
-              message: commit.subject,
-              author: commit.authorName,
-              email: commit.authorEmail,
-              date: commit.date,
-              dateUtcOffsetMinutes:
-                typeof commit.dateUtcOffsetMinutes === "number"
-                  ? commit.dateUtcOffsetMinutes
-                  : undefined,
-              dateUnixSeconds:
-                typeof commit.dateUnixSeconds === "number" ? commit.dateUnixSeconds : undefined,
-              decorations: commit.decorations ?? "",
-            }))
-          : [],
+        commits: adaptHistoryCommits(data.commits),
         nextCursor: typeof data.nextCursor === "string" ? data.nextCursor : undefined,
         hasMore: Boolean(data.hasMore),
+      } as T;
+    case "git.historyLocate":
+      return {
+        found: Boolean(data.found),
+        commits: adaptHistoryCommits(data.commits),
+        nextCursor: typeof data.nextCursor === "string" ? data.nextCursor : undefined,
+        hasMore: Boolean(data.hasMore),
+        pagesLoaded: typeof data.pagesLoaded === "number" ? data.pagesLoaded : 0,
       } as T;
     case "git_branches":
       return (
@@ -311,27 +307,19 @@ export function adaptCoreResult<T>(
       return adaptDiffStats(args, value) as T;
     case "git_discover_repo":
       return String(typeof value === "string" ? value : (data.output ?? "")).trim() as T;
-    case "git_get_remotes": {
-      const remotes = new Map<string, string>();
-      for (const line of String(data.output ?? "").split("\n")) {
-        const match = line.match(/^(\S+)\s+(\S+)\s+\(fetch\)$/);
-        if (match) remotes.set(match[1], match[2]);
-      }
-      return [...remotes].map(([name, url]) => ({ name, url })) as T;
-    }
+    case "git_get_remotes":
+      return (Array.isArray(data.remotes) ? data.remotes : []) as T;
     case "git_get_tags":
-      return String(data.output ?? "")
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => {
-          const [name = "", commit = "", message = "", date = "", objectType = ""] =
-            line.split("\0");
+      return (Array.isArray(data.tags) ? data.tags : [])
+        .map((entry: unknown) => {
+          const tag = asRecord(entry);
           return {
-            name,
-            commit,
-            message: message || undefined,
-            date,
-            is_annotated: objectType === "tag",
+            name: tag.name,
+            commit: tag.targetId,
+            object_id: tag.objectId,
+            message: tag.message ?? undefined,
+            date: tag.date,
+            is_annotated: tag.isAnnotated,
           };
         }) as T;
     case "git_get_worktrees": {
