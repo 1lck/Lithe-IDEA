@@ -6887,6 +6887,27 @@ private struct TestGitOperations: GitOperations {
             GitWorkspaceStatusPlan.Entry(root: root, source: succeeded.contains(root) ? "current" : (previous.contains(root) ? "previous" : "missing"))
         }, confirmedRoots: roots.filter { succeeded.contains($0) }, failedRoots: roots.filter { !succeeded.contains($0) })
     }
+    /// Test double for `git.normalizeChangeTargets`; Core's own tests and the shared
+    /// fixture (`change-targets-v1.json`) define the real rule.
+    func corePlan<Request: Encodable & Sendable, Response: Decodable & Sendable>(
+        _ command: GitCorePlanCommand,
+        _ request: Request
+    ) -> Response? {
+        guard command == .normalizeChangeTargets,
+              let data = try? JSONEncoder().encode(request),
+              let targets = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["targets"] as? [[String: Any]]
+        else { return nil }
+        let indices = targets.indices.filter { index in
+            let target = targets[index]
+            return !targets.contains { summary in
+                summary["untrackedDirectory"] as? Bool == true
+                    && summary["root"] as? String == target["root"] as? String
+                    && summary["path"] as? String != target["path"] as? String
+                    && (target["path"] as? String ?? "").hasPrefix(summary["path"] as? String ?? "\u{0}")
+            }
+        }
+        return try? JSONDecoder().decode(Response.self, from: JSONSerialization.data(withJSONObject: ["indices": indices]))
+    }
     func changelistProjection(_ request: GitChangelistCoreRequest) -> GitChangelistCoreProjection? {
         if let changelistProjectionHandler { return changelistProjectionHandler(request) }
         return GitChangelistCoreTestSupport.project(request)
