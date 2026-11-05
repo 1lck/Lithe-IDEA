@@ -129,6 +129,7 @@ import {
   type MonacoDefinitionLinkGesture,
 } from "../engines/monaco/definition-link";
 import { suppressFindWidgetCloseButtonHover } from "../engines/monaco/find-widget-hover";
+import { closeFindWidget } from "../engines/monaco/find-widget-lifecycle";
 import {
   consumeLocalContentSnapshot,
   rememberLocalContentSnapshot,
@@ -2788,6 +2789,11 @@ export function MonacoEditor({
 
     const viewStateKeyForRestore = viewStateKey ?? activeBufferId ?? "";
     if (!isActiveSurface) {
+      // Monaco keeps the find widget's revealed state inside each editor
+      // instance. Inactive surfaces stay mounted, so without closing it every
+      // previously searched file can keep a visible find box behind the active
+      // editor. The query itself is preserved for reopening.
+      closeFindWidget(editor);
       // Snapshot the live viewport before hidden layout and option updates can
       // reset Monaco to the first line. Do not call layout() here.
       persistMonacoSurfaceViewState(editor, viewStateKeyForRestore);
