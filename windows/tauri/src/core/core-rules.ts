@@ -94,6 +94,15 @@ export function initializeCoreRules(source?: BufferSource | Promise<BufferSource
   return loading;
 }
 
+/**
+ * Drops the loaded module so the next `initializeCoreRules()` instantiates it again. Bun runs test
+ * files in one process, so a test that wraps the instance must reset first. Tests only.
+ */
+export function resetCoreRulesForTests(): void {
+  exportsRef = null;
+  loading = null;
+}
+
 /** Whether `initializeCoreRules()` has completed successfully. */
 export function isCoreRulesReady(): boolean {
   return exportsRef !== null;

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { BOTTOM_PANE_ID, ROOT_PANE_ID } from "../constants/pane";
+import { resetCoreRulesForTests } from "@/core/core-rules";
 import { loadCoreRulesForTests } from "@/test-utils/core-rules";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import type { PaneGroup, PaneNode } from "../types/pane.types";
@@ -29,7 +30,11 @@ WebAssembly.instantiate = (async (bytes: BufferSource, imports?: WebAssembly.Imp
 
 const WORKSPACE = "pane-store-test";
 
-beforeAll(loadCoreRulesForTests);
+// An earlier test file in the same Bun process may already hold an unwrapped instance.
+beforeAll(async () => {
+  resetCoreRulesForTests();
+  await loadCoreRulesForTests();
+});
 afterAll(() => {
   WebAssembly.instantiate = instantiate;
 });

@@ -47,12 +47,12 @@ export interface DirectoryVisibilityClassifier {
 /**
  * Creates a classifier bound to one rule set. Answers are cached per directory for the lifetime
  * of the instance, so the owner makes a new instance whenever the rules change; that is the
- * rules version. `workspaceRootFor` maps a path to the workspace root it belongs to, or null
+ * rules version. `workspaceRootFor` maps a path to the workspace root it belongs to, or null/undefined
  * when the path is outside every root (nothing is hidden then).
  */
 export function createDirectoryVisibilityClassifier(
   rules: HiddenPathRules,
-  workspaceRootFor: (path: string) => string | null,
+  workspaceRootFor: (path: string) => string | null | undefined,
 ): DirectoryVisibilityClassifier {
   const cache = new Map<string, Map<string, boolean>>();
 

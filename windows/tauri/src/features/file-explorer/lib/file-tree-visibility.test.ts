@@ -16,7 +16,9 @@ beforeAll(loadCoreRulesForTests);
 
 describe("hidden-path classification (shared fixture through wasm)", () => {
   test("the built-in lists come from Core", () => {
-    expect(executeCoreRuleSync("workspace.visibilityDefaults", {})).toEqual(fixture.defaults);
+    expect(executeCoreRuleSync<typeof fixture.defaults>("workspace.visibilityDefaults", {})).toEqual(
+      fixture.defaults,
+    );
   });
 
   for (const testCase of fixture.cases) {
