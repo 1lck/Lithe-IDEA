@@ -375,6 +375,49 @@ pub async fn declarative_plugins_open_web_window(
     Ok(())
 }
 
+/// A focus request keeps the live document's authority; a new native page
+/// registers fresh ownership and retires requests from the previous document.
+fn register_page_owner(
+    state: &WebPageHostState,
+    owner: &PageOwner,
+    existing_window: bool,
+) -> Result<(), String> {
+    let label = owned_label(owner);
+    let mut owners = state.owners.lock().expect("page owners");
+    if existing_window {
+        // Focusing a live document must retain its generation and pending calls.
+        // A window still being destroyed has no authority to reuse or resurrect.
+        if owners.get(&label).is_some_and(|current| {
+            current.mount.is_none()
+                && owner.mount.is_none()
+                && current.host_label == owner.host_label
+                && current.workspace_id == owner.workspace_id
+                && current.workspace_path == owner.workspace_path
+                && current.plugin_id == owner.plugin_id
+                && current.window_id == owner.window_id
+                && current.state_id == owner.state_id
+                && current.workspace_generation == owner.workspace_generation
+                && current.workspace_generation
+                    == workspace_generation(state, &current.host_label, &current.workspace_id)
+        }) {
+            return Ok(());
+        }
+        return Err(bridge_error(
+            "plugin.web.forbidden",
+            "the existing page owner is inactive or has changed",
+        ));
+    }
+    state.builds.revoke_pages(&[label.clone()]);
+    state.functions.revoke_pages(&[label.clone()]);
+    state
+        .open_files
+        .lock()
+        .expect("open file requests")
+        .retain(|_, request| request.page_label != label);
+    owners.insert(label, owner.clone());
+    Ok(())
+}
+
 /// Floating and docked pages share the same source, navigation, request-filter,
 /// bridge and appearance setup. Only their host-owned native shell differs.
 async fn open_page(
@@ -386,29 +429,17 @@ async fn open_page(
 ) -> Result<tauri::WebviewWindow, String> {
     let label = owned_label(&owner);
     owner.state_id = state_label(&owner);
-    {
-        let state = app.state::<WebPageHostState>();
-        let mut owners = state.owners.lock().expect("page owners");
-        state.builds.revoke_pages(&[label.clone()]);
-        state.functions.revoke_pages(&[label.clone()]);
-        state
-            .open_files
-            .lock()
-            .expect("open file requests")
-            .retain(|_, request| request.page_label != label);
-        owners.insert(label.clone(), owner.clone());
+    let existing = app.get_webview_window(&label);
+    register_page_owner(&app.state::<WebPageHostState>(), &owner, existing.is_some())?;
+    if let Some(existing) = existing {
+        existing.set_focus().map_err(|error| error.to_string())?;
+        return Ok(existing);
     }
     app.state::<WebPageHostState>()
         .appearances
         .lock()
         .expect("appearance mutex")
         .insert(label.clone(), appearance);
-    if let Some(existing) = app.get_webview_window(&label) {
-        if owner.mount.is_none() {
-            existing.set_focus().map_err(|error| error.to_string())?;
-        }
-        return Ok(existing);
-    }
     let target_url = match package_page_url(&window.plugin_id, &window.entry) {
         Ok(url) => url,
         Err(error) => return Err(cleanup_failed_open(app, &owner, error)),
@@ -1994,6 +2025,92 @@ mod serve_tests {
             },
         );
         (label, identity)
+    }
+
+    #[test]
+    fn focusing_existing_page_preserves_document_and_pending_open_file() {
+        let state = WebPageHostState::default();
+        let (label, identity) = registered_test_page(&state);
+        let mut request = state.owners.lock().unwrap()[&label].clone();
+        request.generation += 1;
+        let (completion, mut pending) = tokio::sync::oneshot::channel();
+        state.open_files.lock().unwrap().insert(
+            "pending-file".into(),
+            PendingOpenFile {
+                host_label: identity.host_label.clone(),
+                page_label: label.clone(),
+                completion,
+            },
+        );
+
+        register_page_owner(&state, &request, true).expect("focus existing document");
+        with_page_owner(&state, &label, &identity, || Ok(()))
+            .expect("original bridge remains valid");
+        assert_eq!(
+            state.owners.lock().unwrap()[&label].generation,
+            identity.generation
+        );
+        assert!(matches!(
+            pending.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ));
+        let request = state
+            .open_files
+            .lock()
+            .unwrap()
+            .remove("pending-file")
+            .unwrap();
+        request
+            .completion
+            .send(Ok(()))
+            .expect("request still owned");
+        assert_eq!(pending.try_recv(), Ok(Ok(())));
+    }
+
+    #[test]
+    fn focusing_existing_page_cannot_restore_revoked_or_changed_scope() {
+        let state = WebPageHostState::default();
+        let (label, identity) = registered_test_page(&state);
+        let original = state.owners.lock().unwrap()[&label].clone();
+        let mut changed_path = original.clone();
+        changed_path.workspace_path = "C:/another-workspace".into();
+        assert!(register_page_owner(&state, &changed_path, true).is_err());
+        assert_eq!(state.owners.lock().unwrap()[&label], original);
+
+        state.workspace_generations.lock().unwrap().insert(
+            workspace_label_suffix(&identity.host_label, &identity.workspace_id),
+            identity.workspace_generation + 1,
+        );
+        assert!(register_page_owner(&state, &original, true).is_err());
+        revoke_owners(&state, |_| true, false);
+        assert!(register_page_owner(&state, &original, true).is_err());
+        assert!(!state.owners.lock().unwrap().contains_key(&label));
+        assert!(state.closing_owners.lock().unwrap().contains_key(&label));
+    }
+
+    #[test]
+    fn creating_replacement_page_revokes_the_old_document_request() {
+        let state = WebPageHostState::default();
+        let (label, identity) = registered_test_page(&state);
+        let mut replacement = state.owners.lock().unwrap()[&label].clone();
+        replacement.generation += 1;
+        let (completion, mut pending) = tokio::sync::oneshot::channel();
+        state.open_files.lock().unwrap().insert(
+            "old-file".into(),
+            PendingOpenFile {
+                host_label: identity.host_label.clone(),
+                page_label: label.clone(),
+                completion,
+            },
+        );
+
+        register_page_owner(&state, &replacement, false).expect("create replacement document");
+        assert!(with_page_owner(&state, &label, &identity, || Ok(())).is_err());
+        assert_eq!(state.owners.lock().unwrap()[&label], replacement);
+        assert!(matches!(
+            pending.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        ));
     }
 
     #[test]
