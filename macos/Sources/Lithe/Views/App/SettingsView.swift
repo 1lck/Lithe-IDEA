@@ -469,6 +469,10 @@ struct SettingsView: View {
     private var generalSettings: some View {
         VStack(alignment: .leading, spacing: 10) {
             group("Appearance", info: "Choose a color theme and whether Lithe follows the system appearance.") {
+                row("Compact mode", info: "Use smaller toolbars, tool window headers, tabs, and activity buttons to leave more room for code. Applies to all Lithe windows immediately; editor text and saved panel sizes stay unchanged.") {
+                    LitheSettingsCheckbox(isOn: $settings.compactMode, accessibilityLabel: "Compact mode")
+                }
+
                 row("Color theme") {
                     LitheSettingsSelect(
                         selection: $settings.colorTheme,

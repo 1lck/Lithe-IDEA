@@ -18,7 +18,7 @@ import { PuzzlePieceIcon, TerminalWindowIcon } from "@/ui/icons";
 import { useTerminalDock } from "./terminal-dock-layout";
 
 // IntelliJ Islands stripe button: 30px highlight, 12px arc (6px radius), 20px icon.
-const STRIPE_BUTTON_CLASS_NAME = "size-[30px] rounded-[6px]";
+const STRIPE_BUTTON_CLASS_NAME = "size-(--lithe-activity-button-size) rounded-[6px]";
 
 export function PluginActivityRail() {
   const { t } = useTranslation();
@@ -63,7 +63,7 @@ export function PluginActivityRail() {
   return (
     <aside
       aria-label={activityViewsLabel}
-      className="lithe-plugin-activity-rail flex w-9.5 shrink-0 flex-col items-center gap-2.5 bg-surface pt-1"
+      className="lithe-plugin-activity-rail flex w-(--lithe-activity-rail-width) shrink-0 flex-col items-center gap-(--lithe-activity-gap) bg-surface pt-1"
     >
       <Button
         type="button"
@@ -77,13 +77,21 @@ export function PluginActivityRail() {
         className={STRIPE_BUTTON_CLASS_NAME}
         onClick={toggleExtensionsBuffer}
       >
-        <PuzzlePieceIcon className="size-5" />
+        <PuzzlePieceIcon className="size-(--lithe-activity-icon-size)" />
       </Button>
       {pluginWindows.map((window) => (
-        <Button key={`${window.pluginId}:${window.windowId}`} variant="ghost" size="icon-sm"
-          className={STRIPE_BUTTON_CLASS_NAME} tooltip={window.title} aria-label={window.title}
-          onClick={() => { void openDeclarativeWebWindow(window.pluginId, window.windowId).catch(console.error); }}>
-          <PuzzlePieceIcon className="size-5" />
+        <Button
+          key={`${window.pluginId}:${window.windowId}`}
+          variant="ghost"
+          size="icon-sm"
+          className={STRIPE_BUTTON_CLASS_NAME}
+          tooltip={window.title}
+          aria-label={window.title}
+          onClick={() => {
+            void openDeclarativeWebWindow(window.pluginId, window.windowId).catch(console.error);
+          }}
+        >
+          <PuzzlePieceIcon className="size-(--lithe-activity-icon-size)" />
         </Button>
       ))}
       <NotificationsTrigger className={STRIPE_BUTTON_CLASS_NAME} />
@@ -101,7 +109,7 @@ export function PluginActivityRail() {
           className={STRIPE_BUTTON_CLASS_NAME}
           onClick={toggleMavenPane}
         >
-          <MavenIcon className="size-5" />
+          <MavenIcon className="size-(--lithe-activity-icon-size)" />
         </Button>
       ) : null}
       {terminalDock?.activitySide === "right" &&
@@ -125,7 +133,7 @@ export function PluginActivityRail() {
               if (!terminalDock.suppressActivityClick(event.detail === 0)) toggleTerminalPane();
             }}
           >
-            <TerminalWindowIcon className="size-5" />
+            <TerminalWindowIcon className="size-(--lithe-activity-icon-size)" />
           </Button>
         </div>
       ) : null}

@@ -125,6 +125,8 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
   const setIsProjectPickerVisible = useUIState((state) => state.setIsProjectPickerVisible);
   const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const bottomPaneActiveTab = useUIState((state) => state.bottomPaneActiveTab);
+  const compactMode = useSettingsStore((state) => state.settings.compactMode);
+  const collapsedRailWidth = compactMode ? 32 : COLLAPSED_ACTIVITY_RAIL_WIDTH;
   const configuredActivityRailWidth = useSettingsStore((state) => state.settings.activityRailWidth);
   const askWhereToOpenProjects = useSettingsStore((state) => state.settings.askWhereToOpenProjects);
   const projectOpenDefaultDestination = useSettingsStore(
@@ -336,7 +338,7 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
     [activityRailWidth, expanded, previewActivityRailWidth, updateSetting],
   );
 
-  const railPanelWidth = expanded ? activityRailWidth : COLLAPSED_ACTIVITY_RAIL_WIDTH;
+  const railPanelWidth = expanded ? activityRailWidth : collapsedRailWidth;
   const settleProjectGesture = useCallback(
     async (offset: 1 | -1, requestedProjectId?: string) => {
       if (
@@ -570,9 +572,7 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
     ],
   );
 
-  const renderedRailWidth = `calc(${
-    expanded ? activityRailWidth : COLLAPSED_ACTIVITY_RAIL_WIDTH
-  }px + var(--lithe-workbench-gap))`;
+  const renderedRailWidth = `calc(${railPanelWidth}px + var(--lithe-workbench-gap))`;
   const renderProjectPanel = (
     project: ProjectTab | undefined,
     position: "previous" | "current" | "next",

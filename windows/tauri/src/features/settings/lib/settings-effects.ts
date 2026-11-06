@@ -35,7 +35,6 @@ function applyWindowTransparency(enabled: boolean) {
     "data-window-transparency",
     enabled ? "enabled" : "disabled",
   );
-
 }
 
 function applyProjectGradient(enabled: boolean) {
@@ -45,7 +44,10 @@ function applyProjectGradient(enabled: boolean) {
 }
 
 function applyUiPreferences(
-  settings: Pick<Settings, "reduceMotion" | "showStatusBar" | "windowChromeDensity">,
+  settings: Pick<
+    Settings,
+    "reduceMotion" | "showStatusBar" | "windowChromeDensity" | "compactMode"
+  >,
 ) {
   if (typeof document === "undefined") return;
 
@@ -245,7 +247,12 @@ export function applySettingSideEffect<K extends keyof Settings>(
     applyProjectGradient(value as boolean);
   }
 
-  if (key === "reduceMotion" || key === "showStatusBar" || key === "windowChromeDensity") {
+  if (
+    key === "reduceMotion" ||
+    key === "showStatusBar" ||
+    key === "windowChromeDensity" ||
+    key === "compactMode"
+  ) {
     applyUiPreferences(getSettings());
   }
 }

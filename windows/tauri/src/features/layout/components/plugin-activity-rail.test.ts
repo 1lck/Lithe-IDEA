@@ -28,15 +28,15 @@ test("right activity rail places Maven in the upper right tool group", async () 
   ).text();
 
   expect(railSource).toContain(
-    'className="lithe-plugin-activity-rail flex w-9.5 shrink-0 flex-col items-center gap-2.5 bg-surface pt-1"',
+    'className="lithe-plugin-activity-rail flex w-(--lithe-activity-rail-width) shrink-0 flex-col items-center gap-(--lithe-activity-gap) bg-surface pt-1"',
   );
-  expect(railSource).toContain('<PuzzlePieceIcon className="size-5" />');
+  expect(railSource).toContain('<PuzzlePieceIcon className="size-(--lithe-activity-icon-size)" />');
   expect(railSource).toContain("<NotificationsTrigger");
-  expect(railSource).toContain('<MavenIcon className="size-5" />');
+  expect(railSource).toContain('<MavenIcon className="size-(--lithe-activity-icon-size)" />');
   expect(railSource).toContain("active={isMavenActive}");
   expect(railSource).toContain("aria-pressed={isMavenActive}");
   expect(railSource).toContain("onClick={toggleMavenPane}");
-  expect(railSource.indexOf('<MavenIcon className="size-5" />')).toBeGreaterThan(
+  expect(railSource.indexOf('<MavenIcon className="size-(--lithe-activity-icon-size)" />')).toBeGreaterThan(
     railSource.indexOf("<NotificationsTrigger"),
   );
   expect(sidebarSource).not.toContain('id: "maven"');

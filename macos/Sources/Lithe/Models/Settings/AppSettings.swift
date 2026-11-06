@@ -26,6 +26,7 @@ final class AppSettings: ObservableObject {
 
     private enum Key {
         static let colorTheme = "settings.colorTheme"
+        static let compactMode = "settings.compactMode"
         static let themePreference = "settings.themePreference"
         static let language = "settings.language"
         static let editorFontSize = "settings.editorFontSize"
@@ -129,6 +130,12 @@ final class AppSettings: ObservableObject {
     }
     @Published var themePreference: AppThemePreference {
         didSet { defaults.set(themePreference.rawValue, forKey: Key.themePreference) }
+    }
+    @Published var compactMode: Bool {
+        didSet {
+            AppThemeRuntime.shared.compactMode = compactMode
+            defaults.set(compactMode, forKey: Key.compactMode)
+        }
     }
     @Published var language: AppLanguage {
         didSet {
@@ -494,6 +501,7 @@ final class AppSettings: ObservableObject {
             rawValue: defaults.string(forKey: Key.themePreference) ?? ""
         ) ?? .dark
         let storedLanguage = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .defaultLanguage
+        compactMode = defaults.object(forKey: Key.compactMode) as? Bool ?? false
         language = storedLanguage
         InterfaceLanguage.select(storedLanguage.rawValue)
         editorFontSize = EditorAppearanceSettings.normalizedFontSize(
@@ -602,6 +610,7 @@ final class AppSettings: ObservableObject {
         pendingDecodeFailures = decodeFailures
         repairImportedAgentProviders()
         AppThemeRuntime.shared.activate(colorTheme)
+        AppThemeRuntime.shared.compactMode = compactMode
         updateGitExecutionPreferences()
         // Property initialization does not fire didSet, so the snapshot the
         // network layer reads must be synced explicitly once, here at the end
@@ -843,6 +852,7 @@ final class AppSettings: ObservableObject {
     }
 
     func restoreDefaults() {
+        compactMode = false
         colorTheme = .lithe
         themePreference = .dark
         language = .defaultLanguage
@@ -1345,11 +1355,30 @@ enum AppColorTheme: String, CaseIterable, Identifiable {
     }
 }
 
-final class AppThemeRuntime: @unchecked Sendable {
+final class AppThemeRuntime: ObservableObject, @unchecked Sendable {
     static let shared = AppThemeRuntime()
 
+    let objectWillChange = ObservableObjectPublisher()
     private let lock = NSLock()
     private var value: AppColorTheme = .lithe
+    private var compactValue = false
+
+    // Metric consumers observe this object directly, including retained tool
+    // hosts. Combine preserves macOS 13 support; native readers use the lock.
+    var compactMode: Bool {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return compactValue
+        }
+        set {
+            guard newValue != compactMode else { return }
+            objectWillChange.send()
+            lock.lock()
+            compactValue = newValue
+            lock.unlock()
+        }
+    }
 
     private init() {}
 

@@ -124,6 +124,12 @@
     --ui-text-sm: var(--app-ui-font-size);
     --ui-text-base: var(--app-ui-font-size);
     --lithe-title-bar-height: 2.5rem;
+    --lithe-main-toolbar-button-size: 30px;
+    --lithe-main-toolbar-icon-size: 20px;
+    --lithe-activity-rail-width: 38px;
+    --lithe-activity-button-size: 30px;
+    --lithe-activity-icon-size: 20px;
+    --lithe-activity-gap: 10px;
     --lithe-footer-height: 1.5rem;
     --lithe-pane-header-height: 2.25rem;
     --lithe-tab-bar-height: var(--lithe-pane-header-height);
@@ -220,6 +226,27 @@
     --lithe-chrome-gap: 6px;
     --lithe-chrome-gap-loose: 8px;
     --lithe-chrome-padding-inline: 10px;
+  }
+
+  /* Compact overrides the saved comfortable/focused density without rewriting it. */
+  :root[data-compact-mode="true"] {
+    --lithe-title-bar-height: 32px;
+    --lithe-main-toolbar-button-size: 24px;
+    --lithe-main-toolbar-icon-size: 16px;
+    --lithe-pane-header-height: 28px;
+    --lithe-sidebar-header-height: 28px;
+    --lithe-tab-height: 24px;
+    --lithe-footer-height: 24px;
+    --lithe-chrome-control-height: 22px;
+    --lithe-chrome-hit-target: 24px;
+    --lithe-chrome-gap-tight: 2px;
+    --lithe-chrome-gap: 3px;
+    --lithe-chrome-gap-loose: 4px;
+    --lithe-chrome-padding-inline: 6px;
+    --lithe-activity-rail-width: 32px;
+    --lithe-activity-button-size: 24px;
+    --lithe-activity-icon-size: 16px;
+    --lithe-activity-gap: 6px;
   }
 
   :root[data-theme-type="dark"] {

@@ -1321,7 +1321,9 @@ Debug 空状态标题栏使用 Git Log / Terminal 已有的 41pt 工具窗口规
 `expui/general/moreVertical.svg` 与 `expui/general/hide.svg` 原始 16pt 资源。
 底线复用 `LitheToolWindowHeaderDivider` 的主题边框颜色、1pt 高度和两侧 1pt 内缩，
 以内侧 overlay 绘制，不能再叠加普通 divider。
-公共 `LitheToolWindowHeader` 已同步使用 41pt、13pt Bold、左12pt/右8pt留白。
+公共 `LitheToolWindowHeader` 常规模式使用 41pt、13pt Bold、左12pt/右8pt留白。
+紧凑模式由共享尺寸切换为 32pt、左8pt/右4pt，标题字重不变，见
+[工作台紧凑模式](../feature/2026-11-02-workbench-compact-mode.md)。
 按用户明确的统一规则，普通面板标题只显示文字，不显示图标、外框或底部分隔线；
 标题栏 API 不再接受图标参数，调用方也不得补 `LitheToolWindowHeaderDivider`。
 插件及普通标题栏调用公共入口即可，不再保留其原有30pt规则。

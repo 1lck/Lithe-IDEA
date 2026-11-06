@@ -3,6 +3,7 @@ import SwiftUI
 import LitheGitModule
 
 struct GitWorktreesView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @Environment(\.locale) private var locale
     @Environment(\.controlActiveState) private var controlActiveState
     private enum WorktreeSection: String, CaseIterable, Identifiable {
@@ -1098,6 +1099,7 @@ private struct WorktreeChangesProjectionIdentity: Hashable {
 
 /// Paging feedback overlays the viewport instead of reserving a permanent footer row.
 struct GitWorktreeHistoryList: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     let snapshot: GitWorktreeRowsSnapshot
     let contextID: String
     let canLoadMore: Bool

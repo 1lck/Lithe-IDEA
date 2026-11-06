@@ -3,6 +3,7 @@ import SwiftUI
 
 /// IDEA Islands tool-window tabs share colors and geometry across tool windows.
 struct LitheToolWindowTabStyle: ViewModifier {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.controlActiveState) private var controlActiveState
     @State private var isHovered = false
@@ -12,7 +13,7 @@ struct LitheToolWindowTabStyle: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .frame(height: 28)
+            .frame(height: LitheTheme.Metrics.editorTabContentHeight)
             .background {
                 if let fileColor {
                     // IslandsTabPainter: colored editor tabs retain the editor surface and border.

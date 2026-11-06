@@ -1,3 +1,5 @@
+import Tooltip from "@/ui/tooltip";
+import { InfoIcon } from "@/ui/icons";
 import { invoke } from "@/platform/tauri-core";
 import { FilePlusIcon, TrashIcon, UploadIcon } from "@/ui/icons";
 import { iconThemeRegistry } from "@/extensions/icon-themes/icon-theme-registry";
@@ -66,6 +68,7 @@ export const AppearanceSettings = () => {
       windowTransparency: state.settings.windowTransparency,
       differentiateProjects: state.settings.differentiateProjects,
       windowChromeDensity: state.settings.windowChromeDensity,
+      compactMode: state.settings.compactMode,
     })),
   );
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
@@ -431,6 +434,31 @@ export const AppearanceSettings = () => {
       </Section>
 
       <Section title={t("settings.appearance.layout")}>
+        <SettingRow
+          label={t("settings.appearance.compactMode")}
+          labelAccessory={
+            <Tooltip
+              content={t("settings.appearance.compactModeDescription")}
+              className="max-w-96 whitespace-normal"
+            >
+              <span
+                tabIndex={0}
+                data-setting-interactive-root="true"
+                aria-label={t("settings.appearance.compactModeDescription")}
+              >
+                <InfoIcon className="size-4 cursor-help text-subtle-foreground" />
+              </span>
+            </Tooltip>
+          }
+          onReset={() => updateSetting("compactMode", getDefaultSetting("compactMode"))}
+          canReset={settings.compactMode !== getDefaultSetting("compactMode")}
+        >
+          <Switch
+            checked={settings.compactMode}
+            onChange={(checked) => updateSetting("compactMode", checked)}
+            aria-label={t("settings.appearance.compactMode")}
+          />
+        </SettingRow>
         <SettingRow
           label={t("settings.appearance.windowChromeDensity")}
           description={t("settings.appearance.windowChromeDensityDescription")}

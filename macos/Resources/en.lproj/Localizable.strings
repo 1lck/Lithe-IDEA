@@ -916,6 +916,7 @@
 "Community plugin installed from disk. Its publisher and repository have not been verified." = "Community plugin installed from disk. Its publisher and repository have not been verified.";
 "Community plugin maintained by a third party. Report plugin problems in its own repository." = "Community plugin maintained by a third party. Report plugin problems in its own repository.";
 "Community plugins are maintained by third parties and can run the programs above on your Mac. Only install plugins you trust." = "Community plugins are maintained by third parties and can run the programs above on your Mac. Only install plugins you trust.";
+"Compact mode" = "Compact mode";
 "Compare" = "Compare";
 "Compare '%@' with '%@'" = "Compare '%@' with '%@'";
 "Compare changes" = "Compare changes";
@@ -4901,6 +4902,7 @@
 "Use project or file directory" = "Use project or file directory";
 "Use service JDK" = "Use service JDK";
 "Use shared instructions" = "Use shared instructions";
+"Use smaller toolbars, tool window headers, tabs, and activity buttons to leave more room for code. Applies to all Lithe windows immediately; editor text and saved panel sizes stay unchanged." = "Use smaller toolbars, tool window headers, tabs, and activity buttons to leave more room for code. Applies to all Lithe windows immediately; editor text and saved panel sizes stay unchanged.";
 "Use soft wraps" = "Use soft wraps";
 "Use system proxy" = "Use system proxy";
 "Use temporary directory" = "Use temporary directory";
@@ -10268,6 +10270,8 @@
 "scope updated from %@" = "scope updated from %@";
 "search.search" = "Search";
 "selected version" = "selected version";
+"settings.appearance.compactMode" = "Compact mode";
+"settings.appearance.compactModeDescription" = "Use smaller toolbars, tool window headers, tabs, and activity buttons to leave more room for code. Applies to all Lithe windows immediately; editor text and saved panel sizes stay unchanged.";
 "settings.editorImport.appearanceGroup" = "Appearance settings";
 "settings.editorImport.approximateLabel" = "Approximate";
 "settings.editorImport.approximateMapping" = "Approximate mapping";

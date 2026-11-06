@@ -5,6 +5,7 @@ import LitheGitModule
 /// Worktree-local actions reuse Commit's staging/discard services and native
 /// viewport; opening a diff never switches the active repository implicitly.
 struct GitWorktreeChangesView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @ObservedObject var feature: GitFeatureModel
     let worktree: GitWorktree
     let snapshot: GitWorktreeRowsSnapshot

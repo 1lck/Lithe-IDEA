@@ -3,6 +3,7 @@ import SwiftUI
 import LitheGitModule
 
 struct ChangesSidebarView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     private let changeRowHeight = LitheTheme.Tree.rowHeight
 
     @ObservedObject var feature: GitFeatureModel
@@ -172,7 +173,7 @@ struct ChangesSidebarView: View {
                         .font(LitheTheme.uiFont(size: LitheTheme.Commit.toolbarFontSize, weight: .regular))
                         .foregroundStyle(tab == selectedTab ? LitheTheme.primaryText : LitheTheme.secondaryText)
                         .padding(.horizontal, LitheTheme.Commit.tabItemHorizontalPadding)
-                        .frame(height: 28)
+                        .frame(height: LitheTheme.Metrics.editorTabContentHeight)
                 }
                 .buttonStyle(.litheNoPress)
                 .modifier(LitheToolWindowTabStyle(isSelected: tab == selectedTab, isActive: commitToolActive))
@@ -184,7 +185,7 @@ struct ChangesSidebarView: View {
         // Islands: 4pt layout start + 4pt inset of the painted tab.
         .padding(.leading, 8)
         .padding(.trailing, 10)
-        .frame(height: 41)
+        .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
         .background(hasBackgroundImage ? Color.clear : LitheTheme.toolHeader)
         .overlay(alignment: .bottom) {
             LitheToolWindowHeaderDivider()

@@ -586,6 +586,10 @@ export function normalizeSettings(settings: Settings): Settings {
   normalizedSettings.editorTabLayoutMode = normalizeEditorTabLayoutMode(
     (normalizedSettings as { editorTabLayoutMode?: unknown }).editorTabLayoutMode,
   );
+  normalizedSettings.compactMode =
+    typeof normalizedSettings.compactMode === "boolean"
+      ? normalizedSettings.compactMode
+      : defaultSettings.compactMode;
   normalizedSettings.windowChromeDensity = normalizeWindowChromeDensity(
     (normalizedSettings as { windowChromeDensity?: unknown }).windowChromeDensity,
   );
@@ -748,6 +752,10 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === "editorTabLayoutMode") {
     return normalizeEditorTabLayoutMode(value) as Settings[K];
+  }
+
+  if (key === "compactMode") {
+    return (typeof value === "boolean" ? value : defaultSettings.compactMode) as Settings[K];
   }
 
   if (key === "windowChromeDensity") {

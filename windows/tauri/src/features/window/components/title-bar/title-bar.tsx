@@ -7,7 +7,6 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { openFolder } from "@/features/file-system/controllers/platform";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useFooterGitBranchItem } from "@/features/layout/components/footer/footer-git-branch-item";
-import { COLLAPSED_ACTIVITY_RAIL_WIDTH } from "@/features/layout/constants/activity-rail";
 import { AppUpdateControl } from "@/features/layout/components/app-update-control";
 import SettingsDialog from "@/features/settings/components/settings-dialog";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
@@ -49,7 +48,7 @@ import WindowMenuBar from "../window-menu-bar";
 
 // IntelliJ main toolbar buttons: MainToolbar.Button.size 30x30, arc 12 (6px radius). Their icons
 // set size-5 (iconSize 20) themselves: Button's unsized-svg rule outranks a parent [&_svg] override.
-const MAIN_TOOLBAR_ICON_BUTTON_CLASS_NAME = "size-[30px] rounded-[6px]";
+const MAIN_TOOLBAR_ICON_BUTTON_CLASS_NAME = "size-(--lithe-main-toolbar-button-size) rounded-[6px]";
 
 interface TitleBarProps {
   showMinimal?: boolean;
@@ -257,7 +256,7 @@ export const TitleBar = ({
                 aria-label={t("window.menu")}
                 aria-expanded={false}
               >
-                <MenuIcon large className="size-5" />
+                <MenuIcon large className="size-(--lithe-main-toolbar-icon-size)" />
               </Button>
             </Tooltip>
           )}
@@ -278,7 +277,7 @@ export const TitleBar = ({
     <span
       aria-hidden="true"
       className="pointer-events-none flex h-full shrink-0 select-none items-center justify-center overflow-hidden rounded-md"
-      style={{ width: COLLAPSED_ACTIVITY_RAIL_WIDTH }}
+      style={{ width: "var(--lithe-activity-rail-width)" }}
     >
       <img
         src="/logo.png"
@@ -300,7 +299,7 @@ export const TitleBar = ({
       onClick={() => setIsQuickOpenVisible(true)}
       aria-label={t("workbench.search")}
     >
-      <MagnifyingGlassIcon large className="size-5" />
+      <MagnifyingGlassIcon large className="size-(--lithe-main-toolbar-icon-size)" />
     </Button>
   );
 
@@ -315,7 +314,7 @@ export const TitleBar = ({
       onClick={() => openSettingsDialog()}
       aria-label={t("workbench.settings")}
     >
-      <GearIcon large className="size-5" />
+      <GearIcon large className="size-(--lithe-main-toolbar-icon-size)" />
     </Button>
   );
 
@@ -346,7 +345,7 @@ export const TitleBar = ({
         onClick={() => onOpenProjectPicker()}
         aria-label={t("workbench.moreProjectActions")}
       >
-        <ListIcon className="size-5" />
+        <ListIcon className="size-(--lithe-main-toolbar-icon-size)" />
       </Button>
     </ChromeGroup>
   );

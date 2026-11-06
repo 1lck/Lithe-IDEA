@@ -5,6 +5,7 @@ import LitheCoreContracts
 import LitheDebugModule
 
 struct GenericDebugView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: GenericDebugFeatureModel
@@ -171,7 +172,7 @@ struct GenericDebugView: View {
         }
         .padding(.leading, 12)
         .padding(.trailing, 8)
-        .frame(height: 41)
+        .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
         .overlay(alignment: .bottom) { LitheToolWindowHeaderDivider() }
     }

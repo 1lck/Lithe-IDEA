@@ -2,6 +2,7 @@ import LitheModuleAPI
 import SwiftUI
 
 struct RunView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @EnvironmentObject private var model: AppModel
     @Environment(\.openURL) private var openURL
     @Environment(\.locale) private var locale
@@ -310,7 +311,7 @@ struct RunView: View {
         }
         .padding(.leading, 12)
         .padding(.trailing, 8)
-        .frame(height: 41)
+        .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
         .overlay(alignment: .bottom) { LitheToolWindowHeaderDivider() }
     }
@@ -891,7 +892,7 @@ struct RunView: View {
             }
             .foregroundStyle(contentTab == tab ? LitheTheme.primaryText : LitheTheme.secondaryText)
             .padding(.horizontal, 8)
-            .frame(height: 28)
+            .frame(height: LitheTheme.Metrics.editorTabContentHeight)
         }
         .buttonStyle(.litheNoPress)
         .modifier(LitheToolWindowTabStyle(isSelected: contentTab == tab, isActive: runToolActive))

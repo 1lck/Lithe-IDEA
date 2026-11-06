@@ -4,6 +4,7 @@ import SwiftUI
 /// their own controls while the title, spacing, and minimize affordance remain
 /// visually consistent.
 struct LitheToolWindowHeader<Actions: View>: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     let title: String
     let subtitle: String?
     let actions: Actions
@@ -25,7 +26,7 @@ struct LitheToolWindowHeader<Actions: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: LitheTheme.Metrics.toolWindowHeaderSpacing) {
             Text(LocalizedStringKey(title))
                 .font(LitheTheme.uiFont(size: 13, weight: .bold))
                 .foregroundStyle(LitheTheme.toolWindowText)
@@ -44,8 +45,8 @@ struct LitheToolWindowHeader<Actions: View>: View {
                 }
             }
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 8)
+        .padding(.leading, LitheTheme.Metrics.toolWindowHeaderLeadingInset)
+        .padding(.trailing, LitheTheme.Metrics.toolWindowHeaderSpacing)
         .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
         .background {
             // Opaque feature panels also use this header outside the wallpaper host.

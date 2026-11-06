@@ -5,6 +5,7 @@ import LitheExecutionModule
 /// Language-neutral test tool window. Discovery is metadata-only; a process is
 /// created only after the user chooses a workspace or file item and presses Run.
 struct LanguageTestsView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @EnvironmentObject private var model: AppModel
     @ObservedObject var service: LanguageTestService
 
@@ -127,7 +128,7 @@ struct LanguageTestsView: View {
         }
         .padding(.leading, 12)
         .padding(.trailing, 8)
-        .frame(height: 41)
+        .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
         .overlay(alignment: .bottom) { LitheToolWindowHeaderDivider() }
     }

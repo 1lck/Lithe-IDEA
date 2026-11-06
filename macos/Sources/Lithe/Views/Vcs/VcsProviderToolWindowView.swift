@@ -20,6 +20,7 @@ struct VcsProviderToolWindowActions {
 /// Every provider uses this view, so no VCS is named here; an action shows
 /// only when the provider declares its capability.
 struct VcsProviderToolWindowView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @ObservedObject var feature: VcsProvidersFeatureModel
     let title: String
     let pluginID: String
@@ -143,7 +144,7 @@ struct VcsProviderToolWindowView: View {
         }
         .padding(.leading, 12)
         .padding(.trailing, 10)
-        .frame(height: 41)
+        .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
         .background(LitheTheme.toolHeader)
         .overlay(alignment: .bottom) { LitheToolWindowHeaderDivider() }
     }
@@ -157,7 +158,7 @@ struct VcsProviderToolWindowView: View {
                 .font(LitheTheme.uiFont(size: LitheTheme.Commit.toolbarFontSize, weight: .regular))
                 .foregroundStyle(tab == value ? LitheTheme.primaryText : LitheTheme.secondaryText)
                 .padding(.horizontal, LitheTheme.Commit.tabItemHorizontalPadding)
-                .frame(height: 28)
+                .frame(height: LitheTheme.Metrics.editorTabContentHeight)
         }
         .buttonStyle(.litheNoPress)
         .modifier(LitheToolWindowTabStyle(isSelected: tab == value, isActive: listActive))

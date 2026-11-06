@@ -92,6 +92,7 @@ private struct EditorDocumentTabIcon: View {
 
 
 struct EditorAreaView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     var groupID: UUID? = nil
     var groupDrag: EditorGroupDragState? = nil
     @State private var ownedGroupDrag = EditorGroupDragState()
@@ -248,7 +249,7 @@ struct EditorAreaView: View {
                 documentPreviewModePicker
             }
         }
-        .frame(minHeight: 36, alignment: .top)
+        .frame(minHeight: LitheTheme.Metrics.tabHeight, alignment: .top)
         .contentShape(Rectangle())
         .onContinuousHover { phase in
             if case .active = phase { NSCursor.arrow.set() }
@@ -303,7 +304,7 @@ struct EditorAreaView: View {
                         editorTabItems
                     }
                 }
-                .frame(height: 36)
+                .frame(height: LitheTheme.Metrics.tabHeight)
             case .multipleRows:
                 multipleRowsEditorTabLayout
             }
@@ -403,7 +404,7 @@ struct EditorAreaView: View {
         let selected = paneItem == item
         return HStack(spacing: 0) {
             AgentEditorTabTitle(model: model, tab: tab)
-                .padding(.leading, 8).frame(height: 28).contentShape(Rectangle())
+                .padding(.leading, 8).frame(height: LitheTheme.Metrics.editorTabContentHeight).contentShape(Rectangle())
                 .onTapGesture { model.selectEditorTab(item) }
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction { model.selectEditorTab(item) }
@@ -413,7 +414,7 @@ struct EditorAreaView: View {
         }
         .foregroundStyle(selected ? LitheTheme.primaryText : LitheTheme.secondaryText)
         .modifier(LitheToolWindowTabStyle(isSelected: selected, isActive: editorGroupIsActive))
-        .padding(.horizontal, 4).padding(.vertical, 4)
+        .padding(.horizontal, 4).padding(.vertical, LitheTheme.Metrics.editorTabVerticalInset)
         .onHover { updateHoveredTab(item, isHovering: $0) }
         .background { editorTabFrameReader(for: item) }
         .zIndex(tabDragState.draggedItem == item ? 1 : 0)
@@ -425,7 +426,7 @@ struct EditorAreaView: View {
         return HStack(spacing: 0) {
             Text("LSP Logs")
                 .font(LitheTheme.uiFont(size: 13))
-                .padding(.leading, 8).frame(height: 28).contentShape(Rectangle())
+                .padding(.leading, 8).frame(height: LitheTheme.Metrics.editorTabContentHeight).contentShape(Rectangle())
                 .onTapGesture { model.selectEditorTab(item) }
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction { model.selectEditorTab(item) }
@@ -435,7 +436,7 @@ struct EditorAreaView: View {
         }
         .foregroundStyle(selected ? LitheTheme.primaryText : LitheTheme.secondaryText)
         .modifier(LitheToolWindowTabStyle(isSelected: selected, isActive: editorGroupIsActive))
-        .padding(.horizontal, 4).padding(.vertical, 4)
+        .padding(.horizontal, 4).padding(.vertical, LitheTheme.Metrics.editorTabVerticalInset)
         .onHover { updateHoveredTab(item, isHovering: $0) }
         .background { editorTabFrameReader(for: item) }
         .zIndex(tabDragState.draggedItem == item ? 1 : 0)
@@ -451,7 +452,7 @@ struct EditorAreaView: View {
                 Text(title.count > 30 ? String(title.prefix(27)) + "..." : title).font(LitheTheme.uiFont(size: 13)).lineLimit(1).truncationMode(.tail)
             }
             .padding(.leading, 8)
-            .frame(height: 28)
+            .frame(height: LitheTheme.Metrics.editorTabContentHeight)
             .contentShape(Rectangle())
             .onTapGesture { model.selectRepositoryDiffTab(id) }
             .accessibilityElement(children: .combine)
@@ -464,7 +465,7 @@ struct EditorAreaView: View {
         }
         .foregroundStyle(selected ? LitheTheme.primaryText : LitheTheme.secondaryText)
         .modifier(LitheToolWindowTabStyle(isSelected: selected, isActive: editorGroupIsActive))
-        .padding(.horizontal, 4).padding(.vertical, 4)
+        .padding(.horizontal, 4).padding(.vertical, LitheTheme.Metrics.editorTabVerticalInset)
         .onHover { updateHoveredTab(item, isHovering: $0) }
         .help(title)
         .background { editorTabFrameReader(for: item) }
@@ -585,7 +586,7 @@ struct EditorAreaView: View {
                     .lineLimit(1)
             }
             .padding(.leading, 8)
-            .frame(height: 28)
+            .frame(height: LitheTheme.Metrics.editorTabContentHeight)
             .contentShape(Rectangle())
             .onTapGesture { model.selectMediaDocument(media) }
             .accessibilityElement(children: .combine)
@@ -603,7 +604,7 @@ struct EditorAreaView: View {
         }
         .modifier(LitheToolWindowTabStyle(isSelected: isActive, isActive: editorGroupIsActive))
         .padding(.horizontal, 4)
-        .padding(.vertical, 4)
+        .padding(.vertical, LitheTheme.Metrics.editorTabVerticalInset)
         .background { editorTabFrameReader(for: tabItem) }
     }
 
@@ -623,7 +624,7 @@ struct EditorAreaView: View {
             }
             .foregroundStyle(isActive ? LitheTheme.primaryText : LitheTheme.secondaryText)
             .padding(.leading, 8)
-            .frame(height: 28)
+            .frame(height: LitheTheme.Metrics.editorTabContentHeight)
             .contentShape(Rectangle())
             .overlay {
                 TerminalTabInteraction(sessionID: session.id, title: model.terminalTitle(for: session)) {
@@ -646,7 +647,7 @@ struct EditorAreaView: View {
         }
         .modifier(LitheToolWindowTabStyle(isSelected: isActive, isActive: editorGroupIsActive))
         .padding(.horizontal, 4)
-        .padding(.vertical, 4)
+        .padding(.vertical, LitheTheme.Metrics.editorTabVerticalInset)
         .background {
             GeometryReader { geometry in
                 Color.clear
@@ -722,7 +723,7 @@ struct EditorAreaView: View {
         .modifier(EditorDocumentTabStyle(document: document, importedSourceRootKind: model.buildSystemsFeatureIfActive?.sourceRootKind(containing: document.url),
             isSelected: isActive, isActive: editorGroupIsActive))
         .padding(.horizontal, 4)
-        .padding(.vertical, 4)
+        .padding(.vertical, LitheTheme.Metrics.editorTabVerticalInset)
     }
 
     @ViewBuilder
@@ -737,7 +738,7 @@ struct EditorAreaView: View {
         }
         .foregroundStyle(isActive ? LitheTheme.primaryText : LitheTheme.secondaryText)
         .padding(.leading, 8)
-        .frame(height: 28)
+        .frame(height: LitheTheme.Metrics.editorTabContentHeight)
         .contentShape(Rectangle())
         .onTapGesture {
             model.selectEditorDocument(document)

@@ -9057,6 +9057,8 @@
     "settings.appearance.activityBarWidthAria": "活动栏宽度：{size} 像素",
     "settings.appearance.activityBarWidthDescription": "设置展开活动栏的宽度",
     "settings.appearance.always": "始终",
+    "settings.appearance.compactMode": "紧凑模式",
+    "settings.appearance.compactModeDescription": "缩小工具栏、工具窗口标题栏、标签和活动栏按钮，为代码留出更多空间。立即应用于所有 Lithe 窗口；保留编辑器文字大小和已保存的面板尺寸。",
     "settings.appearance.colorTheme": "颜色主题",
     "settings.appearance.colorThemeDescription": "选择偏好的颜色主题",
     "settings.appearance.comfortable": "舒适",

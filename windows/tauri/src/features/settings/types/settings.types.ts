@@ -100,6 +100,7 @@ export interface Settings {
   tabCloseButtonVisibility: TabCloseButtonVisibility;
   editorTabLayoutMode: EditorTabLayoutMode;
   windowChromeDensity: WindowChromeDensity;
+  compactMode: boolean;
   // Theme
   theme: Theme;
   iconTheme: string;

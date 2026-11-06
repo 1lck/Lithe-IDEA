@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ProblemsView: View {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var diagnosticsStore: EditorDiagnosticsStore
     private let runnableFileURLs: Set<URL>
@@ -205,7 +206,7 @@ struct ProblemsView: View {
         .lineLimit(1)
         .padding(.leading, 12)
         .padding(.trailing, 8)
-        .frame(height: 41)
+        .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
         .overlay(alignment: .bottom) { LitheToolWindowHeaderDivider() }
         .litheContextMenu {

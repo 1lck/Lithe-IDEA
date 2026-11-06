@@ -89556,6 +89556,30 @@
       ]
     },
     {
+      "id": "settings.appearance.compactMode",
+      "description": "Workbench compact mode preference",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Compact mode",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.appearance.compactModeDescription",
+      "description": "Workbench compact mode preference",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Use smaller toolbars, tool window headers, tabs, and activity buttons to leave more room for code. Applies to all Lithe windows immediately; editor text and saved panel sizes stay unchanged.",
+        "arguments": []
+      }
+    },
+    {
       "id": "settings.appearance.colorTheme",
       "description": "Windows UI: settings.appearance.colorTheme",
       "platforms": [

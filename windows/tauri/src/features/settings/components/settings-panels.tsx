@@ -1,3 +1,5 @@
+import Tooltip from "@/ui/tooltip";
+import { InfoIcon } from "@/ui/icons";
 import { LANGUAGE_OPTIONS, type DisplayLanguage } from "@/i18n/locale";
 import { UpdateChannelSelector } from "./update-channel-selector";
 import { getInstalledVersionLabel } from "../lib/update-channel";
@@ -155,6 +157,29 @@ function GeneralPanel() {
   return (
     <div className="flex flex-col gap-4">
       <SettingsGroup title={t("settings.mac.appearance")}>
+        <SettingsRow
+          label={t("settings.appearance.compactMode")}
+          labelAccessory={
+            <Tooltip
+              content={t("settings.appearance.compactModeDescription")}
+              className="max-w-96 whitespace-normal"
+            >
+              <span
+                tabIndex={0}
+                data-setting-interactive-root="true"
+                aria-label={t("settings.appearance.compactModeDescription")}
+              >
+                <InfoIcon className="size-4 cursor-help text-subtle-foreground" />
+              </span>
+            </Tooltip>
+          }
+        >
+          <Switch
+            checked={settings.compactMode}
+            onChange={(checked) => void updateSetting("compactMode", checked)}
+            aria-label={t("settings.appearance.compactMode")}
+          />
+        </SettingsRow>
         <SettingsRow label={t("settings.mac.colorTheme")}>
           <SettingsSelect
             aria-label={t("settings.mac.colorTheme")}

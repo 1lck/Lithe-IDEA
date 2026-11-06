@@ -3,6 +3,7 @@ import CoreText
 import SwiftUI
 
 enum LitheTheme {
+    static var compactMode: Bool { AppThemeRuntime.shared.compactMode }
     private struct RGBA {
         let red: CGFloat
         let green: CGFloat
@@ -778,12 +779,21 @@ enum LitheTheme {
     /// IDEA Community c7f91397: RunWidget / MainToolbar with Islands theme overrides.
     enum MainToolbar {
         static let iconSize: CGFloat = 16
-        static let buttonSize: CGFloat = 30
-        static let runInsets = EdgeInsets(top: 6, leading: 2, bottom: 4, trailing: 2)
-        static let actionInsets = EdgeInsets(top: 6, leading: 5, bottom: 4, trailing: 5)
+        static var buttonSize: CGFloat { compactMode ? 24 : 30 }
+        static var runInsets: EdgeInsets {
+            compactMode ? EdgeInsets(top: 4, leading: 2, bottom: 4, trailing: 2)
+                : EdgeInsets(top: 6, leading: 2, bottom: 4, trailing: 2)
+        }
+        static var actionInsets: EdgeInsets {
+            compactMode ? EdgeInsets(top: 4, leading: 3, bottom: 4, trailing: 3)
+                : EdgeInsets(top: 6, leading: 5, bottom: 4, trailing: 5)
+        }
         static let font = LitheTheme.uiFont(size: 13, weight: .regular)
         // ToolbarComboWidgetUI / JBUI.MainToolbar.Dropdown, Community 915c3c26.
-        static let comboInsets = EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 6)
+        static var comboInsets: EdgeInsets {
+            compactMode ? EdgeInsets(top: 3, leading: 6, bottom: 3, trailing: 4)
+                : EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 6)
+        }
         static let comboIconTextGap: CGFloat = 6
         static let comboExpandGap: CGFloat = 3
         static var comboHeight: CGFloat {
@@ -982,12 +992,16 @@ enum LitheTheme {
         static let projectTreeSelectionCornerRadius: CGFloat = 4
         static let treeIconSize: CGFloat = 16
         static let treeFontSize: CGFloat = 13
-        static let tabHeight: CGFloat = 34
-        static let toolbarHeight: CGFloat = 40
-        static let toolWindowHeaderHeight: CGFloat = 41
+        static var editorTabContentHeight: CGFloat { compactMode ? 24 : 28 }
+        static var editorTabVerticalInset: CGFloat { compactMode ? 2 : 4 }
+        static var tabHeight: CGFloat { editorTabContentHeight + 2 * editorTabVerticalInset }
+        static var toolbarHeight: CGFloat { compactMode ? 32 : 40 }
+        static var toolWindowHeaderHeight: CGFloat { compactMode ? 32 : 41 }
         static let statusBarHeight: CGFloat = 24
         // Status bar icon widgets stay inside the 24pt bar so neighbouring
         // items do not inherit the 28pt tool-window hit box as empty gaps.
+        static var toolWindowHeaderLeadingInset: CGFloat { compactMode ? 8 : 12 }
+        static var toolWindowHeaderSpacing: CGFloat { compactMode ? 4 : 8 }
         static let statusBarIconButtonSize: CGFloat = 18
         static let cornerRadius: CGFloat = 5
         static let popupShadowRadius: CGFloat = 30
@@ -1013,7 +1027,7 @@ enum LitheTheme {
         static var fileIgnored: Color { controlColor(light: 0x8C4F00, dark: 0xD69A6B) }
         static var fileUntracked: Color { controlColor(light: 0x993300, dark: 0xE88F89) }
 
-        static let toolbarHeight = Metrics.toolbarHeight
+        static var toolbarHeight: CGFloat { Metrics.toolbarHeight }
         static let listMinimumHeight: CGFloat = 120
         static let messageMinimumHeight: CGFloat = 50
         static let resultsMaximumHeight: CGFloat = 90
@@ -1170,6 +1184,7 @@ struct LitheIconButtonStyle: ButtonStyle {
 
 /// Main-toolbar insets are outside the painted 30pt surface, as in HeaderToolbarButtonLook.
 struct LitheMainToolbarButtonStyle: ButtonStyle {
+    @ObservedObject private var themeRuntime = AppThemeRuntime.shared
     var insets = LitheTheme.MainToolbar.actionInsets
     var isActive = false
     var executionBackground: Color? = nil
