@@ -25,12 +25,11 @@ master 分支或截图颜色，否则"是否与 IDEA 一致"无法被验证或�
 `36415d346b3d18a6ded90d05afb8e0a0bface9d6`（`GraphLayoutBuilder`、
 `GraphElementComparatorByLayoutIndex`、`PrintElementGeneratorImpl`、
 `DottedFilterEdgesGenerator`、`GraphColorManagerImpl` 等）。算法落在
-`LitheGitModule`，AppKit/SwiftUI 负责绘制与交互；Rust `git.historyPage`
+Rust Core 的 `git.graphProjection`，AppKit/SwiftUI 负责绘制与交互；Rust `git.historyPage`
 （[`rust/lithe-core/src/git/history.rs`](../../../../rust/lithe-core/src/git/history.rs)）
-新增向后兼容的可选 `order` 参数，由 macOS
+新增向后兼容的可选 `order` 参数；macOS
 （[`RustGitOperations.swift`](../../../../macos/Sources/Lithe/Core/Rust/RustGitOperations.swift)）
-显式请求 `order: "date"`；Windows 代码与未提供该参数时的默认行为
-（`--topo-order`）不变。
+和 Windows 均显式请求 `order: "date"`，未提供该参数时默认仍为 `--topo-order`。
 
 关键规则：
 
@@ -579,7 +578,7 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 - `git diff --check`
 
 上游对照 fixture 固定保存在
-[`macos/Tests/LitheGitModuleTests/Fixtures/GitGraphIDEA/`](../../../../macos/Tests/LitheGitModuleTests/Fixtures/GitGraphIDEA/)
+[`shared/fixtures/git/graph-idea/`](../../../../shared/fixtures/git/graph-idea/)
 （4 个布局 fixture 比较完整 layout index 向量，5 个打印 fixture 比较
 节点列、半边端点、箭头与实/虚线，只排除颜色值）；真实历史回归数据
 冻结在
@@ -594,9 +593,7 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 
 ## 适用范围
 
-- `macos/Sources/LitheGitModule/Services/GitGraphHeadOrdering.swift`
-- `macos/Sources/LitheGitModule/Services/GitGraphProjection.swift`
-- `macos/Sources/LitheGitModule/Services/GitGraphMissingParents.swift`
+- `rust/lithe-core/src/git/graph.rs`
 - `macos/Sources/LitheGitModule/Services/GitGraphLayoutService.swift`
 - `macos/Sources/Lithe/Views/Git/GitGraphColor.swift`
 - `macos/Sources/Lithe/Views/Git/GitGraphGeometry.swift`
@@ -615,7 +612,7 @@ Lithe 在工作台视图中持有 `WorkbenchToolContentStore`，本次用于 Git
 - `macos/Tests/LitheTests/GitCommitFileTreeLayoutTests.swift`
 - `rust/lithe-core/src/git/history.rs`
 - `macos/Sources/Lithe/Core/Rust/RustGitOperations.swift`
-- `macos/Tests/LitheGitModuleTests/Fixtures/GitGraphIDEA/`
+- `shared/fixtures/git/graph-idea/`
 - `macos/Tests/LitheTests/Fixtures/GitGraph/`
 - `macos/Resources/GitGraph/`
 
