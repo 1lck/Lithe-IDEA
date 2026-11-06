@@ -14,6 +14,7 @@
 //! `{id, ok, data | error}` out, with the same stable error codes.
 
 mod dispatch;
+pub mod editor;
 mod error;
 pub mod keymap;
 #[cfg(target_arch = "wasm32")]

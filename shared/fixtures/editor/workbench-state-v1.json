@@ -1,0 +1,398 @@
+{
+  "version": 1,
+  "description": "State transitions of editor.workbenchState.reduce. Each case sends `state` and `action` as the payload and expects exactly `expected.state` and `expected.removedGroupIds`. Groups omit empty fields on input; the reducer always returns them in full.",
+  "cases": [
+    {
+      "name": "open-new-member-appends-and-selects",
+      "note": "Opening a new tab appends it, selects it and makes it the most recent.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"]}]},
+      "action": {"kind":"open","group":"g1","member":"c"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b","c"],"selected":"c","mru":["c","a","b"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "open-existing-member-does-not-duplicate",
+      "note": "Opening a tab that is already open only selects it.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"b","mru":["b","a"]}]},
+      "action": {"kind":"open","group":"g1","member":"a"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "open-without-activation-keeps-selection",
+      "note": "A background open (activate false) leaves the selection and MRU head alone.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"]}]},
+      "action": {"kind":"open","group":"g1","member":"c","activate":false},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b","c"],"selected":"a","mru":["a","b","c"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "open-repairs-duplicates-and-stale-selection",
+      "note": "Duplicate members collapse to the first occurrence and a stale selection falls back to the first member.",
+      "state": {"groups":[{"id":"g1","members":["a","a","b"],"selected":"ghost","mru":["ghost","b"]}]},
+      "action": {"kind":"open","group":"g1","member":"b","activate":false},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "open-into-unknown-group-is-a-no-op",
+      "note": "A group the host did not send is ignored.",
+      "state": {"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"]}]},
+      "action": {"kind":"open","group":"nope","member":"c"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "close-selected-middle-selects-adjacent",
+      "note": "Closing the selected tab selects the one that slid into its position.",
+      "state": {"groups":[{"id":"g1","members":["a","b","c"],"selected":"b","mru":["b","a","c"]}]},
+      "action": {"kind":"close","group":"g1","member":"b"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","c"],"selected":"c","mru":["c","a"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "close-selected-last-selects-new-last",
+      "note": "Closing the selected last tab selects the new last tab.",
+      "state": {"groups":[{"id":"g1","members":["a","b","c"],"selected":"c","mru":["c","b","a"]}]},
+      "action": {"kind":"close","group":"g1","member":"c"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b"],"selected":"b","mru":["b","a"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "close-selected-with-first-fallback",
+      "note": "A host that wants the first remaining tab (macOS reconcile rule) asks for selectionFallback first.",
+      "state": {"groups":[{"id":"g1","members":["a","b","c"],"selected":"b","mru":["b","a","c"]}]},
+      "action": {"kind":"close","group":"g1","member":"b","selectionFallback":"first"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","c"],"selected":"a","mru":["a","c"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "close-unselected-keeps-selection",
+      "note": "Closing another tab does not move the selection.",
+      "state": {"groups":[{"id":"g1","members":["a","b","c"],"selected":"b","mru":["b","c","a"]}]},
+      "action": {"kind":"close","group":"g1","member":"a"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["b","c"],"selected":"b","mru":["b","c"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "close-clears-pin-and-preview-of-the-member",
+      "note": "Pins and the preview that named the closed tab are dropped; others stay.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":["a","b"],"preview":"b"}]},
+      "action": {"kind":"close","group":"g1","member":"b"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"],"pinned":["a"],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "close-last-member-keeps-empty-group-by-default",
+      "note": "Without an empty-group policy the emptied group stays.",
+      "state": {"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"]},{"id":"g2","members":["b"],"selected":"b","mru":["b"]}]},
+      "action": {"kind":"close","group":"g1","member":"a"},
+      "expected": {"state":{"groups":[{"id":"g1","members":[],"selected":null,"mru":[],"pinned":[],"preview":null},{"id":"g2","members":["b"],"selected":"b","mru":["b"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "close-last-member-removes-empty-group",
+      "note": "Closing the last tab removes the emptied group and reports it.",
+      "state": {"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"]},{"id":"g2","members":["b"],"selected":"b","mru":["b"]}]},
+      "action": {"kind":"close","group":"g1","member":"a","emptyGroups":"remove"},
+      "expected": {"state":{"groups":[{"id":"g2","members":["b"],"selected":"b","mru":["b"],"pinned":[],"preview":null}]},"removedGroupIds":["g1"]}
+    },
+    {
+      "name": "close-last-member-of-only-group-keeps-one-group",
+      "note": "removeKeepingFirst never leaves the workbench without a group.",
+      "state": {"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"]}]},
+      "action": {"kind":"close","group":"g1","member":"a","emptyGroups":"removeKeepingFirst"},
+      "expected": {"state":{"groups":[{"id":"g1","members":[],"selected":null,"mru":[],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "close-last-member-of-only-group-can-remove-it",
+      "note": "A host that rebuilds its own root (Windows) asks for plain remove.",
+      "state": {"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"]}]},
+      "action": {"kind":"close","group":"g1","member":"a","emptyGroups":"remove"},
+      "expected": {"state":{"groups":[]},"removedGroupIds":["g1"]}
+    },
+    {
+      "name": "close-missing-member-only-repairs-the-group",
+      "note": "Closing a tab the group does not list changes nothing but invalid state.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"ghost","mru":["ghost","b","a"],"pinned":["ghost","a","a"],"preview":"ghost"}]},
+      "action": {"kind":"close","group":"g1","member":"zz"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":["a"],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "activate-member-moves-it-to-the-mru-head",
+      "note": "Selecting a tab makes it the most recently used.",
+      "state": {"groups":[{"id":"g1","members":["a","b","c"],"selected":"a","mru":["a","b","c"]}]},
+      "action": {"kind":"activate","group":"g1","member":"c"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b","c"],"selected":"c","mru":["c","a","b"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "activate-unknown-member-keeps-selection",
+      "note": "Activating a tab that is not in the group leaves the selection.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"b","mru":["b","a"]}]},
+      "action": {"kind":"activate","group":"g1","member":"ghost"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b"],"selected":"b","mru":["b","a"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "activate-null-repairs-selection-to-first",
+      "note": "Clearing the selection converges to the first member.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"b","mru":["b","a"]}]},
+      "action": {"kind":"activate","group":"g1","member":null},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "move-between-groups-selects-in-destination",
+      "note": "Moving appends to the destination, selects there and re-selects adjacent in the source.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"]},{"id":"g2","members":["c"],"selected":"c","mru":["c"]}]},
+      "action": {"kind":"move","member":"a","from":"g1","to":"g2"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["b"],"selected":"b","mru":["b"],"pinned":[],"preview":null},{"id":"g2","members":["c","a"],"selected":"a","mru":["a","c"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "move-last-member-removes-source-group",
+      "note": "A cross-group move that empties the source removes it when asked.",
+      "state": {"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"]},{"id":"g2","members":["c"],"selected":"c","mru":["c"]}]},
+      "action": {"kind":"move","member":"a","from":"g1","to":"g2","emptyGroups":"remove"},
+      "expected": {"state":{"groups":[{"id":"g2","members":["c","a"],"selected":"a","mru":["a","c"],"pinned":[],"preview":null}]},"removedGroupIds":["g1"]}
+    },
+    {
+      "name": "move-last-member-can-keep-source-group",
+      "note": "A host that wants to refill the source (preserve empty) keeps it.",
+      "state": {"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"]},{"id":"g2","members":["c"],"selected":"c","mru":["c"]}]},
+      "action": {"kind":"move","member":"a","from":"g1","to":"g2"},
+      "expected": {"state":{"groups":[{"id":"g1","members":[],"selected":null,"mru":[],"pinned":[],"preview":null},{"id":"g2","members":["c","a"],"selected":"a","mru":["a","c"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "move-source-selection-can-fall-back-to-first",
+      "note": "macOS reconcile picks the first remaining tab in the source.",
+      "state": {"groups":[{"id":"g1","members":["a","b","c"],"selected":"b","mru":["b","a","c"]},{"id":"g2","members":["d"],"selected":"d","mru":["d"]}]},
+      "action": {"kind":"move","member":"b","from":"g1","to":"g2","selectionFallback":"first"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","c"],"selected":"a","mru":["a","c"],"pinned":[],"preview":null},{"id":"g2","members":["d","b"],"selected":"b","mru":["b","d"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "move-before-anchor-without-activation",
+      "note": "Dropping next to a tab inserts before it and leaves the destination selection.",
+      "state": {"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"]},{"id":"g2","members":["b","c"],"selected":"b","mru":["b","c"]}]},
+      "action": {"kind":"move","member":"a","from":"g1","to":"g2","before":"c","activate":false,"emptyGroups":"removeKeepingFirst"},
+      "expected": {"state":{"groups":[{"id":"g2","members":["b","a","c"],"selected":"b","mru":["b","c","a"],"pinned":[],"preview":null}]},"removedGroupIds":["g1"]}
+    },
+    {
+      "name": "move-after-anchor",
+      "note": "Inserting after an anchor.",
+      "state": {"groups":[{"id":"g1","members":["a","x"],"selected":"x","mru":["x","a"]},{"id":"g2","members":["b","c"],"selected":"b","mru":["b","c"]}]},
+      "action": {"kind":"move","member":"a","from":"g1","to":"g2","after":"b","activate":false},
+      "expected": {"state":{"groups":[{"id":"g1","members":["x"],"selected":"x","mru":["x"],"pinned":[],"preview":null},{"id":"g2","members":["b","a","c"],"selected":"b","mru":["b","c","a"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "move-with-missing-anchor-appends",
+      "note": "An anchor that is not in the destination falls back to the end.",
+      "state": {"groups":[{"id":"g1","members":["a","x"],"selected":"x","mru":["x","a"]},{"id":"g2","members":["b"],"selected":"b","mru":["b"]}]},
+      "action": {"kind":"move","member":"a","from":"g1","to":"g2","before":"ghost","activate":false},
+      "expected": {"state":{"groups":[{"id":"g1","members":["x"],"selected":"x","mru":["x"],"pinned":[],"preview":null},{"id":"g2","members":["b","a"],"selected":"b","mru":["b","a"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "move-within-one-group-goes-to-the-end",
+      "note": "Moving to the same group removes then re-adds at the end and never removes the group.",
+      "state": {"groups":[{"id":"g1","members":["a","b","c"],"selected":"b","mru":["b","a","c"]}]},
+      "action": {"kind":"move","member":"a","from":"g1","to":"g1","emptyGroups":"remove"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["b","c","a"],"selected":"a","mru":["a","b","c"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "move-within-one-group-without-activation-keeps-selection-and-pins",
+      "note": "macOS reorders tabs inside a group with move; that never changes the selection or pins.",
+      "state": {"groups":[{"id":"g1","members":["a","b","c"],"selected":"b","mru":["b","a","c"],"pinned":["a"],"preview":"c"}]},
+      "action": {"kind":"move","member":"a","from":"g1","to":"g1","after":"c","activate":false,"selectionFallback":"first","emptyGroups":"removeKeepingFirst"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["b","c","a"],"selected":"b","mru":["b","a","c"],"pinned":["a"],"preview":"c"}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "move-within-one-group-before-an-anchor",
+      "note": "Repositioning before an anchor.",
+      "state": {"groups":[{"id":"g1","members":["a","b","c"],"selected":"a","mru":["a","b","c"]}]},
+      "action": {"kind":"move","member":"c","from":"g1","to":"g1","before":"b","activate":false},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","c","b"],"selected":"a","mru":["a","b","c"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "move-to-unknown-group-is-a-no-op",
+      "note": "A destination the host did not send leaves everything in place instead of losing the tab.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"]}]},
+      "action": {"kind":"move","member":"a","from":"g1","to":"ghost"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "move-from-unknown-group-still-adds",
+      "note": "A source the host did not send only skips the removal.",
+      "state": {"groups":[{"id":"g2","members":["b"],"selected":"b","mru":["b"]}]},
+      "action": {"kind":"move","member":"a","from":"ghost","to":"g2"},
+      "expected": {"state":{"groups":[{"id":"g2","members":["b","a"],"selected":"a","mru":["a","b"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "move-drops-pin-and-preview-from-the-source",
+      "note": "Pin and preview belong to the group, so they do not follow the tab.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":["a","b"],"preview":"a"},{"id":"g2","members":["c"],"selected":"c","mru":["c"]}]},
+      "action": {"kind":"move","member":"a","from":"g1","to":"g2"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["b"],"selected":"b","mru":["b"],"pinned":["b"],"preview":null},{"id":"g2","members":["c","a"],"selected":"a","mru":["a","c"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "reorder-moves-a-member-without-touching-selection",
+      "note": "Reordering changes only the member order.",
+      "state": {"groups":[{"id":"g1","members":["a","b","c"],"selected":"b","mru":["b","c","a"]}]},
+      "action": {"kind":"reorder","group":"g1","fromIndex":0,"toIndex":2},
+      "expected": {"state":{"groups":[{"id":"g1","members":["b","c","a"],"selected":"b","mru":["b","c","a"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "reorder-out-of-range-is-a-no-op",
+      "note": "Indexes outside the group change nothing.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"]}]},
+      "action": {"kind":"reorder","group":"g1","fromIndex":0,"toIndex":5},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "reorder-negative-index-is-a-no-op",
+      "note": "Negative indexes are out of range.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"]}]},
+      "action": {"kind":"reorder","group":"g1","fromIndex":-1,"toIndex":1},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "pin-clears-the-preview-of-the-same-member",
+      "note": "Pinning a previewed tab promotes it.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":[],"preview":"b"}]},
+      "action": {"kind":"setPinned","group":"g1","member":"b","pinned":true},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":["b"],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "pin-twice-keeps-one-pin",
+      "note": "Pins are unique.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":["a"]}]},
+      "action": {"kind":"setPinned","group":"g1","member":"a","pinned":true},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":["a"],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "pin-non-member-is-ignored",
+      "note": "A tab the group does not list cannot be pinned.",
+      "state": {"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"]}]},
+      "action": {"kind":"setPinned","group":"g1","member":"ghost","pinned":true},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "unpin-removes-the-pin",
+      "note": "Unpinning removes only that member.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":["a","b"]}]},
+      "action": {"kind":"setPinned","group":"g1","member":"a","pinned":false},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":["b"],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "pin-everywhere-skips-groups-without-the-member",
+      "note": "Only groups that list the tab change; the others are returned as sent.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":[],"preview":"a"},{"id":"g2","members":["a"],"selected":"a","mru":["a"]},{"id":"g3","members":["b"],"selected":"b","mru":["b"]}]},
+      "action": {"kind":"setPinnedEverywhere","member":"a","pinned":true},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":["a"],"preview":null},{"id":"g2","members":["a"],"selected":"a","mru":["a"],"pinned":["a"],"preview":null},{"id":"g3","members":["b"],"selected":"b","mru":["b"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "unpin-everywhere",
+      "note": "Unpinning everywhere.",
+      "state": {"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"],"pinned":["a"]},{"id":"g2","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":["a","b"]}]},
+      "action": {"kind":"setPinnedEverywhere","member":"a","pinned":false},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"],"pinned":[],"preview":null},{"id":"g2","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":["b"],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "preview-clears-the-pin-of-the-same-member",
+      "note": "Previewing a pinned tab unpins it.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":["b"]}]},
+      "action": {"kind":"setPreview","group":"g1","member":"b"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":[],"preview":"b"}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "preview-replaces-the-previous-preview",
+      "note": "Only one preview exists per group.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":[],"preview":"a"}]},
+      "action": {"kind":"setPreview","group":"g1","member":"b"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":[],"preview":"b"}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "preview-unknown-member-is-ignored",
+      "note": "Previewing a tab the group does not list changes nothing.",
+      "state": {"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"],"pinned":[],"preview":"a"}]},
+      "action": {"kind":"setPreview","group":"g1","member":"ghost"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"],"pinned":[],"preview":"a"}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "preview-null-clears-it",
+      "note": "Passing null clears the preview.",
+      "state": {"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"],"pinned":[],"preview":"a"}]},
+      "action": {"kind":"setPreview","group":"g1","member":null},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "clear-preview-everywhere-only-touches-matching-groups",
+      "note": "Groups previewing another tab stay as they are.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":[],"preview":"a"},{"id":"g2","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":[],"preview":"b"}]},
+      "action": {"kind":"clearPreviewEverywhere","member":"a"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":[],"preview":null},{"id":"g2","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":[],"preview":"b"}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "merge-group-folds-members-and-selects-the-shown-tab",
+      "note": "Closing a group moves its tabs to the fallback group; the shown tab becomes selected when asked.",
+      "state": {"groups":[{"id":"g1","members":["a","b"],"selected":"b","mru":["b","a"]},{"id":"g2","members":["c"],"selected":"c","mru":["c"]}]},
+      "action": {"kind":"mergeGroup","from":"g1","into":"g2","activateSelected":true},
+      "expected": {"state":{"groups":[{"id":"g2","members":["c","a","b"],"selected":"b","mru":["b","c","a"],"pinned":[],"preview":null}]},"removedGroupIds":["g1"]}
+    },
+    {
+      "name": "merge-group-keeps-destination-selection-by-default",
+      "note": "Without activation the destination keeps showing its own tab and shared tabs are not duplicated.",
+      "state": {"groups":[{"id":"g1","members":["a","c"],"selected":"a","mru":["a","c"]},{"id":"g2","members":["c"],"selected":"c","mru":["c"]}]},
+      "action": {"kind":"mergeGroup","from":"g1","into":"g2"},
+      "expected": {"state":{"groups":[{"id":"g2","members":["c","a"],"selected":"c","mru":["c","a"],"pinned":[],"preview":null}]},"removedGroupIds":["g1"]}
+    },
+    {
+      "name": "merge-group-into-unknown-group-is-a-no-op",
+      "note": "Without a destination nothing is removed.",
+      "state": {"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"]}]},
+      "action": {"kind":"mergeGroup","from":"g1","into":"ghost","activateSelected":true},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "normalize-repairs-every-reference",
+      "note": "Duplicates, stale selection, stale MRU, stale pins and a stale preview are all repaired.",
+      "state": {"groups":[{"id":"g1","members":["a","b","a"],"selected":"ghost","mru":["ghost","b","b"],"pinned":["ghost","b","b"],"preview":"ghost"}]},
+      "action": {"kind":"normalize"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b"],"selected":"a","mru":["a","b"],"pinned":["b"],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "normalize-keeps-valid-state-and-mru-order",
+      "note": "Valid state, including a pin and a preview together, is returned unchanged.",
+      "state": {"groups":[{"id":"g1","members":["a","b","c"],"selected":"b","mru":["b","c","a"],"pinned":["a"],"preview":"c"}]},
+      "action": {"kind":"normalize"},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","b","c"],"selected":"b","mru":["b","c","a"],"pinned":["a"],"preview":"c"}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "normalize-places-unplaced-members-in-the-focused-group",
+      "note": "Members no group lists join the focused group; already placed ones are ignored.",
+      "state": {"groups":[{"id":"g1","members":["a"],"selected":"a"},{"id":"g2","members":["b"],"selected":"b"}],"focusedGroup":"g2"},
+      "action": {"kind":"normalize","unplaced":["c","a"]},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a"],"selected":"a","mru":["a"],"pinned":[],"preview":null},{"id":"g2","members":["b","c"],"selected":"b","mru":["b","c"],"pinned":[],"preview":null}],"focusedGroup":"g2"},"removedGroupIds":[]}
+    },
+    {
+      "name": "normalize-places-unplaced-members-in-the-first-group-without-focus",
+      "note": "A stale focused group falls back to the first group.",
+      "state": {"groups":[{"id":"g1","members":["a"],"selected":"a"},{"id":"g2","members":["b"],"selected":"b"}],"focusedGroup":"ghost"},
+      "action": {"kind":"normalize","unplaced":["c"]},
+      "expected": {"state":{"groups":[{"id":"g1","members":["a","c"],"selected":"a","mru":["a","c"],"pinned":[],"preview":null},{"id":"g2","members":["b"],"selected":"b","mru":["b"],"pinned":[],"preview":null}],"focusedGroup":"ghost"},"removedGroupIds":[]}
+    },
+    {
+      "name": "normalize-removes-empty-groups-and-moves-focus",
+      "note": "Every empty group goes; focus that pointed at a removed group moves to the first remaining one.",
+      "state": {"groups":[{"id":"g1","members":[]},{"id":"g2","members":["a"],"selected":"a"},{"id":"g3","members":[]}],"focusedGroup":"g1"},
+      "action": {"kind":"normalize","emptyGroups":"removeKeepingFirst"},
+      "expected": {"state":{"groups":[{"id":"g2","members":["a"],"selected":"a","mru":["a"],"pinned":[],"preview":null}],"focusedGroup":"g2"},"removedGroupIds":["g1","g3"]}
+    },
+    {
+      "name": "normalize-with-no-members-keeps-the-first-group",
+      "note": "When every group is empty exactly the first one stays.",
+      "state": {"groups":[{"id":"g1","members":[]},{"id":"g2","members":[]}]},
+      "action": {"kind":"normalize","emptyGroups":"removeKeepingFirst"},
+      "expected": {"state":{"groups":[{"id":"g1","members":[],"selected":null,"mru":[],"pinned":[],"preview":null}]},"removedGroupIds":["g2"]}
+    },
+    {
+      "name": "normalize-without-pruning-keeps-empty-groups",
+      "note": "The default policy keeps empty groups (Windows restores layouts this way).",
+      "state": {"groups":[{"id":"g1","members":[]},{"id":"g2","members":["a"]}]},
+      "action": {"kind":"normalize"},
+      "expected": {"state":{"groups":[{"id":"g1","members":[],"selected":null,"mru":[],"pinned":[],"preview":null},{"id":"g2","members":["a"],"selected":"a","mru":["a"],"pinned":[],"preview":null}]},"removedGroupIds":[]}
+    },
+    {
+      "name": "normalize-leaves-focus-alone-when-its-group-survives",
+      "note": "Focus only changes when its group disappears.",
+      "state": {"groups":[{"id":"g1","members":[]},{"id":"g2","members":["a"]}],"focusedGroup":"g2"},
+      "action": {"kind":"normalize","emptyGroups":"remove"},
+      "expected": {"state":{"groups":[{"id":"g2","members":["a"],"selected":"a","mru":["a"],"pinned":[],"preview":null}],"focusedGroup":"g2"},"removedGroupIds":["g1"]}
+    }
+  ]
+}

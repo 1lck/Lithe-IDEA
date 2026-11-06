@@ -1,11 +1,14 @@
 //! Command routing and the JSON envelope shared with `lithe-core`.
 
-use crate::{keymap, RuleError, RuleErrorCode};
+use crate::{editor, keymap, RuleError, RuleErrorCode};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 /// Every command name this crate owns. `lithe-core` routes exactly these names here.
-pub const COMMANDS: &[&str] = &[keymap::MODIFIER_GESTURE_STEP];
+pub const COMMANDS: &[&str] = &[
+    keymap::MODIFIER_GESTURE_STEP,
+    editor::REDUCE_WORKBENCH_STATE,
+];
 
 /// Reports whether `command` is owned by this crate.
 pub fn is_rule_command(command: &str) -> bool {
@@ -16,6 +19,7 @@ pub fn is_rule_command(command: &str) -> bool {
 pub fn execute(command: &str, payload: Value) -> Result<Value, RuleError> {
     match command {
         keymap::MODIFIER_GESTURE_STEP => keymap::modifier_gesture_step_json(payload),
+        editor::REDUCE_WORKBENCH_STATE => editor::reduce_json(payload),
         _ => Err(RuleError::new(
             RuleErrorCode::NotSupported,
             "Unknown rule command",

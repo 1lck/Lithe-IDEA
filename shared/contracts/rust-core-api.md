@@ -159,6 +159,29 @@ through the C ABI, and the Windows frontend runs the same source compiled to was
 payload is `invalid_request`. Hosts only convert native events to this input and act on `triggered`; both are
 tested step by step against `shared/fixtures/keymap/modifier-gesture-v1.json`.
 
+`editor.workbenchState.reduce` accepts `{state?, action}` and returns `{state, removedGroupIds}`. `state` is
+`{groups, focusedGroup?}`; a group is `{id, members, selected?, mru?, pinned?, preview?}` (ordered members, the shown
+member, most-recent-first order, pinned members, one transient preview), which is the union of what macOS (a flat
+tab list with placements and per-group selection) and Windows (pane groups with MRU, pins and preview) track.
+`action` is tagged by `kind`: `normalize {emptyGroups?, unplaced?}`, `open {group, member, activate?}`,
+`close {group, member, emptyGroups?, selectionFallback?}`, `activate {group, member?}`,
+`move {member, from, to, before?, after?, activate?, emptyGroups?, selectionFallback?}` (with `from == to` it only
+repositions), `reorder {group, fromIndex, toIndex}`, `setPinned {group, member, pinned}`,
+`setPinnedEverywhere {member, pinned}`, `setPreview {group, member?}`, `clearPreviewEverywhere {member}` and
+`mergeGroup {from, into, activateSelected?}`. Every group an action touches leaves with unique members, a selection
+that is a member (the first one when it was missing or stale, `null` when empty), an MRU order that starts at the
+selection and lists every member once, and pins and preview that only name members; groups an action does not touch are
+returned as sent, so a host may send only the groups an action involves. `emptyGroups` is `keep` (default), `remove`
+(may leave no group) or `removeKeepingFirst`; it applies to the group a `close` or `move` emptied and to every group for
+`normalize`. `selectionFallback` is `adjacent` (default: the member that slid into the vacated position) or `first`.
+`normalize.unplaced` members no group lists join the focused group (the first group when `focusedGroup` is missing or
+stale), and `focusedGroup` moves to the first remaining group when its group was removed. Actions that name an unknown
+group or an unknown move destination change nothing. `removedGroupIds` lists removed groups in their previous order so
+hosts prune their own layout tree; split directions, ratios, pixels and dragging never reach Core. A malformed payload is
+`invalid_request`. It lives in `rust/lithe-core-rules` and is called synchronously: macOS through the C ABI, Windows
+through the wasm build inside zustand `set()`, one call per user action. Both hosts run every case of
+`shared/fixtures/editor/workbench-state-v1.json` through it.
+
 ## Terminal link targets
 
 `terminal.parseLinkTarget` accepts `{texts: string[], baseDirectory?, homeDirectory?, providerSchemes?: string[]}`

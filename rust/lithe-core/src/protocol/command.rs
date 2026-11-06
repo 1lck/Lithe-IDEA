@@ -409,6 +409,10 @@ pub enum CoreCommand {
     /// Advances the double-Shift gesture recognizer by one event (`keymap.modifierGestureStep`).
     /// The rule itself lives in `lithe-core-rules` so the Windows frontend can run it synchronously.
     KeymapModifierGestureStep,
+    /// Applies one editor-group state transition: open, close, move, pin, preview, merge or normalize
+    /// (`editor.workbenchState.reduce`). The rule lives in `lithe-core-rules` so the Windows frontend
+    /// can run it synchronously inside store updates.
+    EditorWorkbenchStateReduce,
     /// Resolves terminal link candidates into file or external targets (`terminal.parseLinkTarget`).
     TerminalParseLinkTarget,
     /// Creates one transport-neutral Debug Adapter Protocol session (`debug.createSession`).
@@ -1034,6 +1038,7 @@ impl CoreCommand {
             "keymap.evaluateContext" => Some(Self::KeymapEvaluateContext),
             "keymap.analyzeConflicts" => Some(Self::KeymapAnalyzeConflicts),
             "keymap.modifierGestureStep" => Some(Self::KeymapModifierGestureStep),
+            "editor.workbenchState.reduce" => Some(Self::EditorWorkbenchStateReduce),
             "terminal.parseLinkTarget" => Some(Self::TerminalParseLinkTarget),
             "debug.createSession" => Some(Self::DebugCreateSession),
             "debug.launch" => Some(Self::DebugLaunch),

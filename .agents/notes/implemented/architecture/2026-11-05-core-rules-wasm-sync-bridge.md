@@ -31,6 +31,12 @@ Issue #1662 要求把两端重复的确定性逻辑下沉到 Core。Windows 前�
 - **WS-17 作为首个端到端迁移**：Swift `DoubleShiftGestureRecognizer` 和 TS `double-shift-recognizer.ts` 只剩薄适配层
   （转换原生事件、保存 Core 返回的状态、把 `triggered` 变成动作）。macOS 每次事件一次同步 FFI，body 约 100 字节，
   `keymap.*` 不进请求追踪；按键速度下可以接受。
+- **LSP-16 编辑器分组成员状态**：`editor.workbenchState.reduce` 在 `lithe-core-rules` 里定义取两端并集的规范“组成员状态”
+  （每组：有序去重的成员、选中项、MRU、固定、预览），动作为 normalize、open、close、activate、move、reorder、固定、预览和 mergeGroup，
+  返回新状态和 `removedGroupIds`。macOS 把 `items`、`placements`、`groupSelections` 转成规范状态（MRU、固定、预览传空值），
+  Windows 把每个 `PaneGroup` 转成规范组，两端旧规则已删除；布局树、拆分方向和比例仍在各自平台，只按 `removedGroupIds` 修剪。
+  两端在“选中项离开分组”时的既有行为不同（macOS 回落到第一个标签，Windows 选中相邻标签），用请求里的 `selectionFallback`
+  （`first` / `adjacent`）保留，不改用户可见行为。fixture 为 `shared/fixtures/editor/workbench-state-v1.json`。
 
 ## 边界
 

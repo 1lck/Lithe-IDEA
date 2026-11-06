@@ -7,6 +7,7 @@ import type {
   SplitDirection,
   SplitPlacement,
 } from "../types/pane.types";
+import { reduceWorkbenchGroups, type WorkbenchAction } from "./workbench-state";
 
 export interface FlatPaneEntry {
   node: PaneNode;
@@ -14,24 +15,20 @@ export interface FlatPaneEntry {
   path: Array<{ splitId: string; childIndex: 0 | 1 }>;
 }
 
+/** Builds a group whose members, selection and MRU order Core has already made consistent. */
 export function createPaneGroup(
   bufferIds: string[] = [],
   activeBufferId: string | null = null,
 ): PaneGroup {
-  const uniqueBufferIds = dedupe(bufferIds);
-  const safeActiveBufferId =
-    activeBufferId && uniqueBufferIds.includes(activeBufferId)
-      ? activeBufferId
-      : (uniqueBufferIds[0] ?? null);
-
+  const draft: PaneGroup = { id: nanoid(), type: "group", bufferIds, activeBufferId };
+  const { groups } = reduceWorkbenchGroups([draft], { kind: "normalize" });
+  const [group] = groups;
   return {
-    id: nanoid(),
+    id: draft.id,
     type: "group",
-    bufferIds: uniqueBufferIds,
-    activeBufferId: safeActiveBufferId,
-    mruBufferIds: safeActiveBufferId
-      ? [safeActiveBufferId, ...uniqueBufferIds.filter((id) => id !== safeActiveBufferId)]
-      : uniqueBufferIds,
+    bufferIds: group.bufferIds,
+    activeBufferId: group.activeBufferId,
+    mruBufferIds: group.mruBufferIds,
   };
 }
 
@@ -49,10 +46,6 @@ export function createPaneSplit(
     children: [first, second],
     sizes: safeSizes,
   };
-}
-
-function dedupe<T>(items: T[]): T[] {
-  return Array.from(new Set(items));
 }
 
 function normalizeSplitSizes(sizes: [number, number]): [number, number] {
@@ -103,64 +96,84 @@ function updatePaneNode(
   return root;
 }
 
-function normalizeGroup(group: PaneGroup): PaneGroup {
-  const bufferIdSet = new Set(group.bufferIds);
-  const bufferIds = Array.from(bufferIdSet);
-  const activeBufferId =
-    group.activeBufferId && bufferIdSet.has(group.activeBufferId)
-      ? group.activeBufferId
-      : (bufferIds[0] ?? null);
-
-  const seenMruBufferIds = new Set<string>();
-  const mruBufferIds: string[] = [];
-  const appendMruBufferId = (bufferId: string) => {
-    if (!bufferIdSet.has(bufferId) || seenMruBufferIds.has(bufferId)) return;
-    seenMruBufferIds.add(bufferId);
-    mruBufferIds.push(bufferId);
-  };
-
-  if (activeBufferId) {
-    appendMruBufferId(activeBufferId);
-  }
-  for (const bufferId of group.mruBufferIds ?? []) {
-    appendMruBufferId(bufferId);
-  }
-  for (const bufferId of bufferIds) {
-    appendMruBufferId(bufferId);
+function mapPaneGroups(root: PaneNode, update: (group: PaneGroup) => PaneGroup): PaneNode {
+  if (root.type === "group") {
+    return update(root);
   }
 
-  const seenPinnedBufferIds = new Set<string>();
-  const pinnedBufferIds: string[] = [];
-  for (const bufferId of group.pinnedBufferIds ?? []) {
-    if (bufferIdSet.has(bufferId) && !seenPinnedBufferIds.has(bufferId)) {
-      seenPinnedBufferIds.add(bufferId);
-      pinnedBufferIds.push(bufferId);
+  const first = mapPaneGroups(root.children[0], update);
+  const second = mapPaneGroups(root.children[1], update);
+  if (first === root.children[0] && second === root.children[1]) {
+    return root;
+  }
+  return { ...root, children: [first, second] };
+}
+
+/**
+ * Runs one Core action over every group of `roots` that `involves` selects, in a single Core
+ * call, and writes the returned groups back. Groups Core removed are reported for the caller to
+ * prune from its layout (see {@link removePaneGroups}); they are left in the trees until then.
+ */
+function reduceGroupsInTrees(
+  roots: PaneNode[],
+  involves: (group: PaneGroup) => boolean,
+  action: WorkbenchAction,
+): { roots: PaneNode[]; removedGroupIds: string[] } {
+  const selected = new Map<string, PaneGroup>();
+  for (const root of roots) {
+    for (const group of getAllPaneGroups(root)) {
+      if (involves(group)) selected.set(group.id, group);
     }
   }
+  if (selected.size === 0) {
+    return { roots, removedGroupIds: [] };
+  }
 
-  const previewBufferId =
-    group.previewBufferId && bufferIdSet.has(group.previewBufferId) ? group.previewBufferId : null;
-
+  const { groups, removedGroupIds } = reduceWorkbenchGroups([...selected.values()], action);
+  const next = new Map(groups.map((group) => [group.id, group]));
   return {
-    ...group,
-    bufferIds,
-    activeBufferId,
-    mruBufferIds,
-    previewBufferId,
-    pinnedBufferIds,
+    roots: roots.map((root) => mapPaneGroups(root, (group) => next.get(group.id) ?? group)),
+    removedGroupIds,
   };
 }
 
-export function normalizePaneTree(root: PaneNode): PaneNode {
+/** Closes the layout nodes of groups Core removed; null means the tree has no group left. */
+export function removePaneGroups(root: PaneNode, paneIds: string[]): PaneNode | null {
+  let next: PaneNode | null = root;
+  for (const paneId of paneIds) {
+    if (!next) break;
+    next = closePane(next, paneId);
+  }
+  return next;
+}
+
+function reduceGroupInTree(root: PaneNode, paneId: string, action: WorkbenchAction): PaneNode {
+  return reduceGroupsInTrees([root], (group) => group.id === paneId, action).roots[0];
+}
+
+/** Normalizes the groups of several trees with one Core call (split ratios are normalized here). */
+export function normalizePaneTrees(roots: PaneNode[]): PaneNode[] {
+  const { roots: normalized } = reduceGroupsInTrees(roots, () => true, { kind: "normalize" });
+  return normalized.map(normalizeSplitSizesInTree);
+}
+
+function normalizeSplitSizesInTree(root: PaneNode): PaneNode {
   if (root.type === "group") {
-    return normalizeGroup(root);
+    return root;
   }
 
   return {
     ...root,
     sizes: normalizeSplitSizes(root.sizes),
-    children: [normalizePaneTree(root.children[0]), normalizePaneTree(root.children[1])],
+    children: [
+      normalizeSplitSizesInTree(root.children[0]),
+      normalizeSplitSizesInTree(root.children[1]),
+    ],
   };
+}
+
+export function normalizePaneTree(root: PaneNode): PaneNode {
+  return normalizePaneTrees([root])[0];
 }
 
 export function flattenPaneSplit(
@@ -393,71 +406,85 @@ export function addBufferToPane(
   bufferId: string,
   setActive: boolean = true,
 ): PaneNode {
-  return updatePaneNode(root, paneId, (node) => {
-    if (node.type !== "group") {
-      return node;
-    }
-
-    const nextActiveBufferId = setActive ? bufferId : node.activeBufferId;
-    if (node.bufferIds.includes(bufferId)) {
-      return normalizeGroup({
-        ...node,
-        activeBufferId: nextActiveBufferId,
-        mruBufferIds: setActive
-          ? [bufferId, ...(node.mruBufferIds ?? node.bufferIds).filter((id) => id !== bufferId)]
-          : node.mruBufferIds,
-      });
-    }
-    return normalizeGroup({
-      ...node,
-      bufferIds: [...node.bufferIds, bufferId],
-      activeBufferId: nextActiveBufferId,
-      mruBufferIds: setActive
-        ? [bufferId, ...(node.mruBufferIds ?? node.bufferIds)]
-        : node.mruBufferIds,
-    });
+  return reduceGroupInTree(root, paneId, {
+    kind: "open",
+    group: paneId,
+    member: bufferId,
+    activate: setActive,
   });
 }
 
-export function removeBufferFromPane(root: PaneNode, paneId: string, bufferId: string): PaneNode {
-  return updatePaneNode(root, paneId, (node) => {
-    if (node.type !== "group") {
-      return node;
-    }
-
-    const newBufferIds = node.bufferIds.filter((id) => id !== bufferId);
-    let newActiveBufferId = node.activeBufferId;
-
-    if (node.activeBufferId === bufferId) {
-      const currentIndex = node.bufferIds.indexOf(bufferId);
-      if (newBufferIds.length > 0) {
-        const newIndex = Math.min(currentIndex, newBufferIds.length - 1);
-        newActiveBufferId = newBufferIds[newIndex];
-      } else {
-        newActiveBufferId = null;
-      }
-    }
-
-    return normalizeGroup({
-      ...node,
-      bufferIds: newBufferIds,
-      activeBufferId: newActiveBufferId,
-      mruBufferIds: (node.mruBufferIds ?? node.bufferIds).filter((id) => id !== bufferId),
-      pinnedBufferIds: node.pinnedBufferIds?.filter((id) => id !== bufferId),
-      previewBufferId: node.previewBufferId === bufferId ? null : node.previewBufferId,
-    });
-  });
-}
-
-export function moveBufferBetweenPanes(
+/**
+ * Removes a tab from a group. With `pruneEmptyPane` the group is closed when it becomes empty;
+ * null means that was the tree's only group and the caller supplies a fresh root.
+ */
+export function removeBufferFromPane(
   root: PaneNode,
+  paneId: string,
+  bufferId: string,
+  pruneEmptyPane: boolean = false,
+): PaneNode | null {
+  const reduced = reduceGroupsInTrees([root], (group) => group.id === paneId, {
+    kind: "close",
+    group: paneId,
+    member: bufferId,
+    emptyGroups: pruneEmptyPane ? "remove" : "keep",
+    selectionFallback: "adjacent",
+  });
+  return removePaneGroups(reduced.roots[0], reduced.removedGroupIds);
+}
+
+/**
+ * Moves a tab between two groups, which may live in different trees (`fromRoot`, `toRoot`; the
+ * same object when they share one). Core does the whole transition in one call. A null root means
+ * that tree lost its last group.
+ */
+export function moveBufferBetweenPanes(
+  fromRoot: PaneNode,
+  toRoot: PaneNode,
   bufferId: string,
   fromPaneId: string,
   toPaneId: string,
+  pruneEmptySource: boolean = true,
+): { fromRoot: PaneNode | null; toRoot: PaneNode | null } {
+  const sameTree = fromRoot === toRoot;
+  const reduced = reduceGroupsInTrees(
+    sameTree ? [fromRoot] : [fromRoot, toRoot],
+    (group) => group.id === fromPaneId || group.id === toPaneId,
+    {
+      kind: "move",
+      member: bufferId,
+      from: fromPaneId,
+      to: toPaneId,
+      activate: true,
+      emptyGroups: pruneEmptySource ? "remove" : "keep",
+      selectionFallback: "adjacent",
+    },
+  );
+  const next = reduced.roots.map((root) => removePaneGroups(root, reduced.removedGroupIds));
+  return { fromRoot: next[0], toRoot: sameTree ? next[0] : next[1] };
+}
+
+/**
+ * Folds the tabs of a group that was just closed into another group of `root` and optionally
+ * shows the tab the closed group was showing.
+ */
+export function mergeClosedPaneInto(
+  root: PaneNode,
+  closedPane: PaneGroup,
+  intoPaneId: string,
+  activateSelected: boolean,
 ): PaneNode {
-  let result = removeBufferFromPane(root, fromPaneId, bufferId);
-  result = addBufferToPane(result, toPaneId, bufferId, true);
-  return result;
+  const target = findPaneGroup(root, intoPaneId);
+  if (!target) return root;
+  const { groups } = reduceWorkbenchGroups([closedPane, target], {
+    kind: "mergeGroup",
+    from: closedPane.id,
+    into: intoPaneId,
+    activateSelected,
+  });
+  const merged = groups.find((group) => group.id === intoPaneId);
+  return merged ? mapPaneGroups(root, (group) => (group.id === intoPaneId ? merged : group)) : root;
 }
 
 export function setActivePaneBuffer(
@@ -465,23 +492,7 @@ export function setActivePaneBuffer(
   paneId: string,
   bufferId: string | null,
 ): PaneNode {
-  return updatePaneNode(root, paneId, (node) => {
-    if (node.type !== "group") {
-      return node;
-    }
-
-    if (bufferId && !node.bufferIds.includes(bufferId)) {
-      return normalizeGroup(node);
-    }
-
-    return normalizeGroup({
-      ...node,
-      activeBufferId: bufferId,
-      mruBufferIds: bufferId
-        ? [bufferId, ...(node.mruBufferIds ?? node.bufferIds).filter((id) => id !== bufferId)]
-        : node.mruBufferIds,
-    });
-  });
+  return reduceGroupInTree(root, paneId, { kind: "activate", group: paneId, member: bufferId });
 }
 
 export function setPanePreviewBuffer(
@@ -489,48 +500,15 @@ export function setPanePreviewBuffer(
   paneId: string,
   bufferId: string | null,
 ): PaneNode {
-  return updatePaneNode(root, paneId, (node) => {
-    if (node.type !== "group") {
-      return node;
-    }
-
-    if (bufferId && !node.bufferIds.includes(bufferId)) {
-      return normalizeGroup(node);
-    }
-
-    return normalizeGroup({
-      ...node,
-      previewBufferId: bufferId,
-      pinnedBufferIds: bufferId
-        ? node.pinnedBufferIds?.filter((pinnedBufferId) => pinnedBufferId !== bufferId)
-        : node.pinnedBufferIds,
-    });
-  });
+  return reduceGroupInTree(root, paneId, { kind: "setPreview", group: paneId, member: bufferId });
 }
 
-export function clearPanePreviewBufferEverywhere(root: PaneNode, bufferId: string): PaneNode {
-  if (root.type === "group") {
-    if (root.previewBufferId !== bufferId) {
-      return root;
-    }
-
-    return normalizeGroup({
-      ...root,
-      previewBufferId: null,
-    });
-  }
-
-  const first = clearPanePreviewBufferEverywhere(root.children[0], bufferId);
-  const second = clearPanePreviewBufferEverywhere(root.children[1], bufferId);
-
-  if (first === root.children[0] && second === root.children[1]) {
-    return root;
-  }
-
-  return {
-    ...root,
-    children: [first, second],
-  };
+/** Clears a preview of `bufferId` in every group of every tree, with one Core call. */
+export function clearPanePreviewBufferEverywhere(roots: PaneNode[], bufferId: string): PaneNode[] {
+  return reduceGroupsInTrees(roots, (group) => group.previewBufferId === bufferId, {
+    kind: "clearPreviewEverywhere",
+    member: bufferId,
+  }).roots;
 }
 
 export function setPaneBufferPinned(
@@ -539,72 +517,30 @@ export function setPaneBufferPinned(
   bufferId: string,
   pinned: boolean,
 ): PaneNode {
-  return updatePaneNode(root, paneId, (node) => {
-    if (node.type !== "group") {
-      return node;
-    }
-
-    if (!node.bufferIds.includes(bufferId)) {
-      return normalizeGroup(node);
-    }
-
-    const currentPinnedBufferIds = node.pinnedBufferIds ?? [];
-    const pinnedBufferIds = pinned
-      ? [...currentPinnedBufferIds, bufferId]
-      : currentPinnedBufferIds.filter((pinnedBufferId) => pinnedBufferId !== bufferId);
-
-    return normalizeGroup({
-      ...node,
-      pinnedBufferIds,
-      previewBufferId: pinned && node.previewBufferId === bufferId ? null : node.previewBufferId,
-    });
+  return reduceGroupInTree(root, paneId, {
+    kind: "setPinned",
+    group: paneId,
+    member: bufferId,
+    pinned,
   });
 }
 
+/** Pins or unpins `bufferId` in every group that lists it, across trees, with one Core call. */
 export function setPaneBufferPinnedEverywhere(
-  root: PaneNode,
+  roots: PaneNode[],
   bufferId: string,
   pinned: boolean,
-): PaneNode {
-  if (root.type === "group") {
-    if (!root.bufferIds.includes(bufferId)) {
-      return root;
-    }
-
-    const currentPinnedBufferIds = root.pinnedBufferIds ?? [];
-    const pinnedBufferIds = pinned
-      ? [...currentPinnedBufferIds, bufferId]
-      : currentPinnedBufferIds.filter((pinnedBufferId) => pinnedBufferId !== bufferId);
-
-    return normalizeGroup({
-      ...root,
-      pinnedBufferIds,
-      previewBufferId: pinned && root.previewBufferId === bufferId ? null : root.previewBufferId,
-    });
-  }
-
-  const first = setPaneBufferPinnedEverywhere(root.children[0], bufferId, pinned);
-  const second = setPaneBufferPinnedEverywhere(root.children[1], bufferId, pinned);
-
-  if (first === root.children[0] && second === root.children[1]) {
-    return root;
-  }
-
-  return {
-    ...root,
-    children: [first, second],
-  };
+): PaneNode[] {
+  return reduceGroupsInTrees(roots, (group) => group.bufferIds.includes(bufferId), {
+    kind: "setPinnedEverywhere",
+    member: bufferId,
+    pinned,
+  }).roots;
 }
 
 export function setPaneLocked(root: PaneNode, paneId: string, locked: boolean): PaneNode {
-  return updatePaneNode(root, paneId, (node) =>
-    node.type === "group"
-      ? normalizeGroup({
-          ...node,
-          locked,
-        })
-      : node,
-  );
+  const normalized = reduceGroupInTree(root, paneId, { kind: "normalize" });
+  return mapPaneGroups(normalized, (group) => (group.id === paneId ? { ...group, locked } : group));
 }
 
 export function reorderPaneBuffers(
@@ -613,29 +549,11 @@ export function reorderPaneBuffers(
   startIndex: number,
   endIndex: number,
 ): PaneNode {
-  return updatePaneNode(root, paneId, (node) => {
-    if (node.type !== "group") {
-      return node;
-    }
-
-    if (
-      startIndex < 0 ||
-      endIndex < 0 ||
-      startIndex >= node.bufferIds.length ||
-      endIndex >= node.bufferIds.length ||
-      startIndex === endIndex
-    ) {
-      return node;
-    }
-
-    const nextBufferIds = [...node.bufferIds];
-    const [movedBufferId] = nextBufferIds.splice(startIndex, 1);
-    nextBufferIds.splice(endIndex, 0, movedBufferId);
-
-    return {
-      ...node,
-      bufferIds: nextBufferIds,
-    };
+  return reduceGroupInTree(root, paneId, {
+    kind: "reorder",
+    group: paneId,
+    fromIndex: startIndex,
+    toIndex: endIndex,
   });
 }
 

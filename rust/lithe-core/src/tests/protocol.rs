@@ -442,6 +442,37 @@ fn modifier_gesture_fixture_runs_through_core_dispatch() {
 }
 
 #[test]
+fn workbench_state_fixture_runs_through_core_dispatch() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/editor/workbench-state-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let result = call_fixture_command(
+            "editor.workbenchState.reduce",
+            serde_json::json!({"state": case["state"], "action": case["action"]}),
+        );
+        assert_eq!(result["ok"], true, "{}: {result}", case["name"]);
+        assert_eq!(
+            result["data"]["state"], case["expected"]["state"],
+            "{}",
+            case["name"]
+        );
+        assert_eq!(
+            result["data"]["removedGroupIds"], case["expected"]["removedGroupIds"],
+            "{}",
+            case["name"]
+        );
+    }
+    let rejected = call_fixture_command(
+        "editor.workbenchState.reduce",
+        serde_json::json!({"action": {"kind": "bogus"}}),
+    );
+    assert_eq!(rejected["ok"], false);
+    assert_eq!(rejected["error"]["code"], "invalid_request");
+}
+
+#[test]
 fn every_rules_crate_command_is_routed_by_core() {
     for command in lithe_core_rules::COMMANDS {
         assert!(
