@@ -1300,8 +1300,6 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                 ),
             }
         }
-=======
->>>>>>> 70c2fe086 (refactor(core): 移除仅 Windows 使用的 Maven 命令入口与超长类路径 jar，开放过渡 crate 需要的通用函数)
         CoreCommand::ExecutionResolveEnvironment => {
             match serde_json::from_value::<crate::execution::LaunchEnvironmentRequest>(
                 parsed.payload,

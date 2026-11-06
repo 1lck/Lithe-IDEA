@@ -7,39 +7,30 @@ use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Runs one request the way the tests below were written for.
+/// Runs one request through Core's dispatcher.
 ///
 /// The Windows host answers the `maven.*` commands itself, so Core no longer
 /// dispatches them. `scan`, `dependencies` and `test_results` remain Core code
-/// because the Maven build provider calls them, and the tests below keep
-/// covering that code: the three old command names go straight to those
-/// functions, and every other command goes through Core's dispatcher.
+/// because the Maven build provider calls them; the tests below reach those
+/// functions through [`maven_json`] instead of a command name, so no host-side
+/// code names a build tool to dispatch on it.
 fn execute_json(request: &str) -> String {
-    let parsed: Value = serde_json::from_str(request).expect("test request should be JSON");
-    let id = parsed["id"].as_str().map(str::to_string);
-    let payload = parsed["payload"].clone();
-    let response = match parsed["command"].as_str() {
-        Some("maven.scan") => maven_response(
-            id,
-            payload,
-            "Invalid Maven scan request",
-            crate::project::scan,
-        ),
-        Some("maven.dependencies") => maven_response(
-            id,
-            payload,
-            "Invalid Maven dependencies request",
-            crate::project::dependencies,
-        ),
-        Some("maven.testResults") => maven_response(
-            id,
-            payload,
-            "Invalid Maven test-results request",
-            crate::project::test_results,
-        ),
-        _ => return crate::execute_json(request),
-    };
-    serde_json::to_string(&response).expect("response should encode")
+    crate::execute_json(request)
+}
+
+/// Answers one Maven test request from its payload, reporting failures the way
+/// the former command did.
+fn maven_json<Request, Response>(
+    request: &Value,
+    invalid_message: &str,
+    run: impl FnOnce(Request) -> Result<Response, CoreError>,
+) -> Value
+where
+    Request: serde::de::DeserializeOwned,
+    Response: serde::Serialize,
+{
+    let response = maven_response(None, request["payload"].clone(), invalid_message, run);
+    serde_json::to_value(response).expect("response should encode")
 }
 
 fn maven_response<Request, Response>(
@@ -247,14 +238,9 @@ fn maven_scan_returns_recursive_shared_project_model() {
     fs::write(root.join("mvnw.cmd"), "@echo off\n").expect("wrapper should be writable");
 
     let request = serde_json::json!({
-        "id": "maven",
-        "command": "maven.scan",
         "payload": {"root": root, "paths": ["module-a/pom.xml", "pom.xml"]}
     });
-    let response: Value = serde_json::from_str(&execute_json(
-        &serde_json::to_string(&request).expect("Maven request should encode"),
-    ))
-    .expect("Maven response should be JSON");
+    let response = maven_json(&request, "Invalid Maven scan request", crate::project::scan);
     assert_eq!(response["ok"], true);
     assert_eq!(response["data"]["relativePath"], ".");
     assert_eq!(response["data"]["artifactId"], "demo");
@@ -294,12 +280,9 @@ fn maven_scan_recognizes_configured_and_generated_source_roots_per_module() {
     .expect("configured pom should be writable");
 
     let request = serde_json::json!({
-        "id": "maven-source-roots",
-        "command": "maven.scan",
         "payload": {"root": root, "paths": ["module/pom.xml"]}
     });
-    let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
-        .expect("Maven response should be JSON");
+    let response = maven_json(&request, "Invalid Maven scan request", crate::project::scan);
 
     assert_eq!(response["ok"], true, "{response}");
     assert_eq!(
@@ -336,12 +319,9 @@ fn maven_scan_expands_custom_build_directory_and_execution_scoped_sources() {
     .expect("execution-scoped pom should be writable");
 
     let request = serde_json::json!({
-        "id": "maven-source-root-regressions",
-        "command": "maven.scan",
         "payload": {"root": root, "paths": ["custom-build/pom.xml"]}
     });
-    let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
-        .expect("Maven response should be JSON");
+    let response = maven_json(&request, "Invalid Maven scan request", crate::project::scan);
 
     assert_eq!(response["ok"], true, "{response}");
     assert_eq!(
@@ -383,12 +363,9 @@ fn maven_scan_ignores_unrelated_plugin_sources_and_invalid_build_directory() {
     .expect("invalid build pom should be writable");
 
     let request = serde_json::json!({
-        "id": "maven-source-root-boundaries",
-        "command": "maven.scan",
         "payload": {"root": root, "paths": ["pom.xml"]}
     });
-    let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
-        .expect("Maven response should be JSON");
+    let response = maven_json(&request, "Invalid Maven scan request", crate::project::scan);
 
     assert_eq!(response["ok"], true, "{response}");
     assert_eq!(
@@ -476,15 +453,13 @@ impl Drop for TreeDirectory {
 }
 
 fn maven_dependencies(module_path: &str, output_file: &Path) -> Value {
-    serde_json::from_str(&execute_json(
+    maven_json(
         &serde_json::json!({
-            "id": "maven-dependencies",
-            "command": "maven.dependencies",
             "payload": {"modulePath": module_path, "outputFile": output_file}
-        })
-        .to_string(),
-    ))
-    .expect("Maven dependency response should be JSON")
+        }),
+        "Invalid Maven dependencies request",
+        crate::project::dependencies,
+    )
 }
 
 /// One tree line per node, as the pinned plugin writes a flat direct list.
@@ -703,15 +678,13 @@ fn maven_test_results_match_the_shared_compatibility_fixture() {
                 .expect("source directory should be creatable");
             fs::write(path, "class CalculatorTest {}").expect("source should be writable");
         }
-        let response: Value = serde_json::from_str(&execute_json(
+        let response = maven_json(
             &serde_json::json!({
-                "id": case["name"],
-                "command": "maven.testResults",
                 "payload": {"root": root, "output": case["output"]}
-            })
-            .to_string(),
-        ))
-        .expect("Maven test-results response should be JSON");
+            }),
+            "Invalid Maven test-results request",
+            crate::project::test_results,
+        );
         assert_eq!(response["ok"], true, "case {}: {response}", case["name"]);
         assert_eq!(response["data"], case["expected"], "case {}", case["name"]);
         fs::remove_dir_all(root).expect("Maven test fixture should be removable");
@@ -782,10 +755,8 @@ fn maven_test_results_read_current_reports_of_the_selected_classes() {
         set_modified(&module.join(report), run_started_seconds + 5);
     }
 
-    let response: Value = serde_json::from_str(&execute_json(
+    let response = maven_json(
         &serde_json::json!({
-            "id": "maven-test-reports",
-            "command": "maven.testResults",
             "payload": {
                 "root": root,
                 "output": "[ERROR] Tests run: 5, Failures: 1, Errors: 0, Skipped: 1\n",
@@ -795,10 +766,10 @@ fn maven_test_results_read_current_reports_of_the_selected_classes() {
                     "notBeforeMillis": not_before_millis
                 }
             }
-        })
-        .to_string(),
-    ))
-    .expect("report response should be JSON");
+        }),
+        "Invalid Maven test-results request",
+        crate::project::test_results,
+    );
 
     assert_eq!(response["ok"], true, "{response}");
     assert_eq!(
@@ -839,10 +810,8 @@ fn maven_test_results_find_the_module_from_the_test_source() {
         })
         .expect("report timestamp");
 
-    let response: Value = serde_json::from_str(&execute_json(
+    let response = maven_json(
         &serde_json::json!({
-            "id": "maven-test-reports-source",
-            "command": "maven.testResults",
             "payload": {
                 "root": root,
                 "output": "",
@@ -851,10 +820,10 @@ fn maven_test_results_find_the_module_from_the_test_source() {
                     "notBeforeMillis": 1_700_000_000_000_u64
                 }
             }
-        })
-        .to_string(),
-    ))
-    .expect("report response should be JSON");
+        }),
+        "Invalid Maven test-results request",
+        crate::project::test_results,
+    );
 
     assert_eq!(response["ok"], true, "{response}");
     assert_eq!(
@@ -895,19 +864,17 @@ fn maven_test_results_keep_current_reports_beyond_many_stale_ones() {
     .expect("current report");
     set_modified(&current, 1_700_000_010);
 
-    let response: Value = serde_json::from_str(&execute_json(
+    let response = maven_json(
         &serde_json::json!({
-            "id": "maven-test-reports-bound",
-            "command": "maven.testResults",
             "payload": {
                 "root": root,
                 "output": "",
                 "reports": { "notBeforeMillis": 1_700_000_000_000_u64 }
             }
-        })
-        .to_string(),
-    ))
-    .expect("report response should be JSON");
+        }),
+        "Invalid Maven test-results request",
+        crate::project::test_results,
+    );
 
     assert_eq!(response["ok"], true, "{response}");
     assert_eq!(
@@ -925,19 +892,17 @@ fn maven_test_results_reject_report_requests_outside_the_workspace() {
         ("..", serde_json::json!(["demo.OrderTest"])),
         (".", serde_json::json!(["../demo.OrderTest"])),
     ] {
-        let response: Value = serde_json::from_str(&execute_json(
+        let response = maven_json(
             &serde_json::json!({
-                "id": "maven-test-reports-bounds",
-                "command": "maven.testResults",
                 "payload": {
                     "root": root,
                     "output": "",
                     "reports": { "module": module, "classes": classes, "notBeforeMillis": 0 }
                 }
-            })
-            .to_string(),
-        ))
-        .expect("bounds response should be JSON");
+            }),
+            "Invalid Maven test-results request",
+            crate::project::test_results,
+        );
         assert_eq!(response["ok"], false, "{module}: {response}");
         assert_eq!(response["error"]["code"], "invalid_request", "{module}");
     }
@@ -948,18 +913,16 @@ fn maven_test_results_reject_report_requests_outside_the_workspace() {
 fn maven_test_results_aggregate_class_summaries_without_results_footer() {
     let root = temporary_root("maven-test-results-aggregate");
     fs::create_dir_all(&root).expect("Maven aggregate workspace should be creatable");
-    let response: Value = serde_json::from_str(&execute_json(
+    let response = maven_json(
         &serde_json::json!({
-            "id": "maven-test-results-aggregate",
-            "command": "maven.testResults",
             "payload": {
                 "root": root,
                 "output": "[INFO] Tests run: 2, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.12 s - in FirstTest\n[INFO] Tests run: 3, Failures: 0, Errors: 1, Skipped: 1, Time elapsed: 0.08 s <<< FAILURE! -- in SecondTest\n"
             }
-        })
-        .to_string(),
-    ))
-    .expect("aggregate Maven test-results response should be JSON");
+        }),
+        "Invalid Maven test-results request",
+        crate::project::test_results,
+    );
 
     assert_eq!(response["ok"], true, "{response}");
     assert_eq!(response["data"]["testsRun"], 5);
@@ -975,18 +938,16 @@ fn maven_test_results_aggregate_class_summaries_without_results_footer() {
 fn maven_test_results_aggregate_all_module_footers_and_ignore_reactor_lines() {
     let root = temporary_root("maven-test-results-footers");
     fs::create_dir_all(&root).expect("Maven footer workspace should be creatable");
-    let response: Value = serde_json::from_str(&execute_json(
+    let response = maven_json(
         &serde_json::json!({
-            "id": "maven-test-results-footers",
-            "command": "maven.testResults",
             "payload": {
                 "root": root,
                 "output": "[INFO] Tests run: 2, Failures: 1, Errors: 0, Skipped: 0\n[INFO] Tests run: 3, Failures: 0, Errors: 1, Skipped: 1\n[INFO] Reactor Summary for reactor 1.0-SNAPSHOT:\n[INFO] base ................................ SUCCESS\n[INFO] app ................................ FAILURE\n"
             }
-        })
-        .to_string(),
-    ))
-    .expect("footer Maven test-results response should be JSON");
+        }),
+        "Invalid Maven test-results request",
+        crate::project::test_results,
+    );
 
     assert_eq!(response["ok"], true, "{response}");
     assert_eq!(response["data"]["testsRun"], 5);
@@ -1002,15 +963,13 @@ fn maven_test_results_aggregate_all_module_footers_and_ignore_reactor_lines() {
 fn maven_test_results_reject_oversized_output_and_bound_failure_details() {
     let root = temporary_root("maven-test-results-bounds");
     fs::create_dir_all(&root).expect("Maven bounds workspace should be creatable");
-    let oversized = serde_json::from_str::<Value>(&execute_json(
+    let oversized = maven_json(
         &serde_json::json!({
-            "id": "oversized",
-            "command": "maven.testResults",
             "payload": {"root": root, "output": "x".repeat(500_001)}
-        })
-        .to_string(),
-    ))
-    .expect("oversized test-results response should be JSON");
+        }),
+        "Invalid Maven test-results request",
+        crate::project::test_results,
+    );
     assert_eq!(oversized["ok"], false);
     assert_eq!(oversized["error"]["code"], "parse_failed");
     fs::remove_dir_all(root).expect("Maven bounds fixture should be removable");
@@ -1038,8 +997,6 @@ fn maven_scan_discovers_a_deterministic_project_below_the_workspace() {
     .expect("second pom should be writable");
 
     let request = serde_json::json!({
-        "id": "nested-maven",
-        "command": "maven.scan",
         "payload": {
             "root": root,
             "paths": [
@@ -1049,10 +1006,7 @@ fn maven_scan_discovers_a_deterministic_project_below_the_workspace() {
             ]
         }
     });
-    let response: Value = serde_json::from_str(&execute_json(
-        &serde_json::to_string(&request).expect("Maven request should encode"),
-    ))
-    .expect("Maven response should be JSON");
+    let response = maven_json(&request, "Invalid Maven scan request", crate::project::scan);
 
     assert_eq!(response["ok"], true);
     assert_eq!(response["data"]["relativePath"], "apps-a");
@@ -1074,17 +1028,12 @@ fn maven_scan_skips_a_malformed_root_descriptor_for_a_valid_nested_project() {
     .expect("nested pom should be writable");
 
     let request = serde_json::json!({
-        "id": "nested-maven-malformed-root",
-        "command": "maven.scan",
         "payload": {
             "root": root,
             "paths": ["pom.xml", "projects/demo/pom.xml"]
         }
     });
-    let response: Value = serde_json::from_str(&execute_json(
-        &serde_json::to_string(&request).expect("Maven request should encode"),
-    ))
-    .expect("Maven response should be JSON");
+    let response = maven_json(&request, "Invalid Maven scan request", crate::project::scan);
 
     assert_eq!(response["ok"], true, "{response}");
     assert_eq!(response["data"]["relativePath"], "projects/demo");
@@ -1877,12 +1826,9 @@ fn maven_scan_requires_the_official_coordinate_for_source_root_plugins() {
     }
 
     let request = serde_json::json!({
-        "id": "maven-scan-plugin-coordinates",
-        "command": "maven.scan",
         "payload": {"root": root, "paths": ["official/pom.xml"]}
     });
-    let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
-        .expect("Maven response should be JSON");
+    let response = maven_json(&request, "Invalid Maven scan request", crate::project::scan);
     assert_eq!(response["ok"], true, "{response}");
 
     let modules = response["data"]["modules"].as_array().unwrap();
@@ -1974,10 +1920,8 @@ fn maven_test_results_require_the_official_coordinate_for_report_plugins() {
 
     // The official pair contributes both custom directories, so both reports
     // are read; the same-named plugins under the custom group contribute none.
-    let response: Value = serde_json::from_str(&execute_json(
+    let response = maven_json(
         &serde_json::json!({
-            "id": "maven-test-report-coordinates",
-            "command": "maven.testResults",
             "payload": {
                 "root": root,
                 "output": "",
@@ -1987,10 +1931,10 @@ fn maven_test_results_require_the_official_coordinate_for_report_plugins() {
                     "notBeforeMillis": 1_700_000_000_000_u64
                 }
             }
-        })
-        .to_string(),
-    ))
-    .expect("report response should be JSON");
+        }),
+        "Invalid Maven test-results request",
+        crate::project::test_results,
+    );
     assert_eq!(response["ok"], true, "{response}");
     let cases = response["data"]["testCases"].as_array().unwrap();
     assert_eq!(cases.len(), 2, "{response}");
@@ -2001,10 +1945,8 @@ fn maven_test_results_require_the_official_coordinate_for_report_plugins() {
         );
     }
 
-    let negative: Value = serde_json::from_str(&execute_json(
+    let negative = maven_json(
         &serde_json::json!({
-            "id": "maven-test-report-coordinates",
-            "command": "maven.testResults",
             "payload": {
                 "root": root,
                 "output": "",
@@ -2014,10 +1956,10 @@ fn maven_test_results_require_the_official_coordinate_for_report_plugins() {
                     "notBeforeMillis": 1_700_000_000_000_u64
                 }
             }
-        })
-        .to_string(),
-    ))
-    .expect("report response should be JSON");
+        }),
+        "Invalid Maven test-results request",
+        crate::project::test_results,
+    );
     assert_eq!(negative["ok"], true, "{negative}");
     assert_eq!(
         negative["data"]["testCases"],

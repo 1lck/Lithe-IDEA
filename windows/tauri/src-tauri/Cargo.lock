@@ -2962,7 +2962,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "lithe-legacy-java"
+name = "lithe-legacy-tooling"
 version = "0.1.0"
 dependencies = [
  "lithe-core",
@@ -3030,7 +3030,7 @@ dependencies = [
  "lithe-agent-host",
  "lithe-core",
  "lithe-git-host",
- "lithe-legacy-java",
+ "lithe-legacy-tooling",
  "lithe-project",
  "lithe-terminal",
  "quick-xml 0.37.5",

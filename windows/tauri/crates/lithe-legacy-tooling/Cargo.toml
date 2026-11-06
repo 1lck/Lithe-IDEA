@@ -1,5 +1,5 @@
 [package]
-name = "lithe-legacy-java"
+name = "lithe-legacy-tooling"
 version = "0.1.0"
 # Edition 2021 on purpose: most of this crate is code copied verbatim from
 # lithe-core, which is an edition 2021 crate. Keeping the edition means the

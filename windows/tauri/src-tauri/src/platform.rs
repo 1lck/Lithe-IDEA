@@ -148,7 +148,7 @@ pub async fn platform_invoke(
         let _completion = completion;
         // Same early answer as `core_execute`: the legacy Java-family commands
         // are served by the transitional crate before Core sees them.
-        if let Some(response) = lithe_legacy_java::try_execute(&request) {
+        if let Some(response) = lithe_legacy_tooling::try_execute(&request) {
             return response;
         }
         if let Some(events) = events {

@@ -204,7 +204,7 @@ if ($Scope -in @("All", "WindowsRust")) {
 
     Invoke-TimedRustTests `
         -Manifest "windows/tauri/src-tauri/Cargo.toml" `
-        -Package "lithe-legacy-java" `
+        -Package "lithe-legacy-tooling" `
         -TargetDirectory "windows/tauri/src-tauri/target" `
         -Report (Join-Path $reportRoot "windows-legacy-java-rust.json")
 

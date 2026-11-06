@@ -24,7 +24,7 @@ pub(crate) fn temporary_root(label: &str) -> PathBuf {
     });
     let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "lithe-legacy-java-{label}-{}-{nonce}-{sequence}",
+        "lithe-legacy-tooling-{label}-{}-{nonce}-{sequence}",
         std::process::id()
     ))
 }
