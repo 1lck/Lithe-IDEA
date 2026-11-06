@@ -1594,6 +1594,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `toolchains.candidates` | List one tool's login-shell homes and host-scanned installations with checked executables, versions or skip reasons, and the automatic-layer choice; never starts a probe |
 | `plugins.declarative.decodeGrammar` | Validate independent static editor resources (`languages` 2) |
 | `plugins.editorActions.decode` | Validate independent action registration, collection or click results |
+| `plugins.hostApi.describe` | Describe backend host methods and their required grants from Core's method table |
+| `plugins.hostApi.authorize` | Check a method, service and current session grants using Core's capability rules; the host still checks session and resource ownership |
 | `plugins.editorProviders.decode` | Validate editor provider registrations and provider function results |
 | `run.decodeStart` | Validate a plugin backend's `lithe/host/run/start` params against its manifest and the workspace, and return the normalized start with temporary-file paths substituted |
 | `debug.decodeBackendConfiguration` | Validate a plugin backend's `lithe/host/debug/start` params against its manifest and return the qualified adapter, request, label and configuration |
@@ -5462,6 +5464,20 @@ compiles it, explicitly using `root` when `start` is absent. A grammar Core
 refuses is `plugin.grammar.invalid` with the failing `field`; a language
 without static editor resources is `plugin.grammar.unavailable`. Configuration-only
 languages return `grammar:null` and require no file read. Core reads no files.
+
+`plugins.hostApi.describe` accepts `{}` and returns `{methods:[{method,service,grant,coreServed}]}`.
+`grant` is null for implicit methods, a service name for legacy aggregate grants, or the
+exact method for individual grants. `coreServed` identifies methods dispatched inside
+Core rather than by a native handler. The host admits a requested grant only when all of
+its non-Core methods have registered handlers.
+
+`plugins.hostApi.authorize` accepts `{method,service,grants}` and returns `{allowed:true}`
+or `{allowed:false,code}`. It uses Core's method catalog and capability rules; unknown or
+mismatched methods return `plugin.host.unavailable`, and missing grants return
+`plugin.host.permissionDenied`. This decision does not replace negotiated-version,
+parameter, current-session, workspace-context, or resource-ownership checks. Hosts must
+deny access if the Core call fails.
+Shared cases are in `shared/fixtures/plugins/host-api-v1.json`.
 
 `plugins.editorActions.decode` accepts `{kind:"registration",value}` or
 `{kind:"actions",value,text}` and returns `{registration}` or `{actions}`.

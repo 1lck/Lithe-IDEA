@@ -31,7 +31,11 @@ struct GoToLineDialogValidationTests {
     }
 
     @Test
-    func validationCompletesInsideTheNativeModalRunLoop() {
+    func validationCompletesInsideTheNativeModalRunLoop() async throws {
+        guard ProcessInfo.processInfo.environment["LITHE_GOTO_LINE_MODAL_CHILD"] == "1" else {
+            try await runModalValidationInChild()
+            return
+        }
         let app = NSApplication.shared
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 160, height: 80),
                             styleMask: [.titled], backing: .buffered, defer: false)
@@ -56,6 +60,32 @@ struct GoToLineDialogValidationTests {
         let response = app.runModal(for: panel)
         #expect(response == .OK)
         #expect(coordinator.confirmedInput == GoToLineInput(line: 11, column: 2, hasExplicitColumn: true))
+    }
+
+    @Test
+    func modalValidationDoesNotInterruptALaterWebPreview() async throws {
+        try await runModalValidationInChild()
+        let browser = try BrowserHarness(files: ["site/page.html": "disk"])
+        defer { browser.tearDown() }
+        browser.show("<title>ready</title><p>project page</p>")
+        #expect(await browser.waitForTitle("ready"))
+    }
+
+    private func runModalValidationInChild() async throws {
+        let image = try #require(Bundle(for: GoToLineModalBundleMarker.self).executableURL)
+        var environment = ProcessInfo.processInfo.environment
+        environment["LITHE_GOTO_LINE_MODAL_CHILD"] = "1"
+        let result = try await TestProcess.run(
+            executableURL: URL(fileURLWithPath: CommandLine.arguments[0]),
+            arguments: ["--test-bundle-path", image.path, "--testing-library", "swift-testing", "--filter",
+                "GoToLineDialogValidationTests.*validationCompletesInsideTheNativeModalRunLoop"],
+            currentDirectoryURL: FileManager.default.temporaryDirectory,
+            environment: environment, timeout: .seconds(10)
+        )
+        let output = String(decoding: result.output, as: UTF8.self)
+        try #require(result.terminationStatus == 0, "Native modal validation failed: \(output)")
+        #expect(output.contains("Test run with 1 test in 1 suite passed"),
+            "Native modal validation must finish before the child exits: \(output)")
     }
 
     @Test
@@ -96,3 +126,5 @@ struct GoToLineDialogValidationTests {
         #expect(coordinator.confirmedInput == GoToLineInput(line: 1, column: 2, hasExplicitColumn: true))
     }
 }
+
+private final class GoToLineModalBundleMarker: NSObject {}

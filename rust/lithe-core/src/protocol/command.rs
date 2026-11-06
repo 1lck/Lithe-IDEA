@@ -123,6 +123,10 @@ pub enum CoreCommand {
     PluginsDeclarativeValidate,
     /// Validates native plugin UI data with declaration identity and node budgets.
     PluginsNativeUIValidateData,
+    /// Describes the Core-owned backend host-method catalog.
+    PluginsHostApiDescribe,
+    /// Rechecks a backend host request against Core's grant rules.
+    PluginsHostApiAuthorize,
     /// Expands a declarative plugin's run template (`plugins.declarative.runPlan`).
     PluginsDeclarativeRunPlan,
     /// Lists a declarative plugin's workspace and file tests (`plugins.declarative.discoverTests`).
@@ -916,6 +920,8 @@ impl CoreCommand {
             }
             "plugins.declarative.decodeGrammar" => Some(Self::PluginsDeclarativeDecodeGrammar),
             "plugins.editorActions.decode" => Some(Self::PluginsEditorActionsDecode),
+            "plugins.hostApi.describe" => Some(Self::PluginsHostApiDescribe),
+            "plugins.hostApi.authorize" => Some(Self::PluginsHostApiAuthorize),
             "plugins.editorProviders.decode" => Some(Self::PluginsEditorProvidersDecode),
             "keymap.decodeImport" => Some(Self::KeymapDecodeImport),
             "keymap.planImportSources" => Some(Self::KeymapPlanImportSources),

@@ -390,6 +390,16 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
             parsed.payload,
             crate::plugins::editor_actions::decode_command,
         ),
+        CoreCommand::PluginsHostApiDescribe => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::host_api::describe_command,
+        ),
+        CoreCommand::PluginsHostApiAuthorize => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::host_api::authorize_command,
+        ),
         CoreCommand::PluginsEditorProvidersDecode => plugin_response(
             id,
             parsed.payload,

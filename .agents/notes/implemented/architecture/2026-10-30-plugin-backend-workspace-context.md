@@ -91,7 +91,8 @@ rootID 用按插件加密钥的 HMAC，而不是位置的普通哈希：普通�
 - `PluginHostServiceError.code` 用 `PluginHostErrorCode` 表示：未支持、未授权、上下文失效、authority 不支持、版本冲突、参数错误、超限、取消、超时、不存在（notFound）、只读（readOnly）、不支持的选项（unsupportedOption）、前置条件不满足（preconditionFailed）、忙（busy）、限流（rateLimited）、后端退出、其他失败。
 - Core 只把白名单里的错误码透传给协议 3 的后端，每个码对应自己的 JSON-RPC 数值（`-32010` 起逐个加 1，一码一义），其余一律变成 `plugin.host.failed`。`-32000`～`-32009` 留给后端自己的失败，因为很多 JSON-RPC 库从 `-32000` 开始用。
 - `PluginHostServiceError.details` 是可选的结构化对象（如 `currentVersion`、`retryAfterMilliseconds`），经 `lsp.hostResponse.error.details` 到 Core，序列化后不超过 4 KiB、且必须是对象才会以 `error.data.details` 送到协议 3 的后端，否则丢弃。
-- 宿主只授予自己真正注册了 handler 的服务：启动时把清单的 `hostServices` 与 `hostDispatcher.registeredServices` 取交集，再交给 Core。这样 `getCapabilities` 列出的方法都有人回答，不会出现“列出来但调用失败”。
+- 宿主只授予自己真正注册了 handler 的方法，以及由 Core 自己回答的能力；旧版聚合 grant 要求其中全部方法都已注册。这样 `getCapabilities` 列出的方法都有人回答，不会出现“列出来但调用失败”。
+- 宿主通过 Core 的 `plugins.hostApi.describe` 读取方法和 grant 的对应关系，再按已注册 handler 筛选；每次分发用 `plugins.hostApi.authorize` 核验方法、服务与当前会话的 grant。旧版聚合 grant 仍只覆盖其原有方法，新方法使用单方法 grant；Core 不可用时拒绝授权并记录失败。会话身份、工作区上下文和资源归属仍由宿主复核。
 
 ### 宿主到后端的通知
 
