@@ -60,6 +60,17 @@ Note。
 需要执行验证时，先说明原因和范围，并只运行与当前问题直接相关的验证。不要
 为了 Review 自动启动完整产品、跨平台虚拟机或长时间构建。
 
+改动触及下列路径时，运行对应的边界检查并把结果写进 Verification。这些是静态、
+只读的边界检查，不属于上面的完整测试；不通过按 Finding 报告，不得以“另行处理”
+或“便于合并”搁置：
+
+- `macos/Sources/Lithe/` 的 Core、Services、Views 或依赖组装 →
+  `./scripts/architecture/verify-service-boundaries.sh`
+- 共享契约、fixture 或 Core 命令的兼容面 →
+  `./scripts/architecture/verify-shared-contracts.sh`
+- `windows/tauri/` 的平台边界 →
+  `./scripts/windows/verify/verify-windows-boundaries.sh`
+
 ## 5. 交付结论
 
 输出前检查每一条 Finding：
@@ -69,4 +80,5 @@ Note。
 - 是否说明了为什么属于本次变更的职责范围。
 - 是否有对应且足够具体的修改建议。
 
-历史问题和主观偏好只能作为背景，不能作为阻塞项。
+历史问题不要求本次修复，但必须有已提交的 Issue；没有 Issue 编号的历史问题按流程
+阻塞项报告，不能只当背景。主观偏好不能作为阻塞项。
