@@ -37,18 +37,32 @@ struct AgentThoughtTranscriptTests {
             @MainActor func headers() -> [AnyObject] {
                 accessibilityElements(in: host).filter { $0.accessibilityIdentifier?() == "agent-process-group-header" }
             }
+            @MainActor func state(of element: AnyObject) -> String? {
+                let value: String? = element.accessibilityValue?()
+                return value
+            }
             try await renderUntil(host, expected: "one process disclosure") { headers().count == 1 }
             let header = try #require(headers().first)
+            let collapsedValue = try #require(state(of: header))
             let frame = header.accessibilityFrame?() ?? .zero
             #expect(frame.height < 32, "Collapsed process should occupy one compact line")
             let collapsed = try snapshot(host)
             try record(host, name: "mixed-collapsed")
             try pressThought(in: host, window: window)
-            try await renderUntil(host, expected: "expanded ordered process") { try snapshot(host) != collapsed }
+            try await renderUntil(host, expected: "expanded ordered process") {
+                try snapshot(host) != collapsed && headers().first.flatMap { state(of: $0) } != collapsedValue
+            }
             #expect(headers().count == 1, "Individual thoughts must not create nested thinking headers")
             try record(host, name: "mixed-expanded")
             try pressThought(in: host, window: window)
-            try await renderUntil(host, expected: "compact reply after collapsing") { try snapshot(host) == collapsed }
+            // The disclosure's state is stable even when unrelated scrolling or
+            // cursor animation changes pixels elsewhere in the full frame.
+            try await renderUntil(host, expected: "compact reply after collapsing") {
+                headers().first.flatMap { state(of: $0) } == collapsedValue
+            }
+            #expect(accessibilityElements(in: host).contains {
+                (state(of: $0) ?? "").contains("This is the final answer.")
+            }, "The final reply remains visible after the process collapses")
         }
     }
 

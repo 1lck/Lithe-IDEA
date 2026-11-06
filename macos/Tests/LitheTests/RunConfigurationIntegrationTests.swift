@@ -1793,12 +1793,13 @@ struct RunConfigurationIntegrationTests {
             catalog: LanguageProviderCatalog(descriptors: [descriptor]),
             runtimes: [runtime]
         )
+        defer { manager.stopAll() }
         let root = URL(fileURLWithPath: "/tmp/go-project", isDirectory: true)
         let source = root.appendingPathComponent("main.go")
 
         #expect(manager.activeLanguageServerIDs.isEmpty)
-        #expect(manager.features(for: source).contains(.completion))
-        #expect(manager.supportsGenericEditing(for: source))
+        #expect(!manager.features(for: source).contains(.completion))
+        #expect(!manager.supportsGenericEditing(for: source))
         try manager.synchronizeLanguageServer(
             for: source,
             text: "package main\nfunc main() {}\n",
@@ -1811,6 +1812,10 @@ struct RunConfigurationIntegrationTests {
         })
         #expect(core.startCalls.count == 1)
         #expect(core.syncCalls.last?.fileURL == source.standardizedFileURL)
+        core.enqueueReady(capabilities: ["completion", "formatting"])
+        try #require(await Self.waitForMainActorCondition { manager.languageServerStates["go"] == .ready })
+        #expect(manager.features(for: source).contains(.completion))
+        #expect(manager.supportsGenericEditing(for: source))
 
         var completionResult: Result<[LanguageServerCompletionItem], Error>?
         try manager.completions(
@@ -1821,6 +1826,10 @@ struct RunConfigurationIntegrationTests {
         ) { result in
             completionResult = result
         }
+        core.enqueueRequestSuccess(operation: .completion, result: [
+            "isIncomplete": false, "items": [["label": "func", "insertText": "func"]]
+        ])
+        try #require(await Self.waitForMainActorCondition { completionResult != nil })
         #expect(try completionResult?.get().contains { $0.label == "func" } == true)
 
         #expect(throws: LanguageToolingSessionError.self) {
@@ -1831,10 +1840,12 @@ struct RunConfigurationIntegrationTests {
                 rootURL: root
             ) { _ in }
         }
-        #expect(throws: LanguageToolingSessionError.self) {
-            try manager.format(fileURL: source, text: "package main\n", rootURL: root) { _ in }
-        }
-        #expect(manager.activeLanguageServerIDs.isEmpty)
+        var formatResult: Result<[LanguageServerTextEdit], Error>?
+        try manager.format(fileURL: source, text: "package main\n", rootURL: root) { formatResult = $0 }
+        core.enqueueRequestSuccess(operation: .formatting, result: ["edits": []])
+        try #require(await Self.waitForMainActorCondition { formatResult != nil })
+        #expect(try formatResult?.get().isEmpty == true)
+        #expect(manager.activeLanguageServerIDs.contains("go"))
     }
 
     @Test
@@ -2711,7 +2722,9 @@ struct RunConfigurationIntegrationTests {
 
     @Test
     func repeatedStartupFailuresStopUntilExplicitRestart() async throws {
-        let harness = makeLanguageServerHarness()
+        let harness = makeLanguageServerHarness(policyCore: RustCoreBridge())
+        var now: UInt64 = 0
+        harness.manager.monotonicNowMs = { now }
         defer { harness.manager.stopAll() }
         for _ in 0..<3 {
             let failed = TestGate()
@@ -2721,6 +2734,7 @@ struct RunConfigurationIntegrationTests {
             try harness.manager.synchronizeLanguageServer(for: harness.source, text: "struct App {}", rootURL: harness.root)
             harness.core.enqueueFailure(code: "serverExited", message: "startup failed")
             #expect(await failed.waitUntilOpen())
+            now += 5_000
         }
         #expect(harness.core.startCalls.count == 3)
         for _ in 0..<5 {
@@ -4343,7 +4357,8 @@ struct RunConfigurationIntegrationTests {
 
     private func makeLanguageServerHarness(
         initializeTimeoutNanoseconds: UInt64 = 10_000_000_000,
-        requestTimeoutNanoseconds: UInt64 = 30_000_000_000
+        requestTimeoutNanoseconds: UInt64 = 30_000_000_000,
+        policyCore: (any LanguageToolingPolicyCore)? = nil
     ) -> LanguageServerReliabilityHarness {
         let descriptor = LanguageProviderDescriptor(
             id: "swift",
@@ -4368,7 +4383,7 @@ struct RunConfigurationIntegrationTests {
         let runtime = TestLanguageServerRuntime(descriptor: descriptor, session: session)
         let manager = LanguageToolingSessionManager(
             catalog: LanguageProviderCatalog(descriptors: [descriptor]),
-            runtimes: [runtime]
+            runtimes: [runtime], policyCore: policyCore
         )
         return LanguageServerReliabilityHarness(
             root: root,

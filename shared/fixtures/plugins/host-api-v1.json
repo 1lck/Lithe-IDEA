@@ -1,0 +1,34 @@
+{
+  "authorization": [
+    {
+      "name": "metadata grant allows context listing",
+      "input": { "method": "lithe/host/workspace/listContexts", "service": "workspace", "grants": ["workspace"] },
+      "expected": { "allowed": true }
+    },
+    {
+      "name": "metadata grant does not grant file reads",
+      "input": { "method": "lithe/host/workspace/readFile", "service": "workspace", "grants": ["workspace"] },
+      "expected": { "allowed": false, "code": "plugin.host.permissionDenied" }
+    },
+    {
+      "name": "a method cannot be attributed to another service",
+      "input": { "method": "lithe/host/editor/applyEdits", "service": "workspace", "grants": ["workspace"] },
+      "expected": { "allowed": false, "code": "plugin.host.unavailable" }
+    },
+    {
+      "name": "unknown implicit method is unavailable",
+      "input": { "method": "lithe/host/unknown", "service": "host", "grants": [] },
+      "expected": { "allowed": false, "code": "plugin.host.unavailable" }
+    },
+    {
+      "name": "individual grant admits its own method",
+      "input": { "method": "lithe/host/window/showInformation", "service": "window", "grants": ["lithe/host/window/showInformation"] },
+      "expected": { "allowed": true }
+    },
+    {
+      "name": "implicit subscriptions require no grant",
+      "input": { "method": "lithe/host/subscriptions/dispose", "service": "subscriptions", "grants": [] },
+      "expected": { "allowed": true }
+    }
+  ]
+}
