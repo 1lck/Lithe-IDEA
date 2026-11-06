@@ -408,7 +408,7 @@ pub(super) fn clear_java_index_directory(
     workspace_root: &Path,
     workspace_fingerprint: Option<&str>,
 ) -> Result<(), String> {
-    let workspace_key = lithe_core::jdt_workspace_key(workspace_root, workspace_fingerprint);
+    let workspace_key = lithe_legacy_tooling::jdt_workspace_key(workspace_root, workspace_fingerprint);
     let target = cache_directory.join("jdtls").join(workspace_key);
     match std::fs::symlink_metadata(&target) {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {

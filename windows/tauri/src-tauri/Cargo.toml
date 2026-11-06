@@ -30,6 +30,7 @@ chrono = { version = "0.4", features = ["serde"] }
 lithe-agent-host = { path = "../../../rust/lithe-agent-host" }
 lithe-git-host = { path = "../../../rust/lithe-git-host" }
 lithe-core = { path = "../../../rust/lithe-core" }
+lithe-legacy-tooling = { path = "../crates/lithe-legacy-tooling" }
 lithe-project = { path = "../crates/project" }
 lithe-terminal = { path = "../crates/terminal" }
 keyring = { version = "3.6.3", features = ["windows-native"] }

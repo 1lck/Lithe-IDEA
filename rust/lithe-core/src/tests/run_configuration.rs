@@ -5097,8 +5097,9 @@ fn shared_run_scan_excludes_caches_and_keeps_hidden_sources() {
         fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::write(file, "class Main {}").unwrap();
     }
-    let paths = crate::execution::list_run_java_sources(&root, 100).unwrap();
-    assert_eq!(paths, vec![".sources/Main.java", "src/Main.java"]);
+    // What a host's source listing passes in: the cache directories are already
+    // left out, the hidden source directory stays.
+    let paths = vec![".sources/Main.java", "src/Main.java"];
     let call = |command, payload| -> Value {
         let response: Value = serde_json::from_str(&execute_json(
             &serde_json::json!({

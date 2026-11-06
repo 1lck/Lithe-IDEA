@@ -24,6 +24,7 @@ use crate::languages::{
     JavaClassNameRequest, JavaCodeVisionRequest, JavaServerPortRequest,
     JavaSourceDefinitionRequest, JavaStructureRequest, MybatisIndexRequest, SpringIndexRequest,
 };
+use crate::project::MarkdownRenderRequest;
 use crate::project::{
     self, DirectoryListingRequest, DocumentLifecycleRequest, FileReadRequest, FileWriteRequest,
     ReplacementPreviewRequest, SearchIndexRequest, SearchIndexUpdateRequest, SearchRequest,
@@ -33,10 +34,6 @@ use crate::project::{
     HistoryContentRequest, HistoryDeleteRequest, HistoryEntriesRequest,
     HistoryIgnorePreviewRequest, HistoryRecordRequest, HistoryRelocateRequest,
     HistoryRenameRequest, HistoryStorageRequest,
-};
-use crate::project::{
-    MarkdownRenderRequest, MavenDependenciesRequest, MavenDependencyPlanRequest,
-    MavenDiagnosticsRequest, MavenScanRequest,
 };
 use crate::protocol::CoreResponse;
 use crate::protocol::{CoreCommand, CoreRequest};
@@ -1290,37 +1287,6 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
         CoreCommand::DiffCompareTexts => {
             plugin_response(id, parsed.payload, crate::diff::compare_texts_command)
         }
-        CoreCommand::MavenScan => match serde_json::from_value::<MavenScanRequest>(parsed.payload)
-            .map_err(|error| {
-                CoreError::new(ErrorCode::InvalidRequest, "Invalid Maven scan request")
-                    .with_details(error.to_string())
-            })
-            .and_then(crate::project::scan)
-        {
-            Ok(data) => CoreResponse::success(
-                id,
-                serde_json::to_value(data).expect("Maven scan response should encode"),
-            ),
-            Err(error) => CoreResponse::failure(id, error),
-        },
-        CoreCommand::MavenLaunchPlan => {
-            match serde_json::from_value::<crate::project::MavenLaunchPlanRequest>(parsed.payload)
-                .map_err(|error| {
-                    CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "Invalid Maven launch-plan request",
-                    )
-                    .with_details(error.to_string())
-                })
-                .and_then(crate::project::launch_plan)
-            {
-                Ok(data) => CoreResponse::success(
-                    id,
-                    serde_json::to_value(data).expect("Maven launch plan should encode"),
-                ),
-                Err(error) => CoreResponse::failure(id, error),
-            }
-        }
         CoreCommand::ExecutionResolveSearchPath => {
             match serde_json::from_value::<crate::execution::SearchPathRequest>(parsed.payload) {
                 Ok(request) => CoreResponse::success(
@@ -1426,78 +1392,6 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                     )
                     .with_details(error.to_string()),
                 ),
-            }
-        }
-        CoreCommand::MavenDependencyPlan => {
-            match serde_json::from_value::<MavenDependencyPlanRequest>(parsed.payload)
-                .map_err(|error| {
-                    CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "Invalid Maven dependency-plan request",
-                    )
-                    .with_details(error.to_string())
-                })
-                .and_then(crate::project::dependency_plan)
-            {
-                Ok(data) => CoreResponse::success(
-                    id,
-                    serde_json::to_value(data).expect("Maven dependency plan should encode"),
-                ),
-                Err(error) => CoreResponse::failure(id, error),
-            }
-        }
-        CoreCommand::MavenDependencies => {
-            match serde_json::from_value::<MavenDependenciesRequest>(parsed.payload)
-                .map_err(|error| {
-                    CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "Invalid Maven dependencies request",
-                    )
-                    .with_details(error.to_string())
-                })
-                .and_then(crate::project::dependencies)
-            {
-                Ok(data) => CoreResponse::success(
-                    id,
-                    serde_json::to_value(data).expect("Maven dependencies should encode"),
-                ),
-                Err(error) => CoreResponse::failure(id, error),
-            }
-        }
-        CoreCommand::MavenDiagnostics => {
-            match serde_json::from_value::<MavenDiagnosticsRequest>(parsed.payload)
-                .map_err(|error| {
-                    CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "Invalid Maven diagnostics request",
-                    )
-                    .with_details(error.to_string())
-                })
-                .and_then(crate::project::diagnostics)
-            {
-                Ok(data) => CoreResponse::success(
-                    id,
-                    serde_json::to_value(data).expect("Maven diagnostics should encode"),
-                ),
-                Err(error) => CoreResponse::failure(id, error),
-            }
-        }
-        CoreCommand::MavenTestResults => {
-            match serde_json::from_value::<crate::project::MavenTestResultsRequest>(parsed.payload)
-                .map_err(|error| {
-                    CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "Invalid Maven test-results request",
-                    )
-                    .with_details(error.to_string())
-                })
-                .and_then(crate::project::test_results)
-            {
-                Ok(data) => CoreResponse::success(
-                    id,
-                    serde_json::to_value(data).expect("Maven test results should encode"),
-                ),
-                Err(error) => CoreResponse::failure(id, error),
             }
         }
         CoreCommand::KeymapParseContext => {

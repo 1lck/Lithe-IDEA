@@ -129,13 +129,13 @@ pub(super) fn write_local_repository(
     if read_local_repository(document).is_err() {
         return Err(INVALID_ERROR.into());
     }
-    let rewritten = lithe_core::settings_with_local_repository(document, local_repository)
+    let rewritten = lithe_legacy_tooling::settings_with_local_repository(document, local_repository)
         .map_err(|error| {
-            format!(
-                "{INVALID_ERROR}: {}",
-                error.details.unwrap_or(error.message)
-            )
-        })?;
+        format!(
+            "{INVALID_ERROR}: {}",
+            error.details.unwrap_or(error.message)
+        )
+    })?;
     // A settings file kept in a dotfiles repository is often a link; replacing
     // the link with a regular file would detach it from that repository.
     let target = if current.is_some() {

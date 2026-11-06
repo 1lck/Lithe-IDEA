@@ -1,6 +1,6 @@
 //! Shortens an oversized Java 8 class path through a manifest-only JAR.
 //!
-//! JDK 9 added `java @file` argument files, so [`super::plan_launch_command`]
+//! JDK 9 added `java @file` argument files, so [`crate::plan_launch_command`]
 //! cannot help a JDK 8 launch. The launcher has always accepted a JAR whose
 //! `META-INF/MANIFEST.MF` lists further class-path entries in its `Class-Path`
 //! attribute. Passing that one JAR with `-cp` keeps the command line short
@@ -13,7 +13,7 @@
 //! percent-encoded UTF-8, so the manifest is pure ASCII and, unlike an argument
 //! file, does not depend on the Windows system code page.
 
-use super::launch_command::{command_line_length, COMMAND_LINE_MARGIN, WINDOWS_COMMAND_LINE_LIMIT};
+use crate::launch_command::{command_line_length, COMMAND_LINE_MARGIN, WINDOWS_COMMAND_LINE_LIMIT};
 use std::path::Path;
 
 /// First JDK release whose launcher reads argument files; from this version on
