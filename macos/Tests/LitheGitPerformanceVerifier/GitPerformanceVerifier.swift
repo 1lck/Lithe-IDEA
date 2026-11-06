@@ -1,5 +1,6 @@
 import Foundation
 import LitheGitModule
+import LitheGitTestSupport
 import LitheGitPerformanceSupport
 
 @main
@@ -43,7 +44,7 @@ struct GitPerformanceVerifier {
         var expectedSignature: UInt64?
 
         for _ in 0..<warmupCount {
-            let layout = GitGraphLayoutService.layout(commits: commits)
+            let layout = GitGraphCoreTestSupport.layout(commits: commits)
             try validate(
                 layout: layout,
                 expected: expected,
@@ -57,7 +58,7 @@ struct GitPerformanceVerifier {
         samples.reserveCapacity(sampleCount)
         for _ in 0..<sampleCount {
             let start = clock.now
-            let layout = GitGraphLayoutService.layout(commits: commits)
+            let layout = GitGraphCoreTestSupport.layout(commits: commits)
             let elapsed = milliseconds(clock.now - start)
             guard elapsed.isFinite, elapsed >= 0 else {
                 throw VerificationError.invalidSample(commitCount: commitCount, milliseconds: elapsed)

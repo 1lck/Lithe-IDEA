@@ -1,5 +1,6 @@
 @testable import Lithe
 import LitheGitModule
+import LitheGitTestSupport
 import LitheGitPerformanceSupport
 import AppKit
 import QuartzCore
@@ -33,7 +34,7 @@ struct GitGraphPerformanceBaselineTests {
     @Test("The 1,000-commit graph preserves the compact routing baseline")
     func oneThousandCommitLayoutBaseline() {
         let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: 1_000)
-        let layout = GitGraphLayoutService.layout(commits: commits)
+        let layout = GitGraphCoreTestSupport.layout(commits: commits)
 
         print("Compact graph 1000: \(GitGraphStructureBaseline(layout: layout)), signature=\(GitGraphStructureBaseline.signature(of: layout))")
         #expect(GitGraphStructureBaseline(layout: layout) == .expected(commitCount: 1_000))
@@ -49,7 +50,7 @@ struct GitGraphPerformanceBaselineTests {
     func fiveThousandCommitLayoutBaseline() {
         let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: 5_000)
         // Exercise the production path, including the full repository graph.
-        let layout = GitGraphLayoutService.layout(commits: commits, repositoryCommits: commits)
+        let layout = GitGraphCoreTestSupport.layout(commits: commits, repositoryCommits: commits)
 
         #expect(SyntheticGitGraphFixture.parentsFollowChildren(in: commits))
         print("Compact graph 5000: \(GitGraphStructureBaseline(layout: layout)), signature=\(GitGraphStructureBaseline.signature(of: layout))")
@@ -81,7 +82,7 @@ struct GitGraphPerformanceBaselineTests {
         let viewportRowCount = 40
         let rowHeight = GitGraphGeometry.rowHeight
         let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: rowCount)
-        let layout = GitGraphLayoutService.layout(commits: commits)
+        let layout = GitGraphCoreTestSupport.layout(commits: commits)
         let view = GitGraphNSView(frame: NSRect(x: 0, y: 0, width: 120, height: CGFloat(rowCount) * rowHeight))
         view.update(snapshot: GitGraphLayoutService.routingSnapshot(for: layout), width: 120, rowHeight: rowHeight)
         // Keep the complete history, but draw a viewport as AppKit does while
@@ -138,7 +139,7 @@ struct GitGraphPerformanceBaselineTests {
     @Test("The routing snapshot preserves layout topology and ordering")
     func routingSnapshotPreservesTopology() {
         let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: 1_000)
-        let layout = GitGraphLayoutService.layout(commits: commits)
+        let layout = GitGraphCoreTestSupport.layout(commits: commits)
         let snapshot = GitGraphLayoutService.routingSnapshot(for: layout)
 
         #expect(snapshot.laneCount == layout.laneCount)
@@ -170,7 +171,7 @@ struct GitGraphPerformanceBaselineTests {
                 decorations: "HEAD -> main"
             )
         ]
-        let layout = GitGraphLayoutService.layout(commits: commits)
+        let layout = GitGraphCoreTestSupport.layout(commits: commits)
         let snapshot = GitGraphLayoutService.routingSnapshot(for: layout)
 
         #expect(snapshot.rows.count == 1)
@@ -431,7 +432,7 @@ struct GitGraphPerformanceBaselineTests {
     @MainActor
     func nativeGitLogScrollContainerBaseline() {
         let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: 5_000)
-        let layout = GitGraphLayoutService.layout(commits: commits)
+        let layout = GitGraphCoreTestSupport.layout(commits: commits)
         let presentation = GitGraphPresentation(
             rows: layout.rows,
             routingSnapshot: GitGraphLayoutService.routingSnapshot(for: layout),
@@ -494,7 +495,7 @@ struct GitGraphPerformanceBaselineTests {
     @MainActor
     func nativeGitLogCommitRowsFrameBaseline() throws {
         let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: 5_000)
-        let layout = GitGraphLayoutService.layout(commits: commits)
+        let layout = GitGraphCoreTestSupport.layout(commits: commits)
         let rowsView = GitGraphCommitRowsNSView(frame: CGRect(
             x: 0,
             y: 0,
@@ -648,7 +649,7 @@ struct GitGraphPerformanceBaselineTests {
         }
 
         let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: 5_000)
-        let layout = GitGraphLayoutService.layout(commits: commits)
+        let layout = GitGraphCoreTestSupport.layout(commits: commits)
         let presentation = GitGraphPresentation(
             rows: layout.rows,
             routingSnapshot: GitGraphLayoutService.routingSnapshot(for: layout),

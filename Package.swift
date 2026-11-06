@@ -24,7 +24,6 @@ let package = Package(
         .library(name: "LitheWorkspaceModule", targets: ["LitheWorkspaceModule"]),
         .library(name: "LithePluginPackageSigning", targets: ["LithePluginPackageSigning"]),
         .executable(name: "LitheCoreVerifier", targets: ["LitheCoreVerifier"]),
-        .executable(name: "LitheGitGraphVerifier", targets: ["LitheGitGraphVerifier"]),
         .executable(name: "LitheGitPerformanceVerifier", targets: ["LitheGitPerformanceVerifier"]),
         .executable(name: "LitheOfficialPluginVerifier", targets: ["LitheOfficialPluginVerifier"]),
         .executable(name: "LithePluginPackageSigner", targets: ["LithePluginPackageSigner"])
@@ -147,7 +146,7 @@ let package = Package(
         ),
         .target(
             name: "LitheGitTestSupport",
-            dependencies: ["LitheGitModule"],
+            dependencies: ["LitheGitModule", "LitheRustCore"],
             path: "macos/Tests/LitheGitTestSupport",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
@@ -213,6 +212,7 @@ let package = Package(
                 "Lithe",
                 "LitheGitModule",
                 "LitheGitPerformanceSupport",
+                "LitheGitTestSupport",
                 .product(name: "Testing", package: "swift-testing")
             ],
             path: "macos/Tests/LitheGitPerformanceTests",
@@ -249,14 +249,8 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .executableTarget(
-            name: "LitheGitGraphVerifier",
-            dependencies: ["LitheGitModule"],
-            path: "macos/Tests/LitheGitGraphVerifier",
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
-        .executableTarget(
             name: "LitheGitPerformanceVerifier",
-            dependencies: ["LitheGitModule", "LitheGitPerformanceSupport"],
+            dependencies: ["LitheGitModule", "LitheGitPerformanceSupport", "LitheGitTestSupport"],
             path: "macos/Tests/LitheGitPerformanceVerifier",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

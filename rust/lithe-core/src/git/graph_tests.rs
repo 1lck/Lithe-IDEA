@@ -706,7 +706,7 @@ fn natural_reference_names_keep_numeric_zero_and_case_tie_breaks() {
 }
 
 #[test]
-fn color_ids_are_java_string_hash_codes_of_the_principal_reference() {
+fn color_ids_hash_the_principal_reference_name() {
     let id = |decorations: &str| color_id(&parse_labels(decorations, &HashSet::new()));
     assert_eq!(id("main"), 3_343_801);
     assert_eq!(id("master"), -1_081_267_614);

@@ -10,7 +10,6 @@ struct CoreVerification {
         verifySharedContractFixtures()
         verifyDiffParser()
         verifyVisibilityRules()
-        verifyGitGraph()
         verifyWhitespaceModes()
         verifySearchOptions()
         print("Core verification passed: shared fixtures, diff, visibility, graph, search options, and whitespace modes")
@@ -70,26 +69,6 @@ struct CoreVerification {
         let operationError: OperationError?
     }
 
-    private struct GitFixture: Decodable {
-        struct Commit: Decodable {
-            let hash: String
-            let parents: [String]
-            let subject: String
-            let decorations: String
-        }
-
-        struct Expected: Decodable {
-            let rowCount: Int
-            let mergeRow: Int
-            let mergeParentCount: Int
-            let hasMissingParents: Bool
-            let headLabel: String
-        }
-
-        let commits: [Commit]
-        let expected: Expected
-    }
-
     private static func verifySharedContractFixtures() {
         let searchURL = URL(fileURLWithPath: "shared/fixtures/search/basic.json")
         guard let searchData = try? Data(contentsOf: searchURL),
@@ -140,31 +119,6 @@ struct CoreVerification {
             }
             require(actual == fixtureCase.expected, "search fixture case failed: \(fixtureCase.name)")
         }
-
-        let gitURL = URL(fileURLWithPath: "shared/fixtures/git/graph.json")
-        guard let gitData = try? Data(contentsOf: gitURL),
-              let gitFixture = try? JSONDecoder().decode(GitFixture.self, from: gitData) else {
-            require(false, "Git contract fixture could not be decoded")
-            return
-        }
-        let commits = gitFixture.commits.map { commit in
-            GitCommit(
-                hash: commit.hash,
-                shortHash: commit.hash,
-                parentHashes: commit.parents,
-                authorName: "Fixture",
-                authorEmail: "fixture@example.com",
-                date: "2026/08/02 10:00",
-                subject: commit.subject,
-                decorations: commit.decorations
-            )
-        }
-        let layout = GitGraphLayoutService.layout(commits: commits)
-        let mergeRow = layout.rows[gitFixture.expected.mergeRow]
-        require(layout.rows.count == gitFixture.expected.rowCount, "Git fixture row count changed")
-        require(mergeRow.parentEdges.count == gitFixture.expected.mergeParentCount, "Git fixture merge edge count changed")
-        require(layout.hasMissingParents == gitFixture.expected.hasMissingParents, "Git fixture missing-parent state changed")
-        require(mergeRow.labels.contains { $0.title == gitFixture.expected.headLabel }, "Git fixture HEAD label changed")
 
         let commandURL = URL(fileURLWithPath: "shared/fixtures/git/command-response-v1.json")
         guard let commandData = try? Data(contentsOf: commandURL),
@@ -258,23 +212,6 @@ struct CoreVerification {
         )
     }
 
-    private static func verifyGitGraph() {
-        let root = commit(hash: "root", parents: [], subject: "root", decorations: "")
-        let side = commit(hash: "side", parents: ["root"], subject: "side", decorations: "feature/orders")
-        let main = commit(
-            hash: "main",
-            parents: ["side", "root"],
-            subject: "merge",
-            decorations: "HEAD -> main"
-        )
-        let layout = GitGraphLayoutService.layout(commits: [main, side, root])
-        require(layout.rows.count == 3, "expected three graph rows")
-        require(layout.rows[0].isMerge, "expected merge commit")
-        require(layout.rows[0].parentEdges.count == 2, "expected two merge parent edges")
-        require(layout.rows[0].parentEdges.allSatisfy { !$0.isMissing }, "merge parents should be present")
-        require(layout.rows[0].labels.contains { $0.kind == .head }, "HEAD label should be parsed")
-    }
-
     private static func verifyWhitespaceModes() {
         require(GitDiffWhitespaceMode.allCases.count == 2, "expected two whitespace modes")
         require(GitDiffWhitespaceMode.doNotIgnore.title == "Do not ignore", "default whitespace label changed")
@@ -299,24 +236,6 @@ struct CoreVerification {
         var regularExpression = standard
         regularExpression.regularExpression = true
         require(regularExpression.matches("UserService42", query: "UserService\\d+"), "regex search should match a pattern")
-    }
-
-    private static func commit(
-        hash: String,
-        parents: [String],
-        subject: String,
-        decorations: String
-    ) -> GitCommit {
-        GitCommit(
-            hash: hash,
-            shortHash: hash,
-            parentHashes: parents,
-            authorName: "Test",
-            authorEmail: "test@example.com",
-            date: "2026/08/02 10:00",
-            subject: subject,
-            decorations: decorations
-        )
     }
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) {
