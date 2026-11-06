@@ -44,6 +44,22 @@ Core 的扫描代际取消经 Swift 桥接和远程路由原样保留；当前�
 Git 忽略语义交给本机 Git 的 `check-ignore`；查询同层目录时批量提交，
 再用 `ls-files` 保护已跟踪后代。单个被忽略文件不会被升级成目录排除。
 关闭自动排除保留手动标记与包含例外；应用存储不写入 `.gitignore` 或 `.iml`。
+刷新后的 Git 排除结论必须重新向 Git 查询。跨代际只携带已访问目录名作为
+批量查询候选，不直接复制旧的排除布尔值；候选经过当前仓库归属检查后，按
+仓库批量执行忽略与已跟踪内容查询，再继续按层遍历新目录。刷新在查询期间
+到达时，下一代保留尚未完成的候选；候选不是已验证结果，不得提前对外发布。
+
+例如，原来被忽略的目录内新建或移除 `.git` 后，必须按新的仓库边界重查；
+`core.excludesFile` 的内容或来源改变后，也必须使用 Git 的新答案。不要只
+校验工作区 `.gitignore`、index 和 info/exclude 的修改时间：配置 include、
+外部规则和 linked-worktree 的共享元数据均由 Git 决定，本地文件清单不能
+证明它们未变。代价是每次刷新要重新批量查询已访问目录，但不恢复每目录
+启动 Git 的做法，也不自行实现第二套 Git 配置来源解析器。
+
+`project::indexing::tests::refresh_recognizes_a_repository_created_inside_a_cached_exclusion`
+及 `refresh_rechecks_external_ignore_rules_and_their_configured_source` 覆盖上述
+变化，使用真实 Git，新增用例已在修复前复现失败；修复后结果由逐项计时报表
+记录，不能用静态检查代替运行结果。
 
 两端开关统一放在“设置 › 版本控制 › Git”，紧接程序与凭据设置，删除独立索引
 页面及项目环境页中的重复入口。开关仍绑定当前工作区，Git 页切到全局配置或

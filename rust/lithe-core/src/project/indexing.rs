@@ -57,9 +57,28 @@ pub(crate) struct IndexingContext {
     fallback_policy: Option<IndexingPolicy>,
     published: AtomicBool,
     decisions: Mutex<HashMap<String, bool>>,
+    /// Previously visited directories, carried across refreshes as query candidates
+    /// only. Git revalidates them in repository-wide batches before reuse (#1749).
+    git_candidates: Mutex<Vec<String>>,
     pub(crate) retired: AtomicBool,
     git_failed: AtomicBool,
     git_resolved: AtomicBool,
+}
+
+/// Whether a directory is excluded: Git must say it is ignored and must have shown
+/// that nothing below it is tracked. `tracked` is `None` when Git could not answer,
+/// and then the directory stays included, as the per-directory query always did.
+fn directory_excluded(ignored: bool, tracked: Option<&[String]>, relative: &str) -> bool {
+    let Some(tracked) = tracked else {
+        return false;
+    };
+    ignored
+        && !tracked.iter().any(|path| {
+            path == relative
+                || path
+                    .strip_prefix(relative)
+                    .is_some_and(|rest| rest.starts_with('/'))
+        })
 }
 
 /// A failed installer may reclaim a token only before any caller has received it.
@@ -169,6 +188,7 @@ fn configure_with_provider_update(
                 retired: AtomicBool::new(false),
                 git_failed: AtomicBool::new(false),
                 git_resolved: AtomicBool::new(false),
+                git_candidates: Mutex::default(),
             });
             entries.insert(root.clone(), Arc::clone(&next));
             next
@@ -346,6 +366,7 @@ fn rollback_failed_policy(root: &Path, failed: &Arc<IndexingContext>) -> Result<
         retired: AtomicBool::new(false),
         git_failed: AtomicBool::new(false),
         git_resolved: AtomicBool::new(false),
+        git_candidates: Mutex::default(),
     });
     current.retired.store(true, Ordering::Release);
     drop(leases);
@@ -533,8 +554,25 @@ pub(crate) fn refresh(root: &Path) -> Result<(), CoreError> {
     Ok(())
 }
 
+/// Carries directory names, never Git facts: rule sources and repository boundaries
+/// can change without touching the workspace's own ignore files or index.
+fn carry_git_candidates(old: &IndexingContext, next: &IndexingContext) {
+    // Leaf locks use a fixed old-then-new order; no filesystem or Git I/O here.
+    let (Ok(old_candidates), Ok(old_decisions)) = (old.git_candidates.lock(), old.decisions.lock())
+    else {
+        return;
+    };
+    let Ok(mut candidates) = next.git_candidates.lock() else {
+        return;
+    };
+    candidates.extend(old_candidates.iter().cloned());
+    candidates.extend(old_decisions.keys().cloned());
+    candidates.sort();
+    candidates.dedup();
+}
+
 fn refreshed_context(old: &IndexingContext) -> Arc<IndexingContext> {
-    Arc::new(IndexingContext {
+    let next = Arc::new(IndexingContext {
         revision: REVISION.fetch_add(1, Ordering::Relaxed),
         installation_revision: old.installation_revision,
         owner_revision: old.owner_revision,
@@ -544,10 +582,13 @@ fn refreshed_context(old: &IndexingContext) -> Arc<IndexingContext> {
         fallback_policy: old.fallback_policy.clone(),
         published: AtomicBool::new(old.published.load(Ordering::Acquire)),
         decisions: Mutex::default(),
+        git_candidates: Mutex::default(),
         retired: AtomicBool::new(false),
         git_failed: AtomicBool::new(false),
         git_resolved: AtomicBool::new(false),
-    })
+    });
+    carry_git_candidates(old, &next);
+    next
 }
 
 /// Resolve native Git decisions before a live provider receives a new generation.
@@ -555,12 +596,34 @@ fn refreshed_context(old: &IndexingContext) -> Arc<IndexingContext> {
 pub(crate) fn prepare_provider_exclusions(
     root: &Path,
 ) -> Result<Option<Arc<IndexingContext>>, CoreError> {
+    // A watcher refresh retires the generation mid-walk. That is not the caller
+    // cancelling, so re-read the newest generation instead of failing the start.
+    let mut retries = 0;
+    loop {
+        match prepare_current_generation(root) {
+            Err(error)
+                if retries < PREPARE_RETIRED_RETRIES
+                    && matches!(error.code, ErrorCode::Cancelled)
+                    && crate::protocol::cancellation::check().is_ok() =>
+            {
+                retries += 1;
+            }
+            outcome => return outcome,
+        }
+    }
+}
+
+/// Bounds how often one preparation chases newer generations before it reports
+/// the cancellation; each retry reuses the Git decisions already carried over.
+const PREPARE_RETIRED_RETRIES: u32 = 4;
+
+fn prepare_current_generation(root: &Path) -> Result<Option<Arc<IndexingContext>>, CoreError> {
     let Some(context) = active_provider_context(root) else {
         return Ok(None);
     };
     context.check()?;
     if context.policy.git_ignore_enabled && !context.git_resolved.load(Ordering::Acquire) {
-        context.prepare_parent(root, "")?;
+        context.prefetch_git_decisions(root)?;
         super::files::snapshot(super::files::WorkspaceSnapshotRequest {
             root: root.to_string_lossy().into_owned(),
             workspace_roots: Vec::new(),
@@ -572,6 +635,46 @@ pub(crate) fn prepare_provider_exclusions(
         context.git_resolved.store(true, Ordering::Release);
     }
     Ok(Some(context))
+}
+
+/// Decides whether a language-server start prepared against `prepared` may go on
+/// after its generation was retired.
+///
+/// A cold start can take minutes, and any directory event, `.gitignore` or `.git`
+/// change retires the generation through `refresh` even though nothing the server
+/// was configured with changed. Cancelling there makes the next attempt collide
+/// with the next refresh, so a large Maven import never finishes (#1749). A start
+/// continues only when the same installation is still live with an equal policy
+/// and freshly resolved exclusions match `baseline`, the set it was prepared with;
+/// a reconfiguration, a closed workspace or really different exclusions still cancel.
+pub(crate) fn continue_provider_start(
+    root: &Path,
+    prepared: &Arc<IndexingContext>,
+    baseline: &[String],
+) -> Result<Arc<IndexingContext>, CoreError> {
+    prepared
+        .check()
+        .map(|()| Arc::clone(prepared))
+        .or_else(|error| {
+            // Caller cancellation is not a policy refresh and must stay a failure.
+            crate::protocol::cancellation::check()?;
+            let same_installation = active_provider_context(root).is_some_and(|current| {
+                current.installation_revision == prepared.installation_revision
+                    && current.policy == prepared.policy
+            });
+            if !same_installation {
+                return Err(error);
+            }
+            // Git decisions restart empty after a refresh; resolve them before comparing.
+            let current = prepare_provider_exclusions(root)?.ok_or_else(|| error.clone())?;
+            if current.installation_revision == prepared.installation_revision
+                && excluded_roots(root) == baseline
+            {
+                Ok(current)
+            } else {
+                Err(error)
+            }
+        })
 }
 
 fn contains(directory: &str, path: &str) -> bool {
@@ -652,6 +755,235 @@ impl IndexingContext {
             }
         }
         Ok(None)
+    }
+
+    /// Revalidates earlier directory queries in one batch per current repository.
+    /// Git owns external excludes, config includes and linked-worktree metadata;
+    /// tracking only local file stamps cannot prove that an old answer is current.
+    fn revalidate_git_candidates(&self, root: &Path) -> Result<(), CoreError> {
+        // Keep candidates available to a successor if a refresh cancels this query.
+        let candidates = self
+            .git_candidates
+            .lock()
+            .map_err(|_| {
+                CoreError::new(ErrorCode::Unknown, "Indexing candidate lock was poisoned")
+            })?
+            .clone();
+        let mut pending = BTreeMap::<PathBuf, Vec<(String, String)>>::new();
+        let mut resolved = HashMap::new();
+        for key in candidates {
+            self.check()?;
+            let path = root.join(&key);
+            if !path.is_dir() {
+                continue;
+            }
+            if path.join(".git").exists() {
+                // A new repository overrides an exclusion cached by its parent.
+                resolved.insert(key, false);
+                continue;
+            }
+            let repository = path
+                .ancestors()
+                .take_while(|ancestor| ancestor.starts_with(root))
+                .find(|ancestor| ancestor.join(".git").exists())
+                .unwrap_or(root);
+            pending
+                .entry(repository.to_path_buf())
+                .or_default()
+                .push((relative_path(&path, repository), key));
+        }
+        for (repository, entries) in pending {
+            self.resolve_git_batch(&repository, entries, &mut resolved)?;
+        }
+        // Match the walker's pruning: descendants of an excluded directory are
+        // not independently published when a formerly nested repository disappears.
+        for key in resolved.keys().cloned().collect::<Vec<_>>() {
+            let mut parent = key.as_str();
+            while let Some((ancestor, _)) = parent.rsplit_once('/') {
+                if resolved.get(ancestor) == Some(&true) {
+                    resolved.remove(&key);
+                    break;
+                }
+                parent = ancestor;
+            }
+        }
+        self.check()?;
+        self.decisions
+            .lock()
+            .map_err(|_| CoreError::new(ErrorCode::Unknown, "Indexing decision lock was poisoned"))?
+            .extend(resolved);
+        self.git_candidates
+            .lock()
+            .map_err(|_| {
+                CoreError::new(ErrorCode::Unknown, "Indexing candidate lock was poisoned")
+            })?
+            .clear();
+        Ok(())
+    }
+
+    /// Resolves Git decisions for the whole workspace one directory level at a time,
+    /// with one `check-ignore` and one `ls-files` call per repository and level
+    /// instead of one per directory. Spawning Git costs hundreds of milliseconds on a
+    /// busy Windows machine, so a per-directory walk of a few hundred directories took
+    /// minutes (#1749). Pruning is unchanged: only directories that `reason` keeps are
+    /// descended into, and a nested repository is queried from its own root.
+    fn prefetch_git_decisions(&self, root: &Path) -> Result<(), CoreError> {
+        self.revalidate_git_candidates(root)?;
+        // Each entry is a directory to list and the repository its children belong to.
+        let mut level = vec![(root.to_path_buf(), root.to_path_buf())];
+        while !level.is_empty() {
+            self.check()?;
+            // (path, key, repository) of every child directory on this level.
+            let mut children = Vec::new();
+            // Undecided children per repository: (path relative to it, key).
+            let mut pending = BTreeMap::<PathBuf, Vec<(String, String)>>::new();
+            let mut resolved = HashMap::new();
+            for (directory, repository) in &level {
+                let Ok(entries) = std::fs::read_dir(directory) else {
+                    continue;
+                };
+                for entry in entries.filter_map(Result::ok) {
+                    if !entry.file_type().is_ok_and(|kind| kind.is_dir())
+                        || entry.file_name() == ".git"
+                    {
+                        continue;
+                    }
+                    let path = entry.path();
+                    let key = relative_path(&path, &self.root);
+                    // A nested repository owns its ignore rules and tracked content.
+                    let nested = path.join(".git").exists();
+                    children.push((
+                        path.clone(),
+                        key.clone(),
+                        if nested {
+                            path.clone()
+                        } else {
+                            repository.clone()
+                        },
+                    ));
+                    let decided = self
+                        .decisions
+                        .lock()
+                        .map_err(|_| {
+                            CoreError::new(
+                                ErrorCode::Unknown,
+                                "Indexing decision lock was poisoned",
+                            )
+                        })?
+                        .contains_key(&key);
+                    if decided {
+                        continue;
+                    }
+                    if nested {
+                        resolved.insert(key, false);
+                    } else {
+                        pending
+                            .entry(repository.clone())
+                            .or_default()
+                            .push((relative_path(&path, repository), key));
+                    }
+                }
+            }
+            for (repository, entries) in pending {
+                self.resolve_git_batch(&repository, entries, &mut resolved)?;
+            }
+            self.check()?;
+            self.decisions
+                .lock()
+                .map_err(|_| {
+                    CoreError::new(ErrorCode::Unknown, "Indexing decision lock was poisoned")
+                })?
+                .extend(resolved);
+            let mut next = Vec::new();
+            for (path, key, repository) in children {
+                if self.reason(&key, true)?.is_none() {
+                    next.push((path, repository));
+                }
+            }
+            level = next;
+        }
+        Ok(())
+    }
+
+    /// Decides one repository's directories with a single ignore query, then a single
+    /// tracked-content query for the ignored ones. The index is authoritative for
+    /// tracked descendants; `check-ignore` on a directory alone does not protect
+    /// tracked files below an otherwise ignored directory.
+    fn resolve_git_batch(
+        &self,
+        repository: &Path,
+        entries: Vec<(String, String)>,
+        resolved: &mut HashMap<String, bool>,
+    ) -> Result<(), CoreError> {
+        let relatives = entries
+            .iter()
+            .map(|(relative, _)| relative.clone())
+            .collect::<Vec<_>>();
+        let Some(ignored) = crate::git::ignored_paths(repository, &relatives)? else {
+            self.git_failed.store(true, Ordering::Release);
+            resolved.extend(entries.into_iter().map(|(_, key)| (key, false)));
+            return Ok(());
+        };
+        let ignored_relatives = relatives
+            .iter()
+            .filter(|relative| ignored.contains(*relative))
+            .cloned()
+            .collect::<Vec<_>>();
+        let tracked = self.tracked_paths_below(repository, &ignored_relatives)?;
+        if tracked.is_none() {
+            self.git_failed.store(true, Ordering::Release);
+        }
+        for (relative, key) in entries {
+            let excluded =
+                directory_excluded(ignored.contains(&relative), tracked.as_deref(), &relative);
+            resolved.insert(key, excluded);
+        }
+        Ok(())
+    }
+
+    /// Tracked file paths below the given directories, from batched `ls-files` calls
+    /// kept under the Windows command-line limit. `None` means Git could not answer.
+    fn tracked_paths_below(
+        &self,
+        repository: &Path,
+        directories: &[String],
+    ) -> Result<Option<Vec<String>>, CoreError> {
+        // Windows limits a whole command line to 32,767 UTF-16 units.
+        const PATHSPEC_BUDGET: usize = 16 * 1024;
+        let mut tracked = Vec::new();
+        let mut start = 0;
+        while start < directories.len() {
+            let mut end = start;
+            let mut size = 0;
+            while end < directories.len()
+                && (end == start || size + directories[end].len() < PATHSPEC_BUDGET)
+            {
+                size += directories[end].len() + 1;
+                end += 1;
+            }
+            let mut arguments = vec![
+                "--literal-pathspecs".to_string(),
+                "ls-files".into(),
+                "-z".into(),
+                "--".into(),
+            ];
+            arguments.extend(directories[start..end].iter().cloned());
+            let response =
+                crate::git::execute_git_readonly(&repository.to_string_lossy(), &arguments, None);
+            self.check()?;
+            match response {
+                Ok(response) if response.exit_code == 0 => tracked.extend(
+                    response
+                        .stdout
+                        .split('\0')
+                        .filter(|path| !path.is_empty())
+                        .map(str::to_string),
+                ),
+                _ => return Ok(None),
+            }
+            start = end;
+        }
+        Ok(Some(tracked))
     }
 
     /// Queries sibling directories in one batch, without enumerating their contents.
@@ -1367,6 +1699,250 @@ mod tests {
         .unwrap());
         assert_ne!(reopened.revision, installed.revision);
         assert_eq!(workspace.files().len(), 2);
+    }
+
+    // Regression for #1749: a cold Java start spans minutes while Maven import
+    // creates directories, and every directory event used to retire the prepared
+    // generation and cancel the whole start.
+    // The batched level-by-level walk must decide exactly what the per-directory
+    // one did: ignored trees are excluded and never descended into.
+    #[test]
+    fn batched_git_prefetch_decides_every_level_and_prunes_ignored_trees() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        fs::write(workspace.0.join(".gitignore"), "build/\n").unwrap();
+        for dir in [
+            "m1/src/a",
+            "m1/build/classes",
+            "m2/build/classes/deep",
+            "m2/src/b",
+            "m3/x/y/z",
+        ] {
+            fs::create_dir_all(workspace.0.join(dir)).unwrap();
+        }
+        workspace.configure(&[], &[], true);
+        prepare_provider_exclusions(&workspace.0).unwrap().unwrap();
+        assert_eq!(excluded_roots(&workspace.0), ["m1/build", "m2/build"]);
+        let decisions = context(&workspace.0).unwrap();
+        let decisions = decisions.decisions.lock().unwrap();
+        assert_eq!(decisions.get("m3/x/y/z"), Some(&false));
+        assert_eq!(decisions.get("m2/src/b"), Some(&false));
+        assert!(
+            !decisions.contains_key("m2/build/classes/deep"),
+            "an excluded tree is not descended into"
+        );
+    }
+
+    // Only the ignore files were stamped, so `git add -f` on a file below an
+    // excluded directory left the stale exclusion in place across a refresh.
+    #[test]
+    fn force_tracking_a_file_below_an_excluded_directory_drops_the_carried_decision() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        fs::write(workspace.0.join(".gitignore"), "build/\n").unwrap();
+        fs::create_dir_all(workspace.0.join("build")).unwrap();
+        fs::write(workspace.0.join("build/Source.java"), "class Source {}").unwrap();
+        workspace.configure(&[], &[], true);
+        prepare_provider_exclusions(&workspace.0).unwrap().unwrap();
+        assert_eq!(excluded_roots(&workspace.0), ["build"]);
+
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&workspace.0)
+            .args(["add", "-f", "build/Source.java"])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        refresh(&workspace.0).unwrap();
+        prepare_provider_exclusions(&workspace.0).unwrap().unwrap();
+        assert!(
+            excluded_roots(&workspace.0).is_empty(),
+            "a directory with tracked content is never excluded"
+        );
+    }
+
+    // The opened folder may sit inside a larger repository: its index, exclude file
+    // and ancestor `.gitignore` files live above the workspace root.
+    #[test]
+    fn force_tracking_is_noticed_when_the_workspace_is_a_repository_subdirectory() {
+        let repository = Workspace::new();
+        repository.git(&["init", "--quiet"]);
+        fs::write(repository.0.join(".gitignore"), "build/\n").unwrap();
+        let module = Workspace(repository.0.join("module"));
+        fs::create_dir_all(module.0.join("build")).unwrap();
+        fs::write(module.0.join("build/Source.java"), "class Source {}").unwrap();
+        module.configure(&[], &[], true);
+        prepare_provider_exclusions(&module.0).unwrap().unwrap();
+        assert_eq!(excluded_roots(&module.0), ["build"]);
+
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repository.0)
+            .args(["add", "-f", "module/build/Source.java"])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        refresh(&module.0).unwrap();
+        prepare_provider_exclusions(&module.0).unwrap().unwrap();
+        assert!(excluded_roots(&module.0).is_empty());
+
+        // An ancestor ignore file is a rule source too.
+        fs::write(repository.0.join(".gitignore"), "other/\n").unwrap();
+        refresh(&module.0).unwrap();
+        assert!(excluded_roots(&module.0).is_empty());
+    }
+
+    #[test]
+    fn a_directory_is_excluded_only_when_git_proves_it_ignored_and_untracked() {
+        let tracked = ["build/Source.java".to_string()];
+        assert!(directory_excluded(true, Some(&[]), "build"));
+        assert!(!directory_excluded(true, Some(&tracked), "build"));
+        assert!(directory_excluded(true, Some(&tracked), "buil"));
+        assert!(!directory_excluded(false, Some(&[]), "build"));
+        assert!(
+            !directory_excluded(true, None, "build"),
+            "an unanswered tracked-content query keeps the directory"
+        );
+    }
+
+    #[test]
+    fn refresh_recognizes_a_repository_created_inside_a_cached_exclusion() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        fs::write(workspace.0.join(".gitignore"), "ignored/\n").unwrap();
+        workspace.configure(&[], &[], true);
+        prepare_provider_exclusions(&workspace.0).unwrap().unwrap();
+        assert_eq!(excluded_roots(&workspace.0), ["ignored"]);
+
+        // No parent ignore file or index changes when a nested repository appears.
+        workspace.git(&["init", "--quiet", "ignored"]);
+        refresh(&workspace.0).unwrap();
+        prepare_provider_exclusions(&workspace.0).unwrap().unwrap();
+        assert!(excluded_roots(&workspace.0).is_empty());
+        assert!(workspace
+            .files()
+            .contains(&"ignored/deep/Excluded.java".into()));
+
+        fs::remove_dir_all(workspace.0.join("ignored/.git")).unwrap();
+        refresh(&workspace.0).unwrap();
+        prepare_provider_exclusions(&workspace.0).unwrap().unwrap();
+        assert_eq!(excluded_roots(&workspace.0), ["ignored"]);
+    }
+
+    #[test]
+    fn refresh_rechecks_external_ignore_rules_and_their_configured_source() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        let rules = workspace.0.join("external-ignore");
+        fs::write(&rules, "ignored/\n").unwrap();
+        // Git config paths use ordinary slashes, not Windows canonical \\?\ paths.
+        let rules_path = rules.to_string_lossy().replace('\\', "/");
+        let rules_path = rules_path.strip_prefix("//?/").unwrap_or(&rules_path);
+        workspace.git(&["config", "core.excludesFile", rules_path]);
+        workspace.configure(&[], &[], true);
+        prepare_provider_exclusions(&workspace.0).unwrap().unwrap();
+        assert_eq!(excluded_roots(&workspace.0), ["ignored"]);
+
+        fs::write(&rules, "unrelated/\n").unwrap();
+        refresh(&workspace.0).unwrap();
+        prepare_provider_exclusions(&workspace.0).unwrap().unwrap();
+        assert!(excluded_roots(&workspace.0).is_empty());
+        assert!(workspace
+            .files()
+            .contains(&"ignored/deep/Excluded.java".into()));
+
+        let replacement = workspace.0.join("replacement-ignore");
+        fs::write(&replacement, "ignored/\n").unwrap();
+        let replacement_path = replacement.to_string_lossy().replace('\\', "/");
+        let replacement_path = replacement_path
+            .strip_prefix("//?/")
+            .unwrap_or(&replacement_path);
+        workspace.git(&["config", "core.excludesFile", replacement_path]);
+        refresh(&workspace.0).unwrap();
+        prepare_provider_exclusions(&workspace.0).unwrap().unwrap();
+        assert_eq!(excluded_roots(&workspace.0), ["ignored"]);
+    }
+
+    #[test]
+    fn provider_start_survives_a_refresh_that_leaves_exclusions_unchanged() {
+        let workspace = Workspace::new();
+        workspace.configure(&["ignored"], &[], false);
+        let prepared = prepare_provider_exclusions(&workspace.0).unwrap().unwrap();
+        let baseline = excluded_roots(&workspace.0);
+        refresh(&workspace.0).unwrap();
+        assert!(prepared.check().is_err(), "the prepared generation retired");
+        let adopted = continue_provider_start(&workspace.0, &prepared, &baseline).unwrap();
+        assert!(adopted.check().is_ok());
+        assert!(Arc::ptr_eq(&adopted, &context(&workspace.0).unwrap()));
+        assert_eq!(excluded_roots(&workspace.0), baseline);
+    }
+
+    // Reuse directory query candidates, but obtain fresh Git answers before
+    // publishing exclusions, including when only external rules have changed.
+    #[test]
+    fn refresh_revalidates_previous_directories_before_publishing_exclusions() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        fs::write(workspace.0.join(".gitignore"), "deep/\n").unwrap();
+        workspace.configure(&[], &[], true);
+        let first = prepare_provider_exclusions(&workspace.0).unwrap().unwrap();
+        assert_eq!(excluded_roots(&workspace.0), ["ignored/deep"]);
+
+        fs::create_dir_all(workspace.0.join("src/new")).unwrap();
+        refresh(&workspace.0).unwrap();
+        let second = context(&workspace.0).unwrap();
+        assert!(!Arc::ptr_eq(&first, &second));
+        assert!(first.check().is_err(), "readers still see a new generation");
+        assert!(excluded_roots(&workspace.0).is_empty());
+        prepare_provider_exclusions(&workspace.0).unwrap().unwrap();
+        assert_eq!(excluded_roots(&workspace.0), ["ignored/deep"]);
+
+        fs::write(workspace.0.join(".gitignore"), "nothing/\n").unwrap();
+        refresh(&workspace.0).unwrap();
+        assert!(excluded_roots(&workspace.0).is_empty());
+    }
+
+    #[test]
+    fn provider_start_is_still_cancelled_when_exclusions_really_change() {
+        let workspace = Workspace::new();
+        workspace.git(&["init", "--quiet"]);
+        fs::write(workspace.0.join(".gitignore"), "deep/\n").unwrap();
+        workspace.configure(&[], &[], true);
+        let prepared = prepare_provider_exclusions(&workspace.0).unwrap().unwrap();
+        let baseline = excluded_roots(&workspace.0);
+        assert_eq!(baseline, ["ignored/deep"]);
+        fs::write(workspace.0.join(".gitignore"), "ignored/\n").unwrap();
+        refresh(&workspace.0).unwrap();
+        let error = continue_provider_start(&workspace.0, &prepared, &baseline)
+            .err()
+            .unwrap();
+        assert!(matches!(error.code, ErrorCode::Cancelled));
+    }
+
+    #[test]
+    fn provider_start_is_still_cancelled_by_a_policy_change_or_a_closed_workspace() {
+        let workspace = Workspace::new();
+        workspace.configure(&["ignored"], &[], false);
+        let prepared = prepare_provider_exclusions(&workspace.0).unwrap().unwrap();
+        let baseline = excluded_roots(&workspace.0);
+        let reconfigured = workspace.configure(&[], &[], false);
+        let error = continue_provider_start(&workspace.0, &prepared, &baseline)
+            .err()
+            .unwrap();
+        assert!(matches!(error.code, ErrorCode::Cancelled));
+
+        let current = prepare_provider_exclusions(&workspace.0).unwrap().unwrap();
+        let baseline = excluded_roots(&workspace.0);
+        assert!(release(ReleaseIndexingRequest {
+            owner_id: None,
+            root: workspace.0.to_string_lossy().into_owned(),
+            revision: reconfigured.revision,
+        })
+        .unwrap());
+        let error = continue_provider_start(&workspace.0, &current, &baseline)
+            .err()
+            .unwrap();
+        assert!(matches!(error.code, ErrorCode::Cancelled));
     }
 
     #[test]
