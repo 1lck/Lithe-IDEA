@@ -20,7 +20,6 @@ import {
 import { isTreeDomEvent } from "../lib/tree-dom-event";
 import { useFileOpenTarget } from "@/features/keymaps/hooks/use-file-open-target";
 import { isNativeTextInputTarget } from "@/utils/keyboard/text-input-target";
-import ignore from "ignore";
 import {
   EyeIcon as Eye,
   FadersHorizontalIcon as Preferences,
@@ -53,6 +52,8 @@ import {
   type FileTreeGitStatusDecoration,
   type FileTreeGitStatusLookup,
 } from "@/features/file-explorer/lib/file-tree-git-status";
+import { createDirectoryVisibilityClassifier } from "@/features/file-explorer/lib/file-tree-visibility";
+import { hiddenPathRules } from "@/features/settings/lib/hidden-path-rules";
 import {
   collectGitIgnoreFileReferences,
   createFileTreeGitIgnoreRules,
@@ -357,34 +358,33 @@ function FileExplorerTreeComponent({
     file: FileEntry;
   } | null>(null);
 
-  const userIgnore = useMemo(() => {
-    const ig = ignore();
-    if (fileTreeSettings.hiddenFilePatterns.length > 0) {
-      ig.add(fileTreeSettings.hiddenFilePatterns);
-    }
-    if (fileTreeSettings.hiddenDirectoryPatterns.length > 0) {
-      ig.add(fileTreeSettings.hiddenDirectoryPatterns.map((p) => (p.endsWith("/") ? p : `${p}/`)));
-    }
-    return ig;
-  }, [fileTreeSettings.hiddenFilePatterns, fileTreeSettings.hiddenDirectoryPatterns]);
-
-
   const getWorkspaceRootForPath = useCallback(
     (path: string) => directoryMarkRoot(path, workspaceRootPaths),
     [workspaceRootPaths],
   );
 
-  const isUserHidden = useCallback(
-    (fullPath: string, isDir: boolean): boolean => {
-      const matchedRootPath = getWorkspaceRootForPath(fullPath);
-      if (!matchedRootPath) return false;
+  // Core decides what the hidden-path rules hide. A new classifier per rule set is the cache
+  // version: it keeps one answer per directory child until the rules change.
+  const userVisibility = useMemo(
+    () =>
+      createDirectoryVisibilityClassifier(
+        hiddenPathRules({
+          hiddenDirectoryPatterns: fileTreeSettings.hiddenDirectoryPatterns,
+          hiddenFilePatterns: fileTreeSettings.hiddenFilePatterns,
+        }),
+        getWorkspaceRootForPath,
+      ),
+    [
+      fileTreeSettings.hiddenDirectoryPatterns,
+      fileTreeSettings.hiddenFilePatterns,
+      getWorkspaceRootForPath,
+    ],
+  );
 
-      let relative = getRelativePath(fullPath, matchedRootPath);
-      if (!relative || relative.trim() === "") return false;
-      if (isDir && !relative.endsWith("/")) relative += "/";
-      return userIgnore.ignores(relative);
-    },
-    [getWorkspaceRootForPath, userIgnore],
+  const classifyUserHidden = useCallback(
+    (directoryPath: string, children: readonly FileEntry[]): boolean[] =>
+      userVisibility.classifyChildren(directoryPath, children),
+    [userVisibility],
   );
 
   const gitIgnoreFileReferences = useMemo(
@@ -476,7 +476,7 @@ function FileExplorerTreeComponent({
       isAlwaysHidden: isAlwaysHiddenFileName,
       isGitIgnored,
       isHiddenName: isHiddenFileTreeName,
-      isUserHidden,
+      classifyUserHidden,
       showGitignoredFiles: fileTreeSettings.showGitignoredFilesInFileTree,
       showHiddenFiles: fileTreeSettings.showHiddenFilesInFileTree,
     });
@@ -489,7 +489,7 @@ function FileExplorerTreeComponent({
   }, [
     files,
     isGitIgnored,
-    isUserHidden,
+    classifyUserHidden,
     fileTreeSettings.showGitignoredFilesInFileTree,
     fileTreeSettings.showHiddenFilesInFileTree,
   ]);
@@ -908,12 +908,17 @@ function FileExplorerTreeComponent({
           currentBatch.map((currentPath) => readDirectory(currentPath)),
         );
 
-        for (const entries of directoryEntries) {
-          for (const entry of entries as Array<{
+        for (const [directoryIndex, entries] of directoryEntries.entries()) {
+          const children = (entries as Array<{
             path: string;
             is_dir?: boolean;
-          }>) {
-            if (!entry.path) continue;
+          }>).filter((entry) => entry.path);
+          // One Core call per directory, not per entry.
+          const userHidden = userVisibility.classifyChildren(
+            currentBatch[directoryIndex] ?? "",
+            children.map((entry) => ({ path: entry.path, isDir: !!entry.is_dir })),
+          );
+          for (const [childIndex, entry] of children.entries()) {
             const isDir = !!entry.is_dir;
             const entryName = getPathBaseName(entry.path);
 
@@ -921,7 +926,7 @@ function FileExplorerTreeComponent({
               continue;
             }
 
-            if (isUserHidden(entry.path, isDir)) {
+            if (userHidden[childIndex]) {
               continue;
             }
 
@@ -951,7 +956,7 @@ function FileExplorerTreeComponent({
       return collected;
     },
     [
-      isUserHidden,
+      userVisibility,
       isGitIgnored,
       fileTreeSettings.showGitignoredFilesInFileTree,
       fileTreeSettings.showHiddenFilesInFileTree,

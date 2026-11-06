@@ -401,6 +401,122 @@ fn keymap_conflict_fixtures_cross_the_json_boundary() {
 }
 
 #[test]
+fn modifier_gesture_fixture_runs_through_core_dispatch() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/keymap/modifier-gesture-v1.json"
+    ))
+    .unwrap();
+    for sequence in fixture["sequences"].as_array().unwrap() {
+        let mut state = serde_json::json!({});
+        for (index, entry) in sequence["steps"].as_array().unwrap().iter().enumerate() {
+            let event = match entry["event"].as_str().unwrap() {
+                "keyDown" => serde_json::json!({"kind": "keyDown"}),
+                "reset" => serde_json::json!({"kind": "reset"}),
+                _ => serde_json::json!({
+                    "kind": "flags", "shift": entry["shift"], "otherModifiers": entry["otherModifiers"],
+                }),
+            };
+            let result = call_fixture_command(
+                "keymap.modifierGestureStep",
+                serde_json::json!({
+                    "state": state, "event": event, "timestamp": entry["timestamp"].as_f64().unwrap_or(0.0),
+                }),
+            );
+            assert_eq!(result["ok"], true, "{}: {result}", sequence["name"]);
+            if let Some(expected) = entry.get("expected") {
+                assert_eq!(
+                    &result["data"]["triggered"], expected,
+                    "{} step {index}",
+                    sequence["name"]
+                );
+            }
+            state = result["data"]["state"].clone();
+        }
+    }
+    let rejected = call_fixture_command(
+        "keymap.modifierGestureStep",
+        serde_json::json!({"event": {"kind": "bogus"}}),
+    );
+    assert_eq!(rejected["ok"], false);
+    assert_eq!(rejected["error"]["code"], "invalid_request");
+}
+
+#[test]
+fn workbench_state_fixture_runs_through_core_dispatch() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/editor/workbench-state-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let result = call_fixture_command(
+            "editor.workbenchState.reduce",
+            serde_json::json!({"state": case["state"], "action": case["action"]}),
+        );
+        assert_eq!(result["ok"], true, "{}: {result}", case["name"]);
+        assert_eq!(
+            result["data"]["state"], case["expected"]["state"],
+            "{}",
+            case["name"]
+        );
+        assert_eq!(
+            result["data"]["removedGroupIds"], case["expected"]["removedGroupIds"],
+            "{}",
+            case["name"]
+        );
+    }
+    let rejected = call_fixture_command(
+        "editor.workbenchState.reduce",
+        serde_json::json!({"action": {"kind": "bogus"}}),
+    );
+    assert_eq!(rejected["ok"], false);
+    assert_eq!(rejected["error"]["code"], "invalid_request");
+}
+
+#[test]
+fn visibility_fixture_crosses_the_core_json_boundary() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/workspace/visibility-v1.json"
+    ))
+    .unwrap();
+    let defaults = call_fixture_command("workspace.visibilityDefaults", serde_json::json!({}));
+    assert_eq!(defaults["data"], fixture["defaults"]);
+    for case in fixture["cases"].as_array().unwrap() {
+        let entries = case["entries"].as_array().unwrap();
+        let result = call_fixture_command(
+            "workspace.classifyVisibility",
+            serde_json::json!({
+                "hiddenDirectoryNames": case["hiddenDirectoryNames"],
+                "hiddenFilePatterns": case["hiddenFilePatterns"],
+                "entries": entries
+                    .iter()
+                    .map(|entry| serde_json::json!({
+                        "path": entry["path"], "isDirectory": entry["isDirectory"],
+                    }))
+                    .collect::<Vec<_>>(),
+            }),
+        );
+        assert_eq!(result["ok"], true, "{}: {result}", case["name"]);
+        for (index, entry) in entries.iter().enumerate() {
+            assert_eq!(
+                result["data"]["hidden"][index], entry["hidden"],
+                "{}: {}",
+                case["name"], entry["path"]
+            );
+        }
+    }
+}
+
+#[test]
+fn every_rules_crate_command_is_routed_by_core() {
+    for command in lithe_core_rules::COMMANDS {
+        assert!(
+            crate::protocol::CoreCommand::parse(command).is_some(),
+            "{command} is owned by lithe-core-rules but not registered in CoreCommand"
+        );
+    }
+}
+
+#[test]
 fn terminal_link_fixtures_cross_the_json_boundary() {
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../../shared/fixtures/terminal/link-target-v1.json"

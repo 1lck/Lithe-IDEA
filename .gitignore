@@ -25,3 +25,6 @@ reasonix.toml
 
 # Built MCP helper, packaged read-only by Tauri.
 /windows/tauri/src-tauri/helpers/*.exe
+
+# Built from rust/lithe-core-rules by scripts/windows/prepare/prepare-core-rules-wasm.mjs.
+/windows/tauri/public/core-rules/

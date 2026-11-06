@@ -9,10 +9,9 @@ struct CoreVerification {
     static func main() async {
         verifySharedContractFixtures()
         verifyDiffParser()
-        verifyVisibilityRules()
         verifyWhitespaceModes()
         verifySearchOptions()
-        print("Core verification passed: shared fixtures, diff, visibility, graph, search options, and whitespace modes")
+        print("Core verification passed: shared fixtures, diff, search options, and whitespace modes")
     }
 
     private struct SearchFixture: Decodable {
@@ -77,17 +76,11 @@ struct CoreVerification {
             return
         }
 
-        let fixtureRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-shared-search-fixture", isDirectory: true)
-        let visibilityRules = FileVisibilityRules.default
+        // Hidden-path rules live in Rust Core, which this verifier does not link; they are
+        // verified by shared/fixtures/workspace/visibility-v1.json. The only hidden file in this
+        // fixture is the linked-worktree copy, so the verifier leaves out that folder itself.
         let files = searchFixture.files
-            .filter { file in
-                !visibilityRules.isHidden(
-                    fixtureRoot.appendingPathComponent(file.path),
-                    relativeTo: fixtureRoot,
-                    isDirectory: false
-                )
-            }
+            .filter { !$0.path.hasPrefix(".worktree/") }
             .sorted { $0.path < $1.path }
         for fixtureCase in searchFixture.cases {
             var actual: [SearchFixture.Match] = []
@@ -188,27 +181,6 @@ struct CoreVerification {
         require(
             document.rows.first { $0.kind == .context }?.rightText != nil,
             "context rows must expose shared text on the right side"
-        )
-    }
-
-    private static func verifyVisibilityRules() {
-        let root = URL(fileURLWithPath: "/tmp/lithe-test-project")
-        let rules = FileVisibilityRules.default
-        require(
-            rules.isHidden(
-                root.appendingPathComponent(".build/debug/Lithe"),
-                relativeTo: root,
-                isDirectory: false
-            ),
-            "build artifacts should be hidden"
-        )
-        require(
-            !rules.isHidden(
-                root.appendingPathComponent("src/main.swift"),
-                relativeTo: root,
-                isDirectory: false
-            ),
-            "source files should remain visible"
         )
     }
 

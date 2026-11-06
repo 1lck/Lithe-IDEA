@@ -149,9 +149,51 @@ is the double-tap Shift gesture. Parse failures are listed in `invalid` with `em
 command. Native key-event conversion and the synchronous matching path stay in the host.
 See `shared/fixtures/keymap/binding-conflicts-v1.json`.
 
-The double-Shift gesture state machine is intentionally not a Core command: it must
-run synchronously on every native key event. Both hosts keep a thin implementation and
-are tested step by step against `shared/fixtures/keymap/modifier-gesture-v1.json`.
+`keymap.modifierGestureStep` accepts `{state?, event, timestamp}` and returns `{state, triggered}`. It is the
+double-Shift gesture as a pure transition: `event` is `{kind: "keyDown"}`, `{kind: "reset"}` or
+`{kind: "flags", shift, otherModifiers}`; `timestamp` is seconds on a clock the host keeps; `state` is opaque
+host-held memory (omit it for the idle state) that the host sends back with the next event. The rule lives in the
+pure crate `rust/lithe-core-rules` (no I/O, no clock) so it can run on a synchronous key path: macOS calls it
+through the C ABI, and the Windows frontend runs the same source compiled to wasm (`lithe_rules_alloc`,
+`lithe_rules_dealloc`, `lithe_rules_execute` over JSON envelopes), loaded asynchronously at startup. A malformed
+payload is `invalid_request`. Hosts only convert native events to this input and act on `triggered`; both are
+tested step by step against `shared/fixtures/keymap/modifier-gesture-v1.json`.
+
+`editor.workbenchState.reduce` accepts `{state?, action}` and returns `{state, removedGroupIds}`. `state` is
+`{groups, focusedGroup?}`; a group is `{id, members, selected?, mru?, pinned?, preview?}` (ordered members, the shown
+member, most-recent-first order, pinned members, one transient preview), which is the union of what macOS (a flat
+tab list with placements and per-group selection) and Windows (pane groups with MRU, pins and preview) track.
+`action` is tagged by `kind`: `normalize {emptyGroups?, unplaced?}`, `open {group, member, activate?}`,
+`close {group, member, emptyGroups?, selectionFallback?}`, `activate {group, member?}`,
+`move {member, from, to, before?, after?, activate?, emptyGroups?, selectionFallback?}` (with `from == to` it only
+repositions), `reorder {group, fromIndex, toIndex}`, `setPinned {group, member, pinned}`,
+`setPinnedEverywhere {member, pinned}`, `setPreview {group, member?}`, `clearPreviewEverywhere {member}` and
+`mergeGroup {from, into, activateSelected?}`. Every group an action touches leaves with unique members, a selection
+that is a member (the first one when it was missing or stale, `null` when empty), an MRU order that starts at the
+selection and lists every member once, and pins and preview that only name members; groups an action does not touch are
+returned as sent, so a host may send only the groups an action involves. `emptyGroups` is `keep` (default), `remove`
+(may leave no group) or `removeKeepingFirst`; it applies to the group a `close` or `move` emptied and to every group for
+`normalize`. `selectionFallback` is `adjacent` (default: the member that slid into the vacated position) or `first`.
+`normalize.unplaced` members no group lists join the focused group (the first group when `focusedGroup` is missing or
+stale), and `focusedGroup` moves to the first remaining group when its group was removed. Actions that name an unknown
+group or an unknown move destination change nothing. `removedGroupIds` lists removed groups in their previous order so
+hosts prune their own layout tree; split directions, ratios, pixels and dragging never reach Core. A malformed payload is
+`invalid_request`. It lives in `rust/lithe-core-rules` and is called synchronously: macOS through the C ABI, Windows
+through the wasm build inside zustand `set()`, one call per user action. Both hosts run every case of
+`shared/fixtures/editor/workbench-state-v1.json` through it.
+
+`workspace.classifyVisibility` accepts `{hiddenDirectoryNames?, hiddenFilePatterns?, entries: [{path, isDirectory?}]}`
+and returns `{hidden: boolean[], watchedDespiteHiding: boolean[]}` with one answer per entry, in request order. `path`
+is workspace-relative with `/` separators; `isDirectory` is `true` for a folder, `false` for a file and omitted when the
+host does not know (every component may then be a folder). The two lists are the user's own entries: Core adds the
+built-in folders and patterns, and a `!entry` turns a built-in off. Matching ignores case. A folder name hides the folder,
+everything below it and a file with that exact name (a linked worktree's `.git` file). `hidden` means the tree, search and
+Local History leave the path out; `watchedDespiteHiding` marks the hidden project configuration folder (`.lithe`) whose file
+events must still be delivered, except the built-in noise below it such as `.lithe/run/local.json`. Hosts send all children
+of a directory in one call. `workspace.visibilityDefaults` takes `{}` and returns the built-in lists
+(`hiddenDirectoryNames`, `hiddenFilePatterns`, `builtInPatterns`, `configurationDirectory`, `configurationPattern`) so hosts
+display them without keeping a copy. Both live in `rust/lithe-core-rules` like `keymap.modifierGestureStep`, run in wasm on
+Windows, and are tested against `shared/fixtures/workspace/visibility-v1.json`.
 
 ## Terminal link targets
 

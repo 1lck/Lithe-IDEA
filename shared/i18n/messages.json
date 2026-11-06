@@ -7724,6 +7724,23 @@
       ]
     },
     {
+      "id": "coreRules.initFailed",
+      "description": "Windows UI: startup failure when the synchronous Core rules wasm module cannot be loaded",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "message": "string"
+      }
+    },
+    {
+      "id": "coreRules.notReady",
+      "description": "Windows UI: a synchronous Core rule was called before startup loaded the wasm module",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "csv.auto",
       "description": "Windows UI: csv.auto",
       "platforms": [

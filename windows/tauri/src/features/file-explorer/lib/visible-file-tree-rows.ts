@@ -42,7 +42,8 @@ export interface FilterFileTreeEntriesOptions {
   isAlwaysHidden: (name: string) => boolean;
   isGitIgnored: (path: string, isDir: boolean) => boolean;
   isHiddenName: (name: string) => boolean;
-  isUserHidden: (path: string, isDir: boolean) => boolean;
+  /** Whether each child of `directoryPath` is hidden by the user's hidden-path rules, in one batch. */
+  classifyUserHidden: (directoryPath: string, children: readonly FileEntry[]) => boolean[];
   showGitignoredFiles: boolean;
   showHiddenFiles: boolean;
 }
@@ -50,14 +51,17 @@ export interface FilterFileTreeEntriesOptions {
 export function filterFileTreeEntries(
   files: FileEntry[],
   options: FilterFileTreeEntriesOptions,
+  directoryPath = "",
 ): FileEntry[] {
   let changed = false;
   const filteredItems: FileEntry[] = [];
+  // One classification per directory: the children are batched, never asked one by one.
+  const userHidden = options.classifyUserHidden(directoryPath, files);
 
-  for (const item of files) {
+  for (const [index, item] of files.entries()) {
     const ignored = options.isGitIgnored(item.path, item.isDir);
 
-    if (options.isAlwaysHidden(item.name) || options.isUserHidden(item.path, item.isDir)) {
+    if (options.isAlwaysHidden(item.name) || userHidden[index] === true) {
       changed = true;
       continue;
     }
@@ -73,7 +77,7 @@ export function filterFileTreeEntries(
     }
 
     const filteredChildren = item.children
-      ? filterFileTreeEntries(item.children, options)
+      ? filterFileTreeEntries(item.children, options, item.path)
       : undefined;
     const childrenChanged = filteredChildren !== item.children;
     const ignoredChanged = item.ignored !== ignored && (ignored || item.ignored !== undefined);

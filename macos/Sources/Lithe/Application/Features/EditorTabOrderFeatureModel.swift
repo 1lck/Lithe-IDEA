@@ -58,6 +58,8 @@ final class EditorTabOrderFeatureModel: ObservableObject {
     @Published private(set) var agentSessionByTab: [UUID: AgentEditorConversation] = [:]
     private var placements: [EditorTabItem: UUID] = [:]
     private var focusedGroup: UUID?
+    /// Membership and selection rules live in Core; this model keeps the platform state they act on.
+    private let workbench = RustEditorWorkbenchState()
     var groupDropRequestID = UUID()
 
     func items(in group: UUID) -> [EditorTabItem] {
@@ -137,17 +139,15 @@ final class EditorTabOrderFeatureModel: ObservableObject {
     func drop(_ item: EditorTabItem, into group: UUID, side: EditorGroupDropSide) -> Bool {
         guard canDrop(item, into: group, side: side) else { return false }
         if side == .center {
-            placements[item] = group
+            guard let members = relocate(item, to: group) else { return false }
             var ordered = items.filter { $0 != item }
-            let last = ordered.lastIndex { placements[$0] == group }
-            ordered.insert(item, at: last.map { $0 + 1 } ?? ordered.count)
+            ordered.insert(item, at: globalIndex(afterPredecessorOf: item, in: members, within: ordered))
             if ordered != items { items = ordered }
         } else {
             let created = UUID()
             groupLayout = groupLayout.splitting(group, by: side, newGroup: created)
-            placements[item] = created
+            guard relocate(item, to: created) != nil else { return false }
         }
-        reconcileGroups()
         focus(item)
         return true
     }
@@ -156,27 +156,24 @@ final class EditorTabOrderFeatureModel: ObservableObject {
     @discardableResult
     func insert(_ item: EditorTabItem, into group: UUID?, side: EditorGroupDropSide) -> Bool {
         guard !items.contains(item) else { return false }
-        let groups = groupLayout.groups
         guard let group else {
-            let destination = focusedGroup.flatMap { groups.contains($0) ? $0 : nil } ?? groups[0]
-            placements[item] = destination
+            // A tab without a home joins the focused group when the items change.
             var next = items
             next.append(item)
             items = next
             focus(item)
             return true
         }
-        guard groups.contains(group) else { return false }
+        guard groupLayout.groups.contains(group) else { return false }
         if side == .center {
-            placements[item] = group
+            guard let members = relocate(item, to: group) else { return false }
             var next = items
-            let last = next.lastIndex { placements[$0] == group }
-            next.insert(item, at: last.map { $0 + 1 } ?? next.count)
+            next.insert(item, at: globalIndex(afterPredecessorOf: item, in: members, within: next))
             items = next
         } else {
             let created = UUID()
             groupLayout = groupLayout.splitting(group, by: side, newGroup: created)
-            placements[item] = created
+            guard relocate(item, to: created) != nil else { return false }
             var next = items
             next.append(item)
             items = next
@@ -185,22 +182,91 @@ final class EditorTabOrderFeatureModel: ObservableObject {
         return true
     }
 
-    private func reconcileGroups() {
-        let groups = groupLayout.groups
-        let destination = focusedGroup.flatMap { groups.contains($0) ? $0 : nil } ?? groups[0]
-        placements = placements.filter { items.contains($0.key) }
-        for item in items where placements[item] == nil { placements[item] = destination }
-        let occupied = Set(placements.values)
-        groupLayout = groupLayout.keeping(occupied) ?? .group(groups[0])
-        let remaining = groupLayout.groups
-        if !remaining.contains(destination) { focusedGroup = remaining[0] }
+    /// Canonical Core state for the current groups. Tabs without a valid group are reported as
+    /// `unplaced`; `extra` makes a tab that is not in `items` yet resolvable in Core's answer.
+    private func workbenchSnapshot(extra: [EditorTabItem] = []) -> (
+        state: RustEditorWorkbenchState.State, unplaced: [String], lookup: [String: EditorTabItem]
+    ) {
+        let groupIDs = groupLayout.groups
+        let known = Set(groupIDs)
+        var lookup: [String: EditorTabItem] = [:]
+        var members: [UUID: [String]] = [:]
+        var unplaced: [String] = []
+        for item in items + extra { lookup[item.workbenchKey] = item }
+        for item in items {
+            if let group = placements[item], known.contains(group) {
+                members[group, default: []].append(item.workbenchKey)
+            } else {
+                unplaced.append(item.workbenchKey)
+            }
+        }
+        let groups = groupIDs.map { id in
+            RustEditorWorkbenchState.Group(
+                id: id.uuidString,
+                members: members[id] ?? [],
+                selected: groupSelections[id]?.workbenchKey
+            )
+        }
+        let state = RustEditorWorkbenchState.State(groups: groups, focusedGroup: focusedGroup?.uuidString)
+        return (state, unplaced, lookup)
+    }
+
+    /// Writes Core's answer back: placements, per-group selection, focus and the pruned layout tree.
+    private func applyWorkbench(_ reduction: RustEditorWorkbenchState.Reduction, lookup: [String: EditorTabItem]) {
+        var nextPlacements: [EditorTabItem: UUID] = [:]
         var selections: [UUID: EditorTabItem] = [:]
-        for group in remaining {
-            let tabs = items(in: group)
-            if let selected = groupSelections[group], tabs.contains(selected) { selections[group] = selected }
-            else { selections[group] = tabs.first }
+        var remaining: [UUID] = []
+        for group in reduction.state.groups {
+            guard let id = UUID(uuidString: group.id) else { continue }
+            remaining.append(id)
+            for key in group.members { if let item = lookup[key] { nextPlacements[item] = id } }
+            if let key = group.selected, let item = lookup[key] { selections[id] = item }
+        }
+        placements = nextPlacements
+        focusedGroup = reduction.state.focusedGroup.flatMap(UUID.init(uuidString:))
+        if !reduction.removedGroupIds.isEmpty {
+            // Core decided which groups vanished; only the layout tree is pruned here.
+            groupLayout = groupLayout.keeping(Set(remaining)) ?? .group(remaining.first ?? groupLayout.groups[0])
         }
         if selections != groupSelections { groupSelections = selections }
+    }
+
+    private func reconcileGroups() {
+        let snapshot = workbenchSnapshot()
+        guard let reduction = workbench.reduce(snapshot.state, .normalize(unplaced: snapshot.unplaced)) else { return }
+        applyWorkbench(reduction, lookup: snapshot.lookup)
+    }
+
+    /// Moves `item` into `destination` (at the end, or next to `anchor`) and returns the
+    /// destination's tabs afterwards. The item may not be in `items` yet.
+    private func relocate(
+        _ item: EditorTabItem,
+        to destination: UUID,
+        anchor: (item: EditorTabItem, after: Bool)? = nil
+    ) -> [EditorTabItem]? {
+        let snapshot = workbenchSnapshot(extra: [item])
+        let action = RustEditorWorkbenchState.Action.move(
+            member: item.workbenchKey,
+            from: placements[item]?.uuidString ?? "",
+            to: destination.uuidString,
+            before: anchor.flatMap { $0.after ? nil : $0.item.workbenchKey },
+            after: anchor.flatMap { $0.after ? $0.item.workbenchKey : nil }
+        )
+        guard let reduction = workbench.reduce(snapshot.state, action) else { return nil }
+        applyWorkbench(reduction, lookup: snapshot.lookup)
+        return reduction.state.groups.first { $0.id == destination.uuidString }?
+            .members.compactMap { snapshot.lookup[$0] } ?? []
+    }
+
+    /// Position in the mixed tab order that keeps `item` right after the tab Core placed before it.
+    private func globalIndex(
+        afterPredecessorOf item: EditorTabItem,
+        in members: [EditorTabItem],
+        within ordered: [EditorTabItem]
+    ) -> Int {
+        guard let index = members.firstIndex(of: item), index > 0,
+              let predecessor = ordered.firstIndex(of: members[index - 1]) else { return ordered.count }
+        return predecessor + 1
     }
 
     @Published var repositoryDiffSelected = false
@@ -343,7 +409,9 @@ final class EditorTabOrderFeatureModel: ObservableObject {
         guard let targetIndex = next.firstIndex(of: target) else { return false }
         next.insert(item, at: targetIndex + (insertAfter ? 1 : 0))
         guard next != items || placements[item] != placements[target] else { return false }
-        if let destination = placements[target] { placements[item] = destination }
+        if let destination = placements[target] {
+            guard relocate(item, to: destination, anchor: (target, insertAfter)) != nil else { return false }
+        }
         items = next
         return true
     }

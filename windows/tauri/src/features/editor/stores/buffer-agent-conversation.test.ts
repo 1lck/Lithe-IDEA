@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { loadCoreRulesForTests } from "@/test-utils/core-rules";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useBufferStore } from "./buffer.store";
@@ -11,6 +12,9 @@ function setMaxOpenTabs(maxOpenTabs: number) {
     state.settings.maxOpenTabs = maxOpenTabs;
   });
 }
+
+// Pane membership rules run in the real lithe-core-rules wasm build.
+beforeAll(loadCoreRulesForTests);
 
 beforeEach(() => {
   workspaceRuntimeRegistry.resetForTests();
@@ -28,9 +32,7 @@ describe("openAgentConversationBuffer", () => {
     const first = store.getState().actions.openAgentConversationBuffer("session-a");
     const second = store.getState().actions.openAgentConversationBuffer("session-a");
 
-    const tabs = store
-      .getState()
-      .buffers.filter((buffer) => buffer.type === "agentConversation");
+    const tabs = store.getState().buffers.filter((buffer) => buffer.type === "agentConversation");
     expect(second).toBe(first);
     expect(tabs).toHaveLength(1);
     expect(store.getState().activeBufferId).toBe(first);
@@ -41,9 +43,7 @@ describe("openAgentConversationBuffer", () => {
     store.getState().actions.openAgentConversationBuffer("session-a");
     store.getState().actions.openAgentConversationBuffer("session-b");
 
-    const tabs = store
-      .getState()
-      .buffers.filter((buffer) => buffer.type === "agentConversation");
+    const tabs = store.getState().buffers.filter((buffer) => buffer.type === "agentConversation");
     expect(tabs).toHaveLength(2);
     expect(tabs.map((buffer) => buffer.path).sort()).toEqual([
       "agent-conversation://session-a",
@@ -55,9 +55,7 @@ describe("openAgentConversationBuffer", () => {
     const store = useBufferStore.getStore(WORKSPACE);
     store.getState().actions.openAgentConversationBuffer("session-a", "claude-acp");
 
-    const tab = store
-      .getState()
-      .buffers.find((buffer) => buffer.type === "agentConversation");
+    const tab = store.getState().buffers.find((buffer) => buffer.type === "agentConversation");
     expect(tab?.type).toBe("agentConversation");
     if (tab?.type !== "agentConversation") throw new Error("Agent tab missing");
     expect(tab.agentId).toBe("claude-acp");
@@ -71,7 +69,9 @@ describe("openAgentConversationBuffer", () => {
     store.getState().actions.openAgentConversationBuffer("session-b");
 
     expect(
-      store.getState().buffers.some((buffer) => buffer.id === id && buffer.type === "agentConversation"),
+      store
+        .getState()
+        .buffers.some((buffer) => buffer.id === id && buffer.type === "agentConversation"),
     ).toBe(true);
   });
 });

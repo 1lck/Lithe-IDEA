@@ -1,8 +1,3 @@
-import {
-  DEFAULT_HIDDEN_DIRECTORY_PATTERNS,
-  DEFAULT_HIDDEN_FILE_PATTERNS,
-} from "@/features/settings/config/default-settings";
-
 export const HIDDEN_PATTERN_DEFAULTS_VERSION_KEY = "hiddenPatternDefaultsVersion";
 const CURRENT_HIDDEN_PATTERN_DEFAULTS_VERSION = 1;
 
@@ -66,8 +61,6 @@ export function findRetiredSettingsKeys(entries: ReadonlyMap<string, unknown>): 
   return RETIRED_SETTINGS_KEYS.filter((key) => entries.has(key));
 }
 
-const isEmptyArray = (value: unknown): value is [] => Array.isArray(value) && value.length === 0;
-
 export function migrateHiddenPatternDefaults(
   sourceEntries: Map<string, unknown>,
 ): HiddenPatternDefaultsMigration {
@@ -79,23 +72,8 @@ export function migrateHiddenPatternDefaults(
     return { entries, changes };
   }
 
-  const hasLegacyEmptyDefaults =
-    entries.has("hiddenFilePatterns") &&
-    entries.has("hiddenDirectoryPatterns") &&
-    isEmptyArray(entries.get("hiddenFilePatterns")) &&
-    isEmptyArray(entries.get("hiddenDirectoryPatterns"));
-
-  if (hasLegacyEmptyDefaults) {
-    const hiddenFilePatterns = [...DEFAULT_HIDDEN_FILE_PATTERNS];
-    const hiddenDirectoryPatterns = [...DEFAULT_HIDDEN_DIRECTORY_PATTERNS];
-    entries.set("hiddenFilePatterns", hiddenFilePatterns);
-    entries.set("hiddenDirectoryPatterns", hiddenDirectoryPatterns);
-    changes.push(
-      ["hiddenFilePatterns", hiddenFilePatterns],
-      ["hiddenDirectoryPatterns", hiddenDirectoryPatterns],
-    );
-  }
-
+  // Empty lists stay empty. The built-in hidden paths belong to Core, so no default list is copied
+  // into the user's settings; saved values are never rewritten.
   entries.set(HIDDEN_PATTERN_DEFAULTS_VERSION_KEY, CURRENT_HIDDEN_PATTERN_DEFAULTS_VERSION);
   changes.push([HIDDEN_PATTERN_DEFAULTS_VERSION_KEY, CURRENT_HIDDEN_PATTERN_DEFAULTS_VERSION]);
 

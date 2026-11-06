@@ -21,30 +21,6 @@ const DEFAULT_AI_CUSTOM_MODEL_ID = "";
 export const DEFAULT_AI_AUTOCOMPLETE_MODEL_ID = "mistralai/devstral-small";
 const DEFAULT_AI_AUTOCOMPLETE_CUSTOM_BASE_URL = "";
 
-export const DEFAULT_HIDDEN_FILE_PATTERNS = [
-  "*.pyc",
-  "*.pyo",
-  "*.rbc",
-  "*.yarb",
-  "*~",
-  ".DS_Store",
-  "vssver.scc",
-  "vssver2.scc",
-] as const;
-
-export const DEFAULT_HIDDEN_DIRECTORY_PATTERNS = [
-  ".git",
-  ".hg",
-  ".idea",
-  ".mypy_cache",
-  ".pytest_cache",
-  ".ruff_cache",
-  ".svn",
-  "CVS",
-  "__pycache__",
-  "_svn",
-] as const;
-
 export const defaultSettings: Settings = {
   aiCommit: DEFAULT_COMMIT_AI,
   // General
@@ -201,8 +177,10 @@ export const defaultSettings: Settings = {
   confirmBeforeFileDelete: true,
   showHiddenFilesInFileTree: true,
   showGitignoredFilesInFileTree: true,
-  hiddenFilePatterns: [...DEFAULT_HIDDEN_FILE_PATTERNS],
-  hiddenDirectoryPatterns: [...DEFAULT_HIDDEN_DIRECTORY_PATTERNS],
+  // Only the user's own entries live in settings. Core owns the built-in hidden paths
+  // (rust/lithe-core-rules, `workspace.visibilityDefaults`) and adds them to every rule set.
+  hiddenFilePatterns: [],
+  hiddenDirectoryPatterns: [],
   gitChangesFolderView: false,
   confirmBeforeDiscard: true,
   autoRefreshGitStatus: true,

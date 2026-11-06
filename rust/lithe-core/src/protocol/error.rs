@@ -92,3 +92,18 @@ pub fn invalid_relative_path(value: &str) -> bool {
         || normalized.contains('\0')
         || normalized.split('/').any(|component| component == "..")
 }
+
+impl From<lithe_core_rules::RuleError> for CoreError {
+    /// Rule errors already use Core's category names, so the mapping is one to one.
+    fn from(error: lithe_core_rules::RuleError) -> Self {
+        let code = match error.code {
+            lithe_core_rules::RuleErrorCode::InvalidRequest => ErrorCode::InvalidRequest,
+            lithe_core_rules::RuleErrorCode::NotSupported => ErrorCode::NotSupported,
+        };
+        let converted = Self::new(code, error.message);
+        match error.details {
+            Some(details) => converted.with_details(details),
+            None => converted,
+        }
+    }
+}

@@ -16,8 +16,9 @@ import {
   getAdjacentPane,
   getAllPaneGroups,
   getFirstPaneGroup,
+  mergeClosedPaneInto,
   moveBufferBetweenPanes,
-  normalizePaneTree,
+  normalizePaneTrees,
   removeBufferFromPane,
   resizeFlattenedPaneSplit,
   setActivePaneBuffer,
@@ -126,20 +127,9 @@ function getTreeForPane(
   return paneId === BOTTOM_PANE_ID ? "bottom" : "root";
 }
 
-function collapseEmptyPaneInTree(tree: PaneNode, paneId: string, fallbackId: string) {
-  const pane = findPaneGroup(tree, paneId);
-  if (!pane || pane.bufferIds.length > 0) {
-    return tree;
-  }
-
-  if (tree.type === "group") {
-    return fallbackId === ROOT_PANE_ID ? createInitialRoot() : createInitialBottomRoot();
-  }
-
-  return (
-    closePane(tree, paneId) ??
-    (fallbackId === ROOT_PANE_ID ? createInitialRoot() : createInitialBottomRoot())
-  );
+/** Root group a tree falls back to when Core removed its last group. */
+function createInitialTree(fallbackId: string): PaneGroup {
+  return fallbackId === ROOT_PANE_ID ? createInitialRoot() : createInitialBottomRoot();
 }
 
 function addPaneIds(root: PaneNode, paneIds: Set<string>) {
@@ -279,19 +269,14 @@ const createPaneStore = () =>
                 state.mostRecentActivePaneIds,
                 paneId,
               );
-              let mergedTree = nextTree;
-              if (closingPane) {
-                for (const bufferId of closingPane.bufferIds) {
-                  mergedTree = addBufferToPane(mergedTree, fallbackPaneId, bufferId, false);
-                }
-                if (state.activePaneId === paneId && closingPane.activeBufferId) {
-                  mergedTree = setActivePaneBuffer(
-                    mergedTree,
+              const mergedTree = closingPane
+                ? mergeClosedPaneInto(
+                    nextTree,
+                    closingPane,
                     fallbackPaneId,
-                    closingPane.activeBufferId,
-                  );
-                }
-              }
+                    state.activePaneId === paneId,
+                  )
+                : nextTree;
 
               if (targetTree === "root") {
                 state.root = mergedTree;
@@ -358,22 +343,16 @@ const createPaneStore = () =>
           set((state) => {
             const targetTree = getTreeForPane(state, paneId);
             if (targetTree === "root") {
-              state.root = removeBufferFromPane(state.root, paneId, bufferId);
-              if (!preserveEmptyPane) {
-                state.root = collapseEmptyPaneInTree(state.root, paneId, ROOT_PANE_ID);
-              }
+              state.root =
+                removeBufferFromPane(state.root, paneId, bufferId, !preserveEmptyPane) ??
+                createInitialTree(ROOT_PANE_ID);
               if (state.activePaneId === paneId && !findPaneGroup(state.root, paneId)) {
                 state.activePaneId = getFallbackActivePaneId(state);
               }
             } else {
-              state.bottomRoot = removeBufferFromPane(state.bottomRoot, paneId, bufferId);
-              if (!preserveEmptyPane) {
-                state.bottomRoot = collapseEmptyPaneInTree(
-                  state.bottomRoot,
-                  paneId,
-                  BOTTOM_PANE_ID,
-                );
-              }
+              state.bottomRoot =
+                removeBufferFromPane(state.bottomRoot, paneId, bufferId, !preserveEmptyPane) ??
+                createInitialTree(BOTTOM_PANE_ID);
               if (state.activePaneId === paneId && !findPaneGroup(state.bottomRoot, paneId)) {
                 state.activePaneId = getFallbackActivePaneId(state);
               }
@@ -386,45 +365,34 @@ const createPaneStore = () =>
           set((state) => {
             const fromTree = getTreeForPane(state, fromPaneId);
             const toTree = getTreeForPane(state, toPaneId);
+            const fromRoot = fromTree === "root" ? state.root : state.bottomRoot;
+            const toRoot = toTree === "root" ? state.root : state.bottomRoot;
 
+            // One Core call decides the whole transition, including which source group empties.
+            const moved = moveBufferBetweenPanes(
+              fromRoot,
+              toRoot,
+              bufferId,
+              fromPaneId,
+              toPaneId,
+              !preserveEmptySource,
+            );
+            const nextFrom =
+              moved.fromRoot ??
+              createInitialTree(fromTree === "root" ? ROOT_PANE_ID : BOTTOM_PANE_ID);
             if (fromTree === toTree) {
-              if (fromTree === "root") {
-                state.root = moveBufferBetweenPanes(state.root, bufferId, fromPaneId, toPaneId);
-                if (!preserveEmptySource) {
-                  state.root = collapseEmptyPaneInTree(state.root, fromPaneId, ROOT_PANE_ID);
-                }
-              } else {
-                state.bottomRoot = moveBufferBetweenPanes(
-                  state.bottomRoot,
-                  bufferId,
-                  fromPaneId,
-                  toPaneId,
-                );
-                if (!preserveEmptySource) {
-                  state.bottomRoot = collapseEmptyPaneInTree(
-                    state.bottomRoot,
-                    fromPaneId,
-                    BOTTOM_PANE_ID,
-                  );
-                }
-              }
+              if (fromTree === "root") state.root = nextFrom;
+              else state.bottomRoot = nextFrom;
             } else {
+              const nextTo =
+                moved.toRoot ??
+                createInitialTree(toTree === "root" ? ROOT_PANE_ID : BOTTOM_PANE_ID);
               if (fromTree === "root") {
-                state.root = removeBufferFromPane(state.root, fromPaneId, bufferId);
-                if (!preserveEmptySource) {
-                  state.root = collapseEmptyPaneInTree(state.root, fromPaneId, ROOT_PANE_ID);
-                }
-                state.bottomRoot = addBufferToPane(state.bottomRoot, toPaneId, bufferId, true);
+                state.root = nextFrom;
+                state.bottomRoot = nextTo;
               } else {
-                state.bottomRoot = removeBufferFromPane(state.bottomRoot, fromPaneId, bufferId);
-                if (!preserveEmptySource) {
-                  state.bottomRoot = collapseEmptyPaneInTree(
-                    state.bottomRoot,
-                    fromPaneId,
-                    BOTTOM_PANE_ID,
-                  );
-                }
-                state.root = addBufferToPane(state.root, toPaneId, bufferId, true);
+                state.bottomRoot = nextFrom;
+                state.root = nextTo;
               }
             }
 
@@ -468,15 +436,20 @@ const createPaneStore = () =>
 
         setBufferPinnedEverywhere: (bufferId, pinned) => {
           set((state) => {
-            state.root = setPaneBufferPinnedEverywhere(state.root, bufferId, pinned);
-            state.bottomRoot = setPaneBufferPinnedEverywhere(state.bottomRoot, bufferId, pinned);
+            [state.root, state.bottomRoot] = setPaneBufferPinnedEverywhere(
+              [state.root, state.bottomRoot],
+              bufferId,
+              pinned,
+            );
           });
         },
 
         clearPreviewBufferEverywhere: (bufferId) => {
           set((state) => {
-            state.root = clearPanePreviewBufferEverywhere(state.root, bufferId);
-            state.bottomRoot = clearPanePreviewBufferEverywhere(state.bottomRoot, bufferId);
+            [state.root, state.bottomRoot] = clearPanePreviewBufferEverywhere(
+              [state.root, state.bottomRoot],
+              bufferId,
+            );
           });
         },
 
@@ -619,8 +592,7 @@ const createPaneStore = () =>
                 findPaneGroup(layout.bottomRoot, layout.fullscreenPaneId))
               : null;
 
-            state.root = normalizePaneTree(layout.root);
-            state.bottomRoot = normalizePaneTree(layout.bottomRoot);
+            [state.root, state.bottomRoot] = normalizePaneTrees([layout.root, layout.bottomRoot]);
             state.mostRecentActivePaneIds = [
               ...(layout.mostRecentActivePaneIds ?? []),
               layout.activePaneId,

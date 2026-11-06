@@ -13,4 +13,4 @@ node --test --test-reporter=spec --test-reporter-destination=stdout \
     scripts/rust-core/test-rust-core-comments.mjs
 scripts/rust-core/verify-rust-core-comments.sh
 scripts/rust-core/verify-rust-core-layout.sh
-cargo fmt --manifest-path rust/Cargo.toml -p lithe-core -- --check
+cargo fmt --manifest-path rust/Cargo.toml -p lithe-core -p lithe-core-rules -- --check

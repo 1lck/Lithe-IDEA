@@ -161,6 +161,11 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v7
 
+      - name: Set up Rust for the core rules wasm module
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
       - name: Set up Bun
         id: bun
         uses: oven-sh/setup-bun@v2
@@ -225,6 +230,11 @@ jobs:
       - name: Install Windows frontend dependencies
         shell: pwsh
         run: ./scripts/windows/build/install-windows-frontend-dependencies.ps1
+
+      # The frontend loads rust/lithe-core-rules as wasm; typecheck, bun tests and the build all need it.
+      - name: Build core rules wasm module
+        shell: pwsh
+        run: node scripts/windows/prepare/prepare-core-rules-wasm.mjs
 
       - name: Check Windows frontend types
         working-directory: windows/tauri

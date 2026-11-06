@@ -183,8 +183,6 @@ enum MacShortcutInputPolicy {
 
 /// Matches ordinary key presses and double-modifier taps for application commands.
 private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
-    private static let doubleTapThreshold: TimeInterval = 0.35
-
     private var registrations: [KeyboardShortcutRegistration] = []
     private var isSuspended = false
     private var doubleShiftRecognizer: DoubleShiftGestureRecognizer
@@ -194,9 +192,7 @@ private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
 
     init(onCommand: @escaping @MainActor @Sendable (String) -> Void) {
         self.onCommand = onCommand
-        doubleShiftRecognizer = DoubleShiftGestureRecognizer(
-            threshold: Self.doubleTapThreshold
-        )
+        doubleShiftRecognizer = DoubleShiftGestureRecognizer()
     }
 
     func update(registrations: [KeyboardShortcutRegistration]) {
@@ -302,73 +298,5 @@ private final class MacShortcutDetector: ShortcutDetector, @unchecked Sendable {
 
     private func resetDoubleShiftRecognizer() {
         doubleShiftRecognizer.reset()
-    }
-}
-
-/// Recognizes two standalone Shift taps while rejecting Shift-modified typing.
-/// It runs on every native key event, so it stays out of Core (no per-key IPC). Windows keeps the
-/// same machine in double-shift-recognizer.ts; both are tested against
-/// shared/fixtures/keymap/modifier-gesture-v1.json and must change together.
-struct DoubleShiftGestureRecognizer {
-    let threshold: TimeInterval
-    private(set) var shiftWasDown = false
-    private var currentPressIsStandalone = false
-    private var lastStandaloneTap: TimeInterval?
-
-    init(threshold: TimeInterval) {
-        self.threshold = threshold
-    }
-
-    mutating func handleKeyDown() {
-        currentPressIsStandalone = false
-        lastStandaloneTap = nil
-    }
-
-    mutating func reset() {
-        shiftWasDown = false
-        currentPressIsStandalone = false
-        lastStandaloneTap = nil
-    }
-
-    mutating func handleFlagsChanged(
-        isShiftDown: Bool,
-        hasOtherModifiers: Bool,
-        timestamp: TimeInterval
-    ) -> Bool {
-        if isShiftDown, !shiftWasDown {
-            currentPressIsStandalone = !hasOtherModifiers
-            shiftWasDown = true
-            return false
-        }
-
-        if isShiftDown, shiftWasDown {
-            if hasOtherModifiers {
-                currentPressIsStandalone = false
-                lastStandaloneTap = nil
-            }
-            return false
-        }
-
-        if !isShiftDown, shiftWasDown {
-            shiftWasDown = false
-            defer { currentPressIsStandalone = false }
-            guard currentPressIsStandalone, !hasOtherModifiers else {
-                lastStandaloneTap = nil
-                return false
-            }
-            if let lastStandaloneTap,
-               timestamp - lastStandaloneTap >= 0,
-               timestamp - lastStandaloneTap < threshold {
-                self.lastStandaloneTap = nil
-                return true
-            }
-            lastStandaloneTap = timestamp
-            return false
-        }
-
-        if hasOtherModifiers {
-            lastStandaloneTap = nil
-        }
-        return false
     }
 }

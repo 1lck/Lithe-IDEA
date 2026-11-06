@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { loadCoreRulesForTests } from "@/test-utils/core-rules";
 import type { EditorContent, PaneContent } from "@/features/panes/types/pane-content.types";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { useBufferStore } from "./buffer.store";
@@ -34,6 +35,9 @@ function openBufferIds(): string[] {
     .getState()
     .buffers.map((buffer) => buffer.id);
 }
+
+// Pane membership rules run in the real lithe-core-rules wasm build.
+beforeAll(loadCoreRulesForTests);
 
 beforeEach(() => {
   workspaceRuntimeRegistry.resetForTests();
