@@ -1536,6 +1536,12 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::KeymapModifierGestureStep => {
+            match lithe_core_rules::execute("keymap.modifierGestureStep", parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error.into()),
+            }
+        }
         CoreCommand::TerminalParseLinkTarget => {
             let result =
                 serde_json::from_value::<crate::terminal::ParseLinkTargetsRequest>(parsed.payload)

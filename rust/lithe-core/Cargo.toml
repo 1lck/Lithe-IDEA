@@ -9,6 +9,7 @@ description = "Cross-platform application core for Lithe"
 crate-type = ["rlib", "staticlib", "cdylib"]
 
 [dependencies]
+lithe-core-rules = { path = "../lithe-core-rules" }
 lithe-git-host = { path = "../lithe-git-host" }
 lithe-agent-host = { path = "../lithe-agent-host" }
 lithe-ide-host = { path = "../lithe-ide-host" }

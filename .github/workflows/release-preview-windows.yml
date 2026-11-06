@@ -40,7 +40,7 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-pc-windows-msvc
+          targets: x86_64-pc-windows-msvc,wasm32-unknown-unknown
 
       - name: Set up Bun
         id: bun

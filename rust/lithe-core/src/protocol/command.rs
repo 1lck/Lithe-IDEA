@@ -406,6 +406,9 @@ pub enum CoreCommand {
     KeymapEvaluateContext,
     /// Finds conflicts among the final layered shortcut bindings (`keymap.analyzeConflicts`).
     KeymapAnalyzeConflicts,
+    /// Advances the double-Shift gesture recognizer by one event (`keymap.modifierGestureStep`).
+    /// The rule itself lives in `lithe-core-rules` so the Windows frontend can run it synchronously.
+    KeymapModifierGestureStep,
     /// Resolves terminal link candidates into file or external targets (`terminal.parseLinkTarget`).
     TerminalParseLinkTarget,
     /// Creates one transport-neutral Debug Adapter Protocol session (`debug.createSession`).
@@ -1030,6 +1033,7 @@ impl CoreCommand {
             "keymap.parseContext" => Some(Self::KeymapParseContext),
             "keymap.evaluateContext" => Some(Self::KeymapEvaluateContext),
             "keymap.analyzeConflicts" => Some(Self::KeymapAnalyzeConflicts),
+            "keymap.modifierGestureStep" => Some(Self::KeymapModifierGestureStep),
             "terminal.parseLinkTarget" => Some(Self::TerminalParseLinkTarget),
             "debug.createSession" => Some(Self::DebugCreateSession),
             "debug.launch" => Some(Self::DebugLaunch),

@@ -957,6 +957,8 @@
     "commandPalette.searchThemes": "搜索主题...",
     "commandPalette.title": "命令面板",
     "commandPalette.uploadTheme": "上传主题",
+    "coreRules.initFailed": "Lithe 无法加载内置规则模块，因此无法启动。请重启应用；如果问题持续出现，请重新安装 Lithe。详情：{message}",
+    "coreRules.notReady": "内置规则模块尚未加载。",
     "csv.auto": "自动",
     "csv.changeDelimiter": "更改分隔符",
     "csv.comma": "逗号",

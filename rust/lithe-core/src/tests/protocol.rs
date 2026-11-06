@@ -401,6 +401,57 @@ fn keymap_conflict_fixtures_cross_the_json_boundary() {
 }
 
 #[test]
+fn modifier_gesture_fixture_runs_through_core_dispatch() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/keymap/modifier-gesture-v1.json"
+    ))
+    .unwrap();
+    for sequence in fixture["sequences"].as_array().unwrap() {
+        let mut state = serde_json::json!({});
+        for (index, entry) in sequence["steps"].as_array().unwrap().iter().enumerate() {
+            let event = match entry["event"].as_str().unwrap() {
+                "keyDown" => serde_json::json!({"kind": "keyDown"}),
+                "reset" => serde_json::json!({"kind": "reset"}),
+                _ => serde_json::json!({
+                    "kind": "flags", "shift": entry["shift"], "otherModifiers": entry["otherModifiers"],
+                }),
+            };
+            let result = call_fixture_command(
+                "keymap.modifierGestureStep",
+                serde_json::json!({
+                    "state": state, "event": event, "timestamp": entry["timestamp"].as_f64().unwrap_or(0.0),
+                }),
+            );
+            assert_eq!(result["ok"], true, "{}: {result}", sequence["name"]);
+            if let Some(expected) = entry.get("expected") {
+                assert_eq!(
+                    &result["data"]["triggered"], expected,
+                    "{} step {index}",
+                    sequence["name"]
+                );
+            }
+            state = result["data"]["state"].clone();
+        }
+    }
+    let rejected = call_fixture_command(
+        "keymap.modifierGestureStep",
+        serde_json::json!({"event": {"kind": "bogus"}}),
+    );
+    assert_eq!(rejected["ok"], false);
+    assert_eq!(rejected["error"]["code"], "invalid_request");
+}
+
+#[test]
+fn every_rules_crate_command_is_routed_by_core() {
+    for command in lithe_core_rules::COMMANDS {
+        assert!(
+            crate::protocol::CoreCommand::parse(command).is_some(),
+            "{command} is owned by lithe-core-rules but not registered in CoreCommand"
+        );
+    }
+}
+
+#[test]
 fn terminal_link_fixtures_cross_the_json_boundary() {
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../../shared/fixtures/terminal/link-target-v1.json"
