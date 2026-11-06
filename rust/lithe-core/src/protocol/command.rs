@@ -413,6 +413,11 @@ pub enum CoreCommand {
     /// (`editor.workbenchState.reduce`). The rule lives in `lithe-core-rules` so the Windows frontend
     /// can run it synchronously inside store updates.
     EditorWorkbenchStateReduce,
+    /// Classifies a batch of workspace-relative paths as hidden or visible (`workspace.classifyVisibility`).
+    /// The rule lives in `lithe-core-rules` so the Windows frontend can run it synchronously.
+    WorkspaceClassifyVisibility,
+    /// Returns the built-in hidden-path lists (`workspace.visibilityDefaults`), also from `lithe-core-rules`.
+    WorkspaceVisibilityDefaults,
     /// Resolves terminal link candidates into file or external targets (`terminal.parseLinkTarget`).
     TerminalParseLinkTarget,
     /// Creates one transport-neutral Debug Adapter Protocol session (`debug.createSession`).
@@ -1039,6 +1044,8 @@ impl CoreCommand {
             "keymap.analyzeConflicts" => Some(Self::KeymapAnalyzeConflicts),
             "keymap.modifierGestureStep" => Some(Self::KeymapModifierGestureStep),
             "editor.workbenchState.reduce" => Some(Self::EditorWorkbenchStateReduce),
+            "workspace.classifyVisibility" => Some(Self::WorkspaceClassifyVisibility),
+            "workspace.visibilityDefaults" => Some(Self::WorkspaceVisibilityDefaults),
             "terminal.parseLinkTarget" => Some(Self::TerminalParseLinkTarget),
             "debug.createSession" => Some(Self::DebugCreateSession),
             "debug.launch" => Some(Self::DebugLaunch),

@@ -37,6 +37,15 @@ Issue #1662 要求把两端重复的确定性逻辑下沉到 Core。Windows 前�
   Windows 把每个 `PaneGroup` 转成规范组，两端旧规则已删除；布局树、拆分方向和比例仍在各自平台，只按 `removedGroupIds` 修剪。
   两端在“选中项离开分组”时的既有行为不同（macOS 回落到第一个标签，Windows 选中相邻标签），用请求里的 `selectionFallback`
   （`first` / `adjacent`）保留，不改用户可见行为。fixture 为 `shared/fixtures/editor/workbench-state-v1.json`。
+- **WS-04 隐藏路径规则**（已迁移规则）：内置默认列表、glob 匹配和“目录名/文件”的区别只在
+  `rust/lithe-core-rules/src/visibility.rs`。Core 的 `files.rs` 直接复用这份代码，不再有第二份；macOS 经
+  `workspace.classifyVisibility`（按一批路径一次调用）和 `workspace.visibilityDefaults` 同步 FFI 调用，Windows 同样经 wasm。
+  `LitheCoreContracts` 不链接 Rust bridge，所以只定义 `FileVisibilityEngine` 协议，由 App 里的
+  `RustFileVisibilityEngine` 实现，按 ObjC 类名在首次使用时发现，使 App 和链接了 App 的测试宿主无需关心安装顺序。
+  用户只保存自己的条目，内置规则由 Core 补上；`!` 条目关闭内置规则。结果里的 `watchedDespiteHiding` 表示
+  `.lithe` 配置目录“树里隐藏、事件仍要监听”。Windows 文件树按目录批量分类，结果按“目录 + 规则版本”缓存。
+  `workspace.classifyVisibility` 和 `workspace.visibilityDefaults` 不进请求追踪。
+  共享 fixture：`shared/fixtures/workspace/visibility-v1.json`。
 
 ## 边界
 

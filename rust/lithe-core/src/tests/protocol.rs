@@ -473,6 +473,40 @@ fn workbench_state_fixture_runs_through_core_dispatch() {
 }
 
 #[test]
+fn visibility_fixture_crosses_the_core_json_boundary() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/workspace/visibility-v1.json"
+    ))
+    .unwrap();
+    let defaults = call_fixture_command("workspace.visibilityDefaults", serde_json::json!({}));
+    assert_eq!(defaults["data"], fixture["defaults"]);
+    for case in fixture["cases"].as_array().unwrap() {
+        let entries = case["entries"].as_array().unwrap();
+        let result = call_fixture_command(
+            "workspace.classifyVisibility",
+            serde_json::json!({
+                "hiddenDirectoryNames": case["hiddenDirectoryNames"],
+                "hiddenFilePatterns": case["hiddenFilePatterns"],
+                "entries": entries
+                    .iter()
+                    .map(|entry| serde_json::json!({
+                        "path": entry["path"], "isDirectory": entry["isDirectory"],
+                    }))
+                    .collect::<Vec<_>>(),
+            }),
+        );
+        assert_eq!(result["ok"], true, "{}: {result}", case["name"]);
+        for (index, entry) in entries.iter().enumerate() {
+            assert_eq!(
+                result["data"]["hidden"][index], entry["hidden"],
+                "{}: {}",
+                case["name"], entry["path"]
+            );
+        }
+    }
+}
+
+#[test]
 fn every_rules_crate_command_is_routed_by_core() {
     for command in lithe_core_rules::COMMANDS {
         assert!(

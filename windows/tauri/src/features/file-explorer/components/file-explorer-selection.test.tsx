@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
+import { afterEach, beforeAll, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import { enableMapSet } from "immer";
 import { mockIPC, clearMocks } from "@tauri-apps/api/mocks";
 import { act, forwardRef, type ComponentProps } from "react";
@@ -25,6 +25,10 @@ import { keymapRegistry } from "@/features/keymaps/utils/registry";
 import { FileExplorerPane } from "./file-explorer-pane";
 import * as dialog from "@/ui/dialog";
 import * as sidebar from "@/ui/sidebar";
+import { loadCoreRulesForTests } from "@/test-utils/core-rules";
+
+// The tree asks Core's wasm rules which paths the hidden-path settings hide.
+beforeAll(loadCoreRulesForTests);
 
 const originalSidebar = { ...sidebar };
 const originalHandleFileOpen = useFileSystemStore.getState().handleFileOpen;

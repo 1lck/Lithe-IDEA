@@ -17,6 +17,7 @@ mod dispatch;
 pub mod editor;
 mod error;
 pub mod keymap;
+pub mod visibility;
 #[cfg(target_arch = "wasm32")]
 mod wasm;
 

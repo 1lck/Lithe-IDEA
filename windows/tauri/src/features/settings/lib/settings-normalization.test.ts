@@ -65,12 +65,11 @@ describe("default settings", () => {
     expect(getDefaultSettingsSnapshot().showMinimap).toBe(false);
   });
 
-  test("starts with IDEA-style hidden file and directory patterns", () => {
+  test("starts with no user hidden-path entries because Core owns the built-in list", () => {
     const settings = getDefaultSettingsSnapshot();
 
-    expect(settings.hiddenDirectoryPatterns).toContain(".git");
-    expect(settings.hiddenDirectoryPatterns).toContain(".idea");
-    expect(settings.hiddenFilePatterns).toContain(".DS_Store");
+    expect(settings.hiddenDirectoryPatterns).toEqual([]);
+    expect(settings.hiddenFilePatterns).toEqual([]);
   });
 });
 

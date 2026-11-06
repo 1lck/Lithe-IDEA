@@ -182,6 +182,19 @@ hosts prune their own layout tree; split directions, ratios, pixels and dragging
 through the wasm build inside zustand `set()`, one call per user action. Both hosts run every case of
 `shared/fixtures/editor/workbench-state-v1.json` through it.
 
+`workspace.classifyVisibility` accepts `{hiddenDirectoryNames?, hiddenFilePatterns?, entries: [{path, isDirectory?}]}`
+and returns `{hidden: boolean[], watchedDespiteHiding: boolean[]}` with one answer per entry, in request order. `path`
+is workspace-relative with `/` separators; `isDirectory` is `true` for a folder, `false` for a file and omitted when the
+host does not know (every component may then be a folder). The two lists are the user's own entries: Core adds the
+built-in folders and patterns, and a `!entry` turns a built-in off. Matching ignores case. A folder name hides the folder,
+everything below it and a file with that exact name (a linked worktree's `.git` file). `hidden` means the tree, search and
+Local History leave the path out; `watchedDespiteHiding` marks the hidden project configuration folder (`.lithe`) whose file
+events must still be delivered, except the built-in noise below it such as `.lithe/run/local.json`. Hosts send all children
+of a directory in one call. `workspace.visibilityDefaults` takes `{}` and returns the built-in lists
+(`hiddenDirectoryNames`, `hiddenFilePatterns`, `builtInPatterns`, `configurationDirectory`, `configurationPattern`) so hosts
+display them without keeping a copy. Both live in `rust/lithe-core-rules` like `keymap.modifierGestureStep`, run in wasm on
+Windows, and are tested against `shared/fixtures/workspace/visibility-v1.json`.
+
 ## Terminal link targets
 
 `terminal.parseLinkTarget` accepts `{texts: string[], baseDirectory?, homeDirectory?, providerSchemes?: string[]}`

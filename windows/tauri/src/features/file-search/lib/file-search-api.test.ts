@@ -1,10 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
 import * as core from "@/core/lithe-core-client";
 import * as indexing from "@/features/file-explorer/stores/workspace-indexing";
-import {
-  DEFAULT_HIDDEN_DIRECTORY_PATTERNS,
-  DEFAULT_HIDDEN_FILE_PATTERNS,
-} from "@/features/settings/config/default-settings";
 import { fffListFiles, searchFileNames, searchFilesContent } from "./file-search-api";
 import { mergeSearchResults } from "@/features/global-search/utils/content-search-results";
 
@@ -138,8 +134,8 @@ test("workspace file listing asks Core for flat files without allocating a tree"
       root,
       workspaceRoots: [root],
       includeTree: false,
-      hiddenDirectoryNames: [...DEFAULT_HIDDEN_DIRECTORY_PATTERNS],
-      hiddenFilePatterns: [...DEFAULT_HIDDEN_FILE_PATTERNS],
+      hiddenDirectoryNames: [],
+      hiddenFilePatterns: [],
     });
   } finally {
     execute.mockRestore(); configure.mockRestore();
@@ -178,7 +174,7 @@ test("file-name search asks Core's index for files only, with relative context a
       maxSymbolResults: 0,
       maxContentResults: 0,
       context: {openPaths: ["src/a.ts"], recentPaths: ["src/b.ts"]},
-      hiddenDirectoryNames: [...DEFAULT_HIDDEN_DIRECTORY_PATTERNS],
+      hiddenDirectoryNames: [],
     });
   } finally {
     execute.mockRestore(); configure.mockRestore();

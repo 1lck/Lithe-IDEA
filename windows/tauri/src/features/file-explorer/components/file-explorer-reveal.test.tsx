@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { enableMapSet } from "immer";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -12,6 +12,10 @@ import { workspaceRuntimeRegistry as registry } from "@/features/workspace/runti
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { FileExplorerTree } from "./file-explorer-tree";
+import { loadCoreRulesForTests } from "@/test-utils/core-rules";
+
+// The tree asks Core's wasm rules which paths the hidden-path settings hide.
+beforeAll(loadCoreRulesForTests);
 
 const rootPath = "C:/workspace/reveal";
 const directoryPath = `${rootPath}/src`;

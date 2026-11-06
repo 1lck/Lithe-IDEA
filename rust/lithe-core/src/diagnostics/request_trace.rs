@@ -174,6 +174,8 @@ pub(crate) fn is_hot(method: &str) -> bool {
             "document.classifyText"
                 | "document.lifecycle"
                 | "markdown.render"
+                | "workspace.classifyVisibility"
+                | "workspace.visibilityDefaults"
                 | "lsp.syncDocument"
                 | "lsp.closeDocument"
                 | "lsp.request"
@@ -293,6 +295,7 @@ mod tests {
             "document.lifecycle",
             "workspace.search",
             "workspace.filterChanges",
+            "workspace.classifyVisibility",
             "git.classifyMetadataChanges",
             "debug.transport.handle",
         ] {

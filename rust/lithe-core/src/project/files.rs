@@ -16,31 +16,11 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// Default workspace exclusions, also used by Git discovery for generated directories.
-pub(crate) const BUILT_IN_HIDDEN_DIRECTORIES: &[&str] = &[
-    ".git",
-    ".svn",
-    ".worktree",
-    ".worktrees",
-    ".build",
-    ".swiftpm",
-    "node_modules",
-    // Python virtual environments and bytecode caches are dependency or generated
-    // output like `node_modules`. They hold tens of thousands of files that no
-    // snapshot consumer wants. Environments are matched by their conventional
-    // names only, so a differently named one still has to be hidden by the user.
-    ".venv",
-    "venv",
-    "__pycache__",
-    "target",
-    "build",
-    "DerivedData",
-    ".gradle",
-    ".next",
-    "dist",
-    "coverage",
-    "design-qa-artifacts",
-    ".artifacts",
-];
+/// The list lives in `lithe-core-rules`, the only definition every host shares.
+pub(crate) use lithe_core_rules::visibility::BUILT_IN_HIDDEN_DIRECTORIES;
+use lithe_core_rules::visibility::{
+    self as shared_visibility, disabled_built_ins, glob_matches, is_disabled_directory,
+};
 /// Whether an ordinary workspace event belongs to visible project inputs.
 /// Callers first relativize to the most specific explicitly watched root; native
 /// event-loss flags always bypass this filter and request recovery.
@@ -88,29 +68,6 @@ pub fn filter_workspace_changes(request: WorkspaceChangeFilterRequest) -> Vec<St
         .collect()
 }
 
-/// The entries after a leading `!`. Such an entry turns a built-in rule off
-/// instead of hiding anything; it is never matched as a pattern itself.
-fn disabled_built_ins(hidden_file_patterns: &[String]) -> Vec<String> {
-    hidden_file_patterns
-        .iter()
-        .filter_map(|pattern| pattern.trim().strip_prefix('!'))
-        .map(|pattern| pattern.trim().to_string())
-        .collect()
-}
-
-/// A built-in folder is turned off by its displayed form `**/name/` or its bare name.
-fn is_disabled_directory(name: &str, disabled: &[String]) -> bool {
-    disabled.iter().any(|entry| {
-        entry.eq_ignore_ascii_case(name)
-            || entry
-                .strip_prefix("**/")
-                .and_then(|rest| rest.strip_suffix('/'))
-                .is_some_and(|rest| rest.eq_ignore_ascii_case(name))
-    })
-}
-
-/// File names omitted from workspace snapshots, search, and related scans.
-const BUILT_IN_HIDDEN_FILE_PATTERNS: &[&str] = &[".DS_Store", "*.pyc"];
 const MAX_FILE_SIZE: u64 = 2 * 1024 * 1024;
 const MAX_OPEN_FILE_SIZE: u64 = 32 * 1024 * 1024;
 
@@ -1289,7 +1246,11 @@ pub fn write_file(request: FileWriteRequest) -> Result<FileWriteResponse, CoreEr
     })
 }
 
-/// Effective built-in plus caller-supplied rules for excluding workspace paths.
+/// Effective hidden-path rules plus the nested roots this request delegates.
+///
+/// Matching is `lithe-core-rules`' [`shared_visibility::VisibilityRules`], the same code the
+/// hosts reach through `workspace.classifyVisibility`; only the delegated roots, which depend on
+/// the file system, are added here.
 pub(crate) struct VisibilityRules {
     pub(crate) hidden_directories: Vec<String>,
     pub(crate) hidden_file_patterns: Vec<String>,
@@ -1299,32 +1260,11 @@ pub(crate) struct VisibilityRules {
 
 impl VisibilityRules {
     /// Adds the built-in rules except those turned off by a `!` entry.
-    ///
-    /// Callers may already send built-in names; a turned-off entry is dropped
-    /// from their lists too, so the caller's copy cannot re-hide it.
     pub(crate) fn new(hidden_directories: Vec<String>, hidden_files: Vec<String>) -> Self {
-        let disabled = disabled_built_ins(&hidden_files);
-        let mut directories = BUILT_IN_HIDDEN_DIRECTORIES
-            .iter()
-            .map(|value| (*value).to_string())
-            .collect::<Vec<_>>();
-        directories.extend(hidden_directories);
-        directories.retain(|name| !is_disabled_directory(name, &disabled));
-        let mut files = BUILT_IN_HIDDEN_FILE_PATTERNS
-            .iter()
-            .map(|value| (*value).to_string())
-            .collect::<Vec<_>>();
-        files.extend(hidden_files);
-        files.retain(|pattern| {
-            let pattern = pattern.trim();
-            !pattern.starts_with('!')
-                && !disabled
-                    .iter()
-                    .any(|entry| entry.eq_ignore_ascii_case(pattern))
-        });
+        let rules = shared_visibility::VisibilityRules::new(hidden_directories, hidden_files);
         Self {
-            hidden_directories: normalize(directories),
-            hidden_file_patterns: normalize(files),
+            hidden_directories: rules.hidden_directories,
+            hidden_file_patterns: rules.hidden_file_patterns,
             delegated_roots: Vec::new(),
         }
     }
@@ -1352,71 +1292,13 @@ impl VisibilityRules {
     }
 
     pub(crate) fn is_hidden(&self, path: &str, is_directory: bool) -> bool {
-        let components = path
-            .split('/')
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>();
-        if components.iter().any(|component| {
-            self.hidden_directories
-                .iter()
-                .any(|hidden| hidden.eq_ignore_ascii_case(component))
-        }) {
-            return true;
-        }
-        let directory_count = components.len().saturating_sub(usize::from(!is_directory));
-        let mut folder_globs = self
-            .hidden_file_patterns
-            .iter()
-            .filter_map(|pattern| folder_glob(pattern))
-            .peekable();
-        if folder_globs.peek().is_some() {
-            // Each ancestor prefix is joined once and shared by every folder
-            // rule, instead of being rebuilt per rule.
-            let prefixes = (1..=directory_count)
-                .map(|count| components[..count].join("/"))
-                .collect::<Vec<_>>();
-            if folder_globs.any(|glob| {
-                prefixes
-                    .iter()
-                    .any(|prefix| path_glob_matches(glob, prefix))
-            }) {
-                return true;
-            }
-        }
-        if is_directory {
-            return false;
-        }
-        let last = components.last().copied().unwrap_or_default();
-        self.hidden_file_patterns
-            .iter()
-            .any(|pattern| path_glob_matches(pattern, last) || path_glob_matches(pattern, path))
+        shared_visibility::is_path_hidden(
+            &self.hidden_directories,
+            &self.hidden_file_patterns,
+            path,
+            Some(is_directory),
+        )
     }
-}
-
-/// Matches a hidden-path glob, letting a leading `**/` stand for zero or more
-/// folders, so `**/dist/` covers a root-level `dist` as well as `a/b/dist`.
-///
-/// `*` already spans `/`, which covers the non-root case; the root case needs
-/// the second attempt because the glob would otherwise demand a literal `/`.
-fn path_glob_matches(pattern: &str, value: &str) -> bool {
-    glob_matches(pattern, value)
-        || pattern
-            .strip_prefix("**/")
-            .is_some_and(|rest| glob_matches(rest, value))
-}
-
-/// The folder glob of a hidden-path entry that ends in `/`, `/*` or `/**`.
-///
-/// Such an entry names a folder from the project root (or at any depth when it
-/// starts with `**/`), so the folder and everything below it is hidden instead
-/// of leaving an empty folder behind. Other entries keep their file-only
-/// meaning, as pinned by `shared/fixtures/search/exclusions.json`.
-fn folder_glob(pattern: &str) -> Option<&str> {
-    let glob = pattern
-        .strip_suffix("/**")
-        .or_else(|| pattern.strip_suffix("/*"))
-        .or_else(|| pattern.strip_suffix('/'))?;
-    (!glob.is_empty()).then_some(glob)
 }
 
 fn scan_node(
@@ -1831,22 +1713,6 @@ pub(crate) fn relative_path(path: &Path, root: &Path) -> String {
         .to_string()
 }
 
-fn normalize(values: Vec<String>) -> Vec<String> {
-    let mut result = Vec::new();
-    for value in values {
-        let normalized = value.trim().to_string();
-        if normalized.is_empty()
-            || result
-                .iter()
-                .any(|existing: &String| existing.eq_ignore_ascii_case(&normalized))
-        {
-            continue;
-        }
-        result.push(normalized);
-    }
-    result
-}
-
 /// Matches IDEA's Preserve Case behavior for literal replacement text.
 ///
 /// All-uppercase matches uppercase the replacement, initial-uppercase matches
@@ -1962,37 +1828,6 @@ fn file_mask_allows(masks: &[String], path: &str) -> bool {
     }
     let name = path.rsplit('/').next().unwrap_or(path);
     masks.iter().any(|mask| glob_matches(mask, name))
-}
-
-fn glob_matches(pattern: &str, value: &str) -> bool {
-    let pattern = pattern.to_lowercase().chars().collect::<Vec<_>>();
-    let value = value.to_lowercase().chars().collect::<Vec<_>>();
-    let mut pattern_index = 0;
-    let mut value_index = 0;
-    let mut star_index = None;
-    let mut star_match = 0;
-    while value_index < value.len() {
-        if pattern_index < pattern.len()
-            && (pattern[pattern_index] == value[value_index] || pattern[pattern_index] == '?')
-        {
-            pattern_index += 1;
-            value_index += 1;
-        } else if pattern_index < pattern.len() && pattern[pattern_index] == '*' {
-            star_index = Some(pattern_index);
-            star_match = value_index;
-            pattern_index += 1;
-        } else if let Some(star) = star_index {
-            pattern_index = star + 1;
-            star_match += 1;
-            value_index = star_match;
-        } else {
-            return false;
-        }
-    }
-    while pattern_index < pattern.len() && pattern[pattern_index] == '*' {
-        pattern_index += 1;
-    }
-    pattern_index == pattern.len()
 }
 
 /// Literal or regular-expression search semantics compiled for repeated matches.
