@@ -7,6 +7,7 @@ package enum GitCorePlanCommand: String, Sendable {
     case rebasePlanPreview = "git.rebasePlanPreview"
     case updatePlan = "git.updatePlan"
     case historyWindow = "git.historyWindow"
+    case graphProjection = "git.graphProjection"
 }
 
 // MARK: - git.normalizeChangeTargets

@@ -258,6 +258,8 @@ pub enum CoreCommand {
     BuildLanguageImport,
     /// Reduces a test run's termination and decoded summary to one verdict (`build.resolveTestRunOutcome`).
     BuildResolveTestRunOutcome,
+    /// Merges a run's test results into the stored history inside the host-stated scope (`build.mergeTestOutcomes`).
+    BuildMergeTestOutcomes,
     /// Detects VCS roots and registered providers of a workspace (`vcs.detectRoots`).
     VcsDetectRoots,
     /// Assigns workspace paths to detected VCS roots (`vcs.ownerOf`).
@@ -754,6 +756,8 @@ pub enum CoreCommand {
     GitUpdatePlan,
     /// Plans history refresh windows, page merges, and selection retention (`git.historyWindow`).
     GitHistoryWindow,
+    /// Projects the commit graph's lanes, colors, routes, and labels (`git.graphProjection`).
+    GitGraphProjection,
     /// Drops targets already covered by a selected untracked summary (`git.normalizeChangeTargets`).
     GitNormalizeChangeTargets,
     /// Validates an interactive rebase draft and derives its messages (`git.rebasePlanPreview`).
@@ -951,6 +955,7 @@ impl CoreCommand {
             "build.syncFingerprint" => Some(Self::BuildSyncFingerprint),
             "build.languageImport" => Some(Self::BuildLanguageImport),
             "build.resolveTestRunOutcome" => Some(Self::BuildResolveTestRunOutcome),
+            "build.mergeTestOutcomes" => Some(Self::BuildMergeTestOutcomes),
             "vcs.detectRoots" => Some(Self::VcsDetectRoots),
             "vcs.ownerOf" => Some(Self::VcsOwnerOf),
             "vcs.decodeReply" => Some(Self::VcsDecodeReply),
@@ -1197,6 +1202,7 @@ impl CoreCommand {
             "git.repositoryColorAssignments" => Some(Self::GitRepositoryColorAssignments),
             "git.updatePlan" => Some(Self::GitUpdatePlan),
             "git.historyWindow" => Some(Self::GitHistoryWindow),
+            "git.graphProjection" => Some(Self::GitGraphProjection),
             "git.normalizeChangeTargets" => Some(Self::GitNormalizeChangeTargets),
             "git.rebasePlanPreview" => Some(Self::GitRebasePlanPreview),
             "git.referenceTree" => Some(Self::GitReferenceTree),

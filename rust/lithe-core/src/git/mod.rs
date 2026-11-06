@@ -24,8 +24,7 @@ mod fetch;
 mod fetch_execution;
 pub(crate) mod file_context;
 mod github_checkout;
-#[allow(dead_code)]
-pub(crate) mod graph;
+mod graph;
 mod history;
 mod history_query;
 mod history_window;
@@ -74,6 +73,7 @@ pub use github_checkout::{
     checkout as checkout_pull_request, preview as checkout_pull_request_preview,
     PullRequestCheckoutPreviewRequest, PullRequestCheckoutRequest,
 };
+pub(crate) use graph::command as graph_projection_command;
 pub use history::{
     close_history_cursor, history, history_locate, history_page, references,
     GitHistoryCursorCloseRequest, GitHistoryLocateRequest, GitHistoryPageRequest,

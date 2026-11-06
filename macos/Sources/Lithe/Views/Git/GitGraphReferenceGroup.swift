@@ -2,6 +2,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Apache-2.0.
 // See Resources/GitGraph/NOTICE.txt.
 import AppKit
+import LitheCoreContracts
 import LitheGitModule
 
 /// IDEA's default compact reference display. The original names remain intact
@@ -40,7 +41,7 @@ struct GitGraphReferenceGroup: Equatable, Sendable {
         }
         let sorted = labels.sorted {
             rank($0) == rank($1)
-                ? GitGraphHeadOrdering.naturalCompare(Array($0.title.utf16), Array($1.title.utf16)) < 0
+                ? NaturalNameOrder.compare(Array($0.title.utf16), Array($1.title.utf16)) < 0
                 : rank($0) < rank($1)
         }
         let locals = sorted.filter { $0.kind == .branch }

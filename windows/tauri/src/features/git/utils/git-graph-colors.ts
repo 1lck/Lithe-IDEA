@@ -43,21 +43,3 @@ export function graphColor(colorId: number, isDark = false): string {
   ][Math.floor(h) % 6];
   return `rgb(${channels.map((channel) => Math.floor(Math.fround(Math.fround(channel * 255) + 0.5))).join(", ")})`;
 }
-
-/**
- * Java `String.hashCode` over UTF-16 code units. IDEA's graph coloring keys a
- * branch's color off this value, so matching it keeps the identity stable across
- * renders and topology changes.
- */
-export function javaStringHashCode(value: string): number {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (Math.imul(hash, 31) + value.charCodeAt(index)) | 0;
-  }
-  return hash;
-}
-
-/** Stable full Java color ID for a principal reference fragment. */
-export function graphColorIdForName(name: string): number {
-  return javaStringHashCode(name);
-}

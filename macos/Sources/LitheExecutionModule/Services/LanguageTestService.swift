@@ -302,18 +302,20 @@ package final class LanguageTestService: ObservableObject {
                 resultsWorkspaceURL = workspaceURL.standardizedFileURL
                 // Only the backend can say that a whole suite/project completed.
                 // Legacy reports without coverage replace their exact returned cases.
-                let keys = Set(result.reports.flatMap(\.tests).map(BuildTestCaseKey.init))
+                // Core merges by id; this adapter only names the ids and prefixes.
+                let previous = testOutcomesByProviderID[providerID] ?? []
                 let coverage = result.reports.flatMap { $0.coverage ?? [] }
-                var outcomes = testOutcomesByProviderID[providerID] ?? []
-                outcomes.removeAll { outcome in
-                    keys.contains(BuildTestCaseKey(outcome))
-                    || coverage.contains { scope in
-                        scope.project == outcome.project
-                        && (scope.suite == nil || scope.suite == outcome.suite)
-                        && (scope.testCase == nil || scope.testCase == outcome.name)
-                    }
+                let merged = try outcomeResolver.mergeTestOutcomes(
+                    previous: previous.map(\.id),
+                    incoming: report.tests.map(\.id),
+                    scope: TestOutcomeMergeScope(
+                        ids: report.tests.map(\.id),
+                        prefixes: coverage.map(Self.coveragePrefix)
+                    )
+                )
+                testOutcomesByProviderID[providerID] = merged.map {
+                    $0.source == .previous ? previous[$0.index] : report.tests[$0.index]
                 }
-                testOutcomesByProviderID[providerID] = outcomes + report.tests
                 applyVerdict(
                     termination: .exited(result.exitCode),
                     scope: scope,
@@ -328,6 +330,16 @@ package final class LanguageTestService: ObservableObject {
                 state = .failed(exitCode: -1)
             }
         }
+    }
+
+    /// A coverage scope is a prefix of the ids it completed: a project, one of
+    /// its suites, or (with a case name) exactly one test. `TestCase.id` is
+    /// length-prefixed per part, so a shorter scope never matches another name.
+    private static func coveragePrefix(_ scope: BuildTestResults.Coverage) -> String {
+        // Decoding rejects a case without its suite, so levels are contiguous.
+        [scope.project, scope.suite, scope.testCase]
+            .compactMap { $0.map { "\($0.utf8.count):" + $0 } }
+            .joined()
     }
 
     package func sourceURL(for test: BuildTestResults.TestCase) -> URL? {

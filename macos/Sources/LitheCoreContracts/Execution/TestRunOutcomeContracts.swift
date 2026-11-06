@@ -46,8 +46,35 @@ public struct TestRunVerdict: Codable, Equatable, Sendable {
     public let exitCode: Int32?
 }
 
+/// What a run replaces in the stored test history: exact result ids and id
+/// prefixes. The provider adapter builds it; Core only compares strings.
+public struct TestOutcomeMergeScope: Codable, Equatable, Sendable {
+    public var ids: [String]
+    public var prefixes: [String]
+
+    public init(ids: [String] = [], prefixes: [String] = []) {
+        self.ids = ids
+        self.prefixes = prefixes
+    }
+}
+
+/// One merged result: its position in the `previous` or `incoming` input.
+public struct TestOutcomeMergeEntry: Codable, Equatable, Sendable {
+    public enum Source: String, Codable, Sendable { case previous, incoming }
+    public let source: Source
+    public let index: Int
+}
+
 /// Reduces a finished test run to the verdict both platforms show.
 public protocol TestRunOutcomeResolving: Sendable {
+    /// `build.mergeTestOutcomes`: which stored and which reported results
+    /// make up the new history, in display order.
+    func mergeTestOutcomes(
+        previous: [String],
+        incoming: [String],
+        scope: TestOutcomeMergeScope
+    ) throws -> [TestOutcomeMergeEntry]
+
     func resolveTestRunOutcome(
         termination: TestRunTermination,
         scope: TestRunScopeKind,
@@ -81,6 +108,30 @@ public extension TestRunOutcomeCoreCommandExecuting {
             payload: ResolveTestRunOutcomePayload(termination: encoded, scope: scope, summary: summary)
         )
     }
+}
+
+public extension TestRunOutcomeCoreCommandExecuting {
+    func mergeTestOutcomes(
+        previous: [String],
+        incoming: [String],
+        scope: TestOutcomeMergeScope
+    ) throws -> [TestOutcomeMergeEntry] {
+        let response: MergeTestOutcomesResponse = try executeTestRunOutcomeCommand(
+            "build.mergeTestOutcomes",
+            payload: MergeTestOutcomesPayload(previous: previous, incoming: incoming, scope: scope)
+        )
+        return response.entries
+    }
+}
+
+private struct MergeTestOutcomesPayload: Encodable {
+    let previous: [String]
+    let incoming: [String]
+    let scope: TestOutcomeMergeScope
+}
+
+private struct MergeTestOutcomesResponse: Decodable {
+    let entries: [TestOutcomeMergeEntry]
 }
 
 private struct ResolveTestRunOutcomeTermination: Encodable {

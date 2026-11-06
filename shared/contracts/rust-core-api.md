@@ -1500,6 +1500,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.pullPreflight` | Report the configured upstream, ahead/behind counts, divergence, tracked local changes, and the strategy Git is configured for, without fetching |
 | `git.updatePlan` | Route a branch Update and gate a Pull from facts the host collected: blockers, strategy default, whether to ask, and the expected checkout |
 | `git.historyWindow` | Plan a history refresh window, page merge, and selection retention over commit identities |
+| `git.graphProjection` | Project a loaded history window into commit-graph lanes, color IDs, routes, print elements, and labels, optionally filtered |
 | `git.integrationPreflight` | Return local paths that block a merge, rebase, cherry-pick, or revert |
 | `git.conflictMarkers` | Return staged text files that still contain conflict markers |
 | `git.operationState` | Report an interrupted merge, rebase, cherry-pick, or revert and its conflicted paths |
@@ -1584,6 +1585,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.syncFingerprint` | Digest the files a build model depends on, to tell whether it is stale |
 | `build.languageImport` | Map a build system's options to the Java language server's Maven or Gradle project import |
 | `build.resolveTestRunOutcome` | Reduce a test run's termination, selected scope and decoded summary to one tool-neutral verdict |
+| `build.mergeTestOutcomes` | Merge a run's test result ids into the stored history inside the host-stated id/prefix scope |
 | `vcs.detectRoots` | Find the VCS roots of a workspace from static markers, with registered providers, ambiguous directories, and applied mappings |
 | `vcs.ownerOf` | Assign workspace paths to the detected root that owns each |
 | `vcs.decodeReply` | Validate a VCS provider's reply and return the normalized result |
@@ -2456,6 +2458,30 @@ page that are not yet in the window and whether `hasMore`, bounded to 5000
 commits. `reconcileSelection` returns the retained `selected` identities in
 window order plus `focused` and `anchor`, falling back to the first loaded
 commit. `shared/fixtures/git/history-window-v1.json` defines the rules.
+
+`git.graphProjection` is a pure projection of one loaded history window; it never
+starts Git. The request is `{ "commits": [{ "hash", "parentHashes", "decorations" }],
+"remoteNames"?, "repositoryCommits"?, "visibleHashes"?, "displayMode"?,
+"currentBranch"? }`: `commits` are in Git's child-before-parent order, `remoteNames`
+are the remote short names that type a bare remote-tracking decoration,
+`repositoryCommits` is the complete repository window that fixes the permanent layout
+(ignored unless it is unique and covers every scoped commit), `visibleHashes` applies
+a filter (omit it to show every commit), `displayMode` is `compact` (default) or
+`expanded`, and `currentBranch` asks for the ancestry of that local branch. Hosts call
+it once per loaded window, never per commit, and recompute the whole window when a page
+is appended or the history refreshes; lanes depend on every loaded edge, and a head
+fragment's color ID is the Java `String.hashCode` of its principal reference name, so a
+named branch keeps its color across pages. The response is `{ "version", "rows",
+"laneCount", "recommendedLaneCount", "hasMissingParents", "currentBranchHashes" }`.
+Each visible row carries `commitHash`, integer `lane` and `laneCount`, a signed
+`colorId`, `layoutIndex`, `incomingLaneColors`, `parentEdges` (`id`, `parentHash`,
+`targetLane`, `colorId`, `isMissing`, `isDotted`), typed `labels`, and
+`printElements` (the up and down half-edges with `position`, `adjacentPosition`,
+`colorId`, `isDotted`, `isMissing`, `hasArrow`, `isTerminal`, `targetHash`). Hosts own
+pixels, curves, and the mapping from a color ID to a theme color; `colorId` `0` means
+an unreferenced fragment. Requests over 20,000 commits fail with `invalid_request`.
+`shared/fixtures/git/graph-projection-v1.json` defines the rules and
+`shared/fixtures/git/graph-idea/` holds the pinned IntelliJ oracles.
 
 `git.integrationPreflight` accepts either `reference` or `gitReference` with
 `root` and `operation`, where `operation` is `merge`, `rebase`, `cherryPick`,
@@ -6452,6 +6478,21 @@ failures outrank the exit code, a non-zero exit outranks an empty result, and a
 zero exit with decoded results but no executed test is not a pass. Counts that
 exceed `total` are `InvalidRequest`. No tool or selector syntax is interpreted.
 Hosts localize the outcome. Cases: `shared/fixtures/build/test-run-outcome-v1.json`.
+
+### Test history merge
+
+`build.mergeTestOutcomes` takes `{ previous, incoming, scope }`: `previous` and
+`incoming` are lists of result identifiers (strings) in display and report order,
+and `scope` is `{ ids?, prefixes? }`, the identifiers the run replaces. A result is
+covered when its id equals one of `ids` or starts with one of `prefixes`; an empty
+scope covers nothing and an empty prefix is `InvalidRequest`. It returns
+`{ entries: [{ source, index }] }` with `source` `previous` or `incoming` and
+`index` the position in that input: covered history entries are dropped, the
+others stay in place, then the run's covered results follow. Incoming results
+outside the scope are discarded, and for a repeated id the later entry wins.
+Core compares strings only: hosts keep the result payloads, and the provider
+adapter builds the scope (for example turning Java nested classes `Outer$Inner`
+into the prefix `Outer$`). Cases: `shared/fixtures/build/test-outcome-merge-v1.json`.
 
 ### Variable and disassembly paging
 

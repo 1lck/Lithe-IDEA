@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installGitHistoryWindowStub } from "@/test-utils/git-history-window-stub";
 import { installHappyDom } from "@/test-utils/happy-dom";
+import { installGitGraphProjectionStub } from "@/test-utils/git-graph-projection-stub";
 import { useRepositoryStore } from "../../stores/git-repository.store";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import { useGitLogRevealStore } from "../../stores/git-log-reveal.store";
@@ -119,11 +120,14 @@ const controllerState = (
   ...overrides,
 });
 
+let graphStub: ReturnType<typeof installGitGraphProjectionStub>;
+
 beforeEach(() => {
   controllerSpy = spyOn(controller, "useGitLogController").mockImplementation(() =>
     controllerState(),
   );
   restoreDom = installHappyDom();
+  graphStub = installGitGraphProjectionStub();
   previousAct = globals.IS_REACT_ACT_ENVIRONMENT;
   globals.IS_REACT_ACT_ENVIRONMENT = true;
   previousRepos = useRepositoryStore.getState();
@@ -255,7 +259,8 @@ afterEach(async () => {
     container.remove();
     if (previousAct === undefined) delete globals.IS_REACT_ACT_ENVIRONMENT;
     else globals.IS_REACT_ACT_ENVIRONMENT = previousAct;
-    restoreDom();
+    graphStub.mockRestore();
+  restoreDom();
   }
 });
 const render = async (language: "en-US" | "zh-CN" = "en-US") =>

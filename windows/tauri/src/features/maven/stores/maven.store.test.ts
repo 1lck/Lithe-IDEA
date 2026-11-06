@@ -206,6 +206,25 @@ const resolveTestRunOutcome = mock(
   },
 );
 
+// Stands in for Core's history merge; its own cases live in the shared fixture.
+const mergeTestOutcomes = mock(
+  async (request: {
+    previous: readonly string[];
+    incoming: readonly string[];
+    scope: { ids?: readonly string[]; prefixes?: readonly string[] };
+  }) => {
+    const covered = (id: string) =>
+      (request.scope.ids ?? []).includes(id) ||
+      (request.scope.prefixes ?? []).some((prefix) => id.startsWith(prefix));
+    return {
+      entries: [
+        ...request.previous.flatMap((id, index) => (covered(id) ? [] : [{ source: "previous" as const, index }])),
+        ...request.incoming.flatMap((id, index) => (covered(id) ? [{ source: "incoming" as const, index }] : [])),
+      ],
+    };
+  },
+);
+
 const dependencies = {
   createMavenPomWatchOperations,
   createMavenDependencyOutput,
@@ -216,6 +235,7 @@ const dependencies = {
   parseMavenTestResults,
   readMavenDependencies,
   removeMavenDependencyOutput,
+  mergeTestOutcomes,
   resolveTestRunOutcome,
   resolveEffectiveMavenExecutable,
   resolveMavenLaunch,
@@ -231,6 +251,7 @@ const dependencies = {
 } satisfies MavenStoreDependencies;
 
 beforeEach(() => {
+  mergeTestOutcomes.mockClear();
   updateJavaMavenConfiguration.mockReset();
   updateJavaMavenConfiguration.mockResolvedValue({ kind: "noSession" });
   resolveJavaTestClass.mockReset();
@@ -1777,8 +1798,8 @@ describe("Maven test outcomes for editor Run markers", () => {
     expect(store.getState().activeTestRun?.selector).toBe("com.example.CalculatorTest$Nested#adds");
     const sessionId = store.getState().activeSessionId;
     store.getState().actions.finishProcess(sessionId!, 1);
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitFor(() => mergeTestOutcomes.mock.calls.length > 0);
+    await waitFor(() => store.getState().testResults !== null);
 
     expect(reportRequests).toEqual([
       {
@@ -1842,9 +1863,7 @@ describe("Maven test outcomes for editor Run markers", () => {
     try {
       await store.getState().actions.runTestMethod(testFile, "adds");
       store.getState().actions.finishProcess(store.getState().activeSessionId!, 0);
-      // The parser mock resolves immediately; flush its registered completion.
-      await Promise.resolve();
-      await Promise.resolve();
+      await waitFor(() => store.getState().testResults !== null);
       expect(store.getState().testOutcomes).toEqual([otherFailure, nestedFailure, passed]);
     } finally {
       await store.getState().actions.stop();
@@ -1862,8 +1881,7 @@ describe("Maven test outcomes for editor Run markers", () => {
 
     await store.getState().actions.runTestClass(testFile);
     store.getState().actions.finishProcess(store.getState().activeSessionId!, 0);
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitFor(() => store.getState().testResults !== null);
 
     expect(store.getState().testOutcomes).toEqual(previous);
   });

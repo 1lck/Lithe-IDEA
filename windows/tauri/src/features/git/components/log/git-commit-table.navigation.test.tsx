@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import * as virtual from "@tanstack/react-virtual";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
+import { installGitGraphProjectionStub } from "@/test-utils/git-graph-projection-stub";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitCommit } from "../../types/git.types";
 import { GitCommitTable } from "./git-commit-table";
@@ -87,8 +88,11 @@ function Harness({
   );
 }
 
+let graphStub: ReturnType<typeof installGitGraphProjectionStub>;
+
 beforeEach(() => {
   restoreDom = installHappyDom();
+  graphStub = installGitGraphProjectionStub();
   previousActEnvironment = environment.IS_REACT_ACT_ENVIRONMENT;
   environment.IS_REACT_ACT_ENVIRONMENT = true;
   previousPreferences = useGitLogPreferencesStore.getState();
@@ -152,6 +156,7 @@ afterEach(async () => {
   viewportSpy.mockRestore();
   useGitLogPreferencesStore.setState(previousPreferences, true);
   environment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+  graphStub.mockRestore();
   restoreDom();
 });
 
@@ -246,6 +251,9 @@ test("missing-history markers have no navigation target and ordinary row selecti
 });
 
 test("appending a page and repainting references preserve the manually scrolled viewport and selection", async () => {
+  // The two pages are not a recorded Core history; this test asserts scrolling, not geometry.
+  graphStub.mockRestore();
+  graphStub = installGitGraphProjectionStub({ geometryFree: true });
   await mount();
   await click(container.querySelector('[data-git-commit-hash="0"]')!);
   await act(async () => moveViewport?.(36));
