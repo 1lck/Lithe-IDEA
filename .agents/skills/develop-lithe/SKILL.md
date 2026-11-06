@@ -52,6 +52,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 | 修复缺陷 | 本文件第八节，以及 `.agents/notes/implemented/bug-fix/` 中涉及同一模块的 Note |
 | 新增、迁移或审查日志事件、写入器和诊断采集；新增界面警告或错误；写会丢弃错误的代码 | [日志接入](references/logging.md)，声明规则以 `shared/logging/README.md` 为准 |
 | 新增、移动或审查脚本 | [脚本放置与分类](references/scripts.md) |
+| 新增 Windows 前端必须同步调用的纯规则（按键、`set()`、渲染路径） | 先读 `.agents/notes/implemented/architecture/2026-11-05-core-rules-wasm-sync-bridge.md`，放进 `rust/lithe-core-rules` |
 | 创建、迁移、更新、归档或审查 Agent Note | `.agents/skills/agent-notes/SKILL.md` |
 | 创建、修改或审查测试及测试基础设施 | `.agents/skills/write-stable-tests/SKILL.md` |
 

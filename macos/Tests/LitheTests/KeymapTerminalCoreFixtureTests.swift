@@ -12,12 +12,11 @@ struct KeymapTerminalCoreFixtureTests {
     }
 
     @Test
-    func doubleShiftRecognizerMatchesTheSharedGestureFixture() throws {
+    func doubleShiftAdapterMatchesTheSharedGestureFixtureThroughCore() throws {
         let fixture = try Self.fixture("keymap/modifier-gesture-v1.json")
-        let threshold = try #require(fixture["thresholdSeconds"] as? Double)
         for sequence in try #require(fixture["sequences"] as? [[String: Any]]) {
             let name = sequence["name"] as? String ?? ""
-            var recognizer = DoubleShiftGestureRecognizer(threshold: threshold)
+            var recognizer = DoubleShiftGestureRecognizer()
             for (index, step) in (sequence["steps"] as? [[String: Any]] ?? []).enumerated() {
                 switch step["event"] as? String {
                 case "keyDown": recognizer.handleKeyDown()

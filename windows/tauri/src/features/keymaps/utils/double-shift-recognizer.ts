@@ -1,30 +1,43 @@
+import { executeCoreRuleSync } from "@/core/core-rules";
+
 /**
- * Double-Shift gesture state machine. It runs synchronously on every key event, so it
- * deliberately stays out of Core (no per-key IPC). macOS keeps the same machine in
- * MacShortcutDetector.swift; both are tested against
- * shared/fixtures/keymap/modifier-gesture-v1.json and must change together.
+ * Thin adapter over Core's `keymap.modifierGestureStep` rule. The gesture state machine itself
+ * lives in rust/lithe-core-rules and runs here as wasm, so key events stay synchronous while
+ * macOS and Windows share one implementation. This class only holds the opaque state Core
+ * returned and turns DOM events into the rule's input.
  */
-export const DOUBLE_SHIFT_THRESHOLD_SECONDS = 0.35;
+const MODIFIER_GESTURE_STEP = "keymap.modifierGestureStep";
+
+interface GestureStepResult {
+  state: unknown;
+  triggered: boolean;
+}
+
+type GestureEvent =
+  | { kind: "keyDown" }
+  | { kind: "reset" }
+  | { kind: "flags"; shift: boolean; otherModifiers: boolean };
 
 export class DoubleShiftGestureRecognizer {
-  readonly threshold: number;
-  private shiftWasDown = false;
-  private currentPressIsStandalone = false;
-  private lastStandaloneTap: number | null = null;
+  // Core defines the shape; an empty object is its idle state.
+  private state: unknown = {};
 
-  constructor(threshold = DOUBLE_SHIFT_THRESHOLD_SECONDS) {
-    this.threshold = threshold;
+  private step(event: GestureEvent, timestamp: number): boolean {
+    const result = executeCoreRuleSync<GestureStepResult>(MODIFIER_GESTURE_STEP, {
+      state: this.state,
+      event,
+      timestamp,
+    });
+    this.state = result.state;
+    return result.triggered;
   }
 
   handleKeyDown() {
-    this.currentPressIsStandalone = false;
-    this.lastStandaloneTap = null;
+    this.step({ kind: "keyDown" }, 0);
   }
 
   reset() {
-    this.shiftWasDown = false;
-    this.currentPressIsStandalone = false;
-    this.lastStandaloneTap = null;
+    this.step({ kind: "reset" }, 0);
   }
 
   handleFlagsChanged(
@@ -32,44 +45,10 @@ export class DoubleShiftGestureRecognizer {
     hasOtherModifiers: boolean,
     timestamp: number,
   ): boolean {
-    if (isShiftDown && !this.shiftWasDown) {
-      this.currentPressIsStandalone = !hasOtherModifiers;
-      this.shiftWasDown = true;
-      return false;
-    }
-
-    if (isShiftDown && this.shiftWasDown) {
-      if (hasOtherModifiers) {
-        this.currentPressIsStandalone = false;
-        this.lastStandaloneTap = null;
-      }
-      return false;
-    }
-
-    if (!isShiftDown && this.shiftWasDown) {
-      this.shiftWasDown = false;
-      const wasStandalone = this.currentPressIsStandalone;
-      this.currentPressIsStandalone = false;
-      if (!wasStandalone || hasOtherModifiers) {
-        this.lastStandaloneTap = null;
-        return false;
-      }
-      if (
-        this.lastStandaloneTap !== null &&
-        timestamp - this.lastStandaloneTap >= 0 &&
-        timestamp - this.lastStandaloneTap < this.threshold
-      ) {
-        this.lastStandaloneTap = null;
-        return true;
-      }
-      this.lastStandaloneTap = timestamp;
-      return false;
-    }
-
-    if (hasOtherModifiers) {
-      this.lastStandaloneTap = null;
-    }
-    return false;
+    return this.step(
+      { kind: "flags", shift: isShiftDown, otherModifiers: hasOtherModifiers },
+      timestamp,
+    );
   }
 }
 

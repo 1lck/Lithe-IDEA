@@ -149,9 +149,15 @@ is the double-tap Shift gesture. Parse failures are listed in `invalid` with `em
 command. Native key-event conversion and the synchronous matching path stay in the host.
 See `shared/fixtures/keymap/binding-conflicts-v1.json`.
 
-The double-Shift gesture state machine is intentionally not a Core command: it must
-run synchronously on every native key event. Both hosts keep a thin implementation and
-are tested step by step against `shared/fixtures/keymap/modifier-gesture-v1.json`.
+`keymap.modifierGestureStep` accepts `{state?, event, timestamp}` and returns `{state, triggered}`. It is the
+double-Shift gesture as a pure transition: `event` is `{kind: "keyDown"}`, `{kind: "reset"}` or
+`{kind: "flags", shift, otherModifiers}`; `timestamp` is seconds on a clock the host keeps; `state` is opaque
+host-held memory (omit it for the idle state) that the host sends back with the next event. The rule lives in the
+pure crate `rust/lithe-core-rules` (no I/O, no clock) so it can run on a synchronous key path: macOS calls it
+through the C ABI, and the Windows frontend runs the same source compiled to wasm (`lithe_rules_alloc`,
+`lithe_rules_dealloc`, `lithe_rules_execute` over JSON envelopes), loaded asynchronously at startup. A malformed
+payload is `invalid_request`. Hosts only convert native events to this input and act on `triggered`; both are
+tested step by step against `shared/fixtures/keymap/modifier-gesture-v1.json`.
 
 ## Terminal link targets
 

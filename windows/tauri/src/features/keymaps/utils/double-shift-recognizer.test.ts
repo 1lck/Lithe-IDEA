@@ -1,16 +1,17 @@
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import fixture from "../../../../../../shared/fixtures/keymap/modifier-gesture-v1.json";
-import { DoubleShiftGestureRecognizer, DOUBLE_SHIFT_THRESHOLD_SECONDS } from "./double-shift-recognizer";
+import { executeCoreRuleSync } from "@/core/core-rules";
+import { loadCoreRulesForTests } from "@/test-utils/core-rules";
+import { DoubleShiftGestureRecognizer } from "./double-shift-recognizer";
 
-// The same fixture drives the Swift recognizer, so the two platform state machines cannot drift.
-describe("double Shift gesture (shared fixture)", () => {
-  test("threshold matches the fixture", () => {
-    expect(DOUBLE_SHIFT_THRESHOLD_SECONDS).toBe(fixture.thresholdSeconds);
-  });
+// The same fixture drives the Rust tests in lithe-core-rules and lithe-core and the macOS
+// adapter test, so every host sees one gesture definition. Here it runs through the real wasm.
+beforeAll(loadCoreRulesForTests);
 
+describe("double Shift gesture (shared fixture through wasm)", () => {
   for (const sequence of fixture.sequences) {
     test(sequence.name, () => {
-      const recognizer = new DoubleShiftGestureRecognizer(fixture.thresholdSeconds);
+      const recognizer = new DoubleShiftGestureRecognizer();
       for (const [index, step] of sequence.steps.entries()) {
         if (step.event === "keyDown") recognizer.handleKeyDown();
         else if (step.event === "reset") recognizer.reset();
@@ -25,4 +26,13 @@ describe("double Shift gesture (shared fixture)", () => {
       }
     });
   }
+
+  test("malformed rule requests fail with the Core error code", () => {
+    expect(() => executeCoreRuleSync("keymap.modifierGestureStep", { event: { kind: "bogus" } })).toThrow(
+      expect.objectContaining({ code: "invalid_request" }),
+    );
+    expect(() => executeCoreRuleSync("keymap.unknown", {})).toThrow(
+      expect.objectContaining({ code: "not_supported" }),
+    );
+  });
 });
