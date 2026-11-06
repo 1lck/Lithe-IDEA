@@ -1303,6 +1303,10 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `network.proxyPolicy` | Normalize the stored proxy settings into the policy a network stack must apply (mode, server, credentials, exclusions) |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index; the built-in hidden names are skipped without being read, and include `node_modules`, Python virtual environments (`.venv`, `venv`), `__pycache__` and `*.pyc` files; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
 | `workspace.filterChanges` | Filter an array of workspace-relative paths, or `{ paths, hiddenFilePatterns }` whose `!` entries turn default exclusions off, against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
+| `workspace.planDuplicate` | Name the copy of one project item next to its source (`foo.txt` → `foo copy.txt`, then `foo copy 2.txt`) from the sibling names the host has seen to exist |
+| `workspace.planPaste` | Name pasted project items in one destination directory: a free name is kept, a taken one gets the copy suffix, and earlier items of the same paste count as taken |
+| `workspace.reduceDirectoryAction` | Apply "set role", "exclude" or "cancel exclusion" to a root's persisted directory rules and return the complete state to persist |
+| `workspace.relocateDirectoryRules` | Move (or drop, after a delete) the directory rule keys of a renamed, moved or deleted subtree, optionally into another workspace root's rules |
 | `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation. Children list directories first, then names in IDEA's natural file-name order (digit runs compare by value, case-insensitive, `-` next to `_`; fixture `shared/fixtures/workspace/file-name-order-v1.json`) |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
 | `workspace.recentProjects.reduce` | Apply one record, remove, pin, import, or normalize action to the recent project list and return the retained order |
@@ -1321,6 +1325,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `history.entries` | List valid history entries for one file or a workspace |
 | `history.content` | Read a stored history snapshot by relative storage path |
 | `history.relocate` | Move retained history for a file or directory subtree after a rename or move |
+| `history.planEvent` | Plan which snapshots an editing event (save, auto-save, restore, manual, discarded unsaved text, external change, before rename, before batch replace) records and under which reason |
 | `history.rename` | Set or clear a user-visible label on a history entry |
 | `history.delete` | Delete one history entry and its snapshot |
 | `history.ignorePreview` | Validate local history ignore rules and report which rule skips a sample path |
@@ -6313,6 +6318,34 @@ membership and watcher registrations belong to runtime lifetimes, including back
 workspaces. Preferences and refresh completion use distinct events to avoid write loops.
 The native host injects the window identity for Git/file watcher ownership, shares paths
 and releases only the last holder; window destruction also revokes late registrations.
+
+### Directory rules, copy names and history events
+
+`workspace.reduceDirectoryAction` takes `{ path, action, caseInsensitive?, rules }`, where
+`path` is workspace-relative (`.` is the root), `action` is `{ kind: "setRole", role }`,
+`{ kind: "exclude" }` or `{ kind: "cancelExclusion" }`, and `rules` is the root's persisted
+`{ marks, includedDirectories, previousRoles }`. It returns `{ changed, rules }`; hosts persist
+`rules` verbatim and skip the write when `changed` is false. Excluding remembers the replaced role in
+`previousRoles` and canceling a manual exclusion restores it. `workspace.relocateDirectoryRules`
+takes `{ source, destination?, caseInsensitive?, rules, target? }` and returns `{ rules, target }`:
+keys at or below `source` leave `rules`, reappear under `destination` (in `target` for a move across
+workspace roots) and are dropped when there is no destination. Request and response pairs are pinned
+by `shared/fixtures/workspace/directory-rules-v1.json`.
+
+`workspace.planDuplicate` takes `{ name, isDirectory, existing?, caseInsensitive? }` and returns
+`{ name }`; `workspace.planPaste` takes `{ items: [{ name, isDirectory }], existing?, caseInsensitive? }`
+and returns `{ names }`. A file name is split at its last dot, a directory name and a leading-dot name
+are not. Core never touches the file system: the host passes the names it has seen to exist, creates the
+copy without replacing anything (`FileManager.copyItem`, which refuses an existing destination, on macOS;
+`create_new` and `MoveFileEx` without replacement on Windows) and, when that fails because the name
+appeared meanwhile, adds the name to `existing` and plans again. After 512 rounds the host reports
+the stable `destination_exists` error. Cases are in `shared/fixtures/workspace/file-copy-names-v1.json`.
+
+`history.planEvent` takes `{ event }` and returns `{ snapshots: [{ source, reason }] }`. `source` says
+whose text the host records: `beforeChange` (the text an event replaces), `afterChange` (the text it
+produced) or `editorBuffer` (unsaved editor text that is discarded). A save or auto-save records
+`beforeChange` and `afterChange`, so a snapshot of the saved state exists immediately.
+Cases are in `shared/fixtures/history/event-plan-v1.json`.
 
 The directory-action sequence contract is `shared/fixtures/workspace/directory-actions-v1.json`.
 Role changes retain include exceptions, explicit exclusion deletes only its own exception,

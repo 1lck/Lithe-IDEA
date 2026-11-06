@@ -104,7 +104,7 @@ struct LocalHistoryIgnoreRulesTests {
         #expect(await feature.clearHistory())
         #expect(!feature.hasActiveModuleWork)
         #expect(operations.paths.isEmpty)
-        await feature.recordHistorySnapshot(text: "after clear", for: document.url, reason: .saved)
+        await feature.recordHistorySnapshot(text: "after clear", for: document.url, event: .beforeBatchReplace)
         #expect(operations.paths == ["saved"])
     }
 
@@ -163,6 +163,9 @@ private final class ClearingHistoryOperations: LocalHistoryOperations, @unchecke
     func entries(at workspaceURL: URL, storageURL: URL, relativePath: String?, visibilityRules: LocalHistoryVisibilityRules) -> [LocalHistoryEntryPayload]? { [] }
     func content(at storageURL: URL, contentPath: String) -> String? { nil }
     func relocate(at storageURL: URL, sourcePath: String, destinationPath: String) -> Bool { false }
+    func planEvent(_ event: LocalHistoryEvent) -> [LocalHistorySnapshotPlan]? {
+        [LocalHistorySnapshotPlan(source: .beforeChange, reason: .saved)]
+    }
     func usage(at storageURL: URL, limitBytes: Int64?) -> LocalHistoryUsage? { nil }
     func ignorePreview(path: String?, rules: LocalHistoryVisibilityRules, workspaceURL: URL?) -> LocalHistoryIgnorePreview? { nil }
     func compareTexts(old: String, current: String) -> [LocalHistoryDiffRow]? { [] }

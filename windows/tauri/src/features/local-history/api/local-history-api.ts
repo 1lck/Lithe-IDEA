@@ -52,26 +52,51 @@ const listCoreEntries = async (
   return coreData(response).entries;
 };
 
+/** Editing events that record snapshots; Core's `history.planEvent` owns what each records. */
+export type LocalHistoryEvent = "save" | "autoSave" | "restore" | "manual";
+/** Whether a snapshot holds the text before the event changed the file or after it did. */
+export type LocalHistoryPhase = "beforeChange" | "afterChange";
+
+interface PlannedSnapshot {
+  source: "beforeChange" | "afterChange" | "editorBuffer";
+  reason: string;
+}
+
+/**
+ * Records the snapshots Core plans for `event` in `phase`, reading the file from disk.
+ * Returns the last entry created; a label is applied to it.
+ */
 export const recordLocalHistoryFile = async (
   path: string,
-  reason: "save" | "auto-save" | "restore" | "manual" = "save",
+  event: LocalHistoryEvent,
+  phase: LocalHistoryPhase,
   label?: string,
 ): Promise<LocalHistoryEntry | null> => {
   const context = await historyContext(path);
-  const coreReason = reason === "restore" ? "restored" : "saved";
-  const recorded = coreData(
-    await executeCore<CoreHistoryEntry | null>({
+  const { snapshots } = coreData(
+    await executeCore<{ snapshots: PlannedSnapshot[] }>({
       id: crypto.randomUUID(),
-      command: "history.record",
-      payload: {
-        workspaceRoot: context.workspaceRoot,
-        storageRoot: context.storageRoot,
-        path: context.relativePath,
-        reason: coreReason,
-        ...hiddenPathRules(),
-      },
+      command: "history.planEvent",
+      payload: { event },
     }),
   );
+  let recorded: CoreHistoryEntry | null = null;
+  for (const snapshot of snapshots.filter((planned) => planned.source === phase)) {
+    const entry = coreData(
+      await executeCore<CoreHistoryEntry | null>({
+        id: crypto.randomUUID(),
+        command: "history.record",
+        payload: {
+          workspaceRoot: context.workspaceRoot,
+          storageRoot: context.storageRoot,
+          path: context.relativePath,
+          reason: snapshot.reason,
+          ...hiddenPathRules(),
+        },
+      }),
+    );
+    recorded = entry ?? recorded;
+  }
   if (!recorded) return null;
   if (!label) return toLocalEntry(recorded);
   return toLocalEntry(
@@ -87,6 +112,39 @@ export const recordLocalHistoryFile = async (
         },
       }),
     ),
+  );
+};
+
+/**
+ * Moves retained history to a renamed or moved file or directory. Paths outside the
+ * active workspace have no history to move.
+ */
+export const relocateLocalHistory = async (
+  sourcePath: string,
+  destinationPath: string,
+): Promise<void> => {
+  const workspaceRoot = useProjectStore.getState().rootFolderPath;
+  if (
+    !workspaceRoot ||
+    !pathStartsWithRoot(sourcePath, workspaceRoot) ||
+    !pathStartsWithRoot(destinationPath, workspaceRoot)
+  ) {
+    return;
+  }
+  const relative = (path: string) => getRelativePath(path, workspaceRoot).replace(/\\/g, "/");
+  const sourceRelative = relative(sourcePath);
+  const destinationRelative = relative(destinationPath);
+  if (!sourceRelative || !destinationRelative) return;
+  coreData(
+    await executeCore<{ relocated: boolean }>({
+      id: crypto.randomUUID(),
+      command: "history.relocate",
+      payload: {
+        storageRoot: await workspaceHistoryStorage(workspaceRoot),
+        sourcePath: sourceRelative,
+        destinationPath: destinationRelative,
+      },
+    }),
   );
 };
 

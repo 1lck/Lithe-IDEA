@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "events": [
+    {
+      "event": "save",
+      "snapshots": [
+        {
+          "source": "beforeChange",
+          "reason": "saved"
+        },
+        {
+          "source": "afterChange",
+          "reason": "saved"
+        }
+      ]
+    },
+    {
+      "event": "autoSave",
+      "snapshots": [
+        {
+          "source": "beforeChange",
+          "reason": "saved"
+        },
+        {
+          "source": "afterChange",
+          "reason": "saved"
+        }
+      ]
+    },
+    {
+      "event": "restore",
+      "snapshots": [
+        {
+          "source": "beforeChange",
+          "reason": "restored"
+        }
+      ]
+    },
+    {
+      "event": "manual",
+      "snapshots": [
+        {
+          "source": "afterChange",
+          "reason": "saved"
+        }
+      ]
+    },
+    {
+      "event": "unsavedDiscard",
+      "snapshots": [
+        {
+          "source": "editorBuffer",
+          "reason": "unsavedDiscard"
+        }
+      ]
+    },
+    {
+      "event": "externalChange",
+      "snapshots": [
+        {
+          "source": "afterChange",
+          "reason": "externalChange"
+        }
+      ]
+    },
+    {
+      "event": "beforeRename",
+      "snapshots": [
+        {
+          "source": "beforeChange",
+          "reason": "beforeRename"
+        }
+      ]
+    },
+    {
+      "event": "beforeBatchReplace",
+      "snapshots": [
+        {
+          "source": "beforeChange",
+          "reason": "beforeBatchReplace"
+        }
+      ]
+    }
+  ],
+  "unknownEvents": [
+    "",
+    "rename",
+    "Save"
+  ]
+}
