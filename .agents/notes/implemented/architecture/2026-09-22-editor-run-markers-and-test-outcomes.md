@@ -2,7 +2,7 @@
 
 状态：已实现
 
-> 2026-11-07 更新：本文提到的部分文件已不存在。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `rust/lithe-legacy-tooling/`；Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）；宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+> 2026-11-07 更新：本文提到的部分文件已不存在。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`；Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）；宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
 
 ## 先说结论
 
@@ -147,8 +147,8 @@ intellij-community 的 `runConfigurations/testState` 图标（Apache 2.0）。
 
 ## 适用范围
 
-- 已迁出：原 `rust/lithe-core/src/lsp/languages/java_main_methods.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `rust/lithe-legacy-tooling/`。
-- 已迁出：原 `rust/lithe-core/src/lsp/languages/java_run_markers.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `rust/lithe-legacy-tooling/`。
+- 已迁出：原 `rust/lithe-core/src/lsp/languages/java_main_methods.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
+- 已迁出：原 `rust/lithe-core/src/lsp/languages/java_run_markers.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
 - 已迁出：原 `rust/lithe-core/src/project/maven_test_reports.rs`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。
 - `windows/tauri/src/features/run/services/java-run-markers.ts`
 - `windows/tauri/src/features/editor/engines/monaco/java-run-markers.ts`

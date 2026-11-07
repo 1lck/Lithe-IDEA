@@ -2,7 +2,7 @@
 
 状态：已实现
 
-> 2026-11-07 更新：本文提到的部分文件已不存在。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `rust/lithe-legacy-tooling/`。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+> 2026-11-07 更新：本文提到的部分文件已不存在。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
 
 ## 先说结论
 
@@ -117,9 +117,9 @@ Equinox（JDT LS 使用的 OSGi 框架，负责加载插件）会往 `-configura
 
 ## 适用范围
 
-- 已迁出：原 `rust/lithe-core/src/lsp/languages/jdt_configuration.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `rust/lithe-legacy-tooling/`。
+- 已迁出：原 `rust/lithe-core/src/lsp/languages/jdt_configuration.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
 - `rust/lithe-core/src/lsp/interface/engine.rs`
-- 已迁出：原 `rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `rust/lithe-legacy-tooling/`。
+- 已迁出：原 `rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
 - `shared/contracts/rust-core-api.md`
 - `scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - `scripts/macos/verify/verify-macos-app-build-safety.sh`

@@ -2,7 +2,7 @@
 
 状态：已实现
 
-> 2026-11-07 更新：本文提到的部分文件已不存在。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `rust/lithe-legacy-tooling/`；宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+> 2026-11-07 更新：本文提到的部分文件已不存在。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`；宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
 
 ## 先说结论
 
@@ -141,6 +141,6 @@ Maven 安装目录。做法参考 OpenIDEA（Apache-2.0），出处写在仓库�
 - `macos/Sources/Lithe/Platform/MacOS/Runtime/MacLoginShellEnvironment.swift`
 - 已迁出：原 `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeDiscovery.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
 - `macos/Sources/Lithe/Platform/MacOS/MacApplicationEntryPoint.swift`
-- 已迁出：原 `rust/lithe-core/src/execution/java_selection.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `rust/lithe-legacy-tooling/`。
+- 已迁出：原 `rust/lithe-core/src/execution/java_selection.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
 - `windows/tauri/src-tauri/src/run.rs`
 - `NOTICE`
