@@ -1,4 +1,12 @@
 #!/usr/bin/env node
+// Static gate for blocking primitives in test code.
+//
+// The gate is a ratchet: it fails only when a change introduces a blocking
+// pattern that did not exist before. A pattern counts as pre-existing when the
+// base revision already contains a line with the same rule, the same enclosing
+// test declaration, and the same statement text. Moving a test module between
+// files or re-indenting it therefore does not trip the gate, while adding a
+// second sleep to a test that already had one does.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -6,7 +14,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
-const REPOSITORY_ROOT = path.resolve(SCRIPT_DIRECTORY, "../../../..");
+export const REPOSITORY_ROOT = path.resolve(SCRIPT_DIRECTORY, "../../../..");
+const MINIMUM_REASON_LENGTH = 16;
 
 const RULES = {
   swift: [
@@ -62,6 +71,18 @@ const RULES = {
   ],
 };
 
+// The nearest enclosing declaration names the test a pattern belongs to. It is
+// part of the identity used to recognize moved code, so a sleep that moves
+// together with its test is pre-existing, while the same statement in another
+// test is new.
+const DECLARATIONS = {
+  rust: /\bfn\s+([A-Za-z_]\w*)/,
+  swift: /\bfunc\s+([A-Za-z_]\w*)/,
+  typescript: /\b(?:test|it|describe)\s*\(\s*(["'`])((?:(?!\1).)*)\1/,
+};
+
+const SKIPPED_DIRECTORIES = new Set([".git", ".build", ".artifacts", "target", "node_modules"]);
+
 function normalizePath(filePath) {
   return filePath.split(path.sep).join("/").replace(/^\.\//, "");
 }
@@ -92,6 +113,10 @@ function belongsToPlatform(filePath, platform) {
   return normalized.startsWith("windows/") || normalized.startsWith("rust/lithe-core/");
 }
 
+function isScanned(filePath, platform) {
+  return languageFor(filePath) !== null && belongsToPlatform(filePath, platform);
+}
+
 function stripStringsAndLineComments(line) {
   let result = "";
   let quote = null;
@@ -117,6 +142,8 @@ function stripStringsAndLineComments(line) {
   return result;
 }
 
+// Rust keeps tests next to production code, so only lines inside
+// `#[cfg(test)]` modules, `#[test]` functions, or `tests/` files are scanned.
 function rustTestLineMask(lines, filePath) {
   const normalized = normalizePath(filePath);
   if (normalized.includes("/tests/") || /(?:^|\/)tests\.rs$/.test(normalized)) {
@@ -161,9 +188,7 @@ function rustTestLineMask(lines, filePath) {
 function exceptionReason(lines, lineIndex, ruleID) {
   const candidates = [lines[lineIndex], lines[lineIndex - 1]].filter(Boolean);
   const escapedRule = ruleID.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(
-    `test-stability:\\s*allow\\(${escapedRule}\\)\\s*reason:\\s*(.+)$`,
-  );
+  const pattern = new RegExp(`test-stability:\\s*allow\\(${escapedRule}\\)\\s*reason:\\s*(.+)$`);
   for (const candidate of candidates) {
     const match = candidate.match(pattern);
     if (match) return match[1].trim();
@@ -171,6 +196,32 @@ function exceptionReason(lines, lineIndex, ruleID) {
   return null;
 }
 
+function enclosingDeclaration(lines, lineIndex, language) {
+  const pattern = DECLARATIONS[language];
+  for (let index = lineIndex; index >= 0; index -= 1) {
+    const match = lines[index].match(pattern);
+    if (match) return match[2] ?? match[1];
+  }
+  return "";
+}
+
+function violation(lines, lineIndex, rule, reason, language, reportIndex = lineIndex) {
+  return {
+    file: null,
+    line: reportIndex + 1,
+    rule: rule.id,
+    message: reason ? `Exception reason is too short. ${rule.message}` : rule.message,
+    source: lines[reportIndex].trim(),
+    declaration: enclosingDeclaration(lines, lineIndex, language),
+  };
+}
+
+function isAllowed(reason) {
+  return reason !== null && reason.length >= MINIMUM_REASON_LENGTH;
+}
+
+// `.wait(` calls can span several lines, so the arguments are collected until
+// the parenthesis closes before deciding whether the wait is bounded.
 function swiftUnboundedWaitViolations(lines, selected) {
   const violations = [];
   const rule = RULES.swift.find((candidate) => candidate.id === "swift-unbounded-wait");
@@ -190,8 +241,7 @@ function swiftUnboundedWaitViolations(lines, selected) {
       let callEnd = index;
       let callText = "";
 
-      callLines:
-      for (let callIndex = index; callIndex < lines.length; callIndex += 1) {
+      callLines: for (let callIndex = index; callIndex < lines.length; callIndex += 1) {
         const structural = stripStringsAndLineComments(lines[callIndex]);
         const columnStart = callIndex === index ? waitColumn : 0;
 
@@ -203,7 +253,6 @@ function swiftUnboundedWaitViolations(lines, selected) {
             callStarted = true;
           } else if (character === ")" && callStarted) {
             depth -= 1;
-
             if (depth === 0) {
               callEnd = callIndex;
               callClosed = true;
@@ -216,44 +265,22 @@ function swiftUnboundedWaitViolations(lines, selected) {
         callText += "\n";
       }
 
-      if (!callStarted || !callClosed) {
-        break;
-      }
+      if (!callStarted || !callClosed) break;
 
-      const openParen = callText.indexOf("(");
-      const closeParen = callText.lastIndexOf(")");
-      const argumentsText = callText.slice(openParen + 1, closeParen);
-
+      const argumentsText = callText.slice(callText.indexOf("(") + 1, callText.lastIndexOf(")"));
       const isUnbounded =
-        argumentsText.trim().length === 0 ||
-        /\.\s*distantFuture\b/.test(argumentsText);
+        argumentsText.trim().length === 0 || /\.\s*distantFuture\b/.test(argumentsText);
 
       if (isUnbounded) {
         const selectedLines = selected
-          ? [...selected].filter(
-              (lineNumber) =>
-                lineNumber >= index + 1 &&
-                lineNumber <= callEnd + 1,
-            )
+          ? [...selected].filter((lineNumber) => lineNumber >= index + 1 && lineNumber <= callEnd + 1)
           : [];
 
         if (!selected || selectedLines.length > 0) {
-          const reportLine = selected
-            ? Math.min(...selectedLines) - 1
-            : index;
-
+          const reportIndex = selected ? Math.min(...selectedLines) - 1 : index;
           const reason = exceptionReason(lines, index, rule.id);
-
-          if (!reason || reason.length < 16) {
-            violations.push({
-              file: null,
-              line: reportLine + 1,
-              rule: rule.id,
-              message: reason
-                ? `Exception reason is too short. ${rule.message}`
-                : rule.message,
-              source: lines[reportLine].trim(),
-            });
+          if (!isAllowed(reason)) {
+            violations.push(violation(lines, index, rule, reason, "swift", reportIndex));
           }
         }
       }
@@ -264,6 +291,11 @@ function swiftUnboundedWaitViolations(lines, selected) {
 
   return violations;
 }
+
+const DETACHED_RULE = {
+  id: "swift-detached-blocking",
+  message: "Do not hide a blocking wait in Task.detached; use bounded asynchronous signaling.",
+};
 
 function swiftDetachedBlockingViolations(lines, selected) {
   const violations = [];
@@ -297,27 +329,23 @@ function swiftDetachedBlockingViolations(lines, selected) {
       ? [...selected].filter((lineNumber) => lineNumber >= index + 1 && lineNumber <= blockEnd + 1)
       : [];
     if (selected && selectedLines.length === 0) continue;
-    const reportLine = selected?.has(waitLine + 1)
+    const reportIndex = selected?.has(waitLine + 1)
       ? waitLine
       : selected
         ? Math.min(...selectedLines) - 1
         : waitLine;
-    const reason = exceptionReason(lines, waitLine, "swift-detached-blocking");
-    if (reason && reason.length >= 16) continue;
-    violations.push({
-      file: null,
-      line: reportLine + 1,
-      rule: "swift-detached-blocking",
-      message: reason
-        ? "Exception reason is too short. Do not hide a blocking wait in Task.detached; use bounded asynchronous signaling."
-        : "Do not hide a blocking wait in Task.detached; use bounded asynchronous signaling.",
-      source: lines[reportLine].trim(),
-    });
+    const reason = exceptionReason(lines, waitLine, DETACHED_RULE.id);
+    if (isAllowed(reason)) continue;
+    violations.push(violation(lines, waitLine, DETACHED_RULE, reason, "swift", reportIndex));
     index = blockEnd;
   }
   return violations;
 }
 
+/// Scans one file. `selectedLineNumbers` restricts the single-line rules to the
+/// given lines; multi-line Swift rules report a match when any of its lines is
+/// selected. Each violation carries the enclosing declaration so callers can
+/// match it against another revision.
 export function scanFile(filePath, content, selectedLineNumbers = null, platform = "all") {
   const normalized = normalizePath(filePath);
   const language = languageFor(normalized);
@@ -329,49 +357,40 @@ export function scanFile(filePath, content, selectedLineNumbers = null, platform
   const violations = [];
 
   for (let index = 0; index < lines.length; index += 1) {
-    const lineNumber = index + 1;
-    if (selected && !selected.has(lineNumber)) continue;
+    if (selected && !selected.has(index + 1)) continue;
     if (rustMask && !rustMask[index]) continue;
 
     for (const rule of RULES[language]) {
-      if (language === "swift" && rule.id === "swift-unbounded-wait") {
-        continue;
-      }
-
+      if (rule.id === "swift-unbounded-wait") continue;
       if (!rule.pattern.test(lines[index])) continue;
       const reason = exceptionReason(lines, index, rule.id);
-      if (reason && reason.length >= 16) continue;
-      violations.push({
-        file: normalized,
-        line: lineNumber,
-        rule: rule.id,
-        message: reason
-          ? `Exception reason is too short. ${rule.message}`
-          : rule.message,
-        source: lines[index].trim(),
-      });
+      if (isAllowed(reason)) continue;
+      violations.push(violation(lines, index, rule, reason, language));
     }
   }
   if (language === "swift") {
-    for (const violation of swiftUnboundedWaitViolations(lines, selected)) {
-      violations.push({ ...violation, file: normalized });
-    }
-
-    for (const violation of swiftDetachedBlockingViolations(lines, selected)) {
-      violations.push({ ...violation, file: normalized });
-    }
+    violations.push(...swiftUnboundedWaitViolations(lines, selected));
+    violations.push(...swiftDetachedBlockingViolations(lines, selected));
   }
-  return violations;
+  return violations.map((entry) => ({ ...entry, file: normalized }));
 }
 
-export function parseAddedLines(diff) {
-  const files = new Map();
+/// Parses a unified diff with zero context into the added line numbers of each
+/// new path and the set of paths that existed in the base revision.
+export function parseDiff(diff) {
+  const added = new Map();
+  const basePaths = new Set();
   let currentPath = null;
   let newLine = 0;
   for (const line of diff.split(/\r?\n/)) {
+    if (line.startsWith("--- ")) {
+      const value = line.slice(4);
+      if (value !== "/dev/null") basePaths.add(normalizePath(value.replace(/^a\//, "")));
+      continue;
+    }
     if (line.startsWith("+++ ")) {
       const value = line.slice(4);
-      currentPath = value === "/dev/null" ? null : value.replace(/^b\//, "");
+      currentPath = value === "/dev/null" ? null : normalizePath(value.replace(/^b\//, ""));
       continue;
     }
     const hunk = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
@@ -380,38 +399,104 @@ export function parseAddedLines(diff) {
       continue;
     }
     if (!currentPath || line.startsWith("\\ No newline")) continue;
-    if (line.startsWith("+") && !line.startsWith("+++")) {
-      if (!files.has(currentPath)) files.set(currentPath, new Set());
-      files.get(currentPath).add(newLine);
+    if (line.startsWith("+")) {
+      if (!added.has(currentPath)) added.set(currentPath, new Set());
+      added.get(currentPath).add(newLine);
       newLine += 1;
     } else if (!line.startsWith("-")) {
       newLine += 1;
     }
   }
-  return files;
+  return { added, basePaths };
 }
 
-function walk(directory, result = []) {
+export function parseAddedLines(diff) {
+  return parseDiff(diff).added;
+}
+
+function identity(entry) {
+  return `${entry.rule}\u0000${entry.declaration}\u0000${entry.source.replace(/\s+/g, " ")}`;
+}
+
+/// Decides which head violations are new. `headFiles` maps each head path to
+/// `{ content, addedLines }` where `addedLines` is `null` for a file that did
+/// not exist in the base; `baseFiles` maps base paths to their content.
+///
+/// Violations on unchanged lines first claim their base counterparts, so a
+/// duplicate of an existing statement inside the same test cannot hide behind
+/// the original. Added lines that still find a counterpart are moves and are
+/// counted instead of reported.
+export function reconcile({ headFiles, baseFiles, platform = "all" }) {
+  const baseline = new Map();
+  for (const [file, content] of baseFiles) {
+    for (const entry of scanFile(file, content, null, platform)) {
+      const key = identity(entry);
+      baseline.set(key, (baseline.get(key) ?? 0) + 1);
+    }
+  }
+
+  const claim = (entry) => {
+    const key = identity(entry);
+    const remaining = baseline.get(key) ?? 0;
+    if (remaining === 0) return false;
+    baseline.set(key, remaining - 1);
+    return true;
+  };
+
+  const candidates = [];
+  for (const [file, { content, addedLines }] of headFiles) {
+    const everything = scanFile(file, content, null, platform);
+    if (addedLines === null) {
+      candidates.push(...everything);
+      continue;
+    }
+    for (const entry of everything) {
+      if (!addedLines.has(entry.line)) claim(entry);
+    }
+    candidates.push(...scanFile(file, content, addedLines, platform));
+  }
+
+  const violations = [];
+  let moved = 0;
+  for (const entry of candidates) {
+    if (claim(entry)) moved += 1;
+    else violations.push(entry);
+  }
+  return { violations, moved };
+}
+
+function walk(root, directory = root, result = []) {
   if (!statSync(directory).isDirectory()) return result;
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    if ([".git", ".build", ".artifacts", "target", "node_modules"].includes(entry.name)) continue;
+    if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
     const absolute = path.join(directory, entry.name);
-    if (entry.isDirectory()) walk(absolute, result);
-    else result.push(normalizePath(path.relative(REPOSITORY_ROOT, absolute)));
+    if (entry.isDirectory()) walk(root, absolute, result);
+    else result.push(normalizePath(path.relative(root, absolute)));
   }
   return result;
 }
 
-function git(...arguments_) {
-  return execFileSync("git", ["-c", `safe.directory=${REPOSITORY_ROOT}`, ...arguments_], {
-    cwd: REPOSITORY_ROOT,
+function git(root, ...arguments_) {
+  return execFileSync("git", ["-c", `safe.directory=${root}`, ...arguments_], {
+    cwd: root,
     encoding: "utf8",
-    maxBuffer: 32 * 1024 * 1024,
+    maxBuffer: 64 * 1024 * 1024,
   });
 }
 
-function parseArguments(arguments_) {
-  const options = { all: false, platform: "all", base: null, head: "HEAD" };
+// Reads a file as it is at `revision`, or from the working tree when
+// `revision` is null. Returns null for a path that does not exist there.
+function fileAt(root, revision, file) {
+  try {
+    if (revision === null) return readFileSync(path.resolve(root, file), "utf8");
+    return git(root, "-c", "core.quotePath=false", "show", `${revision}:${file}`);
+  } catch {
+    return null;
+  }
+}
+
+export function parseArguments(arguments_) {
+  const options = { all: false, platform: "all", base: null, head: "HEAD", help: false };
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
     if (argument === "--all") options.all = true;
@@ -421,43 +506,74 @@ function parseArguments(arguments_) {
     else if (argument === "--help") options.help = true;
     else throw new Error(`Unknown argument: ${argument}`);
   }
-  if (!['all', 'macos', 'windows'].includes(options.platform)) {
+  if (!["all", "macos", "windows"].includes(options.platform)) {
     throw new Error(`Unsupported platform: ${options.platform}`);
+  }
+  if (!options.base && options.head !== "HEAD") {
+    throw new Error("--head requires --base");
   }
   return options;
 }
 
-function changedFiles(options) {
-  const diffArguments = ["-c", "core.quotePath=false", "diff", "--unified=0", "--no-color"];
-  if (options.base) diffArguments.push(options.base, options.head);
-  else diffArguments.push("HEAD");
-  diffArguments.push("--");
-  const changed = parseAddedLines(git(...diffArguments));
-
-  if (!options.base) {
-    const untracked = git("ls-files", "--others", "--exclude-standard").split(/\r?\n/).filter(Boolean);
-    for (const file of untracked) changed.set(normalizePath(file), null);
-  }
-  return changed;
-}
-
+/// Runs the gate. Without `--base` the working tree (including untracked
+/// files) is compared with HEAD; with `--base` the committed `--head` revision
+/// is compared with `--base`, so results do not depend on the working tree.
 export function run(options) {
-  const candidates = options.all
-    ? new Map(walk(REPOSITORY_ROOT).map((file) => [file, null]))
-    : changedFiles(options);
-  const violations = [];
-  for (const [file, selectedLines] of candidates) {
-    if (!languageFor(file) || !belongsToPlatform(file, options.platform)) continue;
-    const absolute = path.resolve(REPOSITORY_ROOT, file);
-    let content;
-    try {
-      content = readFileSync(absolute, "utf8");
-    } catch {
-      continue;
+  const root = options.root ?? REPOSITORY_ROOT;
+  const platform = options.platform ?? "all";
+
+  if (options.all) {
+    const violations = [];
+    for (const file of walk(root)) {
+      if (!isScanned(file, platform)) continue;
+      violations.push(...scanFile(file, fileAt(root, null, file) ?? "", null, platform));
     }
-    violations.push(...scanFile(file, content, selectedLines, options.platform));
+    return { violations, moved: 0 };
   }
-  return violations;
+
+  const baseRevision = options.base ?? "HEAD";
+  const headRevision = options.base ? options.head ?? "HEAD" : null;
+  // Renames are disabled so a moved file shows its content as removed and
+  // added lines; the prefixes are pinned so user diff configuration cannot
+  // change how paths are parsed.
+  const diffArguments = [
+    "-c",
+    "core.quotePath=false",
+    "diff",
+    "--unified=0",
+    "--no-color",
+    "--no-renames",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+  ];
+  diffArguments.push(baseRevision);
+  if (headRevision !== null) diffArguments.push(headRevision);
+  diffArguments.push("--");
+  const { added, basePaths } = parseDiff(git(root, ...diffArguments));
+
+  if (headRevision === null) {
+    const untracked = git(root, "ls-files", "--others", "--exclude-standard")
+      .split(/\r?\n/)
+      .filter(Boolean);
+    for (const file of untracked) added.set(normalizePath(file), null);
+  }
+
+  const headFiles = new Map();
+  for (const [file, addedLines] of added) {
+    if (!isScanned(file, platform)) continue;
+    const content = fileAt(root, headRevision, file);
+    if (content === null) continue;
+    headFiles.set(file, { content, addedLines });
+  }
+
+  const baseFiles = new Map();
+  for (const file of basePaths) {
+    if (!isScanned(file, platform)) continue;
+    const content = fileAt(root, baseRevision, file);
+    if (content !== null) baseFiles.set(file, content);
+  }
+
+  return reconcile({ headFiles, baseFiles, platform });
 }
 
 function main() {
@@ -470,22 +586,38 @@ function main() {
     return;
   }
   if (options.help) {
-    console.log("Usage: verify-test-stability.mjs [--all] [--platform all|macos|windows] [--base REV --head REV]");
+    console.log(
+      [
+        "Usage: verify-test-stability.mjs [--all] [--platform all|macos|windows] [--base REV [--head REV]]",
+        "",
+        "Without --base, compares the working tree with HEAD. With --base, compares",
+        "the committed --head revision (default HEAD) with --base. Blocking patterns",
+        "that already existed in the base revision under the same rule, enclosing",
+        "test and statement text are treated as moved code and are not reported.",
+        "--all scans the whole tree and reports every pattern.",
+      ].join("\n"),
+    );
     return;
   }
 
-  const violations = run(options);
+  const scope = options.all ? "full tree" : options.base ? `${options.base}..${options.head}` : "working tree";
+  const { violations, moved } = run(options);
+  if (moved > 0) {
+    console.log(`Ignored ${moved} pre-existing blocking pattern(s) that only moved.`);
+  }
   if (violations.length === 0) {
-    console.log(`Test stability check passed (${options.all ? "full tree" : "added lines"}, ${options.platform}).`);
+    console.log(`Test stability check passed (${scope}, ${options.platform}).`);
     return;
   }
 
-  console.error(`Test stability check found ${violations.length} blocking issue(s):`);
-  for (const violation of violations) {
-    console.error(`${violation.file}:${violation.line}: [${violation.rule}] ${violation.message}`);
-    console.error(`  ${violation.source}`);
+  console.error(`Test stability check found ${violations.length} blocking issue(s) (${scope}, ${options.platform}):`);
+  for (const entry of violations) {
+    console.error(`${entry.file}:${entry.line}: [${entry.rule}] ${entry.message}`);
+    console.error(`  ${entry.source}`);
   }
-  console.error("Use deterministic synchronization. Exceptions require a bounded implementation and a reasoned test-stability annotation.");
+  console.error(
+    "Use deterministic synchronization. An unavoidable primitive needs a bounded implementation and a `test-stability: allow(<rule>) reason: …` annotation on the line or the line above.",
+  );
   process.exitCode = 1;
 }
 

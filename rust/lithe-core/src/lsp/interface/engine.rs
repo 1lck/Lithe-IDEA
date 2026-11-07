@@ -7212,7 +7212,6 @@ mod tests {
             "id": stale_id,
             "result": { "contents": "from the dead session" }
         }));
-        // test-stability: allow(rust-real-sleep) reason: the response is written to a process whose reader thread exited with it, so no event can signal its arrival; the sleep only bounds the window in which a leak into the new session could surface, and the assertions hold without it.
         thread::sleep(Duration::from_millis(50));
         restarted.poll();
         assert_eq!(
@@ -7308,7 +7307,6 @@ mod tests {
             "id": request_id,
             "result": { "contents": "unreachable" }
         }));
-        // test-stability: allow(rust-real-sleep) reason: the session already failed because the process exited, so its reader thread is gone and no event can signal that the late response was seen; the sleep only bounds the window in which a leak could surface, and the assertions hold without it.
         thread::sleep(Duration::from_millis(50));
         harness.poll();
         assert_eq!(
@@ -8085,7 +8083,6 @@ mod tests {
         let first = split(uri, "first");
         let boundary = first.len() - 12;
         harness.server.send_raw(first[..boundary].as_bytes());
-        // test-stability: allow(rust-real-sleep) reason: anything written after the partial frame on the same pipe would complete it, so no probe can follow; only elapsed time gives the reader a chance to deliver the incomplete frame wrongly, and the assertion holds whether or not it does.
         thread::sleep(Duration::from_millis(40));
         harness.poll();
         assert!(
