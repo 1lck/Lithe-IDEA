@@ -6,7 +6,14 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseAddedLines, scanFile } from "./verify-test-stability.mjs";
+import {
+  parseArguments as parseGateArguments,
+  parseAddedLines,
+  parseDiff,
+  reconcile,
+  run as runGate,
+  scanFile,
+} from "./verify-test-stability.mjs";
 import { parseJUnitCases } from "./parse-junit-cases.mjs";
 import { run as runBunTestsWithTiming } from "./run-bun-tests-with-timing.mjs";
 import { parseArguments as parseRustTimingArguments, run as runRustTestsWithTiming } from "./run-rust-tests-with-timing.mjs";
@@ -143,6 +150,120 @@ const selectedViolations = scanFile(
   new Set([3, 4]),
 );
 assert.deepEqual(selectedViolations.map((violation) => violation.rule), ["swift-unbounded-wait"]);
+
+// Deleted files are part of the base revision even though no head path remains.
+const deletingDiff = `diff --git a/rust/lithe-core/src/old.rs b/rust/lithe-core/src/old.rs
+--- a/rust/lithe-core/src/old.rs
++++ /dev/null
+@@ -1,3 +0,0 @@
+-#[test]
+-fn moved() {}
+`;
+const parsedDeletion = parseDiff(deletingDiff);
+assert.deepEqual([...parsedDeletion.basePaths], ["rust/lithe-core/src/old.rs"]);
+assert.equal(parsedDeletion.added.size, 0);
+
+// A sleep that moves with its test between files is pre-existing, not new.
+const movedTest = `#[cfg(test)]
+mod tests {
+    #[test]
+    fn waits_for_the_worker() {
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+`;
+const movedAcrossFiles = reconcile({
+  headFiles: new Map([["rust/lithe-core/src/new.rs", { content: movedTest, addedLines: null }]]),
+  baseFiles: new Map([["rust/lithe-core/src/old.rs", movedTest]]),
+});
+assert.deepEqual(movedAcrossFiles, { violations: [], moved: 1 });
+
+// The same statement inside a different test is new: identity includes the
+// enclosing declaration.
+const renamedTest = movedTest.replace("waits_for_the_worker", "waits_for_another_worker");
+const movedIntoAnotherTest = reconcile({
+  headFiles: new Map([["rust/lithe-core/src/new.rs", { content: renamedTest, addedLines: null }]]),
+  baseFiles: new Map([["rust/lithe-core/src/old.rs", movedTest]]),
+});
+assert.equal(movedIntoAnotherTest.moved, 0);
+assert.deepEqual(movedIntoAnotherTest.violations.map(({ line, declaration }) => ({ line, declaration })), [
+  { line: 5, declaration: "waits_for_another_worker" },
+]);
+
+// A duplicate of an existing sleep cannot hide behind the original: the
+// unchanged line claims the base entry first.
+const duplicatedSleep = movedTest.replace(
+  "        thread::sleep(Duration::from_millis(5));\n",
+  "        thread::sleep(Duration::from_millis(5));\n        thread::sleep(Duration::from_millis(5));\n",
+);
+const duplicated = reconcile({
+  headFiles: new Map([["rust/lithe-core/src/old.rs", { content: duplicatedSleep, addedLines: new Set([6]) }]]),
+  baseFiles: new Map([["rust/lithe-core/src/old.rs", movedTest]]),
+});
+assert.equal(duplicated.moved, 0);
+assert.deepEqual(duplicated.violations.map(({ line }) => line), [6]);
+
+// Dropping the annotation of a moved sleep makes it a new violation, because
+// the annotated base line never counted as one.
+const annotatedTest = movedTest.replace(
+  "        thread::sleep",
+  "        // test-stability: allow(rust-real-sleep) reason: the native boundary offers no completion signal\n        thread::sleep",
+);
+const unannotatedMove = reconcile({
+  headFiles: new Map([["rust/lithe-core/src/new.rs", { content: movedTest, addedLines: null }]]),
+  baseFiles: new Map([["rust/lithe-core/src/old.rs", annotatedTest]]),
+});
+assert.equal(unannotatedMove.moved, 0);
+assert.equal(unannotatedMove.violations.length, 1);
+
+// Platform filtering applies to the base as well, so a Windows run does not
+// credit a sleep removed from a macOS-only file.
+const crossPlatformMove = reconcile({
+  headFiles: new Map([["rust/lithe-core/src/new.rs", { content: movedTest, addedLines: null }]]),
+  baseFiles: new Map([["macos/Tests/LitheTests/Old.swift", "func waits_for_the_worker() {}"]]),
+  platform: "windows",
+});
+assert.equal(crossPlatformMove.violations.length, 1);
+
+assert.throws(() => parseGateArguments(["--head", "abc"]), /--head requires --base/);
+
+// End to end against a real repository: a committed move passes in revision
+// mode, and a duplicate in the working tree fails in working-tree mode.
+const gateRepository = mkdtempSync(path.join(os.tmpdir(), "lithe-test-stability-gate-"));
+try {
+  const gitIn = (...args) => {
+    const result = spawnSync("git", args, { cwd: gateRepository, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  const sourceDirectory = path.join(gateRepository, "rust", "lithe-core", "src");
+  mkdirSync(sourceDirectory, { recursive: true });
+  gitIn("init", "-q");
+  gitIn("config", "user.email", "tests@example.invalid");
+  gitIn("config", "user.name", "Test Stability");
+  gitIn("config", "commit.gpgsign", "false");
+  writeFileSync(path.join(sourceDirectory, "old.rs"), movedTest);
+  gitIn("add", "-A");
+  gitIn("commit", "-q", "-m", "base");
+  const base = gitIn("rev-parse", "HEAD");
+  rmSync(path.join(sourceDirectory, "old.rs"));
+  writeFileSync(path.join(sourceDirectory, "new.rs"), movedTest);
+  gitIn("add", "-A");
+  gitIn("commit", "-q", "-m", "move");
+  const head = gitIn("rev-parse", "HEAD");
+  assert.deepEqual(runGate({ root: gateRepository, base, head, platform: "all" }), { violations: [], moved: 1 });
+
+  writeFileSync(path.join(sourceDirectory, "new.rs"), duplicatedSleep);
+  const workingTree = runGate({ root: gateRepository, platform: "all" });
+  assert.equal(workingTree.moved, 0);
+  assert.deepEqual(workingTree.violations.map(({ file, line }) => ({ file, line })), [
+    { file: "rust/lithe-core/src/new.rs", line: 6 },
+  ]);
+  // Revision mode reads committed content, so the dirty working tree is invisible to it.
+  assert.deepEqual(runGate({ root: gateRepository, base, head, platform: "all" }), { violations: [], moved: 1 });
+} finally {
+  rmSync(gateRepository, { recursive: true, force: true });
+}
 
 assert.deepEqual(
   parseSwiftTimingLine("✔ Test deterministicGate() passed after 0.024 seconds."),
