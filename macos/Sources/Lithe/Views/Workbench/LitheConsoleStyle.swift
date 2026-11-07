@@ -61,70 +61,20 @@ struct ConsoleFoldRegion: Equatable {
 }
 
 /// Presentation ranges only: source logs, ANSI attributes and DAP output are unchanged.
-/// Rules adapted from Apache-2.0 Community StackTraceFolding and JavaPlugin.xml.
+/// Frame shape rules adapted from Apache-2.0 Community StackTraceFolding. Which frames count
+/// as "internal" is runtime-specific, so callers inject those prefixes (plugins own them);
+/// with none, only long stacks fold.
 enum ConsoleStackTraceFolding {
-    static let internalPatterns: [String] = [
-        "at java.awt.EventDispatchThread",
-        "at java.awt.Window.dispatchEventImpl(",
-        "at java.awt.Container.dispatchEventImpl(",
-        "at java.awt.LightweightDispatcher.",
-        "at java.awt.Component.dispatchEvent(",
-        "at java.awt.event.InvocationEvent.dispatch(",
-        "at java.awt.EventQueue",
-        "at java.awt.Component.dispatchEventImpl(",
-        "at java.awt.Container.processEvent(",
-        "at javax.swing.JComponent.processMouseEvent(",
-        "at javax.swing.plaf.basic.BasicMenuItemUI",
-        "at java.awt.Component.processMouseEvent(",
-        "at javax.swing.AbstractButton.doClick(",
-        "at java.awt.Component.processEvent(",
-        "at java.awt.Container.dispatchEventImpl(",
-        "at javax.swing.DefaultButtonModel.fireActionPerformed(",
-        "at javax.swing.DefaultButtonModel.setPressed(",
-        "at javax.swing.AbstractButton.fireActionPerformed(",
-        "at javax.swing.AbstractButton$Handler.actionPerformed(",
-        "at java.security.AccessControlContext$1.doIntersectionPrivilege(",
-        "at java.awt.EventQueue.dispatchEventImpl(",
-        "at java.security.AccessController.doPrivileged(Native Method)",
-        "at java.security.ProtectionDomain$1.doIntersectionPrivilege(",
-        "at java.security.ProtectionDomain$JavaSecurityAccessImpl.doIntersectionPrivilege(",
-        "at com.jgoodies.binding.beans.ExtendedPropertyChangeSupport.firePropertyChange0(",
-        "at javax.swing.plaf.basic.BasicComboPopup$Handler.mouseReleased(",
-        "at java.util.ArrayList$ArrayListSpliterator",
-        "at java.util.stream.ReferencePipeline",
-        "at java.util.Spliterators$",
-        "at java.util.stream.AbstractPipeline.evaluate(",
-        "at java.util.stream.AbstractPipeline.copyInto(",
-        "at java.util.stream.AbstractPipeline.wrapAndCopyInto(",
-        "at java.util.stream.DistinctOps",
-        "at java.util.stream.FindOps",
-        "at java.util.stream.ForEachOps",
-        "at java.util.stream.MatchOps",
-        "at java.util.stream.ReduceOps",
-        "at java.util.stream.SliceOps",
-        "at java.util.stream.WhileOps",
-        "at java.util.concurrent.Executors$",
-        "at java.util.concurrent.ThreadPoolExecutor",
-        "at java.util.concurrent.FutureTask.",
-        "at java.util.concurrent.CompletableFuture$AsyncSupply.run(",
-        "java.lang.Thread.run(",
-        "java.lang.reflect.Method.invoke(",
-        "java.lang.reflect.Constructor.newInstance(",
-        "at java.base/jdk.internal",
-        "at java.security.AccessController.doPrivileged(",
-        "at sun.reflect.",
-        "at java.rmi.",
-        "at sun.rmi.",
-        "at com.sun.proxy.$Proxy",
-        "at com.intellij.rt.execution."
-    ]
-    private static let internalExpression = try! NSRegularExpression(
-        pattern: internalPatterns.map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
-    )
+    /// Compiles literal frame prefixes into one alternation; nil means nothing is internal.
+    static func internalExpression(for patterns: [String]) -> NSRegularExpression? {
+        let escaped = patterns.filter { !$0.isEmpty }.map(NSRegularExpression.escapedPattern(for:))
+        guard !escaped.isEmpty else { return nil }
+        return try? NSRegularExpression(pattern: escaped.joined(separator: "|"))
+    }
     private static let enclosedMore = try! NSRegularExpression(pattern: #"^\t\.\.\. \d+ more$"#)
     private static let modulePrefix = try! NSRegularExpression(pattern: #"(?<=at )[^\s/]+/"#)
 
-    static func regions(in text: String) -> [ConsoleFoldRegion] {
+    static func regions(in text: String, internalExpression: NSRegularExpression? = nil) -> [ConsoleFoldRegion] {
         let source = text as NSString
         var frames = 0
         var longStart: Int?
@@ -173,10 +123,11 @@ enum ConsoleStackTraceFolding {
             } else { finishLong(); frames = 0 }
             let normalized = line.contains("/") ? modulePrefix.stringByReplacingMatches(in: line,
                 range: NSRange(location: 0, length: (line as NSString).length), withTemplate: "") : line
-            let matchesInternal = internalExpression.firstMatch(in: line,
-                range: NSRange(location: 0, length: (line as NSString).length)) != nil
-                || (normalized != line && internalExpression.firstMatch(in: normalized,
-                    range: NSRange(location: 0, length: (normalized as NSString).length)) != nil)
+            let matchesInternal = internalExpression.map { expression in
+                expression.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil
+                    || (normalized != line && expression.firstMatch(in: normalized,
+                        range: NSRange(location: 0, length: (normalized as NSString).length)) != nil)
+            } ?? false
             if matchesInternal {
                 if internalStart == nil {
                     internalStart = range.location
@@ -199,16 +150,22 @@ extension NSAttributedString.Key {
 
 @MainActor
 final class ConsoleFoldPresentation {
+    /// Runtime-specific "internal" frame prefixes; empty by default.
+    let internalExpression: NSRegularExpression?
     var regions: [ConsoleFoldRegion] = []
     var expanded: Set<String> = []
     var fontSize = LitheConsoleStyle.defaultFontSize
     var inputSessionID: UUID?
     var inputDraft = ""
 
+    init(internalPatterns: [String] = []) {
+        internalExpression = ConsoleStackTraceFolding.internalExpression(for: internalPatterns)
+    }
+
     func project(_ raw: NSAttributedString, dark: Bool, fontSize: CGFloat) -> NSAttributedString {
         // ponytail: Debug caps output at 400k characters and publishes at 10Hz. This
         // bounded scan preserves nested rules; above that ceiling index dirty lines.
-        regions = ConsoleStackTraceFolding.regions(in: raw.string)
+        regions = ConsoleStackTraceFolding.regions(in: raw.string, internalExpression: internalExpression)
         expanded.formIntersection(Set(regions.map(\.id)))
         let result = NSMutableAttributedString()
         var offset = 0

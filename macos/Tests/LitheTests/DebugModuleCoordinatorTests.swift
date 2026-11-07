@@ -8,8 +8,8 @@ import Testing
 
 @MainActor
 struct DebugModuleCoordinatorTests {
-    @Test(arguments: [false, true], [false, true])
-    func toolbarDebugRestartsOnlyTheSelectedTarget(paused: Bool, sameTarget: Bool) async throws {
+    @Test(arguments: [false, true])
+    func toolbarDebugRestartsTheActiveSession(paused: Bool) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -24,7 +24,7 @@ struct DebugModuleCoordinatorTests {
         }
         let adapter = ToolbarTargetDebugSession(paused: paused)
         let sessions = DebugAdapterSessionManager(providers: [
-            DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])
+            DebugProviderDescriptor(id: "tool-a", displayName: "Tool A", fileExtensions: ["txt"])
         ]) { _, _ in adapter }
         let feature = GenericDebugFeatureModel(paging: RustCoreBridge(), sessions: sessions)
         let graph = DebugPresentationTestGraph(feature: feature)
@@ -38,22 +38,12 @@ struct DebugModuleCoordinatorTests {
             _ = try await runtime.activate(.debug)
             let capability = try #require(runtime.capability(.debugWorkspace) as? DebugModuleCapability)
             model.cacheModuleCapability(capability, id: .debugWorkspace, moduleID: .debug)
-            let source = root.appendingPathComponent("Tests.java")
+            let source = root.appendingPathComponent("main.txt")
             #expect(feature.start(fileURL: source, rootURL: root,
-                configuration: DebugLaunchConfiguration(name: "check()", request: .launch, arguments: [:])))
+                configuration: DebugLaunchConfiguration(name: "main", request: .launch, arguments: [:])))
             try #require(feature.state == (paused ? .paused : .running))
-            let selected = sameTarget ? "demo.First#check()" : "demo.Second#check()"
-            var target = ActiveTestTarget(providerID: "java", scope: .testCase(identifier: selected, fileURL: nil))
-            if sameTarget { target.resolvedName = "check()" }
-            model.activeTestTarget = target
-            model.clearNotifications()
             WorkbenchModuleUIComposition.builtIn.performAction(id: "workbench.debug-start-or-restart", model: model, surface: nil)
-            #expect(adapter.launchCount == (sameTarget ? 2 : 1))
-            if !sameTarget {
-                // Reaching the source guard proves B entered test preparation instead of restarting A.
-                #expect(model.notifications.contains { $0.message == "The selected Java test has no source file" })
-                #expect(model.activeTestTarget?.scope == target.scope)
-            }
+            #expect(adapter.launchCount == 2)
         }
     }
 

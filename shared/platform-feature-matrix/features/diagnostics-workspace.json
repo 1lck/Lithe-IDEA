@@ -6,14 +6,14 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Application/Features/DiagnosticsFeatureModel.swift",
-      "macos/Sources/Lithe/Views/Language/JavaProblemsView.swift",
       "macos/Tests/LitheTests/ProblemsPanelPresentationTests.swift",
       "macos/Tests/LitheTests/MonacoWorkbenchSessionLifetimeTests.swift",
       "macos/Experiments/Monaco/workbench.integration.ts",
       "macos/Sources/Lithe/Platform/MacOS/ProblemsDemo.swift",
       "macos/Sources/Lithe/Models/Editor/ProblemsQuery.swift",
       "rust/lithe-core/src/lsp/host_policy/problems.rs",
-      "shared/fixtures/lsp/problems-query-v1.json"
+      "shared/fixtures/lsp/problems-query-v1.json",
+      "macos/Sources/Lithe/Views/Language/ProblemsView.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

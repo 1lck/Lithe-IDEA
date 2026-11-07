@@ -1,10 +1,10 @@
 //! Incremental workspace search indexing with exact final-content matching.
 
 use crate::project::files::{
-    is_inside_nested_linked_worktree, java_symbols, read_searchable_text, relative_path,
-    visible_children, ChildOrder, VisibilityRules,
+    is_inside_nested_linked_worktree, read_searchable_text, relative_path, visible_children,
+    ChildOrder, VisibilityRules,
 };
-use crate::protocol::{CoreError, ErrorCode, SearchMatch};
+use crate::protocol::{CoreError, ErrorCode};
 use crate::remote::{workspace, workspace_io as fs};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -23,20 +23,10 @@ pub(crate) struct WorkspaceSearchIndex {
     names_only: bool,
 }
 
-/// Searchable file contents and symbols stored under a stable numeric ID.
+/// Searchable file contents stored under a stable numeric ID.
 pub(crate) struct IndexedFile {
     pub(crate) path: String,
     trigrams: Vec<u32>,
-    pub(crate) symbols: Vec<IndexedSymbol>,
-}
-
-#[derive(Clone)]
-/// Normalized Java symbol retained for Search Everywhere results.
-pub(crate) struct IndexedSymbol {
-    pub(crate) name: String,
-    pub(crate) kind: String,
-    pub(crate) line: usize,
-    pub(crate) signature: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,7 +44,6 @@ pub(crate) enum UpdateOutcome {
 /// Counts surfaced after building or updating a workspace index.
 pub(crate) struct SearchIndexStats {
     pub(crate) file_count: usize,
-    pub(crate) symbol_count: usize,
     pub(crate) posting_count: usize,
 }
 
@@ -319,10 +308,10 @@ impl WorkspaceSearchIndex {
         if let Some(existing) = self.path_to_id.get(&relative).copied() {
             self.remove_id(existing);
         }
-        let (trigrams, symbols) = if self.names_only {
-            (Vec::new(), Vec::new())
+        let trigrams = if self.names_only {
+            Vec::new()
         } else {
-            read_search_data(path, &relative)
+            read_trigrams(path)
         };
         let id = self
             .free_ids
@@ -337,7 +326,6 @@ impl WorkspaceSearchIndex {
         let file = Some(IndexedFile {
             path: relative.clone(),
             trigrams,
-            symbols,
         });
         let id_index = id as usize;
         if id_index == self.files.len() {
@@ -444,21 +432,9 @@ impl WorkspaceSearchIndex {
         candidates
     }
 
-    pub(crate) fn symbols(&self, id: u32) -> &[IndexedSymbol] {
-        self.file(id)
-            .map(|file| file.symbols.as_slice())
-            .unwrap_or(&[])
-    }
-
     pub(crate) fn stats(&self) -> SearchIndexStats {
         SearchIndexStats {
             file_count: self.files.iter().filter(|file| file.is_some()).count(),
-            symbol_count: self
-                .files
-                .iter()
-                .filter_map(Option::as_ref)
-                .map(|file| file.symbols.len())
-                .sum(),
             posting_count: self.postings.values().map(Vec::len).sum(),
         }
     }
@@ -548,21 +524,10 @@ fn collect_files(
     Ok(())
 }
 
-fn read_search_data(path: &Path, relative: &str) -> (Vec<u32>, Vec<IndexedSymbol>) {
-    let Some(text) = read_searchable_text(path) else {
-        return (Vec::new(), Vec::new());
-    };
-    let trigrams = unique_trigrams(&text);
-    let symbols = java_symbols(relative, &text)
-        .into_iter()
-        .map(|symbol| IndexedSymbol {
-            name: symbol.name,
-            kind: symbol.kind,
-            line: symbol.line,
-            signature: symbol.signature,
-        })
-        .collect();
-    (trigrams, symbols)
+fn read_trigrams(path: &Path) -> Vec<u32> {
+    read_searchable_text(path)
+        .map(|text| unique_trigrams(&text))
+        .unwrap_or_default()
 }
 
 fn unique_trigrams(value: &str) -> Vec<u32> {
@@ -590,21 +555,6 @@ fn search_anchor(query: &str, regular_expression: bool) -> Option<String> {
         Some(anchor)
     } else {
         None
-    }
-}
-
-pub(crate) fn make_symbol_match(indexed: &IndexedSymbol, path: String) -> SearchMatch {
-    SearchMatch {
-        kind: indexed.kind.clone(),
-        path,
-        line: Some(indexed.line),
-        preview: indexed.signature.clone(),
-        symbol_name: Some(indexed.name.clone()),
-        name_match_ranges: Vec::new(),
-        source_line: None,
-        content_match_ranges: Vec::new(),
-        matching_degree: None,
-        is_ignored: None,
     }
 }
 
@@ -682,7 +632,7 @@ mod tests {
             }
         }
         let _cleanup = Cleanup(root.clone());
-        fs::write(root.join("src/Name.java"), "class Name {}\n").unwrap();
+        fs::write(root.join("src/Name.txt"), "Name\n").unwrap();
         // This guards enumeration decisions, not filesystem throughput. Both generated
         // roots only need enough entries to exceed the result cap on every platform.
         let generated_files_per_directory = 16;
@@ -696,8 +646,9 @@ mod tests {
             (0, 0, 0, vec![]),
             (0, 1, 0, vec![true]),
             (1, 0, 0, vec![true]),
-            (0, 0, 1, vec![false]),
-            (1, 0, 1, vec![false, true]),
+            // Core has no symbol source, so a symbol cap alone builds nothing.
+            (0, 0, 1, vec![]),
+            (1, 0, 1, vec![true]),
         ] {
             invalidate_root(&root);
             super::super::files::DIRECTORY_VISITS
@@ -738,7 +689,7 @@ mod tests {
             assert_eq!(
                 resident_files,
                 usize::from(files > 0) * (2 * generated_files_per_directory + 1)
-                    + usize::from(content > 0 || symbols > 0)
+                    + usize::from(content > 0)
             );
             eprintln!("Cold source caps files={files} content={content} symbols={symbols}: {:?}, indexes={}, resident files={resident_files}, results={}",
                 started.elapsed(), built.len(), response.matches.len());
@@ -793,11 +744,7 @@ mod tests {
         let blocked = root.join(".build/blocked");
         fs::create_dir_all(&blocked).unwrap();
         fs::create_dir_all(root.join("src")).unwrap();
-        fs::write(
-            root.join("src/Name.java"),
-            "class Name {\n    void useName() {}\n}",
-        )
-        .unwrap();
+        fs::write(root.join("src/Name.txt"), "Name\n    useName\n").unwrap();
         struct Cleanup(PathBuf);
         impl Drop for Cleanup {
             fn drop(&mut self) {
@@ -828,13 +775,13 @@ mod tests {
             for kind in if text_only {
                 vec!["content"]
             } else {
-                vec!["file", "type", "symbol", "content"]
+                vec!["file", "content"]
             } {
                 assert!(
                     response
                         .matches
                         .iter()
-                        .any(|item| item.path == "src/Name.java" && item.kind == kind),
+                        .any(|item| item.path == "src/Name.txt" && item.kind == kind),
                     "Missing {kind} result after encountering an inaccessible generated directory"
                 );
             }

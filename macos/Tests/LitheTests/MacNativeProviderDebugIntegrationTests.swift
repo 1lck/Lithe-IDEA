@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import LitheCoreContracts
 import LitheDebugModule
@@ -42,7 +43,7 @@ struct MacNativeProviderDebugIntegrationTests {
             "targetBindings": ["program": "target.path", "cwd": "target.workingDirectory", "args": "target.arguments", "env": "target.environment"]]]
         manifest["debugAdapters"] = adapters
         try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys]).write(to: manifestFile)
-        let before = try MacNativeBuildProviderIntegrationTests.inventory(copiedSDK)
+        let before = try NativeDebugInventory.inventory(copiedSDK)
         let workspace = scratch.appendingPathComponent("workspace")
         let app = workspace.appendingPathComponent("nested/app")
         try files.createDirectory(at: app, withIntermediateDirectories: true)
@@ -158,12 +159,28 @@ struct MacNativeProviderDebugIntegrationTests {
         sessions.retainProviders { _ in false }
         #expect(await released.waitUntilOpen(timeout: .seconds(5)))
         #expect(manager.activeSessionIDs.isEmpty)
-        #expect(try MacNativeBuildProviderIntegrationTests.inventory(copiedSDK) == before)
+        #expect(try NativeDebugInventory.inventory(copiedSDK) == before)
         try outcome.get()
     }
 }
 
 private enum NativeDebugIntegrationError: Error { case unexpectedPlan }
+
+private enum NativeDebugInventory {
+    /// Permission and content digest of every file under `root`, so the test
+    /// can prove the SDK copy is byte-identical after the build/debug cycle.
+    static func inventory(_ root: URL) throws -> [String: String] {
+        let files = FileManager.default
+        let paths = try files.subpathsOfDirectory(atPath: root.path).sorted()
+        return try Dictionary(uniqueKeysWithValues: paths.map { relative in
+            let path = root.appendingPathComponent(relative)
+            let attributes = try files.attributesOfItem(atPath: path.path)
+            let type = attributes[.type] as? FileAttributeType
+            let digest = type == .typeRegular ? SHA256.hash(data: try Data(contentsOf: path)).map { String(format: "%02x", $0) }.joined() : "directory"
+            return (relative, "\(attributes[.posixPermissions] ?? ""):\(digest)")
+        })
+    }
+}
 
 @MainActor
 private final class NativeDebugTrace {

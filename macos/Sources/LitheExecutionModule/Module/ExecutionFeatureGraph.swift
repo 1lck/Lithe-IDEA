@@ -27,13 +27,6 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
         buildSystemsFeature = buildSystems.map(BuildSystemsFeatureModel.init(service:))
         runFeature = RunFeatureModel(service: run)
         projectDevelopment = ProjectDevelopmentFeatureModel(runFeature: runFeature)
-        run.configureBuildLanguageImportProvider { [weak buildSystems] workspace, root in
-            try buildSystems?.languageImport(workspaceURL: workspace, root: root) ?? JavaLanguageImportConfiguration()
-        }
-        run.configureBuildProjectImportProvider { [weak buildSystems] workspace, project in
-            guard let buildSystems else { throw CancellationError() }
-            return try buildSystems.languageImport(workspaceURL: workspace, project: project)
-        }
         run.configureBuildProviderRuns(start: { [weak buildSystems] configuration, workspace in
             buildSystems?.runProviderConfiguration(configuration, workspace: workspace)
         }, cancel: { [weak buildSystems] id in buildSystems?.cancelRun(id) })
@@ -45,13 +38,12 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
             buildSystems?.entries.filter { $0.modelState == .loaded && !$0.isReloadRequired }.compactMap(\.model) ?? []
         }
         run.configureProviderRunConfigurations { [weak buildSystems] in try buildSystems?.providerRunConfigurations() ?? [] }
-        run.configureBuildProjectOwnership { [weak buildSystems] in try buildSystems?.runProjectOwnership() ?? [] }
         run.configureProviderConfigurationRuns(source: { [weak buildSystems] inputs, root in
             buildSystems?.configurationRunSource(inputs: inputs, instanceRoot: root)
-        }) { [weak buildSystems] inputs, root, workspace, hints, current, progress, languageImport in
+        }) { [weak buildSystems] inputs, root, workspace, hints, current, progress in
             guard let buildSystems else { throw CancellationError() }
             return try await buildSystems.prepareConfigurationRun(inputs: inputs, instanceRoot: root, workspace: workspace,
-                tool: hints, isCurrent: current, progress: progress, onLanguageImport: languageImport)
+                tool: hints, isCurrent: current, progress: progress)
         }
 
         buildSystems?.providerSourcesChanged.sink { [weak run] sources in

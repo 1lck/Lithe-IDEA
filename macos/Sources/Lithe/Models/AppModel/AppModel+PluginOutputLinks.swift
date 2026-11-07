@@ -29,7 +29,10 @@ extension AppModel {
             return try await service.location(answering: question, backends: backends, context: pluginWebWorkspaceContext)
         } catch {
             if let plugin = LogSegment(question.pluginID) {
-                services.logSink?.emit(PluginsHostRequestFailed(error: error, plugin: plugin))
+                let code = (error as? PluginHostServiceError)?.code ?? .failed
+                services.logSink?.emit(PluginsHostRequestFailed(
+                    code: code.rawValue, error: error, method: question.function, plugin: plugin
+                ))
             }
             return nil
         }

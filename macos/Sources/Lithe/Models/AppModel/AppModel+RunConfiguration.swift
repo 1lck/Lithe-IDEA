@@ -17,34 +17,6 @@ extension AppModel {
         showToolWindow(.buildOutput)
     }
 
-    func updateRunningService(_ session: RunSession) {
-        guard let feature = runFeatureIfActive, let identity = currentWorkspaceIdentity else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            await feature.updateService(session) { target, source in
-                guard self.isCurrentWorkspace(identity), await self.saveAllDocuments(),
-                      self.isCurrentWorkspace(identity),
-                      feature.moduleSessions.contains(where: { $0.executionID == session.executionID && $0.isRunning })
-                else { throw CancellationError() }
-                let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
-                guard self.isCurrentWorkspace(identity) else { throw CancellationError() }
-                try await sessions.buildJavaServiceUpdate(target: target, fileURL: source, rootURL: identity.url)
-            }
-        }
-    }
-
-    func toggleSpringEndpoints() {
-        guard toggleToolWindow(.spring) else { return }
-    }
-
-    func openSpringEndpoint(_ endpoint: SpringEndpoint) {
-        navigateToEditorLocation(
-            url: endpoint.url,
-            line: max(0, endpoint.line - 1),
-            utf16Column: max(0, endpoint.column - 1)
-        )
-    }
-
     func toggleRun() {
         guard toggleToolWindow(.run) else { return }
         Task { [weak self] in
@@ -91,12 +63,31 @@ extension AppModel {
         guard runFeature.recoveryAction != .upgradeApplication else { return }
         switch await ensureRunProjectReady(runFeature, for: identity) {
         case .ready:
-            await generateFromJavaEntrypoints(runFeature, for: identity, automatic: automatic)
+            await generateAfterBuildDetection(runFeature, for: identity, automatic: automatic)
         case .waitingForSnapshot:
             runFeature.reportGenerationProjectNotReady()
         case .stale:
             return
         }
+    }
+
+    /// Regenerates the Run list once build-system detection has settled, so
+    /// provider runs reflect the saved build options of this workspace.
+    func generateAfterBuildDetection(
+        _ runFeature: RunFeatureModel,
+        for identity: WorkspaceIdentity,
+        automatic: Bool = false
+    ) async {
+        do {
+            try await awaitBuildSystemDetection()
+            try await buildSystemsFeatureIfActive?.prepareRunGenerationModels(workspace: identity.url)
+        } catch {
+            guard isCurrentWorkspace(identity) else { return }
+            runFeature.reportGenerationProjectNotReady()
+            return
+        }
+        guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
+        await runFeature.generateRunConfigurations(automatic: automatic)
     }
 
     func openRunConfiguration(relativePath: String?) {
@@ -136,24 +127,6 @@ extension AppModel {
     ) async {
         let target = workspaceURL.standardizedFileURL
         guard let identity = currentWorkspaceIdentity, identity.url == target else { return }
-        prepareJavaLanguageServerForWorkspaceIfNeeded(
-            at: target,
-            files: files
-        )
-        springFeature.scheduleLoad(
-            workspaceURL: target,
-            files: files,
-            textOverrides: Dictionary(uniqueKeysWithValues: openDocuments.map {
-                ($0.url.standardizedFileURL, $0.text)
-            })
-        )
-        mybatisFeature.scheduleLoad(
-            workspaceURL: target,
-            files: files,
-            textOverrides: Dictionary(uniqueKeysWithValues: openDocuments.map {
-                ($0.url.standardizedFileURL, $0.text)
-            })
-        )
         loadVcsProviders(at: target)
         guard let execution = await activateExecutionModule() else { return }
         guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
@@ -169,11 +142,9 @@ extension AppModel {
         // project this process has not identified yet is identified now.
         if snapshotID != nil,
            execution.runFeature.configurationStatus == .missing || execution.runFeature.requiresConfigurationGeneration {
-            await generateFromJavaEntrypoints(execution.runFeature, for: identity, automatic: true)
+            await generateAfterBuildDetection(execution.runFeature, for: identity, automatic: true)
             guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         }
-
-        checkJavaEntrypointFreshness(execution.runFeature, for: identity, files: files)
         guard resumesDeferredRunAction else { return }
         runWorkflowCoordinator.resumeDeferredAction(
             runFeature: execution.runFeature,
@@ -244,6 +215,18 @@ extension AppModel {
             break
         }
         guard case .ready(let configuration) = configurationReadiness else { return }
+        // A package that exposes running only as editor actions has no
+        // execution module to activate: the toolbar calls its run action.
+        if let document = activeDocument,
+           let support = runWorkflowCoordinator.languageSupportRoutingToEditorActions(
+               .run, for: configuration, currentFileURL: document.url, hostLaunchesFiles: { _ in false }
+           ) {
+            guard await runWorkflowCoordinator.saveDirtyCurrentFileIfNeeded(
+                configuration: configuration, document: document, saving: self
+            ), isCurrentWorkspace(identity), !Task.isCancelled else { return }
+            await startPluginEditorAction(.run, document: document, support: support, identity: identity)
+            return
+        }
         if !(await activateLanguageRunExtensionIfNeeded(
             for: configuration,
             currentFileURL: activeDocument?.url,
@@ -260,25 +243,10 @@ extension AppModel {
             return
         }
         guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-        let javaLaunch: JavaDebugLaunchTarget?
-        do {
-            javaLaunch = try await prepareJavaRunLaunch(
-                for: configuration,
-                identity: identity
-            )
-        // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
-        } catch is CancellationError {
-            return
-        } catch {
-            guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "run_configuration"))
-            return
-        }
-        guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         if configuration.kind != .currentFile {
-            runFeature.startConfiguration(configuration, javaLaunch: javaLaunch)
+            runFeature.startConfiguration(configuration)
         } else {
-            runFeature.runSelected(currentFileURL: activeDocument?.url, javaLaunch: javaLaunch)
+            runFeature.runSelected(currentFileURL: activeDocument?.url)
         }
         showToolWindow(.run)
     }
@@ -331,22 +299,7 @@ extension AppModel {
                 saving: self
             ) else { return }
             guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-            let javaLaunch: JavaDebugLaunchTarget?
-            do {
-                javaLaunch = try await prepareJavaRunLaunch(
-                    for: configuration,
-                    identity: identity
-                )
-            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
-            } catch is CancellationError {
-                return
-            } catch {
-                guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-                showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "run_configuration"))
-                return
-            }
-            guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-            runFeature.restart(javaLaunch: javaLaunch)
+            runFeature.restart()
         }
     }
 
@@ -378,27 +331,9 @@ extension AppModel {
                       ),
                       isCurrentWorkspace(identity) else { return }
             }
-            var preparedConfigurations: [(RunConfiguration, JavaDebugLaunchTarget?)] = []
-            do {
-                for configuration in configurations {
-                    guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-                    let target = try await prepareJavaRunLaunch(
-                        for: configuration,
-                        identity: identity
-                    )
-                    preparedConfigurations.append((configuration, target))
-                }
-            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
-            } catch is CancellationError {
-                return
-            } catch {
+            for configuration in configurations {
                 guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-                showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "run_configuration"))
-                return
-            }
-            for (configuration, javaLaunch) in preparedConfigurations {
-                guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-                runFeature.startConfiguration(configuration, javaLaunch: javaLaunch)
+                runFeature.startConfiguration(configuration)
             }
             showToolWindow(.run)
         }
@@ -427,19 +362,7 @@ extension AppModel {
             runFeature: runFeature
         ) else { return }
         guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-        let javaLaunch: JavaDebugLaunchTarget?
-        do {
-            javaLaunch = try await prepareJavaRunLaunch(for: configuration, identity: identity)
-        // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
-        } catch is CancellationError {
-            return
-        } catch {
-            guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "run_configuration"))
-            return
-        }
-        guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-        runFeature.startConfiguration(configuration, javaLaunch: javaLaunch)
+        runFeature.startConfiguration(configuration)
         showToolWindow(.run)
     }
 
@@ -479,20 +402,7 @@ extension AppModel {
                   let current = runFeature.configurations.first(where: { $0.id == id }),
                   !runFeature.moduleSessions.contains(where: { $0.id == id && $0.isRunning })
             else { continue }
-            do {
-                let javaLaunch = try await prepareJavaRunLaunch(
-                    for: current,
-                    identity: identity
-                )
-                guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-                runFeature.startConfiguration(current, javaLaunch: javaLaunch)
-            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
-            } catch is CancellationError {
-                return
-            } catch {
-                guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-                showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "run_configuration"))
-            }
+            runFeature.startConfiguration(current)
         }
         showToolWindow(.run)
     }
@@ -521,26 +431,7 @@ extension AppModel {
                 ) else { return }
                 guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
             }
-            var javaLaunches: [String: JavaDebugLaunchTarget] = [:]
-            do {
-                for configuration in serviceConfigurations {
-                    if let target = try await prepareJavaRunLaunch(
-                        for: configuration,
-                        identity: identity
-                    ) {
-                        javaLaunches[configuration.id] = target
-                    }
-                    guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-                }
-            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
-            } catch is CancellationError {
-                return
-            } catch {
-                guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-                showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "run_configuration"))
-                return
-            }
-            runFeature.runAllServices(javaLaunches: javaLaunches)
+            runFeature.runAllServices()
         }
     }
 

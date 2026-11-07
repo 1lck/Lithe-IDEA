@@ -60,20 +60,6 @@ struct NewProjectView: View {
                 get: { if case .generator(let id) = feature.selection { return "generator:" + id }; return "empty" },
                 set: { _ in }))
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            if feature.isJavaSupportMissing {
-                Button {
-                    feature.openMarketplace(searching: "Java Support")
-                } label: {
-                    Text("Install Java Support for Java, Maven and Spring templates…")
-                        .font(LitheTheme.uiFont(size: 12))
-                        .foregroundStyle(LitheTheme.link)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.litheNoPress)
-                .lithePointer()
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-            }
             Button {
                 feature.openMarketplace(searching: "")
             } label: {
@@ -354,32 +340,38 @@ struct NewProjectView: View {
         }
     }
 
+    /// Picks one installation of the tool definition the field's `runtime`
+    /// names, from the same lookup tool fields use. When none is found the
+    /// field says why, as a tool field does.
     @ViewBuilder private func runtimeControl(_ field: ProjectGeneratorField) -> some View {
-        if feature.javaRuntimes.isEmpty, feature.hasLoadedJavaRuntimes {
-            Text(LocalizedStringKey("No JDK was found. Install a JDK, then reopen this window."))
-                .foregroundStyle(LitheTheme.secondaryText)
-        } else if feature.javaRuntimes.isEmpty {
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text(LocalizedStringKey("Looking for installed JDKs…"))
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-        } else {
+        let installations = feature.runtimeInstallations(for: field)
+        if let error = feature.toolListingError(for: field) {
+            toolListingFailure(error)
+        } else if !installations.isEmpty {
             LitheSettingsSelect(
                 selection: Binding(
                     get: { feature.selectedRuntimeHome(for: field) },
                     set: { feature.selectRuntime(home: $0, for: field) }
                 ),
-                options: feature.javaRuntimes.map(\.homePath),
+                options: installations.map(\.home),
                 width: 420,
                 accessibilityLabel: field.title,
                 title: { home in
-                    guard let runtime = feature.javaRuntimes.first(where: { $0.homePath == home }) else { return home }
-                    return "\(runtime.displayName) — \((home as NSString).abbreviatingWithTildeInPath)"
+                    guard let installation = installations.first(where: { $0.home == home }) else { return home }
+                    return "\(installation.version) — \((home as NSString).abbreviatingWithTildeInPath)"
                 },
                 localizesTitles: false,
-                searchPrompt: feature.javaRuntimes.count > 8 ? "Search JDKs" : nil
+                searchPrompt: installations.count > 8 ? "Search" : nil
             )
+        } else if feature.isListingTools {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(LocalizedStringKey("Looking for installed tools…"))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+        } else {
+            Text(LocalizedStringKey("No installation of this tool was found."))
+                .foregroundStyle(LitheTheme.secondaryText)
         }
     }
 

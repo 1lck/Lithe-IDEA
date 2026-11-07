@@ -319,9 +319,6 @@ jobs:
         uses: ./.github/actions/prepare-macos-dependency-cache
         with:
           swiftpm: "true"
-          jdtls: ${{ needs.changes.outputs.plugins }}
-          jdk: ${{ needs.changes.outputs.plugins }}
-          jdk-architecture: arm64
 
       # Compile and discover tests before starting the test execution deadline.
       # A cold Rust/Swift build still compiling Lithe exceeded 20 minutes in
@@ -409,11 +406,6 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' && needs.changes.outputs.plugins == 'true' }}
         timeout-minutes: 17
         run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-plugins.json --suite-timeout-seconds 960 -- --skip-build --filter '([Pp]lugin|LanguageExtensionProcessLifecycleTests|LanguageServerToolServiceTests|LinuxDo)'
-
-      - name: Build and verify official plugin packages
-        if: ${{ !cancelled() && steps.build.outcome == 'success' && needs.changes.outputs.plugins == 'true' }}
-        timeout-minutes: 10
-        run: ./scripts/plugins/verify-official-plugins.sh
 
       # A failed build cannot produce reports; the build step already fails the
       # job, so do not stack a second "no reports found" failure on top of it.
@@ -537,9 +529,6 @@ jobs:
           cargo: "true"
           cargo-build: "true"
           cargo-build-architecture: ${{ matrix.architecture }}
-          jdtls: "true"
-          jdk: "true"
-          jdk-architecture: ${{ matrix.architecture }}
 
       - name: Check packaging scripts and metadata
         shell: zsh {0}
@@ -563,7 +552,6 @@ jobs:
           LITHE_DMG_DIAGNOSTICS: "1"
         run: |
           ./scripts/macos/verify/verify-macos-package.sh
-          ./scripts/macos/verify/verify-macos-package.sh --slim
 
       - name: Verify Sparkle update packaging
         run: |
@@ -577,8 +565,7 @@ jobs:
           LITHE_BUILD_NUMBER: ${{ github.run_number }}.${{ github.run_attempt }}
         shell: bash
         run: |
-          # The universal smoke test uses Java fixtures in a temporary folder.
-          # Assemble again with real tools, reusing its compiled Swift/Rust files.
+          # Assemble the distributable package, reusing the smoke test's compiled Swift/Rust files.
           ./scripts/macos/package/package-app.sh
           ./scripts/macos/package/create-dmg.sh
           version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' macos/Resources/Info.plist)
@@ -627,7 +614,7 @@ jobs:
             echo ""
             echo "Source: $SOURCE_SHA"
             echo ""
-            echo "Requires GitHub sign-in. Retained for 14 days. Includes the bundled Java tools."
+            echo "Requires GitHub sign-in. Retained for 14 days."
             echo "The app is ad-hoc signed for testing. Check the CI gate for the combined test result."
           } >> "$GITHUB_STEP_SUMMARY"
 

@@ -58,11 +58,6 @@ struct RustBuildSystemOperationsTests {
         #expect(cargo.dependencyScopes.isEmpty)
         #expect(descriptor.pluginManifest.modules.map(\.manifest.id)
             .contains(.buildSystemsExtension(descriptor.id.rawValue)))
-
-        let maven = try #require(Self.descriptor("build-systems/build-host-integration").buildSystems.first)
-        #expect(maven.modelSource == .hostIntegration)
-        // A host-integration dependency source declares no scopes of its own.
-        #expect(maven.dependencyScopes == [.workspace, .project])
     }
 
     @Test
@@ -446,49 +441,6 @@ struct RustBuildSystemOperationsTests {
             .write(to: workspace.appendingPathComponent("Cargo.toml"))
         let changed = try operations.syncFingerprint(target, workspaceURL: workspace, root: ".", projects: ["."], options: [:])
         #expect(changed.fingerprint != first.fingerprint)
-    }
-
-    @Test
-    func languageImportMapsPluginOptionIDsWithoutBuildSystemNameAssumptions() throws {
-        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(
-            at: workspace.appendingPathComponent("gradle/wrapper"), withIntermediateDirectories: true
-        )
-        defer { try? FileManager.default.removeItem(at: workspace) }
-        try Data("distributionUrl=fixture".utf8).write(
-            to: workspace.appendingPathComponent("gradle/wrapper/gradle-wrapper.properties")
-        )
-        for kind in ["maven", "gradle"] {
-            var manifest = try #require(JSONSerialization.jsonObject(with: Self.fixtureData("build-systems/build-host-integration")) as? [String: Any])
-            var systems = try #require(manifest["buildSystems"] as? [[String: Any]])
-            systems[0]["languageImport"] = kind == "maven"
-                ? ["kind": kind, "options": ["profiles": "profiles", "settingsFile": "settingsFile", "localRepository": "localRepository"]]
-                : ["kind": kind, "options": ["offline": "offline", "gradleUserHome": "localRepository"]]
-            manifest["buildSystems"] = systems
-            let target = BuildSystemTarget(manifest: try JSONSerialization.data(withJSONObject: manifest), buildSystemID: "maven")
-            let value = try operations.languageImport(
-                target, workspaceURL: workspace, root: ".",
-                options: ["profiles": .array([.string("dev")]), "settingsFile": .string("/settings.xml"),
-                          "localRepository": .string("/cache"), "offline": .bool(true)],
-                executableURL: URL(fileURLWithPath: "/tool/bin/mvn")
-            )
-            switch value {
-            case .maven(let context):
-                #expect(kind == "maven")
-                #expect(context.profiles == ["dev"])
-                #expect(context.settingsPath == "/settings.xml")
-                #expect(context.localRepositoryPath == "/cache")
-                #expect(context.mavenExecutablePath == "/tool/bin/mvn")
-                #expect(!context.skipTests)
-            case .gradle(let context):
-                #expect(kind == "gradle")
-                #expect(context == JavaGradleImportConfiguration(wrapperPresent: true, offline: true, userHome: "/cache"))
-            case nil: Issue.record("Expected the declared language import")
-            }
-        }
-        #expect(try operations.languageImport(
-            Self.target("build-systems/build-static-file", "cargo"), workspaceURL: workspace, root: ".", options: [:], executableURL: nil
-        ) == nil)
     }
 
     @Test

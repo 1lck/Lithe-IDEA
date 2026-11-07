@@ -15,17 +15,29 @@ struct PluginDebugAdapterTests {
 
     @Test(arguments: ["unchanged", "disabled", "replaced", "generation"])
     func providerConnectionUsesTheOwningRegistryEntryAndRevokesStaleBindings(change: String) throws {
-        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("Plugins/mac/Official/JavaSupport/plugin.json")
-        let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: Data(contentsOf: fixture))
+        // The contract fixture's `example` adapter, declared as an attach-only adapter for a connection target.
+        let fixture = DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/debug-adapters/debug-adapter.plugin.json")
+        var manifest = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as? [String: Any])
+        var adapters = try #require(manifest["debugAdapters"] as? [[String: Any]])
+        let adapterIndex = try #require(adapters.firstIndex { $0["id"] as? String == "example" })
+        adapters[adapterIndex]["requests"] = ["attach"]
+        adapters[adapterIndex]["selectors"] = [["targetKinds": ["connection"], "languageIDs": ["example"]]]
+        adapters[adapterIndex]["configurations"] = [
+            "attach": ["targetBindings": ["connection": ["host": "hostName", "port": "port"]]]
+        ]
+        manifest["debugAdapters"] = adapters
+        let descriptor = try DeclarativePluginTestSupport.operations.validate(
+            manifest: JSONSerialization.data(withJSONObject: manifest))
         let package = InstalledPluginPackage(descriptor: descriptor, installation: PluginInstallationRecord(
             pluginID: descriptor.id, activeVersion: descriptor.pluginManifest.version, origin: .marketplace, status: .installed),
-            packageURL: URL(fileURLWithPath: "/fixture/java-support"))
-        let entry = try #require(PluginDebugAdapterEntry.qualifiedIndex(of: [package]).values.first)
+            packageURL: URL(fileURLWithPath: "/fixture/example-plugin"))
+        let entry = try #require(PluginDebugAdapterEntry.qualifiedIndex(of: [package]).values.first { $0.adapter.id == "example" })
         var entries = [entry.providerID: entry]
         var generation = 7
         let resolver = MacBuildConnectionDebugResolver(planner: DeclarativePluginTestSupport.operations,
             entries: { entries }, generation: { generation })
-        let prepared = try resolver.prepare(configurationType: "java", preferredAdapterID: nil, port: 51235)
+        let prepared = try resolver.prepare(configurationType: "example", preferredAdapterID: nil, port: 51235)
         #expect(prepared.options.adapterID == entry.providerID)
         #expect(prepared.options.target.kind == "connection")
         #expect(prepared.configuration.adapterProviderID == entry.providerID)
@@ -40,9 +52,9 @@ struct PluginDebugAdapterTests {
             entries[entry.providerID] = PluginDebugAdapterEntry(plugin: replacement, adapter: entry.adapter)
         }
         #expect(prepared.isCurrent() == (change == "unchanged"))
-        // Explicit old language IDs and a missing alias never select built-in adapters.
+        // An unqualified adapter ID and a missing alias never select an adapter.
         #expect(throws: DebugLaunchConfigurationResolutionError.providerDebugUnavailable) {
-            try resolver.prepare(configurationType: "java", preferredAdapterID: "java", port: 51235)
+            try resolver.prepare(configurationType: "example", preferredAdapterID: "example", port: 51235)
         }
         #expect(throws: DebugLaunchConfigurationResolutionError.providerDebugUnavailable) {
             try resolver.prepare(configurationType: "missing", preferredAdapterID: nil, port: 51235)
@@ -50,9 +62,9 @@ struct PluginDebugAdapterTests {
         entries["another/adapter"] = entry
         if change == "unchanged" {
             #expect(throws: DebugLaunchConfigurationResolutionError.providerDebugUnavailable) {
-                try resolver.prepare(configurationType: "java", preferredAdapterID: nil, port: 51235)
+                try resolver.prepare(configurationType: "example", preferredAdapterID: nil, port: 51235)
             }
-            #expect(try resolver.prepare(configurationType: "java", preferredAdapterID: entry.providerID, port: 51235).isCurrent())
+            #expect(try resolver.prepare(configurationType: "example", preferredAdapterID: entry.providerID, port: 51235).isCurrent())
         }
     }
 
@@ -427,8 +439,7 @@ struct PluginDebugAdapterTests {
             }
         )
         let configuration = try resolver.resolve(
-            provider: provider, documentURL: document, workspaceURL: root,
-            configurations: [], selectedConfiguration: nil, javaTarget: nil, options: { _ in RunOptions() }
+            provider: provider, documentURL: document, workspaceURL: root
         )
         #expect(asked == ["zig"])
         #expect(configuration.name == "main.zig")
@@ -436,8 +447,7 @@ struct PluginDebugAdapterTests {
         let without = DebugLaunchConfigurationResolver()
         #expect(throws: DebugLaunchConfigurationResolutionError.self) {
             try without.resolve(
-                provider: provider, documentURL: document, workspaceURL: root,
-                configurations: [], selectedConfiguration: nil, javaTarget: nil, options: { _ in RunOptions() }
+                provider: provider, documentURL: document, workspaceURL: root
             )
         }
     }

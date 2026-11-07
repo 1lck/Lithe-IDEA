@@ -45,7 +45,7 @@ struct ProviderWorkflowPresentationTests {
         let feature = BuildSystemsFeatureModel(service: service)
         try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { _ in
             feature.reset(workspaceURL: root)
-            _ = try await service.prepareLanguageImport(workspaceURL: root)
+            try await service.awaitDetection(workspaceURL: root)
             let entryID = try #require(feature.entries.first?.id)
             let loaded = TestGate()
             let loadedObservation = service.$entries.sink { if $0.first?.modelState == .loaded { loaded.open() } }

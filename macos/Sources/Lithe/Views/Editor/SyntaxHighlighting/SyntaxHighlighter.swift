@@ -2,36 +2,6 @@ import AppKit
 
 /// Applies the adapter selected by the bundled file-format mapping.
 enum SyntaxHighlighter {
-    static func applyJavaSemanticHighlights(
-        _ highlights: [JavaSyntaxHighlight],
-        to storage: NSTextStorage,
-        isDark: Bool,
-        range targetRange: NSRange? = nil
-    ) {
-        guard storage.length > 0, !highlights.isEmpty else { return }
-        let basePalette = CodeEditorPalette(isDark: isDark, theme: LitheTheme.activeTheme)
-        let palette = SyntaxHighlightingColorConfiguration.bundled.palette(
-            formatID: SyntaxHighlightingRegistry.bundled.format(
-                fileName: nil,
-                fileExtension: "java"
-            )?.id,
-            base: basePalette
-        )
-        let fullRange = NSRange(location: 0, length: storage.length)
-        let target = NSIntersectionRange(targetRange ?? fullRange, fullRange)
-        storage.beginEditing()
-        for highlight in highlights {
-            guard let role = SyntaxHighlightingColorRole(rawValue: highlight.role) else { continue }
-            guard highlight.range.location >= 0, highlight.range.location <= storage.length,
-                  highlight.range.length > 0,
-                  highlight.range.length <= storage.length - highlight.range.location else { continue }
-            let range = NSIntersectionRange(highlight.range, target)
-            guard range.length > 0 else { continue }
-            storage.addAttribute(.foregroundColor, value: palette.color(for: role), range: range)
-        }
-        storage.endEditing()
-    }
-
     static func apply(
         to storage: NSTextStorage,
         font: NSFont,

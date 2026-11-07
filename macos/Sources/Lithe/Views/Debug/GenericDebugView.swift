@@ -22,9 +22,8 @@ struct GenericDebugView: View {
     @State private var watchEditor: WatchEditorContext?
     @State private var smartStepTargets: [DebugStepInTarget] = []
     @State private var isSmartStepPickerPresented = false
-    @State private var isJavaAttachPresented = false
     @State private var externalAdapterSource: ExternalAdapterSource?
-    @State private var isJavaSteppingSettingsPresented = false
+    @State private var isSteppingFiltersPresented = false
     @State private var selectedContent: DebugContent = .console
     @State private var showsMemory = false
     @State private var memoryInput = ""
@@ -58,24 +57,18 @@ struct GenericDebugView: View {
                 feature.setVariable(variable, value: $0)
             }
         }
-        .sheet(isPresented: $isJavaAttachPresented) {
-            JavaAttachView { host, port in
-                model.attachJavaDebugger(host: host, port: port)
-            }
-        }
         .sheet(item: $externalAdapterSource) { source in
             ExternalDebugAdapterView { configuration in
                 await model.connectExternalDebugAdapter(configuration: configuration, fileURL: source.url)
             }
         }
-        .sheet(isPresented: $isJavaSteppingSettingsPresented) {
-            if let filters = feature.javaSteppingFilters {
-                JavaSteppingFiltersView(
-                    filters: filters,
-                    onSave: feature.updateJavaSteppingFilters,
-                    onReset: feature.resetJavaSteppingFilters
-                )
-            }
+        .sheet(isPresented: $isSteppingFiltersPresented) {
+            SteppingFiltersView(
+                providers: feature.steppingFilterProviders,
+                load: feature.steppingFilters(for:),
+                onSave: feature.updateSteppingFilters(_:for:),
+                onReset: feature.resetSteppingFilters(for:)
+            )
         }
         .onAppear { synchronizePerformanceSession() }
         .onChange(of: feature.activeSessionID) { _ in synchronizePerformanceSession() }
@@ -255,16 +248,6 @@ struct GenericDebugView: View {
                         toolbarDivider
                     }
                 }
-                if feature.canUpdateJavaService {
-                    Button { model.applyDebugServiceUpdate() } label: {
-                        Image(systemName: "bolt.fill")
-                    }
-                    .litheToolbarIconButton()
-                    .padding(.horizontal, 2)
-                    .disabled(feature.updatingServiceSessionID != nil)
-                    .help("Apply code changes to this service")
-                    .accessibilityLabel("Apply code changes")
-                }
                 if feature.canApplyDeclaredCodeChanges {
                     Button { model.applyDeclaredDebugCodeChanges() } label: {
                         Image(systemName: "bolt.fill")
@@ -274,10 +257,6 @@ struct GenericDebugView: View {
                     .disabled(feature.updatingServiceSessionID != nil)
                     .help("Apply code changes to the running program")
                     .accessibilityLabel("Apply code changes")
-                }
-                if feature.serviceUpdateFailed && feature.canUpdateJavaService {
-                    Button("Restart service") { model.restartUpdatedDebugService() }
-                        .disabled(feature.updatingServiceSessionID != nil)
                 }
                 if let message = feature.serviceUpdateMessage {
                     Text(message).font(.caption).lineLimit(1).help(message)
@@ -458,15 +437,12 @@ struct GenericDebugView: View {
                 LitheContextMenuItem.action("Step Back") { feature.execute(.stepBack) }
                     .disabled(!feature.canStepBack)
             }
-            if feature.javaSteppingFilters != nil {
-                LitheContextMenuItem.action("Java Stepping Filters…") {
-                    isJavaSteppingSettingsPresented = true
-                }
-                .disabled(feature.isSessionActive)
+            // Shown only while some installed adapter declared `features.stepFilters`.
+            if !feature.steppingFilterProviders.isEmpty {
+                LitheContextMenuItem.action("Stepping Filters…") { isSteppingFiltersPresented = true }
+                    .disabled(feature.isSessionActive)
             }
             LitheContextMenuItem.separator
-            LitheContextMenuItem.action("Connect to Running JVM…") { isJavaAttachPresented = true }
-                .disabled(feature.isSessionActive)
             LitheContextMenuItem.action("Connect to Debug Adapter…") {
                 if let url = model.activeDocument?.url {
                     externalAdapterSource = ExternalAdapterSource(url: url)
@@ -691,11 +667,7 @@ struct GenericDebugView: View {
                                     resourcePath: "expui/general/moreHorizontal.svg", size: 16,
                                     preservesOriginalColors: true)
                             }
-                            Text(
-                                DebugToolbarPresentation.stackFrameText(
-                                    frame,
-                                    showsSourceName: showsStackSourceName, isDark: colorScheme == .dark)
-                            )
+                            Text(DebugToolbarPresentation.stackFrameText(frame))
                             .font(LitheTheme.uiFont(size: 13, weight: .regular))
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -774,7 +746,6 @@ struct GenericDebugView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.litheNoPress)
-                        .help("Show JDK, proxy, and framework frames")
                     }
                 }
             }
@@ -2149,60 +2120,78 @@ private struct ExternalAdapterSource: Identifiable {
     var id: URL { url }
 }
 
-private struct JavaAttachView: View {
+/// Edits the stepping policy of debuggers whose adapters declared
+/// `features.stepFilters`. Pattern syntax belongs to the adapter, so patterns
+/// are stored and forwarded exactly as typed.
+private struct SteppingFiltersView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var host = "localhost"
-    @State private var port = "5005"
-    let onAttach: (String, Int) -> Void
+    let providers: [DebugProviderDeclaration]
+    let load: (DebugProviderDeclaration) -> DebugSteppingFilters
+    let onSave: (DebugSteppingFilters, DebugProviderDeclaration) -> Void
+    let onReset: (DebugProviderDeclaration) -> Void
+    @State private var selectedKey: String
 
-    private var parsedPort: Int? {
-        guard let value = Int(port), (1...65_535).contains(value) else { return nil }
-        return value
+    init(
+        providers: [DebugProviderDeclaration],
+        load: @escaping (DebugProviderDeclaration) -> DebugSteppingFilters,
+        onSave: @escaping (DebugSteppingFilters, DebugProviderDeclaration) -> Void,
+        onReset: @escaping (DebugProviderDeclaration) -> Void
+    ) {
+        self.providers = providers
+        self.load = load
+        self.onSave = onSave
+        self.onReset = onReset
+        _selectedKey = State(initialValue: providers.first?.storageKey ?? "")
+    }
+
+    private var selected: DebugProviderDeclaration? {
+        providers.first { $0.storageKey == selectedKey } ?? providers.first
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Connect to Running JVM")
-                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
-            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 10) {
-                GridRow {
-                    Text("Host")
-                    TextField("localhost", text: $host)
-                        .textFieldStyle(.roundedBorder)
-                }
-                GridRow {
-                    Text("Port")
-                    TextField("5005", text: $port)
-                        .textFieldStyle(.roundedBorder)
-                }
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Stepping Filters")
+                    .font(LitheTheme.uiFont(size: 15, weight: .semibold))
+                Text("Controls where Step Into stops. Changes apply to the next debug session of this debugger.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
             }
-            HStack(spacing: LitheTheme.ActionButton.spacing) {
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }.buttonStyle(LitheActionButtonStyle())
-                    .keyboardShortcut(.cancelAction)
-                Button("Connect") {
-                    guard let parsedPort else { return }
-                    onAttach(host.trimmingCharacters(in: .whitespacesAndNewlines), parsedPort)
-                    dismiss()
-                }.buttonStyle(LitheActionButtonStyle(isPrimary: true))
-                .keyboardShortcut(.defaultAction)
-                .disabled(
-                    host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || parsedPort == nil
+            if providers.count > 1 {
+                Picker("Debugger", selection: $selectedKey) {
+                    ForEach(providers, id: \.storageKey) { provider in
+                        Text(verbatim: provider.displayName).tag(provider.storageKey)
+                    }
+                }
+                .font(LitheTheme.uiFont(size: 11))
+            }
+            if let selected {
+                SteppingFiltersEditor(
+                    filters: load(selected),
+                    onSave: { filters in
+                        onSave(filters, selected)
+                        dismiss()
+                    },
+                    onReset: {
+                        onReset(selected)
+                        dismiss()
+                    },
+                    onCancel: { dismiss() }
                 )
+                // A different debugger starts from its own saved policy.
+                .id(selected.storageKey)
             }
         }
         .padding(18)
-        .frame(width: 360)
+        .frame(width: 560, height: providers.count > 1 ? 500 : 470)
+        .litheWorkbenchSurface(LitheTheme.editor)
     }
 }
 
-private struct JavaSteppingFiltersView: View {
-    @Environment(\.dismiss) private var dismiss
+private struct SteppingFiltersEditor: View {
     let onSave: (DebugSteppingFilters) -> Void
     let onReset: () -> Void
-    @State private var skipJDK: Bool
-    @State private var skipLibraries: Bool
+    let onCancel: () -> Void
     @State private var skipSynthetics: Bool
     @State private var skipStaticInitializers: Bool
     @State private var skipConstructors: Bool
@@ -2212,36 +2201,22 @@ private struct JavaSteppingFiltersView: View {
     init(
         filters: DebugSteppingFilters,
         onSave: @escaping (DebugSteppingFilters) -> Void,
-        onReset: @escaping () -> Void
+        onReset: @escaping () -> Void,
+        onCancel: @escaping () -> Void
     ) {
         self.onSave = onSave
         self.onReset = onReset
-        _skipJDK = State(initialValue: filters.classNameFilters.contains("$JDK"))
-        _skipLibraries = State(initialValue: filters.classNameFilters.contains("$Libraries"))
+        self.onCancel = onCancel
         _skipSynthetics = State(initialValue: filters.skipSynthetics)
         _skipStaticInitializers = State(initialValue: filters.skipStaticInitializers)
         _skipConstructors = State(initialValue: filters.skipConstructors)
         _hideFilteredStackFrames = State(initialValue: filters.hideFilteredStackFrames)
-        _classPatterns = State(initialValue: filters.classNameFilters
-            .filter { $0 != "$JDK" && $0 != "$Libraries" }
-            .joined(separator: "\n"))
+        _classPatterns = State(initialValue: filters.classNameFilters.joined(separator: "\n"))
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Java Stepping Filters")
-                    .font(LitheTheme.uiFont(size: 15, weight: .semibold))
-                Text("Controls where Step Into stops. Changes apply to the next Java debug session.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
-                GridRow {
-                    Toggle("Skip JDK and reflection code", isOn: $skipJDK)
-                    Toggle("Skip third-party libraries", isOn: $skipLibraries)
-                }
                 GridRow {
                     Toggle("Skip synthetic methods", isOn: $skipSynthetics)
                     Toggle("Skip static initializers", isOn: $skipStaticInitializers)
@@ -2257,7 +2232,7 @@ private struct JavaSteppingFiltersView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Additional class patterns")
                     .font(LitheTheme.uiFont(size: 11, weight: .semibold))
-                Text("One pattern per line, for example org.mockito.* or com.example.generated.*")
+                Text("One pattern per line. The debugger defines the pattern syntax.")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                 TextEditor(text: $classPatterns)
@@ -2273,35 +2248,28 @@ private struct JavaSteppingFiltersView: View {
             }
 
             HStack(spacing: LitheTheme.ActionButton.spacing) {
-                Button("Reset Defaults") {
-                    onReset()
-                    dismiss()
-                }
-                .buttonStyle(LitheActionButtonStyle())
+                Button("Reset Defaults", action: onReset)
+                    .buttonStyle(LitheActionButtonStyle())
                 Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }.buttonStyle(LitheActionButtonStyle())
+                Button("Cancel", role: .cancel, action: onCancel)
+                    .buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button("Save") {
-                    var patterns = classPatterns
-                        .split(whereSeparator: \Character.isNewline)
-                        .map(String.init)
-                    if skipJDK { patterns.append("$JDK") }
-                    if skipLibraries { patterns.append("$Libraries") }
                     onSave(DebugSteppingFilters(
-                        classNameFilters: patterns,
+                        classNameFilters: classPatterns
+                            .split(whereSeparator: \Character.isNewline)
+                            .map { $0.trimmingCharacters(in: .whitespaces) }
+                            .filter { !$0.isEmpty },
                         skipSynthetics: skipSynthetics,
                         skipStaticInitializers: skipStaticInitializers,
                         skipConstructors: skipConstructors,
                         hideFilteredStackFrames: hideFilteredStackFrames
                     ))
-                    dismiss()
-                }.buttonStyle(LitheActionButtonStyle(isPrimary: true))
+                }
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(18)
-        .frame(width: 560, height: 470)
-        .litheWorkbenchSurface(LitheTheme.editor)
     }
 }
 

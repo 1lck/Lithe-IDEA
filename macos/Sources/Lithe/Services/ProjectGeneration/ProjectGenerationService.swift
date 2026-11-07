@@ -27,26 +27,22 @@ final class ProjectGenerationService: Sendable {
     let planner: any ProjectGeneratorPlanning
     private let platform: any ProjectGenerationPlatform
     private let initializeGitRepository: @Sendable (URL) -> String?
-    private let recordJavaHome: @Sendable (URL, String) async throws -> Void
     private let saveToolPin: @Sendable (URL, ProjectGenerationPlan.ToolPin) async throws -> Void
 
     /// - Parameters:
     ///   - initializeGitRepository: Creates a repository at the URL and
     ///     returns an error message, or nil on success.
-    ///   - recordJavaHome: Stores a JDK as the new project's runtime.
     ///   - saveToolPin: Stores the installation a `tool` field chose in the
     ///     project at the URL, where every later tool resolution reads it.
     init(
         planner: any ProjectGeneratorPlanning,
         platform: any ProjectGenerationPlatform,
         initializeGitRepository: @escaping @Sendable (URL) -> String?,
-        recordJavaHome: @escaping @Sendable (URL, String) async throws -> Void,
         saveToolPin: @escaping @Sendable (URL, ProjectGenerationPlan.ToolPin) async throws -> Void = { _, _ in }
     ) {
         self.planner = planner
         self.platform = platform
         self.initializeGitRepository = initializeGitRepository
-        self.recordJavaHome = recordJavaHome
         self.saveToolPin = saveToolPin
     }
 
@@ -106,9 +102,6 @@ final class ProjectGenerationService: Sendable {
             throw ProjectGenerationError(message: error.localizedDescription)
         }
 
-        for runtime in plan.runtimes where runtime.runtime == "java" {
-            try await recordJavaHome(destination, runtime.home)
-        }
         let toolPinWarning = await pinTools(of: plan, in: destination)
         return CreatedProject(
             url: destination,
@@ -124,7 +117,12 @@ final class ProjectGenerationService: Sendable {
     /// - Returns: The first failure's message, or nil when every pin was saved.
     private func pinTools(of plan: ProjectGenerationPlan, in destination: URL) async -> String? {
         var firstFailure: String?
-        for pin in plan.toolPins {
+        // A `runtime` field names a tool definition too; its chosen home is
+        // pinned the same way as a `tool` field's installation.
+        let runtimePins = plan.runtimes.map {
+            ProjectGenerationPlan.ToolPin(field: $0.field, tool: $0.runtime, pinAs: "project", home: $0.home, executable: "")
+        }
+        for pin in runtimePins + plan.toolPins {
             do {
                 try await saveToolPin(destination, pin)
             } catch {

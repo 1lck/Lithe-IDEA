@@ -141,7 +141,7 @@ pub struct SearchRequest {
     pub hidden_directory_names: Vec<String>,
     #[serde(default)]
     pub hidden_file_patterns: Vec<String>,
-    /// Comma-separated file masks such as `*.java, *.kt`; empty means no filter.
+    /// Comma-separated file masks such as `*.md, *.txt`; empty means no filter.
     #[serde(default)]
     pub file_mask: String,
     /// Case-insensitive glob fragments that a candidate path must match.
@@ -197,6 +197,8 @@ pub struct SearchIndexUpdateRequest {
 /// Search-index size and whether an incremental request required a rebuild.
 pub struct SearchIndexStatusResponse {
     pub file_count: usize,
+    /// Always zero: Core no longer indexes language symbols. The field stays
+    /// because the macOS bridge still decodes it as required.
     pub symbol_count: usize,
     pub posting_count: usize,
     pub rebuilt: bool,
@@ -700,7 +702,11 @@ fn search_with_index(
     Ok(SearchResponse { matches })
 }
 
-/// Combines file, content, and Java-symbol results for Search Everywhere.
+/// Combines file and content results for Search Everywhere.
+///
+/// The `type` and `symbol` buckets stay in the paging contract but Core no
+/// longer fills them: symbol knowledge belongs to language servers and
+/// plugins, so a source-specific regex here would favour one language.
 pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreError> {
     search_everywhere_with_page(request, None)
 }
@@ -847,11 +853,9 @@ pub(crate) fn search_everywhere_with_page(
         std::time::Instant::now(),
         true,
     );
-    // Publish names before content parsing or symbol extraction starts.
+    // Publish names before content parsing starts.
     // Zero source caps are execution boundaries, not just post-scan truncation.
-    let shared_index = if symbol_limit > 0 {
-        Some(search_index::get_or_build(&root, &rules)?)
-    } else if content_limit > 0 {
+    let shared_index = if content_limit > 0 {
         Some(search_index::get_for_text(&root, &rules)?)
     } else {
         None
@@ -864,61 +868,6 @@ pub(crate) fn search_everywhere_with_page(
                 .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))
         })
         .transpose()?;
-    if symbol_limit > 0 {
-        let index = index
-            .as_ref()
-            .expect("symbol source requires content index");
-        for id in index.all_file_ids() {
-            crate::protocol::cancellation::check()?;
-            let Some(file) = index.file(id) else { continue };
-            if !scope_allows(&request.scope_paths, &file.path)
-                || !file_mask_allows(&masks, &file.path)
-                || !path_filters.allows(&file.path)
-            {
-                continue;
-            }
-            for symbol in index.symbols(id) {
-                let mut result = search_index::make_symbol_match(symbol, file.path.clone());
-                if match_everywhere_name(&request, &matcher, &symbol.name, &mut result) {
-                    if result.kind == "type" {
-                        if let Some(page) = page.as_ref() {
-                            page.push(&mut types, result, symbol_limit);
-                        } else {
-                            types.push(result);
-                        }
-                    } else {
-                        if let Some(page) = page.as_ref() {
-                            page.push(&mut symbols, result, symbol_limit);
-                        } else {
-                            symbols.push(result);
-                        }
-                    }
-                    emit_search_results(
-                        [
-                            (&mut files, file_limit),
-                            (&mut types, symbol_limit),
-                            (&mut symbols, symbol_limit),
-                        ],
-                        limit,
-                        &mut last_flush,
-                        std::time::Instant::now(),
-                        false,
-                    );
-                }
-            }
-        }
-    }
-    emit_search_results(
-        [
-            (&mut files, file_limit),
-            (&mut types, symbol_limit),
-            (&mut symbols, symbol_limit),
-        ],
-        limit,
-        &mut last_flush,
-        std::time::Instant::now(),
-        true,
-    );
     if let Some(page) = page.as_mut() {
         page.finish("file", &mut files, file_limit);
         page.finish("type", &mut types, symbol_limit);
@@ -1150,7 +1099,7 @@ pub fn warm_search_index(
     let stats = index.stats();
     Ok(SearchIndexStatusResponse {
         file_count: stats.file_count,
-        symbol_count: stats.symbol_count,
+        symbol_count: 0,
         posting_count: stats.posting_count,
         rebuilt: false,
     })
@@ -1186,7 +1135,7 @@ pub fn update_search_index(
     let stats = index.stats();
     Ok(SearchIndexStatusResponse {
         file_count: stats.file_count,
-        symbol_count: stats.symbol_count,
+        symbol_count: 0,
         posting_count: stats.posting_count,
         rebuilt: rebuilt || matches!(outcome, UpdateOutcome::NotIndexed),
     })
@@ -1812,7 +1761,7 @@ impl SearchPathFilters {
     }
 }
 
-/// Splits a mask list such as `*.java, *.kt`; an empty list disables filtering.
+/// Splits a mask list such as `*.md, *.txt`; an empty list disables filtering.
 fn parse_file_mask(mask: &str) -> Vec<String> {
     mask.split(',')
         .map(|part| part.trim())
@@ -2051,86 +2000,6 @@ fn original_ranges_for_lowercase_matches(
         }
     }
     result
-}
-
-pub(crate) struct JavaSymbol {
-    pub(crate) name: String,
-    pub(crate) kind: String,
-    pub(crate) line: usize,
-    pub(crate) signature: String,
-}
-
-pub(crate) fn java_symbols(path: &str, source: &str) -> Vec<JavaSymbol> {
-    if !path.to_lowercase().ends_with(".java") {
-        return Vec::new();
-    }
-    let type_pattern = Regex::new(
-        r"(?m)^[ \t]*(?:(?:public|protected|private|abstract|final|static|sealed|non-sealed)\s+)*(class|interface|enum|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)",
-    );
-    let method_pattern = Regex::new(
-        r"(?m)^[ \t]*(?:(?:public|protected|private|static|final|abstract|synchronized|native|default|strictfp)\s+)*(?:<[^>\n]+>\s+)?(?:[A-Za-z_$][A-Za-z0-9_$<>,.?\[\]]*\s+)+([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^;\n{}]*\)",
-    );
-    let mut symbols = Vec::new();
-    if let Ok(expression) = type_pattern {
-        for captures in expression.captures_iter(source) {
-            let Some(name) = captures.get(2) else {
-                continue;
-            };
-            let start = captures
-                .get(0)
-                .map(|value| value.start())
-                .unwrap_or(name.start());
-            symbols.push(JavaSymbol {
-                name: name.as_str().to_string(),
-                kind: "type".to_string(),
-                line: line_number(source, start),
-                signature: line_signature(source, start),
-            });
-        }
-    }
-    if let Ok(expression) = method_pattern {
-        for captures in expression.captures_iter(source) {
-            let Some(name) = captures.get(1) else {
-                continue;
-            };
-            let start = captures
-                .get(0)
-                .map(|value| value.start())
-                .unwrap_or(name.start());
-            symbols.push(JavaSymbol {
-                name: name.as_str().to_string(),
-                kind: "symbol".to_string(),
-                line: line_number(source, start),
-                signature: line_signature(source, start),
-            });
-        }
-    }
-    symbols.sort_by(|left, right| {
-        left.line
-            .cmp(&right.line)
-            .then_with(|| left.name.cmp(&right.name))
-    });
-    symbols
-}
-
-fn line_number(source: &str, byte_offset: usize) -> usize {
-    source[..byte_offset.min(source.len())]
-        .bytes()
-        .filter(|byte| *byte == b'\n')
-        .count()
-        + 1
-}
-
-fn line_signature(source: &str, byte_offset: usize) -> String {
-    let start = source[..byte_offset.min(source.len())]
-        .rfind('\n')
-        .map(|index| index + 1)
-        .unwrap_or(0);
-    let end = source[byte_offset.min(source.len())..]
-        .find('\n')
-        .map(|index| byte_offset.min(source.len()) + index)
-        .unwrap_or(source.len());
-    source[start..end].trim().to_string()
 }
 
 fn safe_relative_path_string(value: &str) -> Result<String, CoreError> {

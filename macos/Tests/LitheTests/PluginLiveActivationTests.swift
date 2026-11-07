@@ -47,7 +47,7 @@ struct PluginLiveActivationTests {
         manifest["activationEvents"] = ["onDebug:lldb", "onLanguage:rust"]
         manifest["languageServers"] = [[
             "languageID": "rust",
-            "launch": ["kind": "systemCommand", "commands": ["example-language-server"]]
+            "launch": ["kind": "systemCommand", "commands": ["exampleuage-server"]]
         ]]
         let descriptor = try DeclarativePluginTestSupport.descriptor(manifest)
         #expect(!descriptor.debugAdapters.isEmpty)
@@ -106,18 +106,18 @@ struct PluginLiveActivationTests {
         let first = try fixture.package(Self.debugManifest(id: "dev.example.first"))
         let second = try fixture.package(Self.debugManifest(id: "dev.example.second"))
         let attach = try fixture.package(Self.debugManifest(id: "dev.example.attach",
-            languageIDs: ["java"], requests: ["attach"], targetKinds: ["process"]))
+            languageIDs: ["example"], requests: ["attach"], targetKinds: ["process"]))
         let packages = [second, attach, first]
         let qualified = PluginDebugAdapterEntry.qualifiedIndex(of: packages)
         #expect(Set(qualified.keys) == ["dev.example.first/lldb", "dev.example.second/lldb", "dev.example.attach/lldb"])
         let automatic = PluginDebugAdapterEntry.index(of: packages)
         #expect(automatic["rust"]?.plugin.descriptor.id == first.descriptor.id)
-        #expect(automatic["java"] == nil)
-        let languages = [DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])]
+        #expect(automatic["example"] == nil)
+        let languages = [DebugProviderDescriptor(id: "example", displayName: "Example", fileExtensions: ["example"])]
         let descriptor = try #require(qualified["dev.example.attach/lldb"]?.provider(languages: languages))
         #expect(descriptor.requests == [.attach])
         #expect(!descriptor.selectsByFile)
-        #expect(descriptor.matches(URL(fileURLWithPath: "/workspace/Main.java")))
+        #expect(descriptor.matches(URL(fileURLWithPath: "/workspace/main.example")))
     }
 
     @Test
@@ -206,11 +206,11 @@ struct PluginLiveActivationTests {
     }
 
     @Test
-    func theFirstPluginInIDOrderDebugsALanguageAndJavaKeepsTheHostAdapter() throws {
+    func theFirstPluginInIDOrderDebugsALanguage() throws {
         let fixture = try LiveFixture()
         defer { fixture.cleanUp() }
         let later = try fixture.package(Self.debugManifest(
-            id: "dev.example.zeta", adapterID: "zeta", languageIDs: ["rust", "java"]
+            id: "dev.example.zeta", adapterID: "zeta", languageIDs: ["rust", "example"]
         ))
         let earlier = try fixture.package(Self.debugManifest(
             id: "dev.example.alpha", adapterID: "alpha", languageIDs: ["rust", "zig"]
@@ -221,7 +221,7 @@ struct PluginLiveActivationTests {
         let adapters = fixture.registry.snapshot.debugAdapters
         #expect(adapters["rust"]?.adapter.id == "alpha")
         #expect(adapters["zig"]?.adapter.id == "alpha")
-        #expect(adapters["java"] == nil)
+        #expect(adapters["example"]?.adapter.id == "zeta")
     }
 
     /// The Debug button launches the open file, so an adapter that only

@@ -489,8 +489,6 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - `./scripts/macos/build/build-macos.sh --configuration debug --triple arm64-apple-macosx`
 - `node --test scripts/macos/build/build-macos.test.mjs scripts/resources/test-reuse-worktree-resources.mjs`：离线工具替身验证 scratch 清理与编译参数一致、按架构失效、旧策略迁移、失败不误记成功、继续编译、默认布局和资源复用拒绝。
 - `./scripts/macos/build/build-macos.sh --configuration debug --triple x86_64-apple-macosx`
-- `./scripts/plugins/build-official-plugins.sh --configuration debug --triple arm64-apple-macosx`
-- `./scripts/plugins/build-official-plugins.sh --configuration debug --triple x86_64-apple-macosx`
 - `./scripts/rust-core/verify-rust-core.sh`
 - `./scripts/windows/verify/verify-windows-boundaries.sh`
 - `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 30000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows/build/windows-frontend-install.test.ts`：Windows 无网络夹具用 IPC 确认子进程占用目录，再让安装失败，验证清理后冷重试成功、永久失败仍报错、成功退出也不留子进程、超时触发本地期限，且不清除有效缓存。
@@ -517,7 +515,6 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - `scripts/resources/worktree-resources.json`
 - `scripts/resources/reuse-worktree-resources.mjs`
 - `scripts/resources/test-reuse-worktree-resources.mjs`
-- `scripts/plugins/build-official-plugins.sh`
 - `scripts/rust-core/verify-rust-core.sh`
 - `scripts/macos/build/MacOS13SDKCompatibility.h`
 - `rust/`

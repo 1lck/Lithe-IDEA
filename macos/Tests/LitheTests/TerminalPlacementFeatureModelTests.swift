@@ -35,7 +35,7 @@ struct TerminalPlacementFeatureModelTests {
             try runtime.register(ModuleFactory(manifest: manifest) { InputTestDependency(manifest: manifest) })
         }
         let sessions = DebugAdapterSessionManager(providers: [
-            DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])
+            DebugProviderDescriptor(id: "example", displayName: "Example", fileExtensions: ["txt"])
         ]) { _, _ in InputTestDebugSession() }
         let feature = GenericDebugFeatureModel(paging: RustCoreBridge(), sessions: sessions)
         let graph = InputTestDebugGraph(feature: feature)
@@ -57,7 +57,7 @@ struct TerminalPlacementFeatureModelTests {
             model.cacheModuleCapability(try #require(capability), id: .debugWorkspace, moduleID: .debug)
             model.cacheModuleCapability(TerminalModuleCapability(feature: terminals), id: .terminalWorkspace, moduleID: .terminal)
             let root = URL(fileURLWithPath: "/workspace/debug-input")
-            let source = root.appendingPathComponent("Main.java")
+            let source = root.appendingPathComponent("Main.txt")
             let a = try sessions.activateNew(for: source, rootURL: root).id
             let b = try sessions.activateNew(for: source, rootURL: root).id
             let aTerminal = terminals.createSession(in: root, shellPath: "/bin/zsh")
@@ -106,7 +106,7 @@ struct TerminalPlacementFeatureModelTests {
             session.update(ownerID: owner, document: document, secondaryDocument: nil, preview: nil,
                 markdownScrollPosition: nil, model: model, fontSize: 14, fontFamily: "monospace",
                 theme: .init(colorTheme: .lithe, isDark: true, revealsWorkbenchBackground: false),
-                wrap: false, minimap: false, javaKeywordNavigationFilter: true, markers: [], secondaryMarkers: [])
+                wrap: false, minimap: false, markers: [], secondaryMarkers: [])
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
                                   styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false

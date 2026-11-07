@@ -836,7 +836,7 @@ struct PluginPackageStoreTests {
         )
     }
 
-    /// The Gradle provider fixture, with its provider launch replaced when
+    /// The build-provider contract fixture, with its provider launch replaced when
     /// `launch` is given. A packaged launch gets an executable script.
     private func makeProviderPackage(root: URL, launch: [String: Any]?) throws -> URL {
         let fixtureURL = DeclarativePluginTestSupport.repositoryRoot

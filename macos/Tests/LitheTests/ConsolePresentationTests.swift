@@ -147,7 +147,9 @@ struct ConsolePresentationTests {
         let text = (1...8).map { "\tat demo.Main.frame\($0)(Main.java:1)\n" }.joined()
             + String(repeating: "\tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1)\n", count: 5)
         let raw = NSAttributedString(string: text)
-        let presentation = ConsoleFoldPresentation()
+        // Internal prefixes are injected by whoever owns the runtime; the host has none built in.
+        #expect(ConsoleStackTraceFolding.regions(in: text).allSatisfy { $0.kind == "frames" })
+        let presentation = ConsoleFoldPresentation(internalPatterns: ["at java.util.concurrent.ThreadPoolExecutor"])
         let folded = presentation.project(raw, dark: true, fontSize: 13)
         #expect(folded.string.contains("<5 folded frames>"))
         let outer = try #require(presentation.regions.first(where: { $0.kind == "frames" }))

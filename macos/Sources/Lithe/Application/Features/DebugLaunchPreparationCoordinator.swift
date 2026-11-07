@@ -9,21 +9,10 @@ import LitheCoreContracts
 /// per-call closures.
 @MainActor
 final class DebugLaunchPreparationCoordinator {
-    enum PreparationError: LocalizedError {
-        case portUnavailable(Int)
-
-        var errorDescription: String? {
-            switch self {
-            case .portUnavailable(let port):
-                return L10n.string("Port \(String(port)) is already in use. Stop the process using it or change server.port in the Run configuration.")
-            }
-        }
-    }
-
-    private let notify: @MainActor (String) -> Void
+    private let notify: @MainActor (String, [String]) -> Void
     private weak var actions: (any DebugWorkflowActions)?
 
-    init(notify: @escaping @MainActor (String) -> Void) {
+    init(notify: @escaping @MainActor (String, [String]) -> Void) {
         self.notify = notify
     }
 
@@ -41,7 +30,7 @@ final class DebugLaunchPreparationCoordinator {
             actions.recordSave(document, previousText: previousText)
             return true
         } catch {
-            notify("Could not save \(document.url.lastPathComponent)")
+            notify("Could not save %@", [document.url.lastPathComponent])
             return false
         }
     }
@@ -52,44 +41,26 @@ final class DebugLaunchPreparationCoordinator {
         errorMessage: String?
     ) -> Bool {
         guard launch() else {
-            notify(errorMessage ?? "Could not start debugging")
+            notify(errorMessage ?? "Could not start debugging", [])
             actions?.showDebugToolWindow()
             return false
         }
         return true
     }
 
+    /// Resolves the launch configuration of the plugin whose debug adapter
+    /// serves the provider's language.
     func prepare(
         provider: LanguageProviderDescriptor,
         fileURL: URL,
         workspaceURL: URL,
-        runFeature: RunFeatureModel,
-        resolver: DebugLaunchConfigurationResolver,
-        portChecker: any DebugPortAvailabilityChecking,
-        resolveJavaTarget: @escaping () async throws -> JavaDebugLaunchTarget?
-    ) async throws -> DebugLaunchConfiguration {
-        if provider.id == "java",
-           let selected = runFeature.selectedConfiguration,
-           let port = runFeature.configuredServerPort(for: selected),
-           !portChecker.isPortAvailable(port) {
-            throw PreparationError.portUnavailable(port)
-        }
-
-        let selected = runFeature.selectedConfiguration
-        let configurations = runFeature.configurations
-        let selectedOptions = selected.map { runFeature.options(for: $0) }
-        let javaTarget = provider.id == "java" ? try await resolveJavaTarget() : nil
+        resolver: DebugLaunchConfigurationResolver
+    ) throws -> DebugLaunchConfiguration {
         try Task.checkCancellation()
         return try resolver.resolve(
             provider: provider,
             documentURL: fileURL,
-            workspaceURL: workspaceURL,
-            configurations: configurations,
-            selectedConfiguration: selected,
-            javaTarget: javaTarget,
-            options: { [runFeature] in
-                $0 == selected ? (selectedOptions ?? RunOptions()) : runFeature.options(for: $0)
-            }
+            workspaceURL: workspaceURL
         )
     }
 }

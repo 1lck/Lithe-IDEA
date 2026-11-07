@@ -614,16 +614,16 @@ mod tests {
             parent_process_id: 1,
             session_id: 10,
             has_controlling_terminal: false,
-            name: "java".into(),
-            executable_path: "/usr/bin/java".into(),
-            arguments: vec!["java".into(), "x".repeat(200)],
+            name: "tool-a".into(),
+            executable_path: "/usr/bin/tool-a".into(),
+            arguments: vec!["tool-a".into(), "x".repeat(200)],
             process_scope: None,
             agent_scope: None,
             working_directory: None,
         };
         let name = process.display_name();
         assert_eq!(name.chars().count(), DISPLAY_NAME_CHARACTERS);
-        assert!(name.starts_with("java x"));
+        assert!(name.starts_with("tool-a x"));
         assert!(name.ends_with('…'));
     }
 }

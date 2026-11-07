@@ -11,7 +11,7 @@ struct EditorClosingPreparationTests {
 
     @Test
     func holdsAllDocumentsUntilExplicitReleaseAndReleasesOnlyOnce() async throws {
-        let first = document("first.java"), second = document("second.java")
+        let first = document("first.txt"), second = document("second.txt")
         var held: [String] = []
         var released: [String] = []
         first.holdEditorForClose = { completion in
@@ -28,7 +28,7 @@ struct EditorClosingPreparationTests {
         #expect(released.isEmpty)
         #expect(preparation.matches([second, first]))
         #expect(!preparation.matches([first]))
-        #expect(!preparation.matches([first, document("second.java")]))
+        #expect(!preparation.matches([first, document("second.txt")]))
         preparation.release()
         preparation.release()
         #expect(released == ["second", "first"])
@@ -36,7 +36,7 @@ struct EditorClosingPreparationTests {
 
     @Test
     func failedAcquisitionReleasesEarlierDocuments() async {
-        let first = document("first.java"), second = document("second.java")
+        let first = document("first.txt"), second = document("second.txt")
         var releases = 0
         first.holdEditorForClose = { completion in
             completion(.success { releases += 1 })

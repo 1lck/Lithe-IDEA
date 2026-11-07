@@ -12,7 +12,7 @@ struct WorkbenchNotificationTests {
         let feature = WorkbenchNotificationFeatureModel()
         feature.setApplicationActive(false)
         defer { feature.clear() }
-        let key = "Java service failed to start: %@"
+        let key = "Could not connect to the Debug Adapter: %@"
         feature.show(key, arguments: ["connection refused"])
         feature.show(key, arguments: ["other failure"])
         feature.show(key, arguments: ["connection refused"])
@@ -24,8 +24,8 @@ struct WorkbenchNotificationTests {
         let resources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources")
         let bundle = try #require(Bundle(url: resources))
-        for (language, expected) in [("zh-Hans", "Java 服务启动失败：connection refused（2）"),
-                                      ("en", "Java service failed to start: connection refused (2)")] {
+        for (language, expected) in [("zh-Hans", "无法连接调试适配器：connection refused（2）"),
+                                      ("en", "Could not connect to the Debug Adapter: connection refused (2)")] {
             #expect(WorkbenchNotificationPresentation.message(notification.message, arguments: notification.arguments,
                 occurrenceCount: notification.occurrenceCount, locale: Locale(identifier: language), bundle: bundle) == expected)
         }
@@ -67,19 +67,6 @@ struct WorkbenchNotificationTests {
             installedPluginIDs: [DatabasePluginTransition.pluginID]))
         store.set(true, forKey: DatabasePluginTransition.suggestionKey)
         #expect(!DatabasePluginTransition.shouldSuggest(store: store, installedPluginIDs: none))
-    }
-
-    @Test func mavenRuntimeErrorUsesApplicationLanguage() throws {
-        let resources = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources")
-        let bundle = try #require(Bundle(url: resources))
-        let key = "Java runtime is not ready. Retry Maven reload."
-        for (language, expected) in [(AppLanguage.simplifiedChinese, "Java 运行时尚未就绪，请重试 Maven 重新加载。"),
-                                      (.english, key)] {
-            let error = NSError(domain: "MavenReload", code: 1,
-                userInfo: [NSLocalizedDescriptionKey: language.localizedString(key, bundle: bundle)])
-            #expect(error.localizedDescription == expected)
-        }
     }
 
     @Test
@@ -145,7 +132,7 @@ struct WorkbenchNotificationTests {
             }
         }
         var shortHeight: CGFloat = 0
-        for message in ["Java 服务正在准备", String(repeating: "A long notification must stay readable. ", count: 6)] {
+        for message in ["A short notification", String(repeating: "A long notification must stay readable. ", count: 6)] {
             let host = NSHostingView(rootView: WorkbenchNotificationBanner(message: message,
                 occurrenceCount: 1, dismiss: {})
                 .environment(\.colorScheme, scheme))
@@ -221,25 +208,25 @@ struct WorkbenchNotificationTests {
         feature.setApplicationActive(false)
         defer { feature.clear() }
 
-        feature.show("Java service is ready")
+        feature.show("Repeated notification")
         #expect(feature.notifications.map(\.occurrenceCount) == [1])
         #expect(feature.activeNotifications.map(\.occurrenceCount) == [1])
 
-        feature.show("Java service is ready")
+        feature.show("Repeated notification")
         feature.show("No usages found")
         feature.markAllRead()
-        let repeatedEntry = try #require(feature.notifications.first { $0.message == "Java service is ready" })
-        #expect(feature.notifications.map(\.message) == ["No usages found", "Java service is ready"])
+        let repeatedEntry = try #require(feature.notifications.first { $0.message == "Repeated notification" })
+        #expect(feature.notifications.map(\.message) == ["No usages found", "Repeated notification"])
 
-        feature.show("Java service is ready")
+        feature.show("Repeated notification")
 
         // The third appearance must reuse the existing row instead of appending one.
-        #expect(feature.notifications.map(\.message) == ["Java service is ready", "No usages found"])
+        #expect(feature.notifications.map(\.message) == ["Repeated notification", "No usages found"])
         #expect(feature.notifications.map(\.occurrenceCount) == [3, 1])
         #expect(!feature.notifications[0].isRead)
         #expect(feature.notifications[0].updatedAt >= repeatedEntry.updatedAt)
         // The balloon stack follows the merge instead of growing a second card.
-        #expect(feature.activeNotifications.map(\.message) == ["No usages found", "Java service is ready"])
+        #expect(feature.activeNotifications.map(\.message) == ["No usages found", "Repeated notification"])
         #expect(feature.activeNotifications.map(\.occurrenceCount) == [1, 3])
     }
 
@@ -391,10 +378,10 @@ struct WorkbenchNotificationTests {
             .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources")
         let bundle = try #require(Bundle(url: resources))
         let locale = Locale(identifier: language)
-        let expected = language == "en" ? "Java service is ready" : "Java 服务已就绪"
-        #expect(WorkbenchNotificationPresentation.message("Java service is ready", occurrenceCount: 1,
+        let expected = language == "en" ? "No usages found" : "没有找到调用位置"
+        #expect(WorkbenchNotificationPresentation.message("No usages found", occurrenceCount: 1,
             locale: locale, bundle: bundle) == expected)
-        #expect(WorkbenchNotificationPresentation.message("Java service is ready", occurrenceCount: 2,
+        #expect(WorkbenchNotificationPresentation.message("No usages found", occurrenceCount: 2,
             locale: locale, bundle: bundle) == (language == "en" ? expected + " (2)" : expected + "（2）"))
         #expect(WorkbenchNotificationPresentation.message("External diagnostic: Example", occurrenceCount: 1,
             locale: locale, bundle: bundle) == "External diagnostic: Example")

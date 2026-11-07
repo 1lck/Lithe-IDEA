@@ -4,11 +4,6 @@ import LitheModuleAPI
 import LitheCoreContracts
 import LitheGitModule
 
-enum JavaBuildFailurePolicy: String, Codable {
-    case ask
-    case alwaysContinue
-}
-
 @MainActor
 final class AppSettings: ObservableObject {
     nonisolated static let agentSelectionPreferenceKey = "lithe.agent.welcomeAgentChosen"
@@ -33,7 +28,6 @@ final class AppSettings: ObservableObject {
         static let editorFontFamily = "settings.editorFontFamily"
         static let editorSoftWrap = "settings.editorSoftWrap"
         static let editorMinimap = "settings.editorMinimap"
-        static let javaKeywordNavigationFilter = "settings.javaKeywordNavigationFilter"
         static let projectTreeRowHeight = "settings.projectTreeRowHeight"
         static let tabWidth = "settings.tabWidth"
         static let editorTabLayoutMode = "settings.editorTabLayoutMode"
@@ -78,7 +72,6 @@ final class AppSettings: ObservableObject {
         static let keyboardShortcutPresets = "settings.keyboardShortcutPresets"
         static let customLogDirectory = "settings.customLogDirectory"
         static let workbenchBackground = "settings.workbenchBackground"
-        static let javaBuildFailurePolicies = "settings.javaBuildFailurePolicies"
         static let processTermination = "settings.processTermination"
     }
 
@@ -167,11 +160,6 @@ final class AppSettings: ObservableObject {
     /// 折行布局对超大文件有行数阈值兜底，见 `LitheTextViewportLayout`。
     @Published var editorSoftWrapEnabled: Bool {
         didSet { defaults.set(editorSoftWrapEnabled, forKey: Key.editorSoftWrap) }
-    }
-    /// 跳过 Java 关键字的定义查询。关键字没有定义，但语言服务器对它们可能要等数秒；
-    /// 默认开启，关闭后恢复每次都向语言服务器查询的行为。
-    @Published var javaKeywordNavigationFilterEnabled: Bool {
-        didSet { defaults.set(javaKeywordNavigationFilterEnabled, forKey: Key.javaKeywordNavigationFilter) }
     }
     @Published var editorMinimapEnabled: Bool {
         didSet { defaults.set(editorMinimapEnabled, forKey: Key.editorMinimap) }
@@ -468,7 +456,6 @@ final class AppSettings: ObservableObject {
     private var fileVisibilityRulesObservers: [UUID: () -> Void] = [:]
     private var logDirectoryObservers: [UUID: (URL) -> Void] = [:]
     private let workbenchBackgroundSourceDidChange = PassthroughSubject<Void, Never>()
-    private var javaBuildFailurePolicies: [String: JavaBuildFailurePolicy] = [:]
 
     init(
         store: any KeyValueStore,
@@ -512,7 +499,6 @@ final class AppSettings: ObservableObject {
         )
         editorSoftWrapEnabled = defaults.object(forKey: Key.editorSoftWrap) as? Bool ?? false
         editorMinimapEnabled = defaults.object(forKey: Key.editorMinimap) as? Bool ?? true
-        javaKeywordNavigationFilterEnabled = defaults.object(forKey: Key.javaKeywordNavigationFilter) as? Bool ?? true
         projectTreeRowHeight = defaults.object(forKey: Key.projectTreeRowHeight) as? Double ?? 24
         editorTabLayoutMode = EditorTabLayoutMode(
             rawValue: defaults.string(forKey: Key.editorTabLayoutMode) ?? ""
@@ -595,10 +581,6 @@ final class AppSettings: ObservableObject {
             .flatMap { decodeStored([String: UUID].self, from: $0, stage: "StringUUID") } ?? [:]
         agentAccountSnapshots = defaults.data(forKey: Key.agentAccountSnapshots)
             .flatMap { decodeStored([String: AgentAccountSnapshot].self, from: $0, stage: "StringAgentAccountSnapshot") } ?? [:]
-        if let data = defaults.data(forKey: Key.javaBuildFailurePolicies),
-           let saved = decodeStored([String: JavaBuildFailurePolicy].self, from: data, stage: "StringJavaBuildFailurePolicy") {
-            javaBuildFailurePolicies = saved
-        }
         pendingDecodeFailures = decodeFailures
         repairImportedAgentProviders()
         AppThemeRuntime.shared.activate(colorTheme)
@@ -732,26 +714,6 @@ final class AppSettings: ObservableObject {
         terminalShellPathOverride.isEmpty ? terminalShell.path : terminalShellPathOverride
     }
 
-    func javaBuildFailurePolicy(for workspaceURL: URL) -> JavaBuildFailurePolicy {
-        javaBuildFailurePolicies[Self.javaWorkspacePreferenceKey(workspaceURL)] ?? .ask
-    }
-
-    func setJavaBuildFailurePolicy(_ policy: JavaBuildFailurePolicy, for workspaceURL: URL) {
-        let key = Self.javaWorkspacePreferenceKey(workspaceURL)
-        if policy == .ask {
-            javaBuildFailurePolicies[key] = nil
-        } else {
-            javaBuildFailurePolicies[key] = policy
-        }
-        if let data = try? JSONEncoder().encode(javaBuildFailurePolicies) {
-            defaults.set(data, forKey: Key.javaBuildFailurePolicies)
-        }
-    }
-
-    private static func javaWorkspacePreferenceKey(_ workspaceURL: URL) -> String {
-        workspaceURL.standardizedFileURL.resolvingSymlinksInPath().path
-    }
-
     func selectTerminalShell(path: String) {
         terminalShell = .system
         terminalShellPathOverride = path
@@ -851,7 +813,6 @@ final class AppSettings: ObservableObject {
         editorFontFamily = EditorFontDefaults.monospacedFamily
         editorSoftWrapEnabled = false
         editorMinimapEnabled = true
-        javaKeywordNavigationFilterEnabled = true
         projectTreeRowHeight = 24
         editorTabLayoutMode = .singleLine
         showCodeVision = true
@@ -895,8 +856,6 @@ final class AppSettings: ObservableObject {
         keyboardShortcutPreset = .macOS
         defaults.set(KeyboardShortcutPreset.macOS.rawValue, forKey: Key.keyboardShortcutPreset)
         setKeyboardShortcutOverrides([:])
-        javaBuildFailurePolicies = [:]
-        defaults.set(nil, forKey: Key.javaBuildFailurePolicies)
         // All stored properties are initialized; the snapshot can now read self.
         updateNetworkProxyPreferences()
     }

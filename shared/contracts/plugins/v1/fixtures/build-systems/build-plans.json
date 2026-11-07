@@ -853,14 +853,16 @@
             {
               "id": "java",
               "displayName": null,
-              "hostManaged": true,
+              "hostManaged": false,
               "minimumVersion": "17",
-              "executables": [],
-              "version": {
-                "arguments": [
-                  "-version"
-                ]
-              }
+              "executables": [
+                {
+                  "kind": "toolchain",
+                  "toolchainID": "java",
+                  "root": "build-logic"
+                }
+              ],
+              "version": null
             }
           ],
           "version": {
@@ -912,14 +914,16 @@
             {
               "id": "java",
               "displayName": null,
-              "hostManaged": true,
+              "hostManaged": false,
               "minimumVersion": "17",
-              "executables": [],
-              "version": {
-                "arguments": [
-                  "-version"
-                ]
-              }
+              "executables": [
+                {
+                  "kind": "toolchain",
+                  "toolchainID": "java",
+                  "root": "."
+                }
+              ],
+              "version": null
             }
           ],
           "version": {
@@ -1324,317 +1328,6 @@
             "message": "Parameter 'x' is never used"
           }
         ]
-      }
-    },
-    {
-      "name": "maven package of a nested module",
-      "plugin": "build-host-integration.plugin.json",
-      "buildSystemID": "maven",
-      "operation": "taskPlan",
-      "request": {
-        "root": ".",
-        "task": "package",
-        "project": {
-          "path": "services/api",
-          "name": "api"
-        },
-        "options": {
-          "profiles": [
-            "prod",
-            "dev"
-          ],
-          "settingsFile": ".mvn/settings.xml",
-          "skipTests": true
-        }
-      },
-      "expected": {
-        "status": "ok",
-        "plan": {
-          "buildSystemID": "maven",
-          "root": ".",
-          "arguments": [
-            "-B",
-            "-ntp",
-            "-P",
-            "dev,prod",
-            "-s",
-            ".mvn/settings.xml",
-            "-pl",
-            "services/api",
-            "-DskipTests",
-            "package"
-          ],
-          "environment": {},
-          "workingDirectory": ".",
-          "execution": "task",
-          "optionFingerprint": "95ff1a19ebcca4fea317da5ea8bf9141011ac13edc938b8d945003e6f6c27e4f"
-        }
-      }
-    },
-    {
-      "name": "maven clean of the reactor root",
-      "plugin": "build-host-integration.plugin.json",
-      "buildSystemID": "maven",
-      "operation": "taskPlan",
-      "request": {
-        "root": ".",
-        "task": "clean",
-        "project": {
-          "path": ".",
-          "name": "shop"
-        },
-        "options": {
-          "skipTests": true,
-          "offline": true
-        }
-      },
-      "expected": {
-        "status": "ok",
-        "plan": {
-          "buildSystemID": "maven",
-          "root": ".",
-          "arguments": [
-            "-B",
-            "-ntp",
-            "-o",
-            "clean"
-          ],
-          "environment": {},
-          "workingDirectory": ".",
-          "execution": "task",
-          "optionFingerprint": "968b5d1a02c73b2e9a9a9e990dfcac990e10bbf3e4d81dd0953a90b280705bf2"
-        }
-      }
-    },
-    {
-      "name": "maven goal of a reactor below the workspace root",
-      "plugin": "build-host-integration.plugin.json",
-      "buildSystemID": "maven",
-      "operation": "taskPlan",
-      "request": {
-        "root": "backend",
-        "task": "goal",
-        "project": {
-          "path": "backend/api",
-          "name": "api"
-        },
-        "userArguments": [
-          "dependency:analyze"
-        ]
-      },
-      "expected": {
-        "status": "ok",
-        "plan": {
-          "buildSystemID": "maven",
-          "root": "backend",
-          "arguments": [
-            "-B",
-            "-ntp",
-            "-pl",
-            "api",
-            "dependency:analyze"
-          ],
-          "environment": {},
-          "workingDirectory": "backend",
-          "execution": "task",
-          "optionFingerprint": "9fa844c10ea70360fb5f1384b879d4f818aa8bdd9b9834a3f05fbdf791b3679d"
-        }
-      }
-    },
-    {
-      "name": "maven test of one method",
-      "plugin": "build-host-integration.plugin.json",
-      "buildSystemID": "maven",
-      "operation": "testPlan",
-      "request": {
-        "root": ".",
-        "project": {
-          "path": "api",
-          "name": "api"
-        },
-        "suite": "com.example.OrderTest",
-        "case": "refunds"
-      },
-      "expected": {
-        "status": "ok",
-        "plan": {
-          "buildSystemID": "maven",
-          "root": ".",
-          "arguments": [
-            "-B",
-            "-ntp",
-            "-pl",
-            "api",
-            "-Dtest=com.example.OrderTest#refunds",
-            "-Dsurefire.failIfNoSpecifiedTests=false",
-            "test"
-          ],
-          "environment": {},
-          "workingDirectory": ".",
-          "execution": "task",
-          "optionFingerprint": "9fa844c10ea70360fb5f1384b879d4f818aa8bdd9b9834a3f05fbdf791b3679d",
-          "results": {
-            "decoder": "hostIntegration"
-          }
-        }
-      }
-    },
-    {
-      "name": "maven test refuses a case without its suite",
-      "plugin": "build-host-integration.plugin.json",
-      "buildSystemID": "maven",
-      "operation": "testPlan",
-      "request": {
-        "root": ".",
-        "case": "refunds"
-      },
-      "expected": {
-        "status": "rejected",
-        "error": {
-          "code": "plugin.build.invalidSelection",
-          "message": "Maven cannot select this test case without its suite."
-        }
-      }
-    },
-    {
-      "name": "maven dependency tree of a nested module",
-      "plugin": "build-host-integration.plugin.json",
-      "buildSystemID": "maven",
-      "operation": "dependencyPlan",
-      "request": {
-        "root": ".",
-        "project": {
-          "path": "api",
-          "name": "api"
-        },
-        "outputFile": "${workspace}/state/tree.txt",
-        "options": {
-          "profiles": [
-            "dev"
-          ],
-          "skipTests": true
-        }
-      },
-      "expected": {
-        "status": "ok",
-        "plan": {
-          "buildSystemID": "maven",
-          "root": ".",
-          "arguments": [
-            "-B",
-            "-ntp",
-            "-P",
-            "dev",
-            "-DskipTests",
-            "-pl",
-            "api",
-            "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:tree",
-            "-Dverbose=true",
-            "-DoutputType=text",
-            "-Dtokens=standard",
-            "-DoutputFile=${workspace}/state/tree.txt",
-            "-DoutputEncoding=UTF-8",
-            "-DappendOutput=false",
-            "-Dstyle.color=never",
-            "-Duser.language=en",
-            "-Duser.country=US"
-          ],
-          "environment": {},
-          "workingDirectory": ".",
-          "execution": "task",
-          "optionFingerprint": "aab89ff0786aa5735c4ea95ad241d4645a9e7250848239a2c945a097da907e6e",
-          "output": "outputFile",
-          "decoder": "hostIntegration",
-          "executesProjectCode": true,
-          "mayUseNetwork": true
-        }
-      }
-    },
-    {
-      "name": "maven dependency tree of the reactor root",
-      "plugin": "build-host-integration.plugin.json",
-      "buildSystemID": "maven",
-      "operation": "dependencyPlan",
-      "request": {
-        "root": ".",
-        "outputFile": "${workspace}/state/tree.txt"
-      },
-      "expected": {
-        "status": "ok",
-        "plan": {
-          "buildSystemID": "maven",
-          "root": ".",
-          "arguments": [
-            "-B",
-            "-ntp",
-            "-N",
-            "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:tree",
-            "-Dverbose=true",
-            "-DoutputType=text",
-            "-Dtokens=standard",
-            "-DoutputFile=${workspace}/state/tree.txt",
-            "-DoutputEncoding=UTF-8",
-            "-DappendOutput=false",
-            "-Dstyle.color=never",
-            "-Duser.language=en",
-            "-Duser.country=US"
-          ],
-          "environment": {},
-          "workingDirectory": ".",
-          "execution": "task",
-          "optionFingerprint": "9fa844c10ea70360fb5f1384b879d4f818aa8bdd9b9834a3f05fbdf791b3679d",
-          "output": "outputFile",
-          "decoder": "hostIntegration",
-          "executesProjectCode": true,
-          "mayUseNetwork": true
-        }
-      }
-    },
-    {
-      "name": "maven compiler diagnostics",
-      "plugin": "build-host-integration.plugin.json",
-      "buildSystemID": "maven",
-      "operation": "decodeDiagnostics",
-      "request": {
-        "workspaceRoot": "${workspace}",
-        "root": ".",
-        "output": "[INFO] Compiling 3 source files\n[ERROR] ${workspace}/api/src/main/java/demo/Order.java:[12,5] cannot find symbol\n[WARNING] ${workspace}/api/src/main/java/demo/Old.java:[3,1] deprecated API\n"
-      },
-      "expected": {
-        "status": "ok",
-        "diagnostics": [
-          {
-            "path": "api/src/main/java/demo/Order.java",
-            "line": 12,
-            "column": 5,
-            "severity": "error",
-            "message": "cannot find symbol"
-          },
-          {
-            "path": "api/src/main/java/demo/Old.java",
-            "line": 3,
-            "column": 1,
-            "severity": "warning",
-            "message": "deprecated API"
-          }
-        ]
-      }
-    },
-    {
-      "name": "unknown build system",
-      "plugin": "build-host-integration.plugin.json",
-      "buildSystemID": "gradle",
-      "operation": "taskPlan",
-      "request": {
-        "root": ".",
-        "task": "clean"
-      },
-      "expected": {
-        "status": "rejected",
-        "error": {
-          "code": "plugin.build.unavailable",
-          "message": "The plugin declares no build system gradle."
-        }
       }
     },
     {
@@ -2281,57 +1974,6 @@
           "executesProjectCode": true,
           "mayUseNetwork": false,
           "optionFingerprint": "76fb003af18a13133b3836c6d0870963ebe7baab6b4cd6bbd4ec61e30334492f"
-        }
-      }
-    },
-    {
-      "name": "maven accepts Java 8 stderr with environment options",
-      "plugin": "build-host-integration.plugin.json",
-      "buildSystemID": "maven",
-      "operation": "checkToolVersion",
-      "request": {
-        "runtime": "java",
-        "output": "Picked up JAVA_TOOL_OPTIONS: -Xmx512m\njava version \"1.8.0_452\"\nJava(TM) SE Runtime Environment (build 1.8.0_452-b09)\n"
-      },
-      "expected": {
-        "status": "ok",
-        "version": {
-          "satisfied": true,
-          "version": "8.0"
-        }
-      }
-    },
-    {
-      "name": "maven rejects Java 7 against minimum 8",
-      "plugin": "build-host-integration.plugin.json",
-      "buildSystemID": "maven",
-      "operation": "checkToolVersion",
-      "request": {
-        "runtime": "java",
-        "output": "java version \"1.7.0_80\"\n"
-      },
-      "expected": {
-        "status": "ok",
-        "version": {
-          "satisfied": false,
-          "version": "7.0"
-        }
-      }
-    },
-    {
-      "name": "gradle reports Java 8 as below minimum 17",
-      "plugin": "build-command-output-file.plugin.json",
-      "buildSystemID": "gradle",
-      "operation": "checkToolVersion",
-      "request": {
-        "runtime": "java",
-        "output": "openjdk version \"1.8.0_452\"\n"
-      },
-      "expected": {
-        "status": "ok",
-        "version": {
-          "satisfied": false,
-          "version": "8.0"
         }
       }
     }

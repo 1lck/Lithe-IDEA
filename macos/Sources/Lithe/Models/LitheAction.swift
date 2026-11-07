@@ -72,7 +72,6 @@ enum LitheActionRegistry {
             action("close-project", model: model) { model.closeProject() },
             action("show-logs", model: model) { model.openLogs() },
             action("settings", model: model) { model.showSettings() },
-            action("rebuild-java-index", model: model) { model.rebuildJavaIndex() },
             action("save", model: model) { model.saveActiveDocument() },
             action("search-everywhere", model: model) { model.toggleSearchEverywhere() },
             action("find-action", model: model) { model.openFindAction() },
@@ -94,7 +93,6 @@ enum LitheActionRegistry {
             action("go-to-line", model: model) { model.showGoToLine() },
             action("go-to-definition", model: model) { model.goToDefinition() },
             action("find-usages", model: model) { model.findReferences() },
-            toolWindowAction("spring-endpoints", model: model),
             action("local-history", model: model) {
                 if let url = model.activeDocument?.url { model.showLocalHistory(for: url) }
             },

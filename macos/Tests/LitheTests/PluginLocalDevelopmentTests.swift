@@ -326,7 +326,6 @@ struct NodeLanguageToolEnvironmentTests {
         let node = URL(fileURLWithPath: "/fixture-tools/node")
         let service = ProjectRuntimeService(
             runtimeLocator: NodeEnvironmentTestRuntimeLocator(environment: ["PATH": "/usr/bin:/bin"]),
-            store: PluginLocalDevelopmentKeyValueStore(),
             toolDiscovery: FixedNodeToolDiscovery(node: node)
         )
 
@@ -350,12 +349,10 @@ struct NodeLanguageToolEnvironmentTests {
         )
         let withGlobalNode = ProjectRuntimeService(
             runtimeLocator: NodeEnvironmentTestRuntimeLocator(environment: ["PATH": "/usr/bin:/bin"]),
-            store: PluginLocalDevelopmentKeyValueStore(),
             toolDiscovery: FixedNodeToolDiscovery(candidates: [projectNode, homebrewNode])
         )
         let projectNodeOnly = ProjectRuntimeService(
             runtimeLocator: NodeEnvironmentTestRuntimeLocator(environment: ["PATH": "/usr/bin:/bin"]),
-            store: PluginLocalDevelopmentKeyValueStore(),
             toolDiscovery: FixedNodeToolDiscovery(candidates: [projectNode])
         )
 
@@ -389,7 +386,6 @@ struct NodeLanguageToolEnvironmentTests {
         )
         let service = ProjectRuntimeService(
             runtimeLocator: NodeEnvironmentTestRuntimeLocator(environment: ["PATH": "/usr/bin:/bin"]),
-            store: PluginLocalDevelopmentKeyValueStore(),
             toolDiscovery: FixedNodeToolDiscovery(candidates: [go])
         )
 
@@ -411,7 +407,6 @@ struct NodeLanguageToolEnvironmentTests {
         )
         let service = ProjectRuntimeService(
             runtimeLocator: NodeEnvironmentTestRuntimeLocator(environment: ["PATH": "/usr/bin:/bin"]),
-            store: PluginLocalDevelopmentKeyValueStore(),
             toolDiscovery: FixedNodeToolDiscovery(candidates: [projectGo])
         )
 
@@ -533,13 +528,7 @@ private struct NodeEnvironmentTestRuntimeLocator: RuntimeLocator {
     }
 
     func environment() -> [String: String] { environmentValues }
-    func discover() -> RuntimeDiscoveryResult { RuntimeDiscoveryResult(javaRuntimes: [], mavenRuntimes: []) }
-    func validJavaHome(path: String) -> URL? { nil }
-    func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate? { nil }
     func isExecutable(at url: URL) -> Bool { false }
-    func systemMavenExecutable() -> URL? { nil }
-    func mavenExecutable(forHomePath path: String) -> URL? { nil }
-    func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
 }
 
 private struct FixedNodeToolDiscovery: RuntimeToolDiscovery {

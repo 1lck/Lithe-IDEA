@@ -61,10 +61,6 @@ public struct DeclarativeLanguageServer: Equatable, Sendable {
     /// True from plugin API 2 on, where arguments are launch templates that
     /// Rust Core expands with host directories before the server starts.
     public let expandsLaunchTemplates: Bool
-    /// Native host integration the server declares, such as `jdt`. The host
-    /// enables that integration for this server instead of matching on its
-    /// language ID.
-    public let hostIntegrationID: String?
     /// How long the server's per-workspace state is kept (`languageServers`
     /// 3), or nil when the plugin declares none and the host keeps its own
     /// bounds.
@@ -136,6 +132,11 @@ public struct DeclarativeLanguageServerLaunchSource: Hashable, Sendable {
     /// True when the plugin's backend names the process at each start
     /// (`serverProcess` 3), so the host has no executable to look up first.
     public let resolvesLaunchWithBackend: Bool
+    /// True when the launch plan names a tool definition (`launch.kind`
+    /// `tool`): the host resolves that tool when the server starts and Rust
+    /// Core places the entry and arguments by the template of the definition,
+    /// so there is no executable to look up beforehand either.
+    public var launchesThroughTool: Bool
     /// How long the server's per-workspace state is kept, or nil when the
     /// plugin declares no bounds and the host deletes nothing.
     public let stateRetention: DeclarativeLanguageServer.StateRetention?
@@ -146,7 +147,8 @@ public struct DeclarativeLanguageServerLaunchSource: Hashable, Sendable {
         manifest: Data,
         packageURL: URL,
         resolvesLaunchWithBackend: Bool = false,
-        stateRetention: DeclarativeLanguageServer.StateRetention? = nil
+        stateRetention: DeclarativeLanguageServer.StateRetention? = nil,
+        launchesThroughTool: Bool = false
     ) {
         self.pluginID = pluginID
         self.languageID = languageID
@@ -154,6 +156,7 @@ public struct DeclarativeLanguageServerLaunchSource: Hashable, Sendable {
         self.packageURL = packageURL
         self.resolvesLaunchWithBackend = resolvesLaunchWithBackend
         self.stateRetention = stateRetention
+        self.launchesThroughTool = launchesThroughTool
     }
 }
 
@@ -483,20 +486,60 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
     public struct RuntimeRequirement: Equatable, Sendable {
         public let tool: String
         public let minimumVersion: String?
+        /// True when Core marks the requirement `kind` `tool`: the host resolves
+        /// it through a tool definition instead of its closed runtime list.
+        public let resolvesThroughDefinition: Bool
 
-        public init(tool: String, minimumVersion: String?) {
+        public init(tool: String, minimumVersion: String?, resolvesThroughDefinition: Bool = false) {
             self.tool = tool
             self.minimumVersion = minimumVersion
+            self.resolvesThroughDefinition = resolvesThroughDefinition
         }
     }
 
-    /// Complete argument list after the executable.
+    /// A process that names a tool definition (`launch.kind` `tool`). The host
+    /// resolves the tool through its definition, or runs the packaged runtime,
+    /// and Rust Core places every value below by the definition's `launch`
+    /// template, so the host never adds or orders arguments itself.
+    public struct ToolLaunch: Equatable, Sendable {
+        /// ID of the tool definition the process runs with.
+        public let tool: String
+        /// Absolute path of the entry file inside the installed package.
+        public let entry: String
+        /// Values for `${runtimeArguments}`, already expanded by Rust Core.
+        public let runtimeArguments: [String]
+        /// Lowest version of the tool the process accepts.
+        public let minimumVersion: String?
+        /// Package-relative runtime the plugin ships for this platform; when
+        /// present the host runs this file instead of looking the tool up.
+        public let packagedRuntime: String?
+
+        public init(
+            tool: String,
+            entry: String,
+            runtimeArguments: [String],
+            minimumVersion: String?,
+            packagedRuntime: String?
+        ) {
+            self.tool = tool
+            self.entry = entry
+            self.runtimeArguments = runtimeArguments
+            self.minimumVersion = minimumVersion
+            self.packagedRuntime = packagedRuntime
+        }
+    }
+
+    /// Complete argument list after the executable. For a tool launch this
+    /// holds only the plugin's own arguments, which fill `${arguments}`.
     public let arguments: [String]
     public let validationArguments: [String]
     public let initializationOptions: ToolingJSONValue?
     /// What the server reads through `workspace/configuration`, expanded with
     /// the current settings; `nil` when the server declares none.
     public var workspaceConfiguration: ToolingJSONValue? = nil
+    /// The tool-definition launch, or nil when the process starts a packaged
+    /// file, a system command or a closed-list runtime.
+    public var toolLaunch: ToolLaunch? = nil
     /// A declared host integration with its package-relative resource paths.
     public struct HostIntegration: Equatable, Sendable {
         public let id: String
@@ -810,7 +853,6 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 validationArguments: server.validationArguments,
                 runtimeTools: server.runtimeDependencies.map(\.tool),
                 expandsLaunchTemplates: decoded.pluginAPIVersion >= 2,
-                hostIntegrationID: server.hostIntegration?.id,
                 stateRetention: server.state?.retention.map {
                     DeclarativeLanguageServer.StateRetention(maxEntries: $0.maxEntries, maxAgeDays: $0.maxAgeDays)
                 }

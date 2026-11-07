@@ -275,7 +275,7 @@ activation event, and a plugin may consist of grammars alone.
 | `launch` | `{"kind": "packaged", "path": …}` runs an executable inside the package. `{"kind": "systemCommand", "commands": [...]}` lists bare command names the host resolves with its tool discovery (PATH, project toolchains, user overrides). API 2 adds `{"kind": "runtime", …}`; see Runtime launch. `serverProcess` 3 adds `{"kind": "backend", …}`, whose command line the plugin backend answers at each start; see [Backend-resolved launch](#backend-resolved-launch-serverprocess-3). |
 | `arguments` | Arguments passed to the server. Literal text at API 1; launch templates at API 2. |
 | `validationArguments` | Probe that must exit with status 0 before a candidate is used; empty means the host trusts the candidate and lets the LSP handshake decide. |
-| `runtimeDependencies` | Runtimes the host must discover and pass to the server. API 1 tools are `node` and `go`; API 2 adds `java`. The host exports each path as `LITHE_<TOOL>_PATH` (`LITHE_NODE_PATH`, `LITHE_GO_PATH`; a user-set value takes precedence) and prepends its directory to the server's `PATH`, because servers such as gopls run the tool themselves and an app opened from the Dock does not inherit the shell `PATH`. A project-local copy is never chosen, since servers start automatically when a file opens. |
+| `runtimeDependencies` | Runtimes the host must discover and pass to the server. The host runtimes are `node` and `go`; any other valid short tool-definition ID names the tool definition with that ID (see [Tool references](#tool-references-serverprocess-4)). The host exports each path as `LITHE_<TOOL>_PATH` (`LITHE_NODE_PATH`, `LITHE_GO_PATH`; a user-set value takes precedence) and prepends its directory to the server's `PATH`, because servers such as gopls run the tool themselves and an app opened from the Dock does not inherit the shell `PATH`. A project-local copy is never chosen, since servers start automatically when a file opens. |
 
 | `initializationOptions` | API 2. A JSON object sent as the LSP `initializationOptions`. Every string value inside it is a launch template. |
 | `hostIntegration` | API 2. Any plugin may declare one. A named integration implemented in the host, with the package resources it reads; see Host integrations. |
@@ -296,25 +296,33 @@ shipped by the plugin (`packagedRuntime`) or discovered by the host.
 
 | Field | Meaning |
 | --- | --- |
-| `tool` | `java` or `node`. It decides how the entry is passed to the runtime. |
-| `packagedRuntime` | Package-relative path of the runtime executable the plugin ships, for example `runtime/${arch}/bin/java`; `${arch}` is the only variable it may use. The host starts exactly this file: it never looks the tool up on the machine, and no user override or other plugin can replace it. A plugin that needs a specific runtime owns it this way, so the host carries no knowledge of where that runtime lives. It excludes `minimumVersion`. |
+| `tool` | `node`, the host runtime, or a tool-definition ID whose definition decides how the entry is passed (see [Tool references](#tool-references-serverprocess-4)). |
+| `packagedRuntime` | Package-relative path of the runtime executable the plugin ships, for example `runtime/${arch}/bin/node`; `${arch}` is the only variable it may use. The host starts exactly this file: it never looks the tool up on the machine, and no user override or other plugin can replace it. A plugin that needs a specific runtime owns it this way, so the host carries no knowledge of where that runtime lives. It excludes `minimumVersion`. |
 | `minimumVersion` | Lowest acceptable runtime version: one to three dot-separated numbers such as `21` or `18.17`, for a runtime the host discovers. Only the components it names are compared, so `21` accepts every 21.x. A runtime whose version cannot be read does not qualify. |
-| `runtimeArguments` | Launch templates placed before the entry, such as JVM options. |
-| `entry` | Package-relative entry file. The command line is `<java> <runtimeArguments> -jar <entry> <arguments>` for `java` and `<node> <runtimeArguments> <entry> <arguments>` for `node`. |
+| `runtimeArguments` | Launch templates placed before the entry, such as runtime options. |
+| `entry` | Package-relative entry file. For `node` the command line is `<node> <runtimeArguments> <entry> <arguments>`. |
 
 The launch tool is already a requirement and must not be repeated in
 `runtimeDependencies`. A runtime launch declares no `validationArguments`:
-the host's probe of the runtime is its version check. The launch plan carries
-the probe's `versionArguments`; the host runs the candidate with them and
-passes the output to `plugins.declarative.checkRuntimeVersion`, which returns
+the host's probe of the runtime is its version check. For `node` the launch
+plan carries the probe's `versionArguments` (`--version`); the host runs the
+candidate with them, capturing stderr together with stdout, and passes the
+output to `plugins.declarative.checkRuntimeVersion`, which returns
 `{satisfied, version?}`. A candidate that does not satisfy the requirement is
-not used, the same as a candidate that fails a validation probe. The probe
-is `-version` for `java`, which every JDK including Java 8 accepts and which
-prints to stderr (hosts capture it together with stdout), and `--version` for
-`node`. Java 8 and older report `1.<major>`, which is read as `<major>`.
-The reported version is the first dotted number in the probe output, ignoring
-lines that start with `Picked up ` (a JVM announcing `JAVA_TOOL_OPTIONS`
-before its version); see `fixtures/languages/runtime-versions.json`.
+not used, the same as a candidate that fails a validation probe. The reported
+version is the first dotted number on the first output line that contains a
+digit; see `fixtures/languages/runtime-versions.json`. Core probes no other
+runtime: `checkRuntimeVersion` answers `plugin.runtime.unsupported` for any
+other `tool`.
+
+Any other valid short tool-definition ID in `tool` (lowercase letters, digits
+and `-`, starting with a letter, at most 64 characters) is an implicit
+reference to the tool definition with the same ID, at every `serverProcess`
+version. Its launch plan has the tool shape of
+[Tool references](#tool-references-serverprocess-4): the definition's `launch`
+template places the entry, and `toolchains.checkVersion` checks
+`minimumVersion`. The host adds no runtime-specific option such as a `-jar`
+flag; the definition's template supplies whatever the tool needs.
 
 #### Tool references (`serverProcess` 4)
 
@@ -328,7 +336,7 @@ a process with in the top-level `requiresTools`, and the definitions come from
 | Field | Meaning |
 | --- | --- |
 | `requiresTools` | At most 32 tool-definition IDs, each short (`interpreter`) or plugin-qualified (`org.example.tools:interpreter`), without duplicates; stored sorted. Present exactly when `requires.serverProcess` is 4: the version without the list is `plugin.manifest.invalid` at `requires.serverProcess`, the list without the version is invalid at `requiresTools`. |
-| `launch.tool` of a `runtime` launch, `runtimeDependencies[].tool`, `runSelectedRuntime.tool` of a debug adapter | A tool-definition ID that `requiresTools` lists. An ID it does not list is `plugin.runtime.undeclared` with the `field` that names it. Versions 1 to 3 keep the closed lists and report `plugin.runtime.unsupported`. |
+| `launch.tool` of a `runtime` launch, `runtimeDependencies[].tool`, `runSelectedRuntime.tool` of a debug adapter | A tool-definition ID that `requiresTools` lists. An ID it does not list is `plugin.runtime.undeclared` with the `field` that names it. Versions 1 to 3 accept the closed lists (`node` to launch an entry, `node` and `go` as dependencies) and, without `requiresTools`, any valid short tool-definition ID as an implicit reference to the definition with the same ID; only an invalid ID is `plugin.runtime.unsupported`. |
 
 The definition, not the host, decides how its executable starts an entry: its
 `launch` template says where `runtimeArguments`, the entry and `arguments` go
@@ -431,10 +439,10 @@ process does not use `${workspaceStateDir}`; otherwise the request is
 
 | Field | Meaning |
 | --- | --- |
-| `launch` | `{kind: "packaged", path}`, `{kind: "systemCommand", commands}`, or `{kind: "runtime", tool, entry, packagedRuntime?, minimumVersion?, versionArguments?}`: what the host resolves to an executable. `packagedRuntime` is the expanded package-relative path of a shipped runtime. `minimumVersion` and `versionArguments` appear together when a discovered runtime must meet a minimum version. A [backend-resolved launch](#backend-resolved-launch-serverprocess-3) returns `{kind: "backend", function, timeoutMilliseconds}` here, and `{kind: "tool", tool}` appears in the plan `plugins.languageServers.decodeLaunch` returns. |
-| `arguments` | Complete argument list after the executable, including `-jar` and the entry of a runtime launch. |
+| `launch` | `{kind: "packaged", path}`, `{kind: "systemCommand", commands}`, or `{kind: "runtime", tool, entry, packagedRuntime?, minimumVersion?, versionArguments?}`: what the host resolves to an executable. `packagedRuntime` is the expanded package-relative path of a shipped runtime. `minimumVersion` and `versionArguments` appear together when a discovered runtime must meet a minimum version. A `runtime` launch whose `tool` names a tool definition, by `serverProcess` 4 or implicitly, returns the `{kind: "tool", …}` shape of [Tool references](#tool-references-serverprocess-4) instead. A [backend-resolved launch](#backend-resolved-launch-serverprocess-3) returns `{kind: "backend", function, timeoutMilliseconds}` here, and `{kind: "tool", tool}` appears in the plan `plugins.languageServers.decodeLaunch` returns. |
+| `arguments` | Complete argument list after the executable, including the entry of a `node` runtime launch. A tool-shaped launch returns only the plugin's own arguments. |
 | `validationArguments` | Expanded probe arguments. |
-| `runtimeRequirements` | `{tool, minimumVersion?}` for every runtime the host must discover, a discovered launch tool included, sorted by tool. A packaged runtime is not listed. Only the launch tool can carry a minimum version. |
+| `runtimeRequirements` | `{tool, minimumVersion?, kind?}` for every runtime the host must discover, a discovered launch tool included, sorted by tool. `kind: "tool"` marks a tool definition the host resolves through [toolchains](toolchains/README.md); without it the tool is a host runtime. A packaged runtime is not listed. Only the launch tool can carry a minimum version. |
 | `initializationOptions` | Expanded options; absent when the server declares none. |
 | `requiredDirectories` | `state`, `workspaceState`, `log`, and/or `temporary`: the directories the host must create before starting the server. |
 | `requiredPackagePaths` | Sorted package-relative paths the launch points at. The host verifies each is inside the package and not a symbolic link before starting the server. |
@@ -673,12 +681,18 @@ declaring one:
 - The host creates the directories, starts the plugin backend if it is not
   running, and calls `function` through `lithe/function/invoke` with
   `resolveParams` and the workspace `context`. A host may also send `tools`,
-  `{<toolID>: {executable, home, version}}`, the resolution of each tool it
-  could find; Core does not validate it. The macOS host does not send `tools`
-  yet, so a function must not require it: it answers `{kind: "tool"}` and
-  lets the host resolve the tool. A failed or timed-out call, or an answer
-  for a context whose generation has changed, ends this start without a
-  process.
+  `{<toolID>: {executable, home, version}}`, the resolution of each tool the
+  manifest lists in `requiresTools` that it could find; Core does not
+  validate it. The macOS host resolves each required tool as an installation
+  with the user's choice and discovery, and leaves out a tool that is
+  missing, unusable, or inside the project; `home` and `version` are present
+  when the installation has them. A function must not require `tools` or any
+  entry in it: it answers `{kind: "tool"}` and lets the host resolve the
+  tool, and treats a missing entry as "configure nothing". A backend uses
+  `tools` to point its server at the same installation the host runs, for
+  example as the default runtime of a language server whose Run goes through
+  the tool. A failed or timed-out call, or an answer for a context whose
+  generation has changed, ends this start without a process.
 - The host passes `{manifest, languageID, request, result}` to
   `plugins.languageServers.decodeLaunch`, which returns `{status: "ok", plan}`
   or a rejection. The plan is an ordinary launch plan (`launch` is `packaged`
@@ -858,13 +872,13 @@ files sorted by path, or an empty list when no project marker is present.
 
 | Level | Adds |
 | --- | --- |
-| `1` | Languages, `packaged` and `systemCommand` language servers, `node` and `go` runtime dependencies, run and test providers. |
-| `2` | `runtime` launches with a packaged or discovered runtime, host integrations, the `java` runtime, launch templates, `initializationOptions`, and plugin settings. |
+| `1` | Languages, `packaged` and `systemCommand` language servers, `node` and `go` runtime dependencies and [implicit tool-definition references](#tool-references-serverprocess-4), run and test providers. |
+| `2` | `runtime` launches with a packaged or discovered runtime, host integrations, launch templates, `initializationOptions`, and plugin settings. |
 | `3` | Capability versions (`requires`), `buildSystems`: declarative build tools with detection, options, a project model, tasks, run entries, tests, diagnostics, dependencies, and sync, and [`vcsProviders`](#api-level-3-vcs-providers). |
 | `4` | [`debugAdapters`](#api-level-4-debug-adapters) and `serverProcess` 2 (`runSelectedRuntime`). |
 
 A level 2 feature in a level 1 manifest is refused with
-`plugin.manifest.invalid` (`plugin.runtime.unsupported` for the `java` tool),
+`plugin.manifest.invalid`,
 so a package cannot use a feature that hosts of its declared level would
 reject for a different reason. Level 1 language-server arguments stay literal
 at every host level.
@@ -886,7 +900,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `languages` | `languages[]` | `1`, `2` (adds [`grammar` and `configuration`](#grammars-and-editor-configuration-languages-2)) |
 | `packageTrust` | `vendor.bundledSignatureRequirement`: origin-scoped trust for a host-sealed bundled copy of a publisher-signed plugin | `1` |
 | `languageServers` | `languageServers[]` apart from their launch fields | `1`, `2` (adds [`workspaceConfiguration`](#workspace-configuration-languageservers-2)), `3` (adds the [session fields](#plugin-owned-sessions-languageservers-3)) |
-| `serverProcess` | The launch fields of language servers, of build providers with a process of their own, of VCS providers, and of the plugin backend: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1`, `2` (adds `runSelectedRuntime` for [debug adapters](#api-level-4-debug-adapters); level 4; v2 Core only), `3` (adds the [backend-resolved launch](#backend-resolved-launch-serverprocess-3) of a language server), `4` (names runtimes by [tool-definition ID](#tool-references-serverprocess-4)). Versions are cumulative: a manifest declares the lowest one covering every launch it uses. macOS advertises `1` and `3`, Windows `1` |
+| `serverProcess` | The launch fields of language servers, of build providers with a process of their own, of VCS providers, and of the plugin backend: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1`, `2` (adds `runSelectedRuntime` for [debug adapters](#api-level-4-debug-adapters); level 4; v2 Core only), `3` (adds the [backend-resolved launch](#backend-resolved-launch-serverprocess-3) of a language server), `4` (names runtimes by [tool-definition ID](#tool-references-serverprocess-4)). Versions are cumulative: a manifest declares the lowest one covering every launch it uses. macOS advertises `1`, `3`, and `4`, Windows `1` |
 | `executionProviders` | `executionProviders[]` | `1` |
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (web content), `3` (native controls), `4` ([backend-only commands](#backend-only-commands-ui-4)) |
@@ -1297,7 +1311,7 @@ declaration are relative, use `/`, and stay inside their base directory
 | --- | --- |
 | `detection` | `markers` are file names; a directory holding one is a candidate root. `nesting: "outermost"` folds deeper candidates into the outer instance (Gradle builds, Maven reactors); `"separate"` (default) keeps each (Cargo packages). `priority` (0–100, default 50) decides between plugins declaring the same ID; ties go to the smaller plugin ID. |
 | `invocation` | `executables` in preference order: `projectFile` (a wrapper inside the root, with `requires` files; always runs project code), `environment` (a path below a variable listed in `environmentInputs`), `command` (a bare name found on `PATH`), `runtime` (a declared runtime dependency itself). `platforms` limits a candidate. `globalArguments` precede every command. `version` probes the executable with literal `arguments` and a `pattern` whose first group is the version; `minimumVersion` needs a probe. |
-| `runtimeDependencies` | `java`, `node`, and `go` are host-managed: only `id` and `minimumVersion`, discovered with the user's runtime settings; `build.invocationPlan` returns the probe arguments Core reads their version with, so hosts keep no per-runtime probe. Any other ID describes its own `executables` and `version` probe, so the runtime list is open. |
+| `runtimeDependencies` | `node` and `go` are host-managed: only `id` and `minimumVersion`, discovered with the user's runtime settings; `build.invocationPlan` returns the probe arguments Core reads their version with, so hosts keep no per-runtime probe. Any other runtime without `executables` names the [tool definition](toolchains/README.md) with the same ID, so its `id` must be a valid tool-definition ID and it declares only `minimumVersion`: `build.invocationPlan` returns it with `hostManaged: false`, `version: null`, and the single candidate `{ "kind": "toolchain", "toolchainID": <id>, "root": <root> }`, whose resolution checks `minimumVersion`, and `build.checkToolVersion` for it is `plugin.build.unavailable` because Core reads no version. This needs no `executableResolution` 2. Any other runtime describes its own `executables` and `version` probe, so the runtime list is open; a runtime whose only candidate is a `toolchain` candidate may omit the probe, since the definition checks the version. |
 | `options` | Build dimensions the user chooses: `boolean`, `singleSelect`, `multiSelect`, `text`, `file`, `directory`. Each contributes `arguments` and `environment` (with `${value}`) when it has a value. Choices are declared, come from the model (`choicesFromModel`), or are free (`allowCustom`). |
 | `provider` | The process that answers model and dependency requests when no command prints them; see [Build providers](#build-providers). |
 | `model` | `static` (a `toml` file read during detection, no process), `command` (a command whose output Core decodes; it states `executesProjectCode` and `mayUseNetwork`), `provider`, or `hostIntegration`. |
@@ -1308,7 +1322,6 @@ declaration are relative, use `/`, and stay inside their base directory
 | `dependencies` | A command (with `scopes`) whose output Core decodes, as a flat list through a `map` or as a tree from `litheDependencies`; `provider` (with `scopes`, `workspace` and `project` only); or `hostIntegration`. |
 | `sync` | Files whose change makes the model stale, relative to the root and to each project. |
 | `layout` | `excluded` directories relative to each project, added to every project as `excluded` content roots. |
-| `languageImport` | The project import Lithe's Java language server performs for this build system: `kind` `maven` or `gradle`, and `options` mapping its settings to the plugin's own option IDs. `maven` has `profiles` (`multiSelect`), `settingsFile` (`file`) and `localRepository` (`directory`); `gradle` has `offline` (`boolean`) and `gradleUserHome` (`directory`). `build.languageImport` turns the user's values into the `mavenContext` or `javaGradle` input of `lsp.startServer`; settings without an option keep the language server's defaults. |
 
 With `requires.buildSystems: 3`, an option may declare `scope: "instance"`.
 Omitted scope (or `"workspace"`) keeps workspace/build-system storage. Instance
@@ -2395,7 +2408,7 @@ generator ID.
 | `enum` | One option | `options` (1–16 `{value, title}`), `default` (the first option otherwise), `presentation` (`segmented` or `menu`), `maximumVersion` |
 | `boolean` | `true` or `false` | `default` |
 | `multiSelect` | A list of options, kept in declaration order | `options` (1–128, each with an optional `group` heading), `default` |
-| `runtime` | A host-discovered installation (`projectGenerators` 1 only) | `runtime` (`java`), `minimumVersion`, `optional`. The host chooses the initial value. |
+| `runtime` | A host-discovered installation (`projectGenerators` 1 only) | `runtime` (a valid tool-definition ID; any other value is `plugin.manifest.invalid`), `minimumVersion`, `optional`. The host chooses the initial value. |
 | `tool` | An installation of a [tool definition](toolchains/README.md), by home directory (`projectGenerators` 2 only) | `tool` (a tool definition ID), `minimumVersion`, `pinAs`, `optional`. See [Tool fields](#tool-fields). |
 
 `maximumVersion` is a template over earlier fields naming the highest version
@@ -3324,6 +3337,18 @@ workspace context:
   windows. A private process started by the plugin is not a substitute. Click executions are not cancelled by unrelated re-parsing;
   withdrawing the binding, ending its session/context or tearing down the owning
   editor cancels them. The host never retries side effects automatically.
+- Toolbar and menu Run/Debug on macOS reuse these actions for a language the
+  package declares in `languages` without an execution or debug module and
+  without the matching `hostCapabilities` entry: with a current-file Run
+  configuration the host saves the document, collects the document's actions as
+  the gutter does, and invokes the first action (ordered by range start) whose
+  icon is `run` or `run-all`; Debug invokes that action's first alternative whose
+  icon is `debug`, else the first action whose own icon is `debug`. No matching
+  action, a stale document or a withdrawn binding produces a user-visible notice
+  and nothing starts. This is only a different entry point to the plugin's own
+  function; the host still never starts code because of an icon, so the plugin
+  decides what the action does and still uses `lithe/host/run/start` or
+  `lithe/host/debug/start` to run it.
 - Registration/collection validation is shared Core command
   `plugins.editorActions.decode`; `version: 2` with the host's icons and source
   bound admits alternatives and click results (`kind: invokeResult`), and version 1
@@ -4232,8 +4257,10 @@ against fresh native evidence and directory pins. Existing host registry IDs
 remain only for their unmigrated consumers. Unavailable selections are terminal,
 including when a prerequisite runtime fails first; they cannot silently fall
 back to Provider discovery.
-Host-managed `java`, `node` or `go` dependencies may select one such candidate,
-while retaining Core's version probe. Maven declares its namespace-owned tool
+A host-managed `node` or `go` dependency may select one such candidate,
+while retaining Core's version probe. Any other dependency that declares no
+`executables` is already this candidate for the definition with its own ID, and
+that definition checks `minimumVersion`. Maven declares its namespace-owned tool
 and uses the short `java` definition for its Java prerequisite; no Maven-specific
 JDK registry entry is added. Its backend bootstrap remains a separate consumer.
 Passive import performs no version or runtime probes; a definition that requires

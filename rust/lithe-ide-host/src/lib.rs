@@ -699,8 +699,8 @@ mod tests {
                 "NOT_SUPPORTED",
             ),
             (
-                "lithe_environment_configure",
-                json!({"settingsPath":"/fixture/settings.xml"}),
+                "lithe_build_configure",
+                json!({"instanceID":"example:.","optionID":"offline","value":true,"settingsPath":"/fixture/settings.xml"}),
                 "INVALID_ARGUMENTS",
             ),
         ] {

@@ -9,9 +9,6 @@ pub(crate) mod files;
 mod history;
 pub(crate) mod indexing;
 mod markdown;
-mod maven;
-mod maven_dependency_tree;
-mod maven_test_reports;
 mod name_matching;
 pub(crate) mod name_ranking;
 pub(crate) mod recent_projects;
@@ -23,11 +20,6 @@ pub(crate) use document_lifecycle::*;
 pub(crate) use files::*;
 pub(crate) use history::*;
 pub(crate) use markdown::*;
-pub(crate) use maven::*;
-pub(crate) use maven_dependency_tree::{
-    dependencies, dependency_tree_arguments, validated_output_file, MavenDependenciesRequest,
-};
-pub(crate) use maven_test_reports::MavenTestReportsRequest;
 
 pub use files::{
     filter_workspace_changes, is_workspace_event_relevant, WorkspaceChangeFilterRequest,

@@ -28,7 +28,7 @@ struct RunConfigurationSettingsView: View {
             // A newer activation task owns the selection once this one is cancelled.
             guard !Task.isCancelled else { return }
             selection.finishActivation(activated)
-            // The editor shows the JDK an automatic or inherited value resolves to.
+            // The editor shows the toolchain an automatic or inherited value resolves to.
             await model.runtimeFeature.ensureRuntimesDiscovered()
         }
     }

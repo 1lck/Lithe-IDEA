@@ -1,16 +1,17 @@
 //! Detected run configurations, held in memory for each workspace.
 //!
-//! Generation derives the detected layer from the project tree and, for Java,
-//! from the language service's answer. That makes it session state, not a
+//! Generation derives the detected layer from the project tree and from the
+//! runs build provider plugins report. That makes it session state, not a
 //! project document: it lives here, keyed by workspace, and is replaced by each
 //! generation. Nothing is written into the workspace, so opening a project
 //! never fails on a read-only checkout and never leaves files for version
 //! control. Only configurations a user saves are project documents.
 //!
-//! The one thing worth carrying across sessions is the Java entry points JDT
-//! reported last time, so the Run list is complete before the language service
-//! answers again. Hosts pass an application cache directory for that; the cache
-//! is an optimization, and failing to read or write it changes nothing else.
+//! The one thing worth carrying across sessions is the last generated document,
+//! so retained entries keep their ids and the Run list is complete before
+//! providers answer again. Hosts pass an application cache directory for that;
+//! the cache is an optimization, and failing to read or write it changes
+//! nothing else.
 
 use super::configuration::{RunConfigurationDocument, ToolchainRequirementsDocument};
 use serde_json::{json, Value};
@@ -116,15 +117,6 @@ pub(crate) fn seed(root: &Path, document: Option<Value>, requirements: Option<Va
             requirements,
         },
     );
-}
-
-/// Forgets `root`, as a new process would.
-#[cfg(test)]
-pub(crate) fn forget(root: &Path) {
-    layers()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .remove(&key(root));
 }
 
 /// Records `document` for the next session; cache failures retain the live result

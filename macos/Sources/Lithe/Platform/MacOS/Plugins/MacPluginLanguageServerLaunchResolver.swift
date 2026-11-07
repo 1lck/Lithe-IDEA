@@ -4,7 +4,7 @@ import Foundation
 import LitheCoreContracts
 import LitheLanguageIntelligenceModule
 
-// Note: Java 语言服务器插件化与启动计划见 .agents/notes/implemented/architecture/2026-10-13-java-language-server-as-declarative-plugin.md
+// Note: 语言服务器插件化与启动计划见 .agents/notes/implemented/architecture/2026-10-12-declarative-language-plugins.md
 
 /// Writable state of declarative plugins' language servers. It lives outside
 /// both the app bundle and the installed plugin packages, which stay
@@ -332,12 +332,17 @@ struct MacPluginLanguageServerLaunchResolver {
             case commands([String])
             /// A runtime the host discovers with the user's settings.
             case runtime(String, versionRequirement: LanguageServerExecutableVersionRequirement?)
+            /// A tool definition the host resolves through its four layers, or the
+            /// runtime the plugin ships. The definition's `launch` template places
+            /// the entry and runtime arguments, and `arguments` fill `${arguments}`.
+            case tool(DefinedToolProcessLaunch)
         }
 
         let executable: Executable
         let arguments: [String]
         let initializationOptions: ToolingJSONValue?
-        /// Runtimes the process needs on `PATH`.
+        /// Runtimes the process needs on `PATH`. Under a tool launch these
+        /// are only the closed-list runtimes; `.tool` resolves the others.
         let runtimeTools: [String]
         let executesProjectCode: Bool
         let mayUseNetwork: Bool
@@ -598,50 +603,81 @@ struct MacPluginLanguageServerLaunchResolver {
                 .runtime(tool, versionRequirement: plan.executableVersionRequirement)
             }
         case nil:
-            throw DeclarativePluginRejection(
-                code: "plugin.launch.unavailable",
-                message: "Rust Core returned a provider launch without an executable."
-            )
+            // A tool launch names no executable; its definition starts it.
+            guard let launch = plan.toolLaunch else {
+                throw DeclarativePluginRejection(
+                    code: "plugin.launch.unavailable",
+                    message: "Rust Core returned a provider launch without an executable."
+                )
+            }
+            executable = .tool(try toolProcess(launch, plan: plan, packageURL: root))
         }
         try createRequiredDirectories(of: plan, request: request)
         return BuildProviderProcess(
             executable: executable,
             arguments: plan.arguments,
             initializationOptions: plan.initializationOptions,
-            runtimeTools: plan.runtimeRequirements.map(\.tool),
+            runtimeTools: Self.closedListRuntimeTools(of: plan),
             executesProjectCode: executesProjectCode,
             mayUseNetwork: mayUseNetwork,
             settings: launchSettings
         )
     }
 
-    /// A declared host integration with its resources located in the package.
-    struct HostIntegration: Equatable {
-        let id: String
-        /// Entry file of the runtime launch the integration builds on.
-        let entryURL: URL?
-        let resources: [String: [URL]]
-
-        func resource(_ name: String) -> URL? { resources[name]?.first }
+    /// A tool launch with the runtime the plugin ships, when it ships one,
+    /// checked to be a runnable file inside the package.
+    private func toolProcess(
+        _ launch: DeclarativeLanguageServerLaunchPlan.ToolLaunch,
+        plan: DeclarativeLanguageServerLaunchPlan,
+        packageURL: URL
+    ) throws -> DefinedToolProcessLaunch {
+        DefinedToolProcessLaunch(
+            launch: launch,
+            packagedRuntimeURL: try launch.packagedRuntime.map { try packagedExecutable($0, packageURL: packageURL) },
+            requirements: plan.runtimeRequirements.filter(\.resolvesThroughDefinition)
+        )
     }
 
-    /// Locates the files a server's host integration consumes. Every path is
-    /// verified to exist inside the package before host code is given it.
-    func hostIntegration(for source: DeclarativeLanguageServerLaunchSource) throws -> HostIntegration? {
+    /// The runtimes the host's closed list puts on `PATH`. A tool launch
+    /// resolves its definition requirements itself, so they are left out;
+    /// every other launch keeps all of them as before.
+    private static func closedListRuntimeTools(of plan: DeclarativeLanguageServerLaunchPlan) -> [String] {
+        guard plan.toolLaunch != nil else { return plan.runtimeRequirements.map(\.tool) }
+        return plan.runtimeRequirements.filter { !$0.resolvesThroughDefinition }.map(\.tool)
+    }
+
+    /// A language server whose launch names a tool definition: the plan is
+    /// expanded for the workspace, its package paths verified and its
+    /// directories created. The caller resolves the tool when it starts and
+    /// expands the command line with `launch.arguments` as `${arguments}`.
+    func resolveToolLaunch(
+        _ source: DeclarativeLanguageServerLaunchSource,
+        workspaceRootURL: URL
+    ) throws -> (process: DefinedToolProcessLaunch, runtimeTools: [String], launch: ResolvedLanguageServerLaunch) {
+        let request = request(for: source, workspaceRootURL: workspaceRootURL)
         let plan = try planner.languageServerLaunchPlan(
             manifest: source.manifest,
             languageID: source.languageID,
-            request: request(for: source, workspaceRootURL: source.packageURL)
+            request: request
         )
-        guard let integration = plan.hostIntegration else { return nil }
+        guard let launch = plan.toolLaunch else {
+            throw DeclarativePluginRejection(
+                code: "plugin.launch.unavailable",
+                message: "Rust Core returned no tool launch for \(source.languageID)."
+            )
+        }
         try verifyPackagePaths(plan.requiredPackagePaths, packageURL: source.packageURL)
-        let root = source.packageURL.standardizedFileURL
-        return HostIntegration(
-            id: integration.id,
-            entryURL: plan.entryPath.map { root.appendingPathComponent($0).standardizedFileURL },
-            resources: integration.resources.mapValues { paths in
-                paths.map { root.appendingPathComponent($0).standardizedFileURL }
-            }
+        let process = try toolProcess(launch, plan: plan, packageURL: source.packageURL.standardizedFileURL)
+        try createRequiredDirectories(of: plan, request: request)
+        return (
+            process: process,
+            runtimeTools: Self.closedListRuntimeTools(of: plan),
+            launch: ResolvedLanguageServerLaunch(
+                arguments: plan.arguments,
+                initializationOptions: plan.initializationOptions,
+                workspaceConfiguration: plan.workspaceConfiguration,
+                sessionPolicy: plan.sessionPolicy
+            )
         )
     }
 
@@ -652,6 +688,9 @@ struct MacPluginLanguageServerLaunchResolver {
         /// Runtime shipped inside the plugin package. It is the only
         /// executable the host may start for the server.
         var packagedRuntimeURL: URL?
+        /// True when the launch names a tool definition. The host then has no
+        /// executable to look up or probe; it resolves the tool at each start.
+        var launchesThroughTool = false
     }
 
     /// Probe of the server's executable. The contract forbids state
@@ -667,7 +706,8 @@ struct MacPluginLanguageServerLaunchResolver {
             versionRequirement: plan.executableVersionRequirement,
             packagedRuntimeURL: plan.packagedRuntimePath.map {
                 source.packageURL.appendingPathComponent($0).standardizedFileURL
-            }
+            },
+            launchesThroughTool: plan.toolLaunch != nil
         )
     }
 

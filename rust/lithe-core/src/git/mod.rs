@@ -8613,39 +8613,6 @@ pub(crate) fn ignored_paths(
 /// below it keeps large reactors from failing to start the query.
 const LS_FILES_PATHSPEC_BUDGET: usize = 16 * 1024;
 
-/// Returns the entries of `candidates` that the Git repository enclosing
-/// `directory` does not track.
-///
-/// Candidates are paths relative to `directory` with `/` separators. `None`
-/// means Git could not answer — `directory` is outside any work tree, the
-/// repository is unreadable, or Git is unavailable — and callers must treat
-/// every candidate as possibly owned by the user.
-pub(crate) fn untracked_candidates(directory: &Path, candidates: &[String]) -> Option<Vec<String>> {
-    let mut tracked = HashSet::new();
-    for batch in pathspec_batches(candidates, LS_FILES_PATHSPEC_BUDGET) {
-        let mut arguments = vec!["--literal-pathspecs", "ls-files", "-z", "--"];
-        arguments.extend(batch.iter().map(String::as_str));
-        let output = run_git(directory, &arguments).ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        tracked.extend(
-            output
-                .stdout
-                .split(|byte| *byte == 0)
-                .filter(|record| !record.is_empty())
-                .map(|record| String::from_utf8_lossy(record).into_owned()),
-        );
-    }
-    Some(
-        candidates
-            .iter()
-            .filter(|candidate| !tracked.contains(candidate.as_str()))
-            .cloned()
-            .collect(),
-    )
-}
-
 /// Splits `paths` into consecutive non-empty batches whose summed byte length
 /// stays within `budget`; a single longer path forms its own batch.
 fn pathspec_batches(paths: &[String], budget: usize) -> Vec<&[String]> {

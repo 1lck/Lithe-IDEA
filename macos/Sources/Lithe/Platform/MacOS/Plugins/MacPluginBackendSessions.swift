@@ -85,6 +85,8 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
     private let endBackendProcesses: @MainActor (_ token: String, _ immediately: Bool) -> Void
     private let canStart: @MainActor (String) -> Bool
     private let stuckSendGrace: Duration
+    /// Resolves a backend launch that names a tool definition.
+    private let definedTools: MacDefinedToolchainResolver?
     /// Serves the host requests of every backend.
     let hostDispatcher: PluginHostServiceDispatcher
     private let keymapImportHost = MacKeymapImportHostService()
@@ -144,6 +146,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         stuckSendGrace: Duration = .seconds(2),
         canStart: @escaping @MainActor (String) -> Bool = { _ in true },
         hostDispatcher: PluginHostServiceDispatcher? = nil,
+        definedTools: MacDefinedToolchainResolver? = nil,
         endBackendProcesses: @escaping @MainActor (_ token: String, _ immediately: Bool) -> Void = { token, immediately in
             MacPluginBackendProcesses.end(
                 token: token,
@@ -162,6 +165,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         self.stuckSendGrace = stuckSendGrace
         self.canStart = canStart
         self.endBackendProcesses = endBackendProcesses
+        self.definedTools = definedTools
         if let hostDispatcher {
             self.hostDispatcher = hostDispatcher
         } else {
@@ -714,7 +718,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         await Task.detached(priority: .userInitiated) { prepareState(installation, stateDirectory) }.value
         try Task.checkCancellation()
         guard running[pluginID] === entry else { throw CancellationError() }
-        var (executableURL, environment) = try await resolveExecutable(backend.process, directory: backend.stateDirectory)
+        var (executableURL, arguments, environment) = try await resolveExecutable(backend.process, directory: backend.stateDirectory)
         try Task.checkCancellation()
         guard running[pluginID] === entry else { throw CancellationError() }
         // Every process the backend starts inherits this token, so what it
@@ -728,7 +732,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         let session = LanguageServerRuntimeSession(
             providerID: "pluginBackend:\(pluginID)",
             executableURL: executableURL,
-            arguments: backend.process.arguments,
+            arguments: arguments,
             environment: environment,
             initializationOptions: backend.process.initializationOptions,
             initializeTimeout: 60,
@@ -812,7 +816,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
                 }
             }
             do {
-                try session.start(rootURL: rootURL, workspaceFingerprint: nil)
+                try session.start(rootURL: rootURL)
             } catch {
                 finish(.failure(error))
             }
@@ -821,19 +825,34 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
 
     /// A packaged file starts as it is. Commands and runtimes resolve through
     /// the build tool discovery, with the backend's state directory as the
-    /// place a project-local tool would be looked up.
+    /// place a project-local tool would be looked up. A tool launch resolves
+    /// its definitions the same way and takes the command line their
+    /// template expands to; every other launch keeps the plan's arguments.
     private func resolveExecutable(
         _ process: MacPluginLanguageServerLaunchResolver.BuildProviderProcess,
         directory: URL
-    ) async throws -> (URL, [String: String]) {
+    ) async throws -> (URL, [String], [String: String]) {
         let runtimes = process.runtimeTools.map {
             BuildInvocation.RuntimeDependency(id: $0, hostManaged: true)
         }
         let invocation: BuildInvocation
         var requirement: LanguageServerExecutableVersionRequirement?
         switch process.executable {
+        case .tool(let launch):
+            guard let definedTools else {
+                throw DeclarativePluginRejection(
+                    code: "plugin.launch.unavailable",
+                    message: "A plugin backend that names a tool definition cannot start in this host."
+                )
+            }
+            let command = try await definedTools.command(
+                for: launch, arguments: process.arguments, workspace: directory,
+                environment: runtime.languageToolProcessEnvironment(runtimeTools: process.runtimeTools),
+                projectCodeAllowed: false
+            )
+            return (command.executableURL, command.arguments, command.environment)
         case .file(let url):
-            return (url, runtime.languageToolProcessEnvironment(runtimeTools: process.runtimeTools))
+            return (url, process.arguments, runtime.languageToolProcessEnvironment(runtimeTools: process.runtimeTools))
         case .commands(let commands):
             invocation = BuildInvocation(executables: commands.map { .command($0) }, runtimeDependencies: runtimes)
         case .runtime(let tool, let versionRequirement):
@@ -859,7 +878,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
                 return BuildVersionCheck(satisfied: check.satisfied, version: check.version)
             }
         )
-        return (resolved.executableURL, resolved.environment)
+        return (resolved.executableURL, process.arguments, resolved.environment)
     }
 
     /// Waits for a shared start. A cancelled caller stops waiting at once,

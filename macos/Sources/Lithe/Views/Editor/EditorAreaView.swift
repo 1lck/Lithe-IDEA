@@ -14,13 +14,6 @@ enum EditorDocumentIconResolver {
     ) -> LitheIconKind {
         resolvedKind ?? LitheIcons.kind(for: url, isDirectory: false)
     }
-
-    static func overlayResourcePath(for url: URL, hasTests: Bool, hasMain: Bool) -> String? {
-        guard url.pathExtension.lowercased() == "java" else { return nil }
-        if hasTests { return "expui/nodes/junitTestMark.svg" }
-        return hasMain ? "expui/nodes/runnableMark.svg" : nil
-    }
-
 }
 
 private struct EditorDocumentTabStyle: ViewModifier {
@@ -32,7 +25,7 @@ private struct EditorDocumentTabStyle: ViewModifier {
 
     func body(content: Content) -> some View {
         content.modifier(LitheToolWindowTabStyle(isSelected: isSelected, isActive: isActive,
-            fileColor: EditorDocument.isTestSourceFile(document.url, importedSourceRootKind: importedSourceRootKind, hasTests: document.hasJavaTests)
+            fileColor: EditorDocument.isTestSourceFile(importedSourceRootKind: importedSourceRootKind)
                 ? LitheToolWindowTabStyle.testSourceColor(for: colorScheme) : nil))
     }
 }
@@ -59,13 +52,6 @@ private struct EditorDocumentTabIcon: View {
             kind: EditorDocumentIconResolver.kind(for: document.url, resolvedKind: resolvedKind),
             size: size
         )
-        .overlay {
-            if let resource = EditorDocumentIconResolver.overlayResourcePath(
-                for: document.url, hasTests: document.hasJavaTests, hasMain: document.hasRunnableJavaMain
-            ) {
-                LitheIDEAIcon(resourcePath: resource, size: size, preservesOriginalColors: true)
-            }
-        }
         .onChange(of: resolvedKind) { kind in
             onResolvedKind?(EditorDocumentIconResolver.kind(for: document.url, resolvedKind: kind))
         }
@@ -73,11 +59,7 @@ private struct EditorDocumentTabIcon: View {
             let key = resolutionKey
             let url = document.url
             resolvedKind = nil
-            if url.pathExtension.lowercased() == "java" {
-                guard let kind = await model.javaIconKind(for: url),
-                      !Task.isCancelled, resolutionKey == key else { return }
-                resolvedKind = kind
-            } else if LitheIcons.kind(for: url, isDirectory: false) == .generic {
+            if LitheIcons.kind(for: url, isDirectory: false) == .generic {
                 let resolved = await WorkspaceFileIconResolver.resolve(
                     for: url,
                     suggested: .generic,

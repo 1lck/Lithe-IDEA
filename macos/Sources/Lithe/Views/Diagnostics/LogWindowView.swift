@@ -121,7 +121,7 @@ struct LogWindowView: View {
     }
     private var toolbar: some View {
         LogToolbarLayout {
-            LitheSearchField("Filter: server:jdtls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee",
+            LitheSearchField("Filter: server:gopls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee",
                 text: Binding(get: { model.query.expression }, set: model.setExpression), focus: $filterFocused) {
                 LitheInfoTip("logs.window.filterHelp")
                 Text(verbatim: "⌘F").font(LitheTheme.uiFont(size: 11, design: .monospaced))

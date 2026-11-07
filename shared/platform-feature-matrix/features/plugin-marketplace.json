@@ -33,7 +33,6 @@
       "scripts/macos/verify/verify-runtime-bundle-immutability.sh",
       "rust/lithe-core/src/plugins/marketplace.rs",
       "Plugins/marketplace/index.json",
-      ".github/workflows/release-official-plugins.yml",
       "macos/Sources/Lithe/Views/App/ApplicationRestartAction.swift",
       "macos/Sources/Lithe/Platform/MacOS/MacApplicationRelauncher.swift",
       "macos/Tests/LitheTests/MacApplicationRelauncherTests.swift",

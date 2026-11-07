@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 Windows 现存 Maven 依赖树继续通过独立输出文件读取，避免控制台日志挤掉合法依赖数据。
@@ -141,8 +143,8 @@ m2e 内嵌的 Maven，而不是用户配置的 Maven 或 mvnd，违反“依赖�
 
 ## 适用范围
 
-- `rust/lithe-core/src/project/maven_dependency_tree.rs`
-- `rust/lithe-core/src/project/maven.rs`
+- 已迁出：原 `rust/lithe-core/src/project/maven_dependency_tree.rs`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。
+- 已迁出：原 `rust/lithe-core/src/project/maven.rs`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。
 - `shared/contracts/rust-core-api.md`
 - `shared/fixtures/maven/dependency-tree-v2.json`
 - `windows/tauri/src-tauri/src/maven.rs`

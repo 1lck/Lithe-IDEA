@@ -88,7 +88,6 @@ enum WorkspaceProjectionComposition {
             },
             onSnapshotLoaded: { [weak model] snapshot, isInitialLoad in
                 guard let model else { return }
-                model.suggestJavaPluginIfNeeded(files: snapshot.files)
                 if !isInitialLoad {
                     // Core may have withdrawn working copies after an exclusion change.
                     // Reconcile open buffers so cancelling exclusion restores language features.

@@ -22,26 +22,6 @@ case "$ARCH" in
 esac
 
 cd "$ROOT_DIR"
-# Java Support assembles JDT LS and its JDK into its own plugin package later
-# in this script. They are prepared here first so a missing or invalid
-# download fails before the application is compiled.
-bundle_java=$(node "$ROOT_DIR/scripts/plugins/official-plugin-distribution.mjs" dev.lithe.plugin.java-support "$MARKETPLACE_INDEX")
-if [[ "$bundle_java" == true ]]; then
-    LITHE_ARCH="$ARCH" "$ROOT_DIR/scripts/macos/prepare/prepare-jdtls.sh" > /dev/null
-    if [[ "$ARCH" == "universal" ]]; then
-        if [[ -n "${LITHE_JDK_ROOT:-}" ]]; then
-            print -u2 -- \
-                "Universal packaging requires LITHE_JDK_ARM64_ROOT and LITHE_JDK_X86_64_ROOT instead of LITHE_JDK_ROOT"
-            exit 1
-        fi
-        LITHE_JDK_ROOT="${LITHE_JDK_ARM64_ROOT:-}" LITHE_JDK_TARGET_ARCH="arm64" \
-            "$ROOT_DIR/scripts/macos/prepare/prepare-jdk.sh" > /dev/null
-        LITHE_JDK_ROOT="${LITHE_JDK_X86_64_ROOT:-}" LITHE_JDK_TARGET_ARCH="x86_64" \
-            "$ROOT_DIR/scripts/macos/prepare/prepare-jdk.sh" > /dev/null
-    else
-        LITHE_JDK_TARGET_ARCH="$ARCH" "$ROOT_DIR/scripts/macos/prepare/prepare-jdk.sh" > /dev/null
-    fi
-fi
 if [[ "$ARCH" == "universal" ]]; then
     scripts/macos/build/build-macos.sh --configuration release --triple "$ARM64_TRIPLE"
     scripts/macos/build/build-macos.sh --configuration release --triple "$X86_64_TRIPLE"
@@ -87,24 +67,8 @@ for bundle_name in Lithe_Lithe.bundle SwiftTerm_SwiftTerm.bundle; do
     fi
     cp -R "$resource_bundle" "$APP_DIR/Contents/Resources/$bundle_name"
 done
-OFFICIAL_PLUGIN_DESTINATION="$APP_DIR/Contents/Resources/OfficialPlugins"
-mkdir -p "$OFFICIAL_PLUGIN_DESTINATION"
-# Declarative plugin packages contain no host-loaded code. Java Support ships
-# JDT LS and the JDK it runs on inside its own package, assembled for the
-# architectures of this app; the application itself carries no language server.
-if [[ "$ARCH" == "universal" ]]; then
-    plugin_triple="$ARM64_TRIPLE"
-else
-    plugin_triple="$ARCH-apple-macosx"
-fi
-plugin_root=$(scripts/plugins/build-official-plugins.sh --bundled-only \
-    --marketplace-index "$MARKETPLACE_INDEX" \
-    --configuration release \
-    --arch "$ARCH" \
-    --triple "$plugin_triple")
-for plugin_package in "$plugin_root"/*(/N); do
-    cp -R "$plugin_package" "$OFFICIAL_PLUGIN_DESTINATION/${plugin_package:t}"
-done
+# The app bundles no official plugin package: language, build and VCS plugins
+# are community plugins installed from Lithe Store into Application Support.
 
 # Remote workspace servers ship read-only; Lithe uploads them to SSH hosts
 # and never writes into this directory.

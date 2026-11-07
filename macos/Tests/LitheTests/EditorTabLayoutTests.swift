@@ -8,49 +8,22 @@ import UniformTypeIdentifiers
 
 @Suite("Editor tab layout", .serialized)
 struct EditorTabLayoutTests {
-    @Test
-    func javaTabTestMarkTakesPriorityAndClearsForOrdinaryOrRenamedFiles() {
-        let java = URL(fileURLWithPath: "/workspace/CalculatorTest.java")
-        #expect(EditorDocumentIconResolver.overlayResourcePath(for: java, hasTests: true, hasMain: false)
-            == "expui/nodes/junitTestMark.svg")
-        #expect(EditorDocumentIconResolver.overlayResourcePath(for: java, hasTests: true, hasMain: true)
-            == "expui/nodes/junitTestMark.svg")
-        #expect(EditorDocumentIconResolver.overlayResourcePath(for: java, hasTests: false, hasMain: true)
-            == "expui/nodes/runnableMark.svg")
-        #expect(EditorDocumentIconResolver.overlayResourcePath(for: java, hasTests: false, hasMain: false) == nil)
-        #expect(EditorDocumentIconResolver.overlayResourcePath(
-            for: java.deletingPathExtension().appendingPathExtension("txt"), hasTests: true, hasMain: true
-        ) == nil)
-    }
-
     @MainActor
     @Test
-    func testTabScopeUsesImportedRolesBeforeSemanticFallback() {
-        let root = URL(fileURLWithPath: "/workspace")
-        #expect(EditorDocument.isTestSourceFile(root.appendingPathComponent("checks/java/Helper.java"), importedSourceRootKind: "testSource", hasTests: false))
-        #expect(EditorDocument.isTestSourceFile(root.appendingPathComponent("fixtures/input.json"), importedSourceRootKind: "testResource", hasTests: false))
-        #expect(!EditorDocument.isTestSourceFile(root.appendingPathComponent("src/main/java/SomeTest.java"), importedSourceRootKind: "source", hasTests: true))
-        #expect(EditorDocument.isTestSourceFile(root.appendingPathComponent("Single.java"), importedSourceRootKind: nil, hasTests: true))
+    func testTabScopeUsesImportedSourceRootRoles() {
+        #expect(EditorDocument.isTestSourceFile(importedSourceRootKind: "testSource"))
+        #expect(EditorDocument.isTestSourceFile(importedSourceRootKind: "testResource"))
+        #expect(EditorDocument.isTestSourceFile(importedSourceRootKind: "generatedTestSource"))
+        #expect(!EditorDocument.isTestSourceFile(importedSourceRootKind: "source"))
+        #expect(!EditorDocument.isTestSourceFile(importedSourceRootKind: nil))
     }
 
     @Test
-    func javaTabsPreferTheSemanticIconResolvedForTheProjectTree() {
-        let url = URL(fileURLWithPath: "/workspace/UploadService.java")
+    func tabsPreferTheIconResolvedForTheProjectTree() {
+        let url = URL(fileURLWithPath: "/workspace/notes.txt")
 
-        #expect(
-            EditorDocumentIconResolver.kind(for: url, resolvedKind: .javaInterface)
-                == .javaInterface
-        )
-    }
-
-    @Test
-    func javaTabsUseTheGenericJavaIconUntilSemanticResolutionCompletes() {
-        let url = URL(fileURLWithPath: "/workspace/UploadService.java")
-
-        #expect(
-            EditorDocumentIconResolver.kind(for: url, resolvedKind: nil)
-                == .javaGeneric
-        )
+        #expect(EditorDocumentIconResolver.kind(for: url, resolvedKind: .json) == .json)
+        #expect(EditorDocumentIconResolver.kind(for: url, resolvedKind: nil) == LitheIcons.kind(for: url, isDirectory: false))
     }
 
     @Test

@@ -32,18 +32,22 @@ struct PluginManagerTests {
     }
 
     @Test func serverRegistrationUsesDeclaredCommandsOrExistingServerMetadataWithoutInventingNames() throws {
-        let java = try DeclarativePluginTestSupport.officialDescriptor("JavaSupport")
-        let server = try #require(java.languageServers.first)
+        // A backend names its executable only when the server starts, so the
+        // registration reuses the catalog's descriptive metadata for its language.
+        let backend = try DeclarativePluginTestSupport.operations.validate(manifest: Data(contentsOf:
+            DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent(
+                "shared/contracts/plugins/v1/fixtures/languages/language-server-backend-launch.plugin.json")))
+        let server = try #require(backend.languageServers.first)
         let catalog = RustLanguageProviderCatalogSource(core: RustCoreBridge()).load().catalog
-        let entry = MacPluginManager.languageServerRegistration(server, pluginID: java.id.rawValue, catalog: catalog)
-        #expect(entry.executableNames == ["jdtls"])
-        #expect(entry.pluginID == java.id.rawValue)
-        let unnamed = MacPluginManager.languageServerRegistration(server, pluginID: java.id.rawValue,
+        let entry = MacPluginManager.languageServerRegistration(server, pluginID: backend.id.rawValue, catalog: catalog)
+        #expect(entry.executableNames == ["metals"])
+        #expect(entry.pluginID == backend.id.rawValue)
+        let unnamed = MacPluginManager.languageServerRegistration(server, pluginID: backend.id.rawValue,
             catalog: LanguageProviderCatalog(descriptors: []))
         #expect(unnamed.executableNames.isEmpty)
         let row = try #require(LSPControlCenterPresenter.statusBarServers(registrations: [unnamed],
             states: [:], infos: [:], disabledProviderIDs: []).first)
-        #expect(row.displayName == java.id.rawValue)
+        #expect(row.displayName == backend.id.rawValue)
 
         let installed = try installedPlugin()
         let direct = try #require(installed.descriptor.languageServers.first)
@@ -84,15 +88,15 @@ struct PluginManagerTests {
         })
         #expect(markdown.languageServerModuleID == nil)
         #expect(yaml.languageServerModuleID == .languageServerExtension("yaml"))
-        // Java Support also proves that a plugin may own the Java language
+        // The retired official plugins prove that a plugin may own a language
         // alongside every built-in and bundled catalog without a collision.
-        let officialLanguagePlugins = try ["GoSupport", "JavaSupport", "PhpSupport"].map {
+        let officialLanguagePlugins = try ["GoSupport", "PhpSupport"].map {
             try DeclarativePluginTestSupport.officialDescriptor($0).pluginManifest
         }
         #expect(Set(officialLanguagePlugins.map(\.id)) == Set(OfficialPluginCatalog.entries.map(\.id)))
         // Go and PHP moved to Lithe Store: installed copies keep their pinned
         // publisher signature, but the host no longer suggests them.
-        #expect(OfficialPluginCatalog.publishedEntries.map(\.id) == [OfficialPluginCatalog.javaPluginID])
+        #expect(OfficialPluginCatalog.publishedEntries.isEmpty)
         #expect(OfficialPluginCatalog.entry(for: OfficialPluginCatalog.goPluginID)?.communityReplacementID
             == PluginID("io.github.lithe-idea.go-support"))
         #expect(OfficialPluginCatalog.entry(for: OfficialPluginCatalog.phpPluginID)?.communityReplacementID

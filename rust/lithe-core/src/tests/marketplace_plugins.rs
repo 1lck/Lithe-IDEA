@@ -22,7 +22,8 @@ const PHP_FIXTURE: &str = contract_file!("fixtures/languages/language-packaged-s
 const GO_FIXTURE: &str = contract_file!("fixtures/languages/language-system-command.plugin.json");
 const MIX_FIXTURE: &str =
     contract_file!("fixtures/build-providers/build-provider-language-server.plugin.json");
-const GRADLE_FIXTURE: &str = contract_file!("fixtures/build-providers/build-provider.plugin.json");
+const BUILD_PROVIDER_FIXTURE: &str =
+    contract_file!("fixtures/build-providers/build-provider.plugin.json");
 const CARGO_FIXTURE: &str = contract_file!("fixtures/build-systems/build-static-file.plugin.json");
 const OFFICIAL_INDEX: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -38,7 +39,7 @@ fn manifest_fixture(name: &str) -> Value {
         "language-packaged-server.plugin.json" => json_file(PHP_FIXTURE),
         "language-system-command.plugin.json" => json_file(GO_FIXTURE),
         "build-provider-language-server.plugin.json" => json_file(MIX_FIXTURE),
-        "build-provider.plugin.json" => json_file(GRADLE_FIXTURE),
+        "build-provider.plugin.json" => json_file(BUILD_PROVIDER_FIXTURE),
         "build-static-file.plugin.json" => json_file(CARGO_FIXTURE),
         other => panic!("unknown fixture {other}"),
     }
@@ -331,7 +332,7 @@ fn level_3_versions_list_their_capabilities() {
 /// hosts with only declarative builds keep the older language-only version.
 #[test]
 fn build_provider_versions_require_host_support_before_download() {
-    for manifest in [json_file(GRADLE_FIXTURE), json_file(MIX_FIXTURE)] {
+    for manifest in [json_file(BUILD_PROVIDER_FIXTURE), json_file(MIX_FIXTURE)] {
         let mut index = json_file(INDEX);
         let entry = index["plugins"]
             .as_array_mut()
@@ -399,7 +400,7 @@ fn host_capabilities_do_not_change_legacy_levels() {
 }
 
 /// Download availability must reject the new trust semantics before any
-/// archive is transferred, even when the host already runs every Java feature.
+/// archive is transferred, even when the host meets every other requirement.
 #[test]
 fn publisher_bundled_versions_require_host_trust_support_before_download() {
     let mut index = json_file(INDEX);

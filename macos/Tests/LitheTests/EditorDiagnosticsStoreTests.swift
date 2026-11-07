@@ -8,7 +8,7 @@ struct EditorDiagnosticsStoreTests {
     @Test
     func unchangedDiagnosticsDoNotPublish() {
         let store = EditorDiagnosticsStore()
-        let url = URL(fileURLWithPath: "/workspace/App.java")
+        let url = URL(fileURLWithPath: "/workspace/App.txt")
         let diagnostic = EditorDiagnostic(
             id: "d1",
             fileURL: url,

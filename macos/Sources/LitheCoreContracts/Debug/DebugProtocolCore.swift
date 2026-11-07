@@ -413,22 +413,13 @@ public struct DebugCoreExceptionDetails: Decodable, Equatable, Sendable {
     public let innerExceptions: [DebugCoreExceptionDetails]
 }
 
-/// Focused policy boundary for portable debugger stepping defaults and validation.
+/// Focused policy boundary for portable debugger stepping validation.
 @MainActor
 public protocol DebugSteppingFilterResolving: Sendable {
     func resolveDebugSteppingFilters(
         adapterID: String,
         filters: DebugSteppingFilters?
     ) throws -> DebugSteppingFilters
-}
-
-/// Focused shared-Core boundary for deterministic Java test launch arguments.
-@MainActor
-public protocol JavaTestDebugLaunchResolving: Sendable {
-    func resolveJavaTestDebugLaunch(
-        target: JavaTestDebugLaunchTarget,
-        resultPort: UInt16
-    ) throws -> DebugLaunchConfiguration
 }
 
 /// Focused shared-Core boundary for moving source breakpoints with editor text.

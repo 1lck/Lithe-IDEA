@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 从 Finder / Dock 启动的 Lithe 继承 launchd 的最小环境，`PATH` 只有
@@ -121,7 +123,7 @@ pnpm 在 /opt/homebrew/bin，node 在 fnm 的默认别名目录
 
 ## 适用范围
 
-- `macos/Sources/Lithe/Services/Java/RunLaunchEnvironment.swift`
-- `macos/Sources/Lithe/Services/Java/RunExecutableResolver.swift`
+- 已迁出：原 `macos/Sources/Lithe/Services/Java/RunLaunchEnvironment.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
+- 已迁出：原 `macos/Sources/Lithe/Services/Java/RunExecutableResolver.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
 - `macos/Tests/LitheTests/RunLaunchEnvironmentTests.swift`
 - 对照实现：`windows/tauri/src-tauri/src/run.rs` 中的 `append_runtime_paths`

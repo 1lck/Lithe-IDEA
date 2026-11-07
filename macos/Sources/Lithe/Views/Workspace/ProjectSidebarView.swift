@@ -625,9 +625,6 @@ private final class ProjectTreeActions: @unchecked Sendable {
     nonisolated func showProjectLocalHistory() {
         Task { @MainActor in self.model.showProjectLocalHistory() }
     }
-    func javaIconKind(_ url: URL) async -> LitheIconKind? {
-        await model.javaIconKind(for: url)
-    }
     func fileIcon(_ url: URL, suggested: LitheIconKind) async -> (kind: LitheIconKind, isExecutable: Bool) {
         await WorkspaceFileIconResolver.resolve(
             for: url,
@@ -714,7 +711,6 @@ private struct FileNodeRow: View {
     let visibleRows: [ProjectTreeSelection.VisibleRow]
     @Binding var expandedDirectoryPaths: Set<String>
     @Binding var contextMenuPath: String?
-    @State private var resolvedJavaIconKind: LitheIconKind?
     @State private var resolvedFileIconKind: LitheIconKind?
     @State private var isExecutableFile = false
 
@@ -840,7 +836,7 @@ private struct FileNodeRow: View {
         } label: {
             HStack(spacing: LitheTheme.Tree.iconTextGap) {
                 Color.clear.frame(width: LitheTheme.Tree.disclosureSlot)
-                LitheIcon(kind: resolvedJavaIconKind ?? resolvedFileIconKind ?? node.iconKind, size: LitheTheme.Metrics.treeIconSize)
+                LitheIcon(kind: resolvedFileIconKind ?? node.iconKind, size: LitheTheme.Metrics.treeIconSize)
                     .frame(width: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
                     .font(LitheTheme.uiFont(size: LitheTheme.Metrics.treeFontSize))
@@ -882,9 +878,6 @@ private struct FileNodeRow: View {
             let resolved = await actions.fileIcon(node.url, suggested: node.iconKind)
             resolvedFileIconKind = resolved.kind
             isExecutableFile = resolved.isExecutable && resolved.kind == .binary
-            if node.url.pathExtension.lowercased() == "java" {
-                resolvedJavaIconKind = await actions.javaIconKind(node.url)
-            }
         }
     }
 
@@ -1048,18 +1041,6 @@ private struct FileNodeRow: View {
     private var directoryIconKind: LitheIconKind {
         if let currentDirectoryMark {
             return LitheIcons.kind(for: currentDirectoryMark)
-        }
-        var ancestor = node.url.deletingLastPathComponent()
-        let rootPath = projectRootURL.standardizedFileURL.path
-        while ancestor.standardizedFileURL.path.hasPrefix(rootPath) {
-            if let mark = directoryMarks[relativeDirectoryPath(for: ancestor)] {
-                if mark == .sources, LitheIcons.isValidPackageName(node.url.lastPathComponent) {
-                    return .packageFolder
-                }
-                break
-            }
-            guard ancestor.standardizedFileURL.path != rootPath else { break }
-            ancestor.deleteLastPathComponent()
         }
         return node.iconKind
     }

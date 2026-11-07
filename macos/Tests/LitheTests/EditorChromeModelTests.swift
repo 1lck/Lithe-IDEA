@@ -9,7 +9,7 @@ struct EditorChromeModelTests {
     func unchangedCaretAndSelectionDoNotPublish() {
         let chrome = EditorChromeModel()
         let caret = EditorCaret(
-            url: URL(fileURLWithPath: "/workspace/App.java"),
+            url: URL(fileURLWithPath: "/workspace/App.txt"),
             line: 3,
             utf16Column: 8
         )
@@ -34,7 +34,7 @@ struct EditorChromeModelTests {
     func resetClearsCaretAndSelectionOnceEach() {
         let chrome = EditorChromeModel()
         chrome.update(
-            caret: EditorCaret(url: URL(fileURLWithPath: "/workspace/App.java"), line: 0, utf16Column: 0)
+            caret: EditorCaret(url: URL(fileURLWithPath: "/workspace/App.txt"), line: 0, utf16Column: 0)
         )
         chrome.update(selectedText: "foo")
 

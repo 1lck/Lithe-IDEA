@@ -23,16 +23,13 @@ mod git_workspace_commit;
 mod github;
 mod history_events;
 mod language_server_sessions;
-mod languages;
 mod marketplace_plugins;
-mod mybatis;
 mod plugins;
 mod project;
 mod project_generators;
 mod protocol;
 mod rank_names;
 mod run_configuration;
-mod spring;
 pub(crate) mod support;
 mod vcs;
 

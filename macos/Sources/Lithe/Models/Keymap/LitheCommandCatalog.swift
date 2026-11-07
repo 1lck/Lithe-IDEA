@@ -134,7 +134,6 @@ enum LitheCommandCatalog {
         command("save", "Save", "Save the active document", .project, "s", [.command]),
         command("close-project", "Close Project", "Return to the Welcome screen", .project, "w", [.shift, .command]),
         command("settings", "Settings", "Configure editor and project behavior", .project, ",", [.command]),
-        command("rebuild-java-index", "Java: Rebuild Index", "Clear the current project's Java index and rebuild it on next use", .project),
         command("reveal-in-finder", "Reveal in Finder", "Show the active file in Finder", .project),
 
         command("run", "Run", "Run selected configuration", .run, "r", [.control]),
@@ -172,7 +171,6 @@ enum LitheCommandCatalog {
         command("find-usages", "Find Usages", "Find references to the selected symbol", .navigation, "u", [.option, .command]),
         command("search-in-project", "Find in Files", "Search text across the workspace", .navigation, "f", [.shift, .command]),
         command("replace-in-project", "Replace in Files", "Replace text across the workspace", .navigation, "r", [.shift, .command]),
-        command("spring-endpoints", "Spring Endpoints", "Show indexed Spring MVC routes", .navigation),
 
         command("show-logs", "Logs", "Open the application log window", .window, "l", [.shift, .command]),
         command("toggle-terminal", "Toggle Terminal", "Show or hide the Terminal tool window", .window),
@@ -198,7 +196,7 @@ enum LitheCommandCatalog {
         case "toggle-terminal": .terminal
         case "toggle-git-log": .git
         case "search-everywhere", "find-action", "search-in-project", "replace-in-project": .search
-        case "toggle-problems", "spring-endpoints": .languageIntelligence
+        case "toggle-problems": .languageIntelligence
         case "local-history", "project-local-history": .localHistory
         default: nil
         }
@@ -212,7 +210,6 @@ enum LitheCommandCatalog {
         case "toggle-run": .run
         case "toggle-tests": .tests
         case "toggle-debug": .debug
-        case "spring-endpoints": .spring
         default: nil
         }
     }

@@ -258,8 +258,6 @@ pub enum CoreCommand {
     BuildDecodeDependencies,
     /// Digests the files a build model depends on (`build.syncFingerprint`).
     BuildSyncFingerprint,
-    /// Maps build options to the Java language server's project import (`build.languageImport`).
-    BuildLanguageImport,
     /// Reduces a test run's termination and decoded summary to one verdict (`build.resolveTestRunOutcome`).
     BuildResolveTestRunOutcome,
     /// Merges a run's test results into the stored history inside the host-stated scope (`build.mergeTestOutcomes`).
@@ -378,8 +376,6 @@ pub enum CoreCommand {
     HistoryClear,
     /// Compares two host-supplied texts line by line (`diff.compareTexts`).
     DiffCompareTexts,
-    /// Shortens an oversized Java launch using a JDK argument file when needed.
-    ExecutionPlanLaunchCommand,
     /// Resolve environment precedence after platform tool discovery.
     ExecutionResolveEnvironment,
     /// Resolves deterministic process search-path ordering (`execution.resolveSearchPath`).
@@ -416,8 +412,6 @@ pub enum CoreCommand {
     DebugCreateSession,
     /// Queues a launch or attach request for a debug session (`debug.launch`).
     DebugLaunch,
-    /// Creates a Java test launch configuration from JDT LS metadata (`debug.javaTestLaunch`).
-    DebugJavaTestLaunch,
     /// Returns or normalizes portable stepping filters (`debug.steppingFilters`).
     DebugSteppingFilters,
     /// Moves source breakpoints across one UTF-16 editor mutation (`debug.relocateBreakpoints`).
@@ -501,23 +495,8 @@ pub enum CoreCommand {
     LspProblemsQuery,
     /// Starts and initializes a managed language server (`lsp.startServer`).
     LspStartServer,
-    /// Derives the durable JDT LS workspace directory key (`lsp.jdtWorkspaceKey`).
-    LspJdtWorkspaceKey,
-    /// Plans Java workspace activation and change handling (`java.workspacePolicy`).
-    JavaWorkspacePolicy,
-    /// Projects JDT main/test discovery and test outcomes into editor Run markers (`java.runMarkers`).
-    JavaRunMarkers,
-    /// Selects expired inactive JDT LS workspace caches (`java.jdtCacheRetention`).
-    JavaJdtCacheRetention,
-    /// Derives a JDT LS workspace fingerprint from platform observations (`java.jdtWorkspaceFingerprint`).
-    JavaJdtWorkspaceFingerprint,
     /// Gracefully shuts down a managed server (`lsp.stopServer`).
     LspStopServer,
-    /// Retries Maven profile application for an existing Java session.
-    LspRetryMavenProfiles,
-    /// Sends a changed Maven configuration to a running Java session
-    /// (`lsp.updateMavenConfiguration`).
-    LspUpdateMavenConfiguration,
     /// Replaces the plugin settings a plugin-provided server reads
     /// (`lsp.updateWorkspaceConfiguration`).
     LspUpdateWorkspaceConfiguration,
@@ -554,12 +533,6 @@ pub enum CoreCommand {
     LspPluginServerRequest,
     /// Sends a plugin-owned language server one notification of its backend (`lsp.pluginServerNotify`).
     LspPluginServerNotify,
-    /// Queues shared Java gutter marker resolution (`java.navigationMarkers`).
-    JavaNavigationMarkers,
-    /// Queues shared Java entry selection, build and classpath preparation (`java.prepareLaunch`).
-    JavaPrepareLaunch,
-    /// Queues click-time Java navigation resolution (`java.resolveNavigation`).
-    JavaResolveNavigation,
     /// Cancels one pending semantic request (`lsp.cancelOperation`).
     LspCancelOperation,
     /// Drains queued session events (`lsp.pollEvents`).
@@ -574,8 +547,6 @@ pub enum CoreCommand {
     RunConfigInspect,
     /// Reads effective saved tool paths for one Provider root (`runConfig.projectToolchain`).
     RunConfigProjectToolchain,
-    /// Selects an automatic project JDK (`runConfig.selectJava`).
-    RunConfigSelectJava,
     /// Regenerates detected run configurations (`runConfig.generate`).
     RunConfigGenerate,
     /// Formats argument vectors as reversible editor text (`runConfig.argumentText`).
@@ -596,20 +567,6 @@ pub enum CoreCommand {
     RunConfigCreateLaunchPlan,
     /// Resolves user choices for a provider-owned launch (`runConfig.providerLaunchInputs`).
     RunConfigProviderLaunchInputs,
-    /// Counts workspace uses of Java declarations (`java.codeVision`).
-    JavaCodeVision,
-    /// Resolves a package-qualified Java class name (`java.className`).
-    JavaClassName,
-    /// Finds a Java type or member declaration (`java.sourceDefinition`).
-    JavaSourceDefinition,
-    /// Reads a Spring server port from configuration (`java.serverPort`).
-    JavaServerPort,
-    /// Computes lightweight Java structure features (`java.structure`).
-    JavaStructure,
-    /// Builds Spring configuration, bean, injection, and endpoint indexes (`spring.index`).
-    SpringIndex,
-    /// Builds MyBatis mapper-interface and XML statement indexes (`mybatis.index`).
-    MybatisIndex,
     /// Reads normalized repository and working-tree state (`git.status`).
     GitStatus,
     /// Lists one level of a summarized untracked directory (`git.untrackedDirectory`).
@@ -959,7 +916,6 @@ impl CoreCommand {
             "build.decodeDiagnostics" => Some(Self::BuildDecodeDiagnostics),
             "build.decodeDependencies" => Some(Self::BuildDecodeDependencies),
             "build.syncFingerprint" => Some(Self::BuildSyncFingerprint),
-            "build.languageImport" => Some(Self::BuildLanguageImport),
             "build.resolveTestRunOutcome" => Some(Self::BuildResolveTestRunOutcome),
             "build.mergeTestOutcomes" => Some(Self::BuildMergeTestOutcomes),
             "vcs.detectRoots" => Some(Self::VcsDetectRoots),
@@ -1022,7 +978,6 @@ impl CoreCommand {
             "diff.compareTexts" => Some(Self::DiffCompareTexts),
             "execution.resolveEnvironment" => Some(Self::ExecutionResolveEnvironment),
             "execution.resolveSearchPath" => Some(Self::ExecutionResolveSearchPath),
-            "execution.planLaunchCommand" => Some(Self::ExecutionPlanLaunchCommand),
             "processLifecycle.resolve" => Some(Self::ProcessLifecycleResolve),
             "processLifecycle.inventory" => Some(Self::ProcessLifecycleInventory),
             "processLifecycle.settle" => Some(Self::ProcessLifecycleSettle),
@@ -1037,7 +992,6 @@ impl CoreCommand {
             "terminal.parseLinkTarget" => Some(Self::TerminalParseLinkTarget),
             "debug.createSession" => Some(Self::DebugCreateSession),
             "debug.launch" => Some(Self::DebugLaunch),
-            "debug.javaTestLaunch" => Some(Self::DebugJavaTestLaunch),
             "debug.steppingFilters" => Some(Self::DebugSteppingFilters),
             "debug.relocateBreakpoints" => Some(Self::DebugRelocateBreakpoints),
             "debug.planVariablePage" => Some(Self::DebugPlanVariablePage),
@@ -1076,14 +1030,7 @@ impl CoreCommand {
             "lsp.activationPolicy" => Some(Self::LspActivationPolicy),
             "lsp.problems.query" => Some(Self::LspProblemsQuery),
             "lsp.startServer" => Some(Self::LspStartServer),
-            "lsp.jdtWorkspaceKey" => Some(Self::LspJdtWorkspaceKey),
-            "java.workspacePolicy" => Some(Self::JavaWorkspacePolicy),
-            "java.runMarkers" => Some(Self::JavaRunMarkers),
-            "java.jdtCacheRetention" => Some(Self::JavaJdtCacheRetention),
-            "java.jdtWorkspaceFingerprint" => Some(Self::JavaJdtWorkspaceFingerprint),
             "lsp.stopServer" => Some(Self::LspStopServer),
-            "lsp.retryMavenProfiles" => Some(Self::LspRetryMavenProfiles),
-            "lsp.updateMavenConfiguration" => Some(Self::LspUpdateMavenConfiguration),
             "lsp.updateWorkspaceConfiguration" => Some(Self::LspUpdateWorkspaceConfiguration),
             "lsp.documentUri" => Some(Self::LspDocumentUri),
             "lsp.syncDocument" => Some(Self::LspSyncDocument),
@@ -1101,8 +1048,6 @@ impl CoreCommand {
             "lsp.hostNotify" => Some(Self::LspHostNotify),
             "lsp.pluginServerRequest" => Some(Self::LspPluginServerRequest),
             "lsp.pluginServerNotify" => Some(Self::LspPluginServerNotify),
-            "java.resolveNavigation" => Some(Self::JavaResolveNavigation),
-            "java.prepareLaunch" => Some(Self::JavaPrepareLaunch),
             "lsp.cancelOperation" => Some(Self::LspCancelOperation),
             "lsp.pollEvents" => Some(Self::LspPollEvents),
             "lsp.setDetailedDiagnostics" => Some(Self::LspSetDetailedDiagnostics),
@@ -1110,7 +1055,6 @@ impl CoreCommand {
             "lsp.destroyServer" => Some(Self::LspDestroyServer),
             "runConfig.inspect" => Some(Self::RunConfigInspect),
             "runConfig.projectToolchain" => Some(Self::RunConfigProjectToolchain),
-            "runConfig.selectJava" => Some(Self::RunConfigSelectJava),
             "runConfig.generate" => Some(Self::RunConfigGenerate),
             "runConfig.argumentText" => Some(Self::RunConfigArgumentText),
             "runConfig.resolve" => Some(Self::RunConfigResolve),
@@ -1123,14 +1067,6 @@ impl CoreCommand {
             "runConfig.createUserConfiguration" => Some(Self::RunConfigCreateUserConfiguration),
             "runConfig.createLaunchPlan" => Some(Self::RunConfigCreateLaunchPlan),
             "runConfig.providerLaunchInputs" => Some(Self::RunConfigProviderLaunchInputs),
-            "java.codeVision" => Some(Self::JavaCodeVision),
-            "java.className" => Some(Self::JavaClassName),
-            "java.sourceDefinition" => Some(Self::JavaSourceDefinition),
-            "java.serverPort" => Some(Self::JavaServerPort),
-            "java.structure" => Some(Self::JavaStructure),
-            "java.navigationMarkers" => Some(Self::JavaNavigationMarkers),
-            "spring.index" => Some(Self::SpringIndex),
-            "mybatis.index" => Some(Self::MybatisIndex),
             "git.status" => Some(Self::GitStatus),
             "git.untrackedDirectory" => Some(Self::GitUntrackedDirectory),
             "git.commitState" => Some(Self::GitCommitState),
@@ -1260,9 +1196,7 @@ mod tests {
     fn parses_semantic_lsp_runtime_commands() {
         for command in [
             "lsp.startServer",
-            "lsp.jdtWorkspaceKey",
             "lsp.stopServer",
-            "lsp.updateMavenConfiguration",
             "lsp.updateWorkspaceConfiguration",
             "lsp.syncDocument",
             "lsp.closeDocument",
@@ -1316,14 +1250,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_java_launch_command_planner() {
-        assert!(matches!(
-            CoreCommand::parse("execution.planLaunchCommand"),
-            Some(CoreCommand::ExecutionPlanLaunchCommand)
-        ));
-    }
-
-    #[test]
     fn parses_process_lifecycle_command() {
         assert!(matches!(
             CoreCommand::parse("processLifecycle.resolve"),
@@ -1344,7 +1270,6 @@ mod tests {
         for command in [
             "debug.createSession",
             "debug.launch",
-            "debug.javaTestLaunch",
             "debug.steppingFilters",
             "debug.relocateBreakpoints",
             "debug.planVariablePage",

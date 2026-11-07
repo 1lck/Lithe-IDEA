@@ -87,22 +87,6 @@ struct DebugModuleTests {
     }
 
     @Test
-    func explicitHotUpdateRestartReplacesTheOriginalSessionWithNewRuntimePaths() async {
-        let session = DeferredInspectionDebugSession()
-        let feature = makeDeferredFeature(session: session, rootPath: "/workspace/hot-update-restart")
-        defer { feature.stop() }
-        feature.registerJavaUpdateTarget(JavaDebugLaunchTarget(mainClass: "example.Main", projectName: "app"))
-        let previousID = feature.activeSessionID
-        await feature.restartJavaService { _, _ in
-            JavaDebugLaunchTarget(mainClass: "example.Main", projectName: "app", classPaths: ["/workspace/new-output"])
-        }
-        #expect(feature.activeSessionID != previousID)
-        #expect(session.startCount == 2)
-        #expect(session.launchConfigurations.last?.arguments["classPaths"] == .array([.string("/workspace/new-output")]))
-        #expect(feature.canUpdateJavaService)
-    }
-
-    @Test
     func adapterSelectionMatchesTheSharedHostFixture() throws {
         struct Fixture: Decodable {
             struct Provider: Decodable {
@@ -154,17 +138,14 @@ struct DebugModuleTests {
     }
 
     @Test
-    func explicitAdapterIdentitySurvivesCodingAndSteppingFilterChanges() throws {
+    func explicitAdapterIdentitySurvivesCoding() throws {
         let configuration = DebugLaunchConfiguration(
             name: "engine target", request: .launch, arguments: ["program": .string("bin/example")],
             adapterProviderID: "dev.example.native/lldb",
             adapterEndpoint: DebugAdapterEndpoint(host: "localhost", port: 5678)
         )
-        let filters = DebugSteppingFilters(classNameFilters: [], skipSynthetics: true,
-            skipStaticInitializers: false, skipConstructors: false, hideFilteredStackFrames: true)
-        let updated = configuration.applying(steppingFilters: filters)
-        let decoded = try JSONDecoder().decode(DebugLaunchConfiguration.self, from: JSONEncoder().encode(updated))
-        #expect(decoded == updated)
+        let decoded = try JSONDecoder().decode(DebugLaunchConfiguration.self, from: JSONEncoder().encode(configuration))
+        #expect(decoded == configuration)
         #expect(decoded.adapterProviderID == "dev.example.native/lldb")
         #expect(decoded.adapterEndpoint == configuration.adapterEndpoint)
         let oldJSON = Data(#"{"name":"file","request":"launch","arguments":{}}"#.utf8)
@@ -382,34 +363,6 @@ struct DebugModuleTests {
         #expect(manager.provider(for: source) == nil)
     }
 
-    @Test
-    func hotUpdateRestartKeepsOtherDebugSessionsAlive() async throws {
-        let descriptor = DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])
-        var createdSessions: [DeferredInspectionDebugSession] = []
-        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
-            let session = DeferredInspectionDebugSession()
-            createdSessions.append(session)
-            return session
-        }
-        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
-        defer { feature.reset() }
-        let root = URL(fileURLWithPath: "/workspace/hot-update-multiple", isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
-        let configuration = DebugLaunchConfiguration(
-            name: "Main", request: .launch, arguments: ["mainClass": .string("example.Main")]
-        )
-        #expect(feature.start(fileURL: source, rootURL: root, configuration: configuration))
-        let firstID = try #require(feature.activeSessionID)
-        #expect(feature.startAdditional(fileURL: source, rootURL: root, configuration: configuration))
-        feature.registerJavaUpdateTarget(JavaDebugLaunchTarget(mainClass: "example.Main", projectName: "app"))
-        await feature.restartJavaService { _, _ in JavaDebugLaunchTarget(mainClass: "example.Main", projectName: "app") }
-        #expect(createdSessions.count == 3)
-        #expect(createdSessions[0].isRunning)
-        #expect(!createdSessions[1].isRunning)
-        #expect(feature.sessionSummaries.contains { $0.id == firstID })
-        #expect(feature.sessionSummaries.count == 2)
-    }
-
     /// A plugin that goes away ends its own sessions. Another plugin's session
     /// of the same language, which a language-keyed stop would also end, keeps
     /// running.
@@ -442,52 +395,6 @@ struct DebugModuleTests {
     }
 
     @Test
-    func hotUpdateBuildFailureNeverTouchesRunningClasses() async {
-        let session = DeferredInspectionDebugSession()
-        let feature = makeDeferredFeature(session: session, rootPath: "/workspace/hot-update")
-        defer { feature.stop() }
-        feature.registerJavaUpdateTarget(JavaDebugLaunchTarget(
-            mainClass: "example.Main", projectName: "app", classPaths: ["/workspace/hot-update/bin"]
-        ))
-        await feature.applyJavaServiceUpdate { _, _, _ in
-            throw NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Compilation errors"])
-        }
-        #expect(session.redefineCount == 0)
-        #expect(feature.serviceUpdateMessage?.contains("Compilation errors") == true)
-        #expect(feature.updatingServiceSessionID == nil)
-    }
-
-    @Test
-    func hotUpdateStopsBeforeApplyingWhenExecutionEndsDuringBuild() async {
-        let session = DeferredInspectionDebugSession()
-        let feature = makeDeferredFeature(session: session, rootPath: "/workspace/hot-update-stop")
-        defer { feature.stop() }
-        feature.registerJavaUpdateTarget(JavaDebugLaunchTarget(mainClass: "example.Main", projectName: "app"))
-        await feature.applyJavaServiceUpdate { _, _, _ in feature.stop() }
-        #expect(session.redefineCount == 0)
-        #expect(feature.serviceUpdateMessage == nil)
-    }
-
-    @Test
-    func hotUpdateAppliesAfterBuildAndDoesNotResumeExecution() async {
-        let session = DeferredInspectionDebugSession()
-        let feature = makeDeferredFeature(session: session, rootPath: "/workspace/hot-update-success")
-        defer { feature.stop() }
-        feature.registerJavaUpdateTarget(JavaDebugLaunchTarget(mainClass: "example.Main", projectName: "app"))
-        var built = false
-        await feature.applyJavaServiceUpdate { target, source, root in
-            #expect(target.mainClass == "example.Main")
-            #expect(source == root.appendingPathComponent("src/Main.java"))
-            #expect(session.redefineCount == 0)
-            built = true
-        }
-        #expect(built)
-        #expect(session.redefineCount == 1)
-        #expect(session.executionCommands.isEmpty)
-        #expect(feature.serviceUpdateMessage == "Code changes applied.")
-    }
-
-    @Test
     func anAdapterThatDeclaredHotCodeReplaceOffersApplyingChangesAndSendsItAfterPreparing() async {
         let session = DeferredInspectionDebugSession()
         session.declaredBehavior = DebugAdapterDeclaredBehavior(
@@ -508,20 +415,6 @@ struct DebugModuleTests {
         #expect(session.executionCommands.isEmpty)
         #expect(feature.serviceUpdateFailed == false)
         #expect(feature.updatingServiceSessionID == nil)
-    }
-
-    @Test
-    func aDeclaredHotCodeReplaceReplacesTheHostServiceUpdateSoOneButtonShows() async {
-        let session = DeferredInspectionDebugSession()
-        session.declaredBehavior = DebugAdapterDeclaredBehavior(
-            features: .init(hotCodeReplace: .init(request: "script.reload"))
-        )
-        let feature = makeDeferredFeature(session: session, rootPath: "/workspace/declared-over-service")
-        defer { feature.stop() }
-        feature.registerJavaUpdateTarget(JavaDebugLaunchTarget(mainClass: "example.Main", projectName: "app"))
-
-        #expect(feature.canApplyDeclaredCodeChanges)
-        #expect(!feature.canUpdateJavaService)
     }
 
     @Test
@@ -582,7 +475,7 @@ struct DebugModuleTests {
     func boundedConsoleOutputPreservesSGRAcrossChunksAndSessions(background: Bool, padding: Int) throws {
         var adapters: [DeferredInspectionDebugSession] = []
         let manager = DebugAdapterSessionManager(providers: [
-            DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])
+            DebugProviderDescriptor(id: "tool-a", displayName: "Tool A", fileExtensions: ["txt"])
         ]) { _, _ in
             let adapter = DeferredInspectionDebugSession()
             adapters.append(adapter)
@@ -591,7 +484,7 @@ struct DebugModuleTests {
         let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         defer { feature.reset() }
         let root = URL(fileURLWithPath: "/workspace/bounded-output")
-        let source = root.appendingPathComponent("Main.java")
+        let source = root.appendingPathComponent("Main.txt")
         let configuration = DebugLaunchConfiguration(name: "Main", request: .launch, arguments: [:])
         #expect(feature.start(fileURL: source, rootURL: root, configuration: configuration))
         let first = try #require(feature.activeSessionID)
@@ -659,22 +552,11 @@ struct DebugModuleTests {
     }
 
     @Test
-    func springPortConflictOutputProducesAnActionableDiagnostic() {
-        let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
-        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
-
-        feature.appendDebuggeeOutput("Web server failed to start. Port 8080 was already in use.\n")
-
-        #expect(feature.errorMessage == "Port 8080 is already in use. Stop the process using it or change server.port in the Run configuration.")
-        #expect(feature.output.contains("Port 8080 was already in use."))
-    }
-
-    @Test
     func staleSessionCallbacksCannotOverwriteAReplacementSession() throws {
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         var createdSessions: [DeferredInspectionDebugSession] = []
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
@@ -682,12 +564,12 @@ struct DebugModuleTests {
             createdSessions.append(session)
             return session
         }
-        let root = URL(fileURLWithPath: "/tmp/java-debug-reconnect", isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
+        let root = URL(fileURLWithPath: "/tmp/tool-a-debug-reconnect", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.txt")
 
         _ = try manager.activate(for: source, rootURL: root)
         let first = try #require(createdSessions.first)
-        manager.stop(providerID: "java")
+        manager.stop(providerID: "tool-a")
 
         _ = try manager.activate(for: source, rootURL: root)
         let second = try #require(createdSessions.dropFirst().first)
@@ -695,17 +577,17 @@ struct DebugModuleTests {
         first.emit(.output(category: "stderr", output: "stale\n"))
         first.fail()
 
-        #expect(manager.lastEvents["java"] == .output(category: "stdout", output: "current\n"))
-        #expect(manager.states["java"] == .ready)
+        #expect(manager.lastEvents["tool-a"] == .output(category: "stdout", output: "current\n"))
+        #expect(manager.states["tool-a"] == .ready)
         manager.stopAll()
     }
 
     @Test
     func independentSessionsShareBreakpointsButKeepStateAndCallbacksSeparate() throws {
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         var createdSessions: [DeferredInspectionDebugSession] = []
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
@@ -718,8 +600,8 @@ struct DebugModuleTests {
             receivedEvents.append((sessionID, providerID, event))
         }
 
-        let root = URL(fileURLWithPath: "/tmp/java-debug-multiple", isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
+        let root = URL(fileURLWithPath: "/tmp/tool-a-debug-multiple", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.txt")
         let first = try manager.activateNew(for: source, rootURL: root)
         let second = try manager.activateNew(for: source, rootURL: root)
         let firstSession = try #require(createdSessions.first)
@@ -727,8 +609,8 @@ struct DebugModuleTests {
 
         #expect(first.id != second.id)
         #expect(manager.sessionSummaries.map(\.id) == [first.id, second.id])
-        #expect(manager.activeAdapterIDs == ["java"])
-        #expect(manager.session(providerID: "java") === secondSession)
+        #expect(manager.activeAdapterIDs == ["tool-a"])
+        #expect(manager.session(providerID: "tool-a") === secondSession)
 
         try manager.setBreakpoints([
             DebugSourceBreakpoint(line: 12, enabled: true)
@@ -739,30 +621,30 @@ struct DebugModuleTests {
         firstSession.emit(.output(category: "stdout", output: "old\n"))
         secondSession.emit(.output(category: "stdout", output: "new\n"))
         #expect(receivedEvents.map { $0.0 } == [first.id, second.id])
-        #expect(manager.lastEvents["java"] == .output(category: "stdout", output: "new\n"))
+        #expect(manager.lastEvents["tool-a"] == .output(category: "stdout", output: "new\n"))
 
         #expect(manager.select(sessionID: first.id))
         firstSession.emit(.output(category: "stdout", output: "selected-first\n"))
-        #expect(manager.lastEvents["java"] == .output(category: "stdout", output: "selected-first\n"))
+        #expect(manager.lastEvents["tool-a"] == .output(category: "stdout", output: "selected-first\n"))
 
         manager.stop(sessionID: second.id)
-        #expect(manager.session(providerID: "java") === firstSession)
+        #expect(manager.session(providerID: "tool-a") === firstSession)
         #expect(manager.activeSessionIDs == [first.id])
-        #expect(manager.states["java"] == .ready)
+        #expect(manager.states["tool-a"] == .ready)
         #expect(manager.sessionSummaries.map(\.id) == [first.id])
 
         manager.stop(sessionID: first.id)
         #expect(manager.activeSessionIDs.isEmpty)
         #expect(manager.activeAdapterIDs.isEmpty)
-        #expect(manager.states["java"] == .idle)
+        #expect(manager.states["tool-a"] == .idle)
     }
 
     @Test
     func sessionAwareRunInTerminalRequestsKeepTheirOwningSessionIdentity() throws {
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         var createdSessions: [DeferredInspectionDebugSession] = []
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
@@ -775,15 +657,15 @@ struct DebugModuleTests {
             requests.append((sessionID, request))
             completion(.success(DebugRunInTerminalResponse(processID: 42)))
         }
-        let root = URL(fileURLWithPath: "/tmp/java-debug-terminal-routing", isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
+        let root = URL(fileURLWithPath: "/tmp/tool-a-debug-terminal-routing", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.txt")
         let first = try manager.activateNew(for: source, rootURL: root)
         let second = try manager.activateNew(for: source, rootURL: root)
         let request = DebugRunInTerminalRequest(
             kind: .integrated,
             title: "Second",
             cwd: root.path,
-            args: ["/usr/bin/java", "example.Second"],
+            args: ["/usr/bin/tool-a", "example.Second"],
             environment: [],
             argsCanBeInterpretedByShell: false
         )
@@ -798,9 +680,9 @@ struct DebugModuleTests {
     @Test
     func consoleHistoryIsBoundedDeduplicatedAndScopedToTheSelectedSession() throws {
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         var createdSessions: [DeferredInspectionDebugSession] = []
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
@@ -809,12 +691,12 @@ struct DebugModuleTests {
             return session
         }
         let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
-        let root = URL(fileURLWithPath: "/tmp/java-debug-console-history", isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
+        let root = URL(fileURLWithPath: "/tmp/tool-a-debug-console-history", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.txt")
         let configuration = DebugLaunchConfiguration(
             name: "Main",
             request: .launch,
-            arguments: ["mainClass": .string("example.Main")]
+            arguments: ["program": .string("example.Main")]
         )
 
         #expect(feature.start(fileURL: source, rootURL: root, configuration: configuration))
@@ -890,9 +772,9 @@ struct DebugModuleTests {
     @Test
     func featureSwitchesSessionsWithoutMixingTheirConsoleState() throws {
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         var createdSessions: [DeferredInspectionDebugSession] = []
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
@@ -901,17 +783,17 @@ struct DebugModuleTests {
             return session
         }
         let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
-        let root = URL(fileURLWithPath: "/tmp/java-debug-feature-sessions", isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
+        let root = URL(fileURLWithPath: "/tmp/tool-a-debug-feature-sessions", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.txt")
         let firstConfiguration = DebugLaunchConfiguration(
             name: "First",
             request: .launch,
-            arguments: ["mainClass": .string("example.First")]
+            arguments: ["program": .string("example.First")]
         )
         let secondConfiguration = DebugLaunchConfiguration(
             name: "Second",
             request: .launch,
-            arguments: ["mainClass": .string("example.Second")]
+            arguments: ["program": .string("example.Second")]
         )
 
         #expect(feature.start(
@@ -954,9 +836,9 @@ struct DebugModuleTests {
     @Test
     func additionalSessionLaunchFailureRestoresTheOriginalActiveSession() throws {
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         var createdSessions: [DeferredInspectionDebugSession] = []
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
@@ -968,17 +850,17 @@ struct DebugModuleTests {
             return session
         }
         let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
-        let root = URL(fileURLWithPath: "/tmp/java-debug-additional-failure", isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
+        let root = URL(fileURLWithPath: "/tmp/tool-a-debug-additional-failure", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.txt")
         let firstConfiguration = DebugLaunchConfiguration(
             name: "First",
             request: .launch,
-            arguments: ["mainClass": .string("example.First")]
+            arguments: ["program": .string("example.First")]
         )
         let secondConfiguration = DebugLaunchConfiguration(
             name: "Second",
             request: .launch,
-            arguments: ["mainClass": .string("example.Second")]
+            arguments: ["program": .string("example.Second")]
         )
 
         #expect(feature.start(fileURL: source, rootURL: root, configuration: firstConfiguration))
@@ -1006,9 +888,9 @@ struct DebugModuleTests {
     @Test
     func stoppingActiveSessionPromotesTheMostRecentRemainingSession() throws {
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         var createdSessions: [DeferredInspectionDebugSession] = []
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
@@ -1017,17 +899,17 @@ struct DebugModuleTests {
             return session
         }
         let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
-        let root = URL(fileURLWithPath: "/tmp/java-debug-stop-promotion", isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
+        let root = URL(fileURLWithPath: "/tmp/tool-a-debug-stop-promotion", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.txt")
         let firstConfiguration = DebugLaunchConfiguration(
             name: "First",
             request: .launch,
-            arguments: ["mainClass": .string("example.First")]
+            arguments: ["program": .string("example.First")]
         )
         let secondConfiguration = DebugLaunchConfiguration(
             name: "Second",
             request: .launch,
-            arguments: ["mainClass": .string("example.Second")]
+            arguments: ["program": .string("example.Second")]
         )
 
         #expect(feature.start(fileURL: source, rootURL: root, configuration: firstConfiguration))
@@ -1124,14 +1006,14 @@ struct DebugModuleTests {
         let core = RecordingDebugProtocolCore()
         let deadlines = RecordingDebugDeadlineScheduler()
         let session = CoreDebugAdapterProtocolSession(
-            adapterID: "java",
+            adapterID: "tool-a",
             transport: transport,
             core: core,
-            sessionID: "java-session",
+            sessionID: "tool-a-session",
             deadlineScheduler: deadlines
         )
 
-        try session.start(rootURL: URL(fileURLWithPath: "/tmp/java-core", isDirectory: true))
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/tool-a-core", isDirectory: true))
 
         #expect(session.state == .initializing)
         #expect(transport.sentData == [Data("initialize-frame".utf8)])
@@ -1256,15 +1138,15 @@ struct DebugModuleTests {
             "result": [
                 "kind": "exceptionInfo",
                 "exceptionInfo": [
-                    "exceptionId": "java.lang.IllegalStateException",
-                    "description": "java.lang.IllegalStateException: session expired",
+                    "exceptionId": "example.StateError",
+                    "description": "example.StateError: session expired",
                     "breakMode": "always",
                     "details": [
                         "message": "session expired",
                         "typeName": "IllegalStateException",
-                        "fullTypeName": "java.lang.IllegalStateException",
+                        "fullTypeName": "example.StateError",
                         "evaluateName": "exception",
-                        "stackTrace": "at example.Main.run(Main.java:12)",
+                        "stackTrace": "at example.Main.run(Main.txt:12)",
                         "innerExceptions": [[
                             "message": "token expired",
                             "typeName": "TokenExpiredException",
@@ -1277,15 +1159,15 @@ struct DebugModuleTests {
         ]])
         transport.emitData(Data("exception-info-response".utf8))
         #expect(try exceptionInfoResult?.get() == DebugExceptionInfo(
-            exceptionID: "java.lang.IllegalStateException",
-            description: "java.lang.IllegalStateException: session expired",
+            exceptionID: "example.StateError",
+            description: "example.StateError: session expired",
             breakMode: "always",
             details: DebugExceptionDetails(
                 message: "session expired",
                 typeName: "IllegalStateException",
-                fullTypeName: "java.lang.IllegalStateException",
+                fullTypeName: "example.StateError",
                 evaluateName: "exception",
-                stackTrace: "at example.Main.run(Main.java:12)",
+                stackTrace: "at example.Main.run(Main.txt:12)",
                 innerExceptions: [DebugExceptionDetails(
                     message: "token expired",
                     typeName: "TokenExpiredException",
@@ -1313,7 +1195,7 @@ struct DebugModuleTests {
 
         var gotoTargetsResult: Result<[DebugGotoTarget], Error>?
         session.requestGotoTargets(
-            fileURL: URL(fileURLWithPath: "/tmp/Main.java"),
+            fileURL: URL(fileURLWithPath: "/tmp/Main.txt"),
             line: 20,
             column: 5
         ) { gotoTargetsResult = $0 }
@@ -1324,7 +1206,7 @@ struct DebugModuleTests {
             "operationId": gotoTargetsOperationID,
             "result": [
                 "kind": "gotoTargets",
-                "targets": [["id": 31, "label": "Main.java:20", "line": 20]]
+                "targets": [["id": 31, "label": "Main.txt:20", "line": 20]]
             ]
         ]])
         transport.emitData(Data("goto-targets-response".utf8))
@@ -1345,7 +1227,7 @@ struct DebugModuleTests {
         #expect(throws: (any Error).self) { try timedOutResult?.get() }
         session.stop()
         #expect(session.state == .idle)
-        #expect(core.destroyedSessionIDs == ["java-session"])
+        #expect(core.destroyedSessionIDs == ["tool-a-session"])
         #expect(transport.stopCalls == 1)
     }
 
@@ -1511,10 +1393,10 @@ struct DebugModuleTests {
         let transport = RecordingTransport()
         let core = RecordingDebugProtocolCore()
         let session = CoreDebugAdapterProtocolSession(
-            adapterID: "java",
+            adapterID: "tool-a",
             transport: transport,
             core: core,
-            sessionID: "java-run-in-terminal",
+            sessionID: "tool-a-run-in-terminal",
             deadlineScheduler: RecordingDebugDeadlineScheduler()
         )
         var receivedRequest: DebugRunInTerminalRequest?
@@ -1523,26 +1405,26 @@ struct DebugModuleTests {
             completion(.success(DebugRunInTerminalResponse(processID: 4242)))
         }
 
-        try session.start(rootURL: URL(fileURLWithPath: "/tmp/java-run-in-terminal"))
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/tool-a-run-in-terminal"))
         defer { session.stop() }
         #expect(core.lastSupportsRunInTerminalRequest == true)
-        core.enqueueReceive(sessionID: "java-run-in-terminal", state: "launching", events: [[
+        core.enqueueReceive(sessionID: "tool-a-run-in-terminal", state: "launching", events: [[
             "sequence": 2,
             "type": "runInTerminalRequested",
             "requestId": "runInTerminal-44",
             "request": [
                 "kind": "integrated",
                 "title": "Debug Main",
-                "cwd": "/tmp/java-run-in-terminal",
-                "args": ["/opt/jdk/bin/java", "example.Main"],
-                "environment": [["name": "JAVA_HOME", "value": "/opt/jdk"]],
+                "cwd": "/tmp/tool-a-run-in-terminal",
+                "args": ["/opt/tool-a/bin/tool-a", "example.Main"],
+                "environment": [["name": "TOOL_A_HOME", "value": "/opt/tool-a"]],
                 "argsCanBeInterpretedByShell": false
             ]
         ]])
 
         transport.emitData(Data("run-in-terminal-request".utf8))
 
-        #expect(receivedRequest?.args == ["/opt/jdk/bin/java", "example.Main"])
+        #expect(receivedRequest?.args == ["/opt/tool-a/bin/tool-a", "example.Main"])
         #expect(core.runInTerminalCompletions == [RecordingRunInTerminalCompletion(
             requestID: "runInTerminal-44",
             response: DebugRunInTerminalResponse(processID: 4242),
@@ -1556,25 +1438,25 @@ struct DebugModuleTests {
         let transport = RecordingTransport()
         let core = RecordingDebugProtocolCore()
         let session = CoreDebugAdapterProtocolSession(
-            adapterID: "java",
+            adapterID: "tool-a",
             transport: transport,
             core: core,
-            sessionID: "java-run-in-terminal-stop",
+            sessionID: "tool-a-run-in-terminal-stop",
             deadlineScheduler: RecordingDebugDeadlineScheduler()
         )
         var pendingCompletion: DebugRunInTerminalCompletion?
         session.onRunInTerminalRequest = { _, completion in
             pendingCompletion = completion
         }
-        try session.start(rootURL: URL(fileURLWithPath: "/tmp/java-run-in-terminal-stop"))
-        core.enqueueReceive(sessionID: "java-run-in-terminal-stop", state: "launching", events: [[
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/tool-a-run-in-terminal-stop"))
+        core.enqueueReceive(sessionID: "tool-a-run-in-terminal-stop", state: "launching", events: [[
             "sequence": 2,
             "type": "runInTerminalRequested",
             "requestId": "runInTerminal-45",
             "request": [
                 "kind": "integrated",
-                "cwd": "/tmp/java-run-in-terminal-stop",
-                "args": ["/opt/jdk/bin/java"],
+                "cwd": "/tmp/tool-a-run-in-terminal-stop",
+                "args": ["/opt/tool-a/bin/tool-a"],
                 "environment": [],
                 "argsCanBeInterpretedByShell": false
             ]
@@ -1629,13 +1511,13 @@ struct DebugModuleTests {
         let transport = RecordingTransport()
         let core = RecordingDebugProtocolCore()
         let session = CoreDebugAdapterProtocolSession(
-            adapterID: "java",
+            adapterID: "tool-a",
             transport: transport,
             core: core,
-            sessionID: "java-no-capabilities",
+            sessionID: "tool-a-no-capabilities",
             deadlineScheduler: RecordingDebugDeadlineScheduler()
         )
-        try session.start(rootURL: URL(fileURLWithPath: "/tmp/java-no-capabilities"))
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/tool-a-no-capabilities"))
         defer { session.stop() }
 
         var dataResult: Result<DebugDataBreakpointInfo, Error>?
@@ -1890,13 +1772,13 @@ struct DebugModuleTests {
         let transport = RecordingTransport()
         let core = RecordingDebugProtocolCore()
         let session = CoreDebugAdapterProtocolSession(
-            adapterID: "java",
+            adapterID: "tool-a",
             transport: transport,
             core: core,
-            sessionID: "java-variable-paging",
+            sessionID: "tool-a-variable-paging",
             deadlineScheduler: RecordingDebugDeadlineScheduler()
         )
-        try session.start(rootURL: URL(fileURLWithPath: "/tmp/java-variable-paging"))
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/tool-a-variable-paging"))
         defer { session.stop() }
 
         var result: Result<[DebugVariable], Error>?
@@ -1913,7 +1795,7 @@ struct DebugModuleTests {
         #expect(core.inspectionRequests.last?.count == 2)
 
         let operationID = try #require(core.lastInspectionOperationID)
-        core.enqueueReceive(sessionID: "java-variable-paging", state: "paused", events: [[
+        core.enqueueReceive(sessionID: "tool-a-variable-paging", state: "paused", events: [[
             "sequence": 2,
             "type": "operationCompleted",
             "operationId": operationID,
@@ -1944,22 +1826,22 @@ struct DebugModuleTests {
         let transport = RecordingTransport()
         let core = RecordingDebugProtocolCore()
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
             CoreDebugAdapterProtocolSession(
-                adapterID: "java",
+                adapterID: "tool-a",
                 transport: transport,
                 core: core,
-                sessionID: "java-stopped-context",
+                sessionID: "tool-a-stopped-context",
                 deadlineScheduler: RecordingDebugDeadlineScheduler()
             )
         }
         let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
-        let root = URL(fileURLWithPath: "/tmp/java-stopped-context", isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
+        let root = URL(fileURLWithPath: "/tmp/tool-a-stopped-context", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.txt")
         var stoppedLocation: (URL, Int, Int)?
         feature.onStoppedLocation = { stoppedLocation = ($0, $1, $2) }
         #expect(feature.start(
@@ -1968,12 +1850,12 @@ struct DebugModuleTests {
             configuration: DebugLaunchConfiguration(
                 name: "Main",
                 request: .launch,
-                arguments: ["mainClass": .string("example.Main")]
+                arguments: ["program": .string("example.Main")]
             )
         ))
         defer { feature.stop() }
 
-        core.enqueueReceive(sessionID: "java-stopped-context", state: "paused", events: [[
+        core.enqueueReceive(sessionID: "tool-a-stopped-context", state: "paused", events: [[
             "sequence": 1,
             "type": "capabilities",
             "capabilities": [
@@ -2002,7 +1884,7 @@ struct DebugModuleTests {
             "type": "stopped",
             "reason": "exception",
             "threadId": 13,
-            "description": "java.lang.IllegalStateException: session expired"
+            "description": "example.StateError: session expired"
         ]])
         transport.emitData(Data("stopped-event".utf8))
         #expect(core.inspectionRequests.map(\.kind) == ["exceptionInfo", "threads"])
@@ -2010,7 +1892,7 @@ struct DebugModuleTests {
         let threadsOperationID = try #require(
             core.inspectionRequests.first(where: { $0.kind == "threads" })?.operationID
         )
-        core.enqueueReceive(sessionID: "java-stopped-context", state: "paused", events: [[
+        core.enqueueReceive(sessionID: "tool-a-stopped-context", state: "paused", events: [[
             "sequence": 2,
             "type": "operationCompleted",
             "operationId": threadsOperationID,
@@ -2031,7 +1913,7 @@ struct DebugModuleTests {
         let stackOperationID = try #require(
             core.inspectionRequests.first(where: { $0.kind == "stackTrace" })?.operationID
         )
-        core.enqueueReceive(sessionID: "java-stopped-context", state: "paused", events: [[
+        core.enqueueReceive(sessionID: "tool-a-stopped-context", state: "paused", events: [[
             "sequence": 3,
             "type": "operationCompleted",
             "operationId": stackOperationID,
@@ -2055,7 +1937,7 @@ struct DebugModuleTests {
         let scopesOperationID = try #require(
             core.inspectionRequests.first(where: { $0.kind == "scopes" })?.operationID
         )
-        core.enqueueReceive(sessionID: "java-stopped-context", state: "paused", events: [[
+        core.enqueueReceive(sessionID: "tool-a-stopped-context", state: "paused", events: [[
             "sequence": 4,
             "type": "operationCompleted",
             "operationId": scopesOperationID,
@@ -2087,7 +1969,7 @@ struct DebugModuleTests {
         let variablesOperationID = try #require(
             core.inspectionRequests.first(where: { $0.kind == "variables" })?.operationID
         )
-        core.enqueueReceive(sessionID: "java-stopped-context", state: "paused", events: [[
+        core.enqueueReceive(sessionID: "tool-a-stopped-context", state: "paused", events: [[
             "sequence": 5,
             "type": "operationCompleted",
             "operationId": variablesOperationID,
@@ -2117,23 +1999,23 @@ struct DebugModuleTests {
         let exceptionOperationID = try #require(
             core.inspectionRequests.first(where: { $0.kind == "exceptionInfo" })?.operationID
         )
-        core.enqueueReceive(sessionID: "java-stopped-context", state: "paused", events: [[
+        core.enqueueReceive(sessionID: "tool-a-stopped-context", state: "paused", events: [[
             "sequence": 6,
             "type": "operationCompleted",
             "operationId": exceptionOperationID,
             "result": [
                 "kind": "exceptionInfo",
                 "exceptionInfo": [
-                    "exceptionId": "java.lang.IllegalStateException",
-                    "description": "java.lang.IllegalStateException: session expired",
+                    "exceptionId": "example.StateError",
+                    "description": "example.StateError: session expired",
                     "breakMode": "always"
                 ]
             ]
         ]])
         transport.emitData(Data("late-exception-response".utf8))
-        #expect(feature.exceptionInfo?.exceptionID == "java.lang.IllegalStateException")
+        #expect(feature.exceptionInfo?.exceptionID == "example.StateError")
 
-        core.enqueueReceive(sessionID: "java-stopped-context", state: "running", events: [[
+        core.enqueueReceive(sessionID: "tool-a-stopped-context", state: "running", events: [[
             "sequence": 7,
             "type": "continued",
             "threadId": 13
@@ -2143,139 +2025,17 @@ struct DebugModuleTests {
     }
 
     @Test
-    func javaSteppingFiltersLoadDefaultsAndPersistNormalizedOverrides() {
-        let defaults = DebugSteppingFilters(
-            classNameFilters: ["$JDK", "org.junit.*"],
-            skipSynthetics: true,
-            skipStaticInitializers: true,
-            skipConstructors: false,
-            hideFilteredStackFrames: true
-        )
-        let normalized = DebugSteppingFilters(
-            classNameFilters: ["$JDK", "org.mockito.*"],
-            skipSynthetics: true,
-            skipStaticInitializers: false,
-            skipConstructors: true,
-            hideFilteredStackFrames: true
-        )
-        let resolver = RecordingDebugSteppingFilterResolver(
-            defaults: defaults,
-            normalizedOverride: normalized
-        )
-        let persistence = RecordingDebugSteppingFilterPersistence()
-        let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
-        let feature = GenericDebugFeatureModel(
-            paging: LinkedCoreDebugPaging(),
-            sessions: manager,
-            steppingFilterResolver: resolver,
-            steppingFilterPersistence: persistence
-        )
-
-        #expect(feature.javaSteppingFilters == defaults)
-        #expect(resolver.requests == [RecordingDebugSteppingFilterResolution(
-            adapterID: "java",
-            filters: nil
-        )])
-
-        let override = DebugSteppingFilters(
-            classNameFilters: [" org.mockito.* ", "$JDK", "org.mockito.*", ""],
-            skipSynthetics: true,
-            skipStaticInitializers: false,
-            skipConstructors: true,
-            hideFilteredStackFrames: true
-        )
-        feature.updateJavaSteppingFilters(override)
-
-        #expect(resolver.requests.last == RecordingDebugSteppingFilterResolution(
-            adapterID: "java",
-            filters: override
-        ))
-        #expect(feature.javaSteppingFilters == normalized)
-        #expect(persistence.filtersByAdapterID["java"] == normalized)
-    }
-
-    @Test
-    func javaSteppingFiltersFallBackToDefaultsWhenPersistenceCannotBeRead() {
-        let defaults = DebugSteppingFilters(
-            classNameFilters: ["$JDK", "org.junit.*"],
-            skipSynthetics: true,
-            skipStaticInitializers: true,
-            skipConstructors: false,
-            hideFilteredStackFrames: true
-        )
-        let resolver = RecordingDebugSteppingFilterResolver(
-            defaults: defaults,
-            normalizedOverride: defaults
-        )
-        let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
-        let feature = GenericDebugFeatureModel(
-            paging: LinkedCoreDebugPaging(),
-            sessions: manager,
-            steppingFilterResolver: resolver,
-            steppingFilterPersistence: FailingDebugSteppingFilterPersistence()
-        )
-
-        #expect(feature.javaSteppingFilters == defaults)
-        #expect(feature.errorMessage != nil)
-        #expect(resolver.requests == [RecordingDebugSteppingFilterResolution(
-            adapterID: "java",
-            filters: nil
-        )])
-    }
-
-    @Test
-    func javaLaunchAppliesResolvedSteppingFilters() throws {
-        let transport = RecordingTransport()
-        let core = RecordingDebugProtocolCore()
-        let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
-        )
-        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
-            CoreDebugAdapterProtocolSession(
-                adapterID: "java",
-                transport: transport,
-                core: core,
-                sessionID: "java-stepping-launch",
-                deadlineScheduler: RecordingDebugDeadlineScheduler()
-            )
-        }
-        let feature = GenericDebugFeatureModel(
-            paging: LinkedCoreDebugPaging(),
-            sessions: manager,
-            steppingFilterResolver: core
-        )
-        let root = URL(fileURLWithPath: "/tmp/java-stepping-launch", isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
-
-        #expect(feature.start(
-            fileURL: source,
-            rootURL: root,
-            configuration: DebugLaunchConfiguration(
-                name: "Main",
-                request: .launch,
-                arguments: ["mainClass": .string("example.Main")]
-            )
-        ))
-        defer { feature.stop() }
-
-        #expect(feature.javaSteppingFilters == core.defaultSteppingFilters)
-        #expect(core.lastLaunchConfiguration?.steppingFilters == core.defaultSteppingFilters)
-    }
-
-    @Test
     func emptyStateFollowsRetainedContentRatherThanRunningStateOrOutput() {
         let session = DeferredInspectionDebugSession()
         let manager = DebugAdapterSessionManager(providers: [
-            DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])
+            DebugProviderDescriptor(id: "tool-a", displayName: "Tool A", fileExtensions: ["txt"])
         ]) { _, _ in session }
         let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         defer { feature.reset() }
         let root = URL(fileURLWithPath: "/workspace/debug-empty-state", isDirectory: true)
-        let source = root.appendingPathComponent("Main.java")
+        let source = root.appendingPathComponent("Main.txt")
         let configuration = DebugLaunchConfiguration(
-            name: "Main", request: .launch, arguments: ["mainClass": .string("Main")]
+            name: "Main", request: .launch, arguments: ["program": .string("Main")]
         )
 
         #expect(feature.showsEmptyState)
@@ -2330,18 +2090,18 @@ struct DebugModuleTests {
     func failedSessionCanRetryUsingTheLastLaunchRequest() throws {
         let session = DeferredInspectionDebugSession()
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
         let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
-        let root = URL(fileURLWithPath: "/tmp/java-debug-retry", isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
+        let root = URL(fileURLWithPath: "/tmp/tool-a-debug-retry", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.txt")
         let configuration = DebugLaunchConfiguration(
             name: "Retry Main",
             request: .launch,
-            arguments: ["mainClass": .string("example.Main")]
+            arguments: ["program": .string("example.Main")]
         )
 
         #expect(feature.start(fileURL: source, rootURL: root, configuration: configuration))
@@ -2359,18 +2119,18 @@ struct DebugModuleTests {
     func restartFallsBackToRelaunchWhenAdapterDoesNotAdvertiseRestart() throws {
         let session = DeferredInspectionDebugSession()
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
         let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
-        let root = URL(fileURLWithPath: "/tmp/java-debug-restart-fallback", isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
+        let root = URL(fileURLWithPath: "/tmp/tool-a-debug-restart-fallback", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.txt")
         let configuration = DebugLaunchConfiguration(
             name: "Restart Main",
             request: .launch,
-            arguments: ["mainClass": .string("example.Main")]
+            arguments: ["program": .string("example.Main")]
         )
 
         #expect(feature.start(fileURL: source, rootURL: root, configuration: configuration))
@@ -2389,18 +2149,18 @@ struct DebugModuleTests {
     func executionControlsIgnoreOverlappingRequestsUntilSessionLeavesPausedState() throws {
         let session = DeferredInspectionDebugSession()
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
         let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
-        let root = URL(fileURLWithPath: "/tmp/java-debug-execution-lock", isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
+        let root = URL(fileURLWithPath: "/tmp/tool-a-debug-execution-lock", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.txt")
         let configuration = DebugLaunchConfiguration(
             name: "Execution lock",
             request: .launch,
-            arguments: ["mainClass": .string("example.Main")]
+            arguments: ["program": .string("example.Main")]
         )
 
         #expect(feature.start(fileURL: source, rootURL: root, configuration: configuration))
@@ -2422,35 +2182,25 @@ struct DebugModuleTests {
     func filteredStackFramesCollapseByConsecutiveRunsAndRestoreOrder() {
         let session = DeferredInspectionDebugSession()
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
-        let defaults = DebugSteppingFilters(
-            classNameFilters: ["$JDK"],
-            skipSynthetics: true,
-            skipStaticInitializers: true,
-            skipConstructors: false,
-            hideFilteredStackFrames: true
+        // The adapter's declared default decides whether filtered frames collapse.
+        session.declaredBehavior = DebugAdapterDeclaredBehavior(
+            defaults: .init(stepFilters: .init(hideFilteredStackFrames: true))
         )
-        let feature = GenericDebugFeatureModel(
-            paging: LinkedCoreDebugPaging(),
-            sessions: manager,
-            steppingFilterResolver: RecordingDebugSteppingFilterResolver(
-                defaults: defaults,
-                normalizedOverride: defaults
-            )
-        )
-        let root = URL(fileURLWithPath: "/tmp/java-filtered-stack", isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
+        let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
+        let root = URL(fileURLWithPath: "/tmp/tool-a-filtered-stack", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.txt")
         #expect(feature.start(
             fileURL: source,
             rootURL: root,
             configuration: DebugLaunchConfiguration(
                 name: "Main",
                 request: .launch,
-                arguments: ["mainClass": .string("example.Main")]
+                arguments: ["program": .string("example.Main")]
             )
         ))
         defer { feature.stop() }
@@ -2466,7 +2216,7 @@ struct DebugModuleTests {
             ),
             DebugStackFrame(
                 id: 2,
-                name: "java.lang.reflect.Method.invoke",
+                name: "runtime.reflect.Method.invoke",
                 sourceURL: nil,
                 line: 1,
                 column: 1,
@@ -2474,7 +2224,7 @@ struct DebugModuleTests {
             ),
             DebugStackFrame(
                 id: 3,
-                name: "org.springframework.cglib.Proxy.invoke",
+                name: "vendor.proxy.Proxy.invoke",
                 sourceURL: nil,
                 line: 1,
                 column: 1,
@@ -2489,7 +2239,7 @@ struct DebugModuleTests {
             ),
             DebugStackFrame(
                 id: 5,
-                name: "jdk.proxy1.$Proxy0.invoke",
+                name: "runtime.proxy1.$Proxy0.invoke",
                 sourceURL: nil,
                 line: 1,
                 column: 1,
@@ -2517,32 +2267,32 @@ struct DebugModuleTests {
     func stoppedStackPrefersTheFirstSourceBackedUnfilteredFrame() throws {
         let session = DeferredInspectionDebugSession()
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
         let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
-        let root = URL(fileURLWithPath: "/tmp/java-preferred-frame", isDirectory: true)
-        let source = root.appendingPathComponent("src/UserService.java")
+        let root = URL(fileURLWithPath: "/tmp/tool-a-preferred-frame", isDirectory: true)
+        let source = root.appendingPathComponent("src/UserService.txt")
         #expect(feature.start(
             fileURL: source,
             rootURL: root,
             configuration: DebugLaunchConfiguration(
                 name: "Main",
                 request: .launch,
-                arguments: ["mainClass": .string("example.Main")]
+                arguments: ["program": .string("example.Main")]
             )
         ))
         defer { feature.stop() }
 
-        // Java adapters can report a synthetic method-handle frame above the
+        // Adapters can report a synthetic runtime frame above the
         // actual application frame. The initial inspection must land on the
         // application source while retaining the synthetic frame in the list.
         feature.selectThread(DebugThread(id: 7, name: "http-worker"))
         let synthetic = DebugStackFrame(
             id: 1,
-            name: "java.lang.invoke.MethodHandle.invokeVirtual",
+            name: "runtime.invoke.MethodHandle.invokeVirtual",
             sourceURL: nil,
             line: 1,
             column: 1,
@@ -2567,21 +2317,21 @@ struct DebugModuleTests {
     func rapidInspectionSelectionDiscardsOutOfOrderResults() throws {
         let session = DeferredInspectionDebugSession()
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
         let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
-        let root = URL(fileURLWithPath: "/tmp/java-inspection-selection", isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
+        let root = URL(fileURLWithPath: "/tmp/tool-a-inspection-selection", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.txt")
         #expect(feature.start(
             fileURL: source,
             rootURL: root,
             configuration: DebugLaunchConfiguration(
                 name: "Main",
                 request: .launch,
-                arguments: ["mainClass": .string("example.Main")]
+                arguments: ["program": .string("example.Main")]
             )
         ))
         defer { feature.stop() }
@@ -2698,14 +2448,14 @@ struct DebugModuleTests {
         let session = DeferredInspectionDebugSession()
         let feature = makeDeferredFeature(
             session: session,
-            rootPath: "/tmp/java-running-inspection-reset"
+            rootPath: "/tmp/tool-a-running-inspection-reset"
         )
         defer { feature.stop() }
         let thread = DebugThread(id: 7, name: "http-worker")
         let frame = DebugStackFrame(
             id: 70,
             name: "UserController.list()",
-            sourceURL: URL(fileURLWithPath: "/tmp/java-running-inspection-reset/src/UserController.java"),
+            sourceURL: URL(fileURLWithPath: "/tmp/tool-a-running-inspection-reset/src/UserController.txt"),
             line: 23,
             column: 1
         )
@@ -2749,17 +2499,17 @@ struct DebugModuleTests {
     }
 
     @Test
-    func automaticVariableInspectionRunsAfterFrameResetAndFallsBackToJavaField() {
+    func automaticVariableInspectionRunsAfterFrameResetAndDropsAFailedExpression() {
         let session = DeferredInspectionDebugSession()
         let feature = makeDeferredFeature(
             session: session,
-            rootPath: "/tmp/java-automatic-variable-inspection"
+            rootPath: "/tmp/tool-a-automatic-variable-inspection"
         )
         defer { feature.stop() }
         let frame = DebugStackFrame(
             id: 31,
             name: "UserController.list()",
-            sourceURL: URL(fileURLWithPath: "/tmp/java-automatic-variable-inspection/src/UserController.java"),
+            sourceURL: URL(fileURLWithPath: "/tmp/tool-a-automatic-variable-inspection/src/UserController.txt"),
             line: 23,
             column: 1
         )
@@ -2770,7 +2520,7 @@ struct DebugModuleTests {
         }
 
         #expect(feature.state == .paused)
-        #expect(feature.providerID == "java")
+        #expect(feature.providerID == "tool-a")
         feature.selectFrame(frame)
         #expect(requestedFrameID == frame.id)
         #expect(session.evaluateExpressions == ["service"])
@@ -2778,21 +2528,10 @@ struct DebugModuleTests {
 
         guard session.evaluateExpressions.count == 1 else { return }
         session.completeEvaluation(at: 0, with: .failure(DeferredDebugSessionError.launchFailed))
-        #expect(session.evaluateExpressions == ["service", "this.service"])
 
-        let service = DebugVariable(
-            id: "service",
-            name: "this.service",
-            value: "UserService@72",
-            type: "UserService",
-            evaluateName: "this.service",
-            variablesReference: 72
-        )
-        guard session.evaluateExpressions.count == 2 else { return }
-        session.completeEvaluation(at: 1, with: .success(service))
-
-        #expect(feature.automaticVariables.map(\.name) == ["service"])
-        #expect(feature.automaticVariables.map(\.value) == ["UserService@72"])
+        // A failed expression is not retried under another spelling.
+        #expect(session.evaluateExpressions == ["service"])
+        #expect(feature.automaticVariables.isEmpty)
     }
 
     @Test
@@ -2800,7 +2539,7 @@ struct DebugModuleTests {
         let session = DeferredInspectionDebugSession()
         let feature = makeDeferredFeature(
             session: session,
-            rootPath: "/tmp/java-large-variable-pages"
+            rootPath: "/tmp/tool-a-large-variable-pages"
         )
         defer { feature.stop() }
         let frame = DebugStackFrame(id: 70, name: "main", sourceURL: nil, line: 12, column: 1)
@@ -2862,7 +2601,7 @@ struct DebugModuleTests {
         let session = DeferredInspectionDebugSession()
         let feature = makeDeferredFeature(
             session: session,
-            rootPath: "/tmp/java-named-indexed-pages"
+            rootPath: "/tmp/tool-a-named-indexed-pages"
         )
         defer { feature.stop() }
         let frame = DebugStackFrame(id: 71, name: "main", sourceURL: nil, line: 12, column: 1)
@@ -2910,7 +2649,7 @@ struct DebugModuleTests {
         let session = DeferredInspectionDebugSession()
         let feature = makeDeferredFeature(
             session: session,
-            rootPath: "/tmp/java-ignored-variable-paging"
+            rootPath: "/tmp/tool-a-ignored-variable-paging"
         )
         defer { feature.stop() }
         let frame = DebugStackFrame(id: 72, name: "main", sourceURL: nil, line: 12, column: 1)
@@ -2946,7 +2685,7 @@ struct DebugModuleTests {
         let session = DeferredInspectionDebugSession()
         let feature = makeDeferredFeature(
             session: session,
-            rootPath: "/tmp/java-stale-variable-page"
+            rootPath: "/tmp/tool-a-stale-variable-page"
         )
         defer { feature.stop() }
         let firstFrame = DebugStackFrame(id: 80, name: "first", sourceURL: nil, line: 12, column: 1)
@@ -2995,21 +2734,21 @@ struct DebugModuleTests {
         )
         let session = DeferredInspectionDebugSession(capabilities: capabilities)
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
         let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
-        let root = URL(fileURLWithPath: "/tmp/java-exception-info", isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
+        let root = URL(fileURLWithPath: "/tmp/tool-a-exception-info", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.txt")
         #expect(feature.start(
             fileURL: source,
             rootURL: root,
             configuration: DebugLaunchConfiguration(
                 name: "Main",
                 request: .launch,
-                arguments: ["mainClass": .string("example.Main")]
+                arguments: ["program": .string("example.Main")]
             )
         ))
         defer { feature.stop() }
@@ -3058,7 +2797,7 @@ struct DebugModuleTests {
         let session = DeferredInspectionDebugSession()
         let feature = makeDeferredFeature(
             session: session,
-            rootPath: "/tmp/java-self-referential-variable"
+            rootPath: "/tmp/tool-a-self-referential-variable"
         )
         defer { feature.stop() }
 
@@ -3099,22 +2838,22 @@ struct DebugModuleTests {
         let transport = RecordingTransport()
         let core = RecordingDebugProtocolCore()
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
             CoreDebugAdapterProtocolSession(
-                adapterID: "java",
+                adapterID: "tool-a",
                 transport: transport,
                 core: core,
-                sessionID: "java-breakpoints",
+                sessionID: "tool-a-breakpoints",
                 deadlineScheduler: RecordingDebugDeadlineScheduler()
             )
         }
         let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
-        let root = URL(fileURLWithPath: "/tmp/java-breakpoints", isDirectory: true)
-        let source = root.appendingPathComponent("Main.java")
+        let root = URL(fileURLWithPath: "/tmp/tool-a-breakpoints", isDirectory: true)
+        let source = root.appendingPathComponent("Main.txt")
 
         feature.toggleBreakpoint(fileURL: source, line: 12)
         feature.updateBreakpoint(
@@ -3138,7 +2877,7 @@ struct DebugModuleTests {
             configuration: DebugLaunchConfiguration(
                 name: "Main",
                 request: .launch,
-                arguments: ["mainClass": .string("example.Main")]
+                arguments: ["program": .string("example.Main")]
             )
         ))
         #expect(core.breakpointUpdates.last == [DebugSourceBreakpoint(
@@ -3149,7 +2888,7 @@ struct DebugModuleTests {
             logMessage: "value = {value}"
         )])
 
-        core.enqueueReceive(sessionID: "java-breakpoints", state: "ready", events: [[
+        core.enqueueReceive(sessionID: "tool-a-breakpoints", state: "ready", events: [[
             "sequence": 2,
             "type": "capabilities",
             "capabilities": [
@@ -3216,7 +2955,7 @@ struct DebugModuleTests {
                 hitCondition: "2"
             )
         ])
-        core.enqueueReceive(sessionID: "java-breakpoints", state: "ready", events: [[
+        core.enqueueReceive(sessionID: "tool-a-breakpoints", state: "ready", events: [[
             "sequence": 3,
             "type": "breakpoint",
             "breakpoint": [
@@ -3228,7 +2967,7 @@ struct DebugModuleTests {
         transport.emitData(Data("function-breakpoint-response".utf8))
         #expect(feature.functionBreakpoints.first?.verified == true)
 
-        core.enqueueReceive(sessionID: "java-breakpoints", state: "paused", events: [[
+        core.enqueueReceive(sessionID: "tool-a-breakpoints", state: "paused", events: [[
             "sequence": 4,
             "type": "stopped",
             "reason": "breakpoint"
@@ -3238,7 +2977,7 @@ struct DebugModuleTests {
         let staleWatchOperationID = try #require(core.lastInspectionOperationID)
         feature.updateWatch(try #require(feature.watches.first), expression: "count + 1")
         let watchOperationID = try #require(core.lastInspectionOperationID)
-        core.enqueueReceive(sessionID: "java-breakpoints", state: "paused", events: [[
+        core.enqueueReceive(sessionID: "tool-a-breakpoints", state: "paused", events: [[
             "sequence": 5,
             "type": "operationCompleted",
             "operationId": staleWatchOperationID,
@@ -3255,7 +2994,7 @@ struct DebugModuleTests {
         transport.emitData(Data("stale-watch-response".utf8))
         #expect(feature.watches.first?.expression == "count + 1")
         #expect(feature.watches.first?.value == nil)
-        core.enqueueReceive(sessionID: "java-breakpoints", state: "paused", events: [[
+        core.enqueueReceive(sessionID: "tool-a-breakpoints", state: "paused", events: [[
             "sequence": 6,
             "type": "operationCompleted",
             "operationId": watchOperationID,
@@ -3275,7 +3014,7 @@ struct DebugModuleTests {
         var hoverValue: DebugVariable?
         feature.evaluateForHover("count") { hoverValue = $0 }
         let hoverOperationID = try #require(core.lastInspectionOperationID)
-        core.enqueueReceive(sessionID: "java-breakpoints", state: "paused", events: [[
+        core.enqueueReceive(sessionID: "tool-a-breakpoints", state: "paused", events: [[
             "sequence": 7,
             "type": "operationCompleted",
             "operationId": hoverOperationID,
@@ -3295,7 +3034,7 @@ struct DebugModuleTests {
         var staleHoverValue: DebugVariable?
         feature.evaluateForHover("count") { staleHoverValue = $0 }
         let staleHoverOperationID = try #require(core.lastInspectionOperationID)
-        core.enqueueReceive(sessionID: "java-breakpoints", state: "running", events: [[
+        core.enqueueReceive(sessionID: "tool-a-breakpoints", state: "running", events: [[
             "sequence": 8,
             "type": "stateChanged",
             "state": "running"
@@ -3315,7 +3054,7 @@ struct DebugModuleTests {
         ]])
         transport.emitData(Data("stale-hover-response".utf8))
         #expect(staleHoverValue == nil)
-        core.enqueueReceive(sessionID: "java-breakpoints", state: "paused", events: [[
+        core.enqueueReceive(sessionID: "tool-a-breakpoints", state: "paused", events: [[
             "sequence": 10,
             "type": "stopped",
             "reason": "breakpoint"
@@ -3332,7 +3071,7 @@ struct DebugModuleTests {
             containerReference: 42
         ))
         let dataOperationID = try #require(core.lastDataBreakpointInfoOperationID)
-        core.enqueueReceive(sessionID: "java-breakpoints", state: "paused", events: [[
+        core.enqueueReceive(sessionID: "tool-a-breakpoints", state: "paused", events: [[
             "sequence": 5,
             "type": "operationCompleted",
             "operationId": dataOperationID,
@@ -3354,7 +3093,7 @@ struct DebugModuleTests {
 
         feature.loadVariables(reference: 100)
         let rootVariablesOperationID = try #require(core.lastInspectionOperationID)
-        core.enqueueReceive(sessionID: "java-breakpoints", state: "paused", events: [[
+        core.enqueueReceive(sessionID: "tool-a-breakpoints", state: "paused", events: [[
             "sequence": 7,
             "type": "operationCompleted",
             "operationId": rootVariablesOperationID,
@@ -3372,7 +3111,7 @@ struct DebugModuleTests {
         let user = try #require(feature.variables.first)
         feature.toggleVariableExpansion(user)
         let childVariablesOperationID = try #require(core.lastInspectionOperationID)
-        core.enqueueReceive(sessionID: "java-breakpoints", state: "paused", events: [[
+        core.enqueueReceive(sessionID: "tool-a-breakpoints", state: "paused", events: [[
             "sequence": 8,
             "type": "operationCompleted",
             "operationId": childVariablesOperationID,
@@ -3407,14 +3146,14 @@ struct DebugModuleTests {
     @Test
     func projectBreakpointsPersistWithRelativePathsAndRestoreDeterministically() throws {
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         let persistence = RecordingBreakpointPersistence()
-        let root = URL(fileURLWithPath: "/tmp/persisted-java-breakpoints", isDirectory: true)
-        let main = root.appendingPathComponent("src/Main.java")
-        let service = root.appendingPathComponent("src/Service.java")
+        let root = URL(fileURLWithPath: "/tmp/persisted-tool-a-breakpoints", isDirectory: true)
+        let main = root.appendingPathComponent("src/Main.txt")
+        let service = root.appendingPathComponent("src/Service.txt")
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in nil }
         let feature = GenericDebugFeatureModel(
             paging: LinkedCoreDebugPaging(),
@@ -3437,9 +3176,9 @@ struct DebugModuleTests {
 
         let saved = try #require(persistence.snapshots[root.standardizedFileURL])
         #expect(saved.areBreakpointsMuted)
-        #expect(saved.breakpoints.map(\.relativePath) == ["src/Main.java", "src/Service.java"])
+        #expect(saved.breakpoints.map(\.relativePath) == ["src/Main.txt", "src/Service.txt"])
         #expect(saved.breakpoints.first == PersistedDebugBreakpoint(
-            relativePath: "src/Main.java",
+            relativePath: "src/Main.txt",
             line: 8,
             enabled: false,
             condition: "ready",
@@ -3464,9 +3203,9 @@ struct DebugModuleTests {
     @Test
     func sourceEditRelocatesPersistsAndResynchronizesBreakpoints() throws {
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         let session = DeferredInspectionDebugSession()
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
@@ -3474,8 +3213,8 @@ struct DebugModuleTests {
         let relocator = RecordingBreakpointRelocator(result: [
             DebugSourceBreakpoint(line: 3, condition: "ready")
         ])
-        let root = URL(fileURLWithPath: "/tmp/relocated-java-breakpoints", isDirectory: true)
-        let sourceURL = root.appendingPathComponent("src/Main.java")
+        let root = URL(fileURLWithPath: "/tmp/relocated-tool-a-breakpoints", isDirectory: true)
+        let sourceURL = root.appendingPathComponent("src/Main.txt")
         let feature = GenericDebugFeatureModel(
             paging: LinkedCoreDebugPaging(),
             sessions: manager,
@@ -3498,7 +3237,7 @@ struct DebugModuleTests {
             configuration: DebugLaunchConfiguration(
                 name: "Main",
                 request: .launch,
-                arguments: ["mainClass": .string("example.Main")]
+                arguments: ["program": .string("example.Main")]
             )
         ))
         defer { feature.stop() }
@@ -3533,13 +3272,13 @@ struct DebugModuleTests {
     @Test
     func inlineEditSkipsRelocationForLineOnlyBreakpoints() {
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         let relocator = RecordingBreakpointRelocator(result: [])
-        let root = URL(fileURLWithPath: "/tmp/inline-java-breakpoint-edit", isDirectory: true)
-        let sourceURL = root.appendingPathComponent("src/Main.java")
+        let root = URL(fileURLWithPath: "/tmp/inline-tool-a-breakpoint-edit", isDirectory: true)
+        let sourceURL = root.appendingPathComponent("src/Main.txt")
         let feature = GenericDebugFeatureModel(
             paging: LinkedCoreDebugPaging(),
             sessions: DebugAdapterSessionManager(providers: [descriptor]) { _, _ in nil },
@@ -3566,18 +3305,18 @@ struct DebugModuleTests {
 
     @Test
     func projectBreakpointRestoreRejectsPathsOutsideTheWorkspace() {
-        let root = URL(fileURLWithPath: "/tmp/safe-java-breakpoints", isDirectory: true)
+        let root = URL(fileURLWithPath: "/tmp/safe-tool-a-breakpoints", isDirectory: true)
         let persistence = RecordingBreakpointPersistence()
         persistence.snapshots[root.standardizedFileURL] = DebugBreakpointSnapshot(breakpoints: [
-            PersistedDebugBreakpoint(relativePath: "../Outside.java", line: 4),
-            PersistedDebugBreakpoint(relativePath: "/tmp/Absolute.java", line: 5),
-            PersistedDebugBreakpoint(relativePath: "src/Main.java", line: 6)
+            PersistedDebugBreakpoint(relativePath: "../Outside.txt", line: 4),
+            PersistedDebugBreakpoint(relativePath: "/tmp/Absolute.txt", line: 5),
+            PersistedDebugBreakpoint(relativePath: "src/Main.txt", line: 6)
         ])
         let manager = DebugAdapterSessionManager(
             providers: [DebugProviderDescriptor(
-                id: "java",
-                displayName: "Java",
-                fileExtensions: ["java"]
+                id: "tool-a",
+                displayName: "Tool A",
+                fileExtensions: ["txt"]
             )]
         ) { _, _ in nil }
         let feature = GenericDebugFeatureModel(
@@ -3588,7 +3327,7 @@ struct DebugModuleTests {
 
         feature.openWorkspace(at: root)
 
-        #expect(feature.breakpoints.map(\.fileURL) == [root.appendingPathComponent("src/Main.java")])
+        #expect(feature.breakpoints.map(\.fileURL) == [root.appendingPathComponent("src/Main.txt")])
         #expect(feature.breakpoints.map(\.line) == [6])
     }
 
@@ -4617,7 +4356,7 @@ struct DebugModuleTests {
         let frame = DebugStackFrame(
             id: 70,
             name: "main",
-            sourceURL: URL(fileURLWithPath: "\(rootPath)/src/Main.java"),
+            sourceURL: URL(fileURLWithPath: "\(rootPath)/src/Main.txt"),
             line: 10,
             column: 1
         )
@@ -4679,7 +4418,7 @@ struct DebugModuleTests {
             DebugStackFrame(
                 id: 80,
                 name: "main",
-                sourceURL: URL(fileURLWithPath: "/tmp/debug-step-in-place/src/Main.java"),
+                sourceURL: URL(fileURLWithPath: "/tmp/debug-step-in-place/src/Main.txt"),
                 line: 11,
                 column: 1
             )
@@ -4908,7 +4647,7 @@ struct DebugModuleTests {
             DebugStackFrame(
                 id: id,
                 name: "main",
-                sourceURL: URL(fileURLWithPath: "/tmp/debug-step-automatic/src/Main.java"),
+                sourceURL: URL(fileURLWithPath: "/tmp/debug-step-automatic/src/Main.txt"),
                 line: line,
                 column: 1
             )
@@ -5090,21 +4829,21 @@ struct DebugModuleTests {
         rootPath: String
     ) -> GenericDebugFeatureModel {
         let descriptor = DebugProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"]
+            id: "tool-a",
+            displayName: "Tool A",
+            fileExtensions: ["txt"]
         )
         let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
         let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         let root = URL(fileURLWithPath: rootPath, isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
+        let source = root.appendingPathComponent("src/Main.txt")
         precondition(feature.start(
             fileURL: source,
             rootURL: root,
             configuration: DebugLaunchConfiguration(
                 name: "Main",
                 request: .launch,
-                arguments: ["mainClass": .string("example.Main")]
+                arguments: ["program": .string("example.Main")]
             )
         ))
         return feature
@@ -5438,66 +5177,8 @@ private final class RecordingBreakpointRelocator: DebugBreakpointRelocating {
     }
 }
 
-private struct RecordingDebugSteppingFilterResolution: Equatable {
-    let adapterID: String
-    let filters: DebugSteppingFilters?
-}
-
-@MainActor
-private final class RecordingDebugSteppingFilterResolver: DebugSteppingFilterResolving {
-    let defaults: DebugSteppingFilters
-    let normalizedOverride: DebugSteppingFilters
-    private(set) var requests: [RecordingDebugSteppingFilterResolution] = []
-
-    init(defaults: DebugSteppingFilters, normalizedOverride: DebugSteppingFilters) {
-        self.defaults = defaults
-        self.normalizedOverride = normalizedOverride
-    }
-
-    func resolveDebugSteppingFilters(
-        adapterID: String,
-        filters: DebugSteppingFilters?
-    ) throws -> DebugSteppingFilters {
-        requests.append(RecordingDebugSteppingFilterResolution(
-            adapterID: adapterID,
-            filters: filters
-        ))
-        return filters == nil ? defaults : normalizedOverride
-    }
-}
-
-private final class RecordingDebugSteppingFilterPersistence:
-    DebugSteppingFilterPersisting,
-    @unchecked Sendable
-{
-    var filtersByAdapterID: [String: DebugSteppingFilters] = [:]
-
-    func loadSteppingFilters(adapterID: String) throws -> DebugSteppingFilters? {
-        filtersByAdapterID[adapterID]
-    }
-
-    func saveSteppingFilters(_ filters: DebugSteppingFilters, adapterID: String) throws {
-        filtersByAdapterID[adapterID] = filters
-    }
-}
-
-private enum DebugSteppingFilterPersistenceTestError: Error {
-    case unreadable
-}
-
 private enum DeferredDebugSessionError: Error {
     case launchFailed
-}
-
-private final class FailingDebugSteppingFilterPersistence:
-    DebugSteppingFilterPersisting,
-    @unchecked Sendable
-{
-    func loadSteppingFilters(adapterID _: String) throws -> DebugSteppingFilters? {
-        throw DebugSteppingFilterPersistenceTestError.unreadable
-    }
-
-    func saveSteppingFilters(_: DebugSteppingFilters, adapterID _: String) throws {}
 }
 
 private struct RecordingDebugInspectionRequest: Equatable {
@@ -5838,7 +5519,7 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
     private(set) var startDebuggingResults: [(requestID: String, succeeded: Bool)] = []
     private(set) var runInTerminalCompletions: [RecordingRunInTerminalCompletion] = []
     let defaultSteppingFilters = DebugSteppingFilters(
-        classNameFilters: ["$JDK", "org.junit.*"],
+        classNameFilters: ["*.generated.*"],
         skipSynthetics: true,
         skipStaticInitializers: true,
         skipConstructors: false,
@@ -6066,7 +5747,7 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
     }
 
     func enqueueReceive(
-        sessionID: String = "java-session",
+        sessionID: String = "tool-a-session",
         state: String,
         events: [[String: Any]]
     ) {

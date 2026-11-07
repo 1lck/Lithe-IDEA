@@ -40,7 +40,6 @@
       "macos/Sources/LitheModuleAPI/Plugins/PluginTypes.swift",
       "rust/lithe-core/src/toolchain/fixed.rs",
       "rust/lithe-core/src/execution/provider_run_options.rs",
-      "macos/Tests/LitheTests/MacLegacyMavenRunConfigurationMigrationTests.swift",
       "rust/lithe-core/src/toolchain/preferences.rs",
       "shared/contracts/toolchain-consumer-preferences-v1.schema.json",
       "shared/fixtures/toolchains/consumer-preferences.json",
@@ -50,7 +49,6 @@
       "macos/Sources/Lithe/Platform/MacOS/Runtime/MacToolchainPreferencesStore.swift",
       "macos/Sources/Lithe/Views/App/ToolchainPreferenceEditorView.swift",
       "macos/Tests/LitheTests/ToolchainPreferencesTests.swift",
-      "macos/Tests/LitheTests/MacNativeBuildProviderIntegrationTests.swift",
       "macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift",
       "macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift",
       "macos/Tests/LitheTests/ToolchainPluginAdmissionTests.swift"

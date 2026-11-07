@@ -97,7 +97,7 @@ extension AppModel {
         }
         loadBuildSystems(access)
         do {
-            _ = try await feature.prepareLanguageImport(workspaceURL: workspaceURL)
+            try await feature.awaitDetection(workspaceURL: workspaceURL)
         // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
         } catch is CancellationError {
             return

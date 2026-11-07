@@ -15,7 +15,7 @@ struct LanguageTestPresentationTests {
             BuildTestResults.TestCase(project: "a", suite: "demo.Same", name: "checks", status: .passed, durationMillis: 10),
             BuildTestResults.TestCase(project: "b", suite: "demo.Same", name: "checks", status: .failed, durationMillis: 20)
         ]
-        let items = LanguageTestsView.synthesizeResultItems(from: outcomes, references: [BuildTestCaseKey(outcomes[0]): a, BuildTestCaseKey(outcomes[1]): b], providerID: "java")
+        let items = LanguageTestsView.synthesizeResultItems(from: outcomes, references: [BuildTestCaseKey(outcomes[0]): a, BuildTestCaseKey(outcomes[1]): b], providerID: "tool-a")
         #expect(items.count == 4)
         #expect(Set(items.map(\.id)).count == 4)
         let first = try #require(items.first { $0.projectPath == "a" && $0.depth == 2 })
@@ -107,8 +107,7 @@ struct LanguageTestPresentationTests {
             #expect(LanguageTestsView.testItemIcon(status: "Failed", kind: kind, hasChildren: children)
                 == "expui/run/testFailed.svg")
         }
-        for (path, expected) in [("/fixture/Test.java", LitheIconKind.javaGeneric),
-                                 ("/fixture/test_demo.py", .pythonSource), ("/fixture/demo.test.js", .javaScript)] {
+        for (path, expected) in [("/fixture/test_demo.py", LitheIconKind.pythonSource), ("/fixture/demo.test.js", .javaScript)] {
             #expect(LitheIcons.kind(for: URL(fileURLWithPath: path), isDirectory: false) == expected)
         }
     }
@@ -171,7 +170,7 @@ struct LanguageTestPresentationTests {
             BuildTestResults.TestCase(suite: "demo.CalculatorTest", name: "addsPositiveNumbers()", status: .passed),
             BuildTestResults.TestCase(suite: "demo.CalculatorTest", name: "handlesZero()", status: .passed)
         ]
-        let items = LanguageTestsView.synthesizeResultItems(from: outcomes, providerID: "java")
+        let items = LanguageTestsView.synthesizeResultItems(from: outcomes, providerID: "tool-a")
         #expect(items.count == 3)
         #expect(items[0].label == "demo.CalculatorTest")
         #expect(items[0].depth == 1)
@@ -184,24 +183,24 @@ struct LanguageTestPresentationTests {
 
     @Test
     func reportOnlyRowsRemainSelectableAndKeepTheirExecutableIdentifiers() throws {
-        let source = URL(fileURLWithPath: "/fixture/Tests.java")
-        let discovered = [LanguageTestItem(id: "file", providerID: "java", label: "Tests.java",
+        let source = URL(fileURLWithPath: "/fixture/Tests.txt")
+        let discovered = [LanguageTestItem(id: "file", providerID: "tool-a", label: "Tests.txt",
             kind: .file, fileURL: source, testIdentifier: nil, depth: 0)]
         let outcomes = [BuildTestResults.TestCase(suite: "demo.Tests", name: "passes()", status: .passed)]
         let results = BuildTestResults(tests: outcomes, summary: .init(total: 1, passed: 1, failed: 0, errors: 0, skipped: 0), success: true)
-        let rows = LanguageTestsView.presentedItems(discovered: discovered, results: results, resultProviderID: "java", providerID: "java")
+        let rows = LanguageTestsView.presentedItems(discovered: discovered, results: results, resultProviderID: "tool-a", providerID: "tool-a")
         #expect(rows.count == 2)
         for row in rows {
             let selected = try #require(LanguageTestsView.presentedItems(discovered: discovered,
-                results: results, resultProviderID: "java", providerID: "java").first { $0.id == row.id })
+                results: results, resultProviderID: "tool-a", providerID: "tool-a").first { $0.id == row.id })
             #expect(selected.kind == .testCase)
             #expect(selected.testIdentifier == (row.depth == 1 ? "demo.Tests" : "demo.Tests#passes()"))
             #expect(selected.fileURL == nil, "A report does not establish semantic source ownership for Debug")
         }
-        #expect(LanguageTestsView.presentedItems(discovered: discovered, results: nil, resultProviderID: "java", providerID: "java") == discovered)
-        let semantic = LanguageTestItem(id: "jdt-method", providerID: "java", label: "passes()",
+        #expect(LanguageTestsView.presentedItems(discovered: discovered, results: nil, resultProviderID: "tool-a", providerID: "tool-a") == discovered)
+        let semantic = LanguageTestItem(id: "semantic-method", providerID: "tool-a", label: "passes()",
             kind: .testCase, fileURL: source, testIdentifier: "demo.Tests#passes()", depth: 2, reportIdentity: .init(suite: "demo.Tests", name: "passes()"))
-        #expect(LanguageTestsView.presentedItems(discovered: [semantic], results: results, resultProviderID: "java", providerID: "java").first { $0.id == semantic.id } == semantic)
+        #expect(LanguageTestsView.presentedItems(discovered: [semantic], results: results, resultProviderID: "tool-a", providerID: "tool-a").first { $0.id == semantic.id } == semantic)
     }
 
     @Test
@@ -225,7 +224,7 @@ struct LanguageTestPresentationTests {
     func currentResultsBelongOnlyToTheirProviderAndDisappearWhenCleared() {
         let outcomes = [BuildTestResults.TestCase(suite: "demo.Tests", name: "passes", status: .passed)]
         let results = BuildTestResults(tests: outcomes, summary: .init(total: 1, passed: 1, failed: 0, errors: 0, skipped: 0), success: true)
-        for provider in ["java", "node", "python"] {
+        for provider in ["tool-a", "node", "python"] {
             let discovered = [LanguageTestItem(id: "workspace-" + provider, providerID: provider,
                 label: provider, kind: .workspace, fileURL: nil, testIdentifier: nil, depth: 0),
                 LanguageTestItem(id: "file-" + provider, providerID: provider, label: "Unrun file",
@@ -233,34 +232,26 @@ struct LanguageTestPresentationTests {
                 LanguageTestItem(id: "unrun-" + provider, providerID: provider, label: "Unrun test",
                     kind: .testCase, fileURL: nil, testIdentifier: "demo.Unrun#check", depth: 2)]
             let rows = LanguageTestsView.presentedItems(discovered: discovered, results: results,
-                resultProviderID: "java", providerID: provider)
-            #expect(provider == "java" ? rows.count == 2 : rows == discovered)
+                resultProviderID: "tool-a", providerID: provider)
+            #expect(provider == "tool-a" ? rows.count == 2 : rows == discovered)
             #expect(rows.allSatisfy { $0.providerID == provider })
             // Clear retains the plan; Close clears both. Neither may reuse editor history.
-            for owner in ["java", nil] as [String?] {
+            for owner in ["tool-a", nil] as [String?] {
                 #expect(LanguageTestsView.presentedItems(discovered: discovered, results: nil,
                     resultProviderID: owner, providerID: provider) == discovered)
             }
         }
     }
 
-    @Test
-    func activeTestTargetFormatsMethodAndClassNamesCorrectly() {
-        #expect(ActiveTestTarget.formattedName(for: "demo.CalculatorTest#addsPositiveNumbers()") == "CalculatorTest.addsPositiveNumbers")
-        #expect(ActiveTestTarget.formattedName(for: "demo.CalculatorTest#intentionalFailureForPreview()") == "CalculatorTest.intentionalFailureForPreview")
-        #expect(ActiveTestTarget.formattedName(for: "demo.CalculatorTest") == "CalculatorTest")
-    }
-
     @Test(arguments: [false, true])
-    func resolvedTestNameKeepsTheFullScopeAndDebugToolbarBinding(method: Bool) {
-        let source = URL(fileURLWithPath: "/fixture/Tests.java")
-        let scope: LanguageTestScope = method ? .testCase(identifier: "demo.Tests#logsIn()", fileURL: source) : .file(source)
-        var target = ActiveTestTarget(providerID: "java", scope: scope)
-        let launchName = method ? "logsIn()" : "ActualTestClass"
-        target.resolvedName = launchName
+    func activeTestTargetKeepsTheFullScopeAndIsNamedByIt(method: Bool) {
+        let source = URL(fileURLWithPath: "/fixture/Tests.txt")
+        let scope: LanguageTestScope = method ? .testCase(identifier: "suite#case", fileURL: source) : .file(source)
+        let target = ActiveTestTarget(providerID: "tool-a", scope: scope)
         #expect(target.scope == scope)
+        #expect(target.name == (method ? "suite#case" : "Tests.txt"))
         #expect(DebugToolbarPresentation.mainToolbarControl(state: .paused,
-            debugTarget: launchName, selectedTarget: target.name) == .resume)
+            debugTarget: target.name, selectedTarget: target.name) == .resume)
     }
 
     private func key(_ suite: String, _ name: String? = nil) -> LanguageTestsView.ResultKey {
@@ -268,7 +259,7 @@ struct LanguageTestPresentationTests {
     }
 
     private func testItem(_ id: String, selector: String? = nil, depth: Int) -> LanguageTestItem {
-        LanguageTestItem(id: id, providerID: "java", label: id, kind: .testCase,
+        LanguageTestItem(id: id, providerID: "tool-a", label: id, kind: .testCase,
                          fileURL: nil, testIdentifier: selector, depth: depth)
     }
 }

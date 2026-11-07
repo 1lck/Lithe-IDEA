@@ -186,7 +186,7 @@
         "stage": {
           "type": "token",
           "required": true,
-          "description": "File icon inspection kind, java or generic"
+          "description": "File icon inspection kind, e.g. generic"
         },
         "error": {
           "type": "error",

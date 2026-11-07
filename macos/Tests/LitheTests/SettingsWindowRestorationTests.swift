@@ -8,6 +8,21 @@ import Testing
 @Suite(.serialized)
 struct SettingsWindowRestorationTests {
     @Test
+    func settingsCategoryPlacesBuildPagesBetweenKeymapAndTerminal() {
+        // The build group (toolchain pages, run configurations) stays contiguous in
+        // declaration order, so search results list the pages in the same order as
+        // the sidebar and run configurations still follow the toolchain pages.
+        let cases = SettingsCategory.allCases
+        guard let keymap = cases.firstIndex(of: .keymap),
+              let terminal = cases.firstIndex(of: .terminal) else {
+            Issue.record("Keymap and Terminal must both be settings pages")
+            return
+        }
+        #expect(Array(cases[(keymap + 1)..<terminal]) == SettingsGroup.build.categories)
+        #expect(SettingsGroup.build.categories.suffix(1) == [.run])
+    }
+
+    @Test
     func restoredSettingsBindOnceAndAcquireANewBindingAfterClosing() async throws {
         let fixture = SettingsRestorationFixture()
         try await WorkbenchTestScope.withCleanup({ await fixture.manager.stopAllSessions() }) { _ in
@@ -168,7 +183,7 @@ private final class SettingsRestorationFixture {
         manager = ProjectSessionManager(settings: settings) {
             AppModel(settings: settings, services: MacServiceContainer(
                 store: store, settings: settings, moduleLaunchMode: .safeMode,
-                javaMavenOperations: NoProjectJavaOperations(), aiConfigurationSources: []
+                aiConfigurationSources: []
             ).services)
         }
     }

@@ -93,8 +93,8 @@ struct DocumentLanguageCoordinatorTests {
 
     private func makeDocument() -> EditorDocument {
         EditorDocument(
-            url: URL(fileURLWithPath: "/in-memory/Main.java"),
-            text: "class Main {}", modificationDate: nil
+            url: URL(fileURLWithPath: "/in-memory/Main.txt"),
+            text: "main text", modificationDate: nil
         )
     }
 }

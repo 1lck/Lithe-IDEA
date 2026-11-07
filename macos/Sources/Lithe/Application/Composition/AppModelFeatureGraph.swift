@@ -28,17 +28,13 @@ final class AppModelFeatureGraph {
     let terminalPlacement: TerminalPlacementFeatureModel
     let document: DocumentFeatureModel
     let navigationHistory: NavigationHistoryFeatureModel
-    let java: JavaFeatureModel
-    let spring: SpringFeatureModel
-    let mybatis: MybatisFeatureModel
     let editorSession: EditorSessionCoordinator
-    let javaTestWorkflow: JavaTestWorkflowState
     let languageNavigation: LanguageNavigationCoordinator
     let languageEditing: LanguageEditingCoordinator
     let languageCapabilityPolicy: LanguageCapabilityPolicy
     let debugLaunchPreparation: DebugLaunchPreparationCoordinator
     let debugSessionCleanup: DebugSessionCleanupCoordinator
-    let javaTestDebugWorkflow: JavaTestDebugWorkflowCoordinator
+    let languageTestWorkflow: LanguageTestWorkflowState
     /// Nil only when the application has no log store (some tests).
     let languageServerLogs: LanguageServerLogsModel?
 
@@ -48,13 +44,14 @@ final class AppModelFeatureGraph {
         self.notification = notification
         // Coordinators report user-facing failures through the notification
         // feature directly; the application shell forwards the same call.
-        let notify: @MainActor (String) -> Void = { message in
+        let notifyFormatted: @MainActor (String, [String]) -> Void = { message, arguments in
             var reference: LogRecordReference?
             if let sink = services.logSink {
                 reference = LogScope(sink: sink).emitReferenced(AppNotificationOperationRejected(operation: "language_debug_workflow", reason: "request_failed"))
             }
-            notification.show(message, logReference: reference)
+            notification.show(message, arguments: arguments, logReference: reference)
         }
+        let notify: @MainActor (String) -> Void = { notifyFormatted($0, []) }
         workbench = WorkbenchFeatureModel(layoutStore: services.workbenchLayoutStore)
         commitDraft = CommitDraftFeatureModel()
         searchSession = SearchSessionFeatureModel()
@@ -118,16 +115,12 @@ final class AppModelFeatureGraph {
             confirmHardLinkSave: { services.platformUI.confirmHardLinkSave(at: $0) }
         )
         navigationHistory = NavigationHistoryFeatureModel(logSink: services.logSink)
-        java = JavaFeatureModel(operations: services.javaMavenOperations)
-        spring = SpringFeatureModel(operations: services.javaMavenOperations)
-        mybatis = MybatisFeatureModel(operations: services.javaMavenOperations)
-        javaTestWorkflow = JavaTestWorkflowState(notify: notify)
         languageNavigation = LanguageNavigationCoordinator(notify: notify)
         languageEditing = LanguageEditingCoordinator(notify: notify)
         languageCapabilityPolicy = LanguageCapabilityPolicy()
-        debugLaunchPreparation = DebugLaunchPreparationCoordinator(notify: notify)
+        debugLaunchPreparation = DebugLaunchPreparationCoordinator(notify: notifyFormatted)
         debugSessionCleanup = DebugSessionCleanupCoordinator()
-        javaTestDebugWorkflow = JavaTestDebugWorkflowCoordinator(notify: notify)
+        languageTestWorkflow = LanguageTestWorkflowState()
         let languageServerLogs = services.logWindowLogging.map {
             LanguageServerLogsModel(logging: $0, sink: services.logSink)
         }

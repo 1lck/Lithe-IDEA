@@ -45,7 +45,7 @@
         {
           "platform": "macos",
           "path": "macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift",
-          "test": "restoredJavaBreakpointInAnotherSourceIsSentWhenDebugStarts"
+          "test": "restoredBreakpointInAnotherSourceIsSentWhenDebugStarts"
         },
         {
           "platform": "windows",
@@ -247,8 +247,8 @@
       ]
     },
     {
-      "id": "java-hot-replace",
-      "behavior": "Java hot code replace normalizes success, empty and error bodies, keeps the paused state, and never touches running classes when the build fails",
+      "id": "hot-code-replace",
+      "behavior": "declared hot code replace sends the adapter's declared request, normalizes success, empty and error bodies, keeps the paused state, and is only offered after the host prepared the change",
       "status": "covered",
       "evidence": [
         {
@@ -260,17 +260,17 @@
         {
           "platform": "rust",
           "path": "rust/lithe-core/src/debug/engine.rs",
-          "test": "hot_replace_requires_java_and_preserves_paused_state"
+          "test": "hot_replace_requires_the_declaration_and_preserves_paused_state"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "declared_hot_code_replace_sends_the_declared_request_and_reads_its_fields"
         },
         {
           "platform": "macos",
           "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
-          "test": "hotUpdateBuildFailureNeverTouchesRunningClasses"
-        },
-        {
-          "platform": "macos",
-          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
-          "test": "hotUpdateAppliesAfterBuildAndDoesNotResumeExecution"
+          "test": "anAdapterThatDeclaredHotCodeReplaceOffersApplyingChangesAndSendsItAfterPreparing"
         },
         {
           "platform": "windows",
@@ -281,50 +281,8 @@
       "gaps": []
     },
     {
-      "id": "java-test-debug",
-      "behavior": "JUnit and TestNG debug launches reuse the shared Rust launch configuration and result port",
-      "status": "covered",
-      "evidence": [
-        {
-          "platform": "rust",
-          "path": "rust/lithe-core/src/tests/protocol.rs",
-          "test": "java_test_debug_launch_matches_the_shared_contract_fixture",
-          "fixture": "shared/fixtures/debug/java-test-launch-v1.json"
-        },
-        {
-          "platform": "macos",
-          "path": "macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift",
-          "test": "javaTestDebugLaunchUsesTheSharedRustConfiguration"
-        }
-      ],
-      "gaps": []
-    },
-    {
-      "id": "java-run-jdk",
-      "behavior": "Java debug runs on the JDK Run selects for the same configuration and fails like Run when that JDK is unusable",
-      "status": "covered",
-      "evidence": [
-        {
-          "platform": "macos",
-          "path": "macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift",
-          "test": "javaDebugRunsOnTheJDKRunSelectsForTheSameConfiguration"
-        },
-        {
-          "platform": "macos",
-          "path": "macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift",
-          "test": "javaDebugFailsLikeRunWhenItsJDKIsUnusable"
-        },
-        {
-          "platform": "macos",
-          "path": "macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift",
-          "test": "debugJavaRuntimeFollowsTheRunSelectionChain"
-        }
-      ],
-      "gaps": []
-    },
-    {
       "id": "stepping-filters",
-      "behavior": "Java default stepping filters are normalized, persisted as overrides, applied at launch and mark stack frames",
+      "behavior": "stepping filters are normalized, projected into the launch argument an adapter declared, and mark stack frames; adapters without a declaration stay unfiltered",
       "status": "covered",
       "evidence": [
         {
@@ -336,12 +294,7 @@
         {
           "platform": "rust",
           "path": "rust/lithe-core/src/debug/engine.rs",
-          "test": "java_stepping_filters_are_normalized_projected_and_mark_stack_frames"
-        },
-        {
-          "platform": "macos",
-          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
-          "test": "javaLaunchAppliesResolvedSteppingFilters"
+          "test": "stepping_filters_are_normalized_projected_and_mark_stack_frames"
         }
       ],
       "gaps": []

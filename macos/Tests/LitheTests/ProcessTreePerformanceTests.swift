@@ -14,7 +14,7 @@ struct ProcessTreePerformanceTests {
             if event.state == .running { recorder.root = event.processID }
         }
         process.onOutput = { recorder.receive($0) }
-        // The shell owns a CPU-bound worker, like a build launcher owns a test JVM.
+        // The shell owns a CPU-bound worker, like a build launcher owns a test worker.
         try process.start(ProcessRequest(executablePath: "/bin/sh",
             arguments: ["-c", "/usr/bin/yes > /dev/null & echo $!; wait"], timeoutMilliseconds: 8000))
         #expect(await recorder.ready.waitUntilOpen())
@@ -28,7 +28,7 @@ struct ProcessTreePerformanceTests {
         var error: String?
         let job = Task { @MainActor in
             do {
-                for try await sample in MacDebugPerformanceSampler(processRegistry: nil)
+                for try await sample in MacDebugPerformanceSampler()
                     .samples(for: DebugPerformanceTarget(processID: root)) {
                     samples.append(sample)
                     if samples.count == 3 { received.open() }

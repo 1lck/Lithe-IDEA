@@ -7,15 +7,16 @@
 //! one of the canonical `lithe*` formats. What no command can print is
 //! answered by a `provider`: a server process of the plugin, declared with
 //! the language-server launch fields or shared with one of its language
-//! servers. The only named host code is a `hostIntegration`, reserved to
-//! official plugins while Maven migrates.
+//! servers. The only named host code is a `hostIntegration`: a host-side
+//! model decoder any plugin selects by ID; the host never special-cases a
+//! build tool by name.
 
 use super::select::{self, FieldSpec, Predicate};
 use super::template::{self, Allowed, Availability, BuildArgument, Variable};
 use crate::plugins::declarative::{
     invalid, is_bare_command, is_identifier, is_safe_relative_path, is_setting_identifier,
     sorted_unique, template as template_error, validate_minimum_version, PluginRejection,
-    ServerProcess, ServerRole, UIIcon, Validation, KNOWN_RUNTIME_TOOLS_V2,
+    ServerProcess, ServerRole, UIIcon, Validation, KNOWN_RUNTIME_TOOLS,
 };
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -24,9 +25,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// First plugin API level with `buildSystems`.
 pub(crate) const BUILD_SYSTEMS_API_VERSION: u32 = 3;
-/// Host integrations a build system may name; official plugins only.
-pub(crate) const HOST_INTEGRATION_MAVEN: &str = "maven";
-const HOST_INTEGRATIONS: &[&str] = &[HOST_INTEGRATION_MAVEN];
+/// Host integrations a build system may name. The Core implements none:
+/// every build tool is described by its plugin's data and backend, so any
+/// name is refused with `plugin.integration.unsupported`.
+const HOST_INTEGRATIONS: &[&str] = &[];
 
 const MAX_BUILD_SYSTEMS: usize = 16;
 const MAX_LIST: usize = 32;
@@ -86,9 +88,6 @@ pub(crate) struct BuildSystemDeclaration {
     pub(crate) sync: Option<SyncDeclaration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) layout: Option<LayoutDeclaration>,
-    /// How the Java language server imports this build system's projects.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) language_import: Option<LanguageImportDeclaration>,
 }
 
 /// A server process that answers `lithe/build/*` requests over the LSP base
@@ -193,7 +192,7 @@ pub(crate) enum Nesting {
     #[default]
     Separate,
     /// Only candidates with no candidate above them are instances; deeper
-    /// markers belong to them (Gradle builds, Maven reactors).
+    /// markers belong to them (multi-project builds and reactors).
     Outermost,
 }
 
@@ -222,10 +221,12 @@ pub(crate) struct Invocation {
 
 pub(crate) use crate::plugins::executables::{ExecutableCandidate, ExecutableSource, Platform};
 
-/// A runtime the tool needs. Runtimes the host already manages (`java`,
-/// `node`, `go`) take only an ID and an optional minimum version and follow
-/// the user's runtime settings; any other runtime describes how to find and
-/// probe it, so a community plugin is never limited to a host list.
+/// A runtime the tool needs. Runtimes the host already manages (`node`,
+/// `go`) take only an ID and an optional minimum version and follow the
+/// user's runtime settings. Any other runtime either describes how to find
+/// and probe it, or lists no executables and names the tool definition with
+/// its ID, which finds the executable and checks `minimumVersion`. A
+/// community plugin is never limited to a host list.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct RuntimeDependency {
@@ -243,7 +244,29 @@ pub(crate) struct RuntimeDependency {
 impl RuntimeDependency {
     /// True when the host discovers this runtime with its own settings.
     pub(crate) fn is_host_managed(&self) -> bool {
-        KNOWN_RUNTIME_TOOLS_V2.contains(&self.id.as_str())
+        KNOWN_RUNTIME_TOOLS.contains(&self.id.as_str())
+    }
+
+    /// True when the runtime is the tool definition with the same ID: it
+    /// lists no executables and the host does not manage it. Plans give it
+    /// a single toolchain candidate for that ID.
+    pub(crate) fn names_tool_definition(&self) -> bool {
+        self.executables.is_empty() && !self.is_host_managed()
+    }
+
+    /// True when the tool definition the runtime resolves through checks
+    /// `minimumVersion`, so the manifest needs no version probe: a runtime
+    /// the host does not manage that is an implicit reference or has exactly
+    /// one toolchain candidate.
+    pub(crate) fn checked_by_tool_definition(&self) -> bool {
+        !self.is_host_managed()
+            && matches!(
+                self.executables.as_slice(),
+                [] | [ExecutableCandidate {
+                    source: ExecutableSource::Toolchain { .. },
+                    ..
+                }]
+            )
     }
 }
 
@@ -315,7 +338,7 @@ pub(crate) enum OptionPresentation {
     /// icon only (offline mode, skipping tests).
     Toolbar,
     /// A checklist node at the top of the tool window's tree; multiSelect
-    /// options only (Maven profiles).
+    /// options only (build profiles).
     Tree,
 }
 
@@ -920,50 +943,6 @@ pub(crate) struct LayoutDeclaration {
     pub(crate) excluded: Vec<String>,
 }
 
-/// The project import a language server performs for this build system, and
-/// which of the plugin's options carry the import settings.
-///
-/// The Java language server imports Maven and Gradle projects itself. Its
-/// import has to use the profiles, settings, and caches the user chose for
-/// the build tool, or the editor resolves other dependencies than the build.
-/// A plugin names the import it matches and maps each import setting to one
-/// of its own options; Core turns the user's values into the language
-/// server's settings, so the host passes them on without knowing the plugin.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct LanguageImportDeclaration {
-    pub(crate) kind: LanguageImportKind,
-    /// Import setting -> option ID. Settings without an option keep the
-    /// language server's default.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub(crate) options: BTreeMap<String, String>,
-}
-
-/// Project imports Lithe's Java language server knows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum LanguageImportKind {
-    Maven,
-    Gradle,
-}
-
-impl LanguageImportKind {
-    /// The import settings of this kind and the option kind each needs.
-    pub(crate) fn settings(self) -> &'static [(&'static str, OptionKind)] {
-        match self {
-            Self::Maven => &[
-                ("profiles", OptionKind::MultiSelect),
-                ("settingsFile", OptionKind::File),
-                ("localRepository", OptionKind::Directory),
-            ],
-            Self::Gradle => &[
-                ("offline", OptionKind::Boolean),
-                ("gradleUserHome", OptionKind::Directory),
-            ],
-        }
-    }
-}
-
 impl BuildSystemDeclaration {
     pub(crate) fn option(&self, id: &str) -> Option<&OptionDeclaration> {
         self.options.iter().find(|option| option.id == id)
@@ -971,11 +950,6 @@ impl BuildSystemDeclaration {
 
     pub(crate) fn task(&self, id: &str) -> Option<&TaskDeclaration> {
         self.tasks.iter().find(|task| task.id == id)
-    }
-
-    /// True when the named host integration owns this build system.
-    pub(crate) fn integration(&self) -> Option<&str> {
-        self.host_integration.as_deref()
     }
 }
 
@@ -1290,6 +1264,15 @@ impl BuildSystemDeclaration {
         matches!(self.provider, Some(ProviderDeclaration::Process(_)))
     }
 
+    /// Whether a runtime dependency names a tool definition by its ID, which
+    /// plans turn into a toolchain candidate.
+    pub(crate) fn names_tool_definitions(&self) -> bool {
+        self.invocation
+            .runtime_dependencies
+            .iter()
+            .any(RuntimeDependency::names_tool_definition)
+    }
+
     fn validate(&mut self, field: &str, context: &DeclarationContext<'_>) -> Validation<()> {
         if !is_entry_identifier(&self.id) {
             return Err(invalid(
@@ -1332,41 +1315,7 @@ impl BuildSystemDeclaration {
                 false,
             )?;
         }
-        self.validate_language_import(field)?;
         self.validate_option_emission(field)
-    }
-
-    fn validate_language_import(&self, field: &str) -> Validation<()> {
-        let Some(import) = &self.language_import else {
-            return Ok(());
-        };
-        let settings = import.kind.settings();
-        for (setting, option_id) in &import.options {
-            let field = format!("{field}.languageImport.options.{setting}");
-            let Some((_, kind)) = settings.iter().find(|(name, _)| name == setting) else {
-                let known: Vec<&str> = settings.iter().map(|(name, _)| *name).collect();
-                return Err(invalid(
-                    field,
-                    format!("This import has the settings {}.", known.join(", ")),
-                ));
-            };
-            match self.option(option_id) {
-                Some(option) if option.kind == *kind => {}
-                Some(_) => {
-                    return Err(invalid(
-                        field,
-                        format!("The option {option_id} has the wrong kind for this setting."),
-                    ))
-                }
-                None => {
-                    return Err(invalid(
-                        field,
-                        format!("The build system declares no option {option_id}."),
-                    ))
-                }
-            }
-        }
-        Ok(())
     }
 
     fn validate_integration(&self, field: &str, official: bool) -> Validation<()> {
@@ -1634,10 +1583,17 @@ impl BuildSystemDeclaration {
         let mut runtimes = BTreeSet::new();
         for (index, runtime) in invocation.runtime_dependencies.iter_mut().enumerate() {
             let field = format!("{field}.runtimeDependencies[{index}]");
-            if !is_entry_identifier(&runtime.id) || !runtimes.insert(runtime.id.clone()) {
+            // A runtime without executables is a tool-definition ID, which
+            // may also be plugin-qualified.
+            let valid_id = if runtime.names_tool_definition() {
+                crate::toolchain::definitions::tool_id(&runtime.id)
+            } else {
+                is_entry_identifier(&runtime.id)
+            };
+            if !valid_id || !runtimes.insert(runtime.id.clone()) {
                 return Err(invalid(
                     format!("{field}.id"),
-                    "Runtime IDs are unique identifiers.",
+                    "Runtime IDs are unique identifiers; a runtime without executables is a tool-definition ID.",
                 ));
             }
             if let Some(name) = &runtime.display_name {
@@ -1647,9 +1603,8 @@ impl BuildSystemDeclaration {
                 validate_minimum_version(minimum, &format!("{field}.minimumVersion"))?;
             }
             if runtime.is_host_managed() {
-                // The host finds these with the user's own runtime settings
-                // (the JDK chosen for the project, for example); a plugin
-                // must not route around that choice.
+                // The host finds these with the user's own runtime settings;
+                // a plugin must not route around that choice.
                 let toolchain = runtime.executables.len() == 1
                     && matches!(
                         runtime.executables[0].source,
@@ -1675,10 +1630,24 @@ impl BuildSystemDeclaration {
                 }
                 continue;
             }
-            if runtime.executables.is_empty() || runtime.executables.len() > MAX_LIST {
+            if runtime.names_tool_definition() {
+                // The tool definition finds the executable and checks
+                // `minimumVersion`; a probe here would have nothing to run.
+                if runtime.version.is_some() {
+                    return Err(invalid(
+                        format!("{field}.version"),
+                        format!(
+                            "{} names a tool definition, which checks its version; declare only its minimumVersion.",
+                            runtime.id
+                        ),
+                    ));
+                }
+                continue;
+            }
+            if runtime.executables.len() > MAX_LIST {
                 return Err(invalid(
                     format!("{field}.executables"),
-                    "A plugin-described runtime needs 1-32 executable candidates.",
+                    "A plugin-described runtime has at most 32 executable candidates.",
                 ));
             }
             for (candidate_index, candidate) in runtime.executables.iter_mut().enumerate() {
@@ -1698,10 +1667,12 @@ impl BuildSystemDeclaration {
             }
             match &runtime.version {
                 Some(probe) => probe.validate(&format!("{field}.version"))?,
-                None if runtime.minimum_version.is_some() => {
+                None if runtime.minimum_version.is_some()
+                    && !runtime.checked_by_tool_definition() =>
+                {
                     return Err(invalid(
                         format!("{field}.version"),
-                        "A minimumVersion needs a version probe.",
+                        "A minimumVersion needs a version probe or a single toolchain candidate.",
                     ))
                 }
                 None => {}

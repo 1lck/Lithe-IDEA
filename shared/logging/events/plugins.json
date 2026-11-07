@@ -464,7 +464,7 @@
         "runtime_version": {
           "type": "version",
           "required": false,
-          "description": "Java runtime version used to launch the language server, when available"
+          "description": "Runtime version reported for the engine launch, when available"
         },
         "plugin": {
           "type": "id",
@@ -529,12 +529,22 @@
       "id": "plugins.host.request_failed",
       "channel": "plugins/{plugin}/host",
       "level": "error",
-      "message": "Plugin host request failed",
+      "message": "Plugin host request {method} failed with {code}",
       "fields": {
         "plugin": {
           "type": "id",
           "required": true,
           "description": "Validated plugin identity that owns this failed host request"
+        },
+        "method": {
+          "type": "token",
+          "required": true,
+          "description": "Host method or plugin function the request named, e.g. lithe/host/languageServer/notify; never its params"
+        },
+        "code": {
+          "type": "token",
+          "required": true,
+          "description": "Stable plugin.host.* failure code the backend received, independent of the native error's wording"
         },
         "error": {
           "type": "error",

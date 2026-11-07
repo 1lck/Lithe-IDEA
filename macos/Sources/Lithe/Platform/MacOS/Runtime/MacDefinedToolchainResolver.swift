@@ -103,11 +103,20 @@ extension MacDefinedToolchainResolver: DefinedToolLaunching {
     /// Core expands the template; this adapter only supplies the registry of the
     /// installed definitions and the installation the user's layers selected.
     func launch(of selection: ResolvedDefinedToolchain, tool: String, arguments: [String]) throws -> DefinedToolLaunch {
+        try launch(of: selection, tool: tool, entry: nil, runtimeArguments: [], arguments: arguments)
+    }
+
+    /// Expands the definition's `launch` template with an entry and runtime
+    /// arguments as well. Core alone places each part, so the host adds no
+    /// argument of its own and a template that cannot take a part refuses it.
+    func launch(of selection: ResolvedDefinedToolchain, tool: String, entry: String?,
+                runtimeArguments: [String], arguments: [String]) throws -> DefinedToolLaunch {
         struct Payload: Encodable {
             let registry: ToolingJSONValue
             let tool: String
             let executable: String
             let home: String?
+            let entry: String?
             let runtimeArguments: [String]
             let arguments: [String]
         }
@@ -121,7 +130,7 @@ extension MacDefinedToolchainResolver: DefinedToolLaunching {
             throw DefinedToolLaunchRejection(code: "plugin.toolchain.invalidParams", message: "The tool registry is invalid.")
         }
         let payload = Payload(registry: registry, tool: tool, executable: selection.executable.path,
-                              home: selection.home, runtimeArguments: [], arguments: arguments)
+                              home: selection.home, entry: entry, runtimeArguments: runtimeArguments, arguments: arguments)
         let expansion: Expansion = try RustCoreBridge().executeResult(
             command: "toolchains.instantiateLaunch", payload: payload).get()
         if let launch = expansion.launch {
@@ -130,5 +139,107 @@ extension MacDefinedToolchainResolver: DefinedToolLaunching {
         let error = expansion.error
         throw DefinedToolLaunchRejection(code: error?.code ?? "plugin.toolchain.invalidParams",
                                          message: error?.message ?? "The tool launch could not be expanded.")
+    }
+}
+
+/// A process whose launch plan names a tool definition (`launch.kind` `tool`),
+/// with the package paths already checked.
+struct DefinedToolProcessLaunch: Equatable, Sendable {
+    /// Tool, entry, runtime arguments and minimum version from Rust Core's plan.
+    let launch: DeclarativeLanguageServerLaunchPlan.ToolLaunch
+    /// The runtime the plugin ships, checked to be an executable file inside
+    /// the package; the host runs it as the tool and never looks the tool up.
+    let packagedRuntimeURL: URL?
+    /// Every tool the plan's `runtimeRequirements` asks the host to resolve.
+    /// Their exports and `PATH` entries join the process environment.
+    let requirements: [DeclarativeLanguageServerLaunchPlan.RuntimeRequirement]
+}
+
+/// The command line and environment that start a tool-definition launch.
+struct DefinedToolCommand: Equatable, Sendable {
+    let executableURL: URL
+    /// Every argument after the executable, in the order of the definition's
+    /// `launch` template.
+    let arguments: [String]
+    let environment: [String: String]
+}
+
+extension MacDefinedToolchainResolver {
+    /// Resolves the tools a process needs through the four layers, then lets
+    /// Core place the entry, runtime arguments and `arguments` by the launch
+    /// template. `arguments` are the plugin's own and fill `${arguments}`.
+    ///
+    /// A tool no layer resolves is `plugin.host.toolUnresolved`; a template
+    /// that cannot carry the parts keeps Core's own code.
+    func command(
+        for process: DefinedToolProcessLaunch,
+        arguments: [String],
+        workspace: URL,
+        directory: String = ".",
+        environment: [String: String],
+        projectCodeAllowed: Bool
+    ) async throws -> DefinedToolCommand {
+        let tool = process.launch.tool
+        var environment = environment
+        // Each selection's environment already holds the one it was given, so
+        // resolving in order chains every tool's exports and `PATH` entries.
+        for requirement in process.requirements where requirement.tool != tool {
+            environment = try await installation(
+                of: requirement.tool, minimumVersion: requirement.minimumVersion, workspace: workspace,
+                directory: directory, environment: environment, projectCodeAllowed: projectCodeAllowed
+            ).environment
+        }
+        let selection: ResolvedDefinedToolchain
+        if let packaged = process.packagedRuntimeURL {
+            selection = ResolvedDefinedToolchain(executable: packaged, environment: environment,
+                                                 projectCode: false, version: nil)
+        } else {
+            selection = try await installation(
+                of: tool, minimumVersion: process.launch.minimumVersion, workspace: workspace,
+                directory: directory, environment: environment, projectCodeAllowed: projectCodeAllowed
+            )
+        }
+        let expanded: DefinedToolLaunch
+        do {
+            expanded = try launch(of: selection, tool: tool, entry: process.launch.entry,
+                                  runtimeArguments: process.launch.runtimeArguments, arguments: arguments)
+        } catch let rejection as DefinedToolLaunchRejection {
+            throw DeclarativePluginRejection(code: rejection.code, message: rejection.message)
+        }
+        return DefinedToolCommand(executableURL: URL(fileURLWithPath: expanded.executable),
+                                  arguments: expanded.arguments, environment: selection.environment)
+    }
+
+    /// One tool's installation, read without its entry recipe, which `command`
+    /// expands itself.
+    private func installation(
+        of tool: String,
+        minimumVersion: String?,
+        workspace: URL,
+        directory: String,
+        environment: [String: String],
+        projectCodeAllowed: Bool
+    ) async throws -> ResolvedDefinedToolchain {
+        let selected: ResolvedDefinedToolchain?
+        do {
+            selected = try await resolve(
+                tool: tool, directory: directory, workspace: workspace, environment: environment,
+                minimumVersion: minimumVersion, projectCodeAllowed: projectCodeAllowed,
+                fixed: nil, use: .installation, consumerID: nil
+            )
+        } catch is BuildToolResolutionError {
+            let requirement = minimumVersion.map { " at version \($0) or later" } ?? ""
+            throw DeclarativePluginRejection(
+                code: "plugin.host.toolUnresolved",
+                message: "No usable installation of the tool \(tool)\(requirement) was found (unusable)."
+            )
+        }
+        guard let selected else {
+            throw DeclarativePluginRejection(
+                code: "plugin.host.toolUnresolved",
+                message: "No enabled plugin defines the tool \(tool) (notFound)."
+            )
+        }
+        return selected
     }
 }

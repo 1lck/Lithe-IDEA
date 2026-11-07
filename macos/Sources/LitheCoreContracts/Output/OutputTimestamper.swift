@@ -2,10 +2,10 @@ import Foundation
 
 /// Prefixes streamed process output with the time each line was received.
 ///
-/// Maven and most build tools emit `[INFO]`/`[ERROR]` lines with no clock at
-/// all, which makes "when did this stall" unanswerable from the log alone.
-/// Spring Boot already prints its own timestamp, so those lines are left
-/// untouched rather than carrying two clocks.
+/// Many build tools emit `[INFO]`/`[ERROR]` lines with no clock at all, which
+/// makes "when did this stall" unanswerable from the log alone. Tools that
+/// already print their own timestamp are left untouched rather than carrying
+/// two clocks.
 package enum OutputTimestamper {
     private static let formatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -16,7 +16,7 @@ package enum OutputTimestamper {
 
     /// Matches a leading clock in the shapes tools actually emit: bare
     /// `10:12:33`, ISO `2026-08-08T10:12:33.123`, and the space-separated
-    /// variant Spring Boot uses.
+    /// variant `2026-08-08 10:12:33.123`.
     private static let leadingTimeExpression = try! NSRegularExpression(
         pattern: #"^\s*(?:\d{4}-\d{2}-\d{2}[T ])?\d{2}:\d{2}:\d{2}"#
     )

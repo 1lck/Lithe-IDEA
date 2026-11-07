@@ -1608,10 +1608,10 @@ mod tests {
     fn ignore_regexes_are_case_insensitive_and_invalid_ones_never_match() {
         let rules = ignore_rules(&[], &["(unclosed", "GENERATED"]);
         assert_eq!(
-            ignored_rule(&rules, "src/generated/Api.java"),
+            ignored_rule(&rules, "src/generated/api.txt"),
             Some(HistoryIgnoreMatch::Regex { index: 1 })
         );
-        assert_eq!(ignored_rule(&rules, "src/Main.java"), None);
+        assert_eq!(ignored_rule(&rules, "src/main.txt"), None);
         assert_eq!(
             ignored_rule(&ignore_rules(&["", "  "], &[""]), "a.txt"),
             None
@@ -1655,7 +1655,7 @@ mod tests {
             preview(".git/config").matched,
             Some(HistoryIgnoreMatch::Hidden)
         );
-        assert_eq!(preview("src/Main.java").matched, None);
+        assert_eq!(preview("src/main.txt").matched, None);
         assert!(ignore_preview(HistoryIgnorePreviewRequest {
             path: Some("../outside".into()),
             ignore_rules: HistoryIgnoreRules::default(),
@@ -1694,7 +1694,7 @@ mod tests {
         }
         write_file(&workspace, ".gitignore", "*.log\n");
         assert_eq!(preview("logs/run.log"), Some(true));
-        assert_eq!(preview("src/Main.java"), Some(false));
+        assert_eq!(preview("src/main.txt"), Some(false));
     }
 
     #[test]
@@ -1703,7 +1703,7 @@ mod tests {
         assert_eq!(preview_match(&rules, &[], "ios/Pods/Lib/a.h"), None);
         assert_eq!(preview_match(&rules, &[], "tools/.uv-cache/a.py"), None);
         assert_eq!(
-            preview_match(&rules, &[], "src/generated/A.java"),
+            preview_match(&rules, &[], "src/generated/a.txt"),
             Some(HistoryIgnoreMatch::Pattern {
                 pattern: "**/generated/".into()
             })
@@ -1741,7 +1741,7 @@ mod tests {
         let storage = root.join("storage");
         fs::create_dir_all(&workspace).unwrap();
         for (path, disabled) in [
-            ("build/src/Main.java", "**/build/"),
+            ("build/src/main.txt", "**/build/"),
             ("src/cached.pyc", "*.pyc"),
         ] {
             let hidden = vec![format!("!{disabled}")];
@@ -1755,7 +1755,7 @@ mod tests {
         let rules = ignore_rules(&["!**/build/", "*.log", "**/generated/"], &[]);
         for (path, pattern) in [
             ("build/run.log", "*.log"),
-            ("build/generated/Main.java", "**/generated/"),
+            ("build/generated/main.txt", "**/generated/"),
         ] {
             assert_eq!(
                 preview_match(&rules, &["!**/build/".into()], path),

@@ -350,10 +350,10 @@ fn workspace_snapshot_hides_nested_worktree_checkouts() {
         .expect("worktree directory should be creatable");
     fs::create_dir_all(root.join(".worktrees/bugfix/src"))
         .expect("worktrees directory should be creatable");
-    fs::write(root.join("src/App.java"), "class App {}").expect("source should be writable");
-    fs::write(root.join(".worktree/feature/src/App.java"), "class App {}")
+    fs::write(root.join("src/App.txt"), "App").expect("source should be writable");
+    fs::write(root.join(".worktree/feature/src/App.txt"), "App")
         .expect("worktree source should be writable");
-    fs::write(root.join(".worktrees/bugfix/src/App.java"), "class App {}")
+    fs::write(root.join(".worktrees/bugfix/src/App.txt"), "App")
         .expect("worktrees source should be writable");
 
     let response: Value = serde_json::from_str(&execute_json(
@@ -369,7 +369,7 @@ fn workspace_snapshot_hides_nested_worktree_checkouts() {
     assert_eq!(response["ok"], true, "{response}");
     assert_eq!(
         response["data"]["files"],
-        serde_json::json!(["src/App.java"])
+        serde_json::json!(["src/App.txt"])
     );
 
     fs::remove_dir_all(root).expect("temporary fixture should be removable");
@@ -393,7 +393,7 @@ fn write_fixture_file(path: &std::path::Path, text: &str) {
 /// Lays out the pointer files Git writes for a linked worktree, a submodule,
 /// and a worktree placed beside its main checkout.
 fn write_linked_worktree_fixture(root: &std::path::Path) {
-    write_fixture_file(&root.join("src/App.java"), "class App {}");
+    write_fixture_file(&root.join("src/App.txt"), "App");
     write_fixture_file(&root.join(".git/HEAD"), "ref: refs/heads/main\n");
     write_fixture_file(
         &root.join(".git/worktrees/agent/HEAD"),
@@ -404,8 +404,8 @@ fn write_linked_worktree_fixture(root: &std::path::Path) {
         &format!("gitdir: {}\n", root.join(".git/worktrees/agent").display()),
     );
     write_fixture_file(
-        &root.join(".claude/worktrees/agent/src/App.java"),
-        "class App { int nestedWorktreeToken731; }",
+        &root.join(".claude/worktrees/agent/src/App.txt"),
+        "App nestedWorktreeToken731",
     );
     write_fixture_file(&root.join(".claude/settings.json"), "{}");
     // Submodules point into `.git/modules`, so they remain part of the project.
@@ -417,7 +417,7 @@ fn write_linked_worktree_fixture(root: &std::path::Path) {
         &root.join("vendor/lib/.git"),
         "gitdir: ../../.git/modules/lib\n",
     );
-    write_fixture_file(&root.join("vendor/lib/Lib.java"), "class Lib {}");
+    write_fixture_file(&root.join("vendor/lib/Lib.txt"), "Lib");
 }
 
 #[test]
@@ -433,11 +433,7 @@ fn workspace_snapshot_omits_linked_worktrees_nested_in_their_own_repository() {
 
     assert_eq!(
         data["files"],
-        serde_json::json!([
-            ".claude/settings.json",
-            "src/App.java",
-            "vendor/lib/Lib.java"
-        ])
+        serde_json::json!([".claude/settings.json", "src/App.txt", "vendor/lib/Lib.txt"])
     );
     assert_eq!(
         data["nestedWorktrees"],
@@ -500,8 +496,8 @@ fn list_directories_marks_only_visibly_empty_directories_as_leaves() {
 fn list_directories_returns_one_visible_level_per_requested_directory() {
     let root = temporary_root("list-directories");
     write_linked_worktree_fixture(&root);
-    write_fixture_file(&root.join("src/main/Util.java"), "class Util {}");
-    write_fixture_file(&root.join("build/Output.class"), "");
+    write_fixture_file(&root.join("src/main/Util.txt"), "Util");
+    write_fixture_file(&root.join("build/output.bin"), "");
 
     let data = core_data(
         "list-directories",
@@ -547,7 +543,7 @@ fn list_directories_returns_one_visible_level_per_requested_directory() {
         names(1),
         [
             ("src/main".to_string(), true),
-            ("src/App.java".to_string(), false)
+            ("src/App.txt".to_string(), false)
         ]
     );
     assert!(names(2).is_empty());
@@ -564,9 +560,9 @@ fn folder_patterns_hide_folders_without_reading_them() {
     // leading `**/` hides it at any depth, so the tree must not enumerate it. A
     // plain name stays a file pattern.
     let root = temporary_root("folder-patterns");
-    write_fixture_file(&root.join("src/App.java"), "class App {}");
+    write_fixture_file(&root.join("src/App.txt"), "App");
     write_fixture_file(&root.join(".lithe/dependencies/index.json"), "{}");
-    write_fixture_file(&root.join("generated/Out.java"), "class Out {}");
+    write_fixture_file(&root.join("generated/Out.txt"), "Out");
     write_fixture_file(&root.join("docs/api/index.html"), "<html></html>");
     write_fixture_file(&root.join("modules/.lithe/config.json"), "{}");
     write_fixture_file(&root.join("notes/todo.md"), "kept");
@@ -608,7 +604,7 @@ fn folder_patterns_hide_folders_without_reading_them() {
             "modules/.lithe/config.json",
             "modules/keep.txt",
             "notes/todo.md",
-            "src/App.java"
+            "src/App.txt"
         ]
     );
     let listed = root_listing["directories"]
@@ -646,7 +642,7 @@ fn workspace_snapshot_keeps_worktrees_outside_their_main_checkout() {
         &root.join("main/.git/worktrees/feature/HEAD"),
         "ref: refs/heads/f\n",
     );
-    write_fixture_file(&root.join("main/App.java"), "class App {}");
+    write_fixture_file(&root.join("main/App.txt"), "App");
     write_fixture_file(
         &root.join("feature/.git"),
         &format!(
@@ -654,7 +650,7 @@ fn workspace_snapshot_keeps_worktrees_outside_their_main_checkout() {
             root.join("main/.git/worktrees/feature").display()
         ),
     );
-    write_fixture_file(&root.join("feature/App.java"), "class App {}");
+    write_fixture_file(&root.join("feature/App.txt"), "App");
 
     let data = core_data(
         "snapshot-sibling-worktree",
@@ -664,7 +660,7 @@ fn workspace_snapshot_keeps_worktrees_outside_their_main_checkout() {
 
     assert_eq!(
         data["files"],
-        serde_json::json!(["feature/App.java", "main/App.java"])
+        serde_json::json!(["feature/App.txt", "main/App.txt"])
     );
     assert_eq!(data["nestedWorktrees"], serde_json::json!([]));
     fs::remove_dir_all(root).expect("temporary fixture should be removable");
@@ -673,7 +669,7 @@ fn workspace_snapshot_keeps_worktrees_outside_their_main_checkout() {
 #[test]
 fn workspace_snapshot_hides_build_artifact_directory() {
     let root = temporary_root("snapshot-artifacts");
-    write_fixture_file(&root.join("src/App.java"), "class App {}");
+    write_fixture_file(&root.join("src/App.txt"), "App");
     write_fixture_file(
         &root.join(".artifacts/test-stability/index.html"),
         "<html></html>",
@@ -685,7 +681,7 @@ fn workspace_snapshot_hides_build_artifact_directory() {
         serde_json::json!({"root": root}),
     );
 
-    assert_eq!(data["files"], serde_json::json!(["src/App.java"]));
+    assert_eq!(data["files"], serde_json::json!(["src/App.txt"]));
     fs::remove_dir_all(root).expect("temporary fixture should be removable");
 }
 
@@ -802,10 +798,10 @@ fn search_everywhere_names_exclude_nested_worktrees_during_incremental_updates()
             }),
         )
     };
-    let path = root.join(".claude/worktrees/agent/src/NestedPreview.java");
-    write_fixture_file(&path, "class NestedPreview {}");
+    let path = root.join(".claude/worktrees/agent/src/NestedPreview.txt");
+    write_fixture_file(&path, "NestedPreview");
     assert_eq!(search()["matches"], serde_json::json!([]));
-    fs::write(&path, "class NestedPreview { int updated; }").unwrap();
+    fs::write(&path, "NestedPreview updated").unwrap();
     let update = core_data(
         "everywhere-linked-update",
         "workspace.searchIndex.update",
@@ -835,15 +831,15 @@ fn search_index_ignores_nested_linked_worktree_content_and_updates() {
         serde_json::json!([])
     );
     write_fixture_file(
-        &root.join(".claude/worktrees/agent/src/New.java"),
-        "class New { int nestedWorktreeToken731; }",
+        &root.join(".claude/worktrees/agent/src/New.txt"),
+        "New nestedWorktreeToken731",
     );
     let update = core_data(
         "search-linked-worktree-update",
         "workspace.searchIndex.update",
         serde_json::json!({
             "root": root,
-            "paths": [root.join(".claude/worktrees/agent/src/New.java")]
+            "paths": [root.join(".claude/worktrees/agent/src/New.txt")]
         }),
     );
 
@@ -856,27 +852,24 @@ fn search_index_ignores_nested_linked_worktree_content_and_updates() {
 }
 
 #[test]
-fn search_can_match_unique_content_inside_jdtls_factorypath_files() {
-    // Shared visibility rules must not hide `.factorypath`, otherwise search
-    // cannot reach the unique annotation-processor metadata on disk.
-    let root = temporary_root("search-factorypath");
+fn search_can_match_unique_content_inside_dot_files() {
+    // Shared visibility rules must not hide tool dotfiles, otherwise search
+    // cannot reach the unique metadata a tool keeps beside the sources.
+    let root = temporary_root("search-dotfile");
     fs::create_dir_all(root.join("services/alpha")).expect("module directory should be creatable");
     fs::write(root.join("README.md"), "visible\n").expect("readme should be writable");
-    fs::write(root.join(".factorypath"), "jdtlsFactorypathToken589\n")
-        .expect("root factorypath should be writable");
-    fs::write(
-        root.join("services/alpha/.factorypath"),
-        "jdtlsFactorypathToken589\n",
-    )
-    .expect("module factorypath should be writable");
+    fs::write(root.join(".tool-a"), "toolDotfileToken589\n")
+        .expect("root dotfile should be writable");
+    fs::write(root.join("services/alpha/.tool-a"), "toolDotfileToken589\n")
+        .expect("module dotfile should be writable");
 
     let response: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
-            "id": "search-factorypath",
+            "id": "search-dotfile",
             "command": "workspace.search",
             "payload": {
                 "root": root,
-                "query": "jdtlsFactorypathToken589",
+                "query": "toolDotfileToken589",
                 "caseSensitive": true,
                 "maxResults": 20
             }
@@ -893,15 +886,15 @@ fn search_can_match_unique_content_inside_jdtls_factorypath_files() {
         .map(|value| value["path"].as_str().expect("path should be text"))
         .collect::<Vec<_>>();
     assert!(
-        paths.contains(&".factorypath"),
-        "root factorypath should remain searchable: {response}"
+        paths.contains(&".tool-a"),
+        "root dotfile should remain searchable: {response}"
     );
     assert!(
-        paths.contains(&"services/alpha/.factorypath"),
-        "nested factorypath should remain searchable: {response}"
+        paths.contains(&"services/alpha/.tool-a"),
+        "nested dotfile should remain searchable: {response}"
     );
-    assert!(root.join(".factorypath").is_file());
-    assert!(root.join("services/alpha/.factorypath").is_file());
+    assert!(root.join(".tool-a").is_file());
+    assert!(root.join("services/alpha/.tool-a").is_file());
 
     fs::remove_dir_all(root).expect("temporary fixture should be removable");
 }
@@ -1015,10 +1008,10 @@ fn search_matches_shared_fixture_semantics() {
 #[test]
 fn search_everywhere_and_replacement_preview_are_shared() {
     let root = temporary_root("advanced-search");
-    fs::create_dir_all(root.join("src/main/java/com/example"))
+    fs::create_dir_all(root.join("config/services"))
         .expect("fixture directory should be creatable");
-    let source = "class UserService {\n    void loadUser() {}\n}\n";
-    let relative = "src/main/java/com/example/UserService.java";
+    let source = "[UserService]\n    loadUser = true\n";
+    let relative = "config/services/UserService.toml";
     fs::write(root.join(relative), source).expect("fixture source should be writable");
 
     let request = serde_json::json!({
@@ -1045,8 +1038,11 @@ fn search_everywhere_and_replacement_preview_are_shared() {
         .as_array()
         .expect("search matches should be an array");
     assert!(matches.iter().any(|value| value["kind"] == "file"));
-    assert!(matches.iter().any(|value| value["kind"] == "type"));
     assert!(matches.iter().any(|value| value["kind"] == "content"));
+    // Symbols come from language servers and plugins, not from Core.
+    assert!(!matches
+        .iter()
+        .any(|value| value["kind"] == "type" || value["kind"] == "symbol"));
 
     let replacement = serde_json::json!({
         "id": "replacement",
@@ -1068,11 +1064,11 @@ fn search_everywhere_and_replacement_preview_are_shared() {
     assert_eq!(replacement_response["ok"], true);
     assert_eq!(
         replacement_response["data"]["files"][0]["matches"][0]["after"],
-        "    void fetchUser() {}"
+        "    fetchUser = true"
     );
     assert_eq!(
         replacement_response["data"]["files"][0]["replacementText"],
-        "class UserService {\n    void fetchUser() {}\n}\n"
+        "[UserService]\n    fetchUser = true\n"
     );
 
     let mut override_request = serde_json::json!({
@@ -1087,7 +1083,7 @@ fn search_everywhere_and_replacement_preview_are_shared() {
         }
     });
     override_request["payload"]["textOverrides"][relative] =
-        serde_json::json!("class UserService {\n    void fetchUser() {}\n}\n");
+        serde_json::json!("[UserService]\n    fetchUser = true\n");
     let override_response: Value = serde_json::from_str(&execute_json(
         &serde_json::to_string(&override_request).expect("override request should encode"),
     ))
@@ -1095,7 +1091,7 @@ fn search_everywhere_and_replacement_preview_are_shared() {
     assert_eq!(override_response["ok"], true);
     assert_eq!(
         override_response["data"]["files"][0]["matches"][0]["before"],
-        "    void fetchUser() {}"
+        "    fetchUser = true"
     );
 
     fs::remove_dir_all(root).expect("temporary fixture should be removable");
@@ -1157,10 +1153,9 @@ fn search_pages_apply_path_filters_before_the_page_limit() {
 fn file_mask_limits_search_to_matching_extensions() {
     let root = temporary_root("file-mask");
     fs::create_dir_all(root.join("src")).expect("fixture directory should be creatable");
-    fs::write(root.join("src/Service.java"), "int total = 1;\n")
-        .expect("java fixture should be writable");
-    fs::write(root.join("src/notes.txt"), "int total = 2;\n")
-        .expect("text fixture should be writable");
+    fs::write(root.join("src/service.toml"), "total = 1\n")
+        .expect("toml fixture should be writable");
+    fs::write(root.join("src/notes.txt"), "total = 2\n").expect("text fixture should be writable");
 
     let search = |mask: &str| -> Vec<String> {
         let request = serde_json::json!({
@@ -1186,16 +1181,16 @@ fn file_mask_limits_search_to_matching_extensions() {
     };
 
     let unfiltered = search("");
-    assert!(unfiltered.iter().any(|path| path.ends_with("Service.java")));
+    assert!(unfiltered.iter().any(|path| path.ends_with("service.toml")));
     assert!(unfiltered.iter().any(|path| path.ends_with("notes.txt")));
 
-    let java_only = search("*.java");
-    assert!(java_only.iter().any(|path| path.ends_with("Service.java")));
-    assert!(!java_only.iter().any(|path| path.ends_with("notes.txt")));
+    let toml_only = search("*.toml");
+    assert!(toml_only.iter().any(|path| path.ends_with("service.toml")));
+    assert!(!toml_only.iter().any(|path| path.ends_with("notes.txt")));
 
     // Multiple masks form a union, and whitespace after commas is ignored.
-    let both = search("*.java, *.txt");
-    assert!(both.iter().any(|path| path.ends_with("Service.java")));
+    let both = search("*.toml, *.txt");
+    assert!(both.iter().any(|path| path.ends_with("service.toml")));
     assert!(both.iter().any(|path| path.ends_with("notes.txt")));
 
     fs::remove_dir_all(root).expect("temporary fixture should be removable");
@@ -1205,7 +1200,7 @@ fn file_mask_limits_search_to_matching_extensions() {
 fn preserve_case_matches_original_occurrence_shape() {
     let root = temporary_root("preserve-case");
     fs::create_dir_all(&root).expect("fixture directory should be creatable");
-    let relative = "Sample.java";
+    let relative = "Sample.txt";
     fs::write(root.join(relative), "fooBar FooBar FOOBAR fooBar();\n")
         .expect("fixture should be writable");
 
@@ -1379,7 +1374,7 @@ fn local_history_records_deduplicates_lists_and_relocates() {
         serde_json::json!({
             "workspaceRoot": root,
             "storageRoot": storage,
-            "path": "src/Main.java",
+            "path": "src/Main.txt",
             "reason": "saved",
             "content": content,
             "hiddenDirectoryNames": [],
@@ -1407,7 +1402,7 @@ fn local_history_records_deduplicates_lists_and_relocates() {
         "history.rename",
         serde_json::json!({
             "storageRoot": storage,
-            "path": "src/Main.java",
+            "path": "src/Main.txt",
             "id": second_id,
             "label": "before refactor"
         }),
@@ -1419,7 +1414,7 @@ fn local_history_records_deduplicates_lists_and_relocates() {
         serde_json::json!({
             "workspaceRoot": root,
             "storageRoot": storage,
-            "path": "src/Main.java"
+            "path": "src/Main.txt"
         }),
     );
     assert_eq!(listed["ok"], true);
@@ -1441,7 +1436,7 @@ fn local_history_records_deduplicates_lists_and_relocates() {
         "history.delete",
         serde_json::json!({
             "storageRoot": storage,
-            "path": "src/Main.java",
+            "path": "src/Main.txt",
             "id": second_id
         }),
     );
@@ -1451,7 +1446,7 @@ fn local_history_records_deduplicates_lists_and_relocates() {
         serde_json::json!({
             "workspaceRoot": root,
             "storageRoot": storage,
-            "path": "src/Main.java"
+            "path": "src/Main.txt"
         }),
     );
     assert_eq!(after_delete["data"]["entries"].as_array().unwrap().len(), 1);
@@ -1461,7 +1456,7 @@ fn local_history_records_deduplicates_lists_and_relocates() {
             "history.delete",
             serde_json::json!({
                 "storageRoot": storage,
-                "path": "src/Main.java",
+                "path": "src/Main.txt",
                 "id": invalid_id
             }),
         );
@@ -1473,8 +1468,8 @@ fn local_history_records_deduplicates_lists_and_relocates() {
         "history.relocate",
         serde_json::json!({
             "storageRoot": storage,
-            "sourcePath": "src/Main.java",
-            "destinationPath": "src/Renamed.java"
+            "sourcePath": "src/Main.txt",
+            "destinationPath": "src/Renamed.txt"
         }),
     );
     assert_eq!(relocated["ok"], true);
@@ -1483,7 +1478,7 @@ fn local_history_records_deduplicates_lists_and_relocates() {
         serde_json::json!({
             "workspaceRoot": root,
             "storageRoot": storage,
-            "path": "src/Renamed.java"
+            "path": "src/Renamed.txt"
         }),
     );
     assert_eq!(
@@ -1536,8 +1531,8 @@ fn local_history_honors_the_unified_hidden_path_patterns() {
     // Folder rules stop snapshots below the folder at any depth (`**/`) or only
     // at the project root, and file rules match by glob or exact name.
     for hidden in [
-        "generated/Out.java",
-        "modules/a/generated/Out.java",
+        "generated/Out.txt",
+        "modules/a/generated/Out.txt",
         ".lithe/project.json",
         "build.log",
         "src/secret.txt",
@@ -1549,7 +1544,7 @@ fn local_history_honors_the_unified_hidden_path_patterns() {
             "{hidden} should not be recorded"
         );
     }
-    for visible in ["src/Main.java", "modules/.lithe/project.json"] {
+    for visible in ["src/Main.txt", "modules/.lithe/project.json"] {
         let response = record(visible);
         assert_eq!(response["ok"], true, "{visible}: {response}");
         assert!(
@@ -1719,13 +1714,13 @@ fn search_everywhere_streams_names_before_content_index_and_preserves_the_final_
     }
     let _cleanup = Cleanup(root.clone());
     fs::create_dir_all(&root).unwrap();
-    let file = root.join("Name.java");
-    fs::write(&file, "class Before {}").unwrap();
+    let file = root.join("Name.txt");
+    fs::write(&file, "Before").unwrap();
     let events = Arc::new(Mutex::new(Vec::<Value>::new()));
     let received = events.clone();
     let request = serde_json::json!({ "command": "workspace.searchEverywhere", "operationId": "stream-search",
         "timeoutMilliseconds": 5000, "payload": { "root": root, "query": "Name", "maxResults": 20,
-            "maxFileResults": 2, "maxSymbolResults": 2, "maxContentResults": 0 } }).to_string();
+            "maxFileResults": 2, "maxSymbolResults": 0, "maxContentResults": 2 } }).to_string();
     let response: Value = serde_json::from_str(&crate::execute_json_with_events(
         &request,
         Arc::new(move |raw| {
@@ -1736,8 +1731,8 @@ fn search_everywhere_streams_names_before_content_index_and_preserves_the_final_
             let mut events = received.lock().unwrap();
             if events.is_empty() {
                 assert_eq!(event["results"]["matches"][0]["kind"], "file");
-                // If content was indexed first, this new class would be absent from the final response.
-                fs::write(&file, "class Name { void NameMethod() {} }").unwrap();
+                // If content was indexed first, this new line would be absent from the final response.
+                fs::write(&file, "Name after").unwrap();
             }
             assert_eq!(event["operationId"], "stream-search");
             events.push(event);
@@ -1750,7 +1745,7 @@ fn search_everywhere_streams_names_before_content_index_and_preserves_the_final_
         .as_array()
         .unwrap()
         .iter()
-        .any(|item| item["kind"] == "type"));
+        .any(|item| item["kind"] == "content"));
     let synchronous: Value = serde_json::from_str(&execute_json(&request)).unwrap();
     assert_eq!(response["data"], synchronous["data"]);
 
@@ -1781,26 +1776,22 @@ fn search_everywhere_pages_all_sources_past_200_without_duplicates_or_missing_ma
     fs::create_dir_all(&root).unwrap();
     for index in 0..257 {
         fs::write(
-            root.join(format!("Name{index:03}.java")),
-            format!("class Name{index:03} {{\n    void NameMethod{index:03}() {{}}\n}}\n"),
+            root.join(format!("Name{index:03}.txt")),
+            format!("Name{index:03}\n    NameStep{index:03}\n"),
         )
         .unwrap();
     }
-    fs::write(root.join("NameHidden.java"), "class NameHidden {}\n").unwrap();
+    fs::write(root.join("NameHidden.txt"), "NameHidden\n").unwrap();
     let call = |payload: Value| -> Value {
         serde_json::from_str(&execute_json(&serde_json::json!({
             "command": "workspace.searchEverywhere", "timeoutMilliseconds": 5000, "payload": payload
         }).to_string())).unwrap()
     };
     let base = serde_json::json!({ "root": root, "query": "Name", "pageSize": 50,
-        "hiddenFilePatterns": ["NameHidden.java"] });
-    for kinds in [
-        vec!["file"],
-        vec!["type"],
-        vec!["symbol"],
-        vec!["content"],
-        vec!["file", "type", "symbol", "content"],
-    ] {
+        "hiddenFilePatterns": ["NameHidden.txt"] });
+    // Core fills only the file and content sources; type and symbol results
+    // come from language servers and plugins.
+    for kinds in [vec!["file"], vec!["content"], vec!["file", "content"]] {
         let mut payload = base.clone();
         payload["resultKinds"] = serde_json::json!(kinds);
         let mut seen = std::collections::HashSet::new();
@@ -1813,13 +1804,12 @@ fn search_everywhere_pages_all_sources_past_200_without_duplicates_or_missing_ma
             assert!(matches.len() <= 50 * kinds.len());
             for item in matches {
                 assert!(kinds.contains(&item["kind"].as_str().unwrap()));
-                assert_ne!(item["path"], "NameHidden.java");
+                assert_ne!(item["path"], "NameHidden.txt");
                 assert!(
                     seen.insert((
                         item["kind"].clone().to_string(),
                         item["path"].clone().to_string(),
-                        item["line"].clone().to_string(),
-                        item["symbolName"].clone().to_string()
+                        item["line"].clone().to_string()
                     )),
                     "duplicate {item}"
                 );
@@ -1853,7 +1843,7 @@ fn search_everywhere_pages_all_sources_past_200_without_duplicates_or_missing_ma
     for (key, value) in [
         ("query", serde_json::json!("Other")),
         ("pageSize", serde_json::json!(49)),
-        ("resultKinds", serde_json::json!(["type"])),
+        ("resultKinds", serde_json::json!(["content"])),
         ("root", serde_json::json!(root.join("other"))),
         ("hiddenFilePatterns", serde_json::json!([])),
         ("cursor", serde_json::json!("malformed")),
@@ -1866,7 +1856,7 @@ fn search_everywhere_pages_all_sources_past_200_without_duplicates_or_missing_ma
             "cursor must reject a different {key}"
         );
     }
-    for (query, expected) in [("^Name0[0-4][0-9]\\.java$", 50), ("^missing$", 0), ("", 0)] {
+    for (query, expected) in [("^Name0[0-4][0-9]\\.txt$", 50), ("^missing$", 0), ("", 0)] {
         let mut exact = base.clone();
         exact["query"] = serde_json::json!(query);
         exact["regularExpression"] = serde_json::json!(true);
@@ -1881,11 +1871,11 @@ fn search_everywhere_pages_all_sources_past_200_without_duplicates_or_missing_ma
     }
     let ranked = root.join("ranked");
     for path in [
-        "Name.java",
-        "NameExtra.java",
-        "OtherName.java",
-        "NameLongSuffix.java",
-        "nested/Name.java",
+        "Name.txt",
+        "NameExtra.txt",
+        "OtherName.txt",
+        "NameLongSuffix.txt",
+        "nested/Name.txt",
     ] {
         let file = ranked.join(path);
         fs::create_dir_all(file.parent().unwrap()).unwrap();

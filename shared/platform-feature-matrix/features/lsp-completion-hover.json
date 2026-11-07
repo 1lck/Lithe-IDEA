@@ -6,7 +6,6 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Core/Language",
-      "rust/lithe-core/src/lsp/languages/jdt.rs",
       "rust/lithe-core/src/lsp/interface/engine.rs",
       "shared/fixtures/lsp/java-completion-v1.json",
       "shared/fixtures/lsp",
@@ -21,7 +20,6 @@
   "windows": {
     "evidence": [
       "windows/tauri/src/features",
-      "rust/lithe-core/src/lsp/languages/jdt.rs",
       "rust/lithe-core/src/lsp/interface/engine.rs",
       "shared/fixtures/lsp/java-completion-v1.json",
       "shared/fixtures/lsp",

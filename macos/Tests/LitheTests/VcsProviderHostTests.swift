@@ -311,7 +311,7 @@ struct VcsProviderHostTests {
         // Metadata the provider did not declare never refreshes; a working
         // file does. Both arrive before the delay, so one refresh covers them.
         fixture.metadataWatchers.deliver([fixture.url(".svn/tmp/x")])
-        fixture.changed("module/File.java")
+        fixture.changed("module/File.txt")
         #expect(await fixture.settled { fixture.providers.statusCount(root: module) == 2 })
         #expect(fixture.providers.statusCount(root: workspace) == 1)
 
@@ -320,7 +320,7 @@ struct VcsProviderHostTests {
         #expect(await fixture.feature.cleanup("module"))
         #expect(await fixture.settled { fixture.providers.statusCount(root: module) == 3 })
         fixture.metadataWatchers.deliver([fixture.url(".svn/wc.db")])
-        fixture.changed("module/Other.java")
+        fixture.changed("module/Other.txt")
         #expect(await fixture.settled { fixture.providers.statusCount(root: module) == 4 })
         #expect(fixture.providers.statusCount(root: workspace) == 1)
 
@@ -384,13 +384,13 @@ struct VcsProviderHostTests {
         // A created entry and the directory holding it are looked up unless
         // they are a known root; a changed file is not looked up at all.
         let lookedUp = fixture.files.gate(afterLookups: 3)
-        fixture.changed("plugins/Plugin.java")
-        fixture.created("README.md", "src/Main.java")
+        fixture.changed("plugins/Plugin.txt")
+        fixture.created("README.md", "src/Main.txt")
         #expect(await lookedUp.waitUntilOpen(timeout: .seconds(5)))
         #expect(Set(fixture.files.lookups)
-            == Set(["README.md/.svn", "src/Main.java/.svn", "src/.svn"].map { fixture.url($0).path }))
+            == Set(["README.md/.svn", "src/Main.txt/.svn", "src/.svn"].map { fixture.url($0).path }))
 
-        fixture.created("plugins/Plugin.java")
+        fixture.created("plugins/Plugin.txt")
         #expect(await fixture.settled { fixture.planner.detectCount == 2 })
         #expect(!fixture.files.lookups.contains(fixture.url(".svn").path))
     }
@@ -598,11 +598,11 @@ struct VcsProviderHostTests {
     @Test
     func commitCarriesBothHalvesOfAMoveOnce() {
         let paths = VcsProviderToolWindowView.commitPaths([
-            VcsChange(path: "src/New.java", oldPath: "src/Old.java", status: .renamed),
-            VcsChange(path: "src/Old.java", status: .deleted),
+            VcsChange(path: "src/New.txt", oldPath: "src/Old.txt", status: .renamed),
+            VcsChange(path: "src/Old.txt", status: .deleted),
             VcsChange(path: "README", status: .modified)
         ])
-        #expect(paths == ["src/New.java", "src/Old.java", "README"])
+        #expect(paths == ["src/New.txt", "src/Old.txt", "README"])
     }
 
     @Test

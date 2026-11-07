@@ -20,7 +20,6 @@ extension AppModel {
                 notify: { [weak self] message in self?.showNotification(message) },
                 stateRefreshed: { [weak self] in
                     guard let self, let document = self.activeDocument else { return }
-                    await self.refreshCodeVision(for: document.url)
                     await self.loadGitLineChanges(for: document.url)
                 },
                 saveChangesPolicy: { [weak self] in

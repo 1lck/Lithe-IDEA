@@ -44,7 +44,7 @@ struct PluginBuildOptionPersistenceTests {
         let runner = OptionCommandRecorder()
         let service = Self.service(source: source, workspace: workspace, store: store, runner: runner)
         defer { service.stop() }
-        _ = try await Self.refreshed(service) { service.reset(workspaceURL: workspace) }
+        try await Self.refreshed(service, workspace: workspace) { service.reset(workspaceURL: workspace) }
         #expect(service.entry("cargo:a")?.options.first { $0.id == "settingsFile" }?.value == .string("/fixture/private.xml"))
         #expect(service.entry("cargo:b")?.options.first { $0.id == "settingsFile" }?.value == .string("/fixture/team-b.xml"))
         #expect(Array(try await Self.run("cargo:a", service: service, runner: runner).suffix(2)) == ["--config", "/fixture/private.xml"])
@@ -52,7 +52,7 @@ struct PluginBuildOptionPersistenceTests {
         #expect(try service.configureOption("cargo:a", optionID: "settingsFile", value: nil).value == .string("/fixture/private.xml"))
         #expect(backing.instanceData.isEmpty)
         try store.setInstanceDefaults(["settingsFile": .string("/fixture/team.xml")], workspaceURL: workspace, buildSystemID: "cargo")
-        _ = try await Self.refreshed(service) { service.detect() }
+        try await Self.refreshed(service, workspace: workspace) { service.detect() }
         #expect(service.entry("cargo:a")?.options.first { $0.id == "settingsFile" }?.value == .string("/fixture/team.xml"))
         #expect(try store.projectDocument(workspace).bytes == bytes)
     }
@@ -75,13 +75,13 @@ struct PluginBuildOptionPersistenceTests {
         let runner = OptionCommandRecorder()
         let service = Self.service(source: source, workspace: workspace, store: store, runner: runner)
         defer { service.stop() }
-        _ = try await Self.refreshed(service) { service.reset(workspaceURL: workspace) }
+        try await Self.refreshed(service, workspace: workspace) { service.reset(workspaceURL: workspace) }
         #expect(service.entries.allSatisfy { $0.options.first { $0.id == "settingsFile" }?.value == .string("/fixture/shared.xml") })
         #expect(try store.projectDocument(workspace).bytes == original)
         #expect(backing.instanceData.isEmpty)
         #expect(service.entry("cargo:a")?.options.first { $0.id == "features" }?.choices.contains { $0.value == "custom-unselected" } == true)
         #expect(service.entry("cargo:a")?.options.first { $0.id == "features" }?.value == .array([.string("base")]))
-        _ = try await Self.refreshed(service) {
+        try await Self.refreshed(service, workspace: workspace) {
             service.setInstanceOption("cargo:a", optionID: "settingsFile", value: .string("/fixture/local-a.xml"))
         }
         #expect(service.entry("cargo:b")?.options.first { $0.id == "settingsFile" }?.value == .string("/fixture/shared.xml"))
@@ -97,7 +97,7 @@ struct PluginBuildOptionPersistenceTests {
         changed.systems["cargo"]?.instanceDefaults["settingsFile"] = .string("/fixture/new-shared.xml")
         try store.saveProjectDocument(changed, workspace: workspace, expecting: original)
         #expect(throws: (any Error).self) { try store.saveProjectDocument(shared, workspace: workspace, expecting: original) }
-        _ = try await Self.refreshed(service) { service.detect() }
+        try await Self.refreshed(service, workspace: workspace) { service.detect() }
         #expect(service.entries.allSatisfy { $0.options.first { $0.id == "settingsFile" }?.value == .string("/fixture/new-shared.xml") })
         #expect(try await Self.run("cargo:a", service: service, runner: runner) == ["build", "--message-format=short", "--features", "base", "--offline", "--config", "/fixture/new-shared.xml"])
     }
@@ -126,7 +126,7 @@ struct PluginBuildOptionPersistenceTests {
         let service = Self.service(source: source, workspace: workspace, store: store, runner: OptionCommandRecorder())
         defer { service.stop() }
         service.reset(workspaceURL: workspace)
-        await #expect(throws: (any Error).self) { try await service.prepareLanguageImport(workspaceURL: workspace) }
+        await #expect(throws: (any Error).self) { try await service.awaitDetection(workspaceURL: workspace) }
         #expect(service.entries.isEmpty)
         #expect(!service.issues.isEmpty)
         #expect(try Data(contentsOf: url) == broken)
@@ -148,7 +148,7 @@ struct PluginBuildOptionPersistenceTests {
         let service = Self.service(source: source, workspace: workspace, store: store, runner: OptionCommandRecorder())
         defer { service.stop() }
         service.reset(workspaceURL: workspace)
-        await #expect(throws: (any Error).self) { try await service.prepareLanguageImport(workspaceURL: workspace) }
+        await #expect(throws: (any Error).self) { try await service.awaitDetection(workspaceURL: workspace) }
         #expect(service.entries.isEmpty)
         #expect(!service.issues.isEmpty)
         #expect(backing.object(forKey: key) as? String == "retain the malformed preference")
@@ -170,7 +170,7 @@ struct PluginBuildOptionPersistenceTests {
         defer { service.stop() }
         service.reset(workspaceURL: workspace)
         do {
-            _ = try await service.prepareLanguageImport(workspaceURL: workspace)
+            try await service.awaitDetection(workspaceURL: workspace)
             Issue.record("A failed migration must block publishing an unrelated default configuration")
         } catch {
             #expect(!service.issues.isEmpty)
@@ -179,16 +179,14 @@ struct PluginBuildOptionPersistenceTests {
         #expect(try store.options(workspaceURL: workspace, buildSystemID: "cargo") == previous)
         #expect(try store.emptyMultiSelectOptions(workspaceURL: workspace, buildSystemID: "cargo") == ["a": ["features"], "temporarily-absent": ["features"]])
         backing.refuseInstanceWrites = false
-        let imported = try await Self.refreshed(service) { service.detect() }
-        #expect(imported.mavenContext?.profiles == [])
-        #expect(imported.mavenContext?.settingsPath == "/fixture/shared.xml")
+        try await Self.refreshed(service, workspace: workspace) { service.detect() }
         #expect(try store.options(workspaceURL: workspace, buildSystemID: "cargo") == ["offline": .bool(true)])
         #expect(try store.emptyMultiSelectOptions(workspaceURL: workspace, buildSystemID: "cargo").isEmpty)
         #expect(try store.instanceOptions(workspaceURL: workspace, buildSystemID: "cargo")["a"]?["features"] == .array([]))
         #expect(try store.instanceOptions(workspaceURL: workspace, buildSystemID: "cargo")["temporarily-absent"]?["features"] == .array([]))
         #expect(try store.instanceOptions(workspaceURL: workspace, buildSystemID: "cargo")["b"]?["features"] == .array([.string("gui")]))
         #expect(try store.instanceOptions(workspaceURL: workspace, buildSystemID: "cargo")["b"]?["settingsFile"] == .string("/fixture/explicit b.xml"))
-        _ = try await Self.refreshed(service) { service.detect() }
+        try await Self.refreshed(service, workspace: workspace) { service.detect() }
         #expect(try store.instanceOptions(workspaceURL: workspace, buildSystemID: "cargo")["a"]?["features"] == .array([]))
     }
 
@@ -206,14 +204,12 @@ struct PluginBuildOptionPersistenceTests {
         let runner = OptionCommandRecorder()
         let service = Self.service(source: source, workspace: workspace, store: store, runner: runner)
         defer { service.stop() }
-        let imported = try await Self.refreshed(service) { service.reset(workspaceURL: workspace) }
-        #expect(imported.mavenContext?.profiles == [])
-        #expect(imported.mavenContext?.settingsPath == "/fixture/a settings.xml")
+        try await Self.refreshed(service, workspace: workspace) { service.reset(workspaceURL: workspace) }
         #expect(service.entry("cargo:a")?.options.first { $0.id == "features" }?.scope == .instance)
         #expect(try await Self.run("cargo:a", service: service, runner: runner) == ["build", "--message-format=short", "--config", "/fixture/a settings.xml"])
         #expect(try await Self.run("cargo:b", service: service, runner: runner) == ["build", "--message-format=short", "--features", "gui", "--config", "/fixture/b.xml", "--cache", "/fixture/cache b"])
         let originalA = try store.instanceOptions(workspaceURL: workspace, buildSystemID: "cargo")["a"]
-        _ = try await Self.refreshed(service) {
+        try await Self.refreshed(service, workspace: workspace) {
             service.setInstanceOption("cargo:b", optionID: "features", value: .array([]))
             service.setInstanceOption("cargo:b", optionID: "settingsFile", value: .string("/fixture/changed b.xml"))
         }
@@ -226,12 +222,12 @@ struct PluginBuildOptionPersistenceTests {
         let reopenedStore = MacBuildOptionsStore(store: backing)
         let reopened = Self.service(source: source, workspace: workspace, store: reopenedStore, runner: runner)
         defer { reopened.stop() }
-        _ = try await Self.refreshed(reopened) { reopened.reset(workspaceURL: workspace) }
+        try await Self.refreshed(reopened, workspace: workspace) { reopened.reset(workspaceURL: workspace) }
         #expect(reopened.entry("cargo:a")?.options.first { $0.id == "features" }?.value == .array([]))
         #expect(reopened.entry("cargo:a")?.options.first { $0.id == "label" }?.source == "user")
         #expect(reopened.entry("cargo:a")?.options.first { $0.id == "release" }?.source == "user")
         #expect(reopened.entry("cargo:b")?.options.first { $0.id == "features" }?.value == .array([]))
-        _ = try await Self.refreshed(reopened) {
+        try await Self.refreshed(reopened, workspace: workspace) {
             reopened.setInstanceOption("cargo:a", optionID: "features", value: nil)
             reopened.setOption("cargo:a", optionID: "settingsFile", value: nil)
             reopened.setOption("cargo:a", optionID: "offline", value: .bool(true))
@@ -252,7 +248,7 @@ struct PluginBuildOptionPersistenceTests {
         let store = MacBuildOptionsStore(store: OptionPreferenceStore())
         let service = Self.service(source: source, workspace: workspace, store: store, runner: OptionCommandRecorder())
         defer { service.stop() }
-        _ = try await Self.refreshed(service) { service.reset(workspaceURL: workspace) }
+        try await Self.refreshed(service, workspace: workspace) { service.reset(workspaceURL: workspace) }
         #expect(throws: (any Error).self) { try service.configureOption("cargo:a", optionID: "features", value: .bool(true)) }
         #expect(throws: (any Error).self) { try service.configureOption("cargo:a", optionID: "features", value: .array([.string("absent")])) }
         #expect(throws: (any Error).self) { try service.configureOption("cargo:a", optionID: "missing", value: .string("v")) }
@@ -282,7 +278,7 @@ struct PluginBuildOptionPersistenceTests {
         let runner = OptionCommandRecorder()
         let service = Self.service(source: source, workspace: workspace, store: store, runner: runner)
         defer { service.stop() }
-        _ = try await Self.refreshed(service) { service.reset(workspaceURL: workspace) }
+        try await Self.refreshed(service, workspace: workspace) { service.reset(workspaceURL: workspace) }
         let a = try #require(service.entry("cargo:a"))
         let b = try #require(service.entry("cargo:b"))
         #expect(a.options.first { $0.id == "features" }?.value == .array([.string("cli")]))
@@ -297,10 +293,9 @@ struct PluginBuildOptionPersistenceTests {
         #expect(fallback.options.first { $0.id == "features" }?.source == "default")
         #expect(fallback.options.first { $0.id == "features" }?.value == .array([.string("base")]))
         let previousFingerprint = a.sync?.fingerprint
-        let cleared = try await Self.refreshed(service) {
+        try await Self.refreshed(service, workspace: workspace) {
             service.setInstanceOption("cargo:a", optionID: "features", value: .array([]))
         }
-        #expect(cleared.mavenContext?.profiles == [])
         #expect(try store.options(workspaceURL: workspace, buildSystemID: "cargo")["features"] == .array([.string("gui")]))
         #expect(try store.emptyMultiSelectOptions(workspaceURL: workspace, buildSystemID: "cargo") == ["a": ["features"]])
         #expect(service.entry("cargo:a")?.options.first { $0.id == "features" }?.source == "user")
@@ -310,7 +305,7 @@ struct PluginBuildOptionPersistenceTests {
         #expect(try await Self.run("cargo:b", service: service, runner: runner) == ["build", "--message-format=short", "--features", "gui"])
 
         // A sibling selecting a value also accepted by A must not undo A's clear.
-        _ = try await Self.refreshed(service) {
+        try await Self.refreshed(service, workspace: workspace) {
             service.setInstanceOption("cargo:b", optionID: "features", value: .array([.string("base")]))
         }
         #expect(try await Self.run("cargo:a", service: service, runner: runner) == ["build", "--message-format=short"])
@@ -320,25 +315,23 @@ struct PluginBuildOptionPersistenceTests {
         let reopenedStore = MacBuildOptionsStore(store: backing)
         let reopened = Self.service(source: source, workspace: workspace, store: reopenedStore, runner: runner)
         defer { reopened.stop() }
-        let imported = try await Self.refreshed(reopened) { reopened.reset(workspaceURL: workspace) }
-        #expect(imported.mavenContext?.profiles == [])
+        try await Self.refreshed(reopened, workspace: workspace) { reopened.reset(workspaceURL: workspace) }
         #expect(try await Self.run("cargo:a", service: reopened, runner: runner) == ["build", "--message-format=short"])
         #expect(try await Self.run("cargo:b", service: reopened, runner: runner) == ["build", "--message-format=short", "--features", "base"])
 
-        _ = try await Self.refreshed(reopened) {
+        try await Self.refreshed(reopened, workspace: workspace) {
             reopened.setInstanceOption("cargo:a", optionID: "features", value: .array([.string("cli")]))
         }
         #expect(try reopenedStore.emptyMultiSelectOptions(workspaceURL: workspace, buildSystemID: "cargo").isEmpty)
         #expect(try await Self.run("cargo:a", service: reopened, runner: runner) == ["build", "--message-format=short", "--features", "base,cli"])
-        _ = try await Self.refreshed(reopened) {
+        try await Self.refreshed(reopened, workspace: workspace) {
             reopened.setInstanceOption("cargo:a", optionID: "features", value: .array([]))
         }
-        let reset = try await Self.refreshed(reopened) {
+        try await Self.refreshed(reopened, workspace: workspace) {
             reopened.setInstanceOption("cargo:a", optionID: "features", value: nil)
         }
         #expect(try reopenedStore.options(workspaceURL: workspace, buildSystemID: "cargo")["features"] == nil)
         #expect(try reopenedStore.emptyMultiSelectOptions(workspaceURL: workspace, buildSystemID: "cargo").isEmpty)
-        #expect(reset.mavenContext?.profiles == ["base"])
         #expect(try await Self.run("cargo:a", service: reopened, runner: runner) == ["build", "--message-format=short", "--features", "base"])
     }
 
@@ -363,14 +356,10 @@ struct PluginBuildOptionPersistenceTests {
     }
 
     private static func refreshed(
-        _ service: BuildSystemService, action: () -> Void
-    ) async throws -> JavaLanguageImportConfiguration {
-        let published = TestGate()
-        service.onLanguageImportChanged = { _ in published.open() }
-        defer { service.onLanguageImportChanged = nil }
+        _ service: BuildSystemService, workspace: URL, action: () -> Void
+    ) async throws {
         action()
-        try #require(await published.waitUntilOpen(timeout: .seconds(5)), "Detection/import did not finish")
-        return try #require(service.languageImport)
+        try await service.awaitDetection(workspaceURL: workspace)
     }
 
     private static func run(
@@ -412,10 +401,6 @@ struct PluginBuildOptionPersistenceTests {
         options[index]["default"] = ["base"]
         options[index]["allowCustom"] = allowCustom
         systems[0]["options"] = options
-        systems[0]["languageImport"] = ["kind": "maven", "options": ["profiles": "features"]]
-        if instanceScoped {
-            systems[0]["languageImport"] = ["kind": "maven", "options": ["profiles": "features", "settingsFile": "settingsFile"]]
-        }
         manifest["buildSystems"] = systems
         let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: JSONSerialization.data(withJSONObject: manifest))
         return BuildSystemPluginSource(

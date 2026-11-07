@@ -1,7 +1,7 @@
 import Foundation
 
-/// Native CPU and RSS for a launched root and its descendants (including Maven's
-/// forked test JVMs). No JVM attach, process-name scan, or helper process is needed.
+/// Native CPU and RSS for a launched root and its descendants (including worker
+/// processes it forks). No runtime attach, process-name scan, or helper process is needed.
 enum MacProcessTreePerformanceSampler {
     struct CPU: Equatable {
         let nanoseconds: UInt64

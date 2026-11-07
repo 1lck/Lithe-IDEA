@@ -9,7 +9,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case keymap = "Keymap"
     case toolchainEnvironment = "Runtime Environment"
     case toolchainSources = "Toolchain Sources"
-    case project = "Project"
     case run = "Run configurations"
     case terminal = "Terminal"
     case lsp = "LSP"
@@ -27,12 +26,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case mcp = "MCP Configuration"
 
     var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .project: "Project · JDK & Maven"
-        default: rawValue
-        }
-    }
+    var title: String { rawValue }
 
     /// The sidebar group that owns this page, or `nil` for a top-level page.
     var group: SettingsGroup? {
@@ -49,7 +43,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .general: "gearshape"
         case .editor: "textformat"
         case .keymap: "keyboard"
-        case .project: "shippingbox"
         case .toolchainEnvironment: "shippingbox"
         case .toolchainSources: "externaldrive"
         case .run: "play.rectangle"
@@ -90,7 +83,7 @@ enum SettingsGroup: String, CaseIterable, Identifiable {
         switch self {
         case .appearance: [.general, .updates, .network, .editor, .keymap, .processTermination]
         case .versionControl: [.git]
-        case .build: [.toolchainEnvironment, .toolchainSources, .project, .run]
+        case .build: [.toolchainEnvironment, .toolchainSources, .run]
         case .languages: [.lsp]
         case .tools: [.terminal]
         case .ai: [.providers, .agents] + SettingsSubgroup.library.categories + [.ai]
@@ -150,19 +143,6 @@ enum SettingsSidebarItem {
         .group(.tools),
         .group(.ai),
     ]
-}
-
-enum JavaLaunchDecisionResolution: Equatable {
-    case runOnce
-    case alwaysContinue
-    case rebuildIndex
-    case cancel
-}
-
-struct PendingJavaLaunchDecision: Identifiable, Equatable {
-    let id: UUID
-    let workspaceURL: URL
-    let failure: JavaLaunchBuildFailure
 }
 
 /// Product-level availability switches for integrations that require external

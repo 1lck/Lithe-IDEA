@@ -10,8 +10,8 @@
 //! executables, start processes, watch files, and store user choices.
 //!
 //! Nothing here starts a process or writes a file. Workspace files are only
-//! read, and only where a command says so (static models, test reports, sync
-//! fingerprints, and the `maven` integration).
+//! read, and only where a command says so (static models, test reports, and
+//! sync fingerprints).
 //!
 //! Note: the contract is recorded in .agents/notes/implemented/architecture/2026-10-17-build-system-plugin-contract.md
 
@@ -20,9 +20,7 @@ mod configuration;
 mod debug_preparation;
 mod decode;
 mod detect;
-mod integrations;
 mod invocation;
-mod language_import;
 mod manifest;
 mod model;
 mod model_inputs;

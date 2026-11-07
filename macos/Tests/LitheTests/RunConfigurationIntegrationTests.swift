@@ -88,72 +88,6 @@ struct RunConfigurationIntegrationTests {
         #expect(reopened.providerRunOptions?.tools.values.allSatisfy { $0 == nil } == true)
     }
 
-    @Test
-    func nativeGenerationUsesProviderOwnershipThroughTheRealBridgeWithoutReadingPomsForJavaMembership() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("provider-generation-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let data = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/fixtures/run-configuration/provider-project-ownership.json"))
-        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let files = try #require(fixture["files"] as? [String: String])
-        for (path, contents) in files {
-            let file = root.appendingPathComponent(path)
-            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data(contents.utf8).write(to: file)
-        }
-        let decoder = JSONDecoder()
-        let ownershipObject = try #require(fixture["projectOwnership"])
-        let ownershipData = try JSONSerialization.data(withJSONObject: ownershipObject)
-        let ownership = try decoder.decode([LitheCoreContracts.RunProjectOwnership].self, from: ownershipData)
-        let runsData = try JSONSerialization.data(withJSONObject: try #require(fixture["providerRuns"]))
-        let runs = try decoder.decode([RunProviderConfiguration].self, from: runsData)
-        let entryObject = try #require(fixture["javaEntrypoints"])
-        let entryData = try JSONSerialization.data(withJSONObject: entryObject)
-        let entries = try decoder.decode(JavaEntrypoints.self, from: entryData)
-        let store = MacRunConfigurationStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: RunTestKeyValueStore())
-        _ = try store.generate(at: root, files: files.keys.map { root.appendingPathComponent($0) }, modulePaths: ["wrong-legacy-path"],
-            javaEntrypoints: entries, projectOwnership: ownership, providerRuns: runs)
-        let inspected = try RustCoreBridge().inspectRunConfiguration(at: root, checkFingerprint: false, projectOwnership: ownership, providerRuns: runs).get()
-        let generated = try #require(inspected.generated)
-        let generatedData = try JSONEncoder().encode(generated)
-        let document = try #require(JSONSerialization.jsonObject(with: generatedData) as? [String: Any])
-        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/generated.json").path))
-        let configurations = try #require(document["configurations"] as? [[String: Any]])
-        let expected = try #require(fixture["expected"] as? [String: Any])
-        for item in try #require(expected["configurations"] as? [[String: String]]) {
-            let actual = try #require(configurations.first { $0["id"] as? String == item["id"] })
-            #expect(actual["cwd"] as? String == item["cwd"])
-            let extensions = try #require(actual["extensions"] as? [String: [String: Any]])
-            #expect(extensions["java"]?["module"] as? String == item["module"])
-            #expect(extensions["maven"] == nil)
-            #expect(extensions["java"]?["sourceSet"] as? String == item["sourceSet"])
-        }
-        for item in try #require(expected["services"] as? [[String: Any]]) {
-            let id = try #require(item["id"] as? String)
-            let actual = try #require(configurations.first { $0["id"] as? String == id })
-            #expect(actual["provider"] as? String == "build.provider")
-            #expect(actual["execution"] as? String == "service")
-            let extensions = try #require(actual["extensions"] as? [String: Any])
-            #expect(extensions["maven"] == nil)
-        }
-        let metadata = try #require(document["generator"] as? [String: Any])
-        #expect((metadata["providerFingerprint"] as? String)?.hasPrefix("sha256:") == true)
-        #expect((metadata["providerRunFingerprint"] as? String)?.hasPrefix("sha256:") == true)
-        #expect(!store.inspectProviderGeneration(at: root, projectOwnership: ownership, providerRuns: runs.reversed()).diagnostics.contains { $0.code == "staleProviderModel" })
-        #expect(store.inspectProviderGeneration(at: root, projectOwnership: ownership, providerRuns: []).diagnostics.contains { $0.code == "staleProviderModel" })
-        #expect(!store.inspectProviderGeneration(at: root, projectOwnership: ownership).diagnostics.contains { $0.code == "staleProviderModel" })
-        #expect(!store.inspectProviderGeneration(at: root, projectOwnership: ownership.reversed()).diagnostics.contains { $0.code == "staleProviderModel" })
-        #expect(store.inspectProviderGeneration(at: root, projectOwnership: []).diagnostics.contains { $0.code == "staleProviderModel" })
-        #expect(!store.inspectProviderGeneration(at: root, projectOwnership: ownership).diagnostics.contains { $0.code == "staleProviderModel" })
-        let savedRequirements = try #require(inspected.toolchainRequirements)
-        let requirementsData = try JSONEncoder().encode(savedRequirements)
-        let requirements = try #require(JSONSerialization.jsonObject(with: requirementsData) as? [String: Any])
-        let tools = try #require(requirements["toolchains"] as? [String: [String: Any]])
-        #expect(tools["project-jdk"]?["minimumVersion"] as? String == expected["minimumJavaVersion"] as? String)
-        #expect(tools["project-maven"]?["minimumVersion"] as? String == expected["minimumMavenVersion"] as? String)
-        #expect(tools["project-maven"]?["wrapper"] == nil)
-
-    }
-
     @Test(arguments: [BuildExecution.application, .service, .task])
     func savedBuildProviderReferenceWorksWithoutGeneratedConfiguration(execution: BuildExecution) throws {
         let core = RustCoreBridge()
@@ -185,7 +119,7 @@ struct RunConfigurationIntegrationTests {
         #expect(entry["args"] == nil)
         let ignore = try String(contentsOf: root.appendingPathComponent(".lithe/.gitignore"), encoding: .utf8)
         #expect(ignore.contains("run/local.json"))
-        _ = try store.generate(at: root, files: [], modulePaths: [], javaEntrypoints: nil)
+        _ = try store.generate(at: root, providerRuns: nil)
         #expect(!store.inspect(at: root).requiresGeneration)
     }
 
@@ -235,73 +169,6 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func readySavedTasksStillRequestDetectionUntilGenerationSucceeds() async {
-        let fixture = makeFixture(status: .ready)
-        fixture.operations.requiresGeneration = true
-        await fixture.service.loadProject(at: fixture.root, files: [], snapshotID: UUID())
-        #expect(fixture.service.configurationStatus == .ready)
-        #expect(fixture.service.requiresConfigurationGeneration)
-        await fixture.service.generateRunConfigurations(automatic: true)
-        #expect(fixture.operations.generateCalls == 1)
-        #expect(!fixture.service.requiresConfigurationGeneration)
-    }
-
-    @Test
-    func projectEnvironmentSavesWithoutGeneratedConfigurationsAndPreservesOverrides() throws {
-        // The unit lane does not link Rust Core; the Rust test with the same
-        // shared fixture covers the Core half there.
-        let core = RustCoreBridge()
-        guard core.isAvailable else { return }
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-project-environment-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root.appendingPathComponent(".lithe/run"),
-                                               withIntermediateDirectories: true)
-        let localURL = root.appendingPathComponent(".lithe/run/local.json")
-        let original = #"{"version":2,"configurations":[{"id":"user:service","extensions":{"java":{"homePath":"/fixture/service-jdk"}}}]}"#
-        try Data(original.utf8).write(to: localURL)
-        let store = MacRunConfigurationStore(core: core, storage: MacFileStorage(),
-                                            preferences: RunTestKeyValueStore())
-        // A layer that never saved defaults reports none, not automatic ones.
-        #expect(store.inspect(at: root).projectToolchain == nil)
-        try store.saveProjectToolchain(ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk"), at: root)
-        #expect(store.inspect(at: root).projectToolchain == ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk"))
-        let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: localURL)) as? [String: Any])
-        let configurations = try #require(saved["configurations"] as? [[String: Any]])
-        let extensions = try #require(configurations.first?["extensions"] as? [String: Any])
-        let java = try #require(extensions["java"] as? [String: String])
-        #expect(java["homePath"] == "/fixture/service-jdk")
-        let toolchain = try #require(saved["toolchain"] as? [String: [String: String]])
-        #expect(toolchain["java"]?["homePath"] == "/fixture/project-jdk")
-        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/generated.json").path))
-        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/configurations.json").path))
-        let ignoreURL = root.appendingPathComponent(".lithe/.gitignore")
-        let requiredIgnore = "/run/local.json\n/run/classes/\n**/*.tmp\n"
-        #expect(try String(contentsOf: ignoreURL, encoding: .utf8) == requiredIgnore)
-        let existingIgnore = "# user rule\ncache/\n!run/local.json"
-        try Data(existingIgnore.utf8).write(to: ignoreURL)
-        try store.saveProjectToolchain(ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk"), at: root)
-        let expectedIgnore = existingIgnore + "\n" + requiredIgnore
-        #expect(try String(contentsOf: ignoreURL, encoding: .utf8) == expectedIgnore)
-        try store.saveProjectToolchain(ProjectToolchainSelection(), at: root)
-        #expect(try String(contentsOf: ignoreURL, encoding: .utf8) == expectedIgnore)
-
-        // Rules written by generation already protect local paths; saving must
-        // not dirty the committed ignore file with equivalent anchored copies.
-        let generatedIgnore = "run/local.json\nrun/classes/\n**/*.tmp\n"
-        try Data(generatedIgnore.utf8).write(to: ignoreURL)
-        try store.saveProjectToolchain(ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk"), at: root)
-        #expect(try String(contentsOf: ignoreURL, encoding: .utf8) == generatedIgnore)
-
-        // A user rule after Lithe's rules must not make every save append them again.
-        let userExtendedIgnore = expectedIgnore + "build/\n"
-        try Data(userExtendedIgnore.utf8).write(to: ignoreURL)
-        try store.saveProjectToolchain(ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk"), at: root)
-        try store.saveProjectToolchain(ProjectToolchainSelection(), at: root)
-        #expect(try String(contentsOf: ignoreURL, encoding: .utf8) == userExtendedIgnore)
-    }
-
-    @Test
     func projectDefaultsPersistOnlyAfterTheWorkspaceDocumentsWereRead() {
         // Settings persists the project toolchain when it closes. Loading, failed or
         // foreign states hold no toolchain for this workspace and must not be saved over it.
@@ -313,17 +180,6 @@ struct RunConfigurationIntegrationTests {
         #expect(!ProjectLoadState.loading(workspace: workspace).hasLoadedDocuments(for: workspace))
         #expect(!ProjectLoadState.failed(workspace: workspace, message: "fixture").hasLoadedDocuments(for: workspace))
         #expect(!ProjectLoadState.bound(workspace: other).hasLoadedDocuments(for: workspace))
-    }
-
-    @Test
-    func missingConfigurationsStillBindTheWorkspaceDocuments() async {
-        let fixture = makeFixture(status: .missing)
-        let saved = ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk")
-        fixture.operations.inspectionToolchain = saved
-        await fixture.service.loadProject(at: fixture.root, files: [])
-        #expect(fixture.service.projectLoadState.hasLoadedDocuments(for: fixture.root))
-        // Settings mirror these defaults before any configuration is generated.
-        #expect(fixture.service.savedProjectToolchain == saved)
     }
 
     @Test
@@ -340,54 +196,6 @@ struct RunConfigurationIntegrationTests {
         #expect(MacRunConfigurationStore.missingLocalRunIgnoreRules(
             in: "!/run/local.json\n/run/local.json\nrun/classes/\n**/*.tmp\n"
         ).isEmpty)
-    }
-
-    @Test
-    func generationRefusesUnsupportedVersionsEvenWithoutTheConfirmationEntry() async {
-        let fixture = makeFixture(status: .invalid("Unsupported configuration version"))
-        fixture.operations.inspectionRecoveryAction = .upgradeApplication
-        await fixture.service.loadProject(at: fixture.root, files: [], snapshotID: UUID())
-        let feature = RunFeatureModel(service: fixture.service)
-        feature.requestRunConfigurationGeneration()
-        #expect(!feature.isGenerationConfirmationPresented)
-        await fixture.service.generateRunConfigurations()
-        #expect(fixture.operations.generateCalls == 0)
-        #expect(fixture.service.recoveryAction == .upgradeApplication)
-        guard case .failed = fixture.service.generationState else {
-            Issue.record("Direct generation must report an unsupported version without writing")
-            return
-        }
-    }
-
-    @Test
-    func projectPreparationDoesNotBlockStandaloneOrMavenGoalLaunchers() {
-        func configuration(_ kind: RunConfigurationKind, reactor: String? = nil, source: String? = nil) -> RunConfiguration {
-            RunConfiguration(id: "sample", name: "Sample", kind: kind, modulePath: nil,
-                             mainClass: "sample.Main", sourcePath: source, mavenReactorPath: reactor)
-        }
-        #expect(!configuration(.javaMain).usesJavaProjectPreparation)
-        #expect(!configuration(.currentFile, reactor: ".").usesJavaProjectPreparation)
-        #expect(!configuration(.mavenModule, reactor: ".").usesJavaProjectPreparation)
-        #expect(configuration(.javaMain, reactor: ".").usesJavaProjectPreparation)
-        #expect(!configuration(.springBoot, reactor: ".").usesJavaProjectPreparation)
-        #expect(configuration(.springBoot, reactor: ".", source: "src/Main.java").usesJavaProjectPreparation)
-        #expect(!configuration(.springBoot, reactor: ".").usesProviderConnectionDebug)
-        #expect(!configuration(.mavenFramework(.quarkus), reactor: ".").usesProviderConnectionDebug)
-        let service = RunConfiguration(id: "imported:service", name: "Service", kind: .process(provider: "build.provider"),
-            modulePath: nil, mainClass: nil, buildProvider: .init(pluginID: "dev.example.engine", buildSystemID: "engine", root: ".",
-                run: "serve", projectID: "project", targetID: "target", execution: .service))
-        #expect(service.usesProviderConnectionDebug)
-        #expect(!RunConfigurationKind.mavenModule.capabilities.contains(.jdwpDebug))
-    }
-
-    @Test
-    func portConflictTitleIncludesTheActualPortAndConfigurations() {
-        let conflict = RunPortConflict(
-            port: 18080,
-            configurationNames: ["api", "worker"]
-        )
-
-        #expect(conflict.title == "Port 18080 is used by api, worker")
     }
 
     @Test
@@ -414,37 +222,6 @@ struct RunConfigurationIntegrationTests {
         }
         #expect(!DebugBreakpointLocationValidator.canSetSourceBreakpoint(source: "", line: -1))
         #expect(!DebugBreakpointLocationValidator.canSetSourceBreakpoint(source: "", line: 2))
-    }
-
-    @Test
-    func providerCapabilitiesKeepProcessEditorsLanguageNeutral() {
-        let process = RunConfigurationKind.process(provider: "python.script").capabilities
-        #expect(process.contains(.workingDirectory))
-        #expect(process.contains(.arguments))
-        #expect(process.contains(.environment))
-        #expect(!process.contains(.javaRuntime))
-        #expect(!process.contains(.javaVMArguments))
-        #expect(!process.contains(.mavenProfiles))
-
-        let maven = RunConfigurationKind.springBoot.capabilities
-        #expect(maven.contains(.javaRuntime))
-        #expect(maven.contains(.javaVMArguments))
-        #expect(maven.contains(.mavenProfiles))
-        #expect(maven.contains(.jdwpDebug))
-
-        let current = RunConfiguration.currentFile
-        let pythonCapabilities = current.effectiveCapabilities(
-            for: URL(fileURLWithPath: "/tmp/scripts/main.py")
-        )
-        #expect(pythonCapabilities == .process)
-        let unknownCapabilities = current.effectiveCapabilities(
-            for: URL(fileURLWithPath: "/tmp/scripts/main.rb")
-        )
-        #expect(unknownCapabilities == .process)
-        let javaCapabilities = current.effectiveCapabilities(
-            for: URL(fileURLWithPath: "/tmp/Main.java")
-        )
-        #expect(javaCapabilities.contains(.javaRuntime))
     }
 
     @Test
@@ -507,7 +284,8 @@ struct RunConfigurationIntegrationTests {
         #expect(go?.activationPolicy == .onDemand)
         #expect(go?.capabilities.contains(.languageServer) == true)
         #expect(go?.capabilities.contains(.debugAdapter) == true)
-        #expect(catalog.provider(for: URL(fileURLWithPath: "/tmp/Main.java"))?.capabilities.contains(.debugAdapter) == true)
+        // Java run/debug/test come from the Java plugin; the built-in row is editor-only.
+        #expect(catalog.provider(for: URL(fileURLWithPath: "/tmp/Main.java"))?.capabilities.contains(.debugAdapter) == false)
         if !RustCoreBridge().isAvailable {
             #expect(catalog.provider(for: URL(fileURLWithPath: "/tmp/Package.swift")) == nil)
             #expect(catalog.provider(for: URL(fileURLWithPath: "/tmp/Dockerfile")) == nil)
@@ -683,270 +461,6 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func javaGenericDebugConfigurationUsesLanguageNeutralDapArguments() throws {
-        let provider = try #require(LanguageProviderCatalog.standard.provider(
-            for: URL(fileURLWithPath: "/tmp/java-project/src/main/java/com/acme/Main.java")
-        ))
-        let resolver = DebugLaunchConfigurationResolver()
-        let root = URL(fileURLWithPath: "/tmp/java-project", isDirectory: true)
-        let configuration = try resolver.resolve(
-            provider: provider,
-            documentURL: root.appendingPathComponent("src/main/java/com/acme/Main.java"),
-            workspaceURL: root,
-            configurations: [],
-            selectedConfiguration: nil,
-            javaTarget: JavaDebugLaunchTarget(
-                mainClass: "service/com.acme.Main",
-                projectName: "service",
-                modulePaths: ["/tmp/java-project/modules"],
-                classPaths: ["/tmp/java-project/classes"]
-            ),
-            options: { _ in RunOptions() }
-        )
-
-        #expect(configuration.request == .launch)
-        #expect(configuration.arguments["mainClass"] == .string("service/com.acme.Main"))
-        #expect(configuration.arguments["projectName"] == .string("service"))
-        #expect(configuration.arguments["modulePaths"] == .array([
-            .string("/tmp/java-project/modules"),
-        ]))
-        #expect(configuration.arguments["classPaths"] == .array([
-            .string("/tmp/java-project/classes"),
-        ]))
-        #expect(configuration.arguments["cwd"] == .string(root.path))
-    }
-
-    @Test
-    func javaDebugRunsOnTheJDKRunSelectsForTheSameConfiguration() throws {
-        let document = URL(fileURLWithPath: "/tmp/java-project/src/main/java/com/acme/Main.java")
-        let provider = try #require(LanguageProviderCatalog.standard.provider(for: document))
-        let root = URL(fileURLWithPath: "/tmp/java-project", isDirectory: true)
-        let target = JavaDebugLaunchTarget(
-            mainClass: "com.acme.Main",
-            projectName: "service",
-            modulePaths: [],
-            classPaths: []
-        )
-        var requested: [DebugJavaRuntime] = []
-        let resolver = DebugLaunchConfigurationResolver(
-            javaExecutablePath: { runtime in
-                requested.append(runtime)
-                return "/selected/bin/java"
-            }
-        )
-        func javaExec(_ selected: RunConfiguration?, _ options: RunOptions) throws -> ToolingJSONValue? {
-            try resolver.resolve(
-                provider: provider,
-                documentURL: document,
-                workspaceURL: root,
-                configurations: [],
-                selectedConfiguration: selected,
-                javaTarget: target,
-                options: { _ in options }
-            ).arguments["javaExec"]
-        }
-        let javaMain = RunConfiguration(
-            id: "java-main:service",
-            name: "Service",
-            kind: .javaMain,
-            execution: .application,
-            modulePath: "service",
-            mainClass: "com.acme.Main"
-        )
-        let mavenModule = RunConfiguration(
-            id: "module:service",
-            name: "service",
-            kind: .mavenModule,
-            execution: .service,
-            modulePath: "service",
-            mainClass: nil
-        )
-
-        #expect(try javaExec(nil, RunOptions()) == .string("/selected/bin/java"))
-        #expect(try javaExec(javaMain, RunOptions(javaHomePath: "/jdks/17")) == .string("/selected/bin/java"))
-        #expect(try javaExec(mavenModule, RunOptions(javaHomePath: "/jdks/17")) == .string("/selected/bin/java"))
-        #expect(try javaExec(
-            mavenModule,
-            RunOptions(javaHomePath: "/jdks/17", mavenJavaHomePath: "/jdks/21")
-        ) == .string("/selected/bin/java"))
-
-        #expect(requested == [
-            .java(homeOverride: nil),
-            .java(homeOverride: "/jdks/17"),
-            .maven(homeOverride: "/jdks/17"),
-            .maven(homeOverride: "/jdks/21"),
-        ])
-    }
-
-    @Test
-    func javaDebugFailsLikeRunWhenItsJDKIsUnusable() throws {
-        let document = URL(fileURLWithPath: "/tmp/java-project/src/main/java/com/acme/Main.java")
-        let provider = try #require(LanguageProviderCatalog.standard.provider(for: document))
-        let resolver = DebugLaunchConfigurationResolver(
-            javaExecutablePath: { _ in nil }
-        )
-
-        #expect(throws: DebugLaunchConfigurationResolutionError.javaRuntimeUnavailable) {
-            try resolver.resolve(
-                provider: provider,
-                documentURL: document,
-                workspaceURL: URL(fileURLWithPath: "/tmp/java-project", isDirectory: true),
-                configurations: [],
-                selectedConfiguration: nil,
-                javaTarget: JavaDebugLaunchTarget(
-                    mainClass: "com.acme.Main",
-                    projectName: nil,
-                    modulePaths: [],
-                    classPaths: []
-                ),
-                options: { _ in RunOptions() }
-            )
-        }
-    }
-
-    @Test
-    func debugJavaRuntimeFollowsTheRunSelectionChain() {
-        let runtime = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
-        runtime.openProject(at: URL(fileURLWithPath: "/tmp/lithe-runtime-toolchains", isDirectory: true))
-
-        #expect(
-            runtime.javaExecutableURL(forDebugging: .java(homeOverride: "/local/JDK 21"))
-                == runtime.javaExecutableURL(overridePath: "/local/JDK 21")
-        )
-        #expect(
-            runtime.javaExecutableURL(forDebugging: .maven(homeOverride: "/local/Maven JDK"))?.path
-                == runtime.environment(for: .maven, javaHomeOverride: "/local/Maven JDK")["JAVA_HOME"]
-                    .map { $0 + "/bin/java" }
-        )
-        #expect(
-            runtime.javaExecutableURL(forDebugging: .java(homeOverride: nil))
-                == runtime.javaExecutableURL()
-        )
-    }
-
-    @Test
-    func javaDebugReusesTheSelectedRunConfigurationOptions() throws {
-        let provider = try #require(LanguageProviderCatalog.standard.provider(
-            for: URL(fileURLWithPath: "/tmp/java-project/src/main/java/com/acme/Main.java")
-        ))
-        let root = URL(fileURLWithPath: "/tmp/java-project", isDirectory: true)
-        let selected = RunConfiguration(
-            id: "java-main:service",
-            name: "Service",
-            kind: .javaMain,
-            execution: .application,
-            modulePath: "service",
-            mainClass: "com.acme.ConfiguredMain"
-        )
-        let options = RunOptions(
-            workingDirectoryPath: "service",
-            vmArguments: "-Xmx1g -Dprofile=dev",
-            programArguments: "--port 8080",
-            environment: ["APP_ENV": "dev"]
-        )
-        let resolver = DebugLaunchConfigurationResolver()
-        let configuration = try resolver.resolve(
-            provider: provider,
-            documentURL: root.appendingPathComponent("src/main/java/com/acme/Main.java"),
-            workspaceURL: root,
-            configurations: [selected],
-            selectedConfiguration: selected,
-            javaTarget: JavaDebugLaunchTarget(
-                mainClass: "com.acme.ResolvedByJdtls",
-                projectName: nil,
-                modulePaths: [],
-                classPaths: []
-            ),
-            options: { _ in options }
-        )
-
-        #expect(configuration.name == "Service")
-        #expect(configuration.arguments["mainClass"] == .string("com.acme.ConfiguredMain"))
-        #expect(configuration.arguments["cwd"] == .string(root.appendingPathComponent("service").path))
-        #expect(configuration.arguments["vmArgs"] == .string("-Xmx1g -Dprofile=dev"))
-        #expect(configuration.arguments["args"] == .string("--port 8080"))
-        #expect(configuration.arguments["env"] == .object(["APP_ENV": .string("dev")]))
-    }
-
-    @Test
-    func selectedSpringBootConfigurationResolvesItsMainSourceWithoutAnOpenJavaEditor() throws {
-        let root = URL(fileURLWithPath: "/workspace/demo", isDirectory: true)
-        let readme = root.appendingPathComponent("README.md")
-        let application = root.appendingPathComponent(
-            "src/main/java/com/example/demo/DemoApplication.java"
-        )
-        let controller = root.appendingPathComponent(
-            "src/main/java/com/example/demo/user/UserController.java"
-        )
-        let configuration = RunConfiguration(
-            id: "spring-boot:demo",
-            name: "DemoApplication",
-            kind: .springBoot,
-            execution: .service,
-            modulePath: nil,
-            mainClass: "com.example.demo.DemoApplication"
-        )
-
-        let source = DebugLaunchSourceResolver().resolve(
-            configuration: configuration,
-            activeDocumentURL: readme,
-            projectFiles: [controller, application, readme],
-            workspaceURL: root
-        )
-
-        #expect(source == application)
-    }
-
-    @Test
-    func selectedJavaConfigurationUsesItsModuleToDisambiguateDuplicateMainClasses() throws {
-        let root = URL(fileURLWithPath: "/workspace/multi-module", isDirectory: true)
-        let first = root.appendingPathComponent("first/src/main/java/com/acme/Main.java")
-        let second = root.appendingPathComponent("second/src/main/java/com/acme/Main.java")
-        let configuration = RunConfiguration(
-            id: "java-main:second",
-            name: "Second Main",
-            kind: .javaMain,
-            execution: .application,
-            modulePath: "second",
-            mainClass: "com.acme.Main"
-        )
-
-        let source = DebugLaunchSourceResolver().resolve(
-            configuration: configuration,
-            activeDocumentURL: first,
-            projectFiles: [first, second],
-            workspaceURL: root
-        )
-
-        #expect(source == second)
-    }
-
-    @Test
-    func providerJavaDebugSourceUsesTheGenericInstanceRootWithoutCrossingIntoAnotherProject() {
-        let root = URL(fileURLWithPath: "/workspace/providers", isDirectory: true)
-        let wrong = root.appendingPathComponent("app/src/main/java/com/acme/Main.java")
-        let current = root.appendingPathComponent("nested/engine/app/src/main/java/com/acme/Main.java")
-        let configuration = RunConfiguration(id: "java-main:engine", name: "Engine Main", kind: .javaMain,
-            modulePath: "app", mainClass: "com.acme.Main", mavenReactorPath: "obsolete-owner",
-            buildProject: .init(pluginID: "dev.example.engine", buildSystemID: "engine", root: "nested/engine", projectID: "opaque-project"))
-        let resolver = DebugLaunchSourceResolver()
-        #expect(resolver.resolve(configuration: configuration, activeDocumentURL: wrong,
-            projectFiles: [wrong, current], workspaceURL: root) == current)
-        // The current module has no source in the second snapshot. A matching
-        // class in another instance is not a replacement launch target.
-        #expect(resolver.resolve(configuration: configuration, activeDocumentURL: wrong,
-            projectFiles: [wrong], workspaceURL: root) == nil)
-        let workspaceOwner = RunConfiguration(id: "java-main:root", name: "Root Main", kind: .javaMain,
-            modulePath: "app", mainClass: "com.acme.Main", mavenReactorPath: "obsolete-owner",
-            buildProject: .init(pluginID: "dev.example.other", buildSystemID: "other", root: ".", projectID: "other-project"))
-        #expect(resolver.resolve(configuration: workspaceOwner, activeDocumentURL: current,
-            projectFiles: [wrong, current], workspaceURL: root) == wrong)
-    }
-
-    @Test
     func currentFileDebugStillUsesTheActiveEditorDocument() throws {
         let root = URL(fileURLWithPath: "/workspace/current-file", isDirectory: true)
         let current = root.appendingPathComponent("src/main/java/com/acme/Main.java")
@@ -960,144 +474,6 @@ struct RunConfigurationIntegrationTests {
         )
 
         #expect(source == current)
-    }
-
-    @Test
-    func debugFallsBackFromNonLaunchableCurrentJavaFileToSpringBootConfiguration() {
-        let current = RunConfiguration(
-            id: "current-file",
-            name: "Current File",
-            kind: .currentFile,
-            execution: .application,
-            modulePath: nil,
-            mainClass: nil
-        )
-        let springBoot = RunConfiguration(
-            id: "spring-boot:demo",
-            name: "DemoApplication",
-            kind: .springBoot,
-            execution: .service,
-            modulePath: nil,
-            mainClass: "com.example.demo.DemoApplication"
-        )
-
-        let selected = DebugLaunchSourceResolver().configurationForDebug(
-            selected: current,
-            activeDocumentIsLaunchable: false,
-            configurations: [current, springBoot]
-        )
-
-        #expect(selected.id == springBoot.id)
-    }
-
-    @Test
-    func debugFallsBackWhenJdtCannotConfirmTheCurrentFile() {
-        let current = RunConfiguration(
-            id: "current-file",
-            name: "Current File",
-            kind: .currentFile,
-            execution: .application,
-            modulePath: nil,
-            mainClass: nil
-        )
-        let springBoot = RunConfiguration(
-            id: "spring-boot:demo",
-            name: "DemoApplication",
-            kind: .springBoot,
-            execution: .service,
-            modulePath: nil,
-            mainClass: "com.example.demo.DemoApplication"
-        )
-
-        let selected = DebugLaunchSourceResolver().configurationForDebug(
-            selected: current,
-            activeDocumentIsLaunchable: false,
-            configurations: [current, springBoot]
-        )
-
-        #expect(selected.id == springBoot.id)
-    }
-
-    @Test
-    func debugKeepsCurrentJavaFileWhenJdtListsItAsLaunchable() {
-        let current = RunConfiguration(
-            id: "current-file",
-            name: "Current File",
-            kind: .currentFile,
-            execution: .application,
-            modulePath: nil,
-            mainClass: nil
-        )
-        let springBoot = RunConfiguration(
-            id: "spring-boot:demo",
-            name: "DemoApplication",
-            kind: .springBoot,
-            execution: .service,
-            modulePath: nil,
-            mainClass: "com.example.demo.DemoApplication"
-        )
-
-        let selected = DebugLaunchSourceResolver().configurationForDebug(
-            selected: current,
-            activeDocumentIsLaunchable: true,
-            configurations: [current, springBoot]
-        )
-
-        #expect(selected.id == current.id)
-    }
-
-    @Test
-    func javaTestDebugLaunchUsesTheSharedRustConfiguration() throws {
-        let core = RustCoreBridge()
-        guard core.isAvailable else { return }
-        let target = JavaTestDebugLaunchTarget(
-            fileURL: URL(fileURLWithPath: "/workspace/UserServiceTest.java"),
-            name: "UserServiceTest",
-            framework: .testng,
-            workingDirectory: "/workspace",
-            mainClass: "com.microsoft.java.test.runner.Launcher",
-            projectName: "service",
-            classPaths: ["/workspace/classes"],
-            modulePaths: [],
-            vmArguments: [],
-            programArguments: [],
-            testNGRunnerPath: "/lithe/java-test-runner.jar",
-            testNGTestNames: ["example.UserServiceTest#logsIn"]
-        )
-        let resolver = DebugLaunchConfigurationResolver(
-            javaTestLaunchResolver: core
-        )
-
-        let configuration = try resolver.resolveJavaTest(target: target, resultPort: 43_128)
-
-        #expect(configuration.name == "UserServiceTest")
-        #expect(configuration.request == .launch)
-        #expect(
-            configuration.arguments["mainClass"]
-                == .string("com.microsoft.java.test.runner.Launcher")
-        )
-        #expect(configuration.arguments["classPaths"] == .array([
-            .string("/workspace/classes"),
-            .string("/lithe/java-test-runner.jar"),
-        ]))
-        #expect(
-            configuration.arguments["args"]
-                == .string("43128 testng example.UserServiceTest#logsIn")
-        )
-        #expect(configuration.arguments["javaExec"] == nil)
-
-        var requested: [DebugJavaRuntime] = []
-        let aligned = try DebugLaunchConfigurationResolver(
-            javaTestLaunchResolver: core,
-            javaExecutablePath: { runtime in
-                requested.append(runtime)
-                return "/maven-jdk/bin/java"
-            }
-        ).resolveJavaTest(target: target, resultPort: 43_128)
-
-        #expect(requested == [.maven(homeOverride: nil)])
-        #expect(aligned.arguments["javaExec"] == .string("/maven-jdk/bin/java"))
-        #expect(aligned.arguments["args"] == configuration.arguments["args"])
     }
 
     @Test
@@ -1125,26 +501,6 @@ struct RunConfigurationIntegrationTests {
             condition: "ready",
             hitCondition: "3"
         )])
-    }
-
-    @Test
-    func javaAttachUsesTheSharedDAPSessionWithValidatedEndpointArguments() throws {
-        let resolver = DebugLaunchConfigurationResolver()
-
-        let configuration = try resolver.resolveJavaAttach(host: "  localhost ", port: 5005)
-
-        #expect(configuration.name == "localhost:5005")
-        #expect(configuration.request == .attach)
-        #expect(configuration.arguments == [
-            "hostName": .string("localhost"),
-            "port": .integer(5005)
-        ])
-        #expect(throws: DebugLaunchConfigurationResolutionError.invalidJavaAttachHost) {
-            try resolver.resolveJavaAttach(host: "  ", port: 5005)
-        }
-        #expect(throws: DebugLaunchConfigurationResolutionError.invalidJavaAttachPort) {
-            try resolver.resolveJavaAttach(host: "localhost", port: 65_536)
-        }
     }
 
     @Test
@@ -1179,8 +535,6 @@ struct RunConfigurationIntegrationTests {
             environment: [:]
         )
         #expect(xcrunCandidates.first?.source == .xcode)
-        #expect(discovery.guidance(for: "java-debug-adapter", projectURL: root, environment: [:])
-            .recovery.contains("bundled Java language and Debug Adapter resources"))
     }
 
     @Test
@@ -1201,26 +555,26 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func javaDAPBreakpointsCanBeStoredBeforeTheAdapterStarts() throws {
-        let source = URL(fileURLWithPath: "/tmp/Main.java")
+    func dapBreakpointsCanBeStoredBeforeTheAdapterStarts() throws {
+        let source = URL(fileURLWithPath: "/tmp/main.go")
         let manager = DebugAdapterSessionManager(
             providers: LanguageProviderCatalog.standard.debugProviders
         ) { _, _ in nil }
 
         try manager.setBreakpoints([DebugSourceBreakpoint(line: 1)], in: source)
 
-        #expect(manager.provider(for: source)?.id == "java")
+        #expect(manager.provider(for: source)?.id == "go")
         #expect(manager.activeAdapterIDs.isEmpty)
     }
 
     @Test
-    func restoredJavaBreakpointInAnotherSourceIsSentWhenDebugStarts() throws {
-        let root = URL(fileURLWithPath: "/tmp/restored-java-debug", isDirectory: true)
-        let launchSource = root.appendingPathComponent("src/main/java/demo/DemoApplication.java")
-        let breakpointSource = root.appendingPathComponent("src/main/java/demo/UserController.java")
+    func restoredBreakpointInAnotherSourceIsSentWhenDebugStarts() throws {
+        let root = URL(fileURLWithPath: "/tmp/restored-go-debug", isDirectory: true)
+        let launchSource = root.appendingPathComponent("cmd/app/main.go")
+        let breakpointSource = root.appendingPathComponent("internal/user/controller.go")
         let persistence = RestoredBreakpointPersistence(snapshot: DebugBreakpointSnapshot(
             breakpoints: [PersistedDebugBreakpoint(
-                relativePath: "src/main/java/demo/UserController.java",
+                relativePath: "internal/user/controller.go",
                 line: 23
             )]
         ))
@@ -1244,7 +598,7 @@ struct RunConfigurationIntegrationTests {
             fileURL: launchSource,
             rootURL: root,
             configuration: DebugLaunchConfiguration(
-                name: "DemoApplication",
+                name: "app",
                 request: .launch,
                 arguments: [:]
             )
@@ -1271,7 +625,7 @@ struct RunConfigurationIntegrationTests {
         let registry = LanguageTestProviderRegistry.standard()
 
         for (providerID, source) in [
-            ("java", files[0]), ("go", files[1]), ("python", files[2]),
+            ("go", files[1]), ("python", files[2]),
             ("node", files[3]), ("rust", files[4])
         ] {
             let provider = try #require(registry.provider(for: source))
@@ -1294,53 +648,6 @@ struct RunConfigurationIntegrationTests {
         )
         #expect(pythonPlan.launchPlan.toolchainID == "project-python")
         #expect(pythonPlan.launchPlan.arguments == ["-m", "pytest", "tests/test_api.py::test_health"])
-
-        let javaProvider = try #require(registry.provider(id: "java"))
-        #expect(throws: LanguageTestPlanError.unsupportedProvider(javaProvider.descriptor.displayName)) {
-            try javaProvider.testPlan(scope: .file(files[0]), workspaceURL: root)
-        }
-
-        let gradleMethodPlan = try javaProvider.testPlan(
-            scope: .testCase(
-                identifier: "example.UserServiceTest#logsIn()",
-                fileURL: files[0]
-            ),
-            context: LanguageTestContext(
-                workspaceURL: root,
-                projectFiles: [root.appendingPathComponent("build.gradle.kts"), files[0]]
-            )
-        )
-        #expect(gradleMethodPlan.launchPlan.arguments == [
-            "test", "--no-daemon", "--tests", "example.UserServiceTest.logsIn",
-        ])
-
-        #expect(throws: LanguageTestPlanError.unsupportedProvider(javaProvider.descriptor.displayName)) {
-            try javaProvider.testPlan(
-            scope: .testCase(
-                identifier: "example.UserServiceTest#logsIn()",
-                fileURL: files[0]
-            ),
-            context: LanguageTestContext(
-                workspaceURL: root,
-                projectFiles: [root.appendingPathComponent("pom.xml"), files[0]]
-            )
-        )
-        }
-
-        let gradlePlan = try javaProvider.testPlan(
-            scope: .workspace,
-            context: LanguageTestContext(
-                workspaceURL: root,
-                projectFiles: [root.appendingPathComponent("build.gradle.kts")]
-            )
-        )
-        #expect(gradlePlan.frameworkID == "gradle")
-        #expect(gradlePlan.launchPlan.arguments == ["test", "--no-daemon"])
-        if case .toolchain(let executable) = gradlePlan.launchPlan.executable {
-            #expect(executable == "project-gradle")
-        } else {
-            Issue.record("Expected Gradle projects to use the registered Gradle toolchain")
-        }
 
         let nodeProvider = try #require(registry.provider(id: "node"))
         let nodePlan = try nodeProvider.testPlan(scope: .workspace, workspaceURL: root)
@@ -1365,67 +672,6 @@ struct RunConfigurationIntegrationTests {
         let rustPlan = try rustProvider.testPlan(scope: .file(files[4]), workspaceURL: root)
         #expect(rustPlan.launchPlan.toolchainID == "project-cargo")
         #expect(rustPlan.launchPlan.arguments == ["test", "--test", "parser"])
-    }
-
-    @Test
-    func testDiscoveryDoesNotInventAFrameworkForAPlainWorkspace() throws {
-        let root = URL(fileURLWithPath: "/tmp/plain-polyglot", isDirectory: true)
-        let javaFile = root.appendingPathComponent("src/test/java/PlainTest.java")
-        let nodeFile = root.appendingPathComponent("src/app.spec.ts")
-        let registry = LanguageTestProviderRegistry.standard()
-        let javaProvider = try #require(registry.provider(id: "java"))
-        let nodeProvider = try #require(registry.provider(id: "node"))
-
-        // Every Java source is only inventory for JDT semantic discovery;
-        // a plain workspace still cannot acquire a Maven command plan.
-        #expect(javaProvider.discoverTests(context: LanguageTestContext(
-            workspaceURL: root, projectFiles: [javaFile]
-        )).last?.fileURL == javaFile)
-        #expect(nodeProvider.discoverTests(context: LanguageTestContext(
-            workspaceURL: root,
-            projectFiles: [nodeFile]
-        )).isEmpty)
-        #expect(throws: LanguageTestPlanError.unsupportedProvider("Java")) {
-            _ = try javaProvider.testPlan(
-                scope: .file(javaFile),
-                context: LanguageTestContext(
-                    workspaceURL: root,
-                    projectFiles: [javaFile]
-                )
-            )
-        }
-
-        let mavenItems = javaProvider.discoverTests(context: LanguageTestContext(
-            workspaceURL: root,
-            projectFiles: [
-                javaFile,
-                root.appendingPathComponent("pom.xml")
-            ]
-        ))
-        #expect(mavenItems.count == 2)
-        #expect(mavenItems.last?.fileURL == javaFile.standardizedFileURL)
-    }
-
-    @Test
-    func javaDiscoveryOffersNonConventionalSourceNamesToJDT() throws {
-        let root = URL(fileURLWithPath: "/tmp/java-semantic-tests", isDirectory: true)
-        let inheritedSuite = root.appendingPathComponent("src/checks/InheritedSuite.java")
-        let helper = root.appendingPathComponent("src/main/java/Helper.java")
-        let provider = try #require(LanguageTestProviderRegistry.standard().provider(id: "java"))
-
-        let items = provider.discoverTests(context: LanguageTestContext(
-            workspaceURL: root,
-            projectFiles: [
-                inheritedSuite,
-                helper,
-                root.appendingPathComponent("pom.xml"),
-            ]
-        ))
-
-        #expect(items.compactMap(\.fileURL) == [
-            inheritedSuite.standardizedFileURL,
-            helper.standardizedFileURL,
-        ])
     }
 
     @Test
@@ -1606,25 +852,8 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func runOptionsDecodeLegacyJavaPreferencesIntoGenericFields() throws {
-        let data = Data(
-            #"{"javaHomePath":"/jdk","workingDirectoryPath":"backend","vmArguments":"-Xmx1g","programArguments":"--port 8080","activeProfiles":["dev"]}"#.utf8
-        )
-        let options = try JSONDecoder().decode(RunOptions.self, from: data)
-
-        #expect(options.javaHomePath == "/jdk")
-        #expect(options.workingDirectoryPath == "backend")
-        #expect(options.vmArguments == "-Xmx1g")
-        #expect(options.arguments == "--port 8080")
-        #expect(options.activeProfiles == ["dev"])
-    }
-
-    @Test
     func executableResolverRejectsUnknownToolchainsInsteadOfUsingMaven() throws {
-        let runtime = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
+        let runtime = ProjectRuntimeService(runtimeLocator: RunTestRuntimeLocator())
         let resolver = RunExecutableResolver(runtimeService: runtime)
         let plan = SharedLaunchPlan(
             executable: .toolchain("project-unknown"),
@@ -1642,38 +871,8 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func mavenToolchainResolvesTheWrapperFromTheLaunchWorkingDirectory() throws {
-        let workspaceRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-nested-maven-wrapper", isDirectory: true)
-        let mavenRoot = URL(
-            fileURLWithPath: workspaceRoot.path + "/projects/demo",
-            isDirectory: true
-        )
-        let runtime = ProjectRuntimeService(
-            runtimeLocator: NestedMavenWrapperRuntimeLocator(wrapperRoot: mavenRoot),
-            store: RunTestKeyValueStore()
-        )
-        let resolver = RunExecutableResolver(runtimeService: runtime)
-        let resolved = try resolver.resolve(
-            SharedLaunchPlan(
-                executable: .toolchain("project-maven"),
-                arguments: ["verify"],
-                workingDirectory: "projects/demo"
-            ),
-            projectURL: workspaceRoot,
-            options: RunOptions()
-        )
-
-        #expect(resolved.executableURL == mavenRoot.appendingPathComponent("mvnw"))
-        #expect(!resolved.executableURL.absoluteString.contains("%2F"))
-    }
-
-    @Test
     func commandResolverLayersGenericEnvironmentWithoutJavaInjection() throws {
-        let runtime = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
+        let runtime = ProjectRuntimeService(runtimeLocator: RunTestRuntimeLocator())
         let resolver = RunExecutableResolver(runtimeService: runtime)
         let plan = SharedLaunchPlan(
             executable: .command("python3"),
@@ -1696,10 +895,7 @@ struct RunConfigurationIntegrationTests {
 
     @Test
     func registeredGoToolchainResolvesWithoutMavenFallback() throws {
-        let runtime = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
+        let runtime = ProjectRuntimeService(runtimeLocator: RunTestRuntimeLocator())
         let resolver = RunExecutableResolver(runtimeService: runtime)
         let resolved = try resolver.resolve(
             SharedLaunchPlan(
@@ -1717,32 +913,8 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func registeredGradleToolchainPrefersTheProjectWrapper() throws {
-        let runtime = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
-        let resolver = RunExecutableResolver(runtimeService: runtime)
-        let resolved = try resolver.resolve(
-            SharedLaunchPlan(
-                executable: .toolchain("project-gradle"),
-                arguments: ["test"],
-                workingDirectory: "."
-            ),
-            projectURL: URL(fileURLWithPath: "/tmp/gradle-project"),
-            options: RunOptions()
-        )
-
-        #expect(resolved.executableURL.path == "/tmp/gradle-project/gradlew")
-        #expect(resolved.environment["JAVA_HOME"] == nil)
-    }
-
-    @Test
     func genericToolchainVersionsAreProbedOffTheResolutionPathAndCachedPerAlias() async throws {
-        let runtime = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
+        let runtime = ProjectRuntimeService(runtimeLocator: RunTestRuntimeLocator())
         let runner = ToolchainVersionProcessRunner()
         let resolver = RunExecutableResolver(
             runtimeService: runtime,
@@ -1777,10 +949,7 @@ struct RunConfigurationIntegrationTests {
                 arguments: []
             )
         )
-        let runtimeService = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
+        let runtimeService = ProjectRuntimeService(runtimeLocator: RunTestRuntimeLocator())
         let process = RecordingRawProcessSession()
         let core = TestLanguageServerRuntimeCore(providerID: "go")
         let runtime = StdioLanguageProviderRuntime(
@@ -1849,106 +1018,6 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func languageToolingRejectsUnavailableRequiredRuntime() {
-        let descriptor = LanguageProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"],
-            capabilities: [.languageServer],
-            activationPolicy: .onDemand,
-            languageIdentifier: "java",
-            languageServerLaunch: LanguageServerLaunchDescriptor(executableNames: ["jdtls"])
-        )
-        let runtimeService = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
-        let message = "JDTLS requires JDK 17 or newer."
-        let runtime = StdioLanguageProviderRuntime(
-            descriptor: descriptor,
-            runtimeService: runtimeService,
-            languageServerLaunch: descriptor.languageServerLaunch,
-            languageServerCore: TestLanguageServerRuntimeCore(providerID: "java"),
-            languageServerExecutableResolver: { _ in URL(fileURLWithPath: "/usr/bin/jdtls") },
-            hostIntegrationResolver: { _ in .unavailable(message) }
-        )
-
-        #expect(runtime.makeLanguageServerSession() == nil)
-        #expect(runtime.unavailableToolingMessage == message)
-    }
-
-    @Test
-    func languageToolingForwardsStructuredJdtlsLaunchResources() throws {
-        let descriptor = LanguageProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"],
-            capabilities: [.languageServer],
-            activationPolicy: .onDemand,
-            languageIdentifier: "java",
-            languageServerLaunch: LanguageServerLaunchDescriptor(executableNames: ["jdtls"])
-        )
-        let runtimeService = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
-        let core = TestLanguageServerRuntimeCore(providerID: "java")
-        let resources = JDTLSLaunchResources(
-            launcherJarURL: URL(fileURLWithPath: "/jdtls/plugins/equinox.jar"),
-            configurationDirectoryURL: URL(fileURLWithPath: "/jdtls/config_mac"),
-            lombokAgentURL: URL(fileURLWithPath: "/jdtls/lombok/lombok.jar"),
-            javaDebugBundleURL: URL(
-                fileURLWithPath: "/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"
-            ),
-            javaExtensionBundleURLs: [
-                URL(
-                    fileURLWithPath:
-                        "/jdtls/java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar"
-                )
-            ],
-            javaTestRunnerURL: URL(
-                fileURLWithPath:
-                    "/jdtls/java-test/runner/com.microsoft.java.test.runner-jar-with-dependencies.jar"
-            )
-        )
-        let runtime = StdioLanguageProviderRuntime(
-            descriptor: descriptor,
-            runtimeService: runtimeService,
-            languageServerLaunch: descriptor.languageServerLaunch,
-            languageServerCore: core,
-            languageServerExecutableResolver: { _ in URL(fileURLWithPath: "/jdtls/bin/jdtls") },
-            hostIntegrationResolver: { _ in
-                .available(LanguageServerHostIntegrationLaunch(
-                    runtimeExecutableURL: URL(fileURLWithPath: "/jdk/bin/java"),
-                    coreLaunch: .jdt(resources)
-                ))
-            }
-        )
-        let session = try #require(runtime.makeLanguageServerSession())
-        let mavenContext = MavenLaunchContext(
-            reactorPath: ".",
-            profiles: ["dev", "enterprise"],
-            settingsPath: "/local/settings.xml",
-            skipTests: true,
-            mavenExecutablePath: "/local/maven/bin/mvn",
-            javaHomePath: "/local/jdk"
-        )
-
-        try session.start(
-            rootURL: URL(fileURLWithPath: "/workspace", isDirectory: true),
-            workspaceFingerprint: "workspace-fingerprint",
-            mavenContext: mavenContext
-        )
-
-        let start = try #require(core.startCalls.last)
-        #expect(start.runtimeExecutableURL?.path == "/jdk/bin/java")
-        #expect(start.jdtlsLaunchResources == resources)
-        #expect(start.workspaceFingerprint == "workspace-fingerprint")
-        #expect(start.mavenContext == mavenContext)
-        session.stop()
-    }
-
-    @Test
     func languageServerFailureClearsActiveSessionState() async throws {
         let descriptor = LanguageProviderDescriptor(
             id: "swift",
@@ -1961,10 +1030,7 @@ struct RunConfigurationIntegrationTests {
                 executableNames: ["sourcekit-lsp"]
             )
         )
-        let runtimeService = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
+        let runtimeService = ProjectRuntimeService(runtimeLocator: RunTestRuntimeLocator())
         let core = TestLanguageServerRuntimeCore()
         let source = URL(fileURLWithPath: "/tmp/swift-project/App.swift")
         let runtime = StdioLanguageProviderRuntime(
@@ -2423,10 +1489,7 @@ struct RunConfigurationIntegrationTests {
                 initializationOptions: .object(["indexing": .bool(true)])
             )
         )
-        let runtimeService = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
+        let runtimeService = ProjectRuntimeService(runtimeLocator: RunTestRuntimeLocator())
         let process = RecordingRawProcessSession()
         let core = TestLanguageServerRuntimeCore(providerID: "swift")
         let root = URL(fileURLWithPath: "/tmp/swift-project", isDirectory: true)
@@ -2749,30 +1812,6 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func pluginSessionPreservesHostIntegrationLaunchResources() throws {
-        let core = TestLanguageServerRuntimeCore(providerID: "java")
-        let resources = JDTLSLaunchResources(
-            launcherJarURL: URL(fileURLWithPath: "/test-plugin/equinox.jar"),
-            configurationDirectoryURL: URL(fileURLWithPath: "/test-plugin/configuration/arm64"),
-            lombokAgentURL: URL(fileURLWithPath: "/test-plugin/lombok.jar")
-        )
-        let java = URL(fileURLWithPath: "/test-plugin/runtime/bin/java")
-        let cache = URL(fileURLWithPath: "/test-cache/language-servers")
-        let session = StdioLanguageServerSession(
-            providerID: "java", executableURL: java, arguments: ["-jar", resources.launcherJarURL.path],
-            environment: [:], hostIntegrationLaunch: .init(runtimeExecutableURL: java, coreLaunch: .jdt(resources)),
-            cacheDirectoryURL: cache, core: core, pluginID: "test.java-support"
-        )
-        defer { session.stop() }
-        try session.start(rootURL: URL(fileURLWithPath: "/test-workspace"), workspaceFingerprint: "workspace-v1")
-        let launch = try #require(core.startCalls.first)
-        #expect(launch.runtimeExecutableURL == java)
-        #expect(launch.jdtlsLaunchResources == resources)
-        #expect(launch.cacheDirectoryURL == cache)
-        #expect(launch.workspaceFingerprint == "workspace-v1")
-    }
-
-    @Test
     func virtualDocumentContentProjectsFromRustEvents() async throws {
         let core = TestLanguageServerRuntimeCore(providerID: "java")
         let session = StdioLanguageServerSession(
@@ -2782,10 +1821,7 @@ struct RunConfigurationIntegrationTests {
             environment: [:],
             core: core
         )
-        try session.start(
-            rootURL: URL(fileURLWithPath: "/test-workspace", isDirectory: true),
-            workspaceFingerprint: nil
-        )
+        try session.start(rootURL: URL(fileURLWithPath: "/test-workspace", isDirectory: true))
         core.enqueueReady(capabilities: ["executeCommand"])
         #expect(await Self.waitForMainActorCondition {
             session.features.contains(.executeCommand)
@@ -2850,10 +1886,10 @@ struct RunConfigurationIntegrationTests {
         defer { manager.stopAll() }
         let feature = GenericDebugFeatureModel(paging: RustCoreBridge(), sessions: manager)
         let root = URL(fileURLWithPath: "/workspace")
-        let source = root.appendingPathComponent("Example.java")
+        let source = root.appendingPathComponent("example.go")
         feature.toggleBreakpoint(fileURL: source, line: 3)
         #expect(feature.start(fileURL: source, rootURL: root,
-            configuration: DebugLaunchConfiguration(name: "Example", request: .launch, arguments: [:])))
+            configuration: DebugLaunchConfiguration(name: "example", request: .launch, arguments: [:])))
         adapter.onEvent?(.breakpoint(DebugBreakpoint(id: 41, verified: true, message: nil,
             sourceURL: source, line: 5, column: nil, requestedLine: 3)))
         let point = try #require(feature.breakpoints.first)
@@ -2863,866 +1899,6 @@ struct RunConfigurationIntegrationTests {
         feature.toggleBreakpoint(fileURL: source, line: 5)
         #expect(feature.breakpoints.map(\.line) == [7])
         #expect(adapter.breakpointUpdates.last?.1.map(\.line) == [7])
-    }
-
-    @Test
-    func reloadingRunConfigurationsDoesNotStopAnUnrelatedProcessSession() async {
-        let configuration = RunConfiguration(
-            id: "python:api",
-            name: "API",
-            kind: .process(provider: "python.script"),
-            modulePath: nil,
-            mainClass: nil
-        )
-        let plan = SharedLaunchPlan(
-            executable: .command("python3"),
-            arguments: ["app.py"],
-            workingDirectory: "."
-        )
-        let fixture = makeFixture(
-            status: .ready,
-            effective: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions())],
-            plans: [configuration.id: plan]
-        )
-
-        await fixture.service.loadProject(at: fixture.root, files: [])
-        fixture.service.run(configuration: configuration, currentFileURL: nil)
-        #expect(fixture.process.isRunning)
-        let stopCountAfterStart = fixture.process.stopCount
-        await fixture.service.loadProject(at: fixture.root, files: [])
-        #expect(fixture.process.isRunning)
-        #expect(fixture.process.stopCount == stopCountAfterStart)
-    }
-
-    @Test
-    func missingConfigurationLeavesRunUnavailableWithoutScanningLegacySettings() async {
-        let fixture = makeFixture(status: .missing)
-
-        await fixture.service.loadProject(
-            at: fixture.root,
-            files: [],
-            snapshotID: UUID()
-        )
-
-        #expect(fixture.service.configurationStatus == .missing)
-        #expect(fixture.service.configurations.isEmpty)
-        #expect(fixture.operations.resolveCalls == 0)
-        #expect(fixture.operations.migrationCalls == 0)
-        #expect(fixture.process.requests.isEmpty)
-    }
-
-    @Test
-    func readyConfigurationUsesSharedLaunchPlanForProcessRequest() async throws {
-        let configuration = JavaRunConfiguration(
-            id: "spring:com.example.App",
-            name: "App",
-            kind: .springBoot,
-            modulePath: "backend",
-            mainClass: "com.example.App"
-        )
-        let plan = SharedLaunchPlan(
-            executable: .toolchain("project-maven"),
-            arguments: ["-B", "-ntp", "-pl", "backend", "-am", "-P", "dev", "spring-boot:run"],
-            workingDirectory: "backend"
-        )
-        let fixture = makeFixture(
-            status: .ready,
-            effective: [EffectiveRunConfiguration(configuration: configuration, options: JavaRunOptions())],
-            plans: [configuration.id: plan]
-        )
-
-        await fixture.service.loadProject(
-            at: fixture.root,
-            files: [],
-            snapshotID: UUID()
-        )
-        fixture.service.run(configuration: configuration, currentFileURL: nil)
-
-        let request = try #require(fixture.process.requests.last)
-        #expect(request.executablePath == "/toolchains/maven/bin/mvn")
-        #expect(request.arguments == plan.arguments)
-        #expect(request.workingDirectory == fixture.root.appendingPathComponent("backend").path)
-        #expect(request.environment?["JAVA_HOME"] == "/toolchains/jdk")
-        #expect(fixture.operations.launchPlanIDs == [configuration.id])
-    }
-
-    @Test
-    func runAllSpringBootServicesUsesPreparedJavaTargetAndProjectJDK() async throws {
-        let configuration = JavaRunConfiguration(
-            id: "spring-boot.maven:ruoyi-admin",
-            name: "ruoyi-admin",
-            kind: .springBoot,
-            modulePath: "ruoyi-admin",
-            mainClass: "com.ruoyi.RuoYiApplication"
-        )
-        let target = JavaDebugLaunchTarget(
-            mainClass: "com.ruoyi.RuoYiApplication",
-            projectName: "ruoyi-admin",
-            modulePaths: [],
-            classPaths: ["/workspace/RuoYi/ruoyi-admin/target/classes"]
-        )
-        let plan = SharedLaunchPlan(
-            executable: .toolchain("project-jdk"),
-            arguments: ["com.ruoyi.RuoYiApplication"],
-            workingDirectory: ".",
-            classpath: target.classPaths
-        )
-        let fixture = makeFixture(
-            status: .ready,
-            effective: [EffectiveRunConfiguration(configuration: configuration, options: JavaRunOptions())],
-            plans: [configuration.id: plan]
-        )
-
-        await fixture.service.loadProject(
-            at: fixture.root,
-            files: [],
-            snapshotID: UUID()
-        )
-        fixture.service.runAllServices(javaLaunches: [configuration.id: target])
-
-        let request = try #require(fixture.processFactory.processes.last?.requests.last)
-        #expect(request.executablePath == "/toolchains/jdk/bin/java")
-        #expect(request.arguments == [
-            "-cp", "/workspace/RuoYi/ruoyi-admin/target/classes",
-            "com.ruoyi.RuoYiApplication",
-        ])
-        #expect(fixture.operations.javaLaunchTargets == [target])
-    }
-
-    @Test
-    func toolchainBackedGoPlanUsesTheRegisteredProviderInRunService() async throws {
-        let configuration = RunConfiguration(
-            id: "go:api",
-            name: "Go API",
-            kind: .process(provider: "go.main"),
-            modulePath: nil,
-            mainClass: nil
-        )
-        let plan = SharedLaunchPlan(
-            executable: .toolchain("project-go"),
-            arguments: ["run", "./cmd/api"],
-            workingDirectory: ".",
-            environment: ["APP_ENV": "test"]
-        )
-        let fixture = makeFixture(
-            status: .ready,
-            effective: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions())],
-            plans: [configuration.id: plan]
-        )
-
-        await fixture.service.loadProject(at: fixture.root, files: [])
-        fixture.service.run(configuration: configuration, currentFileURL: nil)
-
-        let request = try #require(fixture.process.requests.last)
-        #expect(request.executablePath == "/usr/bin/go")
-        #expect(request.arguments == ["run", "./cmd/api"])
-        #expect(request.environment?["APP_ENV"] == "test")
-        #expect(request.environment?["JAVA_HOME"] == nil)
-        #expect(fixture.operations.lastToolchainCandidates.contains {
-            $0.id == "project-go" && $0.type == "go"
-        })
-    }
-
-    @Test
-    func currentFilePythonRunUsesTheLanguageProviderInsteadOfJavaCore() async throws {
-        let current = RunConfiguration.currentFile
-        let fixture = makeFixture(
-            status: .ready,
-            effective: []
-        )
-        let source = fixture.root.appendingPathComponent("scripts/main.py")
-
-        await fixture.service.loadProject(
-            at: fixture.root,
-            files: [source]
-        )
-        #expect(fixture.service.configurations == [current])
-        fixture.service.run(configuration: current, currentFileURL: source)
-
-        let request = try #require(fixture.process.requests.last)
-        #expect(request.executablePath == "/usr/bin/python3")
-        #expect(request.arguments == ["scripts/main.py"])
-        #expect(request.environment?["JAVA_HOME"] == nil)
-        #expect(fixture.operations.launchPlanIDs.isEmpty)
-    }
-
-    @Test
-    func runAllServicesUsesOneSharedLaunchPlanPerService() async throws {
-        let first = JavaRunConfiguration(
-            id: "module:backend",
-            name: "backend",
-            kind: .mavenModule,
-            execution: .service,
-            modulePath: "backend",
-            mainClass: nil
-        )
-        let second = JavaRunConfiguration(
-            id: "module:worker",
-            name: "worker",
-            kind: .mavenModule,
-            execution: .service,
-            modulePath: "worker",
-            mainClass: nil
-        )
-        let firstPlan = SharedLaunchPlan(
-            executable: .toolchain("project-maven"),
-            arguments: ["-B", "-ntp", "-pl", "backend", "-am", "spring-boot:run"],
-            workingDirectory: "."
-        )
-        let secondPlan = SharedLaunchPlan(
-            executable: .toolchain("project-maven"),
-            arguments: ["-B", "-ntp", "-pl", "worker", "-am", "-P", "local", "spring-boot:run"],
-            workingDirectory: "worker"
-        )
-        let fixture = makeFixture(
-            status: .ready,
-            effective: [
-                EffectiveRunConfiguration(configuration: first, options: JavaRunOptions()),
-                EffectiveRunConfiguration(configuration: second, options: JavaRunOptions())
-            ],
-            plans: [first.id: firstPlan, second.id: secondPlan]
-        )
-
-        await fixture.service.loadProject(
-            at: fixture.root,
-            files: []
-        )
-        fixture.service.runAllServices()
-
-        #expect(fixture.operations.launchPlanIDs == [first.id, second.id])
-        #expect(fixture.processFactory.processes.count == 2)
-        let requests = try fixture.processFactory.processes.map { try #require($0.requests.last) }
-        #expect(requests.map(\.arguments) == [firstPlan.arguments, secondPlan.arguments])
-        #expect(requests.map(\.workingDirectory) == [
-            fixture.root.path,
-            fixture.root.appendingPathComponent("worker").path
-        ])
-    }
-
-    /// The concurrent-session path was written for Maven and hard-required a
-    /// `project-maven` toolchain. A full-stack project has to bring up its Java
-    /// service and its Node service side by side, each resolved its own way.
-    @Test
-    func runAllServicesStartsMavenAndProcessServicesTogether() async throws {
-        let backend = JavaRunConfiguration(
-            id: "module:backend",
-            name: "backend",
-            kind: .mavenModule,
-            execution: .service,
-            modulePath: "backend",
-            mainClass: nil
-        )
-        let frontend = JavaRunConfiguration(
-            id: "npm.script:frontend-web/dev",
-            name: "dev",
-            kind: .process(provider: "npm.script"),
-            execution: .service,
-            modulePath: nil,
-            mainClass: nil
-        )
-        let backendPlan = SharedLaunchPlan(
-            executable: .toolchain("project-maven"),
-            arguments: ["-B", "-ntp", "-pl", "backend", "-am", "spring-boot:run"],
-            workingDirectory: "."
-        )
-        let frontendPlan = SharedLaunchPlan(
-            executable: .command("pnpm"),
-            arguments: ["run", "dev"],
-            workingDirectory: "frontend-web",
-            environment: ["PORT": "5173"]
-        )
-        let fixture = makeFixture(
-            status: .ready,
-            effective: [
-                EffectiveRunConfiguration(configuration: backend, options: JavaRunOptions()),
-                EffectiveRunConfiguration(configuration: frontend, options: JavaRunOptions())
-            ],
-            plans: [backend.id: backendPlan, frontend.id: frontendPlan]
-        )
-
-        await fixture.service.loadProject(
-            at: fixture.root,
-            files: []
-        )
-        fixture.service.runAllServices()
-
-        #expect(fixture.processFactory.processes.count == 2)
-        #expect(fixture.service.moduleSessions.map(\.id) == [backend.id, frontend.id])
-        #expect(fixture.service.moduleSessions.allSatisfy { $0.isRunning })
-
-        let requests = try fixture.processFactory.processes.map { try #require($0.requests.last) }
-        #expect(requests[0].executablePath == "/toolchains/maven/bin/mvn")
-        #expect(requests[1].executablePath == "/usr/bin/pnpm")
-        #expect(requests[1].arguments == ["run", "dev"])
-        #expect(requests[1].workingDirectory == fixture.root.appendingPathComponent("frontend-web").path)
-        // A process plan carries its own environment and must not inherit Maven's.
-        #expect(requests[1].environment?["PORT"] == "5173")
-        #expect(requests[1].environment?["JAVA_HOME"] == nil)
-    }
-
-    @Test
-    func scopedNodeDiagnosticBlocksOnlyTheFrontendService() async throws {
-        let backend = JavaRunConfiguration(
-            id: "module:backend",
-            name: "backend",
-            kind: .mavenModule,
-            execution: .service,
-            modulePath: "backend",
-            mainClass: nil
-        )
-        let frontend = RunConfiguration(
-            id: "npm.script:web/dev",
-            name: "dev",
-            kind: .process(provider: "npm.script"),
-            execution: .service,
-            modulePath: nil,
-            mainClass: nil
-        )
-        let backendPlan = SharedLaunchPlan(
-            executable: .toolchain("project-maven"),
-            arguments: ["spring-boot:run"],
-            workingDirectory: "."
-        )
-        let diagnostic = RunConfigurationDiagnostic(
-            configurationID: frontend.id,
-            code: "missingToolchain",
-            message: "No local node toolchain is selected"
-        )
-        let fixture = makeFixture(
-            status: .ready,
-            effective: [backend, frontend].map {
-                EffectiveRunConfiguration(configuration: $0, options: RunOptions())
-            },
-            plans: [backend.id: backendPlan],
-            diagnostics: [diagnostic]
-        )
-
-        await fixture.service.loadProject(
-            at: fixture.root,
-            files: []
-        )
-        fixture.service.runAllServices()
-
-        #expect(fixture.operations.launchPlanIDs == [backend.id])
-        #expect(fixture.processFactory.processes.count == 1)
-        let backendSession = try #require(
-            fixture.service.moduleSessions.first(where: { $0.id == backend.id })
-        )
-        let frontendSession = try #require(
-            fixture.service.moduleSessions.first(where: { $0.id == frontend.id })
-        )
-        #expect(backendSession.isRunning)
-        #expect(!frontendSession.isRunning)
-        #expect(frontendSession.exitCode == 1)
-        #expect(frontendSession.output.contains("No local node toolchain"))
-    }
-
-    @Test
-    func serviceAddressUsesExplicitArgumentsAndEnvironmentPorts() async throws {
-        let argumentService = JavaRunConfiguration(
-            id: "npm.script:web/dev",
-            name: "dev",
-            kind: .process(provider: "npm.script"),
-            execution: .service,
-            modulePath: nil,
-            mainClass: nil
-        )
-        let environmentService = JavaRunConfiguration(
-            id: "python.uvicorn:api",
-            name: "api",
-            kind: .process(provider: "python.uvicorn"),
-            execution: .service,
-            modulePath: nil,
-            mainClass: nil
-        )
-        let fixture = makeFixture(
-            status: .ready,
-            effective: [
-                EffectiveRunConfiguration(
-                    configuration: argumentService,
-                    options: RunOptions(programArguments: "--host 0.0.0.0 --port 5173")
-                ),
-                EffectiveRunConfiguration(
-                    configuration: environmentService,
-                    options: RunOptions(environment: ["PORT": "8000"])
-                )
-            ]
-        )
-
-        await fixture.service.loadProject(at: fixture.root, files: [])
-
-        #expect(fixture.service.serviceURL(for: argumentService)?.absoluteString == "http://127.0.0.1:5173")
-        #expect(fixture.service.serviceURL(for: environmentService)?.absoluteString == "http://127.0.0.1:8000")
-    }
-
-    @Test
-    func serviceAddressRejectsUnknownInvalidAndNonServicePorts() async throws {
-        let unknown = JavaRunConfiguration(
-            id: "npm.script:web/dev",
-            name: "dev",
-            kind: .process(provider: "npm.script"),
-            execution: .service,
-            modulePath: nil,
-            mainClass: nil
-        )
-        let invalid = JavaRunConfiguration(
-            id: "python.uvicorn:api",
-            name: "api",
-            kind: .process(provider: "python.uvicorn"),
-            execution: .service,
-            modulePath: nil,
-            mainClass: nil
-        )
-        let application = JavaRunConfiguration(
-            id: "go.main:cli",
-            name: "cli",
-            kind: .process(provider: "go.main"),
-            execution: .application,
-            modulePath: nil,
-            mainClass: nil
-        )
-        let fixture = makeFixture(
-            status: .ready,
-            effective: [
-                EffectiveRunConfiguration(configuration: unknown, options: RunOptions()),
-                EffectiveRunConfiguration(
-                    configuration: invalid,
-                    options: RunOptions(programArguments: "--port 70000")
-                ),
-                EffectiveRunConfiguration(
-                    configuration: application,
-                    options: RunOptions(environment: ["PORT": "4321"])
-                )
-            ]
-        )
-
-        await fixture.service.loadProject(at: fixture.root, files: [])
-
-        #expect(fixture.service.serviceURL(for: unknown) == nil)
-        #expect(fixture.service.serviceURL(for: invalid) == nil)
-        #expect(fixture.service.serviceURL(for: application) == nil)
-    }
-
-    @Test
-    func runAllServicesExcludesApplicationsAndTasks() async throws {
-        let service = JavaRunConfiguration(
-            id: "npm.script:web/dev",
-            name: "dev",
-            kind: .process(provider: "npm.script"),
-            execution: .service,
-            modulePath: nil,
-            mainClass: nil
-        )
-        let application = JavaRunConfiguration(
-            id: "go.command:cmd/migrate/migrate",
-            name: "migrate",
-            kind: .process(provider: "go.command"),
-            execution: .application,
-            modulePath: nil,
-            mainClass: nil
-        )
-        let task = JavaRunConfiguration(
-            id: "npm.script:web/build",
-            name: "build",
-            kind: .process(provider: "npm.script"),
-            execution: .task,
-            modulePath: nil,
-            mainClass: nil
-        )
-        let servicePlan = SharedLaunchPlan(
-            executable: .command("npm"),
-            arguments: ["run", "dev"],
-            workingDirectory: "web"
-        )
-        let fixture = makeFixture(
-            status: .ready,
-            effective: [service, application, task].map {
-                EffectiveRunConfiguration(configuration: $0, options: JavaRunOptions())
-            },
-            plans: [service.id: servicePlan]
-        )
-
-        await fixture.service.loadProject(
-            at: fixture.root,
-            files: []
-        )
-        fixture.service.runAllServices()
-
-        #expect(fixture.operations.launchPlanIDs == [service.id])
-        #expect(fixture.service.moduleSessions.map(\.id) == [service.id])
-        #expect(fixture.processFactory.processes.count == 1)
-    }
-
-    /// Services start individually, not only as an all-at-once batch.
-    @Test
-    func startingASingleProcessServiceCreatesItsOwnSession() async throws {
-        let frontend = JavaRunConfiguration(
-            id: "npm.script:frontend-web/dev",
-            name: "dev",
-            kind: .process(provider: "npm.script"),
-            execution: .service,
-            modulePath: nil,
-            mainClass: nil
-        )
-        let plan = SharedLaunchPlan(
-            executable: .command("pnpm"),
-            arguments: ["run", "dev"],
-            workingDirectory: "frontend-web"
-        )
-        let fixture = makeFixture(
-            status: .ready,
-            effective: [EffectiveRunConfiguration(configuration: frontend, options: JavaRunOptions())],
-            plans: [frontend.id: plan]
-        )
-
-        await fixture.service.loadProject(
-            at: fixture.root,
-            files: []
-        )
-        fixture.service.startConfiguration(frontend)
-
-        let session = try #require(fixture.service.moduleSessions.first)
-        #expect(session.configurationID == frontend.id)
-        #expect(session.isRunning)
-        #expect(fixture.processFactory.processes.count == 1)    }
-
-    @Test
-    func projectRuntimeResolvesServiceLevelToolchainOverrides() throws {
-        let root = URL(fileURLWithPath: "/tmp/lithe-runtime-toolchains", isDirectory: true)
-        let runtime = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
-        runtime.openProject(at: root)
-
-        #expect(runtime.javaExecutableURL(overridePath: "/local/JDK 21")?.path == "/local/JDK 21/bin/java")
-        #expect(runtime.mavenExecutable(at: root, overridePath: "/local/Maven 3.9/bin/mvn")?.path == "/local/Maven 3.9/bin/mvn")
-        #expect(runtime.environment(for: .maven, javaHomeOverride: "/local/Maven JDK")["JAVA_HOME"] == "/local/Maven JDK")
-    }
-
-    @Test
-    func projectRuntimePublishesAReadyJavaEnvironmentReport() async throws {
-        let root = URL(fileURLWithPath: "/tmp/lithe-java-health", isDirectory: true)
-        let runtime = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
-        runtime.openProject(at: root)
-        await runtime.refreshAvailableRuntimes()
-
-        let report = try #require(runtime.javaEnvironmentReport)
-        #expect(report.status == .ready)
-        #expect(report.javaHomePath == "/toolchains/jdk")
-        #expect(!report.status.blocksJavaRun)
-    }
-
-    @Test
-    func projectRuntimeStronglyReportsMissingJDK() async throws {
-        let root = URL(fileURLWithPath: "/tmp/lithe-java-health-missing", isDirectory: true)
-        let runtime = ProjectRuntimeService(
-            runtimeLocator: MissingJavaRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
-        runtime.openProject(at: root)
-        await runtime.refreshAvailableRuntimes()
-
-        let report = try #require(runtime.javaEnvironmentReport)
-        #expect(report.status == .jdkMissing)
-        #expect(report.status.blocksJavaRun)
-        #expect(report.recovery.contains("JAVA_HOME"))
-    }
-
-    @Test
-    func generationPublishesNoEntryResultAndKeepsCurrentFileAvailable() async {
-        let current = JavaRunConfiguration.currentFile
-        let fixture = makeFixture(
-            status: .missing,
-            effective: [EffectiveRunConfiguration(configuration: current, options: JavaRunOptions())],
-            generationEntryCount: 0
-        )
-
-        await fixture.service.loadProject(
-            at: fixture.root,
-            files: [],
-            snapshotID: UUID()
-        )
-        await fixture.service.generateRunConfigurations()
-
-        #expect(fixture.service.configurationStatus == .ready)
-        #expect(!fixture.service.isLoadingProject)
-        #expect(fixture.service.generationState == .noEntries)
-        #expect(fixture.service.configurations == [current])
-    }
-
-    @Test
-    func projectOptionsAreWrittenToTeamFileWithoutLocalJDKPath() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-project-options-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(
-            at: root.appendingPathComponent(".lithe/run"),
-            withIntermediateDirectories: true
-        )
-        let store = MacRunConfigurationStore(
-            core: RustCoreBridge(),
-            storage: MacFileStorage(),
-            preferences: RunTestKeyValueStore(),
-            documentMutator: RunTestDocumentMutator()
-        )
-
-        try store.saveOptions(
-            JavaRunOptions(
-                javaHomePath: "/Library/Java/private-jdk",
-                workingDirectoryPath: root.appendingPathComponent("backend app").path,
-                vmArguments: "-Xmx2g",
-                programArguments: "--dev",
-                activeProfiles: ["dev"]
-            ),
-            configurationID: "spring:com.example.App",
-            scope: .project,
-            at: root
-        )
-
-        let data = try Data(contentsOf: root.appendingPathComponent(".lithe/run/configurations.json"))
-        let text = String(decoding: data, as: UTF8.self)
-        #expect(text.contains("backend app"))
-        #expect(!text.contains("private-jdk"))
-        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/toolchains/local.json").path))
-        #expect(throws: (any Error).self) {
-            try store.saveOptions(
-                JavaRunOptions(workingDirectoryPath: "../outside"),
-                configurationID: "spring:com.example.App",
-                scope: .project,
-                at: root
-            )
-        }
-    }
-
-    @Test
-    func creatingProjectConfigurationWritesTypedTeamEntry() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-create-project-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(
-            at: root.appendingPathComponent("backend/src/main/java/com/example"),
-            withIntermediateDirectories: true
-        )
-        try Data("package com.example; class App { public static void main(String[] args) {} }".utf8)
-            .write(to: root.appendingPathComponent("backend/src/main/java/com/example/App.java"))
-        let store = MacRunConfigurationStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: RunTestKeyValueStore(), documentMutator: RunTestDocumentMutator())
-
-        let id = try store.createConfiguration(
-            RunConfigurationDraft(name: "Backend Dev", kind: .springBoot, modulePath: "backend", mainClass: "com.example.App", scope: .project),
-            at: root
-        )
-        #expect(id == "user:backend-dev")
-        let data = try Data(contentsOf: root.appendingPathComponent(".lithe/run/configurations.json"))
-        let document = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let configurations = try #require(document["configurations"] as? [[String: Any]])
-        #expect(configurations.first?["type"] as? String == "spring-boot.maven")
-        #expect(configurations.first?["module"] as? String == "backend")
-        #expect(configurations.first?["mainClass"] as? String == "com.example.App")
-    }
-
-    @Test
-    func linkedRustCoreMutatesDocumentsThroughTheProductionAdapter() throws {
-        let core = RustCoreBridge()
-        guard core.isAvailable else { return }
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-linked-mutation-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(
-            at: root.appendingPathComponent("src/main/java/com/example"),
-            withIntermediateDirectories: true
-        )
-        try Data("package com.example; class App { public static void main(String[] args) {} }".utf8)
-            .write(to: root.appendingPathComponent("src/main/java/com/example/App.java"))
-        let store = MacRunConfigurationStore(
-            core: core,
-            storage: MacFileStorage(),
-            preferences: RunTestKeyValueStore()
-        )
-        // Core identifies Current File in memory; the workspace holds only user documents.
-        _ = try store.generate(
-            at: root,
-            files: [root.appendingPathComponent("src/main/java/com/example/App.java")],
-            modulePaths: [],
-            javaEntrypoints: nil
-        )
-
-        try store.saveOptions(
-            JavaRunOptions(vmArguments: "\"-Dlabel=hello world\" -Xmx2g"),
-            configurationID: "current-file",
-            scope: .project,
-            at: root
-        )
-        let id = try store.createConfiguration(
-            RunConfigurationDraft(
-                name: "Backend Dev",
-                kind: .springBoot,
-                modulePath: ".",
-                mainClass: "com.example.App",
-                scope: .project
-            ),
-            at: root
-        )
-
-        #expect(id == "user:backend-dev")
-        let data = try Data(contentsOf: root.appendingPathComponent(".lithe/run/configurations.json"))
-        let document = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let configurations = try #require(document["configurations"] as? [[String: Any]])
-        #expect(configurations.count == 2)
-        let mavenExtension = try #require(
-            configurations.first?["extensions"] as? [String: Any]
-        )
-        let mavenOptions = try #require(mavenExtension["maven"] as? [String: Any])
-        #expect(mavenOptions["jvmArguments"] as? [String] == ["-Dlabel=hello world", "-Xmx2g"])
-    }
-
-    private func generateConfirmedSpringService(at root: URL, store: MacRunConfigurationStore) throws {
-        // A plugin declaration alone no longer establishes an application. Model
-        // the confirmed JDT entry so these tests exercise persistence, not detection failure.
-        let sourcePath = "src/main/java/demo/App.java"
-        let source = root.appendingPathComponent(sourcePath)
-        try FileManager.default.createDirectory(at: source.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data("package demo; @SpringBootApplication public class App { public static void main(String[] args) {} }".utf8)
-            .write(to: source)
-        _ = try store.generate(at: root, files: [source], modulePaths: [], javaEntrypoints: JavaEntrypoints(
-            entries: [JavaEntrypoint(sourcePath: sourcePath, mainClass: "demo.App", projectName: "demo")]
-        ))
-        let resolved = try store.resolve(at: root, toolchainCandidates: [])
-        _ = try #require(resolved.configurations.first { $0.configuration.id == "spring-boot.maven:demo" })
-    }
-
-    @Test
-    func serviceToolchainOverridesRoundTripThroughRustConfigurationDocuments() throws {
-        let core = RustCoreBridge()
-        guard core.isAvailable else { return }
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-service-toolchains-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try Data(#"<project><artifactId>demo</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#.utf8)
-            .write(to: root.appendingPathComponent("pom.xml"))
-        let store = MacRunConfigurationStore(
-            core: core,
-            storage: MacFileStorage(),
-            preferences: RunTestKeyValueStore()
-        )
-        // Core identifies the project in memory; the workspace holds only user documents.
-        try generateConfirmedSpringService(at: root, store: store)
-        try store.saveOptions(
-            RunOptions(
-                javaHomePath: "/test/jdk-21",
-                mavenSkipTests: false,
-                mavenExecutablePath: "/test/maven/bin/mvn",
-                mavenJavaHomePath: "/test/maven-jdk"
-            ),
-            configurationID: "spring-boot.maven:demo",
-            scope: .local,
-            at: root
-        )
-
-        let resolved = try store.resolve(at: root, toolchainCandidates: [])
-        let options = try #require(resolved.configurations.first { $0.configuration.id == "spring-boot.maven:demo" }?.options)
-        #expect(options.javaHomePath == "/test/jdk-21")
-        #expect(options.mavenExecutablePath == "/test/maven/bin/mvn")
-        #expect(options.mavenJavaHomePath == "/test/maven-jdk")
-        #expect(options.mavenSkipTests == false)
-    }
-
-    @Test
-    func projectToolchainSelectionsPersistAsProjectRelativePaths() throws {
-        let core = RustCoreBridge()
-        guard core.isAvailable else { return }
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-project-toolchains-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        for path in [".lithe/run", "toolchains/jdk", "toolchains/maven/bin", "toolchains/maven-jdk"] {
-            try FileManager.default.createDirectory(
-                at: root.appendingPathComponent(path, isDirectory: true),
-                withIntermediateDirectories: true
-            )
-        }
-        try Data("#!/bin/sh\n".utf8)
-            .write(to: root.appendingPathComponent("toolchains/maven/bin/mvn"))
-        try Data(#"<project><artifactId>demo</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#.utf8)
-            .write(to: root.appendingPathComponent("pom.xml"))
-        let store = MacRunConfigurationStore(
-            core: core,
-            storage: MacFileStorage(),
-            preferences: RunTestKeyValueStore()
-        )
-        // Core identifies the project in memory; the workspace holds only user documents.
-        try generateConfirmedSpringService(at: root, store: store)
-
-        try store.saveOptions(
-            RunOptions(
-                javaHomePath: root.appendingPathComponent("toolchains/jdk").path,
-                mavenExecutablePath: root.appendingPathComponent("toolchains/maven/bin/mvn").path,
-                mavenJavaHomePath: root.appendingPathComponent("toolchains/maven-jdk").path
-            ),
-            configurationID: "spring-boot.maven:demo",
-            scope: .project,
-            at: root
-        )
-
-        let resolved = try store.resolve(at: root, toolchainCandidates: [])
-        let options = try #require(resolved.configurations.first { $0.configuration.id == "spring-boot.maven:demo" }?.options)
-        #expect(options.javaHomePath == "toolchains/jdk")
-        #expect(options.mavenExecutablePath == "toolchains/maven/bin/mvn")
-        #expect(options.mavenJavaHomePath == "toolchains/maven-jdk")
-    }
-
-    @Test
-    func goRuntimeToolchainFlowsFromSharedJSONIntoProcessRequest() async throws {
-        let core = RustCoreBridge()
-        guard core.isAvailable else { return }
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-go-runtime-toolchain-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(
-            at: root.appendingPathComponent(".lithe/run"),
-            withIntermediateDirectories: true
-        )
-        // A saved team configuration; Core's detected layer is identified below.
-        try Data(#"{"version":2,"configurations":[{"id":"user:go-api","name":"Go API","provider":"go.main","execution":"application","args":["run","./cmd/api"],"cwd":".","env":{"APP_ENV":"test"},"toolchains":{"runtime":"project-go"}}]}"#.utf8)
-            .write(to: root.appendingPathComponent(".lithe/run/configurations.json"))
-
-        let preferences = RunTestKeyValueStore()
-        let store = MacRunConfigurationStore(
-            core: core,
-            storage: MacFileStorage(),
-            preferences: preferences
-        )
-        let runtime = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: preferences
-        )
-        let process = RecordingStreamingProcess()
-        let service = RunService(
-            runtimeService: runtime,
-            process: process,
-            processFactory: { RecordingStreamingProcess() },
-            fileStorage: MacFileStorage(),
-            preferences: preferences,
-            javaMavenOperations: RunTestJavaMavenOperations(),
-            runConfigurationOperations: store
-        )
-
-        _ = try store.generate(at: root, files: [], modulePaths: [], javaEntrypoints: nil)
-        await service.loadProject(at: root, files: [])
-        let configuration = try #require(service.configurations.first { $0.id == "user:go-api" })
-
-        service.run(configuration: configuration, currentFileURL: nil)
-
-        let request = try #require(process.requests.last)
-        #expect(request.executablePath == "/usr/bin/go")
-        #expect(request.arguments == ["run", "./cmd/api"])
-        #expect(request.workingDirectory == root.path)
-        #expect(request.environment?["APP_ENV"] == "test")
-        #expect(request.environment?["JAVA_HOME"] == nil)
     }
 
     @Test
@@ -3743,71 +1919,11 @@ struct RunConfigurationIntegrationTests {
             preferences: RunTestKeyValueStore()
         )
 
-        let result = try store.generate(at: root, files: [source], modulePaths: [], javaEntrypoints: nil)
+        let result = try store.generate(at: root, providerRuns: nil)
         #expect(result.entryCount == 0)
         #expect(storage.writeCount == 0)
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe").path))
         #expect(store.inspect(at: root).status == .ready)
-    }
-
-    @Test
-    func creatingLocalConfigurationWritesLocalEntryAndDisambiguatesName() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-create-local-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let store = MacRunConfigurationStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: RunTestKeyValueStore(), documentMutator: RunTestDocumentMutator())
-        let draft = RunConfigurationDraft(name: "Backend Dev", kind: .mavenModule, modulePath: ".", mainClass: "", scope: .local)
-        _ = try store.createConfiguration(draft, at: root)
-        let second = try store.createConfiguration(draft, at: root)
-        #expect(second == "user:backend-dev-2")
-        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/local.json").path))
-        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/configurations.json").path))
-    }
-
-    @Test
-    func creatingSpringBootConfigurationRequiresMainClassAndRejectsOutsideModule() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-create-validation-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let store = MacRunConfigurationStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: RunTestKeyValueStore(), documentMutator: RunTestDocumentMutator())
-        #expect(throws: (any Error).self) {
-            try store.createConfiguration(
-                RunConfigurationDraft(name: "Broken", kind: .springBoot, modulePath: ".", mainClass: "", scope: .project),
-                at: root
-            )
-        }
-        #expect(throws: (any Error).self) {
-            try store.createConfiguration(
-                RunConfigurationDraft(name: "Outside", kind: .mavenModule, modulePath: "../other", mainClass: "", scope: .project),
-                at: root
-            )
-        }
-    }
-
-    @Test
-    func configurationWriteRejectsLitheSymlinkOutsideProject() throws {
-        let base = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-symlink-write-\(UUID().uuidString)", isDirectory: true)
-        let root = base.appendingPathComponent("project", isDirectory: true)
-        let outside = base.appendingPathComponent("outside", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: base) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
-        try FileManager.default.createSymbolicLink(
-            at: root.appendingPathComponent(".lithe"),
-            withDestinationURL: outside
-        )
-        let store = MacRunConfigurationStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: RunTestKeyValueStore(), documentMutator: RunTestDocumentMutator())
-
-        #expect(throws: (any Error).self) {
-            try store.createConfiguration(
-                RunConfigurationDraft(name: "Outside", kind: .mavenModule, modulePath: ".", mainClass: "", scope: .project),
-                at: root
-            )
-        }
-        #expect(!FileManager.default.fileExists(atPath: outside.appendingPathComponent("run/configurations.json").path))
     }
 
     @Test
@@ -3823,11 +1939,9 @@ struct RunConfigurationIntegrationTests {
             preferences: RunTestKeyValueStore(),
             documentMutator: RunTestDocumentMutator()
         )
-        let options = JavaRunOptions(
+        let options = RunOptions(
             workingDirectoryPath: "backend app",
-            vmArguments: "-Xmx2g",
-            programArguments: "--dev",
-            activeProfiles: ["dev"]
+            programArguments: "--dev"
         )
 
         try store.saveOptions(
@@ -3868,200 +1982,13 @@ struct RunConfigurationIntegrationTests {
 
         #expect(throws: (any Error).self) {
             try store.saveOptions(
-                JavaRunOptions(vmArguments: "-Xmx2g"),
+                RunOptions(programArguments: "-Xmx2g"),
                 configurationID: "current-file",
                 scope: .local,
                 at: root
             )
         }
         #expect(try storage.readData(from: localURL, options: []) == original)
-    }
-
-    @Test
-    func teamDefaultAndEffectiveSourceAreApplied() async throws {
-        let first = JavaRunConfiguration.currentFile
-        let second = JavaRunConfiguration(
-            id: "spring:com.example.App",
-            name: "App",
-            kind: .springBoot,
-            modulePath: nil,
-            mainClass: "com.example.App"
-        )
-        let fixture = makeFixture(
-            status: .ready,
-            effective: [
-                EffectiveRunConfiguration(configuration: first, options: JavaRunOptions()),
-                EffectiveRunConfiguration(
-                    configuration: second,
-                    options: JavaRunOptions(vmArguments: "-Xmx2g"),
-                    source: .project
-                )
-            ],
-            defaultConfigurationID: second.id
-        )
-
-        await fixture.service.loadProject(
-            at: fixture.root,
-            files: []
-        )
-
-        #expect(fixture.service.selectedConfigurationID == second.id)
-        #expect(fixture.service.source(for: second) == .project)
-        #expect(fixture.operations.migrationCalls == 0)
-    }
-
-    @Test
-    func duplicateEffectiveConfigurationIDsDoNotCrashServiceProjection() async throws {
-        let configuration = JavaRunConfiguration(
-            id: "java-main:com.example.App",
-            name: "App",
-            kind: .javaMain,
-            modulePath: nil,
-            mainClass: "com.example.App"
-        )
-        let fixture = makeFixture(
-            status: .ready,
-            effective: [
-                EffectiveRunConfiguration(
-                    configuration: configuration,
-                    options: JavaRunOptions(vmArguments: "-Xmx1g"),
-                    source: .project
-                ),
-                EffectiveRunConfiguration(
-                    configuration: configuration,
-                    options: JavaRunOptions(vmArguments: "-Xmx2g"),
-                    source: .local
-                )
-            ]
-        )
-
-        await fixture.service.loadProject(
-            at: fixture.root,
-            files: []
-        )
-
-        let projected = try #require(
-            fixture.service.configurations.first { $0.id == configuration.id }
-        )
-        #expect(fixture.service.configurations.count { $0.id == configuration.id } == 1)
-        #expect(fixture.service.options(for: projected).vmArguments == "-Xmx1g")
-        #expect(fixture.service.source(for: projected) == .project)
-    }
-
-    @Test
-    func createdConfigurationIsResolvedAndSelected() async {
-        let fixture = makeFixture(
-            status: .ready,
-            effective: [EffectiveRunConfiguration(configuration: .currentFile, options: JavaRunOptions())]
-        )
-        await fixture.service.loadProject(at: fixture.root, files: [])
-
-        let created = fixture.service.createConfiguration(
-            RunConfigurationDraft(
-                name: "Backend Dev",
-                kind: .mavenModule,
-                modulePath: "backend",
-                mainClass: "",
-                scope: .project
-            )
-        )
-
-        #expect(created)
-        #expect(fixture.service.selectedConfigurationID == "user:backend-dev")
-        #expect(fixture.service.selectedConfiguration?.name == "Backend Dev")
-        #expect(fixture.operations.createdDrafts.count == 1)
-    }
-
-    @Test
-    func recentConfigurationSelectionIsRestoredFromLocalPreferences() async {
-        let preferences = RunTestKeyValueStore()
-        let current = EffectiveRunConfiguration(configuration: .currentFile, options: JavaRunOptions())
-        let backend = JavaRunConfiguration(
-            id: "module:backend",
-            name: "backend",
-            kind: .mavenModule,
-            modulePath: "backend",
-            mainClass: nil
-        )
-        let first = makeFixture(
-            status: .ready,
-            effective: [current, EffectiveRunConfiguration(configuration: backend, options: JavaRunOptions())],
-            preferences: preferences
-        )
-        await first.service.loadProject(at: first.root, files: [])
-        first.service.select(backend)
-
-        let reopened = makeFixture(
-            status: .ready,
-            effective: [current, EffectiveRunConfiguration(configuration: backend, options: JavaRunOptions())],
-            preferences: preferences
-        )
-        await reopened.service.loadProject(at: reopened.root, files: [])
-
-        #expect(reopened.service.selectedConfigurationID == backend.id)
-    }
-
-    @Test
-    func staleProjectLoadCannotReplaceTheNewProjectState() async {
-        let oldRoot = URL(fileURLWithPath: "/tmp/lithe-old-project", isDirectory: true)
-        let newRoot = URL(fileURLWithPath: "/tmp/lithe-new-project", isDirectory: true)
-        let operations = BlockingInspectionOperations(blockedProjectURL: oldRoot)
-        defer { operations.releaseBlockedInspection() }
-        let runtime = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
-        let service = JavaRunService(
-            runtimeService: runtime,
-            process: RecordingStreamingProcess(),
-            processFactory: { RecordingStreamingProcess() },
-            fileStorage: RunTestFileStorage(),
-            preferences: RunTestKeyValueStore(),
-            javaMavenOperations: RunTestJavaMavenOperations(),
-            runConfigurationOperations: operations
-        )
-
-        let oldLoad = Task {
-            await service.loadProject(at: oldRoot, files: [])
-        }
-        #expect(await operations.waitUntilBlocked())
-        await service.loadProject(at: newRoot, files: [])
-        operations.releaseBlockedInspection()
-        await oldLoad.value
-
-        #expect(service.configurationStatus == .missing)
-        #expect(service.configurations.isEmpty)
-        #expect(!service.isLoadingProject)
-    }
-
-    @Test
-    func projectReloadDuringGenerationDoesNotLeaveRunServiceLoading() async {
-        let root = URL(fileURLWithPath: "/tmp/lithe-generation-reload", isDirectory: true)
-        let operations = BlockingGenerationOperations()
-        defer { operations.releaseGeneration() }
-        let runtime = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
-        let service = JavaRunService(
-            runtimeService: runtime,
-            process: RecordingStreamingProcess(),
-            processFactory: { RecordingStreamingProcess() },
-            fileStorage: RunTestFileStorage(),
-            preferences: RunTestKeyValueStore(),
-            javaMavenOperations: RunTestJavaMavenOperations(),
-            runConfigurationOperations: operations
-        )
-
-        let snapshotID = UUID()
-        await service.loadProject(at: root, files: [], snapshotID: snapshotID)
-        let generation = Task { await service.generateRunConfigurations() }
-        #expect(await operations.waitUntilBlocked())
-        await service.loadProject(at: root, files: [], snapshotID: snapshotID)
-        operations.releaseGeneration()
-        await generation.value
-
-        #expect(!service.isLoadingProject)
     }
 
     @Test
@@ -4078,221 +2005,6 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func projectEditorSaveForwardsSelectedToolchainPaths() async {
-        let configuration = JavaRunConfiguration(
-            id: "spring",
-            name: "Spring",
-            kind: .springBoot,
-            modulePath: ".",
-            mainClass: nil
-        )
-        let fixture = makeFixture(
-            status: .ready,
-            effective: [EffectiveRunConfiguration(
-                configuration: configuration,
-                options: RunOptions(),
-                source: .generated
-            )]
-        )
-        await fixture.service.loadProject(
-            at: fixture.root,
-            files: []
-        )
-        let options = RunOptions(
-            javaHomePath: "toolchains/jdk",
-            mavenExecutablePath: "toolchains/maven/bin/mvn",
-            mavenJavaHomePath: "toolchains/maven-jdk"
-        )
-
-        #expect(fixture.service.saveEditorChanges(
-            options,
-            for: configuration,
-            scope: .project
-        ))
-        #expect(fixture.operations.savedOptions == [options])
-        #expect(fixture.operations.savedScopes == [.project])
-    }
-
-    @Test
-    func editorChangesUseOneRunConfigurationOperation() async {
-        let configuration = JavaRunConfiguration(
-            id: "spring",
-            name: "Spring",
-            kind: .springBoot,
-            modulePath: ".",
-            mainClass: nil
-        )
-        let fixture = makeFixture(
-            status: .ready,
-            effective: [EffectiveRunConfiguration(
-                configuration: configuration,
-                options: RunOptions(),
-                source: .generated
-            )]
-        )
-        await fixture.service.loadProject(
-            at: fixture.root,
-            files: []
-        )
-        let options = RunOptions(programArguments: "--dev")
-
-
-        #expect(fixture.service.saveEditorChanges(
-            options,
-            for: configuration,
-            scope: .local
-        ))
-        #expect(fixture.operations.editorSaveCalls == 1)
-        #expect(fixture.operations.savedOptions == [options])
-        #expect(fixture.operations.savedScopes == [.local])
-        #expect(fixture.operations.savedToolchains == [ProjectToolchainSelection()])
-    }
-
-    @Test
-    func editorSaveKeepsTheEffectiveProjectDefaults() async {
-        // Never manufacture project defaults from a separate form. External
-        // updates made after loading must be read again before an editor save.
-        let configuration = JavaRunConfiguration(
-            id: "spring",
-            name: "Spring",
-            kind: .springBoot,
-            modulePath: ".",
-            mainClass: nil
-        )
-        let unsaved = makeFixture(
-            status: .ready,
-            effective: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions(), source: .generated)]
-        )
-        await unsaved.service.loadProject(at: unsaved.root, files: [])
-        #expect(unsaved.service.savedProjectToolchain == nil)
-        #expect(unsaved.service.saveEditorChanges(RunOptions(), for: configuration, scope: .local))
-        #expect(unsaved.operations.savedToolchains == [ProjectToolchainSelection()])
-        #expect(unsaved.service.savedProjectToolchain == ProjectToolchainSelection())
-
-        // Current on-disk defaults win over this service's loaded snapshot.
-        let saved = ProjectToolchainSelection(javaHomePath: "/fixture/saved-jdk", mavenExecutablePath: "mvnw")
-        let stored = makeFixture(
-            status: .ready,
-            effective: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions(), source: .generated)]
-        )
-        await stored.service.loadProject(at: stored.root, files: [])
-        // A different editor saves after this service loaded its documents.
-        stored.operations.inspectionToolchain = saved
-        #expect(stored.service.saveEditorChanges(RunOptions(), for: configuration, scope: .local))
-        #expect(stored.operations.savedToolchains == [saved])
-    }
-
-    @Test
-    func editorSaveReportsReloadFailureWithoutApplyingTheDraft() async {
-        let configuration = JavaRunConfiguration(
-            id: "spring",
-            name: "Spring",
-            kind: .springBoot,
-            modulePath: ".",
-            mainClass: nil
-        )
-        let original = RunOptions(programArguments: "--old")
-        let fixture = makeFixture(
-            status: .ready,
-            effective: [EffectiveRunConfiguration(
-                configuration: configuration,
-                options: original,
-                source: .generated
-            )]
-        )
-        await fixture.service.loadProject(
-            at: fixture.root,
-            files: []
-        )
-        fixture.operations.resolveFailureMessage = "Injected reload failure."
-
-        #expect(!fixture.service.saveEditorChanges(
-            RunOptions(programArguments: "--new"),
-            for: configuration,
-            scope: .local
-        ))
-        #expect(fixture.service.options(for: configuration) == original)
-        #expect(fixture.service.configurationSaveError?.contains(
-            "Changes were saved, but Lithe could not reload them"
-        ) == true)
-    }
-
-    @Test(arguments: [false, true])
-    func resettingOptionsUsesTheCombinedEditorSave(provider: Bool) async {
-        let configuration = JavaRunConfiguration(
-            id: "spring",
-            name: "Spring",
-            kind: provider ? .process(provider: "build.provider") : .springBoot,
-            execution: .service,
-            modulePath: ".",
-            mainClass: nil,
-            buildProvider: provider ? BuildProviderRunReference(pluginID: "dev.example", buildSystemID: "engine", root: ".",
-                run: "serve", projectID: "p", targetID: "t", execution: .service) : nil
-        )
-        let fixture = makeFixture(
-            status: .ready,
-            effective: [EffectiveRunConfiguration(
-                configuration: configuration,
-                options: RunOptions(programArguments: "--dev", providerRunOptions: provider ? BuildProviderRunOptions(tools: ["dev.example:compiler": .executable(path: "/fixture/compiler")]) : nil),
-                source: .local
-            )]
-        )
-        await fixture.service.loadProject(
-            at: fixture.root,
-            files: []
-        )
-
-        fixture.service.resetOptions(for: configuration)
-
-        #expect(fixture.operations.editorSaveCalls == 1)
-        #expect(fixture.operations.savedOptions == [RunOptions(providerRunOptions: provider ? BuildProviderRunOptions(tools: ["dev.example:compiler": nil]) : nil)])
-        #expect(fixture.operations.savedScopes == [.local])
-    }
-
-    @Test
-    func projectEditorSaveRestoresLocalDocumentWhenTeamWriteFails() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-editor-transaction-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let run = root.appendingPathComponent(".lithe/run")
-        try FileManager.default.createDirectory(at: run, withIntermediateDirectories: true)
-        try Data(#"<project><artifactId>demo</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#.utf8)
-            .write(to: root.appendingPathComponent("pom.xml"))
-        let oldLocal = Data(#"{"version":2,"configurations":[]}"#.utf8)
-        let oldProject = Data(#"{"version":2,"configurations":[]}"#.utf8)
-        let localURL = run.appendingPathComponent("local.json")
-        let projectURL = run.appendingPathComponent("configurations.json")
-        try oldLocal.write(to: localURL)
-        try oldProject.write(to: projectURL)
-        let storage = CountingFileStorage(root: root)
-        storage.seed(oldLocal, at: localURL)
-        storage.seed(oldProject, at: projectURL)
-        storage.failOnWriteNumber = 2
-        let store = MacRunConfigurationStore(
-            core: RustCoreBridge(),
-            storage: storage,
-            preferences: RunTestKeyValueStore()
-        )
-        try generateConfirmedSpringService(at: root, store: store)
-
-        do {
-            try store.saveEditorChanges(
-                RunOptions(),
-                toolchain: ProjectToolchainSelection(javaHomePath: "/opt/jdk-21"),
-                configurationID: "spring-boot.maven:demo",
-                scope: .project,
-                at: root
-            )
-            Issue.record("Expected the project document write to fail")
-        } catch let failure as RunConfigurationEditorSaveFailure {
-            #expect(failure.stage == .write)
-        }
-        #expect(storage.writeCount > 0)
-        #expect(try storage.readData(from: localURL, options: []) == oldLocal)
-        #expect(try storage.readData(from: projectURL, options: []) == oldProject)
-    }
-
-    @Test
     func appOwnedFileEventSuppressionIsOneShotAndExpires() {
         let first = URL(fileURLWithPath: "/tmp/lithe-self-write-one.json")
         let second = URL(fileURLWithPath: "/tmp/lithe-self-write-two.json")
@@ -4304,48 +2016,6 @@ struct RunConfigurationIntegrationTests {
 
         MacFileWriteEventSuppression.markWritten(second, now: now)
         #expect(!MacFileWriteEventSuppression.consume(second, now: now.addingTimeInterval(3)))
-    }
-
-    private func makeFixture(
-        status: ProjectRunConfigurationStatus,
-        effective: [EffectiveRunConfiguration] = [],
-        plans: [String: SharedLaunchPlan] = [:],
-        generationEntryCount: Int? = nil,
-        defaultConfigurationID: String? = nil,
-        diagnostics: [RunConfigurationDiagnostic] = [],
-        preferences: RunTestKeyValueStore = RunTestKeyValueStore()
-    ) -> RunServiceFixture {
-        let root = URL(fileURLWithPath: "/tmp/lithe-run-service", isDirectory: true)
-        let operations = RecordingRunConfigurationOperations(
-            status: status,
-            effective: effective,
-            plans: plans,
-            generationEntryCount: generationEntryCount,
-            defaultConfigurationID: defaultConfigurationID,
-            diagnostics: diagnostics
-        )
-        let process = RecordingStreamingProcess()
-        let processFactory = RecordingProcessFactory()
-        let runtime = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
-        let service = JavaRunService(
-            runtimeService: runtime,
-            process: process,
-            processFactory: { processFactory.make() },
-            fileStorage: RunTestFileStorage(),
-            preferences: preferences,
-            javaMavenOperations: RunTestJavaMavenOperations(),
-            runConfigurationOperations: operations
-        )
-        return RunServiceFixture(
-            root: root,
-            service: service,
-            operations: operations,
-            process: process,
-            processFactory: processFactory
-        )
     }
 
     private static func framedJSON(_ data: Data?) -> [String: Any]? {
@@ -4429,267 +2099,6 @@ private struct LanguageServerReliabilityHarness {
     let manager: LanguageToolingSessionManager
 }
 
-@MainActor
-private struct RunServiceFixture {
-    let root: URL
-    let service: JavaRunService
-    let operations: RecordingRunConfigurationOperations
-    let process: RecordingStreamingProcess
-    let processFactory: RecordingProcessFactory
-}
-
-private final class RecordingRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
-    var requiresGeneration = false
-    var inspectionRecoveryAction: RunConfigurationRecoveryAction = .none
-    var inspectionToolchain: ProjectToolchainSelection?
-    private(set) var generateCalls = 0
-    let status: ProjectRunConfigurationStatus
-    private var effective: [EffectiveRunConfiguration]
-    let plans: [String: SharedLaunchPlan]
-    let generationEntryCount: Int?
-    let defaultConfigurationID: String?
-    let diagnostics: [RunConfigurationDiagnostic]
-    private(set) var resolveCalls = 0
-    private(set) var migrationCalls = 0
-    private(set) var launchPlanIDs: [String] = []
-    private(set) var javaLaunchTargets: [JavaDebugLaunchTarget?] = []
-    private(set) var debugPorts: [Int?] = []
-    private(set) var createdDrafts: [RunConfigurationDraft] = []
-    private(set) var lastToolchainCandidates: [ProjectToolchainCandidate] = []
-    private(set) var savedOptions: [RunOptions] = []
-    private(set) var savedScopes: [RunConfigurationSaveScope] = []
-    private(set) var savedToolchains: [ProjectToolchainSelection] = []
-    private(set) var editorSaveCalls = 0
-    var resolveFailureMessage: String?
-
-    init(
-        status: ProjectRunConfigurationStatus,
-        effective: [EffectiveRunConfiguration],
-        plans: [String: SharedLaunchPlan],
-        generationEntryCount: Int? = nil,
-        defaultConfigurationID: String? = nil,
-        diagnostics: [RunConfigurationDiagnostic] = []
-    ) {
-        self.status = status
-        self.effective = effective
-        self.plans = plans
-        self.generationEntryCount = generationEntryCount
-        self.defaultConfigurationID = defaultConfigurationID
-        self.diagnostics = diagnostics
-    }
-
-    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
-        ProjectRunConfigurationInspection(
-            status: status,
-            diagnostics: [],
-            recoveryAction: inspectionRecoveryAction,
-            projectToolchain: inspectionToolchain,
-            requiresGeneration: requiresGeneration
-        )
-    }
-    func generate(
-        at projectURL: URL,
-        files: [URL],
-        modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?,
-        projectOwnership: [RunProjectOwnership]? = nil
-    ) throws -> RunConfigurationGenerationResult {
-        generateCalls += 1
-        return RunConfigurationGenerationResult(entryCount: generationEntryCount ?? effective.count)
-    }
-    func resolve(
-        at projectURL: URL,
-        toolchainCandidates: [ProjectToolchainCandidate]
-    ) throws -> RunConfigurationResolution {
-        resolveCalls += 1
-        lastToolchainCandidates = toolchainCandidates
-        if let resolveFailureMessage {
-            throw RunConfigurationOperationFailure(message: resolveFailureMessage)
-        }
-        return RunConfigurationResolution(
-            configurations: effective,
-            diagnostics: diagnostics,
-            defaultConfigurationID: defaultConfigurationID
-        )
-    }
-    func launchPlan(
-        at projectURL: URL,
-        configurationID: String,
-        currentFile: String?,
-        classPath: String?,
-        debugPort: Int?
-    ) throws -> SharedLaunchPlan {
-        launchPlanIDs.append(configurationID)
-        debugPorts.append(debugPort)
-        guard let plan = plans[configurationID] else {
-            throw RunConfigurationOperationFailure(message: "Missing test launch plan")
-        }
-        return plan
-    }
-    func launchPlan(
-        at projectURL: URL,
-        configurationID: String,
-        currentFile: String?,
-        classPath: String?,
-        javaLaunch: JavaDebugLaunchTarget?,
-        debugPort: Int?,
-        mavenContext: MavenLaunchContext?
-    ) throws -> SharedLaunchPlan {
-        javaLaunchTargets.append(javaLaunch)
-        return try launchPlan(
-            at: projectURL,
-            configurationID: configurationID,
-            currentFile: currentFile,
-            classPath: classPath,
-            debugPort: debugPort
-        )
-    }
-    func saveEditorChanges(
-        _ options: RunOptions,
-        toolchain: ProjectToolchainSelection,
-        configurationID: String,
-        scope: RunConfigurationSaveScope,
-        at projectURL: URL
-    ) throws {
-        editorSaveCalls += 1
-        savedOptions.append(options)
-        savedScopes.append(scope)
-        savedToolchains.append(toolchain)
-    }
-    func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String {
-        createdDrafts.append(draft)
-        let slug = draft.name.lowercased().replacingOccurrences(of: " ", with: "-")
-        let id = "user:\(slug)"
-        let configuration = JavaRunConfiguration(
-            id: id,
-            name: draft.name,
-            kind: draft.kind,
-            modulePath: draft.modulePath,
-            mainClass: draft.mainClass.isEmpty ? nil : draft.mainClass
-        )
-        effective.append(EffectiveRunConfiguration(
-            configuration: configuration,
-            options: JavaRunOptions(),
-            source: draft.scope == .local ? .local : .project
-        ))
-        return id
-    }
-    func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {
-        migrationCalls += 1
-    }
-}
-
-private final class BlockingInspectionOperations: RunConfigurationOperations, @unchecked Sendable {
-    private let blockedProjectPath: String
-    private let didBlock = TestGate()
-    private let release = TestGate()
-
-    init(blockedProjectURL: URL) {
-        blockedProjectPath = blockedProjectURL.standardizedFileURL.path
-    }
-
-    func waitUntilBlocked() async -> Bool {
-        await didBlock.waitUntilOpen()
-    }
-
-    func releaseBlockedInspection() {
-        release.open()
-    }
-
-    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
-        if projectURL.standardizedFileURL.path == blockedProjectPath {
-            didBlock.open()
-            _ = release.waitSynchronously()
-            return ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
-        }
-        return ProjectRunConfigurationInspection(status: .missing, diagnostics: [])
-    }
-
-    func generate(
-        at projectURL: URL,
-        files: [URL],
-        modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?,
-        projectOwnership: [RunProjectOwnership]? = nil
-    ) throws -> RunConfigurationGenerationResult {
-        RunConfigurationGenerationResult(entryCount: 0)
-    }
-
-    func resolve(
-        at projectURL: URL,
-        toolchainCandidates: [ProjectToolchainCandidate]
-    ) throws -> RunConfigurationResolution {
-        RunConfigurationResolution(configurations: [], diagnostics: [], defaultConfigurationID: nil)
-    }
-
-    func launchPlan(
-        at projectURL: URL,
-        configurationID: String,
-        currentFile: String?,
-        classPath: String?,
-        debugPort: Int?
-    ) throws -> SharedLaunchPlan {
-        throw RunConfigurationOperationFailure(message: "No launch plan")
-    }
-
-    func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String {
-        throw RunConfigurationOperationFailure(message: "Creation is unavailable in this test double")
-    }
-    func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
-}
-
-private final class BlockingGenerationOperations: RunConfigurationOperations, @unchecked Sendable {
-    private let didBlock = TestGate()
-    private let release = TestGate()
-
-    func waitUntilBlocked() async -> Bool {
-        await didBlock.waitUntilOpen()
-    }
-
-    func releaseGeneration() {
-        release.open()
-    }
-
-    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
-        ProjectRunConfigurationInspection(status: .missing, diagnostics: [])
-    }
-
-    func generate(
-        at projectURL: URL,
-        files: [URL],
-        modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?,
-        projectOwnership: [RunProjectOwnership]? = nil
-    ) throws -> RunConfigurationGenerationResult {
-        didBlock.open()
-        _ = release.waitSynchronously()
-        return RunConfigurationGenerationResult(entryCount: 0)
-    }
-
-    func resolve(
-        at projectURL: URL,
-        toolchainCandidates: [ProjectToolchainCandidate]
-    ) throws -> RunConfigurationResolution {
-        RunConfigurationResolution(configurations: [], diagnostics: [], defaultConfigurationID: nil)
-    }
-
-    func launchPlan(
-        at projectURL: URL,
-        configurationID: String,
-        currentFile: String?,
-        classPath: String?,
-        debugPort: Int?
-    ) throws -> SharedLaunchPlan {
-        throw RunConfigurationOperationFailure(message: "No launch plan")
-    }
-
-    func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String {
-        throw RunConfigurationOperationFailure(message: "Creation is unavailable in this test double")
-    }
-
-    func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
-}
-
 private final class RecordingStreamingProcess: StreamingProcess, @unchecked Sendable {
     var isRunning = false
     var onOutput: (@Sendable (String) -> Void)?
@@ -4735,11 +2144,6 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         let rootURL: URL
         let workingDirectoryURL: URL
         let initializationOptions: ToolingJSONValue?
-        let runtimeExecutableURL: URL?
-        let jdtlsLaunchResources: JDTLSLaunchResources?
-        let cacheDirectoryURL: URL?
-        let workspaceFingerprint: String?
-        let mavenContext: MavenLaunchContext?
         let initializeTimeout: TimeInterval
         let requestTimeout: TimeInterval
         let shutdownTimeout: TimeInterval
@@ -4796,40 +2200,7 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         self.sessionID = sessionID ?? "test-\(providerID)-session"
     }
 
-    func startLanguageServer(
-        providerID: String,
-        executableURL: URL,
-        arguments: [String],
-        environment: [String: String],
-        rootURL: URL,
-        workingDirectoryURL: URL,
-        initializationOptions: ToolingJSONValue?,
-        runtimeExecutableURL: URL?,
-        jdtlsLaunchResources: JDTLSLaunchResources?,
-        cacheDirectoryURL: URL?,
-        workspaceFingerprint: String?,
-        initializeTimeout: TimeInterval,
-        requestTimeout: TimeInterval,
-        shutdownTimeout: TimeInterval
-    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
-        startLanguageServer(
-            providerID: providerID,
-            executableURL: executableURL,
-            arguments: arguments,
-            environment: environment,
-            rootURL: rootURL,
-            workingDirectoryURL: workingDirectoryURL,
-            initializationOptions: initializationOptions,
-            runtimeExecutableURL: runtimeExecutableURL,
-            jdtlsLaunchResources: jdtlsLaunchResources,
-            cacheDirectoryURL: cacheDirectoryURL,
-            workspaceFingerprint: workspaceFingerprint,
-            mavenContext: nil,
-            initializeTimeout: initializeTimeout,
-            requestTimeout: requestTimeout,
-            shutdownTimeout: shutdownTimeout
-        )
-    }
+    func requiresBackgroundLanguageServerStart(rootURL _: URL) -> Bool { false }
 
     func startLanguageServer(
         providerID: String,
@@ -4839,11 +2210,6 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
         rootURL: URL,
         workingDirectoryURL: URL,
         initializationOptions: ToolingJSONValue?,
-        runtimeExecutableURL: URL?,
-        jdtlsLaunchResources: JDTLSLaunchResources?,
-        cacheDirectoryURL: URL?,
-        workspaceFingerprint: String?,
-        mavenContext: MavenLaunchContext?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -4856,11 +2222,6 @@ private final class TestLanguageServerRuntimeCore: LanguageServerRuntimeCore, @u
             rootURL: rootURL,
             workingDirectoryURL: workingDirectoryURL,
             initializationOptions: initializationOptions,
-            runtimeExecutableURL: runtimeExecutableURL,
-            jdtlsLaunchResources: jdtlsLaunchResources,
-            cacheDirectoryURL: cacheDirectoryURL,
-            workspaceFingerprint: workspaceFingerprint,
-            mavenContext: mavenContext,
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,
             shutdownTimeout: shutdownTimeout
@@ -5160,70 +2521,12 @@ private final class ToolchainVersionProcessRunner: ProcessRunner, @unchecked Sen
 
 private struct RunTestRuntimeLocator: RuntimeLocator {
     func environment() -> [String: String] { ["PATH": "/usr/bin"] }
-    func discover() -> RuntimeDiscoveryResult {
-        RuntimeDiscoveryResult(
-            javaRuntimes: [JavaRuntimeCandidate(homePath: "/toolchains/jdk", version: "21", vendor: "Test")],
-            mavenRuntimes: []
-        )
-    }
-    func validJavaHome(path: String) -> URL? { URL(fileURLWithPath: path, isDirectory: true) }
-    func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate? {
-        JavaRuntimeCandidate(homePath: homeURL.path, version: "21", vendor: "Test")
-    }
-    func isExecutable(at url: URL) -> Bool { url.lastPathComponent != "mvnw" }
-    func systemMavenExecutable() -> URL? { URL(fileURLWithPath: "/toolchains/maven/bin/mvn") }
-    func mavenExecutable(forHomePath path: String) -> URL? {
-        let url = URL(fileURLWithPath: path)
-        return url.lastPathComponent == "mvn" ? url : url.appendingPathComponent("bin/mvn")
-    }
-    func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? {
-        MavenRuntimeCandidate(
-            homePath: executableURL.deletingLastPathComponent().deletingLastPathComponent().path,
-            executablePath: executableURL.path,
-            version: "3.9.9"
-        )
-    }
-}
-
-private struct NestedMavenWrapperRuntimeLocator: RuntimeLocator {
-    let wrapperRoot: URL
-
-    func environment() -> [String: String] { [:] }
-    func discover() -> RuntimeDiscoveryResult {
-        RuntimeDiscoveryResult(javaRuntimes: [], mavenRuntimes: [])
-    }
-    func validJavaHome(path: String) -> URL? { nil }
-    func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate? { nil }
-    func isExecutable(at url: URL) -> Bool {
-        url.standardizedFileURL == wrapperRoot.appendingPathComponent("mvnw").standardizedFileURL
-    }
-    func systemMavenExecutable() -> URL? { nil }
-    func mavenExecutable(forHomePath path: String) -> URL? { nil }
-    func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
-}
-
-private struct MissingJavaRuntimeLocator: RuntimeLocator {
-    func environment() -> [String: String] { ["PATH": "/usr/bin"] }
-    func discover() -> RuntimeDiscoveryResult {
-        RuntimeDiscoveryResult(javaRuntimes: [], mavenRuntimes: [])
-    }
-    func validJavaHome(path: String) -> URL? { nil }
-    func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate? { nil }
-    func isExecutable(at url: URL) -> Bool { false }
-    func systemMavenExecutable() -> URL? { nil }
-    func mavenExecutable(forHomePath path: String) -> URL? { nil }
-    func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
+    func isExecutable(at url: URL) -> Bool { true }
 }
 
 private struct XcrunOnlyRuntimeLocator: RuntimeLocator {
     func environment() -> [String: String] { ["PATH": "/usr/bin"] }
-    func discover() -> RuntimeDiscoveryResult { RuntimeDiscoveryResult(javaRuntimes: [], mavenRuntimes: []) }
-    func validJavaHome(path: String) -> URL? { nil }
-    func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate? { nil }
     func isExecutable(at url: URL) -> Bool { url.path == "/usr/bin/xcrun" }
-    func systemMavenExecutable() -> URL? { nil }
-    func mavenExecutable(forHomePath path: String) -> URL? { nil }
-    func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
 }
 
 @MainActor
@@ -5502,75 +2805,6 @@ private final class CountingFileStorage: FileStorage, @unchecked Sendable {
 }
 
 final class RunTestDocumentMutator: RunConfigurationDocumentMutating, @unchecked Sendable {
-    func updateOptionsDocument(
-        at projectURL: URL,
-        configurationID: String,
-        scope: RunConfigurationSaveScope,
-        options: JavaRunOptions
-    ) throws -> RunConfigurationDocumentMutation {
-        let url = documentURL(projectURL, scope: scope)
-        var document = readDocument(url)
-        var configurations = document["configurations"] as? [[String: Any]] ?? []
-        let rootPath = projectURL.standardizedFileURL.path + "/"
-        let workingDirectory = options.workingDirectoryPath.hasPrefix(rootPath)
-            ? String(options.workingDirectoryPath.dropFirst(rootPath.count))
-            : (options.workingDirectoryPath.isEmpty ? "." : options.workingDirectoryPath)
-        guard !workingDirectory.split(separator: "/").contains("..") else {
-            throw RunConfigurationOperationFailure(message: "Path leaves project")
-        }
-        let value: [String: Any] = [
-            "id": configurationID,
-            "workingDirectory": workingDirectory,
-            "jvmArguments": split(options.vmArguments),
-            "programArguments": split(options.programArguments),
-            "mavenProfiles": options.activeProfiles.sorted()
-        ]
-        if let index = configurations.firstIndex(where: { $0["id"] as? String == configurationID }) {
-            configurations[index].merge(value) { _, new in new }
-        } else {
-            configurations.append(value)
-        }
-        document["version"] = 1
-        document["configurations"] = configurations.sorted { ($0["id"] as? String ?? "") < ($1["id"] as? String ?? "") }
-        return RunConfigurationDocumentMutation(configurationID: nil, document: try encode(document))
-    }
-
-    func createConfigurationDocument(
-        at projectURL: URL,
-        draft: RunConfigurationDraft
-    ) throws -> RunConfigurationDocumentMutation {
-        let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty,
-              draft.kind == .mavenModule || !draft.mainClass.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !draft.modulePath.split(separator: "/").contains("..") else {
-            throw RunConfigurationOperationFailure(message: "Invalid configuration draft")
-        }
-        let url = documentURL(projectURL, scope: draft.scope)
-        var document = readDocument(url)
-        var configurations = document["configurations"] as? [[String: Any]] ?? []
-        let base = "user:" + name.lowercased().replacingOccurrences(of: " ", with: "-")
-        let ids = Set(configurations.compactMap { $0["id"] as? String })
-        var id = base
-        var suffix = 2
-        while ids.contains(id) { id = "\(base)-\(suffix)"; suffix += 1 }
-        var value: [String: Any] = [
-            "id": id,
-            "name": name,
-            "type": draft.kind == .springBoot ? "spring-boot.maven" : "maven.module",
-            "module": draft.modulePath.isEmpty ? "." : draft.modulePath,
-            "toolchains": ["java": "project-jdk", "maven": "project-maven"],
-            "workingDirectory": ".",
-            "jvmArguments": [],
-            "programArguments": [],
-            "mavenProfiles": []
-        ]
-        if draft.kind == .springBoot { value["mainClass"] = draft.mainClass }
-        configurations.append(value)
-        document["version"] = 1
-        document["configurations"] = configurations
-        return RunConfigurationDocumentMutation(configurationID: id, document: try encode(document))
-    }
-
     private func documentURL(_ root: URL, scope: RunConfigurationSaveScope) -> URL {
         root.appendingPathComponent(scope == .local ? ".lithe/run/local.json" : ".lithe/run/configurations.json")
     }
@@ -5585,6 +2819,37 @@ final class RunTestDocumentMutator: RunConfigurationDocumentMutating, @unchecked
 
     private func encode(_ value: [String: Any]) throws -> Data {
         try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys])
+    }
+
+    func updateOptionsDocument(
+        at projectURL: URL,
+        configurationID: String,
+        scope: RunConfigurationSaveScope,
+        options: RunOptions
+    ) throws -> RunConfigurationDocumentMutation {
+        let url = documentURL(projectURL, scope: scope)
+        var document = readDocument(url)
+        var configurations = document["configurations"] as? [[String: Any]] ?? []
+        let rootPath = projectURL.standardizedFileURL.path + "/"
+        let workingDirectory = options.workingDirectoryPath.hasPrefix(rootPath)
+            ? String(options.workingDirectoryPath.dropFirst(rootPath.count))
+            : (options.workingDirectoryPath.isEmpty ? "." : options.workingDirectoryPath)
+        guard !workingDirectory.split(separator: "/").contains("..") else {
+            throw RunConfigurationOperationFailure(message: "Path leaves project")
+        }
+        let value: [String: Any] = [
+            "id": configurationID,
+            "workingDirectory": workingDirectory,
+            "programArguments": split(options.programArguments)
+        ]
+        if let index = configurations.firstIndex(where: { $0["id"] as? String == configurationID }) {
+            configurations[index].merge(value) { _, new in new }
+        } else {
+            configurations.append(value)
+        }
+        document["version"] = 1
+        document["configurations"] = configurations.sorted { ($0["id"] as? String ?? "") < ($1["id"] as? String ?? "") }
+        return RunConfigurationDocumentMutation(configurationID: nil, document: try encode(document))
     }
 
     private func split(_ input: String) -> [String] {
@@ -5612,14 +2877,6 @@ private final class RunTestKeyValueStore: KeyValueStore, @unchecked Sendable {
     func string(forKey key: String) -> String? { values[key] as? String }
     func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
     func set(_ value: Any?, forKey key: String) { values[key] = value }
-}
-
-private struct RunTestJavaMavenOperations: JavaMavenOperations {
-    func codeVision(at rootURL: URL, targetPath: String, paths: [String]) -> [JavaCodeVisionValue] { [] }
-    func className(source: String, simpleName: String) -> String? { nil }
-    func sourceDefinition(source: String, declarationName: String, memberName: String?) -> (line: Int, utf16Column: Int)? { nil }
-    func serverPort(content: String, fileExtension: String) -> Int? { nil }
-    func structure(source: String, declarationSources: [String]) -> JavaStructureResult? { nil }
 }
 
 @Suite("Core payload decoding")

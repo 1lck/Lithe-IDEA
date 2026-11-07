@@ -11,12 +11,12 @@
         "stage": {
           "type": "token",
           "required": true,
-          "description": "Dependency-tree cleanup target, e.g. current-scratch or abandoned-scratch"
+          "description": "Build scratch cleanup target, e.g. provider-output or abandoned-scratch"
         },
         "error": {
           "type": "error",
           "required": true,
-          "description": "Filesystem error raised while deleting a Maven dependency-tree scratch file"
+          "description": "Filesystem error raised while deleting a build scratch file"
         }
       },
       "rate": 60,

@@ -8098,7 +8098,7 @@
         "macos"
       ],
       "macos": {
-        "key": "Connect to an already running DAP server using the active file's installed debugger. This is not a JVM JDWP or gdbserver port. No proxy or tunnel is created.",
+        "key": "Connect to an already running DAP server using the active file's installed debugger. This is not a gdbserver port. No proxy or tunnel is created.",
         "arguments": []
       }
     },
@@ -28098,18 +28098,18 @@
         "macos"
       ],
       "macos": {
-        "key": "Spaces combine conditions with AND. level>=warn includes WARN and ERROR; level:info is exact. event:, channel: and op: match prefixes. server:jdtls and key:value match field substrings. /regex/ searches messages, ignoring case; - excludes a condition. Use double quotes around values containing spaces. Channel, level and time controls also intersect with the expression. Invalid expressions keep the last valid results.",
+        "key": "Spaces combine conditions with AND. level>=warn includes WARN and ERROR; level:info is exact. event:, channel: and op: match prefixes. server:gopls and key:value match field substrings. /regex/ searches messages, ignoring case; - excludes a condition. Use double quotes around values containing spaces. Channel, level and time controls also intersect with the expression. Invalid expressions keep the last valid results.",
         "arguments": []
       }
     },
     {
       "id": "logs.window.filterServerJdtlsLevelWarnEventLspTraceReceivedRegexOpC0ffee",
-      "description": "macOS log window: Filter: server:jdtls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee",
+      "description": "macOS log window: Filter: server:gopls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "Filter: server:jdtls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee",
+        "key": "Filter: server:gopls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee",
         "arguments": []
       }
     },
@@ -29121,19 +29121,8 @@
       }
     },
     {
-      "id": "macos.buildProvider.jvmDebugPortTimeout",
-      "description": "JVM framework debug listener deadline",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The framework did not open its JVM debug port before the deadline. Check the Run output.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "macos.buildProvider.jvmDebugRemoteUnavailable",
-      "description": "Framework JVM debug needs a local workspace until endpoint forwarding is supported",
+      "id": "macos.buildProvider.serviceDebugRemoteUnavailable",
+      "description": "Framework service debug needs a local workspace until endpoint forwarding is supported",
       "platforms": [
         "macos"
       ],
@@ -30863,17 +30852,6 @@
       }
     },
     {
-      "id": "native.aTerminalIsBusyWhenAProgramOtherThanTheShellStillRunsInItSuchAsASpringBootAppNa88ac3e46a",
-      "description": "Native UI: A terminal is busy when a program other than the shell still runs in it, such as a Spring Boot app, npm run dev or a job you sent to the background. Idle terminals always close without asking. Ending a terminal ends every program started in it.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "A terminal is busy when a program other than the shell still runs in it, such as a Spring Boot app, npm run dev or a job you sent to the background. Idle terminals always close without asking. Ending a terminal ends every program started in it.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.aTerminalSessionIsStillRunning",
       "description": "Native UI: A terminal session is still running.",
       "platforms": [
@@ -31571,17 +31549,6 @@
       ],
       "macos": {
         "key": "Adds Go language-server integration, formatting, running, and test support.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.addsJavaLanguageIntelligenceThroughTheEclipseJDTLanguageServerWithLombokDebuggb2eae07f8b",
-      "description": "Native UI: Adds Java language intelligence through the Eclipse JDT language server, with Lombok, debugging, and test support. Ships its own Java runtime.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Adds Java language intelligence through the Eclipse JDT language server, with Lombok, debugging, and test support. Ships its own Java runtime.",
         "arguments": []
       }
     },
@@ -32481,17 +32448,6 @@
       ],
       "macos": {
         "key": "Allow insecure HTTP",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.allowProjectEnvironmentAndMavenConfigurationChanges",
-      "description": "Native UI: Allow project environment and Maven configuration changes",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Allow project environment and Maven configuration changes",
         "arguments": []
       }
     },
@@ -33811,39 +33767,6 @@
       ],
       "macos": {
         "key": "Authorize in your browser",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.authorizeThisProjectToExposeEnvironmentMavenRunConfigurationsAndOutputToConnec6e24e4763f",
-      "description": "Native UI: Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.authorizeThisProjectToExposeEnvironmentMavenRunConfigurationsAndOutputToConnecb6f617e865",
-      "description": "Native UI: Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes. Enabled plugins can also use this project grant.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes. Enabled plugins can also use this project grant.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.authorizeThisProjectToExposeEnvironmentMavenRunConfigurationsAndOutputToConnece4d5e32bce",
-      "description": "Native UI: Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes, and the project-level server registration is removed. Enabled plugins can also use this project grant.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes, and the project-level server registration is removed. Enabled plugins can also use this project grant.",
         "arguments": []
       }
     },
@@ -39040,13 +38963,13 @@
       }
     },
     {
-      "id": "native.configureProjectJDKAndMaven",
-      "description": "Native UI: Configure project JDK and Maven…",
+      "id": "native.configureRuntimeEnvironment",
+      "description": "Native UI: run configuration editor link to the runtime environment settings",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "Configure project JDK and Maven…",
+        "key": "Configure runtime environment…",
         "arguments": []
       }
     },
@@ -39222,17 +39145,6 @@
       ],
       "macos": {
         "key": "Connected",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.connectedAgentsCanChangeTheProjectJDKMavenAndRunConfigurationSettings",
-      "description": "Native UI: Connected agents can change the project JDK, Maven and run configuration settings.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Connected agents can change the project JDK, Maven and run configuration settings.",
         "arguments": []
       }
     },
@@ -39667,6 +39579,17 @@
       ],
       "macos": {
         "key": "Controls where Step Into stops. Changes apply to the next Java debug session.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.controlsWhereStepIntoStopsNextSession",
+      "description": "Native UI: Controls where Step Into stops. Changes apply to the next debug session of this debugger.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Controls where Step Into stops. Changes apply to the next debug session of this debugger.",
         "arguments": []
       }
     },
@@ -40648,6 +40571,22 @@
       }
     },
     {
+      "id": "native.couldNotSave",
+      "description": "Native UI: Could not save %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not save %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.couldNotSaveAccessToTheSelectedBackgroundImage",
       "description": "Native UI: Could not save access to the selected background image.",
       "platforms": [
@@ -40686,6 +40625,17 @@
       },
       "parameters": {
         "arg1": "string"
+      }
+    },
+    {
+      "id": "native.couldNotStartDebugging",
+      "description": "Native UI: Could not start debugging",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not start debugging",
+        "arguments": []
       }
     },
     {
@@ -43532,6 +43482,38 @@
       ],
       "macos": {
         "key": "%@ does not provide archived conversations.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.doesNotProvideDebugging",
+      "description": "Native UI: %@ does not provide debugging",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ does not provide debugging",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.doesNotProvideProjectExecution",
+      "description": "Native UI: %@ does not provide project execution",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ does not provide project execution",
         "arguments": [
           "arg1"
         ]
@@ -51997,28 +51979,6 @@
       }
     },
     {
-      "id": "native.javaSteppingFilters",
-      "description": "Native UI: Java Stepping Filters",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Java Stepping Filters",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.javaSteppingFilters2",
-      "description": "Native UI: Java Stepping Filters…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Java Stepping Filters…",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.javaTestDiscoveryIsNotSupportedByThis",
       "description": "Native UI: Java test discovery is not supported by this language server.",
       "platforms": [
@@ -55572,17 +55532,6 @@
       }
     },
     {
-      "id": "native.lookingForInstalledJDKs",
-      "description": "Native UI: Looking for installed JDKs…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Looking for installed JDKs…",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.lookingForInstalledTools",
       "description": "Native UI: Looking for installed tools…",
       "platforms": [
@@ -59049,17 +58998,6 @@
       }
     },
     {
-      "id": "native.noJDKWasFoundInstallAJDKThenReopenThisWindow",
-      "description": "Native UI: No JDK was found. Install a JDK, then reopen this window.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No JDK was found. Install a JDK, then reopen this window.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.noJVMPerformanceSamplesReceivedFor10Seconds",
       "description": "Native UI: No JVM performance samples received for 10 seconds.",
       "platforms": [
@@ -60906,6 +60844,17 @@
       ],
       "macos": {
         "key": "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.onePatternPerLineDebuggerDefinesSyntax",
+      "description": "Native UI: One pattern per line. The debugger defines the pattern syntax.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "One pattern per line. The debugger defines the pattern syntax.",
         "arguments": []
       }
     },
@@ -68303,6 +68252,22 @@
       }
     },
     {
+      "id": "native.returnedAnInvalidExecutionProvider",
+      "description": "Native UI: %@ returned an invalid execution provider",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ returned an invalid execution provider",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.returnedAnInvalidLanguageServerProvider",
       "description": "Native UI: %@ returned an invalid language-server provider.",
       "platforms": [
@@ -68922,17 +68887,6 @@
       ],
       "macos": {
         "key": "Run configurations",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.runConfigurationsAndMavenGoalsStartedInLitheTheyAlwaysStopWhenTheirProjectOrWi2085dbd360",
-      "description": "Native UI: Run configurations and Maven goals started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Run configurations and Maven goals started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first.",
         "arguments": []
       }
     },
@@ -70157,17 +70111,6 @@
       ],
       "macos": {
         "key": "Search in Project",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.searchJDKs",
-      "description": "Native UI: Search JDKs",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Search JDKs",
         "arguments": []
       }
     },
@@ -73855,6 +73798,28 @@
       }
     },
     {
+      "id": "native.steppingFilters",
+      "description": "Native UI: Stepping Filters",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stepping Filters",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.steppingFilters2",
+      "description": "Native UI: Stepping Filters…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stepping Filters…",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.stopActiveExecution",
       "description": "Native UI: Stop active execution",
       "platforms": [
@@ -76247,6 +76212,17 @@
       ],
       "macos": {
         "key": "The field value is invalid or exceeds 1024 UTF-8 bytes.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theFileChangedWhilePreparingToStartTryAgain",
+      "description": "Native UI: The file changed while preparing to start. Try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file changed while preparing to start. Try again.",
         "arguments": []
       }
     },
@@ -86952,28 +86928,6 @@
       }
     },
     {
-      "id": "plugins.java.installNotice",
-      "description": "macOS Java Support independent distribution installation entry",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "plugins.java.installTemplates",
-      "description": "macOS Java Support independent distribution installation entry",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Install Java Support for Java, Maven and Spring templates…",
-        "arguments": []
-      }
-    },
-    {
       "id": "plugins.title",
       "description": "Windows UI: plugins.title",
       "platforms": [
@@ -94145,13 +94099,68 @@
       }
     },
     {
-      "id": "settings.network.info.scope",
-      "description": "Native UI: These settings apply to Lithe's own requests: the plugin marketplace, GitHub and AI providers. Terminal commands, Git, JVM dependency downloads and the built-in updater keep their own network settings; the updater always follows the system proxy. Changes apply to new requests.",
+      "id": "settings.mcp.info.projectAccess",
+      "description": "Native UI: Authorize this project to expose its environment, build tools, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes, and the project-level server registration is removed. Enabled plugins can also use this project grant.",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "These settings apply to Lithe's own requests: the plugin marketplace, GitHub and AI providers. Terminal commands, Git, JVM dependency downloads and the built-in updater keep their own network settings; the updater always follows the system proxy. Changes apply to new requests.",
+        "key": "Authorize this project to expose its environment, build tools, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes, and the project-level server registration is removed. Enabled plugins can also use this project grant.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.mcp.allowConfigure.title",
+      "description": "Native UI: Allow project environment and build configuration changes",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Allow project environment and build configuration changes",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.mcp.allowConfigure.info",
+      "description": "Native UI: Connected agents can change the project toolchain, build and run configuration settings.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connected agents can change the project toolchain, build and run configuration settings.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.processTermination.info.runConfigurations",
+      "description": "Native UI: Run configurations and build tasks started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Run configurations and build tasks started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.processTermination.info.terminals",
+      "description": "Native UI: A terminal is busy when a program other than the shell still runs in it, such as a dev server, npm run dev or a job you sent to the background. Idle terminals always close without asking. Ending a terminal ends every program started in it.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A terminal is busy when a program other than the shell still runs in it, such as a dev server, npm run dev or a job you sent to the background. Idle terminals always close without asking. Ending a terminal ends every program started in it.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.network.info.scope",
+      "description": "Native UI: These settings apply to Lithe's own requests: the plugin marketplace, GitHub and AI providers. Terminal commands, Git, build tool dependency downloads and the built-in updater keep their own network settings; the updater always follows the system proxy. Changes apply to new requests.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "These settings apply to Lithe's own requests: the plugin marketplace, GitHub and AI providers. Terminal commands, Git, build tool dependency downloads and the built-in updater keep their own network settings; the updater always follows the system proxy. Changes apply to new requests.",
         "arguments": []
       }
     },

@@ -10,17 +10,18 @@ import Testing
 struct PluginLanguageServerLaunchResolverTests {
     @Test
     func apiLevelTwoDescriptorStartsTheRuntimeAndExpandsTemplates() throws {
-        let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: javaFixtureManifest())
+        let descriptor = try DeclarativePluginTestSupport.operations.validate(
+            manifest: fixtureManifest("node-runtime.plugin.json")
+        )
         let server = try #require(descriptor.languageServers.first)
 
         #expect(server.launch == .runtime(
-            tool: "java",
-            entryRelativePath: "language-server/plugins/org.eclipse.equinox.launcher.jar",
-            packagedRuntime: "runtime/${arch}/bin/java"
+            tool: "node",
+            entryRelativePath: "language-server/lib/server.js",
+            packagedRuntime: nil
         ))
-        #expect(server.hostIntegrationID == "jdt")
         // The runtime is the process the host discovers and starts.
-        #expect(server.executableNames == ["java"])
+        #expect(server.executableNames == ["node"])
         #expect(server.expandsLaunchTemplates)
         #expect(server.packagedRelativePath == nil)
     }
@@ -132,56 +133,6 @@ struct PluginLanguageServerLaunchResolverTests {
         await writer.finishSession()
     }
 
-    /// The Java plugin's JDT LS files reach the shared JDT launch only through
-    /// what the plugin declares; nothing is looked up in the app or on the Mac.
-    @Test
-    func theJdtIntegrationReceivesExactlyTheDeclaredPackageFiles() throws {
-        let root = temporaryRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let fixture = try makeFixture(root: root)
-        let package = fixture.source.packageURL
-        let architecture = MacPluginLanguageServerLaunchResolver.hostArchitecture
-
-        let integration = try #require(try fixture.resolver.hostIntegration(for: fixture.source))
-        let resources = try MacJdtLaunchResources().resources(from: integration, javaRuntimes: [])
-
-        #expect(integration.id == MacJdtHostIntegration.integrationID)
-        #expect(resources.launcherJarURL == package.appendingPathComponent(
-            "language-server/plugins/org.eclipse.equinox.launcher.jar"
-        ))
-        // The packaged directory itself: Rust Core makes the writable copy.
-        #expect(resources.configurationDirectoryURL.path
-            == package.appendingPathComponent("language-server/configuration/\(architecture)").path)
-        #expect(resources.lombokAgentURL == package.appendingPathComponent("language-server/lombok/lombok.jar"))
-        // Declared directory order first, then file name; non-JAR files are ignored.
-        #expect(resources.javaExtensionBundleURLs.map(\.lastPathComponent) == [
-            "com.microsoft.java.debug.plugin.jar", "a-extension.jar", "b-extension.jar"
-        ])
-        #expect(resources.javaTestRunnerURL == package.appendingPathComponent(
-            "language-server/java-test/runner/runner.jar"
-        ))
-        // Locating the files must not create plugin state.
-        #expect(!FileManager.default.fileExists(atPath: fixture.directories.rootURL.path))
-    }
-
-    @Test
-    func theGenericLaunchOfTheJavaPluginStartsItsEntryWithoutStateDirectories() throws {
-        let root = temporaryRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let fixture = try makeFixture(root: root)
-
-        let resolved = try fixture.resolver.resolve(fixture.source, workspaceRootURL: fixture.workspaceURL)
-
-        #expect(resolved.arguments == [
-            "-Dfile.encoding=UTF-8",
-            "-jar",
-            fixture.source.packageURL.appendingPathComponent(
-                "language-server/plugins/org.eclipse.equinox.launcher.jar"
-            ).path
-        ])
-        #expect(!FileManager.default.fileExists(atPath: fixture.directories.rootURL.path))
-    }
-
     /// What the user stored for a setting reaches the server command line, and
     /// a boolean setting stays a boolean in the initialization options.
     @Test
@@ -242,12 +193,12 @@ struct PluginLanguageServerLaunchResolverTests {
         let directories = MacPluginStateDirectories(rootURL: temporaryRoot())
         let first = directories.workspaceStateDirectory(
             pluginID: "dev.example.plugin",
-            languageID: "java",
+            languageID: "fixture",
             workspaceRootURL: URL(fileURLWithPath: "/projects/one")
         )
         let second = directories.workspaceStateDirectory(
             pluginID: "dev.example.plugin",
-            languageID: "java",
+            languageID: "fixture",
             workspaceRootURL: URL(fileURLWithPath: "/projects/two")
         )
 
@@ -261,11 +212,11 @@ struct PluginLanguageServerLaunchResolverTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeFixture(root: root)
         try FileManager.default.removeItem(
-            at: fixture.source.packageURL.appendingPathComponent("language-server/lombok/lombok.jar")
+            at: fixture.source.packageURL.appendingPathComponent("language-server/lib/server.js")
         )
 
         #expect(throws: MacPluginLanguageServerLaunchResolver.ResolutionError.missingPackagePath(
-            "language-server/lombok/lombok.jar"
+            "language-server/lib/server.js"
         )) {
             try fixture.resolver.resolve(fixture.source, workspaceRootURL: fixture.workspaceURL)
         }
@@ -279,23 +230,23 @@ struct PluginLanguageServerLaunchResolverTests {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeFixture(root: root)
-        let lombok = fixture.source.packageURL.appendingPathComponent("language-server/lombok/lombok.jar")
-        let outside = root.appendingPathComponent("outside.jar")
+        let entry = fixture.source.packageURL.appendingPathComponent("language-server/lib/server.js")
+        let outside = root.appendingPathComponent("outside.js")
         try Data("outside".utf8).write(to: outside)
-        try FileManager.default.removeItem(at: lombok)
-        try FileManager.default.createSymbolicLink(at: lombok, withDestinationURL: outside)
+        try FileManager.default.removeItem(at: entry)
+        try FileManager.default.createSymbolicLink(at: entry, withDestinationURL: outside)
 
         #expect(throws: MacPluginLanguageServerLaunchResolver.ResolutionError.packagePathOutsidePackage(
-            "language-server/lombok/lombok.jar"
+            "language-server/lib/server.js"
         )) {
             try fixture.resolver.resolve(fixture.source, workspaceRootURL: fixture.workspaceURL)
         }
     }
 
-    /// The plugin ships its own runtime, so the host is told where it is
-    /// inside the package instead of looking for `java` on the machine.
+    /// A runtime the plugin does not ship is discovered on the machine, so the
+    /// probe carries its version requirement and no location inside the package.
     @Test
-    func theRuntimeShippedByThePluginIsPinnedInsideItsPackage() throws {
+    func aDiscoveredRuntimeIsProbedForItsVersionWithoutAPackagedLocation() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try makeFixture(root: root)
@@ -303,34 +254,33 @@ struct PluginLanguageServerLaunchResolverTests {
         let probe = try fixture.resolver.executableProbe(for: fixture.source)
 
         #expect(probe.validationArguments.isEmpty)
-        #expect(probe.versionRequirement == nil)
-        #expect(probe.packagedRuntimeURL == fixture.source.packageURL.appendingPathComponent(
-            "runtime/\(MacPluginLanguageServerLaunchResolver.hostArchitecture)/bin/java"
-        ).standardizedFileURL)
+        #expect(probe.versionRequirement?.tool == "node")
+        #expect(probe.versionRequirement?.minimumVersion == "18.17")
+        #expect(probe.packagedRuntimeURL == nil)
         // Expanding the probe needs no workspace and must not create state.
         #expect(!FileManager.default.fileExists(atPath: fixture.directories.rootURL.path))
     }
 
-    /// A JDK older than the plugin requires must not be offered, even when it
-    /// is first on PATH; the first runtime that qualifies is used.
+    /// A runtime older than the plugin requires must not be offered, even when
+    /// it is first on PATH; the first runtime that qualifies is used.
     @MainActor
     @Test
     func runtimeCandidatesBelowTheMinimumVersionAreNotUsed() async {
-        let old = URL(fileURLWithPath: "/jdks/17/bin/java")
-        let stub = URL(fileURLWithPath: "/usr/bin/java")
-        let current = URL(fileURLWithPath: "/jdks/21/bin/java")
+        let old = URL(fileURLWithPath: "/runtimes/16/bin/node")
+        let stub = URL(fileURLWithPath: "/usr/bin/node")
+        let current = URL(fileURLWithPath: "/runtimes/20/bin/node")
         let runner = VersionProbeRunner(outputs: [
-            old.path: (0, "openjdk 17.0.11 2024-04-16"),
-            stub.path: (1, "Unable to locate a Java Runtime."),
-            current.path: (0, "openjdk 21.0.12 2026-07-15 LTS")
+            old.path: (0, "v16.20.2"),
+            stub.path: (1, "node: command not found"),
+            current.path: (0, "v20.11.0")
         ])
         let service = LanguageServerToolService(
-            runtimeService: FixedLanguageToolRuntime(candidates: ["java": [old, stub, current]]),
+            runtimeService: FixedLanguageToolRuntime(candidates: ["node": [old, stub, current]]),
             commandRunner: runner,
             settingsStore: MemoryLanguageToolSettings(),
             versionChecker: DeclarativePluginTestSupport.operations
         )
-        let descriptor = javaRuntimeDescriptor()
+        let descriptor = discoveredRuntimeDescriptor()
 
         // Nothing is offered before the probe ran.
         #expect(service.candidates(for: descriptor).isEmpty)
@@ -347,19 +297,19 @@ struct PluginLanguageServerLaunchResolverTests {
     @MainActor
     @Test
     func aCustomRuntimeBelowTheMinimumVersionIsRejectedWithTheReason() async {
-        let old = URL(fileURLWithPath: "/jdks/17/bin/java")
+        let old = URL(fileURLWithPath: "/runtimes/16/bin/node")
         let service = LanguageServerToolService(
             runtimeService: FixedLanguageToolRuntime(candidates: [:]),
-            commandRunner: VersionProbeRunner(outputs: [old.path: (0, "openjdk 17.0.11 2024-04-16")]),
+            commandRunner: VersionProbeRunner(outputs: [old.path: (0, "v16.20.2")]),
             settingsStore: MemoryLanguageToolSettings(),
             versionChecker: DeclarativePluginTestSupport.operations
         )
 
         await #expect(throws: LanguageServerToolConfigurationError.executableValidationFailed(
             path: old.path,
-            message: "java 17.0.11 is older than the required 21."
+            message: "node 16.20.2 is older than the required 18.17."
         )) {
-            try await service.setCustomExecutablePath(old.path, for: javaRuntimeDescriptor())
+            try await service.setCustomExecutablePath(old.path, for: discoveredRuntimeDescriptor())
         }
     }
 
@@ -418,7 +368,7 @@ struct PluginLanguageServerLaunchResolverTests {
         session.onStateChange = { states.append($0) }
 
         #expect(throws: LanguageServerSessionStartError.self) {
-            try session.start(rootURL: URL(fileURLWithPath: "/projects/one"), workspaceFingerprint: nil)
+            try session.start(rootURL: URL(fileURLWithPath: "/projects/one"))
         }
         #expect(!session.isRunning)
         guard case .failed(let failure)? = states.last else {
@@ -458,7 +408,7 @@ struct PluginLanguageServerLaunchResolverTests {
         ))
 
         #expect(throws: LanguageServerSessionStartError.self) {
-            try session.start(rootURL: URL(fileURLWithPath: "/projects/one"), workspaceFingerprint: nil)
+            try session.start(rootURL: URL(fileURLWithPath: "/projects/one"))
         }
         session.stop()
 
@@ -492,7 +442,7 @@ struct PluginLanguageServerLaunchResolverTests {
 
         #expect(await session.stopAndWait())
         #expect(throws: LanguageServerSessionStartError.self) {
-            try session.start(rootURL: URL(fileURLWithPath: "/projects/one"), workspaceFingerprint: nil)
+            try session.start(rootURL: URL(fileURLWithPath: "/projects/one"))
         }
 
         #expect(operations.observations.isEmpty)
@@ -568,38 +518,26 @@ struct PluginLanguageServerLaunchResolverTests {
         let workspaceURL: URL
     }
 
-    /// Files each fixture manifest points at. A trailing `/` marks a directory.
-    private func declaredFiles(_ manifest: String) -> [String] {
+    /// Files the fixture manifest points at. A trailing `/` marks a directory.
+    private func declaredFiles() -> [String] {
         let architecture = MacPluginLanguageServerLaunchResolver.hostArchitecture
-        return manifest == "node-runtime.plugin.json"
-            ? [
-                "language-server/lib/server.js",
-                "language-server/lib/preload.js",
-                "language-server/stubs/\(architecture)/"
-            ]
-            : [
-                "language-server/lombok/lombok.jar",
-                "language-server/plugins/org.eclipse.equinox.launcher.jar",
-                "language-server/configuration/\(architecture)/config.ini",
-                "language-server/java-debug/com.microsoft.java.debug.plugin.jar",
-                "language-server/java-debug/LICENSE.txt",
-                "language-server/java-test/extensions/b-extension.jar",
-                "language-server/java-test/extensions/a-extension.jar",
-                "language-server/java-test/runner/runner.jar",
-                "runtime/\(architecture)/bin/java"
-            ]
+        return [
+            "language-server/lib/server.js",
+            "language-server/lib/preload.js",
+            "language-server/stubs/\(architecture)/"
+        ]
     }
 
     private func makeFixture(
         root: URL,
-        manifest: String = "language-host-integration.plugin.json",
-        languageID: String = "java",
+        manifest: String = "node-runtime.plugin.json",
+        languageID: String = "fixture",
         settings: any PluginSettingsStoring = InMemoryPluginSettings()
     ) throws -> Fixture {
         let operations = DeclarativePluginTestSupport.operations
         let descriptor = try operations.validate(manifest: fixtureManifest(manifest))
         let packageURL = root.appendingPathComponent("package", isDirectory: true)
-        for relativePath in declaredFiles(manifest) {
+        for relativePath in declaredFiles() {
             let url = packageURL.appendingPathComponent(relativePath)
             if relativePath.hasSuffix("/") {
                 try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -629,26 +567,22 @@ struct PluginLanguageServerLaunchResolverTests {
         )
     }
 
-    private func javaRuntimeDescriptor() -> LanguageProviderDescriptor {
+    private func discoveredRuntimeDescriptor() -> LanguageProviderDescriptor {
         LanguageProviderDescriptor(
-            id: "java",
-            displayName: "Java",
-            fileExtensions: ["java"],
+            id: "fixture",
+            displayName: "Fixture",
+            fileExtensions: ["fixture"],
             capabilities: .languageServer,
             activationPolicy: .onDemand,
             languageServerLaunch: LanguageServerLaunchDescriptor(
-                executableNames: ["java"],
+                executableNames: ["node"],
                 executableVersionRequirement: LanguageServerExecutableVersionRequirement(
-                    tool: "java",
-                    minimumVersion: "21",
+                    tool: "node",
+                    minimumVersion: "18.17",
                     probeArguments: ["--version"]
                 )
             )
         )
-    }
-
-    private func javaFixtureManifest() throws -> Data {
-        try fixtureManifest("language-host-integration.plugin.json")
     }
 
     private func fixtureManifest(_ name: String) throws -> Data {

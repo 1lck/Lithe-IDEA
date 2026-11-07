@@ -46,11 +46,6 @@ extension AppModel {
         set { workbenchFeature.setVisibility(.problems, isVisible: newValue) }
     }
 
-    var isSpringVisible: Bool {
-        get { workbenchFeature.isVisible(.spring) }
-        set { workbenchFeature.setVisibility(.spring, isVisible: newValue) }
-    }
-
     var isDebugVisible: Bool {
         get { workbenchFeature.isVisible(.debug) }
         set { workbenchFeature.setVisibility(.debug, isVisible: newValue) }

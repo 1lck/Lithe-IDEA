@@ -8,7 +8,6 @@ import Testing
 @Suite("New project generation")
 @MainActor
 struct ProjectGenerationTests {
-    private static let javaSupportDirectory = "JavaSupport"
     /// The published projectGenerators 2 fixture: `python-app` asks for a
     /// `python` tool of at least 3.11, `node-app` for an optional `node` tool.
     private static let toolFieldPluginID = PluginID("dev.lithe.fixture.project-generator-tool-field")
@@ -21,168 +20,8 @@ struct ProjectGenerationTests {
     private static let python312 = ProjectToolInstallation(
         home: "/opt/python-3.12", executable: "/opt/python-3.12/bin/python3", version: "3.12.4"
     )
-    /// Generator-only copy of Java Support's entries, so window tests can
-    /// keep the template plugin and the language provider apart the way a
-    /// community template plugin would be.
-    private static let templatesPluginID = PluginID("dev.lithe.test.java-templates")
-    private static let jdk = JavaRuntimeCandidate(homePath: "/opt/jdk-21", version: "21.0.4", vendor: "Temurin")
-
-    // MARK: Plugin declaration
-
-    @Test
-    func javaSupportDeclaresGeneratorsAndItsOwnModule() throws {
-        let descriptor = try DeclarativePluginDescriptor(
-            normalizedManifest: DeclarativePluginTestSupport.officialDescriptor(Self.javaSupportDirectory).normalizedManifest,
-            enabledByDefault: true
-        )
-        #expect(descriptor.projectGenerators.map(\.id) == ["java", "maven-archetype", "spring-boot"])
-        let module = try #require(descriptor.pluginManifest.modules.first {
-            $0.manifest.id == .projectGeneratorsExtension(descriptor.id.rawValue)
-        })
-        // The window runs without a workspace, and a bundled package is on
-        // from the first launch.
-        #expect(module.manifest.scope == .application)
-        #expect(module.manifest.defaultState == .enabled)
-        let capabilities = PluginCapability.capabilities(of: descriptor.pluginManifest, descriptor: descriptor)
-        #expect(capabilities.filter { $0.kind == .projectGenerator }.map(\.title) == ["Java", "Maven Archetype", "Spring Boot"])
-    }
-
-    /// Startup refuses a plugin that declares a module the host does not
-    /// register, so every Java Support module, the project-generators one
-    /// included, needs a factory.
-    @Test
-    func everyJavaSupportModuleIsRegisteredAtStartup() throws {
-        let directory = Self.javaSupportDirectory
-        let descriptor = try DeclarativePluginTestSupport.officialDescriptor(directory)
-        let installed = InstalledPluginPackage(
-            descriptor: descriptor,
-            installation: PluginInstallationRecord(
-                pluginID: descriptor.id,
-                activeVersion: descriptor.pluginManifest.version,
-                origin: .localDevelopment
-            ),
-            packageURL: DeclarativePluginTestSupport.officialPackageURL(directory)
-        )
-        let registered = Set(MacServiceContainer.declarativePluginFactories(
-            [installed],
-            executionHost: MacLanguageExecutionHost(processRegistry: ManagedProcessRegistry()),
-            planner: DeclarativePluginTestSupport.operations
-        ).map(\.manifest.id))
-        #expect(registered.contains(.projectGeneratorsExtension(descriptor.id.rawValue)))
-        #expect(Set(descriptor.pluginManifest.modules.map(\.manifest.id)).isSubset(of: registered))
-    }
-
-    // MARK: Rust Core
-
-    @Test
-    func catalogListsProvidersOfEachRequirement() throws {
-        let split = try Self.splitJavaSupport()
-        let catalog = try Self.planner.catalog([
-            split.templates,
-            split.language.with(enabled: false),
-        ])
-        #expect(catalog.generators.map(\.generator.id) == ["java", "maven-archetype", "spring-boot"])
-        let java = try #require(catalog.generators.first)
-        #expect(java.generator.section == .project)
-        #expect(java.requirements.first?.subject == .language("java"))
-        #expect(java.requirements.first?.providers == [
-            ProjectRequirementProvider(pluginID: "dev.lithe.plugin.java-support", pluginName: "Java Support", enabled: false)
-        ])
-        // No installed plugin declares the Maven build system.
-        #expect(java.requirements.dropFirst().allSatisfy { $0.providers.isEmpty })
-    }
-
-    @Test
-    func bundledJavaSupportProvidesTheLanguageItsTemplatesNeed() throws {
-        let catalog = try Self.planner.catalog([try Self.source(Self.javaSupportDirectory, enabled: true)])
-        let java = try #require(catalog.generators.first)
-        #expect(java.pluginEnabled)
-        #expect(java.requirements.first?.providers == [
-            ProjectRequirementProvider(pluginID: "dev.lithe.plugin.java-support", pluginName: "Java Support", enabled: true)
-        ])
-    }
-
-    @Test
-    func formDerivesDefaultsAndHidesFieldsOfOtherBuildSystems() throws {
-        let target = try Self.target("spring-boot")
-        var input = ProjectGeneratorFormInput(projectName: "Order-Service")
-        input.runtimes["jdk"] = ProjectRuntimeSelection(home: Self.jdk.homePath, version: Self.jdk.version)
-        let form = try Self.planner.form(target, input: input)
-        #expect(form.field("artifactId")?.value == .string("Order-Service"))
-        #expect(form.field("packageName")?.value == .string("com.example.orderservice"))
-        #expect(form.valid)
-
-        let java = try Self.planner.form(
-            try Self.target("java"),
-            input: ProjectGeneratorFormInput(projectName: "demo", values: ["buildSystem": .string("none")])
-        )
-        #expect(java.field("groupId")?.visible == false)
-        #expect(java.field("jdk")?.problem == .required)
-    }
 
     // MARK: Creating projects
-
-    @Test
-    func createsAMavenProjectFromTemplates() async throws {
-        let directory = try TemporaryDirectory()
-        defer { directory.remove() }
-        let recorder = JavaHomeRecorder()
-        let service = Self.service(recorder: recorder)
-        var input = ProjectGeneratorFormInput(projectName: "demo")
-        input.runtimes["jdk"] = ProjectRuntimeSelection(home: Self.jdk.homePath, version: Self.jdk.version)
-
-        let project = try await service.create(
-            try Self.target("java"), input: input, in: directory.url, createGitRepository: false
-        )
-
-        let root = directory.url.appendingPathComponent("demo")
-        #expect(project.url.path == root.path)
-        let pom = try String(contentsOf: root.appendingPathComponent("pom.xml"), encoding: .utf8)
-        #expect(pom.contains("<maven.compiler.release>21</maven.compiler.release>"))
-        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(".gitignore").path))
-        #expect(project.openFiles.map(\.path) == [root.appendingPathComponent("src/main/java/org/example/Main.java").path])
-        #expect(await recorder.records == [Record(root: root.path, home: Self.jdk.homePath)])
-        #expect(try Self.stagingEntries(in: directory.url).isEmpty)
-    }
-
-    @Test
-    func collectsTheDirectoryAScaffoldingToolCreated() async throws {
-        let directory = try TemporaryDirectory()
-        defer { directory.remove() }
-        let runner = ScaffoldingRunner(creates: "demo/pom.xml")
-        let service = Self.service(runner: runner)
-        var input = ProjectGeneratorFormInput(projectName: "demo")
-        input.runtimes["jdk"] = ProjectRuntimeSelection(home: Self.jdk.homePath, version: Self.jdk.version)
-
-        _ = try await service.create(
-            try Self.target("maven-archetype"), input: input, in: directory.url, createGitRepository: false
-        )
-
-        let request = try #require(runner.requests.first)
-        #expect(request.executableURL.path == "/usr/local/bin/mvn")
-        #expect(request.environment["JAVA_HOME"] == Self.jdk.homePath)
-        #expect(request.environment["PATH"]?.hasPrefix(Self.jdk.homePath + "/bin:") == true)
-        #expect(request.arguments.contains("-DartifactId=demo"))
-        let root = directory.url.appendingPathComponent("demo")
-        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("pom.xml").path))
-        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("demo").path))
-    }
-
-    @Test
-    func aFailedStepLeavesNothingBehind() async throws {
-        let directory = try TemporaryDirectory()
-        defer { directory.remove() }
-        let service = Self.service(runner: ScaffoldingRunner(creates: "demo/pom.xml", exitStatus: 1))
-        var input = ProjectGeneratorFormInput(projectName: "demo")
-        input.runtimes["jdk"] = ProjectRuntimeSelection(home: Self.jdk.homePath, version: Self.jdk.version)
-
-        await #expect(throws: ProjectGenerationError.self) {
-            try await service.create(
-                try Self.target("maven-archetype"), input: input, in: directory.url, createGitRepository: false
-            )
-        }
-        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.url.path).isEmpty)
-    }
 
     @Test
     func refusesAnExistingDestination() async throws {
@@ -197,32 +36,6 @@ struct ProjectGenerationTests {
         }
         #expect(try String(contentsOf: existing.appendingPathComponent("notes.txt"), encoding: .utf8) == "keep")
         #expect(try Self.stagingEntries(in: directory.url).isEmpty)
-    }
-
-    @Test
-    func extractsADownloadedArchive() async throws {
-        let directory = try TemporaryDirectory()
-        defer { directory.remove() }
-        let archive = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("macos/Tests/LitheTests/Fixtures/ProjectGeneration/starter.zip")
-        let platform = DownloadStubPlatform(base: Self.platform(), archive: archive)
-        let service = ProjectGenerationService(
-            planner: Self.planner, platform: platform,
-            initializeGitRepository: { _ in nil }, recordJavaHome: { _, _ in }
-        )
-        var input = ProjectGeneratorFormInput(projectName: "demo")
-        input.runtimes["jdk"] = ProjectRuntimeSelection(home: Self.jdk.homePath, version: Self.jdk.version)
-
-        let project = try await service.create(
-            try Self.target("spring-boot"), input: input, in: directory.url, createGitRepository: false
-        )
-
-        #expect(platform.requestedURL?.host == "start.spring.io")
-        let mvnw = project.url.appendingPathComponent("mvnw").path
-        #expect(FileManager.default.isExecutableFile(atPath: mvnw))
-        #expect(project.openFiles.map(\.path) == [project.url.appendingPathComponent("pom.xml").path])
-        // The downloaded copy is removed after extraction.
-        #expect(!FileManager.default.fileExists(atPath: platform.downloadedCopy?.path ?? "/nonexistent"))
     }
 
     // MARK: Downloading archives
@@ -259,77 +72,6 @@ struct ProjectGenerationTests {
         } catch let error as ProjectGenerationError {
             #expect(error.message.hasSuffix("status 500. "))
         }
-    }
-
-    // MARK: Window state
-
-    @Test
-    func missingJavaTemplatesOfferAnInstallationEntry() throws {
-        let missing = NewProjectFeatureModel(environment: try Self.environment(plugins: PluginStates(enabled: []), sources: []))
-        missing.reloadCatalog()
-        #expect(missing.isJavaSupportMissing)
-        let installed = NewProjectFeatureModel(environment: try Self.environment(
-            plugins: PluginStates(enabled: []), sources: [try Self.source(Self.javaSupportDirectory, enabled: false)]
-        ))
-        installed.reloadCatalog()
-        #expect(!installed.isJavaSupportMissing)
-    }
-
-    @Test
-    func offersToEnableDisabledProvidersAndFindsMissingOnes() async throws {
-        let plugins = PluginStates(enabled: [Self.templatesPluginID])
-        let feature = NewProjectFeatureModel(environment: try Self.environment(plugins: plugins))
-        await feature.load()
-        #expect(feature.selectedEntry?.generator.id == "java")
-        #expect(feature.requirementNotices.map(\.action) == [
-            .enable(PluginID("dev.lithe.plugin.java-support"), name: "Java Support"),
-            .findInMarketplace("maven"),
-        ])
-        // A requirement never blocks creation.
-        #expect(feature.canCreate)
-
-        await feature.enablePlugin(PluginID("dev.lithe.plugin.java-support"))
-        #expect(feature.requirementNotices.map(\.action) == [.findInMarketplace("maven")])
-    }
-
-    @Test
-    func aDisabledTemplatePluginMustBeEnabledBeforeCreating() async throws {
-        let feature = NewProjectFeatureModel(environment: try Self.environment(plugins: PluginStates(enabled: [])))
-        await feature.load()
-        #expect(feature.selectedEntry?.pluginEnabled == false)
-        #expect(!feature.canCreate)
-
-        await feature.enablePlugin(Self.templatesPluginID)
-        #expect(feature.selectedEntry?.pluginEnabled == true)
-        #expect(feature.canCreate)
-    }
-
-    @Test
-    func aDisabledJavaSupportIsOfferedOnceForItsOwnTemplates() async throws {
-        let javaSupport = try Self.source(Self.javaSupportDirectory, enabled: true)
-        let environment = try Self.environment(plugins: PluginStates(enabled: []), sources: [javaSupport])
-        let feature = NewProjectFeatureModel(environment: environment)
-        await feature.load()
-        #expect(feature.selectedEntry?.pluginEnabled == false)
-        // The Java requirement is Java Support itself, so only the Maven
-        // build system is left to find.
-        #expect(feature.requirementNotices.map(\.action) == [.findInMarketplace("maven")])
-    }
-
-    @Test
-    func derivedFieldsFollowTheProjectNameUntilEdited() async throws {
-        let plugins = PluginStates(enabled: [Self.templatesPluginID])
-        let feature = NewProjectFeatureModel(environment: try Self.environment(plugins: plugins))
-        await feature.load()
-        let spring = try #require(feature.entries.first { $0.generator.id == "spring-boot" })
-        feature.selection = .generator(spring.id)
-        let artifact = try #require(spring.generator.fields.first { $0.id == "artifactId" })
-
-        feature.projectName = "billing"
-        #expect(feature.value(of: artifact) == .string("billing"))
-        feature.setValue(.string("billing-api"), for: artifact)
-        feature.projectName = "payments"
-        #expect(feature.value(of: artifact) == .string("billing-api"))
     }
 
     // MARK: Tool fields: Rust Core
@@ -530,7 +272,8 @@ struct ProjectGenerationTests {
         let plugins = PluginStates(enabled: [Self.toolFieldPluginID])
         let feature = NewProjectFeatureModel(environment: try Self.environment(
             plugins: plugins,
-            sources: [try Self.toolFieldSource(tool: "java", enabled: true), try Self.toolDefinitionSource()]
+            sources: [try Self.toolFieldSource(tool: "java", enabled: true), try Self.toolDefinitionSource()],
+            toolInstallations: { _ in [:] }
         ))
         await feature.load()
         let field = try #require(feature.selectedEntry?.generator.fields.first { $0.id == "python" })
@@ -642,63 +385,6 @@ struct ProjectGenerationTests {
         RustProjectGeneratorOperations(core: RustCoreBridge())
     }
 
-    private static func source(_ directory: String, enabled: Bool) throws -> ProjectGeneratorPluginSource {
-        let descriptor = try DeclarativePluginTestSupport.officialDescriptor(directory)
-        return ProjectGeneratorPluginSource(
-            pluginID: descriptor.id,
-            manifest: descriptor.normalizedManifest,
-            packageURL: DeclarativePluginTestSupport.officialPackageURL(directory),
-            isEnabled: enabled
-        )
-    }
-
-    /// Java Support split into a language-only plugin with its real ID and a
-    /// generator-only plugin, both enabled.
-    private static func splitJavaSupport() throws -> (language: ProjectGeneratorPluginSource, templates: ProjectGeneratorPluginSource) {
-        let javaSupport = try source(javaSupportDirectory, enabled: true)
-        guard let manifest = try JSONSerialization.jsonObject(with: javaSupport.manifest) as? [String: Any],
-              var languageRequires = manifest["requires"] as? [String: Any] else {
-            throw CocoaError(.coderReadCorrupt)
-        }
-        var language = manifest
-        language["projectGenerators"] = nil
-        // The language half keeps the debug adapter it declares, so it keeps
-        // the debug permissions that adapter needs.
-        language["permissions"] = ["languageServer.launch", "debug.launch", "debug.attach"]
-        languageRequires["projectGenerators"] = nil
-        language["requires"] = languageRequires
-        var templates = manifest
-        // The template half requires only projectGenerators, so every other
-        // capability contribution leaves with its requirement.
-        for key in ["languages", "languageServers", "settings", "debugAdapters", "toolDefinitions"] { templates[key] = nil }
-        templates["id"] = templatesPluginID.rawValue
-        templates["displayName"] = "Java Templates"
-        templates["permissions"] = ["project.generate"]
-        templates["requires"] = ["projectGenerators": 1]
-        // This separate template fixture is not the host-pinned bundled Java
-        // package, so it does not inherit that package's origin trust.
-        var templateVendor = manifest["vendor"] as? [String: Any] ?? [:]
-        templateVendor["bundledSignatureRequirement"] = nil
-        templates["vendor"] = templateVendor
-        templates["activationEvents"] = [String]()
-        func plugin(_ object: [String: Any], id: PluginID) throws -> ProjectGeneratorPluginSource {
-            ProjectGeneratorPluginSource(
-                pluginID: id,
-                manifest: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
-                packageURL: javaSupport.packageURL,
-                isEnabled: true
-            )
-        }
-        return (try plugin(language, id: javaSupport.pluginID), try plugin(templates, id: templatesPluginID))
-    }
-
-    private static func target(_ generatorID: String) throws -> ProjectGeneratorTarget {
-        let source = try source(javaSupportDirectory, enabled: true)
-        return ProjectGeneratorTarget(
-            pluginID: source.pluginID, generatorID: generatorID, manifest: source.manifest, packageURL: source.packageURL
-        )
-    }
-
     private static func downloadPlatform(maximumBytes: Int64) -> MacProjectGenerationPlatform {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [GeneratorServerURLProtocol.self]
@@ -723,15 +409,41 @@ struct ProjectGenerationTests {
 
     private static func service(
         runner: any BuildCommandRunning = ScaffoldingRunner(creates: nil),
-        recorder: JavaHomeRecorder = JavaHomeRecorder(),
         saveToolPin: @escaping @Sendable (URL, ProjectGenerationPlan.ToolPin) async throws -> Void = { _, _ in }
     ) -> ProjectGenerationService {
         ProjectGenerationService(
             planner: planner,
             platform: platform(runner: runner),
             initializeGitRepository: { _ in nil },
-            recordJavaHome: { root, home in await recorder.record(root: root, home: home) },
             saveToolPin: saveToolPin
+        )
+    }
+
+    /// The window's environment over the given plugin sources; `plugins`
+    /// decides which of them count as enabled on each reload.
+    private static func environment(
+        plugins: PluginStates,
+        sources: [ProjectGeneratorPluginSource],
+        toolInstallations: @escaping @MainActor ([String]) async throws -> [String: [ProjectToolInstallation]] = { _ in [:] },
+        pluginChanges: AnyPublisher<Void, Never> = Empty<Void, Never>().eraseToAnyPublisher()
+    ) throws -> NewProjectEnvironment {
+        NewProjectEnvironment(
+            sources: {
+                sources.map {
+                    ProjectGeneratorPluginSource(
+                        pluginID: $0.pluginID, manifest: $0.manifest, packageURL: $0.packageURL,
+                        isEnabled: plugins.enabled.contains($0.pluginID)
+                    )
+                }
+            },
+            iconResources: [:],
+            service: service(),
+            setPluginEnabled: { _ = plugins.enabled.insert($0) },
+            openMarketplace: { _ in },
+            openProject: { _ in },
+            store: InMemoryStore(),
+            toolInstallations: toolInstallations,
+            pluginChanges: pluginChanges
         )
     }
 
@@ -804,35 +516,6 @@ struct ProjectGenerationTests {
         }
     }
 
-    private static func environment(
-        plugins: PluginStates,
-        sources: [ProjectGeneratorPluginSource]? = nil,
-        toolInstallations: @escaping @MainActor ([String]) async throws -> [String: [ProjectToolInstallation]] = { _ in [:] },
-        pluginChanges: AnyPublisher<Void, Never> = Empty<Void, Never>().eraseToAnyPublisher()
-    ) throws -> NewProjectEnvironment {
-        let split = try splitJavaSupport()
-        let installed = sources ?? [split.templates, split.language]
-        return NewProjectEnvironment(
-            sources: {
-                installed.map {
-                    ProjectGeneratorPluginSource(
-                        pluginID: $0.pluginID, manifest: $0.manifest, packageURL: $0.packageURL,
-                        isEnabled: plugins.enabled.contains($0.pluginID)
-                    )
-                }
-            },
-            iconResources: [:],
-            javaRuntimes: { [jdk] },
-            service: service(),
-            setPluginEnabled: { _ = plugins.enabled.insert($0) },
-            openMarketplace: { _ in },
-            openProject: { _ in },
-            store: InMemoryStore(),
-            toolInstallations: toolInstallations,
-            pluginChanges: pluginChanges
-        )
-    }
-
     private static func stagingEntries(in directory: URL) throws -> [String] {
         try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.contains(".lithe-creating-") }
     }
@@ -884,19 +567,6 @@ private final class GeneratorServerURLProtocol: URLProtocol {
 private extension ProjectGeneratorPluginSource {
     func with(enabled: Bool) -> Self {
         Self(pluginID: pluginID, manifest: manifest, packageURL: packageURL, isEnabled: enabled)
-    }
-}
-
-private struct Record: Equatable, Sendable {
-    let root: String
-    let home: String
-}
-
-private actor JavaHomeRecorder {
-    private(set) var records: [Record] = []
-
-    func record(root: URL, home: String) {
-        records.append(Record(root: root.path, home: home))
     }
 }
 

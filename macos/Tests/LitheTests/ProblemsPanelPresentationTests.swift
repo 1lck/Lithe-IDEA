@@ -26,8 +26,8 @@ struct ProblemsPanelPresentationTests {
         let settings = AppSettings(store: store)
         let model = AppModel(settings: settings,
             services: MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
-        let url = try #require(URL(string: "lithe-fixture://workspace/Main.java"))
-        model.documentFeature.openVirtualDocument(url, text: "class Main {}", displayPath: nil)
+        let url = try #require(URL(string: "lithe-fixture://workspace/Main.txt"))
+        model.documentFeature.openVirtualDocument(url, text: "main", displayPath: nil)
         let document = try #require(model.activeDocument)
         #expect(ProblemsPanelScope.currentFileURL(in: model) == url)
         model.showAgentChatsInEditor()
@@ -41,8 +41,8 @@ struct ProblemsPanelPresentationTests {
 
     @Test
     func fileScopeFollowsSelectedURLAndKeepsWorkspaceDiagnostics() {
-        let first = URL(fileURLWithPath: "/workspace/one/Main.java")
-        let second = URL(fileURLWithPath: "/workspace/two/Main.java")
+        let first = URL(fileURLWithPath: "/workspace/one/Main.txt")
+        let second = URL(fileURLWithPath: "/workspace/two/Main.txt")
         let store = EditorDiagnosticsStore()
         let problem = EditorDiagnostic(id: "second", fileURL: second, line: 5, utf16Column: 2,
             endLine: 5, endUTF16Column: 3, severity: .warning, message: "Example warning",
@@ -51,7 +51,7 @@ struct ProblemsPanelPresentationTests {
 
         #expect(ProblemsPanelScope.file.diagnostics(in: store.diagnosticsByURL, currentFileURL: first).isEmpty)
         #expect(ProblemsPanelScope.file.diagnostics(in: store.diagnosticsByURL,
-            currentFileURL: second.deletingLastPathComponent().appendingPathComponent("./Main.java")) == [problem])
+            currentFileURL: second.deletingLastPathComponent().appendingPathComponent("./Main.txt")) == [problem])
         // No selected text editor must not fall back to the first file with diagnostics.
         #expect(ProblemsPanelScope.file.diagnostics(in: store.diagnosticsByURL, currentFileURL: nil).isEmpty)
         #expect(ProblemsPanelScope.projectErrors.diagnostics(in: store.diagnosticsByURL, currentFileURL: nil) == [problem])
@@ -63,11 +63,11 @@ struct ProblemsPanelPresentationTests {
     @Test
     func problemsQueryUsesSharedFileAndSeverityOrder() {
         let root = URL(fileURLWithPath: "/workspace/problems")
-        let ten = root.appendingPathComponent("src/File10.java")
-        let two = root.appendingPathComponent("src/File2.java")
+        let ten = root.appendingPathComponent("src/File10.txt")
+        let two = root.appendingPathComponent("src/File2.txt")
         func problem(_ id: String, _ url: URL, _ line: Int, _ severity: DiagnosticSeverity) -> EditorDiagnostic {
             EditorDiagnostic(id: id, fileURL: url, line: line, utf16Column: 0, endLine: line, endUTF16Column: 1,
-                severity: severity, message: id, source: "java", code: nil, tags: [], relatedInformation: [])
+                severity: severity, message: id, source: "test", code: nil, tags: [], relatedInformation: [])
         }
         let diagnostics = [
             problem("ten-warning", ten, 1, .warning),
@@ -75,7 +75,7 @@ struct ProblemsPanelPresentationTests {
             problem("two-error", two, 9, .error),
             problem("two-hint", two, 0, .hint),
         ]
-        let paths = [ten: "src/File10.java", two: "src/File2.java"]
+        let paths = [ten: "src/File10.txt", two: "src/File2.txt"]
 
         let all = ProblemsQuery.run(diagnostics: diagnostics, severities: Set(DiagnosticSeverity.allCases),
                                     displayPaths: paths, logSink: nil)
@@ -115,14 +115,14 @@ struct ProblemsPanelPresentationTests {
             .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources")
         let bundle = try #require(Bundle(url: resources))
         let english = try #require(Bundle(url: resources.appendingPathComponent("en.lproj")))
-        let file = URL(fileURLWithPath: "/workspace/Main.java")
+        let file = URL(fileURLWithPath: "/workspace/Main.txt")
         let chinese = language == "zh-Hans"
         let cases: [(LocalizedStringKey, String)] = [
             (ProblemsPanelScope.projectErrors.title, chinese ? "项目错误" : "Project Errors"),
             (ProblemsPanelScope.file.emptyTitle(currentFileURL: nil),
              chinese ? "在编辑器中打开文件以查看问题" : "Open file in editor to see problems"),
             (ProblemsPanelScope.file.emptyTitle(currentFileURL: file),
-             chinese ? "Main.java 中没有问题" : "No problems in Main.java"),
+             chinese ? "Main.txt 中没有问题" : "No problems in Main.txt"),
             ("Problems could be filtered out", chinese ? "问题可能已被筛选隐藏" : "Problems could be filtered out"),
             ("Could not load file preview", chinese ? "无法加载文件预览" : "Could not load file preview")
         ]
@@ -154,7 +154,7 @@ struct ProblemsPanelPresentationTests {
             if ownsFont { CTFontManagerUnregisterFontsForURL(fontURL as CFURL, .process, nil) }
         }
         #expect(LitheTheme.uiNSFont(size: 13).fontName == "Inter-Regular")
-        let content = ProblemsEmptyState(title: "No problems in Main.java", details: nil)
+        let content = ProblemsEmptyState(title: "No problems in Main.txt", details: nil)
             .frame(width: width, height: 300)
             .environment(\.colorScheme, scheme)
         let renderer = ImageRenderer(content: content)

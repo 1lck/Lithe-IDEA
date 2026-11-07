@@ -22,7 +22,6 @@
       "macos/Tests/LitheTests/LazyProjectTreeInventoryTests.swift",
       "macos/Tests/LitheTests/WorkspaceSessionCoordinatorTests.swift",
       "macos/Tests/LitheTests/GitStatusObservationTests.swift",
-      "macos/Tests/LitheTests/RunEntryPointTests.swift",
       "shared/fixtures/workspace/directory-actions-v1.json",
       "macos/Sources/Lithe/Models/AppModel/AppModel+LanguageServerRuntime.swift",
       "rust/lithe-core/src/project/directory_actions.rs",

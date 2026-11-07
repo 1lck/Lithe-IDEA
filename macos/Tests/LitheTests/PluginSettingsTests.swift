@@ -100,56 +100,6 @@ struct PluginSettingsTests {
         #expect(settings.values(forPlugin: pluginID.rawValue)["telemetry"] == nil)
     }
 
-    @Test
-    func theJavaPluginOffersMaximumMemoryAndLogLevelWithTheCurrentBehaviorAsDefault() throws {
-        let descriptor = try DeclarativePluginTestSupport.officialDescriptor("JavaSupport")
-
-        #expect(descriptor.settings.map(\.id) == ["heapMaxMB", "logLevel"])
-        let heap = try #require(descriptor.settings.first { $0.id == "heapMaxMB" })
-        // The language server starts with a 2 GB heap and logs warnings and
-        // errors only. A smaller heap makes JDT LS import Maven modules in its
-        // constrained-memory mode, which fails the whole Java service for modules
-        // that share coordinates, so the plugin does not offer one.
-        #expect(heap.defaultValue == .integer(2048))
-        #expect(heap.kind == .integer(minimum: 2048, maximum: 16384, unit: "MB"))
-        let level = try #require(descriptor.settings.first { $0.id == "logLevel" })
-        #expect(level.defaultValue == .string("WARNING"))
-        #expect(level.accepts(.string("SEVERE")) && !level.accepts(.string("OFF")))
-    }
-
-    /// The Java plugin's choices end up on the JVM command line.
-    @Test
-    func theJavaPluginPassesItsSettingsToTheJvm() throws {
-        let descriptor = try DeclarativePluginTestSupport.officialDescriptor("JavaSupport")
-        let source = DeclarativeLanguageServerLaunchSource(
-            pluginID: descriptor.id.rawValue,
-            languageID: "java",
-            manifest: descriptor.normalizedManifest,
-            packageURL: URL(fileURLWithPath: "/plugins/java")
-        )
-        let settings = InMemoryPluginSettings([
-            descriptor.id.rawValue: ["heapMaxMB": .integer(3072), "logLevel": .string("WARNING")]
-        ])
-        let request = DeclarativeLanguageServerLaunchRequest(
-            pluginDirectory: source.packageURL,
-            stateDirectory: URL(fileURLWithPath: "/state"),
-            workspaceStateDirectory: URL(fileURLWithPath: "/state/workspace"),
-            architecture: MacPluginLanguageServerLaunchResolver.hostArchitecture,
-            settings: settings.values(forPlugin: descriptor.id.rawValue),
-            logDirectory: URL(fileURLWithPath: "/logs")
-        )
-
-        let plan = try DeclarativePluginTestSupport.operations.languageServerLaunchPlan(
-            manifest: source.manifest,
-            languageID: "java",
-            request: request
-        )
-
-        #expect(plan.arguments.prefix(2) == ["-Xmx3072m", "-Dlog.level=WARNING"])
-        // JDT LS keeps its own log in Lithe's log directory, never in plugin state.
-        #expect(plan.arguments.contains("-Dosgi.logfile=/logs/jdt.log"))
-    }
-
     // MARK: Settings v2: layers, pages, and buttons
 
     @Test
@@ -247,9 +197,9 @@ struct PluginSettingsTests {
             defaultValue: .string("")
         )
         #expect(path.accepts(.string("/opt/tool")))
-        #expect(path.accepts(.string("C:\\tools\\jdk")))
+        #expect(path.accepts(.string("C:\\tools\\kit")))
         #expect(path.accepts(.string("d:/tools")))
-        #expect(!path.accepts(.string("tools/jdk")))
+        #expect(!path.accepts(.string("tools/kit")))
         #expect(!path.accepts(.string("1:/tools")))
     }
 

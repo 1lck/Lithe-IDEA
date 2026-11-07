@@ -161,7 +161,7 @@ struct DiagnosticsExportServiceTests {
         // `swift test` does not force-load the Rust Core static library by
         // default (see scripts/macos/test/test-macos.sh); skip gracefully rather than
         // asserting on the "unavailable" failure path, mirroring
-        // RealJavaDebugIntegrationTests's guard.
+        // the other Rust-backed tests' guards.
         guard RustCoreBridge().isAvailable else { return }
 
         let storage = InMemoryDiagnosticsFileStorage()

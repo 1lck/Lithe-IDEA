@@ -205,7 +205,7 @@
         "runtime_version": {
           "type": "version",
           "required": false,
-          "description": "Java runtime version used to launch the language server, when available"
+          "description": "Runtime version reported for the engine launch, when available"
         },
         "provider": {
           "type": "id",

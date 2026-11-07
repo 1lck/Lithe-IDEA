@@ -5,18 +5,14 @@
 //! the tree themselves: a shared walk is the only way the cost stays bounded as
 //! ecosystems are added.
 //!
-//! An ecosystem whose layout is *declared* rather than discovered reads its own
-//! manifest graph instead -- see `maven`. The caller selects the Maven root
-//! because it may sit below the opened workspace. That is not a shortcut around
-//! the shared walk: a declared graph names directories the walk prunes, and
-//! omits ones it would visit.
+//! Ecosystems whose layout is *declared* by a build model rather than
+//! discovered from manifests belong to a build provider plugin, which reports
+//! its runs through `build.provider` instead of a detector here.
 
 mod cargo;
 mod compose;
 mod go;
-mod gradle;
 mod make;
-mod maven;
 mod npm;
 mod procfile;
 mod python;
@@ -45,18 +41,17 @@ pub struct Detected {
     /// Whether this runs the project or the infrastructure it depends on.
     pub category: RunCategory,
     pub confidence: Confidence,
-    /// The program to spawn, or `None` when `toolchains` names the executable.
+    /// The program to spawn. Detectors always name one; `None` is reserved for
+    /// launches whose executable comes from a toolchain binding.
     pub command: Option<String>,
     pub args: Vec<String>,
     /// Project-relative directory the command runs in.
     pub cwd: String,
     pub env: BTreeMap<String, String>,
-    /// Toolchain bindings by role, e.g. `{java: project-jdk}`. A process-based
-    /// detection may retain `command` while declaring a runtime it consumes.
+    /// Toolchain bindings by role, e.g. `{runtime: project-node}`. A
+    /// process-based detection retains `command` while declaring a runtime it
+    /// consumes.
     pub toolchains: BTreeMap<String, String>,
-    /// The debug adapter this service supports, when launching it under a
-    /// debugger is something the launch layer already knows how to assemble.
-    pub debug: Option<String>,
     pub extensions: BTreeMap<String, serde_json::Value>,
     /// Which manifest produced this, for the "why is this here" affordance.
     pub source: String,
@@ -135,7 +130,6 @@ impl Detected {
             cwd: ctx.relative.clone(),
             env: BTreeMap::new(),
             toolchains: BTreeMap::new(),
-            debug: None,
             extensions: BTreeMap::new(),
             source: ctx.join_relative(source),
         }
@@ -153,44 +147,12 @@ impl Detected {
         self
     }
 
-    /// Hands the executable to a toolchain instead of spawning `command`.
-    ///
-    /// Most detections name a program that is on `PATH`, which is what keeps a
-    /// new ecosystem from needing changes in the launch layer. An ecosystem
-    /// whose launch is assembled from a toolchain rather than a command line --
-    /// Maven's `spring-boot:run`, addressed through the project JDK and Maven
-    /// binding -- takes this instead, and the launch layer must already know
-    /// that provider.
-    pub fn with_toolchains(mut self, toolchains: &[(&str, &str)]) -> Self {
-        self.command = None;
-        self.toolchains = toolchains
-            .iter()
-            .map(|(role, name)| (role.to_string(), name.to_string()))
-            .collect();
-        self
-    }
-
     /// Declares a runtime requirement while keeping the detector-owned command.
     ///
     /// Process-based detectors still own their command, but Core needs the
     /// binding to scope compatibility diagnostics to the consumers.
     pub fn requiring_toolchain(mut self, role: &str, name: &str) -> Self {
         self.toolchains.insert(role.to_string(), name.to_string());
-        self
-    }
-
-    /// Declares the debug adapter supported by this detection.
-    pub fn with_debug(mut self, adapter: &str) -> Self {
-        self.debug = Some(adapter.to_string());
-        self
-    }
-
-    /// Overrides the directory the command runs in. Defaults to the directory
-    /// the detection was made in, which is wrong when a build must be invoked
-    /// from its root -- a Gradle subproject, or a Maven module addressed by
-    /// `-pl` from the reactor root.
-    pub fn with_cwd(mut self, cwd: &str) -> Self {
-        self.cwd = cwd.to_string();
         self
     }
 
@@ -231,7 +193,6 @@ const DETECTORS: &[DetectFn] = &[
     python::detect,
     cargo::detect,
     go::detect,
-    gradle::detect,
     make::detect,
     shell::detect_just,
 ];
@@ -239,17 +200,12 @@ const DETECTORS: &[DetectFn] = &[
 /// Runs every detector over the project and returns deduplicated results
 /// ordered shallowest-directory-first, so the top-level service of a monorepo
 /// reads before its packages.
-pub fn detect_all(root: &Path, maven_root: Option<&Path>) -> Result<Vec<Detected>, CoreError> {
+pub fn detect_all(root: &Path) -> Result<Vec<Detected>, CoreError> {
     let directories = scan(root)?;
     let mut found = Vec::new();
     for context in &directories {
         for detector in DETECTORS {
             found.extend(detector(context));
-        }
-    }
-    if let Some(maven_root) = maven_root {
-        if let Some(context) = DirectoryContext::at(root, maven_root)? {
-            found.extend(maven::detect(&context));
         }
     }
     Ok(dedupe(found))

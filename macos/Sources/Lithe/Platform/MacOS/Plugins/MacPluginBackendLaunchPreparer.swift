@@ -35,6 +35,7 @@ final class MacPluginBackendLaunchPreparer {
     private let contexts: PluginWorkspaceContexts
     private let resolver: MacPluginLanguageServerLaunchResolver
     private let tools: any BuildToolResolving
+    private let definedTools: any DefinedToolchainResolving
     private let runtime: any LanguageToolRuntimePort
     private let core: any LanguageServerRuntimeCore
     private let workspaceState: MacPluginLanguageServerWorkspaceState?
@@ -44,6 +45,7 @@ final class MacPluginBackendLaunchPreparer {
         contexts: PluginWorkspaceContexts,
         resolver: MacPluginLanguageServerLaunchResolver,
         tools: any BuildToolResolving,
+        definedTools: any DefinedToolchainResolving,
         runtime: any LanguageToolRuntimePort,
         core: any LanguageServerRuntimeCore,
         workspaceState: MacPluginLanguageServerWorkspaceState? = nil
@@ -52,6 +54,7 @@ final class MacPluginBackendLaunchPreparer {
         self.contexts = contexts
         self.resolver = resolver
         self.tools = tools
+        self.definedTools = definedTools
         self.runtime = runtime
         self.core = core
         self.workspaceState = workspaceState
@@ -67,7 +70,7 @@ final class MacPluginBackendLaunchPreparer {
         let question = try resolver.backendLaunchQuestion(for: source, workspaceRootURL: workspaceURL)
         maintainState(of: source, workspaceURL: workspaceURL)
         do {
-            let process = try await decide(source, question: question, context: context)
+            let process = try await decide(source, question: question, context: context, workspaceURL: workspaceURL)
             let target = try await resolveTarget(of: process.program, workspaceURL: workspaceURL)
             // The backend call and the tool lookup take time; a workspace
             // that changed meanwhile must not start this process.
@@ -86,15 +89,24 @@ final class MacPluginBackendLaunchPreparer {
         }
     }
 
-    /// Asks the plugin's backend and lets Rust Core check the answer.
+    /// Asks the plugin's backend and lets Rust Core check the answer. The
+    /// question carries `tools`, the installations the user's choice and
+    /// discovery select for the tools the manifest requires, so the backend
+    /// can configure its server for the same tools the host runs.
     private func decide(
         _ source: DeclarativeLanguageServerLaunchSource,
         question: MacPluginLanguageServerLaunchResolver.BackendLaunchQuestion,
-        context: PluginWorkspaceContext
+        context: PluginWorkspaceContext,
+        workspaceURL: URL
     ) async throws -> MacPluginLanguageServerLaunchResolver.BackendLaunchProcess {
+        var params = question.resolveParams
+        let tools = await resolvedRequiredTools(of: source, workspaceURL: workspaceURL)
+        if !tools.isEmpty {
+            params["tools"] = .object(tools)
+        }
         let answer = try await backends.invokePluginFunction(
             question.function,
-            params: .object(question.resolveParams),
+            params: .object(params),
             ofPlugin: source.pluginID,
             context: context.reference,
             timeout: .milliseconds(question.timeoutMilliseconds),
@@ -103,6 +115,37 @@ final class MacPluginBackendLaunchPreparer {
         try Task.checkCancellation()
         try ensureCurrent(context)
         return try resolver.backendLaunchProcess(for: source, question: question, answer: answer)
+    }
+
+    /// `{<toolID>: {executable, home, version}}` for every tool the manifest
+    /// lists in `requiresTools` that resolves to an installation outside the
+    /// project. A tool that is missing, unusable, or inside the project is
+    /// left out: the contract promises only the tools the host could find,
+    /// and opening a project must not run its code.
+    private func resolvedRequiredTools(
+        of source: DeclarativeLanguageServerLaunchSource, workspaceURL: URL
+    ) async -> [String: ToolingJSONValue] {
+        var tools: [String: ToolingJSONValue] = [:]
+        let environment = runtime.languageToolProcessEnvironment()
+        for tool in Self.requiredTools(of: source.manifest) {
+            // log-exempt: 找不到或不可用的工具按契约直接省略，后端自行决定缺省行为
+            guard let selected = try? await definedTools.resolve(
+                tool: tool, directory: ".", workspace: workspaceURL, environment: environment,
+                minimumVersion: nil, projectCodeAllowed: false, fixed: nil, use: .installation, consumerID: nil
+            ), !selected.projectCode else { continue }
+            var fields: [String: ToolingJSONValue] = ["executable": .string(selected.executable.path)]
+            if let home = selected.home { fields["home"] = .string(home) }
+            if let version = selected.version { fields["version"] = .string(version) }
+            tools[tool] = .object(fields)
+        }
+        return tools
+    }
+
+    /// The `requiresTools` of the normalized manifest, in manifest order.
+    private static func requiredTools(of manifest: Data) -> [String] {
+        guard let object = try? JSONSerialization.jsonObject(with: manifest) as? [String: Any],
+              let tools = object["requiresTools"] as? [String] else { return [] }
+        return tools
     }
 
     /// The program to start and the environment the host gives it.

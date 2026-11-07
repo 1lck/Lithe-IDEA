@@ -1,6 +1,6 @@
 {
   "schemaVersion": 4,
-  "lastReviewed": "2026-10-16",
+  "lastReviewed": "2026-11-07",
   "review": {
     "status": "initial-static-inventory",
     "method": "根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。",
@@ -27,6 +27,11 @@
         "label": "平台专属",
         "icon": "🧩",
         "description": "刻意只属于某个平台，不以跨平台对齐为目标。"
+      },
+      "plugin-provided": {
+        "label": "插件提供",
+        "icon": "🔌",
+        "description": "宿主只保留通用能力入口和契约，该能力由独立插件实现；运行时验证记录归插件仓库。"
       }
     },
     "verification": {

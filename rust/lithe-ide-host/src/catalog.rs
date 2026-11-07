@@ -323,18 +323,20 @@ mod tests {
             &windows
         )
         .is_err());
+        // macOS serves only generic workflows; tool-specific environment and
+        // build-system tools come from plugin tool exposure instead.
         let exposure: Vec<ToolExposure> = serde_json::from_value(fixture["macos"].clone()).unwrap();
         assert!(validate_exposed(
-            "lithe_environment_configure",
-            &json!({"javaHomePath":"/fixture/jdk"}),
+            "lithe_build_configure",
+            &json!({"instanceID":"example:.","optionID":"offline","value":true}),
             &permissions,
             &exposure
         )
         .is_ok());
         assert_eq!(
             validate_exposed(
-                "lithe_environment_configure",
-                &json!({"settingsPath":"/fixture/settings.xml"}),
+                "lithe_build_configure",
+                &json!({"instanceID":"example:.","optionID":"offline","value":true,"settingsPath":"/fixture/settings.xml"}),
                 &permissions,
                 &exposure
             )
@@ -363,7 +365,7 @@ mod tests {
             json!([{"name":"lithe_project_inspect"},{"name":"lithe_project_inspect"}]),
             json!([{"name":"lithe_project_inspect","arguments":["shell"]}]),
             json!([{"name":"lithe_build_execute","arguments":["instanceID"]}]),
-            json!([{"name":"lithe_environment_configure","arguments":["javaHomePath","javaHomePath"]}]),
+            json!([{"name":"lithe_build_configure","arguments":["optionID","optionID"]}]),
         ] {
             let exposure: Vec<ToolExposure> = serde_json::from_value(invalid).unwrap();
             assert!(exposed_tools(&exposure).is_err());

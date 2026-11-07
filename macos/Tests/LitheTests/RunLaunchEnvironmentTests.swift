@@ -25,19 +25,20 @@ struct RunLaunchEnvironmentTests {
     }
 
     @Test
-    func sharedCoreLaunchEnvironmentRetainsSelectionAndExplicitOverrides() throws {
+    func sharedCoreLaunchEnvironmentKeepsInheritedValuesAndAppliesExplicitOverrides() throws {
         let core = RustCoreBridge()
-        let selected = try core.resolveLaunchEnvironment(
-            toolchain: "project-maven", selectedHome: "/fixture/jdk21",
-            inherited: ["JAVA_HOME": "/fixture/jdk8", "PATH": "/fixture/bin"], overrides: [:]
+        let inherited = try core.resolveLaunchEnvironment(
+            toolchain: "project-go",
+            inherited: ["TOOL_HOME": "/fixture/tool", "PATH": "/fixture/bin"], overrides: [:]
         )
-        #expect(selected["JAVA_HOME"] == "/fixture/jdk21")
-        #expect(selected["PATH"] == "/fixture/bin")
+        #expect(inherited["TOOL_HOME"] == "/fixture/tool")
+        #expect(inherited["PATH"] == "/fixture/bin")
         let overridden = try core.resolveLaunchEnvironment(
-            toolchain: "project-maven", selectedHome: "/fixture/jdk21",
-            inherited: selected, overrides: ["JAVA_HOME": "/fixture/explicit"]
+            toolchain: "project-go",
+            inherited: inherited, overrides: ["TOOL_HOME": "/fixture/explicit"]
         )
-        #expect(overridden["JAVA_HOME"] == "/fixture/explicit")
+        #expect(overridden["TOOL_HOME"] == "/fixture/explicit")
+        #expect(overridden["PATH"] == "/fixture/bin")
     }
 
     @Test
@@ -199,7 +200,7 @@ struct RunLaunchEnvironmentTests {
     @Test @MainActor
     func definedToolLaunchReturnsAnOperationValueWithoutAmbientLaunchPermission() async throws {
         let runtime = ProjectRuntimeService(runtimeLocator: RunLaunchPathRuntimeLocator(
-            environmentValues: ["PATH": "/fixture/bin"], executablePath: "/unused"), store: RunLaunchPathStore())
+            environmentValues: ["PATH": "/fixture/bin"], executablePath: "/unused"))
         let defined = DefinedRunToolFixture()
         let resolver = RunExecutableResolver(runtimeService: runtime, environmentResolver: RustCoreBridge(), definedTools: defined)
         let plan = SharedLaunchPlan(executable: .toolchain("compiler"), arguments: [], workingDirectory: "apps/example")
@@ -248,15 +249,7 @@ private struct RunLaunchPathRuntimeLocator: RuntimeLocator {
 
     func environment() -> [String: String] { environmentValues }
     func defaultExecutableSearchPath() -> String? { "/fixture-system/bin" }
-    func discover() -> RuntimeDiscoveryResult {
-        RuntimeDiscoveryResult(javaRuntimes: [], mavenRuntimes: [])
-    }
-    func validJavaHome(path: String) -> URL? { nil }
-    func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate? { nil }
     func isExecutable(at url: URL) -> Bool { url.standardizedFileURL.path == executablePath }
-    func systemMavenExecutable() -> URL? { nil }
-    func mavenExecutable(forHomePath path: String) -> URL? { nil }
-    func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
 }
 
 @MainActor

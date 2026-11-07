@@ -90,11 +90,9 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         guard let entries = listDirectories([rootURL], at: rootURL, visibilityRules: visibilityRules)?[rootURL.standardizedFileURL.path] else {
             return nil
         }
-        let insideSourceRoot = LitheIcons.isSourceRootDirectory(rootURL)
         return entries.map { entry in
             FileNode(url: entry.url, isDirectory: entry.isDirectory,
-                     children: entry.isEmptyDirectory ? [] : nil,
-                     isInsideSourceRoot: entry.isDirectory && insideSourceRoot)
+                     children: entry.isEmptyDirectory ? [] : nil)
         }
     }
 

@@ -4,7 +4,7 @@ import LitheDebugModule
 
 @Suite("Debug session cleanup coordinator")
 struct DebugSessionCleanupCoordinatorTests {
-    @Test("cleans Java and terminal resources after termination")
+    @Test("cleans terminal resources after termination")
     @MainActor
     func cleansResourcesAfterTermination() {
         let coordinator = DebugSessionCleanupCoordinator()
@@ -14,7 +14,7 @@ struct DebugSessionCleanupCoordinatorTests {
 
         coordinator.handle(.terminated, activeSessionID: sessionID)
 
-        #expect(actions.events == ["stop-java-result-server", "stop-session-terminals"])
+        #expect(actions.events == ["stop-session-terminals"])
         #expect(actions.stoppedTerminalSessionIDs == [sessionID])
     }
 
@@ -29,7 +29,7 @@ struct DebugSessionCleanupCoordinatorTests {
 
         coordinator.handle(.failed, activeSessionID: nil)
 
-        #expect(actions.events == ["stop-java-result-server", "stop-terminals"])
+        #expect(actions.events == ["stop-terminals"])
         #expect(actions.stoppedTerminalSessionIDs == [nil])
     }
 

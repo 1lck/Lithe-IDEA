@@ -93,27 +93,25 @@ const KNOWN_PERMISSIONS: &[&str] = &[
 /// Runtime tools the host knows how to discover and pass to a language
 /// server. The host exports each as `LITHE_<TOOL>_PATH` and puts its
 /// directory on the server's `PATH`; gopls, for example, runs `go` itself.
-const KNOWN_RUNTIME_TOOLS: &[&str] = &["go", "node"];
-/// Runtime tools available from API level 2 on.
-pub(crate) const KNOWN_RUNTIME_TOOLS_V2: &[&str] = &["go", "java", "node"];
-/// Runtimes that can start a packaged entry file themselves (`java -jar`,
-/// `node <script>`). `go` is only ever a dependency of a server.
-const LAUNCH_RUNTIME_TOOLS: &[&str] = &["java", "node"];
+/// Build-system runtime dependencies with these IDs are host-managed too.
+pub(crate) const KNOWN_RUNTIME_TOOLS: &[&str] = &["go", "node"];
+/// Runtimes the host can start a packaged entry file with itself, as
+/// `<runtime> <runtimeArguments> <entry> <arguments>`. `go` is only ever a
+/// dependency of a server.
+const LAUNCH_RUNTIME_TOOLS: &[&str] = &["node"];
 /// `serverProcess` version from which runtime tools are tool-definition IDs
 /// listed in `requiresTools`, and the closed lists above no longer apply.
+/// Below it, a valid short tool-definition ID outside the closed lists names
+/// the tool definition with that ID; see `implicit_tool_reference`.
 const TOOL_REFERENCES_SERVER_PROCESS: u32 = 4;
 /// Most tool definitions one plugin may require.
 const MAX_REQUIRED_TOOLS: usize = 32;
-/// Host integration that feeds JDT LS's project model, virtual class files,
-/// and Java test and debug support from the files a plugin declares.
-const HOST_INTEGRATION_JDT: &str = "jdt";
-/// Native host integrations a language server may ask for. Any plugin may
-/// declare one: each is host code that only reads files from the declaring
-/// plugin's own package and hands them to a process that plugin starts, so it
-/// grants no extra reach. A name the host does not implement is still rejected.
-const KNOWN_HOST_INTEGRATIONS: &[&str] = &[HOST_INTEGRATION_JDT];
-/// Host capability: starting a program of the language under a debugger.
-const HOST_CAPABILITY_DEBUG: &str = "debug";
+/// Native host integrations a language server may ask for. The Core
+/// implements none: a language server's run, test and debug support comes
+/// from the plugin's own backend and providers, so every name is rejected
+/// with `plugin.integration.unsupported`. The declaration stays in the
+/// contract so a manifest naming one fails validation instead of parsing.
+const KNOWN_HOST_INTEGRATIONS: &[&str] = &[];
 /// Host capability: running a program of the language.
 const HOST_CAPABILITY_RUN: &str = "run";
 /// Host capability: discovering and running tests of the language.
@@ -545,7 +543,8 @@ pub(crate) enum ServerRole {
 /// Runtime tools a server process may name for its launch and dependencies.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum RuntimeTools<'a> {
-    /// The host's closed lists, below `serverProcess` 4.
+    /// The host's closed lists, below `serverProcess` 4, plus implicit
+    /// references to tool definitions by short ID.
     Host,
     /// Tool-definition IDs the manifest lists in `requiresTools`.
     Declared(&'a BTreeSet<String>),
@@ -553,7 +552,8 @@ pub(crate) enum RuntimeTools<'a> {
 
 impl RuntimeTools<'_> {
     /// Checks one tool a process names. `host` is the closed list that
-    /// applies below `serverProcess` 4.
+    /// applies below `serverProcess` 4; there `unsupported` explains a name
+    /// that is neither in it nor a valid short tool-definition ID.
     pub(crate) fn check(
         self,
         tool: &str,
@@ -562,7 +562,7 @@ impl RuntimeTools<'_> {
         unsupported: String,
     ) -> Validation<()> {
         match self {
-            Self::Host if host.contains(&tool) => Ok(()),
+            Self::Host if host.contains(&tool) || implicit_tool_reference(tool, host) => Ok(()),
             Self::Host => Err(PluginRejection::at(
                 "plugin.runtime.unsupported",
                 field,
@@ -576,6 +576,21 @@ impl RuntimeTools<'_> {
             )),
         }
     }
+}
+
+/// Whether a tool named below `serverProcess` 4 refers to the tool
+/// definition with the same ID instead of a runtime from the closed list
+/// `host`. The reference resolves like one listed in `requiresTools`, so a
+/// manifest published before tool definitions keeps working once a plugin
+/// provides that definition. Only short IDs qualify: a plugin-qualified ID
+/// already needs `serverProcess` 4. Names the host reserves for its own
+/// runtimes (`KNOWN_RUNTIME_TOOLS`) never become references, so a runtime
+/// the host knows but cannot use in this role stays rejected.
+pub(crate) fn implicit_tool_reference(tool: &str, host: &[&str]) -> bool {
+    !host.contains(&tool)
+        && !KNOWN_RUNTIME_TOOLS.contains(&tool)
+        && !tool.contains(':')
+        && crate::toolchain::definitions::tool_id(tool)
 }
 
 impl ServerRole {
@@ -635,7 +650,8 @@ enum LanguageServerLaunch {
     /// A packaged entry file started by a host-discovered runtime, so the
     /// package needs no launcher script. API level 2.
     Runtime {
-        /// Runtime that executes `entry`; one of `LAUNCH_RUNTIME_TOOLS`.
+        /// Runtime that executes `entry`: one of `LAUNCH_RUNTIME_TOOLS`, or a
+        /// tool-definition ID whose launch template starts the entry.
         tool: String,
         /// Lowest acceptable runtime version, for example `21` or `18.17`.
         #[serde(
@@ -653,10 +669,10 @@ enum LanguageServerLaunch {
             skip_serializing_if = "Option::is_none"
         )]
         packaged_runtime: Option<String>,
-        /// Runtime options placed before the entry, such as JVM flags.
+        /// Runtime options placed before the entry.
         #[serde(default, rename = "runtimeArguments")]
         runtime_arguments: Vec<String>,
-        /// Entry file inside the package: a JAR for `java`, a script for `node`.
+        /// Entry file inside the package, such as a script for `node`.
         entry: String,
     },
     /// The plugin backend resolves the command line each time the server
@@ -1476,6 +1492,7 @@ impl DeclarativePluginManifest {
                         super::executables::ExecutableSource::Toolchain { .. }
                     )
                 })
+                || system.names_tool_definitions()
         });
         if self.tool_definitions.is_empty()
             && !build_toolchains
@@ -2478,21 +2495,9 @@ impl LanguageServerDeclaration {
                 format!("The host has no integration named {}.", integration.id),
             ));
         }
-        // (capability, resources the host code behind it reads)
-        let capabilities: &[(&str, &[&str])] = match integration.id.as_str() {
-            HOST_INTEGRATION_JDT => &[
-                // The debugger is the Java Debug Server bundle loaded into
-                // JDT LS; the test runner is launched with classpaths the
-                // Java Test bundle resolves.
-                (HOST_CAPABILITY_DEBUG, &["extensionBundleDirectories"]),
-                (HOST_CAPABILITY_RUN, &[]),
-                (
-                    HOST_CAPABILITY_TESTING,
-                    &["extensionBundleDirectories", "testRunner"],
-                ),
-            ],
-            _ => &[],
-        };
+        // (capability, resources the host code behind it reads); empty
+        // because no integration exists.
+        let capabilities: &[(&str, &[&str])] = &[];
         for name in &integration.capabilities {
             let capabilities_field = format!("{field}.capabilities");
             let Some((_, needed)) = capabilities.iter().find(|(known, _)| known == name) else {
@@ -2511,27 +2516,8 @@ impl LanguageServerDeclaration {
                 ));
             }
         }
-        // (name, required, accepts a list)
-        let known: &[(&str, bool, bool)] = match integration.id.as_str() {
-            HOST_INTEGRATION_JDT => {
-                // JDT LS is an Equinox application started by a JVM; the
-                // integration builds on exactly that launch.
-                if !matches!(&self.process.launch, LanguageServerLaunch::Runtime { tool, .. } if tool == "java")
-                {
-                    return Err(invalid(
-                        field,
-                        "The jdt integration requires a java runtime launch.",
-                    ));
-                }
-                &[
-                    ("configuration", true, false),
-                    ("lombokAgent", true, false),
-                    ("extensionBundleDirectories", false, true),
-                    ("testRunner", false, false),
-                ]
-            }
-            _ => &[],
-        };
+        // (name, required, accepts a list); empty because no integration exists.
+        let known: &[(&str, bool, bool)] = &[];
         for (name, paths) in &integration.resources {
             let resource_field = format!("{field}.resources.{name}");
             let Some((_, _, accepts_list)) = known.iter().find(|(known, _, _)| known == name)
@@ -2648,7 +2634,9 @@ impl ServerProcess {
                     tool,
                     LAUNCH_RUNTIME_TOOLS,
                     format!("{field}.launch.tool"),
-                    format!("The host cannot start a {noun} with {tool}."),
+                    format!(
+                        "The host cannot start a {noun} with {tool}: it is neither a host runtime nor a tool-definition ID."
+                    ),
                 )?;
                 if let Some(version) = minimum_version {
                     validate_minimum_version(version, &format!("{field}.launch.minimumVersion"))?;
@@ -2744,18 +2732,16 @@ impl ServerProcess {
             }
             validate_launch_value(options, declared_settings, &options_field)?;
         }
-        let known_tools = if templated {
-            KNOWN_RUNTIME_TOOLS_V2
-        } else {
-            KNOWN_RUNTIME_TOOLS
-        };
         for dependency in &self.runtime_dependencies {
             let dependencies_field = format!("{field}.runtimeDependencies");
             runtime_tools.check(
                 &dependency.tool,
-                known_tools,
+                KNOWN_RUNTIME_TOOLS,
                 dependencies_field.clone(),
-                format!("The host cannot provide the runtime {}.", dependency.tool),
+                format!(
+                    "The host cannot provide the runtime {}: it is neither a host runtime nor a tool-definition ID.",
+                    dependency.tool
+                ),
             )?;
             // The launch runtime is already discovered for the process, and
             // only the launch declaration can state its version requirement.
@@ -2925,7 +2911,7 @@ impl ServerProcess {
 
     /// Install-review entries of the runtimes the host discovers for it.
     pub(crate) fn runtime_programs(&self) -> Vec<Value> {
-        self.runtime_requirements()
+        self.runtime_requirements(false)
             .into_iter()
             .map(|mut runtime| {
                 runtime["kind"] = json!("runtime");
@@ -2937,11 +2923,20 @@ impl ServerProcess {
     /// Runtimes the host must discover for this process, sorted by tool. The
     /// launch runtime comes first in declaration terms but is merged here so
     /// hosts resolve every tool the same way.
-    fn runtime_requirements(&self) -> Vec<Value> {
-        let mut requirements: Vec<(&str, Option<&str>)> = self
+    ///
+    /// An entry the host resolves through a tool definition carries
+    /// `kind: "tool"`: every entry when `by_definition` (`serverProcess` 4),
+    /// otherwise only implicit references.
+    fn runtime_requirements(&self, by_definition: bool) -> Vec<Value> {
+        let reference =
+            |tool: &str, host: &[&str]| by_definition || implicit_tool_reference(tool, host);
+        let mut requirements: Vec<(&str, Option<&str>, bool)> = self
             .runtime_dependencies
             .iter()
-            .map(|dependency| (dependency.tool.as_str(), None))
+            .map(|dependency| {
+                let tool = dependency.tool.as_str();
+                (tool, None, reference(tool, KNOWN_RUNTIME_TOOLS))
+            })
             .collect();
         // A packaged runtime is part of the plugin, not a host requirement.
         if let LanguageServerLaunch::Runtime {
@@ -2951,15 +2946,25 @@ impl ServerProcess {
             ..
         } = &self.launch
         {
-            requirements.push((tool.as_str(), minimum_version.as_deref()));
+            requirements.push((
+                tool.as_str(),
+                minimum_version.as_deref(),
+                reference(tool, LAUNCH_RUNTIME_TOOLS),
+            ));
         }
         requirements.sort();
         requirements.dedup();
         requirements
             .into_iter()
-            .map(|(tool, minimum_version)| match minimum_version {
-                Some(version) => json!({ "tool": tool, "minimumVersion": version }),
-                None => json!({ "tool": tool }),
+            .map(|(tool, minimum_version, tool_definition)| {
+                let mut requirement = json!({ "tool": tool });
+                if let Some(version) = minimum_version {
+                    requirement["minimumVersion"] = json!(version);
+                }
+                if tool_definition {
+                    requirement["kind"] = json!("tool");
+                }
+                requirement
             })
             .collect()
     }
@@ -4050,11 +4055,52 @@ fn debug_adapter_launch_plan(
                 .as_ref()
                 .and_then(|endpoint| endpoint.language_id.as_deref())
                 .unwrap_or_default();
-            language_server_launch_plan(manifest, language_id, request)?
+            hosting_language_server_plan(manifest, language_id, request)?
         }
     };
     plan["debugAdapter"] = adapter.plan_descriptor(&manifest.id);
     Ok(plan)
+}
+
+/// The plan of the language server a `tcpLanguageServer` adapter runs in.
+/// The server's own session starts it; this plan only names the server the
+/// adapter belongs to. A server the backend launches (`serverProcess` 3) is
+/// asked by that session with the scratch directories of its own start, so
+/// here its plan names the function and demands no directory.
+fn hosting_language_server_plan(
+    manifest: &DeclarativePluginManifest,
+    language_id: &str,
+    request: &LanguageServerLaunchPlanRequest,
+) -> Validation<Value> {
+    let server = manifest
+        .language_servers
+        .iter()
+        .find(|server| server.language_id == language_id)
+        .ok_or_else(|| {
+            PluginRejection::new(
+                "plugin.launch.unavailable",
+                format!("The plugin does not provide a language server for {language_id}."),
+            )
+        })?;
+    match &server.process.launch {
+        LanguageServerLaunch::Backend {
+            function,
+            timeout_milliseconds,
+        } => Ok(json!({
+            "launch": {
+                "kind": "backend",
+                "function": function,
+                "timeoutMilliseconds": timeout_milliseconds
+                    .unwrap_or(language_server_sessions::RESOLVE_TIMEOUT_MILLISECONDS),
+            },
+            "arguments": [],
+            "validationArguments": [],
+            "runtimeRequirements": [],
+            "requiredDirectories": [],
+            "requiredPackagePaths": [],
+        })),
+        _ => language_server_launch_plan(manifest, language_id, request),
+    }
 }
 
 /// `debug.adapters.startArguments`: checks one start against the adapter's
@@ -4251,17 +4297,19 @@ fn server_launch_plan(
             .collect::<Vec<String>>()
     };
 
+    let by_definition = manifest.names_tools_by_definition();
     let mut arguments = Vec::new();
     let launch = match &process.launch {
         // A tool definition owns how its executable starts an entry, so the
         // plan hands the host the parts for `toolchains.instantiateLaunch`.
+        // Below `serverProcess` 4 the same holds for an implicit reference.
         LanguageServerLaunch::Runtime {
             tool,
             minimum_version,
             packaged_runtime,
             runtime_arguments,
             entry,
-        } if manifest.names_tools_by_definition() => {
+        } if by_definition || implicit_tool_reference(tool, LAUNCH_RUNTIME_TOOLS) => {
             requirements.package_paths.insert(entry.clone());
             let mut launch = json!({
                 "kind": "tool",
@@ -4293,19 +4341,14 @@ fn server_launch_plan(
             runtime_arguments,
             entry,
         } => {
+            // A host runtime takes the entry as its first positional argument.
             arguments.extend(expand_all(runtime_arguments, &mut requirements));
-            // `java` runs a JAR entry with `-jar`; `node` takes the script as
-            // its first positional argument.
-            if tool == "java" {
-                arguments.push("-jar".to_string());
-            }
             arguments.push(format!("{}/{entry}", values.plugin_directory));
             requirements.package_paths.insert(entry.clone());
             let mut launch = json!({ "kind": "runtime", "tool": tool, "entry": entry });
             if let Some(version) = minimum_version {
                 launch["minimumVersion"] = json!(version);
-                // The same probe as a build runtime: `java -version` also
-                // answers on Java 8, whose JVM rejects `--version`.
+                // The same probe as a host-managed build runtime.
                 launch["versionArguments"] =
                     json!(crate::build::host_runtime_version_arguments(tool));
             }
@@ -4328,18 +4371,11 @@ fn server_launch_plan(
     arguments.extend(expand_all(&process.arguments, &mut requirements));
     let validation_arguments = expand_all(&process.validation_arguments, &mut requirements);
 
-    let mut runtime_requirements = process.runtime_requirements();
-    if manifest.names_tools_by_definition() {
-        // Tells the host to resolve each through its tool definition.
-        for requirement in &mut runtime_requirements {
-            requirement["kind"] = json!("tool");
-        }
-    }
     let mut plan = json!({
         "launch": launch,
         "arguments": arguments,
         "validationArguments": validation_arguments,
-        "runtimeRequirements": runtime_requirements,
+        "runtimeRequirements": process.runtime_requirements(by_definition),
     });
     if let Some(options) = &process.initialization_options {
         plan["initializationOptions"] = expand_launch_value(options, &values, &mut requirements);
@@ -4490,19 +4526,22 @@ pub struct RuntimeVersionCheckRequest {
     output: String,
 }
 
+/// Checks a host runtime's probe output. A tool definition checks the
+/// version of the executable it resolves, so only `LAUNCH_RUNTIME_TOOLS`
+/// are probed here.
 fn check_runtime_version(request: &RuntimeVersionCheckRequest) -> Validation<Value> {
     if !LAUNCH_RUNTIME_TOOLS.contains(&request.tool.as_str()) {
         return Err(PluginRejection::new(
             "plugin.runtime.unsupported",
             format!(
-                "The host cannot start a language server with {}.",
+                "The host does not probe {}; its tool definition checks the version.",
                 request.tool
             ),
         ));
     }
     validate_minimum_version(&request.minimum_version, "minimumVersion")?;
     let minimum = version_components(&request.minimum_version);
-    let Some(found) = reported_version(&request.tool, &request.output) else {
+    let Some(found) = reported_version(&request.output) else {
         return Ok(json!({ "satisfied": false }));
     };
     // Only the components the requirement names are compared, so `21`
@@ -4522,33 +4561,25 @@ pub(crate) fn version_components(value: &str) -> Vec<u64> {
         .collect()
 }
 
-/// First dotted number in a version probe's output: `21.0.12` from
-/// `openjdk 21.0.12 2026-07-15`, `20.11.0` from `v20.11.0`.
-///
-/// Hosts capture stderr with stdout, and a JVM announces options it picked up
-/// from the environment there (`Picked up JAVA_TOOL_OPTIONS: -Xmx512m`) before
-/// the version. Those lines carry no version, so they are skipped rather than
-/// read as one.
-pub(crate) fn reported_version(tool: &str, output: &str) -> Option<Vec<u64>> {
+/// First dotted number in a version probe's output, at most three
+/// components: `20.11.0` from `v20.11.0`, `1.22.4` from
+/// `go version go1.22.4 darwin/arm64`. A tool whose output needs more than
+/// this is checked through its tool definition instead.
+pub(crate) fn reported_version(output: &str) -> Option<Vec<u64>> {
     let line = output
         .lines()
-        .filter(|line| !line.trim_start().starts_with("Picked up "))
         .find(|line| line.contains(|character: char| character.is_ascii_digit()))?;
     let start = line.find(|character: char| character.is_ascii_digit())?;
     let text: String = line[start..]
         .chars()
         .take_while(|character| character.is_ascii_digit() || *character == '.')
         .collect();
-    let mut components: Vec<u64> = text
-        .split('.')
+    // A sentence-ending period is not a component.
+    text.split('.')
+        .take_while(|part| !part.is_empty())
         .take(3)
         .map(|part| part.parse().ok())
-        .collect::<Option<_>>()?;
-    // Java 8 and older report `1.<major>`.
-    if tool == "java" && components.first() == Some(&1) && components.len() > 1 {
-        components.remove(0);
-    }
-    Some(components)
+        .collect()
 }
 
 fn test_template<'a>(

@@ -23,13 +23,9 @@ const TOOL_DEFINITION_FIXTURE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../shared/contracts/plugins/v1/fixtures/toolchains/tool-definition.plugin.json"
 ));
-const MAVEN_BUILD_FIXTURE: &str = include_str!(concat!(
+const BUILD_FIXTURE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../shared/contracts/plugins/v1/fixtures/build-systems/build-host-integration.plugin.json"
-));
-const OFFICIAL_JAVA: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../Plugins/mac/Official/JavaSupport/plugin.json"
+    "/../../shared/contracts/plugins/v1/fixtures/build-systems/build-static-file.plugin.json"
 ));
 
 fn json(source: &str) -> Value {
@@ -46,28 +42,31 @@ fn fixtures_path() -> PathBuf {
     repository_path("shared/contracts/plugins/v1/fixtures/project-generators")
 }
 
-/// Java Support without its own New Project entries, so catalog tests see
-/// it only as the provider of the Java language.
+/// A plugin that only contributes the `java` language, so a generator's
+/// language requirement has exactly one provider.
 fn java_language_only() -> Value {
-    let mut manifest = json(OFFICIAL_JAVA);
-    let object = manifest.as_object_mut().unwrap();
-    object.remove("projectGenerators");
-    object.remove("debugAdapters");
-    object["requires"]
-        .as_object_mut()
-        .unwrap()
-        .remove("debugAdapters");
-    object["activationEvents"] = json!(["onLanguage:java"]);
-    object["requires"]
-        .as_object_mut()
-        .unwrap()
-        .remove("projectGenerators");
-    object["permissions"] = json!(["languageServer.launch"]);
-    manifest
-}
-
-fn official_package_path() -> PathBuf {
-    repository_path("Plugins/mac/Official/JavaSupport")
+    json!({
+        "schemaVersion": 2,
+        "id": "dev.lithe.fixture.java-language",
+        "displayName": "Java Language Fixture",
+        "version": "0.1.0",
+        "pluginAPIVersion": 1,
+        "vendor": {"id": "dev.lithe", "displayName": "Lithe", "signatureRequirement": "publisherPackage"},
+        "permissions": ["languageServer.launch"],
+        "activationEvents": ["onLanguage:java"],
+        "languages": [
+            {"id": "java", "displayName": "Java", "fileExtensions": ["java"]}
+        ],
+        "languageServers": [
+            {
+                "languageID": "java",
+                "languageIdentifier": "java",
+                "launch": {"kind": "systemCommand", "commands": ["example-ls"]},
+                "arguments": [],
+                "validationArguments": ["--version"]
+            }
+        ]
+    })
 }
 
 fn host() -> Value {
@@ -120,10 +119,14 @@ fn catalog_lists_generators_with_requirement_providers() {
     let admission =
         validate_command(json!({"manifest":language,"hostCapabilities":host()})).unwrap();
     assert_eq!(admission["status"], "ok", "{admission}");
+    // A disabled plugin that provides the build system the generator asks for.
+    let mut build = json(BUILD_FIXTURE);
+    build["buildSystems"][0]["id"] = json!("maven");
+    build["activationEvents"] = json!(["onBuildSystem:maven"]);
     let result = project_generator_catalog_command(json!({
         "plugins": [
             {"manifest": json(FIXTURE), "enabled": true},
-            {"manifest": json(MAVEN_BUILD_FIXTURE), "enabled": false},
+            {"manifest": build, "enabled": false},
             {"manifest": java_language_only(), "enabled": true},
             {"manifest": {"schemaVersion": 2, "id": "broken"}, "enabled": true}
         ],
@@ -144,10 +147,10 @@ fn catalog_lists_generators_with_requirement_providers() {
         app["requirements"],
         json!([
             {"languageID": "java", "providers": [
-                {"pluginID": "dev.lithe.plugin.java-support", "pluginName": "Java Support", "enabled": true}
+                {"pluginID": "dev.lithe.fixture.java-language", "pluginName": "Java Language Fixture", "enabled": true}
             ]},
             {"buildSystemID": "maven", "providers": [
-                {"pluginID": "dev.lithe.fixture.build-host-integration", "pluginName": "Host Integration Build Fixture", "enabled": false}
+                {"pluginID": "dev.lithe.fixture.build-static-file", "pluginName": "Static File Build Fixture", "enabled": false}
             ]}
         ])
     );
@@ -277,122 +280,6 @@ fn a_plan_never_uses_an_installation_the_host_did_not_list() {
     assert_eq!(plan["status"], "ok", "{plan}");
     assert_eq!(plan["plan"]["toolPins"][0]["home"], "/opt/python-3.12");
     assert!(!plan.to_string().contains("/tmp/planted"), "{plan}");
-}
-
-#[test]
-fn official_java_templates_validate_and_plan() {
-    let manifest = json(OFFICIAL_JAVA);
-    let validated =
-        validate_command(json!({"manifest": manifest, "hostCapabilities": host()})).unwrap();
-    assert_eq!(validated["status"], "ok", "{validated}");
-
-    let runtimes = json!({"jdk": {"home": "/Library/Java/JavaVirtualMachines/temurin-25.jdk/Contents/Home", "version": "25.0.3"}});
-    let plan = |generator: &str, values: Value| {
-        project_generation_plan_command(json!({
-            "manifest": manifest,
-            "generatorID": generator,
-            "packagePath": official_package_path(),
-            "form": {"projectName": "demo-app", "values": values, "runtimes": runtimes},
-        }))
-        .unwrap()
-    };
-    let files = |plan: &Value| -> Vec<(String, String)> {
-        plan["plan"]["steps"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .flat_map(|step| step["files"].as_array().cloned().unwrap_or_default())
-            .map(|file| {
-                (
-                    file["path"].as_str().unwrap().to_string(),
-                    file["contents"].as_str().unwrap().to_string(),
-                )
-            })
-            .collect()
-    };
-
-    let maven = plan("java", json!({}));
-    assert_eq!(maven["status"], "ok", "{maven}");
-    let maven_files = files(&maven);
-    let paths: Vec<&str> = maven_files.iter().map(|(path, _)| path.as_str()).collect();
-    assert!(paths.contains(&"pom.xml"));
-    assert!(paths.contains(&".gitignore"));
-    assert!(paths.contains(&"src/main/java/org/example/Main.java"));
-    let pom = &maven_files
-        .iter()
-        .find(|(path, _)| path == "pom.xml")
-        .unwrap()
-        .1;
-    assert!(pom.contains("<artifactId>demo-app</artifactId>"));
-    assert!(pom.contains("<maven.compiler.release>25</maven.compiler.release>"));
-    // Maven 3.8's default Compiler 3.1 ignores the release property.
-    assert!(pom.contains("<artifactId>maven-compiler-plugin</artifactId>"));
-    assert_eq!(
-        maven["plan"]["openFiles"],
-        json!(["src/main/java/org/example/Main.java"])
-    );
-    assert_eq!(maven["plan"]["usesNetwork"], false);
-
-    let gradle = plan(
-        "java",
-        json!({"buildSystem": "gradle", "addSampleCode": false}),
-    );
-    let gradle_paths: Vec<String> = files(&gradle).into_iter().map(|(path, _)| path).collect();
-    assert!(gradle_paths.contains(&"build.gradle.kts".to_string()));
-    assert!(gradle_paths.contains(&"src/main/java/.gitkeep".to_string()));
-    assert_eq!(gradle["plan"]["openFiles"], json!([]));
-
-    let plain = plan("java", json!({"buildSystem": "none"}));
-    let plain_paths: Vec<String> = files(&plain).into_iter().map(|(path, _)| path).collect();
-    assert_eq!(plain_paths, [".gitignore", "src/Main.java"]);
-
-    let archetype = plan(
-        "maven-archetype",
-        json!({"archetype": "maven-archetype-webapp"}),
-    );
-    let step = &archetype["plan"]["steps"][0];
-    assert_eq!(step["command"], "mvn");
-    assert_eq!(step["collect"], "demo-app");
-    assert_eq!(step["environment"]["JAVA_HOME"], runtimes["jdk"]["home"]);
-    let arguments: Vec<&str> = step["arguments"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|argument| argument.as_str().unwrap())
-        .collect();
-    assert!(arguments.contains(&"-DarchetypeArtifactId=maven-archetype-webapp"));
-    assert!(arguments.contains(&"-Dpackage=org.example.demoapp"));
-    assert!(!arguments
-        .iter()
-        .any(|argument| argument.starts_with("-DarchetypeVersion")));
-
-    let spring = plan(
-        "spring-boot",
-        json!({"dependencies": ["web", "lombok"], "type": "gradle-project-kotlin"}),
-    );
-    let url = spring["plan"]["steps"][0]["url"].as_str().unwrap();
-    assert!(url.starts_with("https://start.spring.io/starter.zip?type=gradle-project-kotlin&language=java&groupId=com.example&artifactId=demo-app&name=demo-app&packageName=com.example.demoapp"), "{url}");
-    assert!(
-        url.ends_with("&dependencies=lombok%2Cweb") || url.ends_with("&dependencies=web%2Clombok"),
-        "{url}"
-    );
-    assert!(!url.contains("bootVersion"));
-    assert_eq!(spring["plan"]["openFiles"], json!(["build.gradle.kts"]));
-    assert_eq!(spring["plan"]["usesNetwork"], true);
-}
-
-#[test]
-fn spring_boot_refuses_a_jdk_older_than_17() {
-    let result = project_generation_plan_command(json!({
-        "manifest": json(OFFICIAL_JAVA),
-        "generatorID": "spring-boot",
-        "packagePath": official_package_path(),
-        "form": {"projectName": "demo", "runtimes": {"jdk": {"home": "/jdk11", "version": "11.0.22"}}},
-    }))
-    .unwrap();
-    assert_eq!(result["status"], "rejected");
-    assert_eq!(result["error"]["code"], "plugin.project.invalidInput");
-    assert_eq!(result["error"]["field"], "values.jdk");
 }
 
 #[test]
@@ -526,24 +413,4 @@ fn generator_commands_require_install_review_again() {
         1,
         "{changed}"
     );
-}
-
-/// Spring Boot's target Java release follows the selected JDK, so a project
-/// the saved JDK cannot compile is refused before anything is downloaded.
-#[test]
-fn spring_boot_refuses_a_java_release_newer_than_the_jdk() {
-    let plan = |jdk: &str, java: &str| {
-        project_generation_plan_command(json!({
-            "manifest": json(OFFICIAL_JAVA),
-            "generatorID": "spring-boot",
-            "packagePath": official_package_path(),
-            "form": {"projectName": "demo", "values": {"javaVersion": java},
-                     "runtimes": {"jdk": {"home": "/jdk", "version": jdk}}},
-        }))
-        .unwrap()
-    };
-    let refused = plan("17.0.12", "21");
-    assert_ne!(refused["status"], "ok", "{refused}");
-    assert!(refused.to_string().contains("versionTooHigh"), "{refused}");
-    assert_eq!(plan("21.0.4", "21")["status"], "ok");
 }

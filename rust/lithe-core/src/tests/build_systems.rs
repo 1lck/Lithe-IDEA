@@ -32,8 +32,6 @@ const CARGO_FIXTURE: &str = contract_file!("fixtures/build-systems/build-static-
 const GO_FIXTURE: &str = contract_file!("fixtures/build-systems/build-command-stdout.plugin.json");
 const GRADLE_FIXTURE: &str =
     contract_file!("fixtures/build-systems/build-command-output-file.plugin.json");
-const MAVEN_FIXTURE: &str =
-    contract_file!("fixtures/build-systems/build-host-integration.plugin.json");
 const GRADLE_PROVIDER_FIXTURE: &str =
     contract_file!("fixtures/build-providers/build-provider.plugin.json");
 const MIX_PROVIDER_FIXTURE: &str =
@@ -57,7 +55,6 @@ fn fixture(name: &str) -> Value {
         }
         "build-command-stdout.plugin.json" => GO_FIXTURE,
         "build-command-output-file.plugin.json" => GRADLE_FIXTURE,
-        "build-host-integration.plugin.json" => MAVEN_FIXTURE,
         "build-provider.plugin.json" => GRADLE_PROVIDER_FIXTURE,
         "build-provider-language-server.plugin.json" => MIX_PROVIDER_FIXTURE,
         other => panic!("unknown fixture {other}"),
@@ -147,7 +144,6 @@ fn build_fixtures_validate() {
         "build-static-file.plugin.json",
         "build-command-stdout.plugin.json",
         "build-command-output-file.plugin.json",
-        "build-host-integration.plugin.json",
         "build-provider.plugin.json",
         "build-provider-language-server.plugin.json",
     ] {
@@ -797,130 +793,6 @@ fn detection_returns_empty_for_non_directory_and_missing_workspace_roots() {
             root.display(),
         );
     }
-}
-
-/// Maven's model comes from the host integration during detection, with the
-/// reactor's modules as projects and its profiles as option values.
-#[test]
-fn maven_method_durations_survive_report_aggregation_and_build_decoding() {
-    let timing: Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../shared/fixtures/maven/testcase-durations-v1.json"
-    )))
-    .unwrap();
-    let workspace = TemporaryWorkspace::new("maven-method-durations");
-    workspace.write("pom.xml", "<project><modelVersion>4.0.0</modelVersion><groupId>demo</groupId><artifactId>timing</artifactId><version>1</version></project>")
-        .write("target/surefire-reports/TEST-demo.DurationTest.xml", timing["xml"].as_str().unwrap());
-    let results = crate::project::test_results(
-        serde_json::from_value(json!({
-            "root": workspace.root(), "output": "", "reports": {"notBeforeMillis": 0}
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(
-        serde_json::to_value(&results.test_cases).unwrap(),
-        timing["expected"]
-    );
-    let decoded = call(
-        "decodeTestResults",
-        fixture("build-host-integration.plugin.json"),
-        "maven",
-        json!({
-            "workspaceRoot": workspace.root(), "root": ".", "project": ".", "output": "", "notBeforeMillis": 0
-        }),
-    );
-    assert_eq!(decoded["status"], "ok", "{decoded}");
-    let methods = decoded["results"]["tests"].as_array().unwrap();
-    assert_eq!(methods.len(), timing["expected"].as_array().unwrap().len());
-    for expected in timing["expected"].as_array().unwrap() {
-        let actual = methods
-            .iter()
-            .find(|case| case["case"] == expected["method"])
-            .unwrap();
-        assert_eq!(
-            actual["durationMillis"], expected["durationMillis"],
-            "{actual}"
-        );
-        assert_eq!(actual["invocations"], expected["invocations"]);
-    }
-}
-
-#[test]
-fn maven_reactor_detects_through_the_host_integration() {
-    let workspace = TemporaryWorkspace::new("build-maven-detect");
-    workspace
-        .write(
-            "backend/pom.xml",
-            "<project><modelVersion>4.0.0</modelVersion><groupId>com.example</groupId><artifactId>shop</artifactId><version>1.0.0</version><packaging>pom</packaging><modules><module>api</module></modules><profiles><profile><id>dev</id></profile><profile><id>prod</id></profile></profiles></project>",
-        )
-        .write(
-            "backend/api/pom.xml",
-            "<project><modelVersion>4.0.0</modelVersion><parent><groupId>com.example</groupId><artifactId>shop</artifactId><version>1.0.0</version></parent><artifactId>api</artifactId></project>",
-        )
-        .write("backend/api/src/main/java/demo/App.java", "class App {}\n");
-    let detection = detect(
-        &workspace,
-        vec![fixture("build-host-integration.plugin.json")],
-        json!({ "maven": { "profiles": ["dev", "removed"] } }),
-    );
-    assert_eq!(instance_ids(&detection), ["maven:backend"]);
-    let model = &instance(&detection, "maven:backend")["model"];
-    let projects: Vec<(&str, &str)> = model["projects"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|project| {
-            (
-                project["path"].as_str().unwrap(),
-                project["name"].as_str().unwrap(),
-            )
-        })
-        .collect();
-    assert_eq!(projects, [("backend", "shop"), ("backend/api", "api")]);
-    assert_eq!(model["optionValues"]["profiles"], json!(["dev", "prod"]));
-    assert!(
-        model["contentRoots"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|root| root["path"] == "backend/api/src/main/java" && root["kind"] == "source"),
-        "{model}"
-    );
-}
-
-/// The Maven plugin's task plans keep the argument order the built-in Maven
-/// tool window produces for the same context.
-#[test]
-fn maven_task_plans_match_the_builtin_arguments() {
-    let settings = "/opt/maven/settings.xml";
-    let outcome = call(
-        "taskPlan",
-        fixture("build-host-integration.plugin.json"),
-        "maven",
-        json!({
-            "root": ".",
-            "task": "install",
-            "project": { "path": "services/api", "name": "api" },
-            "options": {
-                "profiles": ["prod", "dev"],
-                "settingsFile": settings,
-                "localRepository": "/opt/m2",
-                "skipTests": true,
-            },
-        }),
-    );
-    let profiles = ["dev".to_string(), "prod".to_string()];
-    let expected = crate::project::maven_arguments(
-        &profiles,
-        Some(settings),
-        Some("/opt/m2"),
-        Some("services/api"),
-        false,
-        true,
-        &["install".to_string()],
-    );
-    assert_eq!(outcome["plan"]["arguments"], json!(expected), "{outcome}");
 }
 
 /// A model command that writes the canonical format to the host's output
@@ -1658,42 +1530,6 @@ fn static_models_and_sync_fingerprints_reject_escaping_symlinks() {
     );
     assert_eq!(local["status"], "ok", "{local}");
     assert_eq!(local["model"]["projects"][0]["name"], "local");
-}
-
-/// The reused Maven reader must not expose linked POM contents either.
-#[cfg(unix)]
-#[test]
-fn maven_models_do_not_read_poms_outside_the_workspace() {
-    use std::os::unix::fs::symlink;
-    let workspace = TemporaryWorkspace::new("build-confined-maven");
-    let outside = TemporaryWorkspace::new("build-external-maven");
-    outside.write("pom.xml", "<project><modelVersion>4.0.0</modelVersion><artifactId>private-artifact</artifactId><version>9.9</version></project>");
-    symlink(outside.0.join("pom.xml"), workspace.0.join("pom.xml")).unwrap();
-    let manifest = fixture("build-host-integration.plugin.json");
-    let decoded = call(
-        "decodeModel",
-        manifest.clone(),
-        "maven",
-        json!({
-            "workspaceRoot": workspace.root(), "root": ".",
-        }),
-    );
-    assert_eq!(decoded["status"], "rejected", "{decoded}");
-    workspace.write("reactor/pom.xml", "<project><modelVersion>4.0.0</modelVersion><artifactId>root</artifactId><packaging>pom</packaging><modules><module>linked</module></modules></project>");
-    symlink(&outside.0, workspace.0.join("reactor/linked")).unwrap();
-    let modules = call(
-        "decodeModel",
-        manifest,
-        "maven",
-        json!({
-            "workspaceRoot": workspace.root(), "root": "reactor",
-        }),
-    );
-    assert_eq!(modules["status"], "ok", "{modules}");
-    assert!(
-        !modules.to_string().contains("private-artifact"),
-        "{modules}"
-    );
 }
 
 /// A selected report directory can itself be an alias outside the workspace.

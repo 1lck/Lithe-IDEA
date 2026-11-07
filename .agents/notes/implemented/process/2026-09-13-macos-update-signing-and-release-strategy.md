@@ -84,8 +84,10 @@ v1→v2 那次一样让旧包立刻失效。同一个 key ID 永远不能换成�
 v1 包在新版本里仍会被拒绝，需要重新下载 v2 包。多 key 表是为以后的轮换准备的，
 并没有恢复 v1 兼容性。
 
-构建侧对应 `scripts/plugins/build-official-plugins.sh --development-unsigned`，只在 debug
-配置下可用，用来在没有私钥时产出这种开发包；release 配置传入该参数会直接失败。
+构建侧原本由本仓库的官方插件构建脚本以 `--development-unsigned` 产出开发包，只在 debug
+配置下可用；release 配置传入该参数会直接失败。2026-11 内置官方插件连同该脚本和
+`release-official-plugins` 工作流一起移出本仓库（#1495），插件包由各插件仓库
+（`Lithe-IDEA/lithe-plugin-*`）自己的发布流程产出，客户端这里的验证规则不变。
 
 官方插件由组织仓库 `Lithe-IDEA/Lithe-IDEA` 的独立插件发布工作流使用
 `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY` 签名，该私钥必须匹配客户端内置 v2 公钥。
@@ -431,7 +433,6 @@ node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --r
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --max-seconds 60 -- --filter StableRollbackDiskImageIntegrationTests
 ./scripts/macos/test/test-macos.sh
 ./scripts/macos/verify/verify-macos-package.sh
-./scripts/plugins/verify-official-plugins.sh
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginLocalDevelopmentTests|PluginPackageSignatureTests|PluginPackageStoreTests'
 sparkle_tools=$(zsh scripts/release/sparkle/prepare-sparkle-tools.sh)
 ruby scripts/release/sparkle/test-sparkle-update.rb "$sparkle_tools"
@@ -467,7 +468,6 @@ Sparkle 版本间升级、缺失/损坏的 delta、下载中断、权限不足�
 - `.github/workflows/release-macos.yml`
 - `.github/workflows/release-preview-macos.yml`
 - `.github/workflows/release-preview-windows.yml`
-- `scripts/plugins/build-official-plugins.sh`
 - `macos/Sources/LithePluginPackageSigning/`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift`

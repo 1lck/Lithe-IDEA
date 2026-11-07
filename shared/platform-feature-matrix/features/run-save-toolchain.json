@@ -8,18 +8,17 @@
       "macos/Sources/Lithe/Views/Run",
       "macos/Sources/Lithe/Application/Features/DocumentSaveBatch.swift",
       "shared/fixtures/documents/save-batch-v1.json",
-      "macos/Sources/Lithe/Services/Java",
       "macos/Tests/LitheExecutionModuleTests/ExecutionModuleTests.swift",
       "rust/lithe-core/src/execution/configuration.rs",
       "macos/Sources/LitheExecutionModule/Services/RunService.swift",
       "macos/Sources/LitheLanguageIntelligenceModule/Services/LanguageToolingSessionManager.swift",
       "macos/Tests/LitheLanguageIntelligenceModuleTests/LanguageIntelligenceModuleTests.swift",
-      "rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs",
       "rust/lithe-core/src/execution/environment.rs",
       "shared/fixtures/execution/launch-environment-v1.json",
       "macos/Sources/Lithe/Views/Run/ProviderRunOptionsEditor.swift",
       "macos/Sources/LitheCoreContracts/Execution/ExecutionContracts.swift",
-      "macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift"
+      "macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift",
+      "macos/Sources/Lithe/Services/Runtime"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -33,7 +32,6 @@
       "windows/tauri/src-tauri/src/run.rs",
       "windows/tauri/src/platform/lsp-core-adapter.ts",
       "windows/tauri/src/platform/lsp-core-adapter.test.ts",
-      "rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs",
       "rust/lithe-core/src/execution/environment.rs",
       "shared/fixtures/execution/launch-environment-v1.json",
       "shared/fixtures/run-configuration/argument-text.json",

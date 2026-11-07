@@ -52,8 +52,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     }
 
     private let launchResolver: (@MainActor (URL) throws -> ResolvedLanguageServerLaunch)?
-    private let hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?
-    private let cacheDirectoryURL: URL?
     private let initializeTimeout: TimeInterval
     private let requestTimeout: TimeInterval
     private let shutdownTimeout: TimeInterval
@@ -131,9 +129,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     package var onCoreLog: ((CoreLogRecord) -> Void)?
     package var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)?
     package var onLogIssue: ((Bool, String, String, Int?, String?) -> Void)?
-    package var onProjectPreparation: ((ProjectPreparationSnapshot) -> Void)?
-    package var onMavenProfileTask: ((String) -> Void)?
-    package var onMavenProfileProject: ((MavenProfileProjectResult) -> Void)?
     package var onStateChange: ((LanguageServerSessionState) -> Void)?
     package private(set) var features: LanguageServerFeatureSet = []
     package var onSemanticTokensRefresh: (() -> Void)?
@@ -164,9 +159,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// Shortcut import providers selected by this backend during initialization.
     package private(set) var keymapImportProviders: [String] = []
     package var onServerInfoChange: ((LanguageServerInfo?) -> Void)?
-    package var javaTestRunnerURL: URL? {
-        hostIntegrationLaunch?.coreLaunch?.jdtlsLaunchResources?.javaTestRunnerURL
-    }
 
     package init(
         providerID: String,
@@ -176,8 +168,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         initializationOptions: ToolingJSONValue? = nil,
         prepareProcess: (@MainActor (URL) async throws -> PreparedLanguageServerProcess)? = nil,
         launchResolver: (@MainActor (URL) throws -> ResolvedLanguageServerLaunch)? = nil,
-        hostIntegrationLaunch: LanguageServerHostIntegrationLaunch? = nil,
-        cacheDirectoryURL: URL? = nil,
         initializeTimeout: TimeInterval = 30,
         requestTimeout: TimeInterval = 30,
         shutdownTimeout: TimeInterval = 2,
@@ -198,8 +188,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         self.initializationOptions = initializationOptions
         self.prepareProcess = prepareProcess
         self.launchResolver = launchResolver
-        self.hostIntegrationLaunch = hostIntegrationLaunch
-        self.cacheDirectoryURL = cacheDirectoryURL
         self.initializeTimeout = initializeTimeout
         self.requestTimeout = requestTimeout
         self.shutdownTimeout = shutdownTimeout
@@ -226,24 +214,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
-    package func start(rootURL: URL, workspaceFingerprint: String?) throws {
-        try start(
-            rootURL: rootURL,
-            workspaceFingerprint: workspaceFingerprint,
-            mavenContext: nil
-        )
-    }
-
-    package func start(rootURL: URL, workspaceFingerprint: String?, mavenContext: MavenLaunchContext?) throws {
-        try start(rootURL: rootURL, workspaceFingerprint: workspaceFingerprint, mavenContext: mavenContext, javaGradle: nil)
-    }
-
-    package func start(
-        rootURL: URL,
-        workspaceFingerprint: String?,
-        mavenContext: MavenLaunchContext?,
-        javaGradle: JavaGradleImportConfiguration?
-    ) throws {
+    package func start(rootURL: URL) throws {
         guard sessionID == nil, startupGeneration == nil else { return }
         let normalizedRoot = rootURL.standardizedFileURL
         transition(to: .startingProcess)
@@ -272,8 +243,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                     self.startingPreparedProcess = true
                     defer { self.startingPreparedProcess = false }
                     do {
-                        try self.start(rootURL: normalizedRoot, workspaceFingerprint: workspaceFingerprint,
-                                       mavenContext: mavenContext, javaGradle: javaGradle)
+                        try self.start(rootURL: normalizedRoot)
                     } catch {
                         self.releaseSession()
                     }
@@ -339,8 +309,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         let initializeTimeout = initializeTimeout
         let requestTimeout = requestTimeout
         let shutdownTimeout = shutdownTimeout
-        let hostIntegrationLaunch = hostIntegrationLaunch
-        let cacheDirectoryURL = cacheDirectoryURL
         let resolvedArguments = arguments
         let resolvedOptions = initializationOptions
         let resolvedConfiguration = workspaceConfiguration
@@ -369,9 +337,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                     requestTimeout: requestTimeout,
                     shutdownTimeout: shutdownTimeout
                 )
-            } else if let pluginID, let resolvedPolicy, hostIntegrationLaunch == nil {
-                // A server with session fields belongs to its plugin; a host
-                // integration keeps the start below and is not exposed.
+            } else if let pluginID, let resolvedPolicy {
+                // A server with session fields belongs to its plugin.
                 core.startPluginLanguageServer(
                     pluginID: pluginID,
                     providerID: providerID,
@@ -383,8 +350,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                     workspaceConfiguration: resolvedConfiguration,
                     sessionPolicy: resolvedPolicy,
                     hostServices: hostServices,
-                    cacheDirectoryURL: cacheDirectoryURL,
-                    workspaceFingerprint: workspaceFingerprint,
                     initializeTimeout: initializeTimeout,
                     requestTimeout: requestTimeout,
                     shutdownTimeout: shutdownTimeout
@@ -400,11 +365,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                     initializationOptions: resolvedOptions,
                     workspaceConfiguration: resolvedConfiguration,
                     hostServices: hostServices,
-                    hostIntegrationLaunch: hostIntegrationLaunch,
-                    cacheDirectoryURL: cacheDirectoryURL,
-                    workspaceFingerprint: workspaceFingerprint,
-                    mavenContext: mavenContext,
-                    javaGradle: javaGradle,
                     initializeTimeout: initializeTimeout,
                     requestTimeout: requestTimeout,
                     shutdownTimeout: shutdownTimeout
@@ -418,12 +378,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                     rootURL: normalizedRoot,
                     workingDirectoryURL: normalizedRoot,
                     initializationOptions: resolvedOptions,
-                    runtimeExecutableURL: hostIntegrationLaunch?.runtimeExecutableURL,
-                    jdtlsLaunchResources: hostIntegrationLaunch?.coreLaunch?.jdtlsLaunchResources,
-                    cacheDirectoryURL: cacheDirectoryURL,
-                    workspaceFingerprint: workspaceFingerprint,
-                    mavenContext: mavenContext,
-                    javaGradle: javaGradle,
                     initializeTimeout: initializeTimeout,
                     requestTimeout: requestTimeout,
                     shutdownTimeout: shutdownTimeout
@@ -638,80 +592,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         // The runtime owns which documents are open, so closing one it does not
         // know about is simply not its business.
         core.closeLanguageServerDocument(sessionID: sessionID, fileURL: fileURL.standardizedFileURL)
-    }
-
-    package func javaNavigationMarkers(
-        fileURL: URL,
-        completion: @escaping (Result<[JavaNavigationMarker], Error>) -> Void
-    ) throws {
-        let normalizedURL = fileURL.standardizedFileURL
-        guard let sessionID, state == .ready else {
-            throw LanguageServerRuntimeSessionError.notReady
-        }
-        guard let documentVersion = documentVersions[normalizedURL] else {
-            throw LanguageServerRuntimeSessionError.documentNotSynchronized
-        }
-        switch core.requestJavaNavigationMarkers(
-            sessionID: sessionID,
-            fileURL: normalizedURL,
-            documentVersion: documentVersion
-        ) {
-        case .success(let operation):
-            registerPendingOperation(
-                operation,
-                name: "javaNavigationMarkers"
-            ) { [weak self] result in
-                guard let self else { return }
-                completion(result.flatMap {
-                    Self.decodeEventResult($0, as: JavaNavigationMarkersPayload.self)
-                }.flatMap { payload in
-                    guard self.documentVersions[normalizedURL] == payload.documentVersion else {
-                        return .failure(LanguageServerRuntimeSessionError.staleDocument)
-                    }
-                    return .success(payload.makeModels())
-                })
-            }
-        case .failure(let error):
-            throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
-        }
-    }
-
-    package func resolveJavaNavigation(
-        fileURL: URL,
-        marker: JavaNavigationMarker,
-        completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
-    ) throws {
-        let normalizedURL = fileURL.standardizedFileURL
-        guard let sessionID, state == .ready else {
-            throw LanguageServerRuntimeSessionError.notReady
-        }
-        guard let documentVersion = documentVersions[normalizedURL] else {
-            throw LanguageServerRuntimeSessionError.documentNotSynchronized
-        }
-        switch core.resolveJavaNavigation(
-            sessionID: sessionID,
-            fileURL: normalizedURL,
-            marker: marker,
-            documentVersion: documentVersion
-        ) {
-        case .success(let operation):
-            registerPendingOperation(
-                operation,
-                name: "javaResolveNavigation"
-            ) { [weak self] result in
-                guard let self else { return }
-                completion(result.flatMap {
-                    Self.decodeEventResult($0, as: JavaNavigationLocationsPayload.self)
-                }.flatMap { payload in
-                    guard self.documentVersions[normalizedURL] == payload.documentVersion else {
-                        return .failure(LanguageServerRuntimeSessionError.staleDocument)
-                    }
-                    return .success(payload.makeModels())
-                })
-            }
-        case .failure(let error):
-            throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
-        }
     }
 
     package func completions(
@@ -1302,120 +1182,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         )
     }
 
-    /// Waits for Core's composed preparation; cancellation addresses the same
-    /// operation throughout entry discovery, build and classpath resolution.
-    package func prepareJavaLaunch(fileURL: URL, mainClass: String?) async throws -> JavaLaunchPreparation {
-        try Task.checkCancellation()
-        guard let sessionID, state == .ready else {
-            throw LanguageServerRuntimeSessionError.notReady
-        }
-        let operation: LanguageServerRuntimeOperation
-        switch await send(timeout: requestTimeout, { core in
-            core.prepareJavaLaunch(sessionID: sessionID, fileURL: fileURL, mainClass: mainClass)
-        }) {
-        case .success(let started): operation = started
-        case .failure(let error):
-            sendsInFlight -= 1
-            try Task.checkCancellation()
-            throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
-        }
-        let preparation: JavaLaunchPreparation = try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                registerPendingOperation(operation, name: "java.prepareLaunch") { result in
-                    continuation.resume(with: result.flatMap {
-                        Self.decodeEventResult($0, as: JavaLaunchPayload.self)
-                    }.flatMap { payload in
-                        switch payload.kind {
-                        case .ready: return .success(.ready(payload.target))
-                        case .buildFailed:
-                            guard let failure = payload.failure else {
-                                return .failure(LanguageServerRuntimeSessionError.missingResult)
-                            }
-                            return .success(.buildFailed(target: payload.target, failure: JavaLaunchBuildFailure(
-                                code: failure.code, message: L10n.string(key: failure.message), report: failure.report)))
-                        }
-                    })
-                }
-                sendsInFlight -= 1
-            }
-        } onCancel: {
-            Task { @MainActor [weak self] in self?.cancelOffMain(operation.operationID) }
-        }
-        try Task.checkCancellation()
-        return preparation
-    }
-
-    private struct JavaLaunchPayload: Decodable {
-        enum Kind: String, Decodable { case ready, buildFailed }
-        let kind: Kind
-        let target: JavaDebugLaunchTarget
-        let failure: JavaLaunchBuildFailure?
-    }
-
-    /// Asks JDT, through Core, which classes in the workspace can be launched.
-    package func javaEntrypoints() async throws -> JavaEntrypoints {
-        try Task.checkCancellation()
-        guard let sessionID, state == .ready else { throw LanguageServerRuntimeSessionError.notReady }
-        let operation: LanguageServerRuntimeOperation
-        switch await send(timeout: requestTimeout, { core in
-            core.requestLanguageServerOperation(sessionID: sessionID, operation: .javaEntrypoints, fileURL: nil,
-                virtualURI: nil, position: nil, newName: nil, range: nil, diagnostics: [],
-                completionContext: nil, completionItem: nil, codeAction: nil, command: nil)
-        }) {
-        case .success(let started): operation = started
-        case .failure(let error):
-            sendsInFlight -= 1
-            try Task.checkCancellation()
-            throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
-        }
-        let value: JavaEntrypoints = try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                registerPendingOperation(operation, name: LanguageServerOperation.javaEntrypoints.rawValue) { result in
-                    continuation.resume(with: result.flatMap { Self.decodeEventResult($0, as: JavaEntrypoints.self) })
-                }
-                sendsInFlight -= 1
-            }
-        } onCancel: {
-            Task { @MainActor [weak self] in self?.cancelOffMain(operation.operationID) }
-        }
-        try Task.checkCancellation()
-        return value
-    }
-
-    /// Callback discovery is retained for presentation clients.
-    package func javaEntrypoints(
-        completion: @escaping (Result<JavaEntrypoints, Error>) -> Void
-    ) throws {
-        try request(.javaEntrypoints, fileURL: nil) { result in
-            completion(result.flatMap {
-                Self.decodeEventResult($0, as: JavaEntrypoints.self)
-            })
-        }
-    }
-
-    package func javaTestItems(
-        fileURL: URL,
-        completion: @escaping (Result<JavaTestItems, Error>) -> Void
-    ) throws {
-        try request(.javaTestItems, fileURL: fileURL) { result in
-            completion(result.flatMap {
-                Self.decodeEventResult($0, as: JavaTestItems.self)
-            })
-        }
-    }
-
-    /// Asks JDT, through Core, which `main` methods in one file can be launched.
-    package func javaMainMethods(
-        fileURL: URL,
-        completion: @escaping (Result<JavaMainMethods, Error>) -> Void
-    ) throws {
-        try request(.javaMainMethods, fileURL: fileURL) { result in
-            completion(result.flatMap {
-                Self.decodeEventResult($0, as: JavaMainMethods.self)
-            })
-        }
-    }
-
     package func resolveVirtualDocument(
         uri: String,
         completion: @escaping (Result<String, Error>) -> Void
@@ -1534,38 +1300,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         return true
     }
 
-    package func retryMavenProfiles() {
-        guard let sessionID, isRunning else { return }
-        if case .failure(let failure) = core.retryMavenProfiles(sessionID: sessionID) {
-            onLogIssue?(false, "mavenProfileRetry", failure.code, nil, nil)
-            onLog?(.error, "Maven profile retry failed", failure.message, nil)
-        }
-    }
-
-    /// Hands a changed Maven context to the running server. A failure means the
-    /// session cannot take it and the caller should restart the session.
-    package func updateMavenConfiguration(
-        _ context: MavenLaunchContext,
-        reloadProjects: Bool
-    ) -> Result<LanguageServerMavenConfigurationUpdate, LanguageServerRuntimeFailure> {
-        guard let sessionID, isRunning else {
-            return .failure(LanguageServerRuntimeFailure(
-                code: "sessionStopped",
-                message: "The Java language session is no longer running."
-            ))
-        }
-        let result = core.updateMavenConfiguration(
-            sessionID: sessionID,
-            context: context,
-            reloadProjects: reloadProjects
-        )
-        if case .failure(let failure) = result {
-            onLogIssue?(true, "mavenConfigurationUpdate", failure.code, nil, nil)
-            onLog?(.warning, "Maven configuration update failed", failure.userMessage, nil)
-        }
-        return result
-    }
-
     // MARK: - Requests
 
     private func request(
@@ -1664,14 +1398,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             if let onCoreLog { onCoreLog(record) } else { core.emitCoreLog(record) }
         }
         switch event.type {
-        case "projectPreparation":
-            switch Self.decodeEventResult(event, as: ProjectPreparationSnapshot.self) {
-            case .success(let snapshot): onProjectPreparation?(snapshot)
-            case .failure(let error): onLogIssue?(false, "projectPreparation", "invalidProjectPreparationEvent", nil, nil)
-                onLog?(.error, "Invalid project preparation event", error.localizedDescription, nil)
-            }
-            return false
-
         case "stateChanged":
             return handleStateChange(event)
         case "requestCompleted":
@@ -1806,8 +1532,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             onServerInfoChange?(updated)
             return false
         case "log":
-            if let status = event.mavenProfileTask { onMavenProfileTask?(status) }
-            if let result = event.mavenProfileProject { onMavenProfileProject?(result) }
             let level = event.level == "warn" ? .warning : event.level.flatMap(LanguageServerLogLevel.init(rawValue:)) ?? .info
             if event.coreLog == nil && (level == .warning || level == .error) {
                 onLogIssue?(level == .warning, event.error?.stage ?? "runtime",
@@ -2068,7 +1792,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         case unsupportedNavigation(String)
         case missingResult
         case sessionStopped
-        case staleDocument
 
         var errorDescription: String? {
             switch self {
@@ -2088,8 +1811,6 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 L10n.string("Language server response did not include a result.")
             case .sessionStopped:
                 L10n.string("Language server session stopped before the request completed.")
-            case .staleDocument:
-                L10n.string("The document changed before Java navigation completed.")
             }
         }
     }
@@ -2210,63 +1931,6 @@ private struct NavigationPayload: Decodable {
     }
 
     let locations: [Location]
-    func makeModels() -> [LanguageServerLocation] { locations.compactMap { $0.makeModel() } }
-}
-
-private struct JavaNavigationMarkersPayload: Decodable {
-    struct Marker: Decodable {
-        let line: Int
-        let utf16Column: Int
-        let implementationCount: Int
-        let direction: JavaNavigationDirection
-        let relation: JavaNavigationRelation
-
-        func makeModel() -> JavaNavigationMarker {
-            JavaNavigationMarker(
-                line: line,
-                utf16Column: utf16Column,
-                implementationCount: implementationCount,
-                direction: direction,
-                relation: relation
-            )
-        }
-    }
-
-    let documentVersion: Int
-    let markers: [Marker]
-
-    func makeModels() -> [JavaNavigationMarker] { markers.map { $0.makeModel() } }
-}
-
-private struct JavaNavigationLocationsPayload: Decodable {
-    struct Location: Decodable {
-        let uri: String?
-        let filePath: String?
-        let range: RangePayload
-        let isReadOnly: Bool
-        let displayPath: String?
-
-        func makeModel() -> LanguageServerLocation? {
-            let url: URL
-            if let filePath {
-                url = URL(fileURLWithPath: filePath)
-            } else if let uri, let virtualURL = URL(string: uri) {
-                url = virtualURL
-            } else {
-                return nil
-            }
-            return LanguageServerLocation(
-                url: url,
-                range: range.makeModel(),
-                isReadOnly: isReadOnly,
-                displayPath: displayPath
-            )
-        }
-    }
-
-    let documentVersion: Int
-    let locations: [Location]
-
     func makeModels() -> [LanguageServerLocation] { locations.compactMap { $0.makeModel() } }
 }
 

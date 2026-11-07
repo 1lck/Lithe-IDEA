@@ -38,7 +38,7 @@ struct RustLanguageServerLaunchTests {
         }
         let ready = TestGate()
         session.onStateChange = { state in if case .ready = state { ready.open() } }
-        try session.start(rootURL: root, workspaceFingerprint: nil)
+        try session.start(rootURL: root)
         try #require(await ready.waitUntilOpen(timeout: .seconds(5)))
         let manifestURL = DeclarativePluginTestSupport.repositoryRoot
             .appendingPathComponent("shared/contracts/plugins/v1/fixtures/keymap-import/keymap-import-provider.plugin.json")
@@ -76,7 +76,7 @@ struct RustLanguageServerLaunchTests {
         defer { session.stop() }
         let ready = TestGate()
         session.onStateChange = { state in if case .ready = state { ready.open() } }
-        try session.start(rootURL: root, workspaceFingerprint: nil)
+        try session.start(rootURL: root)
         try #require(await ready.waitUntilOpen(timeout: .seconds(5)))
         #expect(session.keymapImportProviders == ["fixture"])
         let response = try await session.keymapImportRequest(providerID: "fixture", snapshotID: "snapshot-1", timeout: 2)
@@ -135,49 +135,33 @@ struct RustLanguageServerLaunchTests {
         #expect(params == ["providerID": "fixture", "snapshotID": "snapshot-1"])
     }
 
-    @Test(arguments: [false, true])
-    func startupMapsIdentityConfigurationServicesAndJdtContextThroughCore(useJdt: Bool) async throws {
+    @Test
+    func startupMapsIdentityConfigurationAndServicesThroughCore() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("plugin-core-launch-#\(UUID().uuidString)", isDirectory: true)
-        let installed = root.appendingPathComponent("installed")
-        let configuration = installed.appendingPathComponent("config_arm64")
-        let cache = root.appendingPathComponent("cache")
-        try FileManager.default.createDirectory(at: configuration, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let configText = "osgi.bundles.defaultStartLevel=4\n"
-        try configText.write(to: configuration.appendingPathComponent("config.ini"), atomically: true, encoding: .utf8)
         let executable = root.appendingPathComponent("runtime.py")
         try Self.server.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
-        let launcher = installed.appendingPathComponent("plugins/equinox.jar")
-        let lombok = installed.appendingPathComponent("lombok.jar")
-        let extensionJar = installed.appendingPathComponent("extension.jar")
         let core = RustCoreBridge()
         let plugin = "dev.lithe.fixture.launch"
         let started = try core.startPluginLanguageServer(
-            pluginID: plugin, providerID: useJdt ? "java" : "test-plugin",
-            executableURL: useJdt ? root.appendingPathComponent("must-not-be-launched") : executable,
-            arguments: useJdt ? ["-jar", launcher.path] : [], environment: [:], rootURL: root,
+            pluginID: plugin, providerID: "test-plugin",
+            executableURL: executable,
+            arguments: [], environment: [:], rootURL: root,
             initializationOptions: .object(["fixtureOption": .string("preserved")]),
             workspaceConfiguration: .object(["fixture": .object(["value": .string("configured")])]),
             hostServices: ["credentials"],
-            hostIntegrationLaunch: useJdt ? .init(runtimeExecutableURL: executable, coreLaunch: .jdt(.init(
-                launcherJarURL: launcher, configurationDirectoryURL: configuration, lombokAgentURL: lombok,
-                javaExtensionBundleURLs: [extensionJar]))) : nil,
-            cacheDirectoryURL: cache, workspaceFingerprint: "workspace-v1", mavenContext: nil, javaGradle: nil,
             initializeTimeout: 5, requestTimeout: 5, shutdownTimeout: 0.1
         ).get()
         defer { core.stopLanguageServer(sessionID: started.sessionID); core.destroyLanguageServer(sessionID: started.sessionID) }
-        var ready = false, hostRequest = false, fingerprintObserved = false
+        var ready = false, hostRequest = false
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))
         // Core exposes a poll boundary; observe real process replies under a
         // monotonic deadline rather than guessing when the backend has started.
         while ContinuousClock.now < deadline {
             for event in core.pollLanguageServerEvents(sessionID: started.sessionID) {
                 if event.type == "stateChanged", event.state == "ready" { ready = true }
-                if event.message == "Java language service process started", let detail = event.detail?.data(using: .utf8),
-                   let fields = try? JSONSerialization.jsonObject(with: detail) as? [String: Any] {
-                    fingerprintObserved = fields["workspaceFingerprintPresent"] as? Bool == true
-                }
                 if event.type == "hostRequest" {
                     guard case .object(let value)? = event.result else {
                         Issue.record("Host request was not an object")
@@ -198,25 +182,13 @@ struct RustLanguageServerLaunchTests {
             await Task.yield()
         }
         try #require(ready && hostRequest, "Backend did not reach ready and receive the granted service")
-        let arguments = try #require(read("argv", root) as? [String])
-        if useJdt {
-            #expect(fingerprintObserved)
-            #expect(arguments.contains("-javaagent:" + lombok.path))
-            #expect(arguments.contains(launcher.path))
-            let configIndex = try #require(arguments.firstIndex(of: "-configuration"))
-            let writable = URL(fileURLWithPath: arguments[configIndex + 1])
-            #expect(writable.path.hasPrefix(cache.path + "/jdtls-configuration/"))
-            #expect(try String(contentsOf: writable.appendingPathComponent("config.ini"), encoding: .utf8) == configText)
-            let dataIndex = try #require(arguments.firstIndex(of: "-data"))
-            #expect(arguments[dataIndex + 1].hasPrefix(cache.path + "/jdtls/"))
-        }
         let initialize = try #require(read("initialize", root) as? [String: Any])
         let params = try #require(initialize["params"] as? [String: Any])
         #expect(params["rootUri"] as? String == root.standardizedFileURL.absoluteString)
         struct URI: Encodable { let path: String; let platform = "posix" }
         struct SyncRequest: Encodable { let sessionId: String; let uri: URI; let languageId = "fixture"; let text = "example" }
         struct SyncResponse: Decodable { let uri: String; let documentVersion: Int }
-        let document = root.appendingPathComponent("A#B.java")
+        let document = root.appendingPathComponent("A#B.fixture")
         let synchronized: SyncResponse = try core.executeResult(command: "lsp.syncDocument", payload:
             SyncRequest(sessionId: started.sessionID, uri: URI(path: document.path))).get()
         #expect(synchronized.uri == document.absoluteString)
@@ -233,15 +205,9 @@ struct RustLanguageServerLaunchTests {
         #expect(openDocument["uri"] as? String == document.absoluteString)
         let options = try #require(params["initializationOptions"] as? [String: Any])
         #expect(options["fixtureOption"] as? String == "preserved")
-        if useJdt { #expect((options["bundles"] as? [String])?.contains(extensionJar.path) == true) }
         let configured = try #require(read("configuration", root) as? [String: Any])
-        if useJdt {
-            // JDT owns workspace/configuration sections; an unrelated section
-            // returns null. Generic plugins read the forwarded plugin config.
-            #expect((configured["result"] as? [Any])?.first is NSNull)
-        } else {
-            #expect(((configured["result"] as? [[String: String]])?.first)?["value"] == "configured")
-        }
+        // Plugins read the forwarded plugin configuration.
+        #expect(((configured["result"] as? [[String: String]])?.first)?["value"] == "configured")
         let credential = try #require(read("credential", root) as? [String: Any])
         #expect((credential["result"] as? [String: String])?["value"] == "fixture-only")
         // A function call with the exact plugin owner must be accepted, while
@@ -252,8 +218,6 @@ struct RustLanguageServerLaunchTests {
             functionID: "snapshot.refresh", params: .object([:]), timeout: 1) {
             Issue.record("Core accepted another plugin's function request")
         }
-        #expect(try String(contentsOf: configuration.appendingPathComponent("config.ini"), encoding: .utf8) == configText)
-        #expect(try FileManager.default.contentsOfDirectory(atPath: configuration.path) == ["config.ini"])
     }
 
     @Test(arguments: [LanguageServerLogRole.languageServer, .vcs, .build, .toolchain, .backend])
@@ -322,9 +286,7 @@ struct RustLanguageServerLaunchTests {
             arguments: [], environment: [:], initializeTimeout: 5, shutdownTimeout: 0.1, core: bridge)
         let manager = LanguageToolingSessionManager(catalog: .init(descriptors: [descriptor]), logSink: recorder,
             resolveLogSubject: { try bridge.resolveEngineLogSubject(providerID: $0) },
-            runtimes: [LogChannelRuntime(descriptor: descriptor, session: session)],
-            workspaceFingerprintProvider: { _, _ in "channel-fingerprint" },
-            workspaceStateCleaner: { _, _, _ in 0 })
+            runtimes: [LogChannelRuntime(descriptor: descriptor, session: session)])
         defer { manager.stopAllLanguageServers() }
         manager.onLogEvent = { recorder.emit($0) }
         let ready = TestGate()
@@ -340,7 +302,6 @@ struct RustLanguageServerLaunchTests {
         #expect(recorder.coreRecords.contains { $0.event == "lsp.session.updated" && $0.channel == channel })
         #expect(recorder.coreRecords.contains { $0.event == "lsp.protocol.initialized" && $0.channel == channel })
         #expect(recorder.events.compactMap { $0 as? LspSessionStageChanged }.count == 3)
-        #expect(recorder.events.contains { $0 is LspCacheCleaned })
         #expect(recorder.events.contains { $0 is LspSessionDegradationReceived })
         #expect(recorder.events.contains { $0 is LspSessionIssueFailed })
         #expect(recorder.events.allSatisfy { $0.channel.rawValue == channel })
@@ -363,7 +324,7 @@ struct RustLanguageServerLaunchTests {
     }
 
     // macOS developer tools already provide Python; this explicit integration
-    // fixture speaks framed JSON-RPC and accepts the JVM argv without a JDK.
+    // fixture speaks framed JSON-RPC and accepts any argv.
     private static let keymapSourceServer = #"""
 #!/usr/bin/python3
 import json, sys

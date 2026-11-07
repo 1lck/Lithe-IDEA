@@ -24,7 +24,7 @@ Issue #1316 的截图里，通用、Git 和 Agent 管理页在几乎每个控件
 - 用户可修改的配置处于自动、默认或继承状态时，不得只显示“自动”“默认”“继承”，必须在括号中写出实际生效值，例如 `自动（JDK 21）`、`继承（main）`、`Automatic (JDK 21)`；没有生效值时写明原因，例如 `自动（未找到）`、`自动（检测中）`。原因是只写“自动”时，用户看不出最终用的是哪个值，出问题时也无法判断是否需要手动指定。括号中的值必须来自 Core 返回的、运行时实际使用的同一个解析结果，界面不另写推测逻辑；文案使用带参数的词条（`自动（{value}）`），不拼接字符串。规则正文在 `develop-lithe` Skill 第五节“显示实际生效值，不只写‘自动’”。
 - 编辑器字体页提供实时预览：示例代码使用当前选中字体和字号渲染；切换字体后旧字体保留约 2.5 秒，和新字体上下并列，随后淡出，方便比较字形。`accessibilityReduceMotion` 开启时取消动画。
 - Git 行为配置行用 `ViewThatFits` 优先排成一行：设置名、当前生效值、下拉框、重置和应用按钮并排；`LitheSettingsSelect` 的触发宽度按该字段最长选项文案在 150–240 pt 内取值，避免短选项占着 220 pt 的空白框，长选项仍由 `expandsToFitOptions` 撑开弹层。窗口过窄时回退到第二行显示当前生效值，按钮保持完整。
-- 运行时的生效值不再用一整行等宽文本：`EffectiveRuntimeLabel` 用卡片展示模式徽标、来源、运行时名称和可选择复制的路径，警告与错误使用同一卡片形状和警示色。
+- 运行时的生效值不再用一整行等宽文本，而是用卡片展示模式徽标、来源、运行时名称和可选择复制的路径，警告与错误使用同一卡片形状和警示色。该卡片最初由内置 Java Support 的 `EffectiveRuntimeLabel` 实现；2026-11 内置 Java Support 随 #1495 移出本仓库后，运行时与工具由插件注入的工具定义驻留在 `ContributedSettingsPageView` 渲染的插件设置页里，规则不变。
 - Git 标签继承回显只消费 Core 的规范化布尔值：Core 用 Git 自己的 `--type=bool --get` 解释 `fetch.pruneTags` 与远程覆盖，识别 `yes/on/1`、无值和假值等写法；远程显式假值仍优先于全局真值。选中文件的原始编辑值不变，避免保存时因规范化导致误报冲突。所有远程模式下 Fetch 会跳过 `remote.<name>.skipFetchAll` 为真的远程，标签回显也必须排除它们；Core 同样用 Git 布尔解析归一化该键，显式选中某个远程时不受 skipFetchAll 影响。不要在 Swift 再写一份布尔解析器，否则界面会与真实 fetch 行为漂移。
 - Git 身份输入框回显当前生效值（包括继承值），保存按钮只在草稿与显示值不同时启用；清除覆盖后输入框回到继承的生效值。这样用户看到的就是 Git 实际会使用的值，不需要从下方的小字里对照。
 - Maven 的 `settings.xml` 与 `Local Repository` 既有输入框在未设置覆盖时，用有效路径作为占位文本：先看已配置值，再看 `~/.m2/settings.xml`、Maven 安装的 `conf/settings.xml` 和 `~/.m2/repository`；都不存在时显示“Not found”，不再显示无信息量的“Automatic”。这只是当时实现的占位提示，不是后续设置交互的目标：新增或修改这类配置编辑时，按 [设置读取真实来源并确认写回](../architecture/2026-10-25-settings-native-configuration-editing.md) 回显可编辑当前值、确认写回并重新读取；本次规则更新不代表 Maven 页面已迁移。
@@ -99,12 +99,12 @@ Issue 举的是通用、Git 和 Agent 管理三个页面，但同类常驻说明
 - `macos/Sources/Lithe/Views/App/GitExecutionSettingsView.swift`
 - `macos/Sources/Lithe/Views/App/GitFetchSettingsView.swift`
 - `macos/Sources/Lithe/Views/App/PluginSettingsSection.swift`
-- `macos/Sources/Lithe/Views/App/EffectiveRuntimeLabel.swift`
+- `macos/Sources/Lithe/Views/App/ContributedSettingsPageView.swift`
 - `macos/Sources/Lithe/Views/App/McpSettingsView.swift`
 - `macos/Sources/Lithe/Application/Features/AgentSetupDiagnostics.swift`
 - `macos/Sources/LitheGitModule/Application/GitRepositorySetupFeatureModel.swift`
 - `macos/Sources/Lithe/Views/Agent/AgentPanelSettingsView.swift`
 - `macos/Sources/Lithe/Views/Agent/AgentProviderConfigurationView.swift`
-- `macos/Sources/Lithe/Views/Run/JavaRunConfigurationEditorView.swift`
+- `macos/Sources/Lithe/Views/Run/RunConfigurationEditorView.swift`
 - `macos/Resources/en.lproj/Localizable.strings`
 - `macos/Resources/zh-Hans.lproj/Localizable.strings`

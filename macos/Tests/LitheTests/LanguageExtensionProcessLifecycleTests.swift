@@ -155,8 +155,43 @@ struct LanguageExtensionProcessLifecycleTests {
             .appendingPathComponent("lithe-runtime-launch-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let operations = DeclarativePluginTestSupport.operations
-        let descriptor = try operations.validate(manifest: Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/languages/language-host-integration.plugin.json")))
+        let descriptor = try operations.validate(manifest: Data("""
+        {
+          "schemaVersion": 2,
+          "id": "dev.lithe.fixture.language-packaged-runtime",
+          "displayName": "Packaged Runtime Language Server Fixture",
+          "version": "1.0.0",
+          "pluginAPIVersion": 2,
+          "vendor": {
+            "id": "dev.lithe",
+            "displayName": "Lithe",
+            "signatureRequirement": "publisherPackage"
+          },
+          "permissions": ["languageServer.launch"],
+          "activationEvents": ["onLanguage:example"],
+          "languages": [
+            {
+              "id": "example",
+              "displayName": "Example",
+              "fileExtensions": ["example"],
+              "projectFileNames": ["example.project"]
+            }
+          ],
+          "languageServers": [
+            {
+              "languageID": "example",
+              "languageIdentifier": "example",
+              "launch": {
+                "kind": "runtime",
+                "tool": "example-runtime",
+                "packagedRuntime": "runtime/${arch}/bin/example-runtime",
+                "runtimeArguments": ["--verbose"],
+                "entry": "language-server/server.bin"
+              }
+            }
+          ]
+        }
+        """.utf8))
         let packageURL = root.appendingPathComponent("package", isDirectory: true)
         let installed = InstalledPluginPackage(
             descriptor: descriptor,
@@ -184,23 +219,23 @@ struct LanguageExtensionProcessLifecycleTests {
         ) {
             try runtime.register(factory)
         }
-        let moduleID = ModuleID.languageServerExtension("java")
+        let moduleID = ModuleID.languageServerExtension("example")
         try await runtime.setEnabled(true, for: moduleID)
 
         let provider = try #require(
-            try await runtime.activateCapability(.languageServerExtension("java"))
+            try await runtime.activateCapability(.languageServerExtension("example"))
                 as? any LanguageServerExtensionProviding
         )
         let configuration = provider.configuration
 
         // The shipped runtime is the only executable; the tool name is for
         // display and is never looked up on the machine.
-        #expect(configuration.executableNames == ["java"])
+        #expect(configuration.executableNames == ["example-runtime"])
         #expect(configuration.executableURL == packageURL.appendingPathComponent(
-            "runtime/\(MacPluginLanguageServerLaunchResolver.hostArchitecture)/bin/java"
+            "runtime/\(MacPluginLanguageServerLaunchResolver.hostArchitecture)/bin/example-runtime"
         ).standardizedFileURL)
         #expect(configuration.launchSource?.packageURL == packageURL)
-        #expect(configuration.launchSource?.languageID == "java")
+        #expect(configuration.launchSource?.languageID == "example")
         #expect(configuration.executableVersionRequirement == nil)
         // Activating the module must not create plugin state.
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("state").path))

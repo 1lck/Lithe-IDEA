@@ -1,50 +1,9 @@
 import Foundation
 
 package struct RunOptions: Codable, Hashable, Sendable {
-    package struct JavaCapability: Codable, Hashable, Sendable {
-        package var homePath = ""
-        package var mavenExecutablePath = ""
-        package var mavenJavaHomePath = ""
-        package var vmArguments = ""
-        package var activeMavenProfiles: Set<String> = []
-        package var skipTests: Bool?
-
-        private enum CodingKeys: String, CodingKey {
-            case homePath, mavenExecutablePath, mavenJavaHomePath, vmArguments, activeMavenProfiles
-            case skipTests
-        }
-
-        package init(
-            homePath: String = "",
-            mavenExecutablePath: String = "",
-            mavenJavaHomePath: String = "",
-            vmArguments: String = "",
-            activeMavenProfiles: Set<String> = [],
-            skipTests: Bool? = nil
-        ) {
-            self.homePath = homePath
-            self.mavenExecutablePath = mavenExecutablePath
-            self.mavenJavaHomePath = mavenJavaHomePath
-            self.vmArguments = vmArguments
-            self.activeMavenProfiles = activeMavenProfiles
-            self.skipTests = skipTests
-        }
-
-        package init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            homePath = try container.decodeIfPresent(String.self, forKey: .homePath) ?? ""
-            mavenExecutablePath = try container.decodeIfPresent(String.self, forKey: .mavenExecutablePath) ?? ""
-            mavenJavaHomePath = try container.decodeIfPresent(String.self, forKey: .mavenJavaHomePath) ?? ""
-            vmArguments = try container.decodeIfPresent(String.self, forKey: .vmArguments) ?? ""
-            activeMavenProfiles = try container.decodeIfPresent(Set<String>.self, forKey: .activeMavenProfiles) ?? []
-            skipTests = try container.decodeIfPresent(Bool.self, forKey: .skipTests)
-        }
-    }
-
     package var workingDirectoryPath = ""
     package var arguments = ""
     package var environment: [String: String] = [:]
-    package var java = JavaCapability()
     package var providerRunOptions: BuildProviderRunOptions?
 
     /// Reset emits explicit clears for inherited per-Run tools. Omitting this
@@ -55,14 +14,8 @@ package struct RunOptions: Codable, Hashable, Sendable {
     }
 
     package init(
-        javaHomePath: String = "",
         workingDirectoryPath: String = "",
-        vmArguments: String = "",
         programArguments: String = "",
-        activeProfiles: Set<String> = [],
-        mavenSkipTests: Bool? = nil,
-        mavenExecutablePath: String = "",
-        mavenJavaHomePath: String = "",
         environment: [String: String] = [:],
         providerRunOptions: BuildProviderRunOptions? = nil
     ) {
@@ -70,48 +23,16 @@ package struct RunOptions: Codable, Hashable, Sendable {
         arguments = programArguments
         self.environment = environment
         self.providerRunOptions = providerRunOptions
-        java = JavaCapability(
-            homePath: javaHomePath,
-            mavenExecutablePath: mavenExecutablePath,
-            mavenJavaHomePath: mavenJavaHomePath,
-            vmArguments: vmArguments,
-            activeMavenProfiles: activeProfiles,
-            skipTests: mavenSkipTests
-        )
     }
 
-    package var javaHomePath: String {
-        get { java.homePath }
-        set { java.homePath = newValue }
-    }
-    package var vmArguments: String {
-        get { java.vmArguments }
-        set { java.vmArguments = newValue }
-    }
-    package var mavenExecutablePath: String {
-        get { java.mavenExecutablePath }
-        set { java.mavenExecutablePath = newValue }
-    }
-    package var mavenJavaHomePath: String {
-        get { java.mavenJavaHomePath }
-        set { java.mavenJavaHomePath = newValue }
-    }
     package var programArguments: String {
         get { arguments }
         set { arguments = newValue }
     }
-    package var activeProfiles: Set<String> {
-        get { java.activeMavenProfiles }
-        set { java.activeMavenProfiles = newValue }
-    }
-    package var mavenSkipTests: Bool? {
-        get { java.skipTests }
-        set { java.skipTests = newValue }
-    }
 
     private enum CodingKeys: String, CodingKey {
-        case workingDirectoryPath, arguments, environment, java, providerRunOptions
-        case javaHomePath, vmArguments, programArguments, activeProfiles
+        case workingDirectoryPath, arguments, environment, providerRunOptions
+        case programArguments
     }
 
     package init(from decoder: Decoder) throws {
@@ -122,11 +43,6 @@ package struct RunOptions: Codable, Hashable, Sendable {
             ?? ""
         environment = try container.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
         providerRunOptions = try container.decodeIfPresent(BuildProviderRunOptions.self, forKey: .providerRunOptions)
-        java = try container.decodeIfPresent(JavaCapability.self, forKey: .java) ?? JavaCapability(
-            homePath: try container.decodeIfPresent(String.self, forKey: .javaHomePath) ?? "",
-            vmArguments: try container.decodeIfPresent(String.self, forKey: .vmArguments) ?? "",
-            activeMavenProfiles: try container.decodeIfPresent(Set<String>.self, forKey: .activeProfiles) ?? []
-        )
     }
 
     package func encode(to encoder: Encoder) throws {
@@ -134,7 +50,6 @@ package struct RunOptions: Codable, Hashable, Sendable {
         try container.encode(workingDirectoryPath, forKey: .workingDirectoryPath)
         try container.encode(arguments, forKey: .arguments)
         try container.encode(environment, forKey: .environment)
-        try container.encode(java, forKey: .java)
         try container.encodeIfPresent(providerRunOptions, forKey: .providerRunOptions)
     }
 }
@@ -145,69 +60,21 @@ package struct SharedLaunchPlan: Sendable {
         case command(String)
     }
 
-    /// One compiler or generator invocation the host must run to completion,
-    /// in order, before the main process. Standalone Java uses this to compile
-    /// with `javac` so JDK 8 can then launch by class name (JEP 330's
-    /// single-file source launcher is JDK 11+ only).
-    package struct PreLaunchStep: Sendable {
-        package let executable: Executable
-        /// Sibling tool to run from the toolchain's `bin` directory, e.g.
-        /// `"javac"`. Nil means the toolchain's default launcher.
-        package let tool: String?
-        package let arguments: [String]
-        /// Classpath entries the host joins with the platform separator and
-        /// prepends as `-cp` before this step's arguments.
-        package let classpath: [String]
-        /// Project-relative run directory for this step, and the root the host
-        /// resolves its toolchain from. Nil inherits the plan's
-        /// `workingDirectory`, which may be a user override this step must not
-        /// resolve or run from (for example a Maven resource step that has to
-        /// find the project wrapper next to its reactor POM).
-        package let workingDirectory: String?
-
-        package init(
-            executable: Executable,
-            tool: String? = nil,
-            arguments: [String],
-            classpath: [String] = [],
-            workingDirectory: String? = nil
-        ) {
-            self.executable = executable
-            self.tool = tool
-            self.arguments = arguments
-            self.classpath = classpath
-            self.workingDirectory = workingDirectory
-        }
-    }
-
     package let executable: Executable
     package let arguments: [String]
     package let workingDirectory: String
     package var environment: [String: String]
-    /// Ordered compile/generate steps to run before the main process.
-    package let preLaunchSteps: [PreLaunchStep]
-    /// Run classpath entries the host joins with the platform separator (`:` on
-    /// POSIX, `;` on Windows) and prepends as `-cp` before `arguments`.
-    package let classpath: [String]
-    /// Java module-path entries joined by the host with its platform separator.
-    package let modulepath: [String]
 
     package init(
         executable: Executable,
         arguments: [String],
         workingDirectory: String,
-        environment: [String: String] = [:],
-        preLaunchSteps: [PreLaunchStep] = [],
-        classpath: [String] = [],
-        modulepath: [String] = []
+        environment: [String: String] = [:]
     ) {
         self.executable = executable
         self.arguments = arguments
         self.workingDirectory = workingDirectory
         self.environment = environment
-        self.preLaunchSteps = preLaunchSteps
-        self.classpath = classpath
-        self.modulepath = modulepath
     }
 
     package var toolchainID: String? {
@@ -253,69 +120,6 @@ package extension RunExecutableResolving {
     func prepare(_ plan: SharedLaunchPlan, projectURL: URL, options: RunOptions) async throws -> ResolvedRunExecutable? { nil }
     func refreshCandidates(projectURL _: URL) async {}
     func candidates(projectURL _: URL) -> [ProjectToolchainCandidate] { [] }
-
-    /// Resolves a pre-launch step by reusing the main executable resolution and,
-    /// when the step names a sibling `tool` (e.g. `javac`), swapping the launcher
-    /// for that tool in the same `bin` directory. The step inherits the plan's
-    /// environment and, unless it declares its own `workingDirectory`, the
-    /// plan's working directory.
-    func resolve(
-        step: SharedLaunchPlan.PreLaunchStep,
-        plan: SharedLaunchPlan,
-        projectURL: URL,
-        options: RunOptions
-    ) throws -> ResolvedRunExecutable {
-        let syntheticPlan = SharedLaunchPlan(
-            executable: step.executable,
-            arguments: step.arguments,
-            workingDirectory: step.workingDirectory ?? plan.workingDirectory,
-            environment: plan.environment
-        )
-        let resolved = try resolve(syntheticPlan, projectURL: projectURL, options: options)
-        guard let tool = step.tool, !tool.isEmpty else { return resolved }
-        let toolURL = resolved.executableURL
-            .deletingLastPathComponent()
-            .appendingPathComponent(tool)
-        return ResolvedRunExecutable(
-            executableURL: toolURL,
-            environment: resolved.environment
-        )
-    }
-}
-
-@MainActor
-package protocol RunRuntimePort: AnyObject {
-    func setActiveServiceJavaHomePath(_ path: String)
-    func javaHomeURL(overridePath: String?) -> URL?
-    func mavenJavaHomeURL(overridePath: String?) -> URL?
-    func runConfigurationToolchainCandidates(
-        projectRoot: URL?,
-        javaHomeOverride: String?,
-        mavenExecutableOverride: String?
-    ) -> [ProjectToolchainCandidate]
-    /// Project restoration awaits version probes instead of running them on the UI executor.
-    func loadRunConfigurationToolchainCandidates(
-        projectRoot: URL?,
-        javaHomeOverride: String?,
-        mavenExecutableOverride: String?
-    ) async throws -> [ProjectToolchainCandidate]
-    /// Applies workspace and subproject JDK/Maven defaults when a run
-    /// configuration does not set its own explicit toolchain paths.
-    func overlayProjectRuntime(
-        onto options: RunOptions,
-        modulePath: String?,
-        workingDirectory: String?
-    ) -> RunOptions
-}
-
-package extension RunRuntimePort {
-    func overlayProjectRuntime(
-        onto options: RunOptions,
-        modulePath _: String?,
-        workingDirectory _: String?
-    ) -> RunOptions {
-        options
-    }
 }
 
 package protocol RunFileAccess: Sendable {
@@ -329,10 +133,6 @@ package protocol RunPreferenceStore: AnyObject {
     func string(forKey key: String) -> String?
     func setData(_ data: Data, forKey key: String)
     func setString(_ value: String, forKey key: String)
-}
-
-package protocol RunServerPortParsing: Sendable {
-    func serverPort(content: String, fileExtension: String) -> Int?
 }
 
 package enum LanguageTestItemKind: String, Equatable, Sendable {

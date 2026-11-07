@@ -110,13 +110,10 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
     private(set) var diskIdentity: String?
     /// Invalidates the tab's content-based icon after disk writes or watcher events.
     @Published private(set) var iconContentRevision: UInt64 = 0
-    /// Presentation metadata from the current, revision-checked JDT Run marker response.
-    @Published var hasRunnableJavaMain = false
-    @Published var hasJavaTests = false
-    /// Prefer imported source-root roles over test-name or annotation guesses.
-    static func isTestSourceFile(_ url: URL, importedSourceRootKind: String?, hasTests: Bool) -> Bool {
-        let semanticFallback = hasTests && url.pathExtension.lowercased() == "java"
-        guard let importedSourceRootKind else { return semanticFallback }
+    /// A file is a test source only when an imported build model assigns its
+    /// containing source root a test role.
+    static func isTestSourceFile(importedSourceRootKind: String?) -> Bool {
+        guard let importedSourceRootKind else { return false }
         return ["testSource", "testResource", "generatedTestSource"].contains(importedSourceRootKind)
     }
 

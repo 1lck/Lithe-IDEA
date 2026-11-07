@@ -215,6 +215,67 @@ struct PluginBackendLaunchTests {
     }
 
     @Test
+    func theQuestionCarriesTheRequiredToolsTheHostFound() async throws {
+        let fixture = try Fixture.make(requiresTools: ["coursier", "jvm"])
+        defer { fixture.remove() }
+        let window = NSObject()
+        fixture.contexts.open(owner: window, rootURL: fixture.workspaceURL, remote: nil)
+        let backends = ScriptedBackends { _ in Fixture.packagedAnswer() }
+        let definedTools = ScriptedDefinedTools(installations: [
+            "coursier": ResolvedDefinedToolchain(
+                executable: URL(fileURLWithPath: "/opt/cs/bin/cs"), environment: [:], projectCode: false,
+                version: "2.1.0", home: "/opt/cs"
+            ),
+            // Chosen by executable: no installation root, no version.
+            "jvm": ResolvedDefinedToolchain(
+                executable: URL(fileURLWithPath: "/usr/bin/java"), environment: [:], projectCode: false, version: nil
+            )
+        ])
+        let preparer = fixture.preparer(backends: backends, tools: ScriptedTools(), definedTools: definedTools)
+
+        let prepared = try await preparer.prepare(fixture.source, workspaceURL: fixture.workspaceURL)
+
+        let call = try #require(backends.calls.first)
+        guard case .object(let params) = call.params else { Issue.record("params are not an object"); return }
+        #expect(params["tools"] == .object([
+            "coursier": .object([
+                "executable": .string("/opt/cs/bin/cs"), "home": .string("/opt/cs"), "version": .string("2.1.0")
+            ]),
+            "jvm": .object(["executable": .string("/usr/bin/java")])
+        ]))
+        // Resolved as installations the way the launch template consumers are,
+        // never running project code, in manifest order.
+        #expect(definedTools.calls.map(\.tool) == ["coursier", "jvm"])
+        #expect(definedTools.calls.allSatisfy { $0.use == .installation && !$0.projectCodeAllowed })
+        await prepared.release()
+        fixture.contexts.close(owner: window)
+    }
+
+    @Test
+    func aRequiredToolThatIsMissingOrInsideTheProjectIsLeftOut() async throws {
+        let fixture = try Fixture.make(requiresTools: ["coursier", "jvm"])
+        defer { fixture.remove() }
+        let window = NSObject()
+        fixture.contexts.open(owner: window, rootURL: fixture.workspaceURL, remote: nil)
+        let backends = ScriptedBackends { _ in Fixture.packagedAnswer() }
+        let definedTools = ScriptedDefinedTools(installations: [
+            "jvm": ResolvedDefinedToolchain(
+                executable: fixture.workspaceURL.appendingPathComponent("java"), environment: [:], projectCode: true, version: "21"
+            )
+        ])
+        let preparer = fixture.preparer(backends: backends, tools: ScriptedTools(), definedTools: definedTools)
+
+        let prepared = try await preparer.prepare(fixture.source, workspaceURL: fixture.workspaceURL)
+
+        let call = try #require(backends.calls.first)
+        guard case .object(let params) = call.params else { Issue.record("params are not an object"); return }
+        // Nothing found: the key is absent rather than an empty object, as before.
+        #expect(params["tools"] == nil)
+        await prepared.release()
+        fixture.contexts.close(owner: window)
+    }
+
+    @Test
     func aToolInsideTheProjectIsRefusedAndTheScratchGoes() async throws {
         let fixture = try Fixture.make()
         defer { fixture.remove() }
@@ -367,7 +428,8 @@ private struct Fixture {
     static func make(
         manifest: String = "language-server-backend-launch.plugin.json",
         languageID: String = "scala",
-        executable: Bool = true
+        executable: Bool = true,
+        requiresTools: [String]? = nil
     ) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-backend-launch-\(UUID().uuidString)", isDirectory: true)
@@ -378,9 +440,18 @@ private struct Fixture {
         try FileManager.default.setAttributes([.posixPermissions: executable ? 0o755 : 0o644], ofItemAtPath: launcher.path)
 
         let operations = DeclarativePluginTestSupport.operations
-        let manifestData = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
+        var manifestData = try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
             .appendingPathComponent("shared/contracts/plugins/v1/fixtures/languages")
             .appendingPathComponent(manifest))
+        if let requiresTools {
+            // `requiresTools` exists from `serverProcess` 4; the fixture stays at 3 otherwise.
+            var object = try #require(try JSONSerialization.jsonObject(with: manifestData) as? [String: Any])
+            var requires = try #require(object["requires"] as? [String: Any])
+            requires["serverProcess"] = 4
+            object["requires"] = requires
+            object["requiresTools"] = requiresTools
+            manifestData = try JSONSerialization.data(withJSONObject: object)
+        }
         let descriptor = try operations.validate(manifest: manifestData)
         let directories = MacPluginStateDirectories(
             rootURL: root.appendingPathComponent("state", isDirectory: true),
@@ -416,9 +487,11 @@ private struct Fixture {
         (try? FileManager.default.contentsOfDirectory(atPath: directories.temporaryRootURL.path)) ?? []
     }
 
-    func preparer(backends: ScriptedBackends, tools: ScriptedTools) -> MacPluginBackendLaunchPreparer {
+    func preparer(
+        backends: ScriptedBackends, tools: ScriptedTools, definedTools: ScriptedDefinedTools = ScriptedDefinedTools()
+    ) -> MacPluginBackendLaunchPreparer {
         MacPluginBackendLaunchPreparer(
-            backends: backends, contexts: contexts, resolver: resolver, tools: tools,
+            backends: backends, contexts: contexts, resolver: resolver, tools: tools, definedTools: definedTools,
             runtime: NoToolRuntime(), core: RustCoreBridge()
         )
     }
@@ -516,6 +589,31 @@ private final class ScriptedTools: BuildToolResolving {
     ) async throws -> ResolvedBuildTool {
         invocations.append(invocation)
         return result
+    }
+}
+
+/// The user's tool installations, by tool ID; a tool without an entry is missing.
+@MainActor
+private final class ScriptedDefinedTools: DefinedToolchainResolving {
+    private let installations: [String: ResolvedDefinedToolchain]
+    private(set) var calls: [(tool: String, use: DefinedToolchainUse, projectCodeAllowed: Bool)] = []
+
+    init(installations: [String: ResolvedDefinedToolchain] = [:]) {
+        self.installations = installations
+    }
+
+    func resolve(tool: String, directory _: String, workspace _: URL, environment _: [String: String],
+                 minimumVersion _: String?, projectCodeAllowed: Bool,
+                 fixed _: FixedToolchainSelection?, use: DefinedToolchainUse, consumerID _: String?) async throws -> ResolvedDefinedToolchain? {
+        calls.append((tool, use, projectCodeAllowed))
+        return installations[tool]
+    }
+
+    func resolve(tool: String, directory: String, workspace: URL, environment: [String: String],
+                 minimumVersion: String?, projectCodeAllowed: Bool) async throws -> ResolvedDefinedToolchain? {
+        try await resolve(tool: tool, directory: directory, workspace: workspace, environment: environment,
+                          minimumVersion: minimumVersion, projectCodeAllowed: projectCodeAllowed,
+                          fixed: nil, use: .executable, consumerID: nil)
     }
 }
 

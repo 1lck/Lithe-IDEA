@@ -154,11 +154,16 @@ final class PluginRunHostService: PluginHostServiceHandling {
     }
 
     /// The installation the user's layers choose for `tool`. Project code is allowed, as for any Run.
+    ///
+    /// Core expands the definition's `launch` template afterwards (`expand`), so the tool is
+    /// resolved as an installation: a template with `${runtimeArguments}` or wrapper flags is
+    /// as valid here as the bare `["${executable}", "${arguments}"]` a direct launch needs.
     private func select(_ tool: String, start: PluginRunStart, workspace: URL,
                         environment: [String: String]) async throws -> ResolvedDefinedToolchain {
         do {
             if let selected = try await tools.resolve(tool: tool, directory: start.workingDirectory, workspace: workspace,
-                                                      environment: environment, minimumVersion: nil, projectCodeAllowed: true) {
+                                                      environment: environment, minimumVersion: nil, projectCodeAllowed: true,
+                                                      fixed: nil, use: .installation, consumerID: nil) {
                 return selected
             }
         } catch is BuildToolResolutionError {

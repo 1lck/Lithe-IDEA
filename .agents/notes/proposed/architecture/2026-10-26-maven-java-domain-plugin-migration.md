@@ -2,6 +2,8 @@
 
 状态：提议中
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 Java Support 已拥有语言服务器资源，Maven 也已有插件后端，但宿主和 Rust Core 仍执行一部分 Maven/Java 专属业务。本提案按 [Issue #1495](https://github.com/1lck/Lithe-IDEA/issues/1495) 固定当前入口、调用关系、数据和删除条件：后续迁移必须让同一用户流程全部使用插件结果，再删除被替代的生产路径。只支持迁移后的最新宿主与匹配插件，保留用户数据迁移，不保留旧业务回退。
@@ -219,7 +221,7 @@ git diff --check
 - `macos/Sources/Lithe/Application/`、`macos/Sources/Lithe/Models/AppModel/`、`macos/Sources/Lithe/Services/`
 - `macos/Sources/Lithe/Platform/MacOS/`、`macos/Sources/LitheExecutionModule/`、`macos/Sources/LitheLanguageIntelligenceModule/`
 - `rust/lithe-core/src/build/`、`rust/lithe-core/src/project/`、`rust/lithe-core/src/execution/`、`rust/lithe-core/src/lsp/`、`rust/lithe-core/src/debug/`
-- `Plugins/mac/Official/JavaSupport/`、`third_party/jdtls/manifest.json`、`third_party/jdk/manifest.json`
+- 已迁出：原 `Plugins/mac/Official/JavaSupport/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - `shared/contracts/`、`shared/fixtures/`、`shared/platform-feature-matrix/features/`
 - `windows/tauri/src/features/`、`windows/tauri/src/platform/`、`windows/tauri/src-tauri/src/`
 - 外部 Maven 后端：[`Lithe-IDEA/lithe-plugin-maven`][maven-plugin]

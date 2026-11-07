@@ -16,7 +16,7 @@ struct MacDevelopmentProfileMigrationTests {
             "SUSkippedVersion": "9", "lithe.plugins.pending-code-load": "stale-plugin"
         ], forName: fixture.sourceDomain)
         try fixture.write("Lithe/ai-secrets.json", text: "independent-secret-file")
-        try fixture.write("Lithe/Maven/config.json", text: "maven-settings")
+        try fixture.write("Lithe/Plugins/sample/config.json", text: "plugin-owned-must-not-import")
         try fixture.write("Lithe/PluginMarketplace/sources.json", text: "marketplace")
         try fixture.write("Lithe/PluginMarketplace/downloads/runtime.lock", text: "must-not-import")
 
@@ -32,6 +32,7 @@ struct MacDevelopmentProfileMigrationTests {
         let target = fixture.destination.appendingPathComponent("Lithe/ai-secrets.json")
         #expect(try String(contentsOf: target, encoding: .utf8) == "independent-secret-file")
         #expect(!FileManager.default.fileExists(atPath: fixture.destination.appendingPathComponent("Lithe/PluginMarketplace/downloads").path))
+        #expect(!FileManager.default.fileExists(atPath: fixture.destination.appendingPathComponent("Lithe/Plugins").path))
 
         fixture.defaults.set("dev-theme", forKey: "settings.theme")
         try Data("dev-secret".utf8).write(to: target)

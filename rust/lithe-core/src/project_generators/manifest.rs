@@ -84,9 +84,6 @@ pub(crate) const FIELD_BOOLEAN: &str = "boolean";
 pub(crate) const FIELD_MULTI_SELECT: &str = "multiSelect";
 pub(crate) const FIELD_RUNTIME: &str = "runtime";
 pub(crate) const FIELD_TOOL: &str = "tool";
-/// Host-managed runtimes a runtime field may select. The host discovers
-/// installations; Core only checks the version.
-pub(super) const KNOWN_RUNTIMES: &[&str] = &["java"];
 /// The `requires.projectGenerators` version that introduces tool fields and
 /// retires runtime fields. A generator declared with version 2 selects every
 /// tool through its definition; version 1 keeps the runtime field.
@@ -154,8 +151,8 @@ pub(crate) struct GeneratorField {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) pin_as: Option<ToolPin>,
     /// Highest version a text or enum value may name, as a template over
-    /// earlier fields, such as `${field.jdk.major}` so a target Java
-    /// release never exceeds the selected JDK. An empty bound checks nothing.
+    /// earlier fields, such as `${field.sdk.major}` so a target language
+    /// release never exceeds the selected SDK. An empty bound checks nothing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) maximum_version: Option<String>,
 }
@@ -692,17 +689,17 @@ impl GeneratorField {
                 }
             }
             FIELD_RUNTIME => {
+                // The runtime is the tool definition with the same ID; the
+                // host discovers installations and Core only checks the
+                // version.
                 if !self
                     .runtime
                     .as_deref()
-                    .is_some_and(|runtime| KNOWN_RUNTIMES.contains(&runtime))
+                    .is_some_and(crate::toolchain::definitions::tool_id)
                 {
                     return Err(invalid(
                         format!("{field}.runtime"),
-                        format!(
-                            "A runtime field selects one of: {}.",
-                            KNOWN_RUNTIMES.join(", ")
-                        ),
+                        "A runtime field names a tool-definition ID.",
                     ));
                 }
                 if let Some(version) = &self.minimum_version {

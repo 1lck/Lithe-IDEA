@@ -5,7 +5,7 @@
   "capability": "状态栏显示 Java 导入百分比、细进度条、当前模块与正在下载的依赖，就绪后列出语言服务器后台任务；导入期间跳转提示导入进度并按语法定位类型与本文件成员，较慢的跳转请求显示“正在查找”",
   "macos": {
     "evidence": [
-      "macos/Sources/Lithe/Application/Composition/JavaLanguageServerPreparationCoordinator.swift"
+      "macos/Sources/LitheLanguageIntelligenceModule/Runtime/LanguageServerSession.swift"
     ],
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"
@@ -18,7 +18,6 @@
       "windows/tauri/src/platform/lsp-core-adapter.ts",
       "windows/tauri/src/features/keymaps/commands/navigation-command-actions.ts",
       "windows/tauri/src/features/editor/lsp/slow-request-notice.ts",
-      "rust/lithe-core/src/lsp/languages/jdt_progress.rs",
       "windows/tauri/src/features/run/stores/language-server-progress.store.test.ts",
       "windows/tauri/src/features/editor/lsp/slow-request-notice.test.ts",
       "windows/tauri/src/features/editor/lsp/java-syntax-definition.ts",

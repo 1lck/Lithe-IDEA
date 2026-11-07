@@ -129,8 +129,10 @@ struct ProjectTreeLoader {
             let key = row.url.standardizedFileURL.path
             guard let entries = listings[key] else { continue }
             // Same rule as the full-tree conversion: below a source root,
-            // directories are packages and single-child chains compact.
-            let insideSourceRoot = row.isInsideSourceRoot || LitheIcons.isSourceRootDirectory(row.url)
+            // directories are packages and single-child chains compact. Which
+            // directories are source roots comes from the row itself, never
+            // from guessing a language's layout by directory names.
+            let insideSourceRoot = row.isInsideSourceRoot
             result[key] = entries.enumerated().map { index, entry in
                 if entry.isDirectory, insideSourceRoot {
                     chains.append(CompactionChain(owner: key, index: index, tip: entry.url))
@@ -154,7 +156,7 @@ struct ProjectTreeLoader {
                     continue
                 }
                 if entries.count == 1, let only = entries.first, only.isDirectory,
-                   LitheIcons.isValidPackageName(only.url.lastPathComponent) {
+                   LitheIcons.isPackageSegmentName(only.url.lastPathComponent) {
                     chain.collapsed.append(chain.tip.path)
                     chain.tip = only.url
                     continuing.append(chain)

@@ -33,7 +33,7 @@ struct LanguageServerStatusTests {
     @Test func statusProjectionPublishesOnlyWhenSessionChromeChanges() throws {
         let harness = Harness()
         defer { harness.sessions.stopAllLanguageServers() }
-        harness.feature.bindProjectPreparation(harness.sessions)
+        harness.feature.bindSessions(harness.sessions)
         var changes = 0
         let observation = harness.feature.$serverRuntimeSnapshot.dropFirst().sink { _ in changes += 1 }
         defer { observation.cancel() }
@@ -46,16 +46,16 @@ struct LanguageServerStatusTests {
     }
 
     @Test func serverNamesUseExistingExecutableMetadataAndOtherwiseThePluginID() {
-        let registrations = [registration("java", "jdtls"), registration("c", "clangd"),
+        let registrations = [registration("a", "server-a"), registration("c", "clangd"),
             LanguageServerRegistration(id: "legacy", pluginID: "org.example.legacy", executableNames: ["", " "])]
         let rows = LSPControlCenterPresenter.statusBarServers(registrations: registrations,
-            states: ["java": .ready, "c": .ready, "unregistered": .ready],
-            infos: ["java": .init(name: "Eclipse JDT Language Server", version: "1"),
+            states: ["a": .ready, "c": .ready, "unregistered": .ready],
+            infos: ["a": .init(name: "Example Language Server", version: "1"),
                     "c": .init(name: "Apple clangd", version: "21")], disabledProviderIDs: [])
-        #expect(Set(rows.map(\.displayName)) == ["jdtls", "clangd", "org.example.legacy"])
+        #expect(Set(rows.map(\.displayName)) == ["server-a", "clangd", "org.example.legacy"])
         #expect(rows.allSatisfy { $0.id != "unregistered" })
         #expect(LSPControlCenterPresenter.statusBarServers(registrations: [],
-            states: ["java": .ready], infos: [:], disabledProviderIDs: []).isEmpty)
+            states: ["a": .ready], infos: [:], disabledProviderIDs: []).isEmpty)
     }
 
     @Test func idleMenuKeepsLogsAndSettingsAvailableWithoutAnySessions() throws {
@@ -121,7 +121,7 @@ struct LanguageServerStatusTests {
         harness.session.releaseStop = released
         defer { released.open(); harness.feature.stop(providerID: "example") }
         try harness.sessions.startLanguageServer(providerID: "example", rootURL: harness.workspace)
-        harness.feature.bindProjectPreparation(harness.sessions)
+        harness.feature.bindSessions(harness.sessions)
         harness.session.onStart = { restarted.open() }
         harness.feature.restart(providerID: "example")
         try #require(await harness.session.stopRequested.waitUntilOpen())
@@ -165,27 +165,24 @@ struct LanguageServerStatusTests {
     }
 
     @Test func providerResetPreservesOtherLiveServers() throws {
-        let harness = Harness(includesJava: true)
+        let harness = Harness(includesSecondProvider: true)
         defer { harness.sessions.stopAllLanguageServers() }
-        harness.feature.bindProjectPreparation(harness.sessions)
+        harness.feature.bindSessions(harness.sessions)
         try harness.sessions.startLanguageServer(providerID: "example", rootURL: harness.workspace)
-        try harness.sessions.startLanguageServer(providerID: "java", rootURL: harness.workspace)
+        try harness.sessions.startLanguageServer(providerID: "second", rootURL: harness.workspace)
         let before = harness.feature.serverRuntimeSnapshot
-        try harness.sessions.rebuildWorkspaceState(providerID: "java", rootURL: harness.workspace)
-        harness.feature.resetProviderState(providerID: "java")
+        try harness.sessions.rebuildWorkspaceState(providerID: "second", rootURL: harness.workspace)
+        harness.feature.resetProviderState(providerID: "second")
         #expect(harness.feature.serverRuntimeSnapshot.states["example"] == .ready)
-        #expect(harness.feature.serverRuntimeSnapshot.states["java"] == .stopped)
+        #expect(harness.feature.serverRuntimeSnapshot.states["second"] == .stopped)
         #expect(harness.feature.serverRuntimeSnapshot.states["example"] == before.states["example"])
     }
 
-    @Test func stopInvalidatesPendingActivationAndCallsRegisteredPreparationOwner() {
+    @Test func stopInvalidatesPendingActivation() {
         let harness = Harness()
-        var cancelled = 0
-        harness.feature.registerPreparationCancellation(providerID: "example") { cancelled += 1 }
         let old = harness.feature.activationToken(providerID: "example")
         let other = harness.feature.activationToken(providerID: "other")
         harness.feature.stop(providerID: "example")
-        #expect(cancelled == 1)
         #expect(harness.feature.activationToken(providerID: "example") != old)
         #expect(harness.feature.activationToken(providerID: "other") == other)
         harness.feature.resetWorkspaceState()
@@ -232,16 +229,16 @@ private final class Harness {
     let sessions: LanguageToolingSessionManager
     let feature: LanguageToolingFeatureModel
 
-    init(includesJava: Bool = false) {
+    init(includesSecondProvider: Bool = false) {
         let descriptor = LanguageProviderDescriptor(id: "example", displayName: "Example", fileExtensions: ["example"],
             capabilities: .languageServer, activationPolicy: .onDemand)
-        let java = LanguageProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"],
+        let second = LanguageProviderDescriptor(id: "second", displayName: "Second", fileExtensions: ["second"],
             capabilities: .languageServer, activationPolicy: .onDemand)
-        let source = StatusTestCatalog(catalog: LanguageProviderCatalog(descriptors: includesJava ? [descriptor, java] : [descriptor]))
+        let source = StatusTestCatalog(catalog: LanguageProviderCatalog(descriptors: includesSecondProvider ? [descriptor, second] : [descriptor]))
         var runtimes: [any LanguageProviderRuntime] = [StatusTestRuntime(descriptor: descriptor, session: session)]
-        if includesJava { runtimes.append(StatusTestRuntime(descriptor: java, session: StatusTestSession())) }
+        if includesSecondProvider { runtimes.append(StatusTestRuntime(descriptor: second, session: StatusTestSession())) }
         let sessions = LanguageToolingSessionManager(catalog: source.catalog,
-            runtimes: runtimes, workspaceStateResetter: { _, _, _ in })
+            runtimes: runtimes, workspaceStateResetter: { _, _ in })
         self.sessions = sessions
         feature = LanguageToolingFeatureModel(catalogSource: source, catalogSnapshot: source.load(workspaceURL: nil),
             preferences: MacWorkspaceLanguageServerPreferencesStore(store: store), sessionsProvider: { sessions })
@@ -280,7 +277,6 @@ private final class StatusTestRuntime: LanguageProviderRuntime {
 @MainActor
 private final class StatusTestSession: LanguageServerSession {
     var isRunning = false
-    var javaTestRunnerURL: URL? { nil }
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
     var onStateChange: ((LanguageServerSessionState) -> Void)?
     var startCount = 0
@@ -289,7 +285,7 @@ private final class StatusTestSession: LanguageServerSession {
     var stopCompletes = true
     let stopRequested = TestGate()
     var onStart: (() -> Void)?
-    func start(rootURL: URL, workspaceFingerprint: String?) throws {
+    func start(rootURL: URL) throws {
         isRunning = true
         startCount += 1
         onStateChange?(.ready)
@@ -317,5 +313,4 @@ private final class StatusTestSession: LanguageServerSession {
     func resolveCodeAction(_ action: LanguageServerCodeAction, fileURL: URL, completion: @escaping (Result<LanguageServerCodeAction, Error>) -> Void) throws { completion(.success(action)) }
     func execute(_ command: LanguageServerCommand, fileURL: URL, completion: @escaping (Result<Void, Error>) -> Void) throws { completion(.success(())) }
     func resolveVirtualDocument(uri: String, completion: @escaping (Result<String, Error>) -> Void) throws { completion(.success("")) }
-    func javaEntrypoints(completion: @escaping (Result<JavaEntrypoints, Error>) -> Void) throws { throw CancellationError() }
 }

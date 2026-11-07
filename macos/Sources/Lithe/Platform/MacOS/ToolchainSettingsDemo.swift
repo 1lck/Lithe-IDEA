@@ -137,7 +137,7 @@ final class ToolchainSettingsDemo: NSObject, NSApplicationDelegate {
         }
         let root = scratch.appendingPathComponent("sample-workspace", isDirectory: true)
         let files = [
-            "mise.toml": "[tools]\njava = \"21\"\nnode = \"22\"\n",
+            "mise.toml": "[tools]\ntool-a = \"21\"\nnode = \"22\"\n",
             "packages/web/.nvmrc": "22\n",
             "services/api/.python-version": "3.12\n",
             ".lithe/toolchains/local.json": """
@@ -182,16 +182,15 @@ final class ToolchainSettingsDemo: NSObject, NSApplicationDelegate {
     /// Sample manifests standing in for installed official plugins; the host itself knows none of these tools.
     /// They are complete production manifests, so Core admits them and discovery scans this Mac for real.
     static let samplePlugins: [ToolchainSettingsPluginSource] = [
-        sample("dev.lithe.sample.jvm", "JVM (sample)", definitions: [
-            tool("java", "JDK", layout: "bin/java", version: (["-version"], #"version \"(?:1\.)?(\d+(?:\.\d+)*)"#),
-                 variable: "JAVA_HOME", command: "java",
-                 homeLayouts: [["match": "*.jdk", "home": "Contents/Home"], ["match": "*", "home": "."]],
-                 discovery: [absolute("/Library/Java/JavaVirtualMachines", "*.jdk"),
-                             home("Library/Java/JavaVirtualMachines/*.jdk"), home(".sdkman/candidates/java/*"),
-                             absolute("/opt/homebrew/Cellar", "openjdk*/*")]),
-            tool("maven", "Maven", layout: "bin/mvn", version: (["--version"], #"Apache Maven (\d+(?:\.\d+)*)"#),
-                 variable: "MAVEN_HOME", command: "mvn",
-                 discovery: [absolute("/opt/homebrew/Cellar", "maven/*"), home(".sdkman/candidates/maven/*")])
+        sample("dev.lithe.sample.toolkit", "Toolkit (sample)", definitions: [
+            tool("tool-a", "Tool A", layout: "bin/tool-a", version: (["--version"], #"tool-a (\d+(?:\.\d+)*)"#),
+                 variable: "TOOL_A_HOME", command: "tool-a",
+                 homeLayouts: [["match": "*.kit", "home": "Contents/Home"], ["match": "*", "home": "."]],
+                 discovery: [home("Library/Kits/*.kit"), home(".local/share/tool-a/*"),
+                             absolute("/opt/homebrew/Cellar", "tool-a/*")]),
+            tool("tool-b", "Tool B", layout: "bin/tool-b", version: (["--version"], #"tool-b (\d+(?:\.\d+)*)"#),
+                 variable: "TOOL_B_HOME", command: "tool-b",
+                 discovery: [absolute("/opt/homebrew/Cellar", "tool-b/*"), home(".local/share/tool-b/*")])
         ]),
         sample("dev.lithe.sample.node", "Node.js (sample)", definitions: [
             tool("node", "Node.js", layout: "bin/node", version: (["--version"], #"v(\d+(?:\.\d+)*)"#), command: "node",
@@ -203,7 +202,7 @@ final class ToolchainSettingsDemo: NSObject, NSApplicationDelegate {
                  command: "python3", discovery: [home(".local/share/uv/python/cpython-*")])
         ], providers: [provider("uv", "uv", tools: ["python"], watch: [".python-version"])]),
         sample("dev.lithe.sample.mise", "mise (sample)", providers: [
-            provider("mise", "mise", tools: ["java", "maven", "node", "python"], watch: ["mise.toml", ".tool-versions"])
+            provider("mise", "mise", tools: ["tool-a", "tool-b", "node", "python"], watch: ["mise.toml", ".tool-versions"])
         ])
     ]
 

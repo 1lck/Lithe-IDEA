@@ -9,34 +9,20 @@ enum DocumentFeatureComposition {
         let document = graph.document
         let workspace = graph.workspace
         let session = graph.workspaceSession
-        let java = graph.java
-        let spring = graph.spring
-        let mybatis = graph.mybatis
         let notification = graph.notification
         let settings = model.settings
         let coordinator = DocumentLanguageCoordinator(
             activate: { [weak model] document in
                 _ = model?.activateLanguageServerIfAvailable(for: document)
             },
-            reloadProject: { [weak spring, weak mybatis, weak session, weak workspace, weak document] changed in
-                guard let root = session?.workspaceURL else { return }
-                let files = workspace?.projectFiles ?? []
-                let openDocuments = document?.openDocuments ?? []
-                spring?.scheduleReload(
-                    changedDocument: changed, workspaceURL: root,
-                    files: files, openDocuments: openDocuments
-                )
-                mybatis?.scheduleReload(
-                    changedDocument: changed, workspaceURL: root,
-                    files: files, openDocuments: openDocuments
-                )
-            },
-            close: { [weak model, weak java] document in
+            // Project indexes and inline hints come from language plugins
+            // through their language servers; the host keeps no per-language index.
+            reloadProject: { _ in },
+            close: { [weak model] document in
                 model?.languageToolingSessionsIfActive?.closeDocument(document.url)
-                if java?.handles(fileURL: document.url) == true { java?.close(document) }
             },
-            supportsHints: { [weak java] in java?.handles(fileURL: $0.url) == true },
-            refreshHints: { [weak model] in await model?.refreshCodeVision(for: $0) }
+            supportsHints: { _ in false },
+            refreshHints: { _ in }
         )
         graph.languageTooling.logSink = model.services.logSink
         graph.languageTooling.notifyLog = { [weak notification] in notification?.show($0, logReference: $1) }
@@ -74,13 +60,6 @@ enum DocumentFeatureComposition {
             },
             onProjectCloseReady: { [weak session] in session?.projectCloseReady() },
             onCloseFailed: { [weak session] in session?.cancelPendingClose() }
-        )
-        java.configure(
-            documentProvider: { [weak document] in document?.activeDocument },
-            loadBlame: { [weak model] fileURL in
-                guard let feature = await model?.activateGitModule() else { return [] }
-                return await feature.loadBlame(for: fileURL)
-            }
         )
         return coordinator
     }

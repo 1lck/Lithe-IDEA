@@ -169,11 +169,6 @@ extension AppModel {
             debugTerminalSessionIDsByDebugSession[debugSessionID, default: []].insert(created.session.id)
             activeDebugTerminalSessionIDsByDebugSession[debugSessionID] = created.session.id
         }
-        if let id = debugSessionID, executablePath.hasSuffix("/java"),
-           services.remoteConnections?.workspaces.contains(workspaceURL) != true {
-            debugPerformanceFeature.register(DebugPerformanceTarget(processID: created.processID,
-                javaExecutable: URL(fileURLWithPath: executablePath)), sessionID: id.rawValue)
-        }
         showToolWindow(.terminal)
         created.session.focus()
         return DebugRunInTerminalResponse(processID: Int(created.processID))

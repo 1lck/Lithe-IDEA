@@ -215,54 +215,12 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     @Published public private(set) var serviceUpdateMessage: String?
     @Published public private(set) var serviceUpdateFailed = false
     @Published public private(set) var updatingServiceSessionID: DebugSessionID?
-    private var javaUpdateTargets: [DebugSessionID: JavaDebugLaunchTarget] = [:]
     /// Sessions whose cleanup already ran, so re-entrant state callbacks cannot repeat it.
     private var forgottenSessionIDs: Set<DebugSessionID> = []
 
-    public func registerJavaUpdateTarget(_ target: JavaDebugLaunchTarget) {
-        guard let id = activeSessionID else { return }
-        javaUpdateTargets[id] = target
-    }
-
-    public var canUpdateJavaService: Bool {
-        guard let id = activeSessionID else { return false }
-        return providerID == "java" && canControl && javaUpdateTargets[id] != nil
-            && !adapterDeclaredCodeChanges
-    }
-
-    public func applyJavaServiceUpdate(
-        prepare: (JavaDebugLaunchTarget, URL, URL) async throws -> Void
-    ) async {
-        guard updatingServiceSessionID == nil, canUpdateJavaService,
-              let id = activeSessionID, let target = javaUpdateTargets[id],
-              let request = lastStartRequest, let session = activeSession else { return }
-        updatingServiceSessionID = id
-        serviceUpdateFailed = false
-        serviceUpdateMessage = "Saving and compiling code changes…"
-        defer { updatingServiceSessionID = nil }
-        do {
-            try await prepare(target, request.fileURL, request.rootURL)
-            guard activeSessionID == id, isSessionActive else { return }
-            serviceUpdateMessage = "Applying code changes…"
-            let classes: [String] = try await withCheckedThrowingContinuation { continuation in
-                session.redefineClasses { continuation.resume(with: $0) }
-            }
-            guard activeSessionID == id, isSessionActive else { return }
-            serviceUpdateMessage = classes.isEmpty ? "No code changes to apply." : "Code changes applied."
-            append((serviceUpdateMessage ?? "") + "\n")
-            if state == .paused { inspectThreads() }
-        } catch {
-            guard activeSessionID == id, isSessionActive else { return }
-            serviceUpdateFailed = true
-            serviceUpdateMessage = "Could not apply changes: " + error.localizedDescription
-                + " Restart the service if this change is not supported."
-            append((serviceUpdateMessage ?? "") + "\n")
-        }
-    }
-
     /// Whether the active session's adapter declared a way to apply changed code to the running
-    /// program (`features.hotCodeReplace`). The declaration wins over the host's own service
-    /// update, which only remains for adapters that declared nothing, so one button shows.
+    /// program (`features.hotCodeReplace`). Only that declaration enables the action; the host
+    /// never infers it from the adapter's name.
     public var canApplyDeclaredCodeChanges: Bool {
         canControl && adapterDeclaredCodeChanges
     }
@@ -301,41 +259,6 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             let message = L10n.string("Could not apply code changes: \(error.localizedDescription)")
             serviceUpdateMessage = message
             append(message + "\n")
-        }
-    }
-
-    /// Explicit restart preserves the original launch options and re-resolves runtime paths.
-    public func restartJavaService(
-        prepare: (URL, URL) async throws -> JavaDebugLaunchTarget
-    ) async {
-        guard updatingServiceSessionID == nil, canUpdateJavaService,
-              let id = activeSessionID, let request = lastStartRequest else { return }
-        updatingServiceSessionID = id
-        serviceUpdateFailed = false
-        serviceUpdateMessage = "Preparing service restart…"
-        defer { updatingServiceSessionID = nil }
-        do {
-            let target = try await prepare(request.fileURL, request.rootURL)
-            guard activeSessionID == id, isSessionActive else { return }
-            var arguments = request.configuration.arguments
-            arguments["mainClass"] = .string(target.mainClass)
-            arguments["projectName"] = target.projectName.map(ToolingJSONValue.string)
-            arguments["classPaths"] = .array(target.classPaths.map(ToolingJSONValue.string))
-            arguments["modulePaths"] = .array(target.modulePaths.map(ToolingJSONValue.string))
-            stop()
-            // stop() may select another live session; do not stop that replacement too.
-            if startAdditional(fileURL: request.fileURL, rootURL: request.rootURL,
-                     configuration: DebugLaunchConfiguration(
-                        name: request.configuration.name, request: request.configuration.request,
-                        arguments: arguments, steppingFilters: request.configuration.steppingFilters,
-                        adapterProviderID: request.configuration.adapterProviderID,
-                        adapterEndpoint: request.configuration.adapterEndpoint)) {
-                registerJavaUpdateTarget(target)
-            }
-        } catch {
-            guard activeSessionID == id, isSessionActive else { return }
-            serviceUpdateFailed = true
-            serviceUpdateMessage = "Could not restart service: " + error.localizedDescription
         }
     }
 
@@ -392,7 +315,9 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     /// The frame currently selected in the call stack, which may differ from
     /// the frame that initially caused the stop.
     @Published public private(set) var selectedFrame: DebugStackFrame?
-    @Published public private(set) var javaSteppingFilters: DebugSteppingFilters?
+    /// Effective stepping policy of each live session, used to decide whether
+    /// filtered frames collapse. Sessions without an entry use their adapter's defaults.
+    private var steppingFiltersBySession: [DebugSessionID: DebugSteppingFilters] = [:]
     @Published public private(set) var consoleHistory: [String] = []
     @Published public private(set) var areFilteredStackFramesExpanded = false
     /// Prevents overlapping execution requests while the adapter is still
@@ -572,7 +497,6 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 )
             }
         }
-        loadJavaSteppingFilters()
     }
 
     public var isSessionActive: Bool {
@@ -587,9 +511,9 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     public var canControl: Bool { state == .running || state == .paused }
     public var canRestart: Bool {
-        // Some Java adapters (notably older JDT LS builds) do not advertise
-        // DAP `restart`. We can still provide the IDEA-style rerun action by
-        // relaunching the exact saved request after stopping this session.
+        // Some adapters do not advertise DAP `restart`. The rerun action is
+        // still offered by relaunching the exact saved request after
+        // stopping this session.
         canControl && (capabilities.supportsRestartRequest || lastStartRequest != nil)
     }
     public var canTerminate: Bool {
@@ -613,7 +537,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         return rows
     }
     /// Root-scope values plus source-referenced expressions evaluated for the
-    /// selected frame, matching the compact variable list used by Java IDEs.
+    /// selected frame, matching the compact variable list of an IDE.
     public var presentedVariables: [DebugVariable] {
         var knownNames = Set<String>()
         var result: [DebugVariable] = []
@@ -624,8 +548,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         return result
     }
     public var visibleStackFrameRows: [GenericDebugStackFrameRow] {
-        guard javaSteppingFilters?.hideFilteredStackFrames == true,
-              !areFilteredStackFramesExpanded else {
+        guard activeSteppingFiltersHideFrames, !areFilteredStackFramesExpanded else {
             return stackFrames.map(stackFrameRow)
         }
         var rows: [GenericDebugStackFrameRow] = []
@@ -737,7 +660,6 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     /// Stops one session. Inactive sessions do not disturb the currently
     /// displayed debugger state.
     public func stopSession(_ sessionID: DebugSessionID) {
-        javaUpdateTargets[sessionID] = nil
         if activeSessionID == sessionID {
             stop()
             return
@@ -752,7 +674,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     private func forgetStoppedSession(_ sessionID: DebugSessionID) {
         guard forgottenSessionIDs.insert(sessionID).inserted else { return }
-        javaUpdateTargets[sessionID] = nil
+        steppingFiltersBySession[sessionID] = nil
         sessionSnapshots[sessionID] = nil
         disassembly.forget(sessionID: sessionID)
         onSessionStopped?(sessionID)
@@ -844,19 +766,17 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             if !dataBreakpoints.isEmpty {
                 try sessions.setDataBreakpoints(coreDataBreakpoints, for: request.fileURL, adapterProviderID: providerID)
             }
-            let effectiveConfiguration: DebugLaunchConfiguration
-            if providerID == "java", let javaSteppingFilters {
-                effectiveConfiguration = request.configuration.applying(
-                    steppingFilters: javaSteppingFilters
-                )
-            } else {
-                effectiveConfiguration = request.configuration
-            }
+            let effectiveConfiguration = configurationApplyingSavedSteppingFilters(
+                request.configuration, providerID: providerID
+            )
             let launched = try sessions.launchNew(
                 for: request.fileURL,
                 rootURL: request.rootURL,
                 configuration: effectiveConfiguration
             )
+            if let filters = effectiveConfiguration.steppingFilters {
+                steppingFiltersBySession[launched.id] = filters
+            }
             activeSessionID = launched.id
             state = launched.session.state
             sessionSummaries = sessions.sessionSummaries
@@ -882,7 +802,6 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
 
     public func stop() {
-        if let id = activeSessionID { javaUpdateTargets[id] = nil }
         serviceUpdateMessage = nil
         serviceUpdateFailed = false
         invalidateInspectionRequests()
@@ -930,8 +849,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
 
     public func reset() {
-        javaUpdateTargets.removeAll()
         forgottenSessionIDs.removeAll()
+        steppingFiltersBySession.removeAll()
         serviceUpdateMessage = nil
         serviceUpdateFailed = false
         invalidateInspectionRequests()
@@ -1349,31 +1268,80 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         }
     }
 
-    public func updateJavaSteppingFilters(_ filters: DebugSteppingFilters) {
+    /// Debuggers whose adapters declared `features.stepFilters`, one entry per
+    /// adapter even when a language default also selects it.
+    public var steppingFilterProviders: [DebugProviderDeclaration] {
+        var seen = Set<String>()
+        return sessions.providers.compactMap { descriptor in
+            guard let declaration = sessions.declarationSource?(descriptor),
+                  declaration.behavior.features?.stepFilters != nil,
+                  seen.insert(declaration.storageKey).inserted else { return nil }
+            return declaration
+        }
+    }
+
+    /// The user's saved policy for one debugger, or the defaults its adapter declared.
+    public func steppingFilters(for declaration: DebugProviderDeclaration) -> DebugSteppingFilters {
+        let defaults = DebugSteppingFilters(declared: declaration.behavior.defaults?.stepFilters)
+        do {
+            guard let saved = try steppingFilterPersistence?.loadSteppingFilters(
+                adapterID: declaration.storageKey
+            ) else { return defaults }
+            return try steppingFilterResolver?.resolveDebugSteppingFilters(
+                adapterID: declaration.storageKey, filters: saved
+            ) ?? saved
+        } catch {
+            record(error)
+            return defaults
+        }
+    }
+
+    public func updateSteppingFilters(_ filters: DebugSteppingFilters, for declaration: DebugProviderDeclaration) {
         do {
             let normalized = try steppingFilterResolver?.resolveDebugSteppingFilters(
-                adapterID: "java",
+                adapterID: declaration.storageKey,
                 filters: filters
             ) ?? filters
-            javaSteppingFilters = normalized
             areFilteredStackFramesExpanded = false
-            try steppingFilterPersistence?.saveSteppingFilters(normalized, adapterID: "java")
+            try steppingFilterPersistence?.saveSteppingFilters(normalized, adapterID: declaration.storageKey)
         } catch {
             record(error)
         }
     }
 
-    public func resetJavaSteppingFilters() {
-        guard let steppingFilterResolver else { return }
+    public func resetSteppingFilters(for declaration: DebugProviderDeclaration) {
+        updateSteppingFilters(
+            DebugSteppingFilters(declared: declaration.behavior.defaults?.stepFilters),
+            for: declaration
+        )
+    }
+
+    /// A launch without its own policy takes the user's saved one for that
+    /// debugger; with nothing saved, Core sends the adapter's declared defaults.
+    private func configurationApplyingSavedSteppingFilters(
+        _ configuration: DebugLaunchConfiguration,
+        providerID: String?
+    ) -> DebugLaunchConfiguration {
+        guard configuration.steppingFilters == nil,
+              let providerID,
+              let declaration = sessions.declaration(forProviderID: providerID),
+              declaration.behavior.features?.stepFilters != nil else { return configuration }
+        let saved: DebugSteppingFilters?
         do {
-            let defaults = try steppingFilterResolver.resolveDebugSteppingFilters(
-                adapterID: "java",
-                filters: nil
-            )
-            updateJavaSteppingFilters(defaults)
+            saved = try steppingFilterPersistence?.loadSteppingFilters(adapterID: declaration.storageKey)
         } catch {
             record(error)
+            saved = nil
         }
+        guard let saved else { return configuration }
+        return configuration.applying(steppingFilters: saved)
+    }
+
+    private var activeSteppingFiltersHideFrames: Bool {
+        if let activeSessionID, let filters = steppingFiltersBySession[activeSessionID] {
+            return filters.hideFilteredStackFrames
+        }
+        return activeSession?.declaredBehavior.defaults?.stepFilters?.hideFilteredStackFrames == true
     }
 
     public func expandFilteredStackFrames() {
@@ -1578,8 +1546,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         )
     }
 
-    /// Evaluates identifiers referenced by the paused source line so fields
-    /// such as Java's `service` appear beside locals and as editor inlays.
+    /// Evaluates identifiers referenced by the paused source line so values
+    /// the adapter does not list as locals appear beside them and as editor inlays.
     public func requestAutomaticVariables(_ expressions: [String]) {
         guard state == .paused,
               let frameID = selectedFrameID,
@@ -1614,7 +1582,6 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             evaluateAutomaticVariable(
                 expression,
                 evaluatedExpression: expression,
-                allowsJavaFieldFallback: true,
                 orderedExpressions: orderedExpressions,
                 frameID: frameID,
                 generation: generation,
@@ -1626,7 +1593,6 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     private func evaluateAutomaticVariable(
         _ expression: String,
         evaluatedExpression: String,
-        allowsJavaFieldFallback: Bool,
         orderedExpressions: [String],
         frameID: Int,
         generation: Int,
@@ -1656,24 +1622,10 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 )
                 self.publishAutomaticVariables(orderedExpressions)
             case .failure:
-                if allowsJavaFieldFallback,
-                   self.providerID == "java",
-                   !expression.contains(".") {
-                    self.evaluateAutomaticVariable(
-                        expression,
-                        evaluatedExpression: "this.\(expression)",
-                        allowsJavaFieldFallback: false,
-                        orderedExpressions: orderedExpressions,
-                        frameID: frameID,
-                        generation: generation,
-                        session: session
-                    )
-                } else {
-                    // Source-driven evaluation is speculative. Invalid
-                    // candidates should not flood the user's Debug Console.
-                    self.automaticExpressionResults.removeValue(forKey: expression)
-                    self.publishAutomaticVariables(orderedExpressions)
-                }
+                // Source-driven evaluation is speculative. Invalid
+                // candidates should not flood the user's Debug Console.
+                self.automaticExpressionResults.removeValue(forKey: expression)
+                self.publishAutomaticVariables(orderedExpressions)
             }
         }
     }
@@ -2029,9 +1981,6 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         let normalized = debuggeeOutputNormalizer.normalize(rawOutput)
         guard !normalized.isEmpty else { return }
         append(normalized)
-        if let diagnostic = launchDiagnostic(in: normalized) {
-            errorMessage = diagnostic
-        }
     }
 
     private func resetInspectionState() {
@@ -2413,8 +2362,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         clearStoppedInspection()
     }
 
-    /// Prefer a source-backed, unfiltered frame after a stop so Java's
-    /// synthetic reflection and method-handle frames do not become the user's
+    /// Prefer a source-backed, unfiltered frame after a stop so runtime-internal
+    /// frames the adapter marks as filtered do not become the user's
     /// initial inspection location. The full stack remains available and can
     /// still be expanded from the filtered-frame group.
     private func preferredStoppedFrame(in frames: [DebugStackFrame]) -> DebugStackFrame? {
@@ -2442,42 +2391,6 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         disassembly.suspendRequests()
         activeSession?.cancelPendingOperations()
         return inspectionGeneration
-    }
-
-    private func loadJavaSteppingFilters() {
-        guard let steppingFilterResolver else { return }
-        let persisted: DebugSteppingFilters?
-        do {
-            persisted = try steppingFilterPersistence?.loadSteppingFilters(adapterID: "java")
-        } catch {
-            record(error)
-            loadDefaultJavaSteppingFilters(using: steppingFilterResolver)
-            return
-        }
-        do {
-            javaSteppingFilters = try steppingFilterResolver.resolveDebugSteppingFilters(
-                adapterID: "java",
-                filters: persisted
-            )
-        } catch {
-            record(error)
-            if persisted != nil {
-                loadDefaultJavaSteppingFilters(using: steppingFilterResolver)
-            }
-        }
-    }
-
-    private func loadDefaultJavaSteppingFilters(
-        using steppingFilterResolver: any DebugSteppingFilterResolving
-    ) {
-        do {
-            javaSteppingFilters = try steppingFilterResolver.resolveDebugSteppingFilters(
-                adapterID: "java",
-                filters: nil
-            )
-        } catch {
-            record(error)
-        }
     }
 
     private func stackFrameRow(_ frame: DebugStackFrame) -> GenericDebugStackFrameRow {
@@ -3020,20 +2933,6 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         output = text
         hasOutput = !text.isEmpty
         outputPresentation.replace(with: text)
-    }
-
-    private func launchDiagnostic(in output: String) -> String? {
-        let pattern = #"(?i)\bport\s+(\d{1,5})\s+was already in use\b"#
-        guard let expression = try? NSRegularExpression(pattern: pattern),
-              let match = expression.firstMatch(
-                  in: output,
-                  range: NSRange(output.startIndex..., in: output)
-              ),
-              let portRange = Range(match.range(at: 1), in: output) else {
-            return nil
-        }
-        let port = output[portRange]
-        return "Port \(port) is already in use. Stop the process using it or change server.port in the Run configuration."
     }
 
     /// Trim only at complete SGR boundaries and replay the retained text's style.

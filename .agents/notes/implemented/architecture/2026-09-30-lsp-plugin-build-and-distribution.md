@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 以后新增或修改带语言服务器（Language Server，负责通过 LSP 提供补全、诊断和跳转能力的进程）的官方插件，都必须沿用这里的构建方式（最早由 PHP Support 验证）：插件声明固定版本和校验值，构建阶段下载、校验并把语言服务器放入插件包，插件包完成签名后再分发。主程序不再为插件维护第二套语言服务器路径，也不在运行时改写已安装的 app bundle。
@@ -83,7 +85,7 @@ macOS 使用声明式插件包和 publisher Ed25519 包签名；Windows 使用�
 
 ## 验证
 
-- `./scripts/plugins/verify-official-plugins.sh`：检查官方插件组装、语言服务器清单、启动器、包内无原生代码和包签名。
+- 官方插件包的组装与校验（原 verify-official-plugins 脚本：检查官方插件组装、语言服务器清单、启动器、包内无原生代码和包签名。）已随插件移出本仓库，由各插件仓库的 CI 负责（#1495）。
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：确认典型启动和插件工作流不会改写已安装 bundle。
 - `node scripts/resources/test-reuse-worktree-resources.mjs`：确认语言服务器下载和插件包不能跨工作树复用。
 - `./scripts/agent-notes/verify-agent-notes.sh`：确认本笔记格式、路径和验证命令有效。
@@ -92,8 +94,8 @@ macOS 使用声明式插件包和 publisher Ed25519 包签名；Windows 使用�
 
 ## 适用范围
 
-- `Plugins/mac/Official/`
-- `scripts/plugins/build-official-plugins.sh`
+- 已迁出：原 `Plugins/mac/Official/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
+- 已迁出：原 `scripts/plugins/build-official-plugins.sh`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/`
 - `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeToolDiscovery.swift`
 - `macos/Sources/LitheLanguageIntelligenceModule/`

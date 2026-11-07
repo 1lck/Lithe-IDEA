@@ -31,7 +31,10 @@ struct PluginRunHostServiceTests {
         #expect(launch.environment["B"] == "b")
         // The user's layers pick the installation; project code is allowed as for any Run.
         #expect(fixture.tools.resolutions == [
-            RunTools.Resolution(tool: "go", directory: "sub", workspace: PluginHostFixture.workspaceURL.path, projectCodeAllowed: true),
+            // Resolved as an installation: Core expands the launch template, so a template
+            // with runtime arguments must not be refused the way a direct launch refuses it.
+            RunTools.Resolution(tool: "go", directory: "sub", workspace: PluginHostFixture.workspaceURL.path,
+                                projectCodeAllowed: true, use: .installation),
         ])
         #expect(fixture.decoder.workspaceRoots == [PluginHostFixture.workspaceURL])
     }
@@ -464,6 +467,7 @@ private final class RunTools: DefinedToolchainResolving, DefinedToolLaunching {
         let directory: String
         let workspace: String
         let projectCodeAllowed: Bool
+        var use: DefinedToolchainUse = .executable
     }
 
     static let installation = ResolvedDefinedToolchain(
@@ -477,7 +481,15 @@ private final class RunTools: DefinedToolchainResolving, DefinedToolLaunching {
 
     func resolve(tool: String, directory: String, workspace: URL, environment _: [String: String],
                  minimumVersion _: String?, projectCodeAllowed: Bool) async throws -> ResolvedDefinedToolchain? {
-        resolutions.append(Resolution(tool: tool, directory: directory, workspace: workspace.path, projectCodeAllowed: projectCodeAllowed))
+        try await resolve(tool: tool, directory: directory, workspace: workspace, environment: [:], minimumVersion: nil,
+                          projectCodeAllowed: projectCodeAllowed, fixed: nil, use: .executable, consumerID: nil)
+    }
+
+    func resolve(tool: String, directory: String, workspace: URL, environment _: [String: String],
+                 minimumVersion _: String?, projectCodeAllowed: Bool, fixed _: FixedToolchainSelection?,
+                 use: DefinedToolchainUse, consumerID _: String?) async throws -> ResolvedDefinedToolchain? {
+        resolutions.append(Resolution(tool: tool, directory: directory, workspace: workspace.path,
+                                      projectCodeAllowed: projectCodeAllowed, use: use))
         if let resolveFailure { throw resolveFailure }
         return selection
     }

@@ -1,7 +1,0 @@
-import Foundation
-import LitheCoreContracts
-
-typealias MavenProfile = LitheCoreContracts.MavenProfile
-typealias MavenLifecyclePhase = LitheCoreContracts.MavenLifecyclePhase
-typealias MavenIssueSeverity = LitheCoreContracts.MavenIssueSeverity
-typealias MavenBuildIssue = LitheCoreContracts.MavenBuildIssue

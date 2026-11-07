@@ -188,11 +188,11 @@ struct SearchEverywhereBehaviorTests {
     }
 
     @Test
-    func rustPortDeliversNamesBeforeSymbolsAndCancelsAnObservedRequest() async throws {
+    func rustPortDeliversFileNamesWithoutHostSymbolsAndCancelsAnObservedRequest() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        try "class Name { void NameMethod() {} }".write(to: root.appendingPathComponent("Name.java"),
+        try "Name NameMethod".write(to: root.appendingPathComponent("Name.txt"),
             atomically: true, encoding: .utf8)
         let operations = RustWorkspaceOperations(core: RustCoreBridge())
         let batches = OSAllocatedUnfairLock(initialState: [SearchEverywhereResults]())
@@ -200,10 +200,10 @@ struct SearchEverywhereBehaviorTests {
             visibilityRules: .init(hiddenDirectoryNames: [], hiddenFilePatterns: []), includeGeneratedFileNames: true,
             kinds: [.file, .type, .symbol], onResults: { batch in batches.withLock { $0.append(batch) } }))
         let snapshots = batches.withLock { $0 }
-        #expect(snapshots.first?.fileMatches.first?.url.lastPathComponent == "Name.java")
-        #expect(snapshots.first?.classMatches.isEmpty == true)
-        #expect(snapshots.contains { !$0.classMatches.isEmpty })
-        #expect(final.classMatches.first?.symbolName == "Name")
+        #expect(snapshots.first?.fileMatches.first?.url.lastPathComponent == "Name.txt")
+        // Core indexes file names and contents only; type and symbol results come from language servers.
+        #expect(snapshots.allSatisfy { $0.classMatches.isEmpty && $0.symbolMatches.isEmpty })
+        #expect(final.classMatches.isEmpty && final.symbolMatches.isEmpty)
         let started = TestGate(), resume = TestGate()
         defer { resume.open() }
         let cancelled = Task {

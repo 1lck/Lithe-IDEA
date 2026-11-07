@@ -67,8 +67,9 @@ struct ProjectTreeSelection: Equatable {
         if focusedPath.map({ !paths.contains($0) }) ?? true { focusedPath = first }
     }
 
-    /// Uses tree structure instead of path components because compacted Java
-    /// packages display below an ancestor that is not their filesystem parent.
+    /// Uses tree structure instead of path components because compacted
+    /// single-child directory chains display below an ancestor that is not
+    /// their filesystem parent.
     private static func displayedParent(of path: String, in node: FileNode) -> FileNode? {
         for child in node.children ?? [] {
             if child.url.path == path { return node }

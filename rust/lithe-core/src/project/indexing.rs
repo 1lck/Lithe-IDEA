@@ -788,32 +788,6 @@ pub(crate) fn uri_is_excluded(root_uri: &str, uri: &str) -> Result<bool, CoreErr
     }
 }
 
-/// Import globs only: these do not guarantee exclusion of referenced Java resources.
-pub(crate) fn java_import_exclusions(root_uri: &str) -> Vec<String> {
-    let Some(root) = url::Url::parse(root_uri)
-        .ok()
-        .and_then(|value| value.to_file_path().ok())
-    else {
-        return Vec::new();
-    };
-    let root = root.canonicalize().unwrap_or(root);
-    excluded_roots(&root)
-        .into_iter()
-        // Native import patterns cannot faithfully represent literal glob metacharacters.
-        .filter(|path| !path.contains(['*', '?', '[', ']', '{', '}']))
-        .flat_map(|path| {
-            if path == "." {
-                vec!["**".into()]
-            } else {
-                let directory = root.join(path).to_string_lossy().replace('\\', "/");
-                // JDT LS BasicFileDetector matches the candidate directory itself
-                // before visiting children. A trailing /** alone misses its pom.xml.
-                vec![directory.clone(), format!("{directory}/**")]
-            }
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::{files, search_index};
@@ -840,7 +814,7 @@ mod tests {
         let second = install("second");
         assert!(workspace
             .files()
-            .contains(&"ignored/deep/Excluded.java".into()));
+            .contains(&"ignored/deep/Excluded.txt".into()));
         let stale = context(&workspace.0).unwrap();
         fs::write(workspace.0.join(".gitignore"), "ignored/\n").unwrap();
         let refreshed = refresh_indexing(RefreshIndexingRequest {
@@ -853,7 +827,7 @@ mod tests {
         assert!(stale.check().is_err());
         assert!(!workspace
             .files()
-            .contains(&"ignored/deep/Excluded.java".into()));
+            .contains(&"ignored/deep/Excluded.txt".into()));
         fs::write(workspace.0.join(".gitignore"), "").unwrap();
         refresh_indexing(RefreshIndexingRequest {
             root: workspace.0.to_string_lossy().into_owned(),
@@ -863,7 +837,7 @@ mod tests {
         .unwrap();
         assert!(workspace
             .files()
-            .contains(&"ignored/deep/Excluded.java".into()));
+            .contains(&"ignored/deep/Excluded.txt".into()));
         for (owner, revision) in [("first", first), ("second", second)] {
             assert!(release(ReleaseIndexingRequest {
                 root: workspace.0.to_string_lossy().into_owned(),
@@ -900,7 +874,7 @@ mod tests {
         let workspace = Workspace::new();
         workspace.git(&["init", "--quiet"]);
         fs::create_dir_all(workspace.0.join("archive")).unwrap();
-        fs::write(workspace.0.join("archive/Needle.java"), "class Needle {}").unwrap();
+        fs::write(workspace.0.join("archive/Needle.txt"), "Needle").unwrap();
         fs::write(workspace.0.join(".gitignore"), "archive/\n").unwrap();
         for case in fixture["cases"].as_array().unwrap() {
             for step in case["steps"].as_array().unwrap() {
@@ -922,7 +896,7 @@ mod tests {
                     found
                         .matches
                         .iter()
-                        .any(|item| item.path == "archive/Needle.java"),
+                        .any(|item| item.path == "archive/Needle.txt"),
                     included && !excluded,
                     "{}",
                     case["id"]
@@ -939,69 +913,50 @@ mod tests {
             fs::create_dir_all(workspace.0.join(folder)).unwrap();
             for name in ["NeedleA", "NeedleB"] {
                 fs::write(
-                    workspace.0.join(folder).join(format!("{name}.java")),
-                    format!("class {name} {{\n    void needleMethod() {{}}\n}}\n"),
+                    workspace.0.join(folder).join(format!("{name}.txt")),
+                    format!("{name}\n"),
                 )
                 .unwrap();
             }
         }
-        for kind in ["file", "type", "symbol"] {
-            let request = json!({
-                "root":workspace.0,"query":"Needle","scopePaths":["src"],"maxResults":1,
-                "maxFileResults":usize::from(kind == "file"),
-                "maxSymbolResults":usize::from(kind != "file"),"maxContentResults":0
-            });
-            let response =
-                files::search_everywhere(serde_json::from_value(request).unwrap()).unwrap();
-            assert_eq!(response.matches.len(), 1);
-            assert!(response.matches[0].path.starts_with("src/"));
+        let kind = "file";
+        let request = json!({
+            "root":workspace.0,"query":"Needle","scopePaths":["src"],"maxResults":1,
+            "maxFileResults":1,"maxSymbolResults":0,"maxContentResults":0
+        });
+        let response = files::search_everywhere(serde_json::from_value(request).unwrap()).unwrap();
+        assert_eq!(response.matches.len(), 1);
+        assert!(response.matches[0].path.starts_with("src/"));
 
-            let mut request = json!({
-                "root":workspace.0,"query":"Needle","scopePaths":["src"],
-                "pageSize":1,"resultKinds":[kind]
-            });
-            let mut paths = std::collections::BTreeSet::new();
-            let mut complete = false;
-            for _ in 0..4 {
-                let page = super::super::search_paging::search_page(
-                    serde_json::from_value(request.clone()).unwrap(),
-                )
-                .unwrap();
-                for item in page["matches"].as_array().unwrap() {
-                    assert_eq!(item["kind"], kind);
-                    let path = item["path"].as_str().unwrap();
-                    assert!(path.starts_with("src/"), "out-of-scope result: {path}");
-                    assert!(paths.insert(path.to_owned()), "duplicate result: {path}");
-                }
-                if page["nextCursor"].is_null() {
-                    complete = true;
-                    break;
-                }
-                request["cursor"] = page["nextCursor"].clone();
+        let mut request = json!({
+            "root":workspace.0,"query":"Needle","scopePaths":["src"],
+            "pageSize":1,"resultKinds":[kind]
+        });
+        let mut paths = std::collections::BTreeSet::new();
+        let mut complete = false;
+        for _ in 0..4 {
+            let page = super::super::search_paging::search_page(
+                serde_json::from_value(request.clone()).unwrap(),
+            )
+            .unwrap();
+            for item in page["matches"].as_array().unwrap() {
+                assert_eq!(item["kind"], kind);
+                let path = item["path"].as_str().unwrap();
+                assert!(path.starts_with("src/"), "out-of-scope result: {path}");
+                assert!(paths.insert(path.to_owned()), "duplicate result: {path}");
             }
-            assert!(complete, "scoped pagination did not terminate");
-            assert_eq!(
-                paths,
-                ["src/NeedleA.java".to_owned(), "src/NeedleB.java".to_owned()]
-                    .into_iter()
-                    .collect()
-            );
+            if page["nextCursor"].is_null() {
+                complete = true;
+                break;
+            }
+            request["cursor"] = page["nextCursor"].clone();
         }
-    }
-
-    #[test]
-    fn java_import_exclusion_matches_the_directory_itself_before_its_descendants() {
-        let workspace = Workspace::new();
-        workspace.configure(&["ignored"], &[], false);
-        let uri = url::Url::from_directory_path(&workspace.0).unwrap();
-        let directory = workspace
-            .0
-            .join("ignored")
-            .to_string_lossy()
-            .replace('\\', "/");
+        assert!(complete, "scoped pagination did not terminate");
         assert_eq!(
-            java_import_exclusions(uri.as_str()),
-            vec![directory.clone(), format!("{directory}/**")]
+            paths,
+            ["src/NeedleA.txt".to_owned(), "src/NeedleB.txt".to_owned()]
+                .into_iter()
+                .collect()
         );
     }
 
@@ -1011,16 +966,8 @@ mod tests {
             let root = crate::tests::support::temporary_root("indexing-policy");
             fs::create_dir_all(root.join("ignored/deep")).unwrap();
             fs::create_dir_all(root.join("src")).unwrap();
-            fs::write(
-                root.join("ignored/deep/Excluded.java"),
-                "class Excluded { String needle; }",
-            )
-            .unwrap();
-            fs::write(
-                root.join("src/Included.java"),
-                "class Included { String needle; }",
-            )
-            .unwrap();
+            fs::write(root.join("ignored/deep/Excluded.txt"), "Excluded needle").unwrap();
+            fs::write(root.join("src/Included.txt"), "Included needle").unwrap();
             Self(root.canonicalize().unwrap())
         }
         fn configure(&self, manual: &[&str], included: &[&str], git: bool) -> IndexingStatus {
@@ -1065,11 +1012,7 @@ mod tests {
         let parent = Workspace::new();
         let nested = Workspace(parent.0.join("ignored"));
         parent.configure(&[], &[], false);
-        fs::write(
-            nested.0.join("Visible.java"),
-            "class Visible { String needle; }",
-        )
-        .unwrap();
+        fs::write(nested.0.join("Visible.txt"), "Visible needle").unwrap();
         let roots = vec![parent.0.clone(), nested.0.clone()];
         let search = |root: &Path, roots: &[PathBuf]| {
             files::search(
@@ -1099,7 +1042,7 @@ mod tests {
                 .unwrap(),
             )
             .unwrap();
-            assert_eq!(inventory.files, ["src/Included.java"]);
+            assert_eq!(inventory.files, ["src/Included.txt"]);
             files::DIRECTORY_VISITS.with_borrow(|trace| {
                 assert!(!trace
                     .as_ref()
@@ -1114,7 +1057,7 @@ mod tests {
                     .iter()
                     .map(|item| item.path.as_str())
                     .collect::<Vec<_>>(),
-                ["Visible.java"]
+                ["Visible.txt"]
             );
             let warm = files::warm_search_index(
                 serde_json::from_value(json!({
@@ -1124,10 +1067,10 @@ mod tests {
             )
             .unwrap();
             assert_eq!(warm.file_count, 1);
-            search_index::update_cached_file(&parent.0, &nested.0.join("Visible.java"));
+            search_index::update_cached_file(&parent.0, &nested.0.join("Visible.txt"));
             let updated = files::update_search_index(
                 serde_json::from_value(json!({
-                    "root":parent.0,"workspaceRoots":roots,"paths":["ignored/Visible.java"]
+                    "root":parent.0,"workspaceRoots":roots,"paths":["ignored/Visible.txt"]
                 }))
                 .unwrap(),
             )
@@ -1136,10 +1079,14 @@ mod tests {
                 updated.file_count, 1,
                 "watcher updates cannot refill a delegated subtree"
             );
-            let preview = files::replace_preview(serde_json::from_value(json!({
-                "root":parent.0,"workspaceRoots":roots,"query":"needle","replacement":"changed",
-                "paths":["ignored/Visible.java"],"textOverrides":{"ignored/Visible.java":"needle"}
-            })).unwrap()).unwrap();
+            let preview = files::replace_preview(
+                serde_json::from_value(json!({
+                    "root":parent.0,"workspaceRoots":roots,"query":"needle","replacement":"changed",
+                    "paths":["ignored/Visible.txt"],"textOverrides":{"ignored/Visible.txt":"needle"}
+                }))
+                .unwrap(),
+            )
+            .unwrap();
             assert!(
                 preview.files.is_empty(),
                 "explicit paths and dirty overrides also obey ownership"
@@ -1188,15 +1135,15 @@ mod tests {
             files::snapshot(serde_json::from_value(request.clone()).unwrap())
                 .unwrap()
                 .files,
-            ["src/Included.java"]
+            ["src/Included.txt"]
         );
         fs::create_dir_all(&nested).unwrap();
-        fs::write(nested.join("Reappeared.java"), "class Reappeared {}").unwrap();
+        fs::write(nested.join("Reappeared.txt"), "Reappeared").unwrap();
         assert_eq!(
             files::snapshot(serde_json::from_value(request).unwrap())
                 .unwrap()
                 .files,
-            ["src/Included.java"],
+            ["src/Included.txt"],
             "reappearing delegated content cannot leak into the parent"
         );
     }
@@ -1233,7 +1180,7 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        assert_eq!(tree.directories[0].children[0].name, "Excluded.java");
+        assert_eq!(tree.directories[0].children[0].name, "Excluded.txt");
     }
 
     #[test]
@@ -1241,7 +1188,7 @@ mod tests {
         let workspace = Workspace::new();
         workspace.configure(&["ignored"], &[], false);
         files::DIRECTORY_VISITS.with_borrow_mut(|trace| *trace = Some(Vec::new()));
-        assert_eq!(workspace.files(), ["src/Included.java"]);
+        assert_eq!(workspace.files(), ["src/Included.txt"]);
         files::DIRECTORY_VISITS.with_borrow(|trace| {
             assert!(!trace
                 .as_ref()
@@ -1260,10 +1207,10 @@ mod tests {
         assert!(tree.directories[2]
             .children
             .iter()
-            .any(|node| node.name == "Excluded.java"));
+            .any(|node| node.name == "Excluded.txt"));
         assert_eq!(
             workspace.files(),
-            ["src/Included.java"],
+            ["src/Included.txt"],
             "Browsing must not add candidates"
         );
     }
@@ -1288,7 +1235,7 @@ mod tests {
         );
         search_index::update_cached_file(
             &workspace.0,
-            &workspace.0.join("ignored/deep/Excluded.java"),
+            &workspace.0.join("ignored/deep/Excluded.txt"),
         );
         assert!(query().matches.is_empty());
         workspace.configure(&[], &[], false);
@@ -1307,25 +1254,25 @@ mod tests {
         .unwrap();
         fs::write(workspace.0.join("single.log"), "still a candidate").unwrap();
         fs::create_dir_all(workspace.0.join("tracked")).unwrap();
-        fs::write(workspace.0.join("tracked/keep.java"), "class Keep {}").unwrap();
-        workspace.git(&["add", "-f", "tracked/keep.java"]);
+        fs::write(workspace.0.join("tracked/keep.txt"), "Keep").unwrap();
+        workspace.git(&["add", "-f", "tracked/keep.txt"]);
         workspace.configure(&[], &[], true);
         let files = workspace.files();
-        assert!(!files.contains(&"ignored/deep/Excluded.java".into()));
+        assert!(!files.contains(&"ignored/deep/Excluded.txt".into()));
         assert!(files.contains(&"single.log".into()));
-        assert!(files.contains(&"tracked/keep.java".into()));
+        assert!(files.contains(&"tracked/keep.txt".into()));
         workspace.configure(&[], &["ignored/deep"], true);
         assert!(workspace
             .files()
-            .contains(&"ignored/deep/Excluded.java".into()));
+            .contains(&"ignored/deep/Excluded.txt".into()));
         workspace.configure(&["ignored/deep"], &["ignored"], true);
         assert!(!workspace
             .files()
-            .contains(&"ignored/deep/Excluded.java".into()));
+            .contains(&"ignored/deep/Excluded.txt".into()));
         workspace.configure(&[], &[], false);
         assert!(workspace
             .files()
-            .contains(&"ignored/deep/Excluded.java".into()));
+            .contains(&"ignored/deep/Excluded.txt".into()));
     }
     #[test]
     fn watcher_refresh_preserves_host_release_and_rejects_both_stale_and_closed_readers() {
@@ -1342,7 +1289,7 @@ mod tests {
         let after = context(&workspace.0).unwrap();
         assert_ne!(before.revision, after.revision);
         assert!(before.check().is_err());
-        assert_eq!(workspace.files(), ["src/Included.java"]);
+        assert_eq!(workspace.files(), ["src/Included.txt"]);
         assert!(release(ReleaseIndexingRequest {
             owner_id: None,
             root: workspace.0.to_string_lossy().into_owned(),
@@ -1389,7 +1336,7 @@ mod tests {
             revision: first.revision
         })
         .unwrap());
-        assert_eq!(workspace.files(), ["src/Included.java"]);
+        assert_eq!(workspace.files(), ["src/Included.txt"]);
     }
 
     #[test]
@@ -1437,7 +1384,7 @@ mod tests {
             "policy replacement preserves other leases"
         );
         refresh(&workspace.0).unwrap();
-        assert_eq!(workspace.files(), ["src/Included.java"]);
+        assert_eq!(workspace.files(), ["src/Included.txt"]);
         let replacement = install("window-a/workspace-reopened", false, true);
         assert!(!close("window-a/workspace-reopened", reopened));
         assert_eq!(workspace.files().len(), 2);
@@ -1526,7 +1473,7 @@ mod tests {
             ))
         });
         assert!(result.is_err());
-        assert_eq!(workspace.files(), ["src/Included.java"]);
+        assert_eq!(workspace.files(), ["src/Included.txt"]);
         assert!(release(ReleaseIndexingRequest {
             root: workspace.0.to_string_lossy().into_owned(),
             owner_id: Some("owner-a".into()),
@@ -1565,7 +1512,7 @@ mod tests {
         .unwrap());
         assert_eq!(
             workspace.files(),
-            ["src/Included.java"],
+            ["src/Included.txt"],
             "the still-open owner keeps the latest root policy alive"
         );
         assert!(release(ReleaseIndexingRequest {
@@ -1600,7 +1547,7 @@ mod tests {
             revision: other
         })
         .unwrap());
-        assert_eq!(workspace.files(), ["src/Included.java"]);
+        assert_eq!(workspace.files(), ["src/Included.txt"]);
         assert!(release(ReleaseIndexingRequest {
             root: workspace.0.to_string_lossy().into_owned(),
             owner_id: Some("owner-a".into()),
@@ -1679,7 +1626,7 @@ mod tests {
     fn git_failure_does_not_drop_manual_exclusions() {
         let workspace = Workspace::new();
         workspace.configure(&["ignored"], &[], true);
-        assert_eq!(workspace.files(), ["src/Included.java"]);
+        assert_eq!(workspace.files(), ["src/Included.txt"]);
         let status = configure(serde_json::from_value(json!({"root":workspace.0,
             "manualExcludedDirectories":["ignored"],"includedDirectories":[],"gitIgnoreEnabled":true})).unwrap()).unwrap();
         assert!(status.git_ignore_failed);
@@ -1699,7 +1646,7 @@ mod tests {
             )
             .unwrap()
         };
-        assert_eq!(search().matches[0].path, "src/Included.java");
+        assert_eq!(search().matches[0].path, "src/Included.txt");
         workspace.configure(&["src"], &[], false);
         assert!(search().matches.is_empty());
     }
@@ -1770,7 +1717,7 @@ mod tests {
             )
             .unwrap();
             assert_eq!(snapshot.incomplete_directories, ["ignored/deep"]);
-            assert!(snapshot.files.contains(&"src/Included.java".into()));
+            assert!(snapshot.files.contains(&"src/Included.txt".into()));
         }
     }
 }

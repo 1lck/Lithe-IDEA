@@ -582,7 +582,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         scheduleSearchIndexWarm(at: workspaceURL, rules: rules)
 
         // The tree is usable as soon as the shared snapshot is ready. Service
-        // preparation below may involve Git, Java, and local history work.
+        // preparation below may involve Git, language tooling, and local history work.
         if isInitialLoad {
             isLoadingWorkspace = false
         } else {
@@ -1673,7 +1673,6 @@ package final class WorkspaceFeatureModel: ObservableObject {
         )
         guard !Task.isCancelled, self.workspaceURL == workspaceURL, workspaceGeneration == generation else { return }
         let requiresProjectServiceReload = changedURLs.contains { url in
-            let name = url.lastPathComponent.lowercased()
             let dependencyIndex = workspaceURL.standardizedFileURL
                 .appendingPathComponent(".lithe", isDirectory: true)
                 .appendingPathComponent("dependencies", isDirectory: true)
@@ -1682,10 +1681,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             let isLitheConfiguration = url.pathExtension.lowercased() == "json"
                 && url.path.hasPrefix(workspaceURL.appendingPathComponent(".lithe").path + "/")
                 && url.standardizedFileURL != dependencyIndex
-            let isBuildManagementFile = name == "pom.xml"
-                || name == "build.gradle"
-                || name == "build.gradle.kts"
-            return isLitheConfiguration || isBuildManagementFile
+            return isLitheConfiguration
         }
         if requiresProjectServiceReload, !reloadedProjectServices { await reloadProjectServices?() }
     }

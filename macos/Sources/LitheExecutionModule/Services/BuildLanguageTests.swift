@@ -99,11 +99,10 @@ package extension BuildSystemService {
 
     /// Selects a declared preparation by purpose and the owning model source role.
     /// Task identity and execution semantics remain with the build provider.
-    @discardableResult
     func prepareLanguageRun(fileURL: URL, workspace: URL, purpose: String,
                             optionOverrides: [String: ToolingJSONValue] = [:],
                             tool: @MainActor (String) throws -> BuildProviderHints?,
-                            isCurrent: @escaping @MainActor () -> Bool) async throws -> BuildLanguageImport? {
+                            isCurrent: @escaping @MainActor () -> Bool) async throws {
         let previous = operation?.id
         try await prepareLanguageTestModels(preparationPurpose: purpose, workspace: workspace)
         let revision = inputRevision
@@ -125,11 +124,10 @@ package extension BuildSystemService {
         let (events, continuation) = AsyncStream.makeStream(of: BuildRunEnd.self)
         let observation = runEnded.sink { continuation.yield($0) }
         defer { observation.cancel(); continuation.finish() }
-        var preparedImport: BuildLanguageImport?
         guard inputRevision == revision, isCurrent(), operation?.id == previous,
               let id = runTask(entry.id, request: BuildTaskRequest(task: initialTask.id,
                 optionOverrides: optionOverrides, tool: hints), title: entry.instance.displayName,
-                onLanguageImport: { preparedImport = $0 }, selectFromModel: { model in
+                selectFromModel: { model in
                     guard !model.truncated else {
                         throw BuildSystemServiceError(L10n.string("Load the current build model and enable its provider before running this configuration."))
                     }
@@ -168,7 +166,7 @@ package extension BuildSystemService {
                     if case .failed(let message) = ended.state { throw BuildSystemServiceError(message) }
                     throw BuildSystemServiceError(L10n.string("The build provider returned an invalid launch plan."))
                 }
-                return preparedImport
+                return
             }
             throw CancellationError()
         } onCancel: { [weak self] in Task { @MainActor in self?.cancelRun(id) } }

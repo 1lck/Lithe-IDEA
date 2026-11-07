@@ -2,6 +2,8 @@
 
 状态：提议中
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 从 Dock 启动时找不到版本管理器安装的运行时、项目要求的版本未生效，不能靠宿主逐个补目录和版本文件解析器解决。本方案把工具定义、安装事实提供方和使用方分开：插件说明工具是什么，版本管理器回答当前事实，宿主只提供统一选择、查询和环境展示框架；Java、Maven 等定义全部由插件贡献，不保留宿主内置定义表或兼容别名。当前已实现 Core 基础切片及 macOS 只读设置页；macOS 设置页已按声明式路线真实扫描本机安装、运行定义的版本探测并交 Core 选择，并通过插件后端查询提供方、监听其输入后整份重查；每行哪一层生效由 Core `toolchains.resolve` 用页面展示的同一份事实决定，Swift 不自己排优先级。macOS 已补已接通 Build 使用方的本机偏好编辑，目录 pin 保存、选择版本管理器等写入操作尚未实现；阶段 D 已补两端 Build 运行前消费者、Windows 操作内查询及通用偏好基础，完整 Windows 产品准入和旧默认转换仍未接通。完整方案仍在本提案中跟踪，不能把页面出现解释成产品已能使用 mise 或已经完成工具迁移。
@@ -189,7 +191,7 @@ macOS 的声明式路线由 `MacToolchainDiscovery` 执行，宿主不认识任�
 - `shared/contracts/toolchain-local-v1.schema.json`
 - `rust/lithe-core/src/plugins/`
 - `rust/lithe-core/src/execution/`
-- `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`
+- 已迁出：原 `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
 - `macos/Sources/Lithe/Platform/MacOS/Runtime/`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/`
 - `windows/tauri/src/platform/`

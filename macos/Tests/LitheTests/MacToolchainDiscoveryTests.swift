@@ -592,7 +592,7 @@ struct MacToolchainDiscoveryTests {
         let plan = MacToolchainDiscovery.callCore("toolchains.discoveryPlan",
                                                   ["registry": ["plugins": plugins], "platform": "macos"])?["plan"]
         let tools = try #require((plan as? [String: Any])?["tools"] as? [[String: Any]])
-        #expect(tools.compactMap { $0["tool"] as? String }.sorted() == ["java", "maven", "node", "python"])
+        #expect(tools.compactMap { $0["tool"] as? String }.sorted() == ["node", "python", "tool-a", "tool-b"])
         #expect(tools.allSatisfy { !($0["scans"] as? [Any] ?? []).isEmpty })
     }
     #endif

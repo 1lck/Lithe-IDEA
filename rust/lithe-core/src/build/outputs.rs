@@ -7,7 +7,6 @@
 //! tool whose output fits no mapping still needs no host code.
 
 use super::decode::{self, join_relative, Format, Workspace};
-use super::integrations;
 use super::manifest::{
     BuildSystemDeclaration, DependenciesSource, DependencyDecoder, DependencyRule,
     DiagnosticsDeclaration, DocumentDecoder, LinePattern, ModelDecoder, ModelSource, OutputChannel,
@@ -15,7 +14,7 @@ use super::manifest::{
 };
 use super::model::{self, BuildModel, ModelBuilder};
 use super::options;
-use super::plans::{self, invalid_selection, unavailable};
+use super::plans::{self, invalid_selection, unavailable, unsupported_integration};
 use super::select::{self, Node};
 use crate::plugins::declarative::Validation;
 use quick_xml::events::{BytesStart, Event};
@@ -152,9 +151,7 @@ pub(crate) fn read_model(
                 _ => model::map_canonical(&mut builder, decode::document(&text, Format::Json)?)?,
             }
         }
-        Some(ModelSource::HostIntegration) => {
-            integrations::model(build_system, workspace, root, &mut builder)?;
-        }
+        Some(ModelSource::HostIntegration) => return Err(unsupported_integration(build_system)),
         Some(ModelSource::Provider) => {
             model::map_canonical(&mut builder, provider_result(result)?.clone())?;
         }
@@ -305,16 +302,6 @@ pub(crate) struct DecodeTestResultsRequest {
     /// The run's start; earlier report files are ignored.
     #[serde(default)]
     pub(crate) not_before_millis: Option<u64>,
-    /// The suite the run selected, if any.
-    #[serde(default)]
-    pub(crate) suite: Option<String>,
-}
-
-/// Aggregated results and their summary.
-pub(crate) struct TestResults {
-    pub(crate) cases: Vec<TestCaseResult>,
-    /// Counts reported by the tool when it prints its own summary.
-    pub(crate) summary: Option<TestSummary>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize)]
@@ -396,7 +383,7 @@ pub(crate) fn decode_test_results(
     };
     decode::bounded_text(&request.output)?;
     let mut coverage = Vec::new();
-    let results = match source {
+    let cases = match source {
         TestResultsSource::Provider => {
             let (cases, scopes) = provider_test_cases(
                 request.result.as_ref().ok_or_else(|| {
@@ -405,37 +392,26 @@ pub(crate) fn decode_test_results(
                 &root,
             )?;
             coverage = scopes;
-            TestResults {
-                cases,
-                summary: None,
-            }
+            cases
         }
-        TestResultsSource::JunitXml { reports } => TestResults {
-            cases: report_cases(
-                &workspace,
-                &report_directories(&root, &directory, request)?,
-                reports,
-                request.not_before_millis,
-                |text, base| junit_cases(text, &workspace, base),
-            ),
-            summary: None,
-        },
-        TestResultsSource::LitheTestResults { reports } => TestResults {
-            cases: report_cases(
-                &workspace,
-                &report_directories(&root, &directory, request)?,
-                reports,
-                request.not_before_millis,
-                |text, base| canonical_cases(text, &workspace, base),
-            ),
-            summary: None,
-        },
-        TestResultsSource::HostIntegration => {
-            integrations::test_results(build_system, &workspace, &root, &directory, request)?
-        }
+        TestResultsSource::JunitXml { reports } => report_cases(
+            &workspace,
+            &report_directories(&root, &directory, request)?,
+            reports,
+            request.not_before_millis,
+            |text, base| junit_cases(text, &workspace, base),
+        ),
+        TestResultsSource::LitheTestResults { reports } => report_cases(
+            &workspace,
+            &report_directories(&root, &directory, request)?,
+            reports,
+            request.not_before_millis,
+            |text, base| canonical_cases(text, &workspace, base),
+        ),
+        TestResultsSource::HostIntegration => return Err(unsupported_integration(build_system)),
     };
-    let cases = aggregate(results.cases);
-    let summary = results.summary.unwrap_or_else(|| summary(&cases));
+    let cases = aggregate(cases);
+    let summary = summary(&cases);
     let mut result = json!({
         "tests": cases,
         "summary": summary,
@@ -615,8 +591,8 @@ fn attribute(element: &BytesStart<'_>, name: &[u8]) -> Option<String> {
 }
 
 /// Parses one JUnit XML report: `<testsuite>`/`<testcase>` with
-/// `<failure>`, `<error>`, and `<skipped>` children, as written by Surefire,
-/// Gradle, pytest, Jest, Go, and most other runners.
+/// `<failure>`, `<error>`, and `<skipped>` children: the de facto report
+/// format of pytest, Jest, Go test reporters, and most other runners.
 fn junit_cases(text: &str, workspace: &Workspace, base: &str) -> Option<Vec<TestCaseResult>> {
     let mut reader = Reader::from_str(text);
     reader.config_mut().trim_text(true);
@@ -1052,15 +1028,7 @@ pub(crate) fn decode_dependencies(
             CanonicalDependencies::deserialize(provider_result(request.result.as_ref())?),
             &mut budget,
         )?,
-        DependenciesSource::HostIntegration => {
-            let nodes = integrations::dependencies(
-                build_system,
-                &root,
-                &project,
-                request.output_file.as_deref(),
-            )?;
-            bound_tree(nodes, 0, &mut budget)
-        }
+        DependenciesSource::HostIntegration => return Err(unsupported_integration(build_system)),
     };
     Ok(json!({
         "project": project,

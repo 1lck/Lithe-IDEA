@@ -15,7 +15,7 @@ struct SettingsSearchVocabularyTests {
         let translations = try simplifiedChineseTranslations()
         for query in ["Project Indexing", "index", "ignore", "exclude", "索引", "忽略", "排除", "根据 Git 忽略规则自动排除目录"] {
             #expect(SettingsSearchVocabulary.matches(query: query, category: .git, localize: { translations[$0] ?? $0 }))
-            #expect(!SettingsSearchVocabulary.matches(query: query, category: .project, localize: { translations[$0] ?? $0 }))
+            #expect(!SettingsSearchVocabulary.matches(query: query, category: .run, localize: { translations[$0] ?? $0 }))
         }
     }
 

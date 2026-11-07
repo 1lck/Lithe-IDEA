@@ -52,8 +52,6 @@ final class MonacoEditorContextMenu {
         case "editor.action.clipboardCopyAction", "editor.action.clipboardCopyWithSyntaxHighlightingAction": "expui/general/copy.svg"
         case "editor.action.clipboardPasteAction": "expui/general/paste.svg"
         case "editor.action.formatDocument", "editor.action.formatSelection": "expui/actions/reformatCode.svg"
-        case "lithe.javaRun.run", "lithe.javaRun.popup.run": "debugger/run.svg"
-        case "lithe.javaRun.debug", "lithe.javaRun.popup.debug": "debugger/debug.svg"
         case "lithe.runToCursor": "debugger/runToCursor.svg"
         default: nil
         }

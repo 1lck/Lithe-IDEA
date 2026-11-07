@@ -5,8 +5,8 @@ import SwiftUI
 
 // Note: 构建系统插件契约见 .agents/notes/implemented/architecture/2026-10-17-build-system-plugin-contract.md
 
-/// The tool window of one plugin build system, laid out like IDEA's Maven
-/// and Gradle windows: a toolbar with run, refresh, and the plugin's toolbar
+/// The tool window of one plugin build system, laid out like IDEA's build
+/// tool windows: a toolbar with run, refresh, and the plugin's toolbar
 /// options; a tree with the plugin's tree options, then projects with their
 /// tasks, tests, and dependencies. Everything comes from Rust Core through
 /// `BuildSystemsFeatureModel`, and the build system's declaration decides
@@ -564,7 +564,7 @@ struct BuildSystemToolWindowView: View {
                 for task in tasks {
                     leafRow(
                             id: nodeID + ":" + task.id, title: task.displayName, help: task.description,
-                            iconPath: "maven/task.svg", entryID: entry.id, project: project,
+                            iconPath: "expui/build/taskGroup.svg", entryID: entry.id, project: project,
                             runnable: .task(
                                 BuildTaskRequest(task: task.id, project: BuildSelection(project: project), target: BuildSelection(target: target)),
                                 title: Self.title(task.displayName, scope: target.name), needsArguments: task.requiresUserArguments
@@ -654,7 +654,7 @@ struct BuildSystemToolWindowView: View {
         for item in leaves {
             nodes.append(
                 leafRow(
-                    id: ownerID + ":" + item.id, title: item.title, help: item.help, iconPath: "maven/task.svg",
+                    id: ownerID + ":" + item.id, title: item.title, help: item.help, iconPath: "expui/build/taskGroup.svg",
                     entryID: entryID, project: item.project, runnable: item.runnable
                 ))
         }

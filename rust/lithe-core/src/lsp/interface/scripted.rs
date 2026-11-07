@@ -41,7 +41,8 @@ struct ScriptedShared {
     /// Deterministic write barrier used by concurrency-ordering tests.
     input_pause: Mutex<ScriptedInputPause>,
     input_pause_changed: Condvar,
-    spec: Mutex<Option<LaunchedSpec>>,
+    /// Set once the engine asked the launcher for a process.
+    launched: AtomicBool,
 }
 
 #[derive(Default)]
@@ -49,15 +50,6 @@ struct ScriptedInputPause {
     requested: bool,
     blocked: bool,
     release_requested: bool,
-}
-
-/// What the engine asked the launcher for, so tests can assert provider
-/// adaptation without reaching into the JDT module.
-#[derive(Clone)]
-pub struct LaunchedSpec {
-    pub executable: String,
-    pub arguments: Vec<String>,
-    pub working_directory: String,
 }
 
 impl ScriptedServer {
@@ -74,7 +66,7 @@ impl ScriptedServer {
                 cleanup_blocked: AtomicBool::new(false),
                 input_pause: Mutex::new(ScriptedInputPause::default()),
                 input_pause_changed: Condvar::new(),
-                spec: Mutex::new(None),
+                launched: AtomicBool::new(false),
             }),
         }
     }
@@ -87,8 +79,9 @@ impl ScriptedServer {
         })
     }
 
-    pub fn launched_spec(&self) -> Option<LaunchedSpec> {
-        self.shared.spec.lock().unwrap().clone()
+    /// Whether the engine launched the process at all.
+    pub fn was_launched(&self) -> bool {
+        self.shared.launched.load(Ordering::SeqCst)
     }
 
     /// Sends one framed JSON-RPC message to the engine.
@@ -120,16 +113,6 @@ impl ScriptedServer {
                 "capabilities": capabilities,
                 "serverInfo": { "name": "scripted", "version": "1.0.0" }
             }
-        }));
-    }
-
-    /// Completes both the standard handshake and JDT LS project-import phase.
-    pub fn complete_java_initialize(&self, capabilities: Value) {
-        self.complete_initialize(capabilities);
-        self.send(serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": "language/status",
-            "params": { "type": "ServiceReady" }
         }));
     }
 
@@ -302,13 +285,6 @@ impl ScriptedServer {
             .unwrap();
         !pause.blocked
     }
-
-    /// Releases a paused engine write and disables the pause barrier.
-    pub fn resume_input(&self) {
-        let mut pause = self.shared.input_pause.lock().unwrap();
-        pause.release_requested = true;
-        self.shared.input_pause_changed.notify_all();
-    }
 }
 
 fn parse_messages(written: &[u8]) -> Vec<Value> {
@@ -341,12 +317,8 @@ struct ScriptedLauncher {
 }
 
 impl LspProcessLauncher for ScriptedLauncher {
-    fn launch(&self, spec: LspProcessSpec) -> Result<LspProcessStreams, CoreError> {
-        *self.shared.spec.lock().unwrap() = Some(LaunchedSpec {
-            executable: spec.executable.to_string_lossy().into_owned(),
-            arguments: spec.arguments.clone(),
-            working_directory: spec.working_directory.to_string_lossy().into_owned(),
-        });
+    fn launch(&self, _spec: LspProcessSpec) -> Result<LspProcessStreams, CoreError> {
+        self.shared.launched.store(true, Ordering::SeqCst);
         Ok(LspProcessStreams {
             handle: Arc::new(ScriptedProcess {
                 shared: self.shared.clone(),

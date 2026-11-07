@@ -11,46 +11,16 @@ use super::plugin_server::{self, Admission, Arrival, PluginServerState};
 use super::process::{LspProcessHandle, LspProcessLauncher, LspProcessSpec, SystemProcessLauncher};
 use super::{
     client_change_document, client_close_document, client_feature_request_canonical,
-    client_open_document, client_provider_document_feature_request_canonical, client_shutdown,
-    frame_message, parse_server_messages, ClientChangeDocumentRequest, ClientCloseDocumentRequest,
-    ClientFeatureRequest, ClientInitializeRequest, ClientOpenDocumentRequest,
-    ClientShutdownRequest, FrameMessageRequest, LspClientDiagnostic, LspClientDocument,
-    LspClientState, LspDocumentContentChange, LspPosition, LspRange, ParseServerMessagesRequest,
+    client_open_document, client_shutdown, frame_message, parse_server_messages,
+    ClientChangeDocumentRequest, ClientCloseDocumentRequest, ClientFeatureRequest,
+    ClientInitializeRequest, ClientOpenDocumentRequest, ClientShutdownRequest, FrameMessageRequest,
+    LspClientDiagnostic, LspClientDocument, LspClientState, LspDocumentContentChange, LspPosition,
+    LspRange, ParseServerMessagesRequest,
 };
 use crate::diagnostics::plugin_operations::{
     self as plugin_operations, Attempt, AttemptHandoff, AttemptSlot, Stage as AttemptStage,
     LANGUAGE_SERVER_START,
 };
-use crate::lsp::languages::java_entrypoints::{
-    java_entrypoints_command, normalize_java_entrypoints,
-};
-use crate::lsp::languages::java_launch::{
-    JavaLaunchAction, JavaLaunchFailure, JavaLaunchPreparation,
-};
-use crate::lsp::languages::java_main_methods::{
-    java_main_methods_command, normalize_java_main_methods,
-};
-use crate::lsp::languages::java_tests::{java_test_items_command, normalize_java_test_items};
-use crate::lsp::languages::jdt::{
-    adapt_initialization_options, adapt_start, import_progress, initialized_notification,
-    is_structured_import_notification, is_virtual_source_uri, jdt_java_runtimes,
-    maven_profile_fingerprint, maven_profile_update_requests, normalize_location,
-    project_update_notification, readiness_signal, settings_notification, virtual_source_content,
-    virtual_source_resolve_params, waits_for_service_ready, workspace_configuration,
-    JdtDirectLaunchResources, JdtGradleConfiguration, JdtJavaRuntime, JdtMavenConfiguration,
-    JdtReadinessSignal, JdtSettings, JdtStartContext, ProviderLocation, WorkspaceConfigurationItem,
-};
-use crate::lsp::languages::jdt::{MavenProfileProjectResult, MavenProfileTaskStatus};
-use crate::lsp::languages::jdt_build::{
-    is_java_build_command, java_build_failure, java_build_outcome, java_build_report,
-    project_job_progress, JavaBuildCoordinator, JavaBuildDeparture, JavaBuildDispatch,
-    JavaBuildReport, DEFAULT_JAVA_BUILD_TIMEOUT_MS,
-};
-#[cfg(test)]
-use crate::lsp::languages::jdt_build::{JavaBuildMarkerScope, JavaBuildRecovery};
-use crate::lsp::languages::jdt_navigation::{JavaNavigationMarkerBatch, MAX_JAVA_NAVIGATION_TASKS};
-use crate::lsp::languages::jdt_progress::JavaPreparationDiagnostics;
-use crate::lsp::languages::{prepare_jdt_configuration_area, prepare_jdt_workspace};
 use crate::plugins::language_server_sessions::{
     RemoteSupport, DEFAULT_REQUEST_TIMEOUT_MILLISECONDS, DID_CHANGE_CONFIGURATION,
     MAX_REQUEST_TIMEOUT_MILLISECONDS,
@@ -58,7 +28,6 @@ use crate::plugins::language_server_sessions::{
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -68,8 +37,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const DEFAULT_INITIALIZE_TIMEOUT_MS: u64 = 10_000;
-const DEFAULT_SERVICE_READY_IDLE_TIMEOUT_MS: u64 = 45_000;
-const DEFAULT_SERVICE_READY_ABSOLUTE_TIMEOUT_MS: u64 = 10 * 60_000;
 const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS: u64 = 2_000;
 /// Upper bound of one build-provider request. A model request can load a
@@ -87,8 +54,6 @@ const MAX_KEYMAP_IMPORT_TIMEOUT_MS: u64 = 60_000;
 const MONITOR_INTERVAL_MS: u64 = 10;
 /// Shared plugin diagnostic budget per process session and monotonic minute.
 const MAX_PLUGIN_DIAGNOSTICS_PER_MINUTE: u16 = 600;
-/// JSON-RPC method carrying Java Debug Server build commands.
-const JAVA_BUILD_METHOD: &str = "workspace/executeCommand";
 
 static ENGINE: OnceLock<LspEngine> = OnceLock::new();
 
@@ -173,85 +138,12 @@ pub struct StartServerRequest {
     /// `workspaceConfiguration` template. Must be an object when present.
     #[serde(default)]
     pub workspace_configuration: Option<Value>,
-    #[serde(default)]
-    pub runtime_executable_path: Option<String>,
-    /// Files discovered by the platform adapter for shell-free JDT LS startup.
-    #[serde(default)]
-    pub jdtls_launch_resources: Option<JdtlsLaunchResources>,
-    #[serde(default)]
-    pub cache_directory: Option<String>,
-    /// Platform-computed digest of the workspace's build-system structure.
-    /// Providers that keep durable per-workspace state (JDT LS) mix this into
-    /// their state-directory name so a structurally changed workspace does not
-    /// reuse a stale project model. See `JdtStartContext::workspace_fingerprint`.
-    #[serde(default)]
-    pub workspace_fingerprint: Option<String>,
-    /// Project Maven context applied to JDT LS settings and imported modules.
-    #[serde(default)]
-    pub maven_context: Option<crate::project::MavenLaunchContextRequest>,
-    /// JDKs the platform found on this machine, most preferred first. JDT LS
-    /// binds each project to the one matching its release; without them it
-    /// can only compile for the JDK it runs on.
-    #[serde(default)]
-    pub java_runtimes: Vec<JavaRuntimeCandidate>,
-    /// Gradle import context the platform adapter detected at the workspace
-    /// root. `None` for workspaces that are not Gradle projects, so Maven-only
-    /// workspaces never receive `java.import` settings.
-    #[serde(default)]
-    pub java_gradle: Option<JdtGradleConfiguration>,
     #[serde(default = "default_initialize_timeout")]
     pub initialize_timeout_milliseconds: u64,
-    /// Quiet-progress warning threshold while waiting for provider readiness.
-    /// The historical wire name is retained; only the absolute cap terminates import.
-    #[serde(default = "default_service_ready_idle_timeout")]
-    pub service_ready_idle_timeout_milliseconds: u64,
-    /// Absolute safety cap for provider-specific preparation even while active.
-    #[serde(default = "default_service_ready_absolute_timeout")]
-    pub service_ready_absolute_timeout_milliseconds: u64,
     #[serde(default = "default_request_timeout")]
     pub request_timeout_milliseconds: u64,
-    /// Bound for one Java project build requested through
-    /// `vscode.java.buildWorkspace`, including the wait for project
-    /// configuration and earlier builds. Ordinary requests keep
-    /// `request_timeout_milliseconds`.
-    #[serde(default = "default_java_build_timeout")]
-    pub java_build_timeout_milliseconds: u64,
     #[serde(default = "default_shutdown_timeout")]
     pub shutdown_timeout_milliseconds: u64,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-/// Platform-resolved files that let Rust launch JDT LS with bundled Java.
-pub struct JdtlsLaunchResources {
-    /// Equinox launcher selected deterministically from the JDT LS installation.
-    pub launcher_jar_path: String,
-    /// OS-specific Eclipse configuration directory for the current product.
-    pub configuration_directory: String,
-    /// Lombok agent shipped with the selected JDT LS installation.
-    pub lombok_agent_path: String,
-    /// Legacy Java Debug Server bundle retained for older platform clients.
-    #[serde(default)]
-    pub java_debug_bundle_path: Option<String>,
-    /// Ordered Java extension bundles loaded through JDT LS initialization.
-    ///
-    /// When the legacy Debug field is also present, Core loads it first and
-    /// removes duplicate paths while preserving the remaining caller order.
-    #[serde(default)]
-    pub java_extension_bundle_paths: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-/// A JDK installation the platform discovered for the Java language service.
-pub struct JavaRuntimeCandidate {
-    /// The platform-selected project JDK, independent of the server JVM.
-    #[serde(default)]
-    pub is_default: bool,
-    /// JDK home directory.
-    pub home_path: String,
-    /// Version reported by `java -version`, such as `25.0.4` or `1.8.0_402`.
-    pub version: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -334,34 +226,6 @@ pub enum WorkspaceFileChangeKind {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-/// Requests semantic Java navigation markers for one synchronized document.
-pub struct JavaNavigationMarkersRequest {
-    pub session_id: String,
-    #[serde(default)]
-    pub operation_id: Option<String>,
-    pub uri: String,
-    #[serde(default)]
-    pub document_version: Option<i64>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-/// Resolves one previously published Java marker at click time.
-pub struct JavaResolveNavigationRequest {
-    pub session_id: String,
-    #[serde(default)]
-    pub operation_id: Option<String>,
-    pub uri: String,
-    pub line: i64,
-    pub utf16_column: i64,
-    pub direction: String,
-    pub relation: String,
-    #[serde(default)]
-    pub document_version: Option<i64>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
 /// Request to remove a document from a session's synchronized state.
 pub struct CloseDocumentRequest {
     pub session_id: String,
@@ -386,8 +250,6 @@ pub enum LspSemanticOperation {
     References,
     /// `textDocument/implementation`.
     Implementation,
-    /// JDT LS `java/findLinks` with the `superImplementation` relation.
-    JavaSuperImplementation,
     /// `textDocument/rename`.
     Rename,
     /// `textDocument/formatting`.
@@ -408,17 +270,6 @@ pub enum LspSemanticOperation {
     SemanticTokens,
     /// `textDocument/codeLens`.
     CodeLens,
-    /// Provider-specific retrieval of a read-only virtual document.
-    VirtualDocument,
-    /// JDT discovery of launchable Java classes in the session workspace,
-    /// normalized into workspace-relative entry points.
-    JavaEntrypoints,
-    /// Java Test extension discovery for one source file, normalized into
-    /// typed class and method items.
-    JavaTestItems,
-    /// JDT discovery of launchable `main` methods in one source file,
-    /// normalized with the source range of each method name.
-    JavaMainMethods,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -431,8 +282,6 @@ pub struct SemanticRequest {
     pub operation: LspSemanticOperation,
     #[serde(default)]
     pub uri: Option<String>,
-    #[serde(default)]
-    pub virtual_uri: Option<String>,
     #[serde(default)]
     pub position: Option<LspPosition>,
     #[serde(default)]
@@ -450,20 +299,6 @@ pub struct SemanticRequest {
     pub code_action: Option<Value>,
     #[serde(default)]
     pub command: Option<Value>,
-}
-
-/// One saved Java source to prepare through the owning JDT session.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct JavaPrepareLaunchRequest {
-    pub session_id: String,
-    #[serde(default)]
-    pub operation_id: Option<String>,
-    /// Absolute native path used only for the upstream build request.
-    pub source_path: String,
-    /// Optional persisted selector to disambiguate multiple mains in one source.
-    #[serde(default)]
-    pub main_class: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -707,8 +542,6 @@ pub struct CancelOperationRequest {
 /// Ordered events drained from a session since the previous poll.
 pub struct PollEventsResponse {
     pub events: Vec<LspRuntimeEvent>,
-    /// Current Java preparation projection, including when the event queue was already drained.
-    pub project_preparation: Option<Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -779,11 +612,6 @@ pub struct LspRuntimeEvent {
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub maven_profile_project: Option<MavenProfileProjectResult>,
-    /// Structured aggregate state for the Maven profile task.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub maven_profile_task: Option<MavenProfileTaskStatus>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -813,10 +641,6 @@ pub struct LspRuntimeError {
     pub underlying_message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub process_exit_code: Option<i32>,
-    /// Evidence behind an unsuccessful Java launch build. Present only for
-    /// `javaBuild` failures; hosts that do not read it are unaffected.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub java_build_report: Option<JavaBuildReport>,
     /// Plugin-defined code of a failed plugin function (`error.data.code`),
     /// passed through for the plugin's own UI; Lithe never branches on it.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -852,25 +676,6 @@ enum PendingKind {
     Initialize,
     /// Ordinary semantic feature whose result becomes an operation event.
     Feature,
-    /// Provider-specific source retrieval normalized as a virtual document.
-    VirtualDocument,
-    /// Java Debug Server main-class discovery normalized as entry points.
-    JavaEntrypoints,
-    /// Java Test extension file discovery normalized as typed test items.
-    JavaTestItems,
-    /// Java Debug Server per-file `main` discovery normalized as main methods.
-    JavaMainMethods,
-    /// CodeLens-derived Java gutter marker projection.
-    JavaNavigationMarkers,
-    /// One JDT LS CodeLens resolve step in a bounded marker batch.
-    JavaNavigationMarkerResolve,
-    /// Click-time Java parent or implementation resolution.
-    JavaResolveNavigation,
-    /// JDT LS project setting update that applies selected Maven profiles.
-    JdtMavenProfiles,
-    /// Java Debug Server workspace build shared by the callers that
-    /// `JavaBuildCoordinator` tracks; it carries no operation ID of its own.
-    JavaBuild,
     /// Request a plugin backend sent to its own language server through
     /// `lsp.pluginServerRequest`; the answer reaches the backend verbatim.
     PluginServer,
@@ -890,23 +695,6 @@ struct PendingRequest {
     deadline: Instant,
 }
 
-/// Launch discovery delayed until the same project-configuration gate as builds.
-/// No JSON-RPC request exists until dispatch, so cancellation writes nothing.
-struct JavaEntrypointWaiter {
-    operation_id: String,
-    created_at: Instant,
-    deadline: Instant,
-}
-
-/// Latest completed marker projection for one synchronized document.
-///
-/// Only one version per URI is retained. This bounds memory while preventing
-/// view refreshes from repeating the same multi-request JDT LS batch.
-struct JavaNavigationMarkerCacheEntry {
-    document_version: i64,
-    markers: Vec<crate::protocol::JavaNavigationMarkerResponse>,
-}
-
 /// Links one host operation to the exact backend request and function it owns.
 struct PendingFunctionCall {
     function_id: String,
@@ -915,7 +703,6 @@ struct PendingFunctionCall {
 }
 
 struct SessionState {
-    preparation_snapshot: Option<crate::lsp::languages::project_preparation::ProjectPreparation>,
     lifecycle: LspLifecycleState,
     client: LspClientState,
     pending: BTreeMap<String, PendingRequest>,
@@ -926,46 +713,16 @@ struct SessionState {
     /// Symbolic-link facts about the open documents, rebuilt lazily from
     /// `client.open_documents`.
     linked_document_paths: LinkedDocumentPaths,
-    java_navigation_marker_batches: BTreeMap<String, JavaNavigationMarkerBatch>,
-    java_navigation_marker_cache: BTreeMap<String, JavaNavigationMarkerCacheEntry>,
     /// Latest workspace event per URI observed before protocol initialization.
     /// The engine owns and drains this queue exactly once after `initialized`.
     pending_workspace_file_changes: BTreeMap<String, WorkspaceFileChangeKind>,
     events: VecDeque<LspRuntimeEvent>,
     next_sequence: u64,
     initialize_deadline: Option<Instant>,
-    service_ready_idle_timeout: Duration,
-    service_ready_absolute_timeout: Duration,
-    java_preparation: Option<JavaPreparationDiagnostics>,
     shutdown_deadline: Option<Instant>,
     request_timeout: Duration,
     shutdown_timeout: Duration,
     terminal_event_emitted: bool,
-    maven_profile_status: MavenProfileTaskStatus,
-    maven_profile_results: BTreeMap<String, MavenProfileProjectResult>,
-    maven_profile_queue: VecDeque<Value>,
-    maven_profile_deadline: Option<Instant>,
-    maven_profile_applied_fingerprint: Option<String>,
-    /// Fingerprint of the configuration the running profile task applies. A
-    /// configuration replaced while the task runs is applied by a follow-up
-    /// task instead of being recorded as applied.
-    maven_profile_running_fingerprint: Option<String>,
-    /// A newer profile selection waiting for the previous batch to drain.
-    maven_profile_update_pending: bool,
-    /// Explicit reload retained until JDT LS has imported its projects.
-    maven_project_reload_pending: bool,
-    // Request IDs retain their owning task generation until a terminal response
-    // arrives, including responses to advisory cancellation after a timeout.
-    maven_profile_generation: u64,
-    maven_profile_request_generations: BTreeMap<String, u64>,
-    /// Serialized, configuration-gated `vscode.java.buildWorkspace` calls.
-    java_builds: JavaBuildCoordinator,
-    java_entrypoint_waiters: VecDeque<JavaEntrypointWaiter>,
-    /// Launch attempts share their operation ID across discovery, build and classpath.
-    java_launches: BTreeMap<String, JavaLaunchPreparation>,
-    /// Already allocated classpath requests; the bounded writer sends only live ones.
-    java_launch_messages: Vec<(String, Vec<String>)>,
-    java_build_timeout: Duration,
     /// Deadline cancellations awaiting the outbound worker, never written by the monitor.
     deadline_cancellations: Vec<String>,
     /// Bounds an outbound maintenance write independently of caller deadlines.
@@ -1001,32 +758,12 @@ struct RuntimeSession {
     log_identity: SessionLogIdentity,
     /// Fixed workspace host, inherited by protocol workers; never a global selection.
     workspace_host: Option<crate::remote::workspace::Host>,
-    /// Maven import settings JDT LS currently holds. Replaced as a whole when
-    /// the workspace's Maven configuration changes; never held across another
-    /// lock.
-    jdt_maven_configuration: Mutex<Option<Arc<JdtMavenConfiguration>>>,
-    /// Inputs for rebuilding `jdt_maven_configuration`; `None` when the session
-    /// started without a Maven context.
-    maven_inputs: Option<SessionMavenInputs>,
-    /// Serializes configuration preparation and publication without blocking
-    /// protocol processing on filesystem I/O. Never acquired by protocol workers.
-    maven_update_order: Mutex<()>,
     /// Plugin-declared settings answered to `workspace/configuration`.
     /// Replaced as a whole by `lsp.updateWorkspaceConfiguration`; never held
     /// across another lock.
     plugin_configuration: Mutex<Option<Arc<Value>>>,
-    /// JDKs JDT LS may bind projects to, one per execution environment.
-    jdt_java_runtimes: Vec<JdtJavaRuntime>,
-    /// Plugin completion options fixed at initialize, retained for later Java
-    /// configuration notifications and section pulls through the same adapter.
-    jdt_completion: Option<Value>,
-    /// Immutable plugin input retained when workspace exclusions change or are removed.
-    jdt_import_exclusions: Option<Value>,
-    /// Gradle import settings JDT LS holds. Fixed for the session's lifetime
-    /// because the wrapper is a property of the workspace root at startup.
-    jdt_gradle_configuration: Option<JdtGradleConfiguration>,
-    /// Workspace URI the server was initialized with; scopes workspace-wide
-    /// queries such as Java entry-point discovery.
+    /// Workspace URI the server was initialized with; scopes indexing
+    /// exclusions and other workspace-wide checks to this session's root.
     root_uri: String,
     /// Serializes policy eligibility with document/file-event publication and
     /// policy withdrawal. Acquire before outbound_order; Git scans stay outside
@@ -1065,20 +802,8 @@ fn default_initialize_timeout() -> u64 {
     DEFAULT_INITIALIZE_TIMEOUT_MS
 }
 
-fn default_service_ready_idle_timeout() -> u64 {
-    DEFAULT_SERVICE_READY_IDLE_TIMEOUT_MS
-}
-
-fn default_service_ready_absolute_timeout() -> u64 {
-    DEFAULT_SERVICE_READY_ABSOLUTE_TIMEOUT_MS
-}
-
 fn default_request_timeout() -> u64 {
     DEFAULT_REQUEST_TIMEOUT_MS
-}
-
-fn default_java_build_timeout() -> u64 {
-    DEFAULT_JAVA_BUILD_TIMEOUT_MS
 }
 
 fn default_shutdown_timeout() -> u64 {
@@ -1250,16 +975,10 @@ fn apply_indexing_to_sessions(
                     .remove(&uri);
             }
         }
-        if session.provider_id == "java" {
-            let order = session.lock_outbound_order()?;
-            if session.lock_state()?.client.initialized {
-                let maven = session.maven_configuration();
-                let notification = settings_notification(session.jdt_settings(maven.as_deref()));
-                let message = serde_json::to_string(&json!({"jsonrpc":"2.0", "method":notification.method, "params":notification.params})).map_err(|error| CoreError::new(ErrorCode::Unknown, error.to_string()))?;
-                session.send_messages_or_fail(&order, vec![message], "indexingChanged")?;
-            }
-        }
-        if session.provider_id != "java" {
+        // Exclusions are folded into the configuration answered through
+        // `workspace/configuration`, so an initialized server is told to pull
+        // the changed sections again instead of keeping its old import scope.
+        {
             let order = session.lock_outbound_order()?;
             if session.lock_state()?.client.initialized {
                 if let Some(configuration) = session.plugin_configuration() {
@@ -1293,55 +1012,6 @@ pub fn start_server_owned(
 /// Performs a bounded graceful shutdown while retaining the session record.
 pub fn stop_server(request: SessionRequest) -> Result<(), CoreError> {
     engine().session(&request.session_id)?.stop()
-}
-
-/// Retries the selected Maven profile application without restarting JDTLS.
-pub fn retry_maven_profiles(request: SessionRequest) -> Result<(), CoreError> {
-    let session = engine().session(&request.session_id)?;
-    session.retry_maven_profiles()
-}
-
-/// Replaces the Maven configuration of a running Java session.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateMavenConfigurationRequest {
-    pub session_id: String,
-    /// The workspace's current Maven context, as a Maven launch would use it.
-    pub maven_context: crate::project::MavenLaunchContextRequest,
-    /// Force JDT LS to re-resolve every Maven project even when the settings
-    /// themselves did not change. Set by the explicit reload action.
-    #[serde(default)]
-    pub reload_projects: bool,
-}
-
-/// What an update asked JDT LS to do. Each step runs asynchronously inside
-/// JDT LS; resolution problems arrive later as `pom.xml` diagnostics.
-#[derive(Debug, Serialize, Eq, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateMavenConfigurationResponse {
-    /// New settings documents were sent; JDT LS re-imports every Maven
-    /// project because of them.
-    pub settings_changed: bool,
-    /// Settings were unchanged, so a forced project update was requested.
-    pub projects_reloaded: bool,
-    /// Profile application was started for changed profiles.
-    pub profiles_updating: bool,
-}
-
-/// Sends a changed Maven configuration to a running Java session.
-///
-/// JDT LS receives the change through its own mechanisms instead of a restart:
-/// changed settings documents through `workspace/didChangeConfiguration`,
-/// which makes it force-update every Maven project, and an explicit reload
-/// through `java/projectConfigurationsUpdate`. A restart reuses the workspace
-/// state and skips projects whose `pom.xml` did not change, so artifacts that
-/// failed to resolve under the old settings would stay missing.
-pub fn update_maven_configuration(
-    request: UpdateMavenConfigurationRequest,
-) -> Result<UpdateMavenConfigurationResponse, CoreError> {
-    engine()
-        .session(&request.session_id)?
-        .update_maven_configuration(request.maven_context, request.reload_projects)
 }
 
 impl RuntimeSession {
@@ -1405,184 +1075,6 @@ impl RuntimeSession {
         self.send_messages_or_fail(&outbound_order, messages, "workspaceConfigurationUpdate")?;
         Ok(UpdateWorkspaceConfigurationResponse { sent: initialized })
     }
-
-    /// The Maven import settings JDT LS currently holds.
-    fn maven_configuration(&self) -> Option<Arc<JdtMavenConfiguration>> {
-        self.jdt_maven_configuration
-            .lock()
-            .map(|configuration| configuration.clone())
-            .unwrap_or_else(|poisoned| poisoned.into_inner().clone())
-    }
-
-    /// Java settings Lithe owns for this session, as sent to JDT LS.
-    fn jdt_settings<'a>(&'a self, maven: Option<&'a JdtMavenConfiguration>) -> JdtSettings<'a> {
-        JdtSettings {
-            indexing_root_uri: Some(&self.root_uri),
-            completion: self.jdt_completion.as_ref(),
-            import_exclusions: self.jdt_import_exclusions.as_ref(),
-            maven,
-            gradle: self.jdt_gradle_configuration.as_ref(),
-            java_runtimes: &self.jdt_java_runtimes,
-        }
-    }
-
-    fn update_maven_configuration(
-        &self,
-        context: crate::project::MavenLaunchContextRequest,
-        reload_projects: bool,
-    ) -> Result<UpdateMavenConfigurationResponse, CoreError> {
-        let Some(inputs) = self
-            .maven_inputs
-            .as_ref()
-            .filter(|_| self.provider_id == "java")
-        else {
-            return Err(CoreError::new(
-                ErrorCode::InvalidRequest,
-                "Maven configuration updates require a Java language session started for a Maven project.",
-            ));
-        };
-        let _update_order = self.maven_update_order.lock().map_err(|_| {
-            CoreError::new(
-                ErrorCode::InvalidRequest,
-                "Maven configuration update lock failed.",
-            )
-        })?;
-        // Disk I/O holds only the update serializer, never a protocol/state lock.
-        let (next, warnings) = inputs.configuration(context)?;
-        let next = Arc::new(next);
-
-        let outbound_order = self.lock_outbound_order()?;
-        let (initialized, ready) = {
-            let state = self.lock_state()?;
-            if matches!(
-                state.lifecycle,
-                LspLifecycleState::Stopping
-                    | LspLifecycleState::Stopped
-                    | LspLifecycleState::Failed
-            ) {
-                return Err(CoreError::new(
-                    ErrorCode::InvalidRequest,
-                    "The Java language session is no longer running.",
-                ));
-            }
-            // Under `outbound_order`, an initialized client has already sent
-            // the `initialized` settings notification. Before that point the
-            // pending notification reads the configuration stored below.
-            (
-                state.client.initialized,
-                state.lifecycle == LspLifecycleState::Ready,
-            )
-        };
-        let previous = {
-            let mut current = self
-                .jdt_maven_configuration
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            current.replace(next.clone())
-        };
-        let settings_changed = previous.as_ref().is_none_or(|previous| {
-            previous.settings_path != next.settings_path
-                || previous.global_settings_path != next.global_settings_path
-        });
-        let profiles_changed = previous
-            .as_ref()
-            .is_none_or(|previous| previous.profiles != next.profiles);
-
-        {
-            let mut state = self.lock_state()?;
-            state.maven_profile_update_pending |= profiles_changed;
-            state.maven_project_reload_pending |= reload_projects && !ready;
-        }
-        let mut messages = Vec::new();
-        let mut projects_reloaded = false;
-        if initialized {
-            let notification = if settings_changed {
-                Some(settings_notification(self.jdt_settings(Some(&next))))
-            } else if reload_projects && ready {
-                projects_reloaded = true;
-                project_update_notification(&next)
-            } else {
-                None
-            };
-            if let Some(notification) = notification {
-                messages.push(
-                    json!({
-                        "jsonrpc": "2.0",
-                        "method": notification.method,
-                        "params": notification.params
-                    })
-                    .to_string(),
-                );
-            }
-        }
-        // Before readiness, the profile task starts with the stored
-        // configuration once the import publishes `ServiceReady`.
-        let mut profiles_updating = false;
-        if ready && profiles_changed {
-            let (requests, pending) = self.maven_profile_requests()?;
-            messages.extend(requests);
-            profiles_updating = pending;
-        }
-        self.send_messages_or_fail(&outbound_order, messages, "mavenConfigurationUpdate")?;
-        drop(outbound_order);
-
-        for detail in warnings {
-            self.log_issue(
-                "warn",
-                "mavenSettings",
-                "mavenSettingsUnchanged",
-                EngineLog::MavenSettingsForwarded,
-                "Maven settings were passed to the Java language service unchanged",
-                Some(detail),
-            );
-        }
-        let response = UpdateMavenConfigurationResponse {
-            settings_changed: initialized && settings_changed,
-            projects_reloaded,
-            profiles_updating,
-        };
-        self.log(
-            "info",
-            EngineLog::MavenConfigurationUpdated.with_fields(json!(response)),
-            "Java language service received the updated Maven configuration",
-            Some(json!(response).to_string()),
-        );
-        Ok(response)
-    }
-
-    fn retry_maven_profiles(&self) -> Result<(), CoreError> {
-        let outbound_order = self.lock_outbound_order()?;
-        let state = self.lock_state()?;
-        if self.provider_id != "java" || state.lifecycle != LspLifecycleState::Ready {
-            return Err(CoreError::new(
-                ErrorCode::InvalidRequest,
-                "Maven profile retry requires a ready Java language session.",
-            ));
-        }
-        if state.maven_profile_status == MavenProfileTaskStatus::Running {
-            return Err(CoreError::new(
-                ErrorCode::InvalidRequest,
-                "Maven profile application is already running.",
-            ));
-        }
-        if state
-            .pending
-            .values()
-            .any(|pending| pending.kind == PendingKind::JdtMavenProfiles)
-        {
-            return Err(CoreError::new(
-                ErrorCode::InvalidRequest,
-                "Previous Maven requests are still stopping. Retry after they finish, or restart the Java language session.",
-            ));
-        }
-        drop(state);
-        self.lock_state()?.maven_profile_applied_fingerprint = None;
-        let (messages, pending) = self.maven_profile_requests()?;
-        if pending {
-            self.send_messages_or_fail(&outbound_order, messages, "mavenProfileRetry")?;
-        }
-        Ok(())
-    }
 }
 
 /// Opens or replaces the synchronized contents of one document.
@@ -1608,96 +1100,6 @@ pub fn workspace_files_changed(request: WorkspaceFilesChangedRequest) -> Result<
         .workspace_files_changed(request.changes)
 }
 
-/// Queues one shared Java gutter marker request against the active LSP session.
-pub fn java_navigation_markers(
-    request: JavaNavigationMarkersRequest,
-) -> Result<OperationResponse, CoreError> {
-    let operation_id = request
-        .operation_id
-        .clone()
-        .unwrap_or_else(|| engine().next_operation_id());
-    let session = engine().session(&request.session_id)?;
-    if session.complete_cached_java_navigation_markers(
-        &operation_id,
-        &request.uri,
-        request.document_version,
-    )? {
-        return Ok(OperationResponse { operation_id });
-    }
-    session.request_with_kind(
-        SemanticRequest {
-            session_id: request.session_id,
-            operation_id: Some(operation_id.clone()),
-            operation: LspSemanticOperation::CodeLens,
-            uri: Some(request.uri),
-            virtual_uri: None,
-            position: None,
-            new_name: None,
-            range: None,
-            diagnostics: Vec::new(),
-            completion_context: None,
-            completion_item: None,
-            code_action: None,
-            command: None,
-        },
-        operation_id.clone(),
-        PendingKind::JavaNavigationMarkers,
-        request.document_version,
-    )?;
-    Ok(OperationResponse { operation_id })
-}
-
-/// Queues one click-time Java parent or implementation lookup.
-pub fn java_resolve_navigation(
-    request: JavaResolveNavigationRequest,
-) -> Result<OperationResponse, CoreError> {
-    let operation_id = request
-        .operation_id
-        .clone()
-        .unwrap_or_else(|| engine().next_operation_id());
-    let operation = match request.direction.as_str() {
-        "down" => LspSemanticOperation::Implementation,
-        "up" => LspSemanticOperation::JavaSuperImplementation,
-        _ => {
-            return Err(CoreError::new(
-                ErrorCode::InvalidRequest,
-                "Java navigation direction must be up or down.",
-            ))
-        }
-    };
-    if !matches!(request.relation.as_str(), "interface" | "inheritance") {
-        return Err(CoreError::new(
-            ErrorCode::InvalidRequest,
-            "Java navigation relation must be interface or inheritance.",
-        ));
-    }
-    let session = engine().session(&request.session_id)?;
-    session.request_with_kind(
-        SemanticRequest {
-            session_id: request.session_id,
-            operation_id: Some(operation_id.clone()),
-            operation,
-            uri: Some(request.uri),
-            virtual_uri: None,
-            position: Some(LspPosition {
-                line: request.line,
-                utf16_column: request.utf16_column,
-            }),
-            new_name: None,
-            range: None,
-            diagnostics: Vec::new(),
-            completion_context: None,
-            completion_item: None,
-            code_action: None,
-            command: None,
-        },
-        operation_id.clone(),
-        PendingKind::JavaResolveNavigation,
-        request.document_version,
-    )?;
-    Ok(OperationResponse { operation_id })
-}
-
 /// Notifies the server that a synchronized document has closed.
 pub fn close_document(request: CloseDocumentRequest) -> Result<(), CoreError> {
     engine()
@@ -1714,20 +1116,6 @@ pub fn semantic_request(request: SemanticRequest) -> Result<OperationResponse, C
     engine()
         .session(&request.session_id)?
         .request(request, operation_id.clone())?;
-    Ok(OperationResponse { operation_id })
-}
-
-/// Prepares a Java launch as one cancellable operation in the owning session.
-pub fn java_prepare_launch(
-    request: JavaPrepareLaunchRequest,
-) -> Result<OperationResponse, CoreError> {
-    let operation_id = request
-        .operation_id
-        .clone()
-        .unwrap_or_else(|| engine().next_operation_id());
-    engine()
-        .session(&request.session_id)?
-        .prepare_java_launch(request, operation_id.clone())?;
     Ok(OperationResponse { operation_id })
 }
 
@@ -1874,32 +1262,16 @@ pub fn set_detailed_diagnostics(request: SetDetailedDiagnosticsRequest) -> Resul
 
 /// Drains all currently queued events in deterministic sequence order.
 pub fn poll_events(request: SessionRequest) -> Result<PollEventsResponse, CoreError> {
-    let session = engine().session(&request.session_id)?;
-    let events = session.poll_events()?;
-    let project_preparation = session
-        .lock_state()?
-        .preparation_snapshot
-        .as_ref()
-        .map(|snapshot| json!(snapshot));
-    Ok(PollEventsResponse {
-        events,
-        project_preparation,
-    })
+    let events = engine().session(&request.session_id)?.poll_events()?;
+    Ok(PollEventsResponse { events })
 }
 
 /// Waits until queued events exist or the supplied timeout elapses.
 pub fn wait_events(request: WaitEventsRequest) -> Result<PollEventsResponse, CoreError> {
-    let session = engine().session(&request.session_id)?;
-    let events = session.wait_events(Duration::from_millis(request.timeout_milliseconds))?;
-    let project_preparation = session
-        .lock_state()?
-        .preparation_snapshot
-        .as_ref()
-        .map(|snapshot| json!(snapshot));
-    Ok(PollEventsResponse {
-        events,
-        project_preparation,
-    })
+    let events = engine()
+        .session(&request.session_id)?
+        .wait_events(Duration::from_millis(request.timeout_milliseconds))?;
+    Ok(PollEventsResponse { events })
 }
 
 /// Stops a session if necessary and removes all state owned by it.
@@ -1909,70 +1281,6 @@ pub fn destroy_server(request: SessionRequest) -> Result<(), CoreError> {
 
 fn engine() -> &'static LspEngine {
     ENGINE.get_or_init(LspEngine::new)
-}
-
-/// Inputs a Java session keeps so it can rebuild its Maven import settings
-/// when the workspace's Maven configuration changes after startup.
-#[derive(Debug)]
-struct SessionMavenInputs {
-    workspace_root: PathBuf,
-    /// Content-addressed settings copies inside this session's `-data` directory.
-    settings_directory: Option<PathBuf>,
-    /// Maven's default user settings, used when none are configured.
-    default_user_settings: Option<PathBuf>,
-}
-
-impl SessionMavenInputs {
-    /// Validates `context` and produces the settings JDT LS receives, plus
-    /// warnings for documents that degraded to their original paths.
-    fn configuration(
-        &self,
-        context: crate::project::MavenLaunchContextRequest,
-    ) -> Result<(JdtMavenConfiguration, Vec<String>), CoreError> {
-        let working_directory = self.workspace_root.to_string_lossy().into_owned();
-        let configuration = crate::project::jdt_configuration(&working_directory, context)?;
-        let project_uris = configuration
-            .project_paths
-            .iter()
-            .map(|path| {
-                let directory = if path == "." {
-                    self.workspace_root.clone()
-                } else {
-                    self.workspace_root.join(path)
-                };
-                url::Url::from_directory_path(directory)
-                    .map(|url| url.to_string())
-                    .map_err(|_| {
-                        CoreError::new(
-                            ErrorCode::InvalidRequest,
-                            "Maven project path cannot be represented as a URI",
-                        )
-                    })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let materialized = match &self.settings_directory {
-            Some(directory) => crate::lsp::languages::jdt_maven_settings::materialize(
-                directory,
-                &configuration,
-                self.default_user_settings.as_deref(),
-            )?,
-            None => crate::lsp::languages::jdt_maven_settings::MaterializedMavenSettings {
-                user_settings_path: configuration.settings_path.clone(),
-                global_settings_path: configuration.global_settings_path.clone(),
-                warnings: Vec::new(),
-            },
-        };
-        Ok((
-            JdtMavenConfiguration {
-                settings_path: materialized.user_settings_path,
-                global_settings_path: materialized.global_settings_path,
-                profiles: configuration.profiles,
-                project_uris,
-                source_paths: configuration.source_paths,
-            },
-            materialized.warnings,
-        ))
-    }
 }
 
 impl LspEngine {
@@ -2073,13 +1381,6 @@ impl LspEngine {
     ) -> Result<StartServerResponse, CoreError> {
         validate_start_request(&request)?;
         self.cleanup_failed_start()?;
-        if crate::remote::workspace::is_remote() && request.provider_id.eq_ignore_ascii_case("java")
-        {
-            return Err(CoreError::new(
-                ErrorCode::NotSupported,
-                "Remote Java language servers require a host-compatible plugin launch plan",
-            ));
-        }
         if crate::remote::workspace::is_remote()
             && request
                 .session_policy
@@ -2113,144 +1414,14 @@ impl LspEngine {
             }
             Ok(())
         };
-        let startup_started_at = Instant::now();
         let session_id = format!(
             "lsp-session-{}",
             self.next_session_id.fetch_add(1, Ordering::Relaxed)
         );
         let workspace_root = PathBuf::from(&request.working_directory);
-        // Resolved before the Maven context because an overridden local
-        // repository is delivered to JDT LS as a settings document written here.
-        let data_root = request
-            .cache_directory
-            .as_deref()
-            .map(PathBuf::from)
-            .unwrap_or_else(|| std::env::temp_dir().join("lithe-lsp"));
-        let selected_java_executable = request
-            .runtime_executable_path
-            .as_deref()
-            .map(PathBuf::from)
-            .or_else(|| java_executable_from_environment(&request.environment));
-        let java_extension_bundle_paths = request
-            .jdtls_launch_resources
-            .as_ref()
-            .map(|resources| {
-                let mut paths = Vec::new();
-                if let Some(path) = &resources.java_debug_bundle_path {
-                    paths.push(PathBuf::from(path));
-                }
-                for path in &resources.java_extension_bundle_paths {
-                    let path = PathBuf::from(path);
-                    if !paths.contains(&path) {
-                        paths.push(path);
-                    }
-                }
-                paths
-            })
-            .unwrap_or_default();
-        // The packaged configuration directory belongs to the installed
-        // product and must stay byte-identical; Equinox receives a writable
-        // copy in the host cache instead.
-        let configuration_area = request
-            .jdtls_launch_resources
-            .as_ref()
-            .map(|resources| {
-                prepare_jdt_configuration_area(
-                    &data_root,
-                    Path::new(&resources.configuration_directory),
-                    unix_seconds_now(),
-                )
-            })
-            .transpose()?;
-        let adaptation = adapt_start(&JdtStartContext {
-            provider_id: request.provider_id.clone(),
-            workspace_root: workspace_root.clone(),
-            data_root,
-            selected_java_executable,
-            direct_launch_resources: request
-                .jdtls_launch_resources
-                .as_ref()
-                .zip(configuration_area.as_ref())
-                .map(|(resources, configuration_area)| JdtDirectLaunchResources {
-                    launcher_jar_path: PathBuf::from(&resources.launcher_jar_path),
-                    configuration_directory: configuration_area.directory.clone(),
-                    lombok_agent_path: PathBuf::from(&resources.lombok_agent_path),
-                    java_debug_bundle_path: resources
-                        .java_debug_bundle_path
-                        .as_deref()
-                        .map(PathBuf::from),
-                }),
-            arguments: request.arguments.clone(),
-            workspace_fingerprint: request.workspace_fingerprint.clone(),
-        });
-        // Runs before the cache disposition is read: a reset state directory is
-        // reported as `new`, which is what the following import will be.
-        let legacy_metadata_cleanup = adaptation
-            .data_directory
-            .as_ref()
-            .map(|directory| prepare_jdt_workspace(&workspace_root, directory))
-            .transpose()?
-            .filter(|cleanup| !cleanup.removed_files.is_empty());
-        let java_cache_disposition = adaptation.data_directory.as_ref().map(|directory| {
-            if directory.join(".metadata").is_dir() {
-                "reused"
-            } else {
-                "new"
-            }
-        });
-        if let Some(directory) = &adaptation.data_directory {
-            std::fs::create_dir_all(directory).map_err(|error| {
-                CoreError::new(
-                    ErrorCode::ProcessStartFailed,
-                    "Could not create the language-server state directory.",
-                )
-                .with_details(error.to_string())
-            })?;
-        }
-        // Built after the state directory exists and after any reset of it,
-        // because the settings copies JDT LS reads live inside that directory.
-        let maven_inputs = request.maven_context.as_ref().map(|_| SessionMavenInputs {
-            workspace_root: workspace_root.clone(),
-            settings_directory: adaptation
-                .data_directory
-                .as_deref()
-                .map(crate::lsp::languages::jdt_maven_settings::settings_directory),
-            default_user_settings:
-                crate::lsp::languages::jdt_maven_settings::default_user_settings_path(
-                    &request.environment,
-                ),
-        });
-        let mut maven_settings_warnings = Vec::new();
-        let jdt_maven_configuration = match (&maven_inputs, request.maven_context.clone()) {
-            (Some(inputs), Some(context)) => {
-                let (configuration, warnings) = inputs.configuration(context)?;
-                maven_settings_warnings = warnings;
-                Some(Arc::new(configuration))
-            }
-            _ => None,
-        };
-
         let initialize_timeout = Duration::from_millis(request.initialize_timeout_milliseconds);
-        let service_ready_idle_timeout =
-            Duration::from_millis(request.service_ready_idle_timeout_milliseconds);
-        let service_ready_absolute_timeout =
-            Duration::from_millis(request.service_ready_absolute_timeout_milliseconds);
         let request_timeout = Duration::from_millis(request.request_timeout_milliseconds);
-        let java_build_timeout = Duration::from_millis(request.java_build_timeout_milliseconds);
         let shutdown_timeout = Duration::from_millis(request.shutdown_timeout_milliseconds);
-        let jdt_java_runtimes = jdt_java_runtimes(&request.java_runtimes);
-        let jdt_completion = request
-            .initialization_options
-            .as_ref()
-            .and_then(|options| options.pointer("/settings/java/completion"))
-            .filter(|completion| completion.is_object())
-            .cloned();
-        let jdt_import_exclusions = request
-            .initialization_options
-            .as_ref()
-            .and_then(|options| options.pointer("/settings/java/import/exclusions"))
-            .filter(|exclusions| exclusions.is_array())
-            .cloned();
         let workspace_configuration =
             checked_workspace_configuration(request.workspace_configuration)?;
         let initialize = client_initialize_for_plugin(
@@ -2271,46 +1442,20 @@ impl LspEngine {
                 root_uri: request.root_uri.clone(),
                 process_id: (!crate::remote::workspace::is_remote())
                     .then_some(std::process::id() as i64),
-                initialization_options: adapt_initialization_options(
-                    &request.provider_id,
-                    request.initialization_options,
-                    &java_extension_bundle_paths,
-                    JdtSettings {
-                        indexing_root_uri: Some(&request.root_uri),
-                        completion: jdt_completion.as_ref(),
-                        import_exclusions: jdt_import_exclusions.as_ref(),
-                        maven: jdt_maven_configuration.as_deref(),
-                        gradle: request.java_gradle.as_ref(),
-                        java_runtimes: &jdt_java_runtimes,
-                    },
-                ),
+                initialization_options: request.initialization_options,
             },
             request.plugin_id.is_some(),
         )?;
         let process = self.launcher.launch(LspProcessSpec {
-            executable: adaptation
-                .executable
-                .unwrap_or_else(|| PathBuf::from(&request.executable_path)),
-            arguments: adaptation.arguments,
+            executable: PathBuf::from(&request.executable_path),
+            arguments: request.arguments,
             working_directory: workspace_root,
             environment: request.environment,
         })?;
-        let process_start_elapsed = startup_started_at.elapsed();
 
         let request_id = (initialize.state.next_request_id - 1).to_string();
         let now = Instant::now();
         let process_id = process.handle.process_id();
-        let java_preparation = java_cache_disposition.map(|cache_disposition| {
-            JavaPreparationDiagnostics::new(
-                startup_started_at,
-                process_start_elapsed,
-                cache_disposition,
-                request.workspace_fingerprint.is_some(),
-            )
-        });
-        let java_startup_detail = java_preparation
-            .as_ref()
-            .map(JavaPreparationDiagnostics::startup_detail);
         let plugin_server = request.session_policy.map(PluginServerState::new);
         let session = Arc::new(RuntimeSession {
             startup_attempt: Arc::clone(attempt),
@@ -2324,14 +1469,7 @@ impl LspEngine {
             provider_id: request.provider_id,
             plugin_id: request.plugin_id,
             workspace_host: crate::remote::workspace::current(),
-            jdt_maven_configuration: Mutex::new(jdt_maven_configuration),
-            maven_inputs,
-            maven_update_order: Mutex::new(()),
             plugin_configuration: Mutex::new(workspace_configuration.map(Arc::new)),
-            jdt_java_runtimes,
-            jdt_completion,
-            jdt_import_exclusions,
-            jdt_gradle_configuration: request.java_gradle,
             root_uri: request.root_uri,
             indexing_roots: Mutex::default(),
             indexing_revision: std::sync::atomic::AtomicU64::new(0),
@@ -2358,35 +1496,14 @@ impl LspEngine {
                 request_by_operation: BTreeMap::new(),
                 function_by_operation: BTreeMap::new(),
                 linked_document_paths: LinkedDocumentPaths::default(),
-                java_navigation_marker_batches: BTreeMap::new(),
-                java_navigation_marker_cache: BTreeMap::new(),
                 pending_workspace_file_changes: BTreeMap::new(),
-                preparation_snapshot: None,
                 events: VecDeque::new(),
                 next_sequence: 1,
                 initialize_deadline: Some(now + initialize_timeout),
-                service_ready_idle_timeout,
-                service_ready_absolute_timeout,
-                java_preparation,
                 shutdown_deadline: None,
                 request_timeout,
                 shutdown_timeout,
                 terminal_event_emitted: false,
-                maven_profile_status: MavenProfileTaskStatus::Idle,
-                maven_profile_results: BTreeMap::new(),
-                maven_profile_queue: VecDeque::new(),
-                maven_profile_deadline: None,
-                maven_profile_applied_fingerprint: None,
-                maven_profile_running_fingerprint: None,
-                maven_profile_update_pending: false,
-                maven_project_reload_pending: false,
-                maven_profile_generation: 0,
-                maven_profile_request_generations: BTreeMap::new(),
-                java_builds: JavaBuildCoordinator::default(),
-                java_entrypoint_waiters: VecDeque::new(),
-                java_launches: BTreeMap::new(),
-                java_launch_messages: Vec::new(),
-                java_build_timeout,
                 deadline_cancellations: Vec::new(),
                 maintenance_write_deadline: None,
                 plugin_server,
@@ -2407,61 +1524,12 @@ impl LspEngine {
         session.transition(LspLifecycleState::Created, None)?;
         session.transition(LspLifecycleState::ProcessStarting, None)?;
         session.transition(LspLifecycleState::Initializing, None)?;
-        {
-            session.log(
-                "info",
-                EngineLog::ProcessStarted,
-                "Java language service process started",
-                java_startup_detail,
-            );
-        }
-        if let Some(cleanup) = legacy_metadata_cleanup {
-            // Lithe deleted files from the user's project; keep a trace of which
-            // ones and why the following import starts from scratch.
-            session.log(
-                "info",
-                EngineLog::LegacyRemoved.with_fields(json!({"removedFiles": cleanup.removed_files, "stateReset": cleanup.state_reset})),
-                "Removed Java project files that earlier versions left in the workspace",
-                Some(
-                    json!({
-                        "removedFiles": cleanup.removed_files,
-                        "stateReset": cleanup.state_reset,
-                    })
-                    .to_string(),
-                ),
-            );
-        }
-        for detail in maven_settings_warnings {
-            session.log_issue(
-                "warn",
-                "mavenSettings",
-                "mavenSettingsUnchanged",
-                EngineLog::MavenSettingsForwarded,
-                "Maven settings were passed to the Java language service unchanged",
-                Some(detail),
-            );
-        }
-        if let Some(area) = configuration_area {
-            if !area.removed_keys.is_empty() {
-                session.log(
-                    "info",
-                    EngineLog::ConfigurationCleaned
-                        .with_fields(json!({"removedKeys": area.removed_keys})),
-                    "Removed unused Java language-server configuration areas",
-                    Some(json!({ "removedKeys": area.removed_keys }).to_string()),
-                );
-            }
-            if let Some(failure) = area.cleanup_failure {
-                session.log_issue(
-                    "warn",
-                    "configurationCleanup",
-                    "configurationCleanupFailed",
-                    EngineLog::ConfigurationCleanupFailed,
-                    "Unused Java language-server configuration areas could not be removed",
-                    Some(failure),
-                );
-            }
-        }
+        session.log(
+            "info",
+            EngineLog::ProcessStarted,
+            "Language server process started",
+            None,
+        );
 
         // Register before checking the prepared generation. A policy change
         // either retires that generation or sees this session for its update.
@@ -2587,8 +1655,9 @@ impl RuntimeSession {
             let Some(document) = state.client.open_documents.get(&request.uri) else {
                 return Ok(false);
             };
-            // JDT discards and reloads its working copy on didSave. A delayed
-            // save must not discard a newer editor revision already synchronized.
+            // A server may reload its working copy from the saved text. A
+            // delayed save must not discard a newer editor revision already
+            // synchronized.
             if *document.text != request.text {
                 return Ok(false);
             }
@@ -2631,10 +1700,7 @@ impl RuntimeSession {
         let message = {
             let mut state = self.lock_state()?;
             ensure_not_terminal(state.lifecycle)?;
-            if !state.client.initialized
-                || (waits_for_service_ready(&self.provider_id)
-                    && state.lifecycle != LspLifecycleState::Ready)
-            {
+            if !state.client.initialized {
                 state.pending_workspace_file_changes.extend(normalized);
                 return Ok(());
             }
@@ -2674,7 +1740,7 @@ impl RuntimeSession {
             if let Some(document) = state.client.open_documents.get(&uri) {
                 // Hosts commonly publish both a ranged edit and the resulting
                 // full text. Repeating that full text must not create another
-                // JDTLS reconciliation cycle or advance the semantic version.
+                // server reconciliation cycle or advance the semantic version.
                 if request.content_changes.is_empty() && *document.text == *request.text {
                     return Ok(SyncDocumentResponse {
                         document_version: document.version.max(1),
@@ -2682,15 +1748,7 @@ impl RuntimeSession {
                     });
                 }
             }
-            state.java_navigation_marker_cache.remove(&uri);
-            // JDT LS associates working copies with the Java project model that
-            // exists when `didOpen` arrives. Opening restored documents before
-            // `ServiceReady` can permanently bind them to an incomplete Maven
-            // model, so retain only their latest text until import finishes.
-            let can_sync_on_wire = state.client.initialized
-                && (!waits_for_service_ready(&self.provider_id)
-                    || state.lifecycle == LspLifecycleState::Ready);
-            if can_sync_on_wire {
+            if state.client.initialized {
                 let response = if state
                     .client
                     .open_documents
@@ -2773,7 +1831,6 @@ impl RuntimeSession {
                     "Cannot close a document that is not owned by the language-server session.",
                 ));
             };
-            state.java_navigation_marker_cache.remove(uri);
             cleared = state.client.diagnostics.contains_key(uri);
             if document.version == 0 {
                 state.client.open_documents.remove(uri);
@@ -2794,155 +1851,6 @@ impl RuntimeSession {
         self.send_messages_or_fail(&outbound_order, messages, "documentClose")
     }
 
-    fn complete_cached_java_navigation_markers(
-        &self,
-        operation_id: &str,
-        uri: &str,
-        requested_document_version: Option<i64>,
-    ) -> Result<bool, CoreError> {
-        let mut state = self.lock_state()?;
-        if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
-            return Ok(false);
-        }
-        if state.request_by_operation.contains_key(operation_id) {
-            return Err(CoreError::new(
-                ErrorCode::InvalidRequest,
-                "The language-server operation ID is already pending.",
-            ));
-        }
-        let current_version = state
-            .client
-            .open_documents
-            .get(uri)
-            .map(|document| document.version.max(1));
-        let Some(entry) = state.java_navigation_marker_cache.get(uri) else {
-            return Ok(false);
-        };
-        let expected_version = requested_document_version.or(current_version);
-        if expected_version != Some(entry.document_version)
-            || current_version != Some(entry.document_version)
-        {
-            return Ok(false);
-        }
-        let document_version = entry.document_version;
-        let markers = entry.markers.clone();
-        push_log_event(
-            self,
-            &mut state,
-            "debug",
-            EngineLog::NavigationCacheHit.with_fields(json!({"operationId": operation_id, "document": uri, "document_version": document_version, "markers": markers.len()})),
-            "Java navigation markers served from cache",
-            Some(format!(
-                "operationId={operation_id}, uri={uri}, documentVersion={document_version}, markers={}",
-                markers.len()
-            )),
-        );
-        push_request_event(
-            self,
-            &mut state,
-            operation_id,
-            "textDocument/codeLens",
-            Some(json!({
-                "documentVersion": document_version,
-                "markers": markers
-            })),
-            None,
-        );
-        Ok(true)
-    }
-
-    /// Allocates the first request and attempt atomically, so cancellation always
-    /// finds the current upstream request or the existing build coordinator waiter.
-    fn prepare_java_launch(
-        &self,
-        request: JavaPrepareLaunchRequest,
-        operation_id: String,
-    ) -> Result<(), CoreError> {
-        if self.provider_id != "java" {
-            return Err(CoreError::new(
-                ErrorCode::NotSupported,
-                "Java launch preparation requires the Java language service.",
-            ));
-        }
-        let canonical_root = canonical_workspace_root(&self.root_uri);
-        let preparation = JavaLaunchPreparation::new(
-            &self.root_uri,
-            canonical_root.as_deref(),
-            request.source_path,
-            request.main_class,
-        )
-        .map_err(|message| CoreError::new(ErrorCode::InvalidRequest, message))?;
-        let outbound_order = self.lock_outbound_order()?;
-        let (messages, request_id) = {
-            let mut state = self.lock_state()?;
-            if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
-                return Err(CoreError::new(
-                    ErrorCode::InvalidRequest,
-                    "Language server is not ready.",
-                ));
-            }
-            if state.request_by_operation.contains_key(&operation_id)
-                || state.java_builds.contains(&operation_id)
-                || state.java_launches.contains_key(&operation_id)
-                || state
-                    .java_entrypoint_waiters
-                    .iter()
-                    .any(|waiter| waiter.operation_id == operation_id)
-            {
-                return Err(CoreError::new(
-                    ErrorCode::InvalidRequest,
-                    "The language-server operation ID is already pending.",
-                ));
-            }
-            let now = Instant::now();
-            if java_configuration_running(&mut state, now) {
-                if state.java_entrypoint_waiters.len() >= 128 {
-                    return Err(CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "Java entry-point discovery queue is full.",
-                    ));
-                }
-                let deadline = now + state.java_build_timeout;
-                state
-                    .java_entrypoint_waiters
-                    .push_back(JavaEntrypointWaiter {
-                        operation_id: operation_id.clone(),
-                        created_at: now,
-                        deadline,
-                    });
-                state.java_launches.insert(operation_id, preparation);
-                return Ok(());
-            }
-            let response = allocate_raw_request(
-                state.client.clone(),
-                "workspace/executeCommand",
-                java_entrypoints_command(),
-            )?;
-            let request_id = (response.state.next_request_id - 1).to_string();
-            let now = Instant::now();
-            let timeout = state.request_timeout;
-            state.client = response.state;
-            state.pending.insert(
-                request_id.clone(),
-                PendingRequest {
-                    kind: PendingKind::JavaEntrypoints,
-                    operation_id: Some(operation_id.clone()),
-                    method: "workspace/executeCommand".to_string(),
-                    document_uri: None,
-                    document_version: None,
-                    created_at: now,
-                    deadline: now + timeout,
-                },
-            );
-            state
-                .request_by_operation
-                .insert(operation_id.clone(), request_id.clone());
-            state.java_launches.insert(operation_id, preparation);
-            (response.messages, request_id)
-        };
-        self.send_request_or_fail(&outbound_order, messages, &request_id)
-    }
-
     fn request(&self, request: SemanticRequest, operation_id: String) -> Result<(), CoreError> {
         let document_version = request.uri.as_deref().and_then(|uri| {
             self.lock_state().ok().and_then(|state| {
@@ -2953,14 +1861,12 @@ impl RuntimeSession {
                     .map(|document| document.version.max(1))
             })
         });
-        let pending_kind = match request.operation {
-            LspSemanticOperation::VirtualDocument => PendingKind::VirtualDocument,
-            LspSemanticOperation::JavaEntrypoints => PendingKind::JavaEntrypoints,
-            LspSemanticOperation::JavaTestItems => PendingKind::JavaTestItems,
-            LspSemanticOperation::JavaMainMethods => PendingKind::JavaMainMethods,
-            _ => PendingKind::Feature,
-        };
-        self.request_with_kind(request, operation_id, pending_kind, document_version)
+        self.request_with_kind(
+            request,
+            operation_id,
+            PendingKind::Feature,
+            document_version,
+        )
     }
 
     /// Writes a build-provider request. It needs no open document, so it is
@@ -2987,13 +1893,7 @@ impl RuntimeSession {
                     "Language server is not ready.",
                 ));
             }
-            if state.request_by_operation.contains_key(&operation_id)
-                || state.java_builds.contains(&operation_id)
-                || state
-                    .java_entrypoint_waiters
-                    .iter()
-                    .any(|waiter| waiter.operation_id == operation_id)
-            {
+            if state.request_by_operation.contains_key(&operation_id) {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
                     "The language-server operation ID is already pending.",
@@ -3242,9 +2142,7 @@ impl RuntimeSession {
                     "Plugin backend is not ready.",
                 ));
             }
-            if state.request_by_operation.contains_key(&operation_id)
-                || state.java_builds.contains(&operation_id)
-            {
+            if state.request_by_operation.contains_key(&operation_id) {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
                     "The operation ID is already pending.",
@@ -3315,9 +2213,7 @@ impl RuntimeSession {
                     "Language server is not ready.",
                 ));
             }
-            if state.request_by_operation.contains_key(&operation_id)
-                || state.java_builds.contains(&operation_id)
-            {
+            if state.request_by_operation.contains_key(&operation_id) {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
                     "The language-server operation ID is already pending.",
@@ -3388,13 +2284,7 @@ impl RuntimeSession {
                     "Language server is not ready.",
                 ));
             }
-            if state.request_by_operation.contains_key(&operation_id)
-                || state.java_builds.contains(&operation_id)
-                || state
-                    .java_entrypoint_waiters
-                    .iter()
-                    .any(|waiter| waiter.operation_id == operation_id)
-            {
+            if state.request_by_operation.contains_key(&operation_id) {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
                     "The language-server operation ID is already pending.",
@@ -3478,13 +2368,7 @@ impl RuntimeSession {
                     "Language server is not ready.",
                 ));
             }
-            if state.request_by_operation.contains_key(&operation_id)
-                || state.java_builds.contains(&operation_id)
-                || state
-                    .java_entrypoint_waiters
-                    .iter()
-                    .any(|waiter| waiter.operation_id == operation_id)
-            {
+            if state.request_by_operation.contains_key(&operation_id) {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
                     "The language-server operation ID is already pending.",
@@ -3753,13 +2637,7 @@ impl RuntimeSession {
                     "Language server is not ready.",
                 ));
             }
-            if state.request_by_operation.contains_key(&operation_id)
-                || state.java_builds.contains(&operation_id)
-                || state
-                    .java_entrypoint_waiters
-                    .iter()
-                    .any(|waiter| waiter.operation_id == operation_id)
-            {
+            if state.request_by_operation.contains_key(&operation_id) {
                 return Err(CoreError::new(
                     ErrorCode::InvalidRequest,
                     "The language-server operation ID is already pending.",
@@ -3783,7 +2661,7 @@ impl RuntimeSession {
                 if current_version != expected_version {
                     return Err(CoreError::new(
                         ErrorCode::Cancelled,
-                        "The document changed before the Java navigation request started.",
+                        "The document changed before the language-server request started.",
                     )
                     .with_details(format!(
                         "expectedVersion={expected_version}, currentVersion={current_version}"
@@ -3807,80 +2685,8 @@ impl RuntimeSession {
                 }
             }
 
-            // Java project builds are queued behind project configuration and
-            // earlier builds instead of being written immediately.
-            if request.operation == LspSemanticOperation::ExecuteCommand {
-                if let Some(command) = request
-                    .command
-                    .as_ref()
-                    .filter(|command| is_java_build_command(&self.provider_id, command))
-                {
-                    let now = Instant::now();
-                    let timeout = state.java_build_timeout;
-                    state
-                        .java_builds
-                        .enqueue(operation_id, command.clone(), now, timeout);
-                    let messages = self.dispatch_java_build_locked(&mut state, now);
-                    drop(state);
-                    return self.send_messages_or_fail(&outbound_order, messages, "javaBuild");
-                }
-            }
-
-            // Profile updates return before m2e has changed the Java projects.
-            // Discovering first and only gating the later build can select an
-            // old entry point or miss a source root introduced by the profile.
-            if self.provider_id == "java"
-                && request.operation == LspSemanticOperation::JavaEntrypoints
-                && java_configuration_running(&mut state, Instant::now())
-            {
-                if state.java_entrypoint_waiters.len() >= 128 {
-                    return Err(CoreError::new(
-                        ErrorCode::InvalidRequest,
-                        "Too many Java entry-point requests are waiting for project configuration.",
-                    ));
-                }
-                let now = Instant::now();
-                let timeout = state.java_build_timeout;
-                state
-                    .java_entrypoint_waiters
-                    .push_back(JavaEntrypointWaiter {
-                        operation_id,
-                        created_at: now,
-                        deadline: now + timeout,
-                    });
-                return Ok(());
-            }
-
             let pending_kind = requested_kind;
             let response = match request.operation {
-                LspSemanticOperation::JavaSuperImplementation => {
-                    let uri = uri.clone().ok_or_else(|| {
-                        CoreError::new(
-                            ErrorCode::InvalidRequest,
-                            "Java super navigation requires a document URI.",
-                        )
-                    })?;
-                    let position = request.position.ok_or_else(|| {
-                        CoreError::new(
-                            ErrorCode::InvalidRequest,
-                            "Java super navigation requires a document position.",
-                        )
-                    })?;
-                    allocate_raw_request(
-                        state.client.clone(),
-                        method,
-                        json!({
-                            "type": "superImplementation",
-                            "position": {
-                                "textDocument": { "uri": uri },
-                                "position": {
-                                    "line": position.line,
-                                    "character": position.utf16_column
-                                }
-                            }
-                        }),
-                    )?
-                }
                 LspSemanticOperation::ExecuteCommand => {
                     let command = request.command.ok_or_else(|| {
                         CoreError::new(
@@ -3889,76 +2695,6 @@ impl RuntimeSession {
                         )
                     })?;
                     allocate_raw_request(state.client.clone(), method, command)?
-                }
-                LspSemanticOperation::JavaEntrypoints => {
-                    if self.provider_id != "java" {
-                        return Err(CoreError::new(
-                            ErrorCode::NotSupported,
-                            "Java entry-point discovery requires the Java language service.",
-                        ));
-                    }
-                    allocate_raw_request(state.client.clone(), method, java_entrypoints_command())?
-                }
-                LspSemanticOperation::JavaTestItems => {
-                    if self.provider_id != "java" {
-                        return Err(CoreError::new(
-                            ErrorCode::NotSupported,
-                            "Java test discovery requires the Java language service.",
-                        ));
-                    }
-                    let uri = uri.clone().ok_or_else(|| {
-                        CoreError::new(
-                            ErrorCode::InvalidRequest,
-                            "Java test discovery requires a document URI.",
-                        )
-                    })?;
-                    allocate_raw_request(
-                        state.client.clone(),
-                        method,
-                        java_test_items_command(&uri),
-                    )?
-                }
-                LspSemanticOperation::JavaMainMethods => {
-                    if self.provider_id != "java" {
-                        return Err(CoreError::new(
-                            ErrorCode::NotSupported,
-                            "Java main-method discovery requires the Java language service.",
-                        ));
-                    }
-                    let uri = uri.clone().ok_or_else(|| {
-                        CoreError::new(
-                            ErrorCode::InvalidRequest,
-                            "Java main-method discovery requires a document URI.",
-                        )
-                    })?;
-                    allocate_raw_request(
-                        state.client.clone(),
-                        method,
-                        java_main_methods_command(&uri),
-                    )?
-                }
-                LspSemanticOperation::VirtualDocument => {
-                    let virtual_uri = request.virtual_uri.as_deref().ok_or_else(|| {
-                        CoreError::new(
-                            ErrorCode::InvalidRequest,
-                            "Virtual-document resolution requires virtualUri.",
-                        )
-                    })?;
-                    let params = virtual_source_resolve_params(&self.provider_id, virtual_uri)
-                        .ok_or_else(|| {
-                            CoreError::new(
-                                ErrorCode::NotSupported,
-                                "The provider cannot resolve this virtual document URI.",
-                            )
-                        })?;
-                    allocate_raw_request(
-                        state.client.clone(),
-                        method,
-                        json!({
-                            "command": params.command,
-                            "arguments": params.arguments
-                        }),
-                    )?
                 }
                 _ => {
                     let uri = uri.clone().ok_or_else(|| {
@@ -3972,8 +2708,7 @@ impl RuntimeSession {
                         .open_documents
                         .get(&uri)
                         .is_some_and(|document| document.version > 0);
-                    let provider_owns_document = is_virtual_source_uri(&self.provider_id, &uri);
-                    if !document_is_open && !provider_owns_document {
+                    if !document_is_open {
                         return Err(CoreError::new(
                             ErrorCode::InvalidRequest,
                             "The document is not open in the language server.",
@@ -3992,11 +2727,7 @@ impl RuntimeSession {
                         code_action: request.code_action,
                         command: request.command,
                     };
-                    if provider_owns_document {
-                        client_provider_document_feature_request_canonical(feature_request)?
-                    } else {
-                        client_feature_request_canonical(feature_request)?
-                    }
+                    client_feature_request_canonical(feature_request)?
                 }
             };
             let request_id = (response.state.next_request_id - 1).to_string();
@@ -4059,58 +2790,6 @@ impl RuntimeSession {
         let outbound_order = self.lock_outbound_order()?;
         let request_id = {
             let mut state = self.lock_state()?;
-            if let Some(index) = state
-                .java_entrypoint_waiters
-                .iter()
-                .position(|waiter| waiter.operation_id == operation_id)
-            {
-                state.java_entrypoint_waiters.remove(index);
-                let error = runtime_error(
-                    self,
-                    "requestCancelled",
-                    "request",
-                    Some(JAVA_BUILD_METHOD),
-                    None,
-                    "Language-server request was cancelled.",
-                    None,
-                    None,
-                );
-                push_request_event(
-                    self,
-                    &mut state,
-                    operation_id,
-                    JAVA_BUILD_METHOD,
-                    None,
-                    Some(error),
-                );
-                return Ok(());
-            }
-            if let Some(departure) = state.java_builds.cancel(operation_id) {
-                let error = runtime_error(
-                    self,
-                    "requestCancelled",
-                    "request",
-                    Some(JAVA_BUILD_METHOD),
-                    None,
-                    "Language-server request was cancelled.",
-                    None,
-                    None,
-                );
-                push_request_event(
-                    self,
-                    &mut state,
-                    operation_id,
-                    JAVA_BUILD_METHOD,
-                    None,
-                    Some(error),
-                );
-                drop(state);
-                return self.send_messages_or_fail(
-                    &outbound_order,
-                    java_build_cancellation(departure),
-                    "requestCancel",
-                );
-            }
             if state
                 .plugin_server
                 .as_ref()
@@ -4137,7 +2816,6 @@ impl RuntimeSession {
             state.client.pending_requests.remove(&request_id);
             state.client.pending_semantic_legends.remove(&request_id);
             state.function_by_operation.remove(operation_id);
-            state.java_navigation_marker_batches.remove(operation_id);
             let error = runtime_error(
                 self,
                 "requestCancelled",
@@ -4171,7 +2849,6 @@ impl RuntimeSession {
         let outbound_order = self.lock_outbound_order()?;
         let (messages, force_kill) = {
             let mut state = self.lock_state()?;
-            let mut cancel_messages = Vec::new();
             if matches!(
                 state.lifecycle,
                 LspLifecycleState::Stopped | LspLifecycleState::Failed
@@ -4180,44 +2857,6 @@ impl RuntimeSession {
             }
             if state.lifecycle == LspLifecycleState::Stopping {
                 return Ok(());
-            }
-            if state.maven_profile_status == MavenProfileTaskStatus::Running {
-                state.maven_profile_status = MavenProfileTaskStatus::Cancelled;
-                push_maven_profile_task_event(self, &mut state, MavenProfileTaskStatus::Cancelled);
-                state.maven_profile_queue.clear();
-                state.maven_profile_deadline = None;
-                let cancelled_maven_ids: Vec<String> = state
-                    .pending
-                    .iter()
-                    .filter_map(|(id, pending)| {
-                        (pending.kind == PendingKind::JdtMavenProfiles).then_some(id.clone())
-                    })
-                    .collect();
-                cancel_messages = cancelled_maven_ids
-                    .iter()
-                    .map(|id| {
-                        json!({
-                            "jsonrpc": "2.0",
-                            "method": "$/cancelRequest",
-                            "params": { "id": id }
-                        })
-                        .to_string()
-                    })
-                    .collect();
-                for id in cancelled_maven_ids {
-                    state.pending.remove(&id);
-                    state.client.pending_requests.remove(&id);
-                    state.client.pending_semantic_legends.remove(&id);
-                    state.maven_profile_request_generations.remove(&id);
-                }
-                push_log_event(
-                    self,
-                    &mut state,
-                    "info",
-                    EngineLog::MavenCancelled,
-                    "Maven profile application cancelled with the session",
-                    None,
-                );
             }
             fail_feature_requests(
                 self,
@@ -4253,13 +2892,11 @@ impl RuntimeSession {
                     },
                 );
                 state.client = response.state;
-                let mut messages = cancel_messages;
-                messages.extend(response.messages);
-                (messages, false)
+                (response.messages, false)
             } else {
                 state.client.pending_requests.clear();
                 state.pending.clear();
-                (cancel_messages, true)
+                (Vec::new(), true)
             }
         };
         self.send_messages_or_fail(&outbound_order, messages, "shutdown")?;
@@ -4330,7 +2967,6 @@ impl RuntimeSession {
             open_documents: state.client.open_documents.clone(),
             pending_operation_ids: {
                 let mut ids: Vec<String> = state.request_by_operation.keys().cloned().collect();
-                ids.extend(state.java_builds.operation_ids());
                 ids.sort();
                 ids
             },
@@ -4539,8 +3175,6 @@ impl RuntimeSession {
             }
         }
         after_policy_check();
-        let readiness = readiness_signal(&self.provider_id, method, value.get("params"));
-        let java_import_progress = import_progress(&self.provider_id, method, value.get("params"));
         if method == Some("workspace/configuration") {
             if let Some(response) = self.provider_configuration_response(&value)? {
                 return self.send_messages_or_fail(
@@ -4573,9 +3207,6 @@ impl RuntimeSession {
         let mut flush_documents = false;
         let mut ready_server_info = None;
         let mut fail_initialize: Option<(String, Option<String>)> = None;
-        let mut service_ready = false;
-        let mut apply_maven_context = false;
-        let mut fail_service_ready = None;
         {
             let mut state = self.lock_state()?;
             state.client = reduced.state;
@@ -4606,31 +3237,6 @@ impl RuntimeSession {
                     } else {
                         plugin_operations::finish(&self.startup_attempt, None);
                         state.initialize_deadline = None;
-                        if waits_for_service_ready(&self.provider_id) {
-                            let now = Instant::now();
-                            let idle_timeout = state.service_ready_idle_timeout;
-                            let absolute_timeout = state.service_ready_absolute_timeout;
-                            let initialize_elapsed = pending_before
-                                .as_ref()
-                                .map(|pending| now.saturating_duration_since(pending.created_at))
-                                .unwrap_or_default();
-                            if let Some(diagnostics) = state.java_preparation.as_mut() {
-                                let detail = diagnostics.begin_readiness(
-                                    now,
-                                    initialize_elapsed,
-                                    idle_timeout,
-                                    absolute_timeout,
-                                );
-                                push_log_event(
-                                    self,
-                                    &mut state,
-                                    "info",
-                                    EngineLog::ProtocolInitialized,
-                                    "Java language service protocol initialized",
-                                    Some(detail),
-                                );
-                            }
-                        }
                         ready_server_info = parse_server_info(&value);
                         flush_documents = true;
                     }
@@ -4814,12 +3420,12 @@ impl RuntimeSession {
                                     )
                                 });
                             let result = event.and_then(|event| event.result.clone());
-                            // A plugin-owned server has no provider-specific
-                            // rule; it only marks locations that are not files.
+                            // A plugin-owned server marks locations that are not
+                            // files read-only; answers from other servers pass through.
                             let result = if state.plugin_server.is_some() {
                                 plugin_server::normalize_navigation_result(result)
                             } else {
-                                normalize_provider_navigation_result(&self.provider_id, result)
+                                result
                             };
                             push_request_event(
                                 self,
@@ -4848,607 +3454,11 @@ impl RuntimeSession {
                         }
                     }
                 }
-                Some(PendingKind::JavaNavigationMarkers) => {
-                    if let Some(pending) = pending_before.as_ref() {
-                        if let Some(operation_id) = &pending.operation_id {
-                            let event = reduced
-                                .events
-                                .iter()
-                                .find(|event| event.request_id.as_ref() == response_id.as_ref());
-                            let server_error =
-                                event.and_then(|event| event.error.as_ref()).map(|detail| {
-                                    runtime_error(
-                                        self,
-                                        "serverError",
-                                        "javaNavigationMarkers",
-                                        Some(&pending.method),
-                                        pending.document_uri.as_deref(),
-                                        "Language server returned an error.",
-                                        Some(detail),
-                                        None,
-                                    )
-                                });
-                            if let Some(error) = server_error {
-                                push_request_event(
-                                    self,
-                                    &mut state,
-                                    operation_id,
-                                    &pending.method,
-                                    None,
-                                    Some(error),
-                                );
-                            } else {
-                                let raw_lenses = value
-                                    .get("result")
-                                    .and_then(Value::as_array)
-                                    .cloned()
-                                    .unwrap_or_default();
-                                let source = pending
-                                    .document_uri
-                                    .as_deref()
-                                    .and_then(|uri| state.client.open_documents.get(uri))
-                                    .map(|document| document.text.as_ref())
-                                    .unwrap_or_default();
-                                let batch = JavaNavigationMarkerBatch::new(
-                                    &raw_lenses,
-                                    source,
-                                    pending.created_at,
-                                    pending.deadline,
-                                );
-                                let total_tasks = batch.total_tasks();
-                                state
-                                    .java_navigation_marker_batches
-                                    .insert(operation_id.clone(), batch);
-                                if total_tasks > MAX_JAVA_NAVIGATION_TASKS {
-                                    push_issue_log_event(
-                                        self,
-                                        &mut state,
-                                        "warning",
-                                        "navigation",
-                                        "navigationLimited",
-                                        EngineLog::NavigationLimited.with_fields(json!({"operationId": operation_id, "document": pending.document_uri, "tasks": total_tasks, "limit": MAX_JAVA_NAVIGATION_TASKS})),
-                                        "Java navigation marker batch was limited",
-                                        Some(format!(
-                                            "operationId={operation_id}, uri={}, documentVersion={}, tasks={total_tasks}, limit={MAX_JAVA_NAVIGATION_TASKS}",
-                                            pending.document_uri.as_deref().unwrap_or(""),
-                                            pending.document_version.unwrap_or_default()
-                                        )),
-                                    );
-                                }
-                                if !queue_next_java_marker_resolve(
-                                    &mut state,
-                                    operation_id,
-                                    pending,
-                                    &mut outbound,
-                                )? {
-                                    finish_java_navigation_marker_batch(
-                                        self,
-                                        &mut state,
-                                        operation_id,
-                                        pending,
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-                Some(PendingKind::JavaNavigationMarkerResolve) => {
-                    if let Some(pending) = pending_before.as_ref() {
-                        if let Some(operation_id) = &pending.operation_id {
-                            if value.get("error").is_none() {
-                                if let Some(batch) =
-                                    state.java_navigation_marker_batches.get_mut(operation_id)
-                                {
-                                    batch.record_active_result(value.get("result"));
-                                }
-                            } else {
-                                push_issue_log_event(
-                                    self,
-                                    &mut state,
-                                    "warning",
-                                    "navigation",
-                                    "navigationMarkerFailed",
-                                    EngineLog::NavigationMarkerFailed.with_fields(json!({"operationId": operation_id, "document": pending.document_uri, "document_version": pending.document_version, "failureCode": "server_error"})),
-                                    "JDT LS could not verify one Java navigation marker",
-                                    Some(format!(
-                                        "operationId={operation_id}, uri={}, documentVersion={}, error={}",
-                                        pending.document_uri.as_deref().unwrap_or(""),
-                                        pending.document_version.unwrap_or_default(),
-                                        value.get("error").map(Value::to_string).unwrap_or_default()
-                                    )),
-                                );
-                            }
-                            if !queue_next_java_marker_resolve(
-                                &mut state,
-                                operation_id,
-                                pending,
-                                &mut outbound,
-                            )? {
-                                finish_java_navigation_marker_batch(
-                                    self,
-                                    &mut state,
-                                    operation_id,
-                                    pending,
-                                );
-                            }
-                        }
-                    }
-                }
-                Some(PendingKind::JavaResolveNavigation) => {
-                    if let Some(pending) = pending_before.as_ref() {
-                        if let Some(operation_id) = &pending.operation_id {
-                            let event = reduced
-                                .events
-                                .iter()
-                                .find(|event| event.request_id.as_ref() == response_id.as_ref());
-                            let error =
-                                event.and_then(|event| event.error.as_ref()).map(|detail| {
-                                    runtime_error(
-                                        self,
-                                        "serverError",
-                                        "javaResolveNavigation",
-                                        Some(&pending.method),
-                                        pending.document_uri.as_deref(),
-                                        "Language server returned an error.",
-                                        Some(detail),
-                                        None,
-                                    )
-                                });
-                            let normalized = normalize_provider_navigation_result(
-                                &self.provider_id,
-                                event.and_then(|event| event.result.clone()),
-                            );
-                            let locations = normalized
-                                .as_ref()
-                                .and_then(|result| result.get("locations"))
-                                .cloned()
-                                .unwrap_or_else(|| Value::Array(Vec::new()));
-                            push_request_event(
-                                self,
-                                &mut state,
-                                operation_id,
-                                &pending.method,
-                                Some(json!({
-                                    "documentVersion": pending.document_version,
-                                    "locations": locations
-                                })),
-                                error,
-                            );
-                        }
-                    }
-                }
-                Some(PendingKind::JdtMavenProfiles) => {
-                    // JDT LS error payloads may contain absolute workspace paths
-                    // or URLs. Keep the user-facing project result actionable
-                    // without persisting the opaque server payload in logs.
-                    let server_error = value
-                        .get("error")
-                        .map(|_| "Maven profile project update failed.".to_string());
-                    let request_key = response_id.as_ref().cloned().unwrap_or_default();
-                    let response_generation =
-                        state.maven_profile_request_generations.remove(&request_key);
-                    if response_generation != Some(state.maven_profile_generation)
-                        || state.maven_profile_status != MavenProfileTaskStatus::Running
-                    {
-                        return Ok(());
-                    }
-                    let mut completed_result = None;
-                    if let Some(result) = state.maven_profile_results.get_mut(&request_key) {
-                        result.status = if server_error.is_some() {
-                            MavenProfileTaskStatus::Failed
-                        } else {
-                            MavenProfileTaskStatus::Succeeded
-                        };
-                        result.error_details = server_error.clone();
-                        let project_uri = redacted_project_uri(&result.project_uri);
-                        let status = result.status;
-                        let error_details = result.error_details.clone();
-                        completed_result = Some(result.clone());
-                        let detail = serde_json::to_string(&json!({
-                            "projectUri": project_uri,
-                            "status": status,
-                            "errorDetails": error_details,
-                        }))
-                        .expect("JSON values serialize without fallible map keys");
-                        if status == MavenProfileTaskStatus::Failed {
-                            push_issue_log_event(
-                                self,
-                                &mut state,
-                                "error",
-                                "mavenProfile",
-                                "mavenProfileUpdateFailed",
-                                EngineLog::MavenProjectFinished.with_fields(
-                                    json!({"projectUri": project_uri, "status": status}),
-                                ),
-                                "Maven profile project update completed",
-                                Some(detail),
-                            );
-                        } else {
-                            push_log_event(
-                                self,
-                                &mut state,
-                                "info",
-                                EngineLog::MavenProjectFinished.with_fields(
-                                    json!({"projectUri": project_uri, "status": status}),
-                                ),
-                                "Maven profile project update completed",
-                                Some(detail),
-                            );
-                        }
-                    }
-                    if let Some(result) = completed_result {
-                        push_maven_profile_project_event(self, &mut state, result);
-                    }
-                    if let Some(params) = state.maven_profile_queue.pop_front() {
-                        let project_uri = params
-                            .get("arguments")
-                            .and_then(Value::as_array)
-                            .and_then(|arguments| arguments.first())
-                            .and_then(Value::as_str)
-                            .map(str::to_string);
-                        let response = allocate_raw_request(
-                            state.client.clone(),
-                            "workspace/executeCommand",
-                            params,
-                        )?;
-                        let next_id = (response.state.next_request_id - 1).to_string();
-                        state.client = response.state;
-                        let next_deadline = state.maven_profile_deadline.unwrap_or_else(|| {
-                            Instant::now() + state.service_ready_absolute_timeout
-                        });
-                        state.pending.insert(
-                            next_id.clone(),
-                            PendingRequest {
-                                kind: PendingKind::JdtMavenProfiles,
-                                operation_id: None,
-                                method: "workspace/executeCommand".to_string(),
-                                document_uri: None,
-                                document_version: None,
-                                created_at: Instant::now(),
-                                deadline: next_deadline,
-                            },
-                        );
-                        let generation = state.maven_profile_generation;
-                        state
-                            .maven_profile_request_generations
-                            .insert(next_id.clone(), generation);
-                        if let Some(uri) = project_uri {
-                            if let Some((queued_id, _)) = state
-                                .maven_profile_results
-                                .iter()
-                                .find(|(id, result)| {
-                                    id.starts_with("queued:") && result.project_uri == uri
-                                })
-                                .map(|(id, result)| (id.clone(), result.clone()))
-                            {
-                                state.maven_profile_results.remove(&queued_id);
-                            }
-                            let project_result = MavenProfileProjectResult {
-                                project_uri: uri,
-                                status: MavenProfileTaskStatus::Running,
-                                error_details: None,
-                            };
-                            state
-                                .maven_profile_results
-                                .insert(next_id, project_result.clone());
-                            push_maven_profile_project_event(self, &mut state, project_result);
-                        }
-                        outbound.extend(response.messages);
-                    }
-                    if !state
-                        .pending
-                        .values()
-                        .any(|pending| pending.kind == PendingKind::JdtMavenProfiles)
-                        && state.maven_profile_queue.is_empty()
-                    {
-                        state.maven_profile_status = if state
-                            .maven_profile_results
-                            .values()
-                            .any(|result| result.status == MavenProfileTaskStatus::Failed)
-                        {
-                            MavenProfileTaskStatus::PartiallySucceeded
-                        } else {
-                            MavenProfileTaskStatus::Succeeded
-                        };
-                        let task_status = state.maven_profile_status;
-                        push_maven_profile_task_event(self, &mut state, task_status);
-                        let applied = state.maven_profile_running_fingerprint.take();
-                        // A newer configuration must run even when this batch failed.
-                        apply_maven_context |= applied
-                            != maven_profile_fingerprint(self.maven_configuration().as_deref());
-                        if state.maven_profile_status == MavenProfileTaskStatus::Succeeded {
-                            state.maven_profile_applied_fingerprint = applied;
-                        }
-                        let profile_log_level =
-                            if state.maven_profile_status == MavenProfileTaskStatus::Succeeded {
-                                "info"
-                            } else {
-                                "warning"
-                            };
-                        let profile_log_message =
-                            if state.maven_profile_status == MavenProfileTaskStatus::Succeeded {
-                                "Java language service applied Maven profiles"
-                            } else {
-                                "Java language service partially applied Maven profiles"
-                            };
-                        let identity =
-                            if state.maven_profile_status == MavenProfileTaskStatus::Succeeded {
-                                EngineLog::MavenApplied
-                            } else {
-                                EngineLog::MavenPartiallyApplied
-                            };
-                        push_log_event(
-                            self,
-                            &mut state,
-                            profile_log_level,
-                            identity,
-                            profile_log_message,
-                            None,
-                        );
-                        state.maven_profile_deadline = None;
-                    }
-                }
-                Some(PendingKind::JavaBuild) => {
-                    if let Some(request_id) = response_id.as_deref() {
-                        let event = reduced
-                            .events
-                            .iter()
-                            .find(|event| event.request_id.as_deref() == Some(request_id));
-                        self.complete_java_build_locked(&mut state, request_id, event);
-                    }
-                }
-                Some(PendingKind::VirtualDocument) => {
-                    if let Some(pending) = pending_before.as_ref() {
-                        if let Some(operation_id) = &pending.operation_id {
-                            let reduced_event = reduced
-                                .events
-                                .iter()
-                                .find(|event| event.request_id.as_ref() == response_id.as_ref());
-                            let server_error = reduced_event
-                                .and_then(|event| event.error.as_ref())
-                                .map(|detail| {
-                                    runtime_error(
-                                        self,
-                                        "serverError",
-                                        "request",
-                                        Some(&pending.method),
-                                        None,
-                                        "Language server returned an error.",
-                                        Some(detail),
-                                        None,
-                                    )
-                                });
-                            let content = value.get("result").and_then(|result| {
-                                virtual_source_content(&self.provider_id, result)
-                            });
-                            let invalid_result = if server_error.is_none() && content.is_none() {
-                                Some(runtime_error(
-                                    self,
-                                    "invalidServerResult",
-                                    "request",
-                                    Some(&pending.method),
-                                    None,
-                                    "Language server returned no virtual-document text.",
-                                    None,
-                                    None,
-                                ))
-                            } else {
-                                None
-                            };
-                            push_request_event(
-                                self,
-                                &mut state,
-                                operation_id,
-                                &pending.method,
-                                content.map(|text| json!({ "text": text })),
-                                server_error.or(invalid_result),
-                            );
-                        }
-                    }
-                }
-                Some(PendingKind::JavaEntrypoints) => {
-                    if let Some(pending) = pending_before.as_ref() {
-                        if let Some(operation_id) = &pending.operation_id {
-                            let server_error = reduced
-                                .events
-                                .iter()
-                                .find(|event| event.request_id.as_ref() == response_id.as_ref())
-                                .and_then(|event| event.error.as_ref())
-                                .map(|detail| {
-                                    runtime_error(
-                                        self,
-                                        "serverError",
-                                        "request",
-                                        Some(&pending.method),
-                                        None,
-                                        "Language server returned an error.",
-                                        Some(detail),
-                                        None,
-                                    )
-                                });
-                            let canonical_root = canonical_workspace_root(&self.root_uri);
-                            let entrypoints = value.get("result").and_then(|result| {
-                                normalize_java_entrypoints(
-                                    &self.root_uri,
-                                    canonical_root.as_deref(),
-                                    result,
-                                )
-                            });
-                            // A malformed answer must not look like "no
-                            // entry points": callers keep their last good list.
-                            let invalid_result = if server_error.is_none() && entrypoints.is_none()
-                            {
-                                Some(runtime_error(
-                                    self,
-                                    "invalidServerResult",
-                                    "request",
-                                    Some(&pending.method),
-                                    None,
-                                    "Language server returned no Java entry-point list.",
-                                    None,
-                                    None,
-                                ))
-                            } else {
-                                None
-                            };
-                            push_request_event(
-                                self,
-                                &mut state,
-                                operation_id,
-                                &pending.method,
-                                entrypoints.map(|entrypoints| {
-                                    serde_json::to_value(entrypoints)
-                                        .expect("Java entry points should encode")
-                                }),
-                                server_error.or(invalid_result),
-                            );
-                        }
-                    }
-                }
-                Some(PendingKind::JavaTestItems) => {
-                    if let Some(pending) = pending_before.as_ref() {
-                        if let Some(operation_id) = &pending.operation_id {
-                            let server_error = reduced
-                                .events
-                                .iter()
-                                .find(|event| event.request_id.as_ref() == response_id.as_ref())
-                                .and_then(|event| event.error.as_ref())
-                                .map(|detail| {
-                                    runtime_error(
-                                        self,
-                                        "serverError",
-                                        "request",
-                                        Some(&pending.method),
-                                        pending.document_uri.as_deref(),
-                                        "Java Test extension returned an error.",
-                                        Some(detail),
-                                        None,
-                                    )
-                                });
-                            let items = value.get("result").and_then(normalize_java_test_items);
-                            let invalid_result = if server_error.is_none() && items.is_none() {
-                                Some(runtime_error(
-                                    self,
-                                    "invalidServerResult",
-                                    "request",
-                                    Some(&pending.method),
-                                    pending.document_uri.as_deref(),
-                                    "Java Test extension returned no test-item list.",
-                                    None,
-                                    None,
-                                ))
-                            } else {
-                                None
-                            };
-                            push_request_event(
-                                self,
-                                &mut state,
-                                operation_id,
-                                &pending.method,
-                                items.map(|items| {
-                                    serde_json::to_value(items)
-                                        .expect("Java test items should encode")
-                                }),
-                                server_error.or(invalid_result),
-                            );
-                        }
-                    }
-                }
-                Some(PendingKind::JavaMainMethods) => {
-                    if let Some(pending) = pending_before.as_ref() {
-                        if let Some(operation_id) = &pending.operation_id {
-                            let server_error = reduced
-                                .events
-                                .iter()
-                                .find(|event| event.request_id.as_ref() == response_id.as_ref())
-                                .and_then(|event| event.error.as_ref())
-                                .map(|detail| {
-                                    runtime_error(
-                                        self,
-                                        "serverError",
-                                        "request",
-                                        Some(&pending.method),
-                                        pending.document_uri.as_deref(),
-                                        "Language server returned an error.",
-                                        Some(detail),
-                                        None,
-                                    )
-                                });
-                            let methods = value.get("result").and_then(normalize_java_main_methods);
-                            // A malformed answer must not look like "no main
-                            // methods": callers keep their last good markers.
-                            let invalid_result = if server_error.is_none() && methods.is_none() {
-                                Some(runtime_error(
-                                    self,
-                                    "invalidServerResult",
-                                    "request",
-                                    Some(&pending.method),
-                                    pending.document_uri.as_deref(),
-                                    "Language server returned no Java main-method list.",
-                                    None,
-                                    None,
-                                ))
-                            } else {
-                                None
-                            };
-                            push_request_event(
-                                self,
-                                &mut state,
-                                operation_id,
-                                &pending.method,
-                                methods.map(|methods| {
-                                    serde_json::to_value(methods)
-                                        .expect("Java main methods should encode")
-                                }),
-                                server_error.or(invalid_result),
-                            );
-                        }
-                    }
-                }
                 Some(PendingKind::Shutdown) => {
                     // The reducer emits `exit` only after the shutdown response.
                     state.shutdown_deadline = Some(Instant::now() + state.shutdown_timeout);
                 }
                 None => {}
-            }
-
-            let suppress_structured_java_preparation_notification = state.lifecycle
-                == LspLifecycleState::Initializing
-                && (java_import_progress.is_some() || readiness.is_some());
-            if state.lifecycle == LspLifecycleState::Initializing {
-                if let Some(progress) = java_import_progress {
-                    let detail = state.java_preparation.as_mut().and_then(|diagnostics| {
-                        diagnostics.record_progress(progress, Instant::now())
-                    });
-                    if let Some(detail) = detail {
-                        let fields = state
-                            .java_preparation
-                            .as_ref()
-                            .map(|d| d.log_progress(Instant::now()))
-                            .unwrap_or(Value::Null);
-                        push_log_event(
-                            self,
-                            &mut state,
-                            "info",
-                            EngineLog::WorkspaceProgressReceived.with_fields(fields),
-                            "Java workspace import progress",
-                            Some(detail),
-                        );
-                    }
-                }
-            }
-
-            if state.lifecycle == LspLifecycleState::Initializing {
-                match readiness.as_ref() {
-                    Some(JdtReadinessSignal::Ready) if state.client.initialized => {
-                        service_ready = true;
-                        apply_maven_context = true;
-                    }
-                    Some(JdtReadinessSignal::Failed(detail)) => {
-                        fail_service_ready = Some(detail.clone());
-                    }
-                    _ => {}
-                }
             }
 
             for event in reduced.events {
@@ -5534,13 +3544,7 @@ impl RuntimeSession {
                     )?
                 {
                     // The backend withdrew one of its own host requests.
-                } else if event.kind == "notification"
-                    && !(suppress_structured_java_preparation_notification
-                        && is_structured_import_notification(
-                            &self.provider_id,
-                            event.method.as_deref(),
-                        ))
-                {
+                } else if event.kind == "notification" {
                     let method = event.method.as_deref().unwrap_or("unknown");
                     let params = event.result.as_ref().unwrap_or(&Value::Null);
                     if method != "$/logTrace" || state.detailed_diagnostics {
@@ -5562,16 +3566,6 @@ impl RuntimeSession {
                 let capabilities = state.client.server_capabilities.clone();
                 push_features_event(self, &mut state, capabilities);
             }
-            let now = Instant::now();
-            if let Some(progress) =
-                project_job_progress(&self.provider_id, method, value.get("params"))
-            {
-                state.java_builds.observe_progress(progress, now);
-            }
-            // A build response, a finished project job, or finished Maven
-            // profiles can each unblock the next queued build.
-            outbound.extend(self.dispatch_java_build_locked(&mut state, now));
-            outbound.extend(self.dispatch_java_entrypoints_locked(&mut state, now));
         }
 
         if let Some((code, detail)) = fail_initialize {
@@ -5585,36 +3579,11 @@ impl RuntimeSession {
             self.kill_process();
             return Ok(());
         }
-        if let Some(detail) = fail_service_ready {
-            self.fail(
-                "serviceReadyFailed",
-                "serviceReady",
-                "Java language service failed while preparing the workspace.",
-                Some(detail),
-                None,
-            );
-            self.kill_process();
-            return Ok(());
-        }
         if flush_documents {
-            if let Some(notification) = initialized_notification(
-                &self.provider_id,
-                self.jdt_settings(self.maven_configuration().as_deref()),
-            ) {
-                outbound.push(
-                    json!({
-                        "jsonrpc": "2.0",
-                        "method": notification.method,
-                        "params": notification.params
-                    })
-                    .to_string(),
-                );
-            } else if let Some(configuration) = self.plugin_configuration() {
+            if let Some(configuration) = self.plugin_configuration() {
                 outbound.push(plugin_configuration_notification(&configuration));
             }
-            if !waits_for_service_ready(&self.provider_id) {
-                outbound.extend(self.flush_queued_documents()?);
-            }
+            outbound.extend(self.flush_queued_documents()?);
             let diagnostics_enabled = self.lock_state()?.requested_diagnostics;
             if diagnostics_enabled {
                 // LSP forbids setTrace before the initialize response. This batch
@@ -5627,97 +3596,20 @@ impl RuntimeSession {
             if let Some(info) = ready_server_info {
                 push_server_info_event(self, &mut state, info);
             }
-            if !waits_for_service_ready(&self.provider_id) {
-                push_log_event(
-                    self,
-                    &mut state,
-                    "info",
-                    EngineLog::ProtocolInitialized,
-                    "Language service protocol initialized",
-                    None,
-                );
-            }
-            if waits_for_service_ready(&self.provider_id) {
-                push_log_event(
-                    self,
-                    &mut state,
-                    "info",
-                    EngineLog::WorkspaceWaiting,
-                    "Waiting for the Java language service to finish project import",
-                    None,
-                );
-            } else {
-                transition_locked(self, &mut state, LspLifecycleState::Ready, None);
-                let capabilities = state.client.server_capabilities.clone();
-                push_features_event(self, &mut state, capabilities);
-            }
+            push_log_event(
+                self,
+                &mut state,
+                "info",
+                EngineLog::ProtocolInitialized,
+                "Language service protocol initialized",
+                None,
+            );
+            transition_locked(self, &mut state, LspLifecycleState::Ready, None);
+            let capabilities = state.client.server_capabilities.clone();
+            push_features_event(self, &mut state, capabilities);
             return Ok(());
         }
-        if service_ready {
-            let reload = {
-                let mut state = self.lock_state()?;
-                std::mem::take(&mut state.maven_project_reload_pending)
-            };
-            if reload {
-                if let Some(notification) = self
-                    .maven_configuration()
-                    .as_deref()
-                    .and_then(project_update_notification)
-                {
-                    outbound.push(
-                        json!({
-                            "jsonrpc": "2.0", "method": notification.method,
-                            "params": notification.params
-                        })
-                        .to_string(),
-                    );
-                }
-            }
-        }
-        if apply_maven_context {
-            let (profile_requests, profiles_pending) = self.maven_profile_requests()?;
-            if profiles_pending {
-                let mut state = self.lock_state()?;
-                push_log_event(
-                    self,
-                    &mut state,
-                    "info",
-                    EngineLog::MavenApplicationStarted,
-                    "Java language service applying Maven profiles",
-                    None,
-                );
-            }
-            outbound.extend(profile_requests);
-        }
         self.send_messages_or_fail(&outbound_order, outbound, "serverResponse")?;
-        if service_ready {
-            self.lock_state()?.initialize_deadline = None;
-            let queued_messages = self.flush_queued_documents()?;
-            self.send_messages_or_fail(&outbound_order, queued_messages, "serviceReady")?;
-            {
-                let mut state = self.lock_state()?;
-                let ready_fields = state
-                    .java_preparation
-                    .as_ref()
-                    .map(|d| d.log_import(Instant::now()))
-                    .unwrap_or(Value::Null);
-                let ready_detail = state
-                    .java_preparation
-                    .as_mut()
-                    .map(|diagnostics| diagnostics.ready_detail(Instant::now()));
-                transition_locked(self, &mut state, LspLifecycleState::Ready, None);
-                let capabilities = state.client.server_capabilities.clone();
-                push_features_event(self, &mut state, capabilities);
-                push_log_event(
-                    self,
-                    &mut state,
-                    "info",
-                    EngineLog::WorkspaceImportFinished.with_fields(ready_fields),
-                    "Java language service finished project import",
-                    ready_detail,
-                );
-            }
-        }
         Ok(())
     }
 
@@ -5728,38 +3620,21 @@ impl RuntimeSession {
         let Some(id) = message.get("id") else {
             return Ok(None);
         };
-        let items: Vec<WorkspaceConfigurationItem> = message
+        let Some(configuration) = self.plugin_configuration() else {
+            return Ok(None);
+        };
+        // Each item asks for one section; `scopeUri` is ignored because a
+        // session carries one configuration for its whole workspace.
+        let values: Vec<Value> = message
             .get("params")
             .and_then(|params| params.get("items"))
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
-            .map(|item| WorkspaceConfigurationItem {
-                scope_uri: item
-                    .get("scopeUri")
-                    .and_then(Value::as_str)
-                    .map(ToString::to_string),
-                section: item
-                    .get("section")
-                    .and_then(Value::as_str)
-                    .map(ToString::to_string),
+            .map(|item| {
+                configuration_section(&configuration, item.get("section").and_then(Value::as_str))
             })
             .collect();
-        let maven = self.maven_configuration();
-        let values = match workspace_configuration(
-            &self.provider_id,
-            &items,
-            self.jdt_settings(maven.as_deref()),
-        ) {
-            Some(values) => values,
-            None => match self.plugin_configuration() {
-                Some(configuration) => items
-                    .iter()
-                    .map(|item| configuration_section(&configuration, item.section.as_deref()))
-                    .collect(),
-                None => return Ok(None),
-            },
-        };
         Ok(Some(
             serde_json::to_string(&json!({
                 "jsonrpc": "2.0",
@@ -5774,118 +3649,6 @@ impl RuntimeSession {
                 .with_details(error.to_string())
             })?,
         ))
-    }
-
-    fn maven_profile_requests(&self) -> Result<(Vec<String>, bool), CoreError> {
-        let maven = self.maven_configuration();
-        let fingerprint = maven_profile_fingerprint(maven.as_deref());
-        let requests = maven_profile_update_requests(maven.as_deref());
-        let mut state = self.lock_state()?;
-        if requests.is_empty() {
-            state.maven_profile_update_pending = false;
-            return Ok((Vec::new(), false));
-        }
-        if state.maven_profile_applied_fingerprint.as_ref() == fingerprint.as_ref()
-            && state.maven_profile_status == MavenProfileTaskStatus::Succeeded
-        {
-            state.maven_profile_update_pending = false;
-            return Ok((Vec::new(), false));
-        }
-        if state
-            .pending
-            .values()
-            .any(|pending| pending.kind == PendingKind::JdtMavenProfiles)
-        {
-            return Ok((Vec::new(), true));
-        }
-        let now = Instant::now();
-        // Maven profile application is a long-running workspace task, not a
-        // regular interactive LSP request. Bound it by the service-ready
-        // absolute safety limit rather than the short request timeout.
-        let deadline = now + state.service_ready_absolute_timeout;
-        state.maven_profile_deadline = Some(deadline);
-        state.maven_profile_running_fingerprint = fingerprint;
-        state.maven_profile_update_pending = false;
-        let project_count = requests.len();
-        const MAX_IN_FLIGHT: usize = 8;
-        let requests = requests;
-        state
-            .maven_profile_queue
-            .extend(requests.iter().skip(MAX_IN_FLIGHT).cloned());
-        state.maven_profile_status = MavenProfileTaskStatus::Running;
-        push_maven_profile_task_event(self, &mut state, MavenProfileTaskStatus::Running);
-        state.maven_profile_generation = state.maven_profile_generation.wrapping_add(1);
-        state.maven_profile_request_generations.clear();
-        state.maven_profile_results.clear();
-        // Register queued projects up front so a task timeout still emits a
-        // terminal result for every project, not only the first batch.
-        for (index, params) in requests.iter().enumerate().skip(MAX_IN_FLIGHT) {
-            if let Some(uri) = params
-                .get("arguments")
-                .and_then(Value::as_array)
-                .and_then(|arguments| arguments.first())
-                .and_then(Value::as_str)
-            {
-                state.maven_profile_results.insert(
-                    format!("queued:{index}"),
-                    MavenProfileProjectResult {
-                        project_uri: uri.to_string(),
-                        status: MavenProfileTaskStatus::Running,
-                        error_details: None,
-                    },
-                );
-            }
-        }
-        let mut messages = Vec::with_capacity(requests.len());
-        for params in requests.into_iter().take(MAX_IN_FLIGHT) {
-            let project_uri = params
-                .get("arguments")
-                .and_then(Value::as_array)
-                .and_then(|arguments| arguments.first())
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            let response =
-                allocate_raw_request(state.client.clone(), "workspace/executeCommand", params)?;
-            let request_id = (response.state.next_request_id - 1).to_string();
-            state.client = response.state;
-            state.pending.insert(
-                request_id.clone(),
-                PendingRequest {
-                    kind: PendingKind::JdtMavenProfiles,
-                    operation_id: None,
-                    method: "workspace/executeCommand".to_string(),
-                    document_uri: None,
-                    document_version: None,
-                    created_at: now,
-                    deadline,
-                },
-            );
-            let generation = state.maven_profile_generation;
-            state
-                .maven_profile_request_generations
-                .insert(request_id.clone(), generation);
-            if let Some(uri) = project_uri {
-                let project_result = MavenProfileProjectResult {
-                    project_uri: uri,
-                    status: MavenProfileTaskStatus::Running,
-                    error_details: None,
-                };
-                state
-                    .maven_profile_results
-                    .insert(request_id, project_result.clone());
-                push_maven_profile_project_event(self, &mut state, project_result);
-            }
-            messages.extend(response.messages);
-        }
-        push_log_event(
-            self,
-            &mut state,
-            "info",
-            EngineLog::MavenApplicationStarted.with_fields(json!({"projectCount": project_count})),
-            "Applying Maven profiles to Java projects",
-            Some(format!("projectCount={project_count}")),
-        );
-        Ok((messages, true))
     }
 
     fn flush_queued_documents(&self) -> Result<Vec<String>, CoreError> {
@@ -5923,285 +3686,7 @@ impl RuntimeSession {
         flush_queued_documents_locked(&mut state)
     }
 
-    /// Writes queued launch discovery only after m2e and JDT configuration settle.
-    fn dispatch_java_entrypoints_locked(
-        &self,
-        state: &mut SessionState,
-        now: Instant,
-    ) -> Vec<String> {
-        if state.lifecycle != LspLifecycleState::Ready
-            || !state.client.initialized
-            || java_configuration_running(state, now)
-        {
-            return Vec::new();
-        }
-        let mut messages = Vec::new();
-        for waiter in std::mem::take(&mut state.java_entrypoint_waiters) {
-            if now >= waiter.deadline {
-                let error = runtime_error(
-                    self,
-                    "requestTimeout",
-                    "javaProjectConfiguration",
-                    Some(JAVA_BUILD_METHOD),
-                    None,
-                    "Java entry-point discovery timed out waiting for project configuration.",
-                    None,
-                    None,
-                );
-                push_request_event(
-                    self,
-                    state,
-                    &waiter.operation_id,
-                    JAVA_BUILD_METHOD,
-                    None,
-                    Some(error),
-                );
-                continue;
-            }
-            let response = match allocate_raw_request(
-                state.client.clone(),
-                JAVA_BUILD_METHOD,
-                java_entrypoints_command(),
-            ) {
-                Ok(response) => response,
-                Err(error) => {
-                    let error = runtime_error(
-                        self,
-                        "invalidRequest",
-                        "javaProjectConfiguration",
-                        Some(JAVA_BUILD_METHOD),
-                        None,
-                        "Could not encode the Java entry-point request.",
-                        Some(&error.message),
-                        None,
-                    );
-                    push_request_event(
-                        self,
-                        state,
-                        &waiter.operation_id,
-                        JAVA_BUILD_METHOD,
-                        None,
-                        Some(error),
-                    );
-                    continue;
-                }
-            };
-            let request_id = (response.state.next_request_id - 1).to_string();
-            state.client = response.state;
-            state
-                .request_by_operation
-                .insert(waiter.operation_id.clone(), request_id.clone());
-            state.pending.insert(
-                request_id,
-                PendingRequest {
-                    kind: PendingKind::JavaEntrypoints,
-                    operation_id: Some(waiter.operation_id),
-                    method: JAVA_BUILD_METHOD.to_string(),
-                    document_uri: None,
-                    document_version: None,
-                    created_at: waiter.created_at,
-                    deadline: waiter.deadline,
-                },
-            );
-            messages.extend(response.messages);
-        }
-        messages
-    }
-
-    /// Starts the next queued Java build when nothing blocks it. The caller
-    /// holds `outbound_order` and must write the returned messages before
-    /// releasing it, so request IDs reach the server in allocation order.
-    fn dispatch_java_build_locked(&self, state: &mut SessionState, now: Instant) -> Vec<String> {
-        if state.lifecycle != LspLifecycleState::Ready || !state.client.initialized {
-            return Vec::new();
-        }
-        let maven_profiles_running = state.maven_profile_update_pending
-            || state.maven_profile_status == MavenProfileTaskStatus::Running;
-        let mut allocated = None;
-        let dispatch = state
-            .java_builds
-            .dispatch(maven_profiles_running, now, |command| {
-                let response =
-                    allocate_raw_request(state.client.clone(), JAVA_BUILD_METHOD, command.clone())?;
-                let request_id = (response.state.next_request_id - 1).to_string();
-                allocated = Some(response);
-                Ok::<_, CoreError>(request_id)
-            });
-        refresh_project_preparation(self, state);
-        let dispatch = match dispatch {
-            Ok(dispatch) => dispatch,
-            Err((error, operation_ids)) => {
-                let detail = core_error_detail(&error);
-                for operation_id in operation_ids {
-                    let error = runtime_error(
-                        self,
-                        "invalidRequest",
-                        "javaBuild",
-                        Some(JAVA_BUILD_METHOD),
-                        None,
-                        "Could not encode the Java project build request.",
-                        Some(&detail),
-                        None,
-                    );
-                    push_request_event(
-                        self,
-                        state,
-                        &operation_id,
-                        JAVA_BUILD_METHOD,
-                        None,
-                        Some(error),
-                    );
-                }
-                return Vec::new();
-            }
-        };
-        match dispatch {
-            JavaBuildDispatch::Idle => Vec::new(),
-            JavaBuildDispatch::Blocked { block, newly } => {
-                if newly {
-                    push_log_event(
-                        self,
-                        state,
-                        "info",
-                        EngineLog::BuildWaiting.with_fields(json!({"reason": block.as_str()})),
-                        "Java project build is waiting",
-                        Some(json!({ "reason": block.as_str() }).to_string()),
-                    );
-                }
-                Vec::new()
-            }
-            JavaBuildDispatch::Started {
-                request_id,
-                waiter_count,
-                waited,
-            } => {
-                let Some(response) = allocated else {
-                    return Vec::new();
-                };
-                state.client = response.state;
-                state.pending.insert(
-                    request_id,
-                    PendingRequest {
-                        kind: PendingKind::JavaBuild,
-                        operation_id: None,
-                        method: JAVA_BUILD_METHOD.to_string(),
-                        document_uri: None,
-                        document_version: None,
-                        created_at: now,
-                        // Callers own their deadlines in the coordinator; this
-                        // entry lives until JDT answers, even after timeouts.
-                        deadline: now + state.java_build_timeout,
-                    },
-                );
-                push_log_event(
-                    self,
-                    state,
-                    "info",
-                    EngineLog::BuildExecution.with_fields(json!({"waiterCount": waiter_count, "waitedMilliseconds": waited.as_millis() as u64})),
-                    "Java project build started",
-                    Some(
-                        json!({
-                            "waiterCount": waiter_count,
-                            "waitedMilliseconds": waited.as_millis() as u64,
-                        })
-                        .to_string(),
-                    ),
-                );
-                response.messages
-            }
-        }
-    }
-
-    /// Publishes the terminal result of a Java build to every caller sharing it.
-    fn complete_java_build_locked(
-        &self,
-        state: &mut SessionState,
-        request_id: &str,
-        event: Option<&super::LspClientEvent>,
-    ) {
-        let Some(completed) = state.java_builds.complete(request_id, Instant::now()) else {
-            return;
-        };
-        let raw_status = event
-            .and_then(|event| event.result.as_ref())
-            .and_then(|result| result.get("value"));
-        let outcome = java_build_outcome(raw_status);
-        // Captured before recording this outcome so the first builder failure
-        // reports itself as the origin rather than as a later casualty.
-        let builder_failed_earlier = state.java_builds.builder_failed_earlier();
-        state.java_builds.observe_outcome(outcome);
-        let report = java_build_report(
-            outcome,
-            &completed.command,
-            builder_failed_earlier,
-            completed.elapsed,
-        );
-        let error = if let Some(detail) = event.and_then(|event| event.error.as_deref()) {
-            Some(runtime_error(
-                self,
-                "serverError",
-                "javaBuild",
-                Some(JAVA_BUILD_METHOD),
-                None,
-                "Language server returned an error.",
-                Some(detail),
-                None,
-            ))
-        } else {
-            java_build_failure(outcome).map(|(code, message)| {
-                runtime_error(
-                    self,
-                    code,
-                    "javaBuild",
-                    Some(JAVA_BUILD_METHOD),
-                    None,
-                    message,
-                    raw_status.map(Value::to_string).as_deref(),
-                    None,
-                )
-            })
-        };
-        let error = error.map(|mut error| {
-            error.java_build_report = Some(report);
-            error
-        });
-        let result = if error.is_none() {
-            event.and_then(|event| event.result.clone())
-        } else {
-            None
-        };
-        push_log_event(
-            self,
-            state,
-            if error.is_none() { "info" } else { "warning" },
-            EngineLog::BuildExecution.with_fields(json!({"outcome": format!("{outcome:?}"), "errorCode": error.as_ref().map(|e| &e.code), "elapsedMilliseconds": completed.elapsed.as_millis() as u64, "waiterCount": completed.operation_ids.len(), "markerScope": report.marker_scope, "builderFailedEarlier": report.builder_failed_earlier, "recovery": report.recovery})),
-            "Java project build finished",
-            Some(
-                json!({
-                    "outcome": format!("{outcome:?}"),
-                    "errorCode": error.as_ref().map(|error| error.code.clone()),
-                    "elapsedMilliseconds": completed.elapsed.as_millis() as u64,
-                    "waiterCount": completed.operation_ids.len(),
-                    "markerScope": report.marker_scope,
-                    "builderFailedEarlier": report.builder_failed_earlier,
-                    "recovery": report.recovery,
-                })
-                .to_string(),
-            ),
-        );
-        for operation_id in completed.operation_ids {
-            push_request_event(
-                self,
-                state,
-                &operation_id,
-                JAVA_BUILD_METHOD,
-                result.clone(),
-                error.clone(),
-            );
-        }
-    }
-
-    /// One session-owned writer retries queued builds and sends deadline cancellations.
+    /// One session-owned writer sends deadline cancellations off the monitor thread.
     /// The monitor remains free to terminate a stalled write and expire other callers.
     fn spawn_outbound_maintenance(self: &Arc<Self>) {
         let session = self.clone();
@@ -6214,66 +3699,25 @@ impl RuntimeSession {
     }
 
     fn pump_outbound_maintenance(&self) {
-        if !self.lock_state().is_ok_and(|state| {
-            state.java_builds.has_queued()
-                || !state.java_entrypoint_waiters.is_empty()
-                || !state.java_launch_messages.is_empty()
-                || !state.deadline_cancellations.is_empty()
-                || (state.maven_profile_update_pending
-                    && state.lifecycle == LspLifecycleState::Ready
-                    && !state
-                        .pending
-                        .values()
-                        .any(|pending| pending.kind == PendingKind::JdtMavenProfiles))
-        }) {
+        if !self
+            .lock_state()
+            .is_ok_and(|state| !state.deadline_cancellations.is_empty())
+        {
             return;
         }
         let Ok(outbound_order) = self.outbound_order.try_lock() else {
             return;
         };
-        // Timed-out requests retain their slots until terminal replies arrive.
-        // Only then may a newer selection start; never automatically retry the
-        // same failed configuration.
-        let update_profiles = self.lock_state().is_ok_and(|state| {
-            state.maven_profile_update_pending && state.lifecycle == LspLifecycleState::Ready
-        });
-        let profile_messages = if update_profiles {
-            match self.maven_profile_requests() {
-                Ok((messages, _)) => messages,
-                Err(error) => {
-                    self.log_issue(
-                        "warn",
-                        "mavenProfileStart",
-                        "mavenProfileStartFailed",
-                        EngineLog::MavenStartFailed,
-                        "Could not start the pending Maven profile update",
-                        Some(error.message),
-                    );
-                    return;
-                }
-            }
-        } else {
-            Vec::new()
-        };
         let Ok(mut state) = self.lock_state() else {
             return;
         };
-        let mut messages: Vec<String> = std::mem::take(&mut state.deadline_cancellations)
+        let messages: Vec<String> = std::mem::take(&mut state.deadline_cancellations)
             .into_iter()
             .map(|id| {
                 json!({ "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": id } })
                     .to_string()
             })
             .collect();
-        messages.extend(profile_messages);
-        for (request_id, queued) in std::mem::take(&mut state.java_launch_messages) {
-            // Cancellation or timeout can win before the writer acquires its lock.
-            if state.pending.contains_key(&request_id) {
-                messages.extend(queued);
-            }
-        }
-        messages.extend(self.dispatch_java_build_locked(&mut state, Instant::now()));
-        messages.extend(self.dispatch_java_entrypoints_locked(&mut state, Instant::now()));
         if messages.is_empty() {
             return;
         }
@@ -6296,8 +3740,6 @@ impl RuntimeSession {
         self.relay.expire(now);
         let mut cancellations = Vec::new();
         let mut initialize_timeout = false;
-        let mut service_ready_timeout = None;
-        let mut maven_context_timeout = false;
         let mut shutdown_timeout = false;
         let mut maintenance_write_timeout = false;
         let mut relay_write_timeout = false;
@@ -6325,58 +3767,13 @@ impl RuntimeSession {
                 // so exactly one of the two records the attempt.
                 plugin_operations::finish(&self.startup_attempt, Some(AttemptStage::Timeout));
             }
-            let applying_maven_context = state
-                .pending
-                .values()
-                .any(|pending| pending.kind == PendingKind::JdtMavenProfiles);
-            if state.lifecycle == LspLifecycleState::Initializing
-                && !initialize_timeout
-                && !applying_maven_context
-            {
-                service_ready_timeout = state
-                    .java_preparation
-                    .as_mut()
-                    .and_then(|diagnostics| diagnostics.take_timeout(now));
-                if service_ready_timeout.is_none() {
-                    let warning = state
-                        .java_preparation
-                        .as_mut()
-                        .and_then(|diagnostics| diagnostics.take_idle_warning(now));
-                    if let Some(detail) = warning {
-                        let fields = state
-                            .java_preparation
-                            .as_ref()
-                            .map(|d| d.log_progress(now))
-                            .unwrap_or(Value::Null);
-                        push_issue_log_event(
-                            self,
-                            &mut state,
-                            "warning",
-                            "workspaceImport",
-                            "workspaceImportStalled",
-                            EngineLog::WorkspaceStalled.with_fields(fields),
-                            "Java workspace import has not reported progress; still waiting for ServiceReady",
-                            Some(detail),
-                        );
-                    }
-                }
-            }
-
             let expired: Vec<_> = state
                 .pending
                 .iter()
                 .filter(|(_, pending)| {
                     matches!(
                         pending.kind,
-                        PendingKind::Feature
-                            | PendingKind::VirtualDocument
-                            | PendingKind::JavaEntrypoints
-                            | PendingKind::JavaTestItems
-                            | PendingKind::JavaMainMethods
-                            | PendingKind::JavaNavigationMarkers
-                            | PendingKind::JavaNavigationMarkerResolve
-                            | PendingKind::JavaResolveNavigation
-                            | PendingKind::PluginServer
+                        PendingKind::Feature | PendingKind::PluginServer
                     ) && now >= pending.deadline
                 })
                 .map(|(id, _)| id.clone())
@@ -6390,7 +3787,6 @@ impl RuntimeSession {
                 if let Some(operation_id) = pending.operation_id.as_deref() {
                     state.request_by_operation.remove(operation_id);
                     state.function_by_operation.remove(operation_id);
-                    state.java_navigation_marker_batches.remove(operation_id);
                     let elapsed = now.saturating_duration_since(pending.created_at);
                     let error = runtime_error(
                         self,
@@ -6438,144 +3834,6 @@ impl RuntimeSession {
                     None,
                     Some(error),
                 );
-            }
-            let maven_profiles_running =
-                state.maven_profile_status == MavenProfileTaskStatus::Running;
-            let departure = state.java_builds.expire(maven_profiles_running, now);
-            let mut waiting = std::mem::take(&mut state.java_entrypoint_waiters);
-            while let Some(waiter) = waiting.pop_front() {
-                if now < waiter.deadline {
-                    state.java_entrypoint_waiters.push_back(waiter);
-                    continue;
-                }
-                let error = runtime_error(
-                    self,
-                    "requestTimeout",
-                    "javaProjectConfiguration",
-                    Some(JAVA_BUILD_METHOD),
-                    None,
-                    "Java entry-point discovery timed out waiting for project configuration.",
-                    Some(&format!(
-                        "elapsedMilliseconds={}",
-                        now.saturating_duration_since(waiter.created_at).as_millis()
-                    )),
-                    None,
-                );
-                push_request_event(
-                    self,
-                    &mut state,
-                    &waiter.operation_id,
-                    JAVA_BUILD_METHOD,
-                    None,
-                    Some(error),
-                );
-            }
-            for waiter in &departure.expired {
-                let error = runtime_error(
-                    self,
-                    "requestTimeout",
-                    "javaBuild",
-                    Some(JAVA_BUILD_METHOD),
-                    None,
-                    "The Java project build did not finish in time.",
-                    Some(&format!(
-                        "elapsedMilliseconds={}, phase={}",
-                        waiter.elapsed.as_millis(),
-                        waiter.phase
-                    )),
-                    None,
-                );
-                push_request_event(
-                    self,
-                    &mut state,
-                    &waiter.operation_id,
-                    JAVA_BUILD_METHOD,
-                    None,
-                    Some(error),
-                );
-            }
-            // Advisory: the in-flight slot remains until JDT answers.
-            cancellations.extend(departure.cancel_request_id);
-            let expired_maven_requests: Vec<_> = state
-                .pending
-                .iter()
-                .filter(|(_, pending)| {
-                    state.maven_profile_status == MavenProfileTaskStatus::Running
-                        && pending.kind == PendingKind::JdtMavenProfiles
-                        && now >= pending.deadline
-                })
-                .map(|(id, _)| id.clone())
-                .collect();
-            if !expired_maven_requests.is_empty() {
-                maven_context_timeout = true;
-                state.maven_profile_queue.clear();
-                state.maven_profile_deadline = None;
-                let timed_out_projects: Vec<_> = state
-                    .maven_profile_results
-                    .values_mut()
-                    .filter_map(|result| {
-                        if result.status == MavenProfileTaskStatus::Running {
-                            result.status = MavenProfileTaskStatus::TimedOut;
-                            result.error_details =
-                                Some("Maven profile project update timed out.".to_string());
-                            Some((result.project_uri.clone(), result.error_details.clone()))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                for (project_uri, error_details) in timed_out_projects {
-                    let detail = serde_json::to_string(&json!({
-                        "projectUri": redacted_project_uri(&project_uri),
-                        "status": MavenProfileTaskStatus::TimedOut,
-                        "errorDetails": error_details,
-                    }))
-                    .expect("JSON values serialize without fallible map keys");
-                    push_issue_log_event(
-                        self,
-                        &mut state,
-                        "error",
-                        "mavenProfile",
-                        "mavenProfileUpdateFailed",
-                        EngineLog::MavenProjectFinished.with_fields(json!({"projectUri": redacted_project_uri(&project_uri), "status": MavenProfileTaskStatus::TimedOut})),
-                        "Maven profile project update completed",
-                        Some(detail),
-                    );
-                    push_maven_profile_project_event(
-                        self,
-                        &mut state,
-                        MavenProfileProjectResult {
-                            project_uri,
-                            status: MavenProfileTaskStatus::TimedOut,
-                            error_details,
-                        },
-                    );
-                }
-                let succeeded = state
-                    .maven_profile_results
-                    .values()
-                    .filter(|result| result.status == MavenProfileTaskStatus::Succeeded)
-                    .count();
-                let timed_out = state
-                    .maven_profile_results
-                    .values()
-                    .filter(|result| result.status == MavenProfileTaskStatus::TimedOut)
-                    .count();
-                state.maven_profile_status = if succeeded == 0 && timed_out > 0 {
-                    MavenProfileTaskStatus::TimedOut
-                } else if timed_out > 0 {
-                    MavenProfileTaskStatus::PartiallySucceeded
-                } else {
-                    MavenProfileTaskStatus::Failed
-                };
-                let task_status = state.maven_profile_status;
-                push_maven_profile_task_event(self, &mut state, task_status);
-                state.maven_profile_applied_fingerprint = None;
-                for request_id in expired_maven_requests {
-                    // Cancellation is advisory. Retain the in-flight slot until
-                    // the server responds so retry cannot overlap the old batch.
-                    cancellations.push(request_id);
-                }
             }
             if state.lifecycle == LspLifecycleState::Stopping
                 && state
@@ -6626,28 +3884,6 @@ impl RuntimeSession {
                 None,
             );
             self.kill_process();
-        } else if let Some(detail) = service_ready_timeout {
-            self.fail(
-                "serviceReadyTimeout",
-                "serviceReady",
-                "Java language service project import timed out.",
-                Some(detail),
-                None,
-            );
-            self.kill_process();
-        } else if maven_context_timeout {
-            if let Ok(mut state) = self.lock_state() {
-                push_issue_log_event(
-                    self,
-                    &mut state,
-                    "error",
-                    "mavenProfile",
-                    "mavenProfileTimeout",
-                    EngineLog::MavenTimedOut,
-                    "JDT LS Maven profile application timed out; session remains available",
-                    None,
-                );
-            }
         } else if shutdown_timeout {
             self.kill_process();
         }
@@ -6726,7 +3962,6 @@ impl RuntimeSession {
             if let Some(operation_id) = pending.operation_id.as_deref() {
                 state.request_by_operation.remove(operation_id);
                 state.function_by_operation.remove(operation_id);
-                state.java_navigation_marker_batches.remove(operation_id);
                 let error = runtime_error(
                     self,
                     code,
@@ -6979,31 +4214,7 @@ fn validate_start_request(request: &StartServerRequest) -> Result<(), CoreError>
     if !request.root_uri.contains("://") || request.root_uri.contains('\0') {
         return Err(invalid_field("rootUri"));
     }
-    if let Some(resources) = &request.jdtls_launch_resources {
-        if !request.provider_id.trim().eq_ignore_ascii_case("java") {
-            return Err(invalid_field("jdtlsLaunchResources/providerId"));
-        }
-        if !is_valid_process_path(request.runtime_executable_path.as_deref())
-            || !is_valid_process_path(Some(&resources.launcher_jar_path))
-            || !is_valid_process_path(Some(&resources.configuration_directory))
-            || !is_valid_process_path(Some(&resources.lombok_agent_path))
-            || resources
-                .java_debug_bundle_path
-                .as_deref()
-                .is_some_and(|path| !is_valid_process_path(Some(path)))
-            || resources
-                .java_extension_bundle_paths
-                .iter()
-                .any(|path| !is_valid_process_path(Some(path)))
-        {
-            return Err(invalid_field("jdtlsLaunchResources/runtimeExecutablePath"));
-        }
-    }
     Ok(())
-}
-
-fn is_valid_process_path(path: Option<&str>) -> bool {
-    path.is_some_and(|path| !path.trim().is_empty() && !path.contains('\0'))
 }
 
 fn invalid_field(field: &str) -> CoreError {
@@ -7041,21 +4252,6 @@ fn ensure_not_terminal(lifecycle: LspLifecycleState) -> Result<(), CoreError> {
     } else {
         Ok(())
     }
-}
-
-/// Wall-clock seconds used only to age cache directories; a clock before the
-/// Unix epoch makes every area look freshly used rather than expired.
-fn unix_seconds_now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_secs())
-}
-
-fn java_executable_from_environment(environment: &BTreeMap<String, String>) -> Option<PathBuf> {
-    environment.get("JAVA_HOME").map(|home| {
-        let executable = if cfg!(windows) { "java.exe" } else { "java" };
-        Path::new(home).join("bin").join(executable)
-    })
 }
 
 /// The file a `file:` URI resolves to once symbolic links are followed, or
@@ -7106,8 +4302,8 @@ impl LinkedDocumentPaths {
 /// Re-addresses published diagnostics to the open document they describe.
 ///
 /// A server reports a file at its resolved location while the host may have
-/// opened it through a symbolic link (JDT answers `/private/tmp/...` for a
-/// document opened as `/tmp/...` on macOS). The client reducer matches URIs
+/// opened it through a symbolic link (a server may answer `/private/tmp/...`
+/// for a document opened as `/tmp/...` on macOS). The client reducer matches URIs
 /// textually and would drop such diagnostics, so when no open document carries
 /// the published URI this returns the message rewritten to the URI of the open
 /// document that resolves to the same file. Returns `None` when the message
@@ -7155,7 +4351,7 @@ fn canonical_workspace_path(root_uri: &str) -> Option<PathBuf> {
 fn canonical_workspace_root(root_uri: &str) -> Option<String> {
     let canonical = canonical_workspace_path(root_uri)?;
     let canonical = canonical.to_string_lossy().replace('\\', "/");
-    // Windows canonical paths carry a verbatim `\\?\` prefix that JDT never reports.
+    // Windows canonical paths carry a verbatim `\\?\` prefix that language servers never report.
     Some(
         canonical
             .strip_prefix("//?/UNC/")
@@ -7174,17 +4370,12 @@ fn semantic_method(operation: LspSemanticOperation) -> &'static str {
         LspSemanticOperation::TypeDefinition => "textDocument/typeDefinition",
         LspSemanticOperation::References => "textDocument/references",
         LspSemanticOperation::Implementation => "textDocument/implementation",
-        LspSemanticOperation::JavaSuperImplementation => "java/findLinks",
         LspSemanticOperation::Rename => "textDocument/rename",
         LspSemanticOperation::Formatting => "textDocument/formatting",
         LspSemanticOperation::CodeActions => "textDocument/codeAction",
         LspSemanticOperation::ResolveCompletion => "completionItem/resolve",
         LspSemanticOperation::ResolveCodeAction => "codeAction/resolve",
-        LspSemanticOperation::ExecuteCommand
-        | LspSemanticOperation::VirtualDocument
-        | LspSemanticOperation::JavaEntrypoints
-        | LspSemanticOperation::JavaTestItems
-        | LspSemanticOperation::JavaMainMethods => "workspace/executeCommand",
+        LspSemanticOperation::ExecuteCommand => "workspace/executeCommand",
         LspSemanticOperation::InlayHints => "textDocument/inlayHint",
         LspSemanticOperation::FoldingRanges => "textDocument/foldingRange",
         LspSemanticOperation::SemanticTokens => "textDocument/semanticTokens/full",
@@ -7201,133 +4392,17 @@ fn semantic_capability(operation: LspSemanticOperation) -> Option<&'static str> 
         LspSemanticOperation::TypeDefinition => Some("typeDefinition"),
         LspSemanticOperation::References => Some("references"),
         LspSemanticOperation::Implementation => Some("implementation"),
-        LspSemanticOperation::JavaSuperImplementation => Some("definition"),
         LspSemanticOperation::Rename => Some("rename"),
         LspSemanticOperation::Formatting => Some("formatting"),
         LspSemanticOperation::CodeActions => Some("codeActions"),
         LspSemanticOperation::ResolveCompletion => Some("completionResolve"),
         LspSemanticOperation::ResolveCodeAction => Some("codeActionResolve"),
-        LspSemanticOperation::ExecuteCommand
-        | LspSemanticOperation::VirtualDocument
-        | LspSemanticOperation::JavaEntrypoints
-        | LspSemanticOperation::JavaTestItems
-        | LspSemanticOperation::JavaMainMethods => Some("executeCommand"),
+        LspSemanticOperation::ExecuteCommand => Some("executeCommand"),
         LspSemanticOperation::InlayHints => Some("inlayHints"),
         LspSemanticOperation::FoldingRanges => Some("foldingRanges"),
         LspSemanticOperation::SemanticTokens => Some("semanticTokens"),
         LspSemanticOperation::CodeLens => Some("codeLens"),
     }
-}
-
-fn queue_next_java_marker_resolve(
-    state: &mut SessionState,
-    operation_id: &str,
-    pending: &PendingRequest,
-    outbound: &mut Vec<String>,
-) -> Result<bool, CoreError> {
-    let next = state
-        .java_navigation_marker_batches
-        .get_mut(operation_id)
-        .and_then(JavaNavigationMarkerBatch::take_next);
-    let Some(task) = next else {
-        return Ok(false);
-    };
-    let uri = pending.document_uri.as_deref().unwrap_or_default();
-    let (method, params) = task.request(uri);
-    let response = allocate_raw_request(state.client.clone(), method, params)?;
-    let request_id = (response.state.next_request_id - 1).to_string();
-    let (created_at, deadline) = state
-        .java_navigation_marker_batches
-        .get(operation_id)
-        .map(|batch| (batch.created_at(), batch.deadline()))
-        .unwrap_or((pending.created_at, pending.deadline));
-    state.client = response.state;
-    state.pending.insert(
-        request_id.clone(),
-        PendingRequest {
-            kind: PendingKind::JavaNavigationMarkerResolve,
-            operation_id: Some(operation_id.to_string()),
-            method: method.to_string(),
-            document_uri: pending.document_uri.clone(),
-            document_version: pending.document_version,
-            created_at,
-            deadline,
-        },
-    );
-    state
-        .request_by_operation
-        .insert(operation_id.to_string(), request_id);
-    outbound.extend(response.messages);
-    Ok(true)
-}
-
-fn finish_java_navigation_marker_batch(
-    session: &RuntimeSession,
-    state: &mut SessionState,
-    operation_id: &str,
-    pending: &PendingRequest,
-) {
-    let Some(batch) = state.java_navigation_marker_batches.remove(operation_id) else {
-        return;
-    };
-    state.request_by_operation.remove(operation_id);
-    state.function_by_operation.remove(operation_id);
-    let source = pending
-        .document_uri
-        .as_deref()
-        .and_then(|uri| state.client.open_documents.get(uri))
-        .map(|document| document.text.clone())
-        .unwrap_or_default();
-    let created_at = batch.created_at();
-    let total_tasks = batch.total_tasks();
-    let resolved_lens_count = batch.resolved_lens_count();
-    let markers = batch.finish(&source);
-    if let (Some(uri), Some(document_version)) =
-        (pending.document_uri.as_ref(), pending.document_version)
-    {
-        let is_current = state
-            .client
-            .open_documents
-            .get(uri)
-            .is_some_and(|document| document.version.max(1) == document_version);
-        if is_current {
-            state.java_navigation_marker_cache.insert(
-                uri.clone(),
-                JavaNavigationMarkerCacheEntry {
-                    document_version,
-                    markers: markers.clone(),
-                },
-            );
-        }
-    }
-    let elapsed = Instant::now().saturating_duration_since(created_at);
-    push_log_event(
-        session,
-        state,
-        "debug",
-        EngineLog::NavigationResolved.with_fields(json!({"operationId": operation_id, "document": pending.document_uri, "document_version": pending.document_version, "duration_ms": elapsed.as_millis() as u64, "tasks": total_tasks, "code_lenses": resolved_lens_count, "markers": markers.len()})),
-        "Java navigation markers resolved",
-        Some(format!(
-            "operationId={operation_id}, uri={}, documentVersion={}, durationMilliseconds={}, tasks={}, codeLenses={}, markers={}",
-            pending.document_uri.as_deref().unwrap_or(""),
-            pending.document_version.unwrap_or_default(),
-            elapsed.as_millis(),
-            total_tasks,
-            resolved_lens_count,
-            markers.len()
-        )),
-    );
-    push_request_event(
-        session,
-        state,
-        operation_id,
-        "textDocument/codeLens",
-        Some(json!({
-            "documentVersion": pending.document_version,
-            "markers": markers
-        })),
-        None,
-    );
 }
 
 fn allocate_raw_request(
@@ -7384,21 +4459,11 @@ fn enqueue_runtime_event(
     state: &mut SessionState,
     mut event: LspRuntimeEvent,
 ) {
-    if event.event.is_some()
-        || event.maven_profile_project.is_some()
-        || event.maven_profile_task.is_some()
-    {
-        let (id, fields) = if let Some(result) = &event.maven_profile_project {
-            EngineLog::maven_project_fact(&session.log_identity, result)
-        } else if let Some(status) = event.maven_profile_task {
-            let input = json!({"state": status});
-            EngineLog::MavenTaskUpdated.fact(&session.log_identity, &input, None)
-        } else {
-            (
-                event.event.take().expect("source catalog identity"),
-                event.fields.take().expect("source catalog fields"),
-            )
-        };
+    if event.event.is_some() {
+        let (id, fields) = (
+            event.event.take().expect("source catalog identity"),
+            event.fields.take().expect("source catalog fields"),
+        );
         let level = if id == "log.dropped" {
             Some(crate::diagnostics::record::LogLevel::Warn)
         } else {
@@ -7432,64 +4497,6 @@ fn enqueue_runtime_event(
         }
     }
     state.events.push_back(event);
-    refresh_project_preparation(session, state);
-    session.event_signal.notify_all();
-}
-
-// Reuse the build coordinator's gate; never infer readiness from a log message.
-/// The configuration barrier is shared by discovery and the following build.
-fn java_configuration_running(state: &mut SessionState, now: Instant) -> bool {
-    state.maven_profile_update_pending
-        || state.maven_profile_status == MavenProfileTaskStatus::Running
-        || state.java_builds.project_configuration_running(now)
-}
-
-fn refresh_project_preparation(session: &RuntimeSession, state: &mut SessionState) {
-    if session.provider_id != "java" {
-        return;
-    }
-    let configuring = state
-        .java_builds
-        .project_configuration_running(Instant::now());
-    let snapshot = crate::lsp::languages::project_preparation::snapshot(
-        state.lifecycle,
-        state.maven_profile_status,
-        configuring,
-        state.java_builds.in_flight_request_id().is_some(),
-    );
-    if state.preparation_snapshot.as_ref() == Some(&snapshot) {
-        return;
-    }
-    let result = json!(snapshot);
-    state.preparation_snapshot = Some(snapshot);
-    let sequence = take_sequence(state);
-    state.events.push_back(LspRuntimeEvent {
-        kind: "projectPreparation".to_string(),
-        channel: None,
-        plugin_id: None,
-        role: None,
-        event: None,
-        fields: None,
-        catalog_level: None,
-        sequence,
-        provider_id: session.provider_id.clone(),
-        session_id: session.id.clone(),
-        state: None,
-        operation_id: None,
-        method: None,
-        uri: None,
-        version: None,
-        diagnostics: None,
-        result: Some(result),
-        error: None,
-        capabilities: None,
-        server_info: None,
-        level: None,
-        message: None,
-        detail: None,
-        maven_profile_project: None,
-        maven_profile_task: None,
-    });
     session.event_signal.notify_all();
 }
 
@@ -7530,8 +4537,6 @@ fn push_cleanup_fact(
             level: Some("warning".to_string()),
             message: Some("Engine process cleanup failed".to_string()),
             detail: None,
-            maven_profile_project: None,
-            maven_profile_task: None,
         },
     );
 }
@@ -7597,8 +4602,6 @@ fn transition_locked(
             level: None,
             message: None,
             detail: None,
-            maven_profile_project: None,
-            maven_profile_task: None,
         },
     );
 }
@@ -7629,87 +4632,6 @@ fn push_request_event(
         );
         return;
     }
-    let (result, error) = if let Some(mut preparation) = state.java_launches.remove(operation_id) {
-        match preparation.advance(result, error) {
-            Ok(JavaLaunchAction::Build(command)) => {
-                state.java_builds.enqueue(
-                    operation_id.to_string(),
-                    command,
-                    Instant::now(),
-                    state.java_build_timeout,
-                );
-                state
-                    .java_launches
-                    .insert(operation_id.to_string(), preparation);
-                return;
-            }
-            Ok(JavaLaunchAction::Classpath(command)) => {
-                match allocate_raw_request(
-                    state.client.clone(),
-                    "workspace/executeCommand",
-                    command,
-                ) {
-                    Ok(response) => {
-                        let request_id = (response.state.next_request_id - 1).to_string();
-                        let now = Instant::now();
-                        state.client = response.state;
-                        state.pending.insert(
-                            request_id.clone(),
-                            PendingRequest {
-                                kind: PendingKind::Feature,
-                                operation_id: Some(operation_id.to_string()),
-                                method: "workspace/executeCommand".to_string(),
-                                document_uri: None,
-                                document_version: None,
-                                created_at: now,
-                                deadline: now + state.request_timeout,
-                            },
-                        );
-                        state
-                            .request_by_operation
-                            .insert(operation_id.to_string(), request_id.clone());
-                        state
-                            .java_launch_messages
-                            .push((request_id, response.messages));
-                        state
-                            .java_launches
-                            .insert(operation_id.to_string(), preparation);
-                        return;
-                    }
-                    Err(error) => (
-                        None,
-                        Some(runtime_error(
-                            session,
-                            "invalidServerResult",
-                            "javaLaunch",
-                            Some(method),
-                            None,
-                            &error.message,
-                            None,
-                            None,
-                        )),
-                    ),
-                }
-            }
-            Ok(JavaLaunchAction::Complete(result)) => (Some(result), None),
-            Err(JavaLaunchFailure::Upstream(error)) => (None, Some(error)),
-            Err(JavaLaunchFailure::Invalid(message)) => (
-                None,
-                Some(runtime_error(
-                    session,
-                    "invalidServerResult",
-                    "javaLaunch",
-                    Some(method),
-                    None,
-                    message,
-                    None,
-                    None,
-                )),
-            ),
-        }
-    } else {
-        (result, error)
-    };
     enqueue_request_completed(session, state, operation_id, method, result, error);
 }
 
@@ -7783,8 +4705,6 @@ fn enqueue_request_completed(
             level: None,
             message: None,
             detail: None,
-            maven_profile_project: None,
-            maven_profile_task: None,
         },
     );
 }
@@ -7916,8 +4836,6 @@ fn push_build_progress_locked(
             level: None,
             message: None,
             detail: None,
-            maven_profile_project: None,
-            maven_profile_task: None,
         },
     );
 }
@@ -7976,8 +4894,6 @@ fn push_function_progress_locked(
             level: None,
             message: None,
             detail: None,
-            maven_profile_project: None,
-            maven_profile_task: None,
         },
     );
 }
@@ -8013,8 +4929,6 @@ fn push_vcs_provider_event(session: &RuntimeSession, state: &mut SessionState, r
             level: None,
             message: None,
             detail: None,
-            maven_profile_project: None,
-            maven_profile_task: None,
         },
     );
 }
@@ -8054,8 +4968,6 @@ fn push_negotiated_provider_event(
             level: None,
             message: None,
             detail: None,
-            maven_profile_project: None,
-            maven_profile_task: None,
         },
     );
 }
@@ -8127,8 +5039,6 @@ fn cancel_host_request_locked(
             level: None,
             message: None,
             detail: None,
-            maven_profile_project: None,
-            maven_profile_task: None,
         },
     );
     Ok(true)
@@ -8196,8 +5106,6 @@ fn forward_host_request_locked(
             level: None,
             message: None,
             detail: None,
-            maven_profile_project: None,
-            maven_profile_task: None,
         },
     );
     Ok(Vec::new())
@@ -8232,8 +5140,6 @@ fn push_functions_event(session: &RuntimeSession, state: &mut SessionState, resu
             level: None,
             message: None,
             detail: None,
-            maven_profile_project: None,
-            maven_profile_task: None,
         },
     );
 }
@@ -8450,47 +5356,6 @@ fn plugin_server_answer(
     (Some(json!({ "value": result })), None)
 }
 
-fn normalize_provider_navigation_result(
-    provider_id: &str,
-    mut result: Option<Value>,
-) -> Option<Value> {
-    let locations = result
-        .as_mut()
-        .and_then(|result| result.get_mut("locations"))
-        .and_then(Value::as_array_mut);
-    let Some(locations) = locations else {
-        return result;
-    };
-
-    for location in locations {
-        let Some(uri) = location
-            .get("uri")
-            .and_then(Value::as_str)
-            .map(ToString::to_string)
-        else {
-            continue;
-        };
-        let normalized = normalize_location(
-            provider_id,
-            ProviderLocation {
-                uri,
-                is_read_only: location
-                    .get("isReadOnly")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-                display_path: location
-                    .get("displayPath")
-                    .and_then(Value::as_str)
-                    .map(ToString::to_string),
-            },
-        );
-        location["isReadOnly"] = Value::Bool(normalized.is_read_only);
-        location["displayPath"] = normalized.display_path.map_or(Value::Null, Value::String);
-    }
-
-    result
-}
-
 fn cancel_stale_document_requests_locked(
     session: &RuntimeSession,
     state: &mut SessionState,
@@ -8519,7 +5384,6 @@ fn cancel_stale_document_requests_locked(
         if let Some(operation_id) = pending.operation_id.as_deref() {
             state.request_by_operation.remove(operation_id);
             state.function_by_operation.remove(operation_id);
-            state.java_navigation_marker_batches.remove(operation_id);
             let error = runtime_error(
                 session,
                 "staleDocumentVersion",
@@ -8561,7 +5425,6 @@ fn is_stale_sensitive_method(method: &str) -> bool {
             | "textDocument/codeLens"
             | "codeLens/resolve"
             | "textDocument/implementation"
-            | "java/findLinks"
     )
 }
 
@@ -8600,8 +5463,6 @@ fn push_diagnostics_event(
             level: None,
             message: None,
             detail: None,
-            maven_profile_project: None,
-            maven_profile_task: None,
         },
     );
 }
@@ -8635,8 +5496,6 @@ fn push_semantic_tokens_refresh_event(session: &RuntimeSession, state: &mut Sess
             level: None,
             message: None,
             detail: None,
-            maven_profile_project: None,
-            maven_profile_task: None,
         },
     );
 }
@@ -8674,8 +5533,6 @@ fn push_features_event(
             level: None,
             message: None,
             detail: None,
-            maven_profile_project: None,
-            maven_profile_task: None,
         },
     );
 }
@@ -8709,8 +5566,6 @@ fn push_server_info_event(session: &RuntimeSession, state: &mut SessionState, in
             level: None,
             message: None,
             detail: None,
-            maven_profile_project: None,
-            maven_profile_task: None,
         },
     );
 }
@@ -8860,120 +5715,8 @@ fn push_classified_log_event(
             level: Some(level.to_string()),
             message: Some(message.to_string()),
             detail: detail.filter(|value| !value.is_empty()),
-            maven_profile_project: None,
-            maven_profile_task: None,
         },
     );
-}
-
-fn push_maven_profile_project_event(
-    session: &RuntimeSession,
-    state: &mut SessionState,
-    mut result: MavenProfileProjectResult,
-) {
-    // The structured event is consumed by both hosts and may be persisted by
-    // UI state, so keep the same redacted project identity as ordinary logs.
-    result.project_uri = redacted_project_uri(&result.project_uri);
-    let sequence = take_sequence(state);
-    enqueue_runtime_event(
-        session,
-        state,
-        LspRuntimeEvent {
-            kind: "log".to_string(),
-            channel: None,
-            plugin_id: None,
-            role: None,
-            event: None,
-            fields: None,
-            catalog_level: None,
-            sequence,
-            provider_id: session.provider_id.clone(),
-            session_id: session.id.clone(),
-            state: None,
-            operation_id: None,
-            method: None,
-            uri: None,
-            version: None,
-            diagnostics: None,
-            result: None,
-            error: None,
-            capabilities: None,
-            server_info: None,
-            level: Some(
-                match result.status {
-                    MavenProfileTaskStatus::Failed | MavenProfileTaskStatus::TimedOut => "error",
-                    MavenProfileTaskStatus::PartiallySucceeded => "warning",
-                    _ => "info",
-                }
-                .to_string(),
-            ),
-            message: Some(
-                match result.status {
-                    MavenProfileTaskStatus::Running => "Maven profile project update running",
-                    MavenProfileTaskStatus::Failed => "Maven profile project update failed",
-                    MavenProfileTaskStatus::TimedOut => "Maven profile project update timed out",
-                    MavenProfileTaskStatus::Cancelled => "Maven profile project update cancelled",
-                    _ => "Maven profile project update completed",
-                }
-                .to_string(),
-            ),
-            detail: None,
-            maven_profile_project: Some(result),
-            maven_profile_task: None,
-        },
-    );
-}
-
-fn push_maven_profile_task_event(
-    session: &RuntimeSession,
-    state: &mut SessionState,
-    status: MavenProfileTaskStatus,
-) {
-    let sequence = take_sequence(state);
-    enqueue_runtime_event(
-        session,
-        state,
-        LspRuntimeEvent {
-            kind: "log".to_string(),
-            channel: None,
-            plugin_id: None,
-            role: None,
-            event: None,
-            fields: None,
-            catalog_level: None,
-            sequence,
-            provider_id: session.provider_id.clone(),
-            session_id: session.id.clone(),
-            state: None,
-            operation_id: None,
-            method: None,
-            uri: None,
-            version: None,
-            diagnostics: None,
-            result: None,
-            error: None,
-            capabilities: None,
-            server_info: None,
-            level: Some("info".to_string()),
-            message: Some("Maven profile task state changed".to_string()),
-            detail: None,
-            maven_profile_project: None,
-            maven_profile_task: Some(status),
-        },
-    );
-}
-
-/// Keeps Maven project diagnostics useful while omitting the user's absolute
-/// workspace path from the persisted runtime log.
-fn redacted_project_uri(uri: &str) -> String {
-    let trimmed = uri.trim_end_matches('/');
-    let name = trimmed.rsplit('/').next().filter(|value| !value.is_empty());
-    let digest = Sha256::digest(uri.as_bytes());
-    let suffix = format!("{:x}", digest)[..8].to_string();
-    match name {
-        Some(name) => format!("file:///{name}-{suffix}"),
-        None => format!("file:///workspace-{suffix}"),
-    }
 }
 
 fn take_sequence(state: &mut SessionState) -> u64 {
@@ -9002,7 +5745,6 @@ fn runtime_error(
         message: message.to_string(),
         underlying_message: underlying.map(ToString::to_string),
         process_exit_code,
-        java_build_report: None,
         plugin_error_code: None,
         details: None,
     }
@@ -9016,41 +5758,13 @@ fn fail_feature_requests(
     message: &str,
     exit_code: Option<i32>,
 ) {
-    for waiter in std::mem::take(&mut state.java_entrypoint_waiters) {
-        let error = runtime_error(
-            session,
-            code,
-            stage,
-            Some(JAVA_BUILD_METHOD),
-            None,
-            message,
-            None,
-            exit_code,
-        );
-        push_request_event(
-            session,
-            state,
-            &waiter.operation_id,
-            JAVA_BUILD_METHOD,
-            None,
-            Some(error),
-        );
-    }
     let pending: Vec<_> = state
         .pending
         .iter()
         .filter(|(_, pending)| {
             matches!(
                 pending.kind,
-                PendingKind::Feature
-                    | PendingKind::VirtualDocument
-                    | PendingKind::JavaEntrypoints
-                    | PendingKind::JavaTestItems
-                    | PendingKind::JavaMainMethods
-                    | PendingKind::JavaNavigationMarkers
-                    | PendingKind::JavaNavigationMarkerResolve
-                    | PendingKind::JavaResolveNavigation
-                    | PendingKind::PluginServer
+                PendingKind::Feature | PendingKind::PluginServer
             )
         })
         .map(|(request_id, pending)| (request_id.clone(), pending.clone()))
@@ -9062,7 +5776,6 @@ fn fail_feature_requests(
         if let Some(operation_id) = pending.operation_id.as_deref() {
             state.request_by_operation.remove(operation_id);
             state.function_by_operation.remove(operation_id);
-            state.java_navigation_marker_batches.remove(operation_id);
             let error = runtime_error(
                 session,
                 code,
@@ -9109,47 +5822,6 @@ fn fail_feature_requests(
             Some(error),
         );
     }
-    let (build_operation_ids, build_request_id) = state.java_builds.drain();
-    if let Some(request_id) = build_request_id {
-        state.pending.remove(&request_id);
-        state.client.pending_requests.remove(&request_id);
-    }
-    for operation_id in build_operation_ids {
-        let error = runtime_error(
-            session,
-            code,
-            stage,
-            Some(JAVA_BUILD_METHOD),
-            None,
-            message,
-            None,
-            exit_code,
-        );
-        push_request_event(
-            session,
-            state,
-            &operation_id,
-            JAVA_BUILD_METHOD,
-            None,
-            Some(error),
-        );
-    }
-}
-
-/// Serializes the advisory JDT cancellation a departure requires, if any.
-fn java_build_cancellation(departure: JavaBuildDeparture) -> Vec<String> {
-    departure
-        .cancel_request_id
-        .map(|id| {
-            json!({
-                "jsonrpc": "2.0",
-                "method": "$/cancelRequest",
-                "params": { "id": id }
-            })
-            .to_string()
-        })
-        .into_iter()
-        .collect()
 }
 
 fn clear_runtime_diagnostics(session: &RuntimeSession, state: &mut SessionState) {
@@ -9191,18 +5863,10 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     state.client.toolchain_providers.clear();
     state.client.keymap_import_providers.clear();
     state.linked_document_paths = LinkedDocumentPaths::default();
-    state.java_navigation_marker_batches.clear();
-    state.java_navigation_marker_cache.clear();
-    state.java_builds = JavaBuildCoordinator::default();
-    state.java_entrypoint_waiters.clear();
-    state.java_launches.clear();
-    state.java_launch_messages.clear();
     state.deadline_cancellations.clear();
     state.maintenance_write_deadline = None;
     state.relay_write_deadline = None;
     state.pending_workspace_file_changes.clear();
-    state.maven_profile_update_pending = false;
-    state.maven_project_reload_pending = false;
     state.initialize_deadline = None;
     state.shutdown_deadline = None;
     push_features_event(session, state, Vec::new());
@@ -9284,10 +5948,6 @@ fn workspace_file_changes_notification(
 mod function_relay_tests;
 
 #[cfg(test)]
-#[path = "engine_real_jdt_tests.rs"]
-mod real_jdt_tests;
-
-#[cfg(test)]
 mod tests {
     use super::super::scripted::ScriptedServer;
     use super::*;
@@ -9302,24 +5962,9 @@ mod tests {
         })
     }
 
-    /// Contents of the one file Core reads from a packaged configuration directory.
-    const PACKAGED_JDTLS_CONFIG_INI: &str =
-        "osgi.bundles=reference\\:file\\:org.eclipse.jdt.ls.core_1.61.0.jar@4\\:start\n";
-
-    /// Creates `installation/jdtls/config_mac` holding only the shipped `config.ini`.
-    fn packaged_jdtls_configuration(installation: &Path) -> PathBuf {
-        let configuration = installation.join("jdtls").join("config_mac");
-        std::fs::create_dir_all(&configuration).expect("packaged configuration should be created");
-        std::fs::write(configuration.join("config.ini"), PACKAGED_JDTLS_CONFIG_INI)
-            .expect("packaged config.ini should be written");
-        configuration
-    }
-
     pub(super) fn start_request(server: &ScriptedServer) -> StartServerRequest {
         let _ = server;
         StartServerRequest {
-            // A non-Java provider keeps JDT argument adaptation out of the way;
-            // `adapt_start` is covered by its own tests.
             provider_id: "gopls".to_string(),
             role: SessionRole::LanguageServer,
             log_subject: None,
@@ -9337,18 +5982,8 @@ mod tests {
             working_directory: "/workspace".to_string(),
             initialization_options: None,
             workspace_configuration: None,
-            runtime_executable_path: None,
-            jdtls_launch_resources: None,
-            cache_directory: None,
-            workspace_fingerprint: None,
-            maven_context: None,
-            java_runtimes: Vec::new(),
-            java_gradle: None,
             initialize_timeout_milliseconds: 10_000,
-            service_ready_idle_timeout_milliseconds: 45_000,
-            service_ready_absolute_timeout_milliseconds: 600_000,
             request_timeout_milliseconds: 10_000,
-            java_build_timeout_milliseconds: DEFAULT_JAVA_BUILD_TIMEOUT_MS,
             shutdown_timeout_milliseconds: 10_000,
         }
     }
@@ -9462,7 +6097,7 @@ mod tests {
         let mut request = start_request(&server);
         request.workspace_configuration = Some(json!(["not an object"]));
         assert!(engine.start_server(request).is_err());
-        assert!(server.launched_spec().is_none());
+        assert!(!server.was_launched());
     }
 
     /// An engine with a scripted server behind it, plus the started session.
@@ -9512,11 +6147,12 @@ mod tests {
         }
     }
 
-    struct TemporaryMavenWorkspace {
+    /// A throw-away workspace with a nested directory tree, removed on drop.
+    struct TemporaryWorkspace {
         root: PathBuf,
     }
 
-    impl TemporaryMavenWorkspace {
+    impl TemporaryWorkspace {
         fn recursive(label: &str) -> Self {
             static NEXT_ID: AtomicU64 = AtomicU64::new(1);
             let root = std::env::temp_dir().join(format!(
@@ -9525,73 +6161,24 @@ mod tests {
                 NEXT_ID.fetch_add(1, Ordering::Relaxed)
             ));
             std::fs::create_dir_all(root.join("reactor/module-a/nested"))
-                .expect("recursive Maven fixture should be creatable");
+                .expect("nested fixture should be creatable");
             std::fs::write(
-                root.join("reactor/pom.xml"),
-                r#"<project><artifactId>reactor</artifactId><packaging>pom</packaging><modules><module>module-a</module></modules></project>"#,
+                root.join("reactor/module-a/nested/main.go"),
+                "package main\n",
             )
-            .expect("reactor pom should be writable");
-            std::fs::write(
-                root.join("reactor/module-a/pom.xml"),
-                r#"<project><artifactId>module-a</artifactId><packaging>pom</packaging><modules><module>nested</module></modules></project>"#,
-            )
-            .expect("module pom should be writable");
-            std::fs::write(
-                root.join("reactor/module-a/nested/pom.xml"),
-                r#"<project><artifactId>nested</artifactId></project>"#,
-            )
-            .expect("nested module pom should be writable");
+            .expect("fixture file should be writable");
             Self { root }
         }
 
         fn configure(&self, request: &mut StartServerRequest) {
-            request.provider_id = "java".to_string();
             request.root_uri = url::Url::from_directory_path(&self.root)
                 .expect("fixture root should convert to a URI")
                 .to_string();
             request.working_directory = self.root.to_string_lossy().into_owned();
-            request.cache_directory = Some(self.root.join("cache").to_string_lossy().into_owned());
-            request.maven_context = Some(crate::project::MavenLaunchContextRequest {
-                version: 1,
-                reactor_path: "reactor".to_string(),
-                profiles: vec![
-                    "enterprise".to_string(),
-                    "dev".to_string(),
-                    "enterprise".to_string(),
-                ],
-                settings_path: Some("/local/settings.xml".to_string()),
-                local_repository_path: None,
-                skip_tests: true,
-                maven_executable_path: Some("/local/maven/bin/mvn".to_string()),
-                java_home_path: Some("/local/jdk".to_string()),
-            });
         }
     }
 
-    impl TemporaryMavenWorkspace {
-        /// The fixture's Maven context with a real settings file and the given
-        /// local repository override.
-        fn context_with_settings(
-            &self,
-            settings: &str,
-            local_repository: Option<&str>,
-        ) -> crate::project::MavenLaunchContextRequest {
-            let settings_path = self.root.join("settings.xml");
-            std::fs::write(&settings_path, settings).expect("settings fixture should be writable");
-            crate::project::MavenLaunchContextRequest {
-                version: 1,
-                reactor_path: "reactor".to_string(),
-                profiles: vec!["dev".to_string()],
-                settings_path: Some(settings_path.to_string_lossy().into_owned()),
-                local_repository_path: local_repository.map(ToString::to_string),
-                skip_tests: true,
-                maven_executable_path: None,
-                java_home_path: None,
-            }
-        }
-    }
-
-    impl Drop for TemporaryMavenWorkspace {
+    impl Drop for TemporaryWorkspace {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.root);
         }
@@ -9699,7 +6286,6 @@ mod tests {
                         operation_id: Some(operation_id.clone()),
                         operation,
                         uri: Some(uri.to_string()),
-                        virtual_uri: None,
                         position: Some(LspPosition {
                             line: 0,
                             utf16_column: 0,
@@ -9718,32 +6304,6 @@ mod tests {
             operation_id
         }
 
-        /// Issues a workspace `executeCommand` request and returns its operation ID.
-        fn execute_command(&self, command: Value) -> String {
-            let operation_id = self.engine.next_operation_id();
-            self.session()
-                .request(
-                    SemanticRequest {
-                        session_id: self.session_id.clone(),
-                        operation_id: Some(operation_id.clone()),
-                        operation: LspSemanticOperation::ExecuteCommand,
-                        uri: None,
-                        virtual_uri: None,
-                        position: None,
-                        new_name: None,
-                        range: None,
-                        diagnostics: Vec::new(),
-                        completion_context: None,
-                        completion_item: None,
-                        code_action: None,
-                        command: Some(command),
-                    },
-                    operation_id.clone(),
-                )
-                .expect("a ready session should accept the command");
-            operation_id
-        }
-
         /// The recorded JSON-RPC message with the given request ID.
         fn written_request(&self, request_id: &str) -> Value {
             self.server
@@ -9759,146 +6319,6 @@ mod tests {
                 .messages()
                 .into_iter()
                 .find(|message| message.get("method").and_then(Value::as_str) == Some(method))
-        }
-    }
-
-    /// Owns an opt-in real-process smoke session and removes every temporary
-    /// resource even when the smoke test unwinds after a failed assertion.
-    pub(super) struct RealSmokeCleanup<'a> {
-        pub(super) engine: &'a LspEngine,
-        pub(super) session_id: String,
-        pub(super) root: PathBuf,
-    }
-
-    impl Drop for RealSmokeCleanup<'_> {
-        fn drop(&mut self) {
-            if let Ok(session) = self.engine.session(&self.session_id) {
-                let _ = session.stop();
-                let deadline = Instant::now() + Duration::from_secs(10);
-                while Instant::now() < deadline {
-                    let terminal = session.snapshot().is_ok_and(|snapshot| {
-                        matches!(
-                            snapshot.state,
-                            LspLifecycleState::Stopped | LspLifecycleState::Failed
-                        )
-                    });
-                    if terminal {
-                        break;
-                    }
-                    let _ = session.poll_events();
-                    thread::sleep(Duration::from_millis(20));
-                }
-                if session.snapshot().is_ok_and(|snapshot| {
-                    !matches!(
-                        snapshot.state,
-                        LspLifecycleState::Stopped | LspLifecycleState::Failed
-                    )
-                }) {
-                    session.kill_process();
-                }
-            }
-            let _ = self.engine.destroy(&self.session_id);
-            let _ = std::fs::remove_dir_all(&self.root);
-        }
-    }
-
-    pub(super) fn await_real_smoke_ready(
-        session: &Arc<RuntimeSession>,
-    ) -> Result<Vec<LspRuntimeEvent>, String> {
-        let deadline = Instant::now() + Duration::from_secs(90);
-        let mut events = Vec::new();
-        while Instant::now() < deadline {
-            events.extend(session.poll_events().map_err(|error| error.message)?);
-            let snapshot = session.snapshot().map_err(|error| error.message)?;
-            match snapshot.state {
-                LspLifecycleState::Ready => {
-                    events.extend(session.poll_events().map_err(|error| error.message)?);
-                    return Ok(events);
-                }
-                LspLifecycleState::Failed => {
-                    return Err(format!("JDTLS failed during initialization: {events:?}"));
-                }
-                _ => thread::sleep(Duration::from_millis(20)),
-            }
-        }
-        Err(format!(
-            "JDTLS did not become ready before the smoke timeout: {events:?}"
-        ))
-    }
-
-    fn real_smoke_request(
-        engine: &LspEngine,
-        session: &Arc<RuntimeSession>,
-        operation: LspSemanticOperation,
-        uri: Option<&str>,
-        virtual_uri: Option<&str>,
-        position: Option<LspPosition>,
-    ) -> Result<Value, String> {
-        let operation_id = engine.next_operation_id();
-        session
-            .request(
-                SemanticRequest {
-                    session_id: session.id.clone(),
-                    operation_id: Some(operation_id.clone()),
-                    operation,
-                    uri: uri.map(str::to_string),
-                    virtual_uri: virtual_uri.map(str::to_string),
-                    position,
-                    new_name: None,
-                    range: None,
-                    diagnostics: Vec::new(),
-                    completion_context: None,
-                    completion_item: None,
-                    code_action: None,
-                    command: None,
-                },
-                operation_id.clone(),
-            )
-            .map_err(|error| error.message)?;
-
-        let deadline = Instant::now() + Duration::from_secs(35);
-        while Instant::now() < deadline {
-            for event in session.poll_events().map_err(|error| error.message)? {
-                if event.operation_id.as_deref() != Some(operation_id.as_str()) {
-                    continue;
-                }
-                if let Some(error) = event.error {
-                    return Err(format!(
-                        "JDTLS smoke request {} failed: {error:?}",
-                        semantic_method(operation)
-                    ));
-                }
-                return event.result.ok_or_else(|| {
-                    format!(
-                        "JDTLS smoke request {} returned no result",
-                        semantic_method(operation)
-                    )
-                });
-            }
-            thread::sleep(Duration::from_millis(20));
-        }
-        Err(format!(
-            "JDTLS smoke request {} timed out",
-            semantic_method(operation)
-        ))
-    }
-
-    fn real_smoke_locations(result: &Value) -> &[Value] {
-        result
-            .get("locations")
-            .and_then(Value::as_array)
-            .map(Vec::as_slice)
-            .unwrap_or_default()
-    }
-
-    fn real_smoke_token_position(text: &str, marker: &str, token_offset: usize) -> LspPosition {
-        let marker_index = text.find(marker).expect("smoke marker should exist") + token_offset;
-        let prefix = &text[..marker_index];
-        let line = prefix.bytes().filter(|byte| *byte == b'\n').count() as i64;
-        let line_prefix = prefix.rsplit_once('\n').map_or(prefix, |(_, tail)| tail);
-        LspPosition {
-            line,
-            utf16_column: line_prefix.encode_utf16().count() as i64,
         }
     }
 
@@ -9960,206 +6380,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn java_waits_for_service_ready_after_standard_initialize() {
-        let mut harness = Harness::start(|request| {
-            request.provider_id = "java".to_string();
-        });
-        harness.server.complete_initialize(ready_capabilities());
-        assert!(harness
-            .server
-            .await_notification("workspace/didChangeConfiguration"));
-
-        assert_eq!(
-            harness.snapshot().state,
-            LspLifecycleState::Initializing,
-            "the initialize response alone must not advertise a usable Java index"
-        );
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "method": "language/status",
-            "params": { "type": "ServiceReady", "message": "ServiceReady" }
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-    }
-
-    #[test]
-    fn java_applies_maven_settings_and_recursive_profiles_before_ready() {
-        let workspace = TemporaryMavenWorkspace::recursive("maven-context-ready");
-        let mut harness = Harness::start(|request| workspace.configure(request));
-        harness.server.complete_initialize(ready_capabilities());
-        assert!(harness
-            .server
-            .await_notification("workspace/didChangeConfiguration"));
-
-        let configuration = harness
-            .notification("workspace/didChangeConfiguration")
-            .expect("Java configuration notification should be sent");
-        assert_eq!(
-            configuration["params"]["settings"]["java"]["configuration"]["maven"]["userSettings"],
-            "/local/settings.xml"
-        );
-        assert_eq!(
-            configuration["params"]["settings"]["java"]["project"]["sourcePaths"],
-            json!([
-                "reactor/module-a/nested/src/main/java",
-                "reactor/module-a/nested/src/test/java",
-                "reactor/module-a/nested/target/generated-sources",
-                "reactor/module-a/nested/target/generated-test-sources"
-            ])
-        );
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "method": "language/status",
-            "params": { "type": "ServiceReady" }
-        }));
-
-        let request_ids: Vec<_> = (0..3)
-            .map(|index| {
-                harness
-                    .server
-                    .await_request_at("workspace/executeCommand", index)
-                    .expect("every recursive Maven project should receive its profile update")
-            })
-            .collect();
-        let updates: Vec<_> = harness
-            .server
-            .messages()
-            .into_iter()
-            .filter(|message| {
-                message.get("method").and_then(Value::as_str) == Some("workspace/executeCommand")
-            })
-            .collect();
-        let expected_uris = ["reactor/", "reactor/module-a/", "reactor/module-a/nested/"];
-        assert_eq!(updates.len(), expected_uris.len());
-        for (update, expected_uri) in updates.iter().zip(expected_uris) {
-            let project_uri = update["params"]["arguments"][0]
-                .as_str()
-                .expect("the project URI should be a string");
-            assert!(
-                project_uri.ends_with(expected_uri),
-                "unexpected URI: {project_uri}"
-            );
-            assert_eq!(
-                update["params"]["arguments"][1]["org.eclipse.m2e.core.selectedProfiles"],
-                "dev,enterprise"
-            );
-        }
-
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "method": "language/status",
-            "params": { "type": "ServiceReady" }
-        }));
-        for request_id in &request_ids[..2] {
-            harness.server.send(json!({
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": null
-            }));
-        }
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "method": "test/profile-response-barrier"
-        }));
-        harness
-            .await_event(|event| event.message.as_deref() == Some("test/profile-response-barrier"));
-        assert_eq!(
-            harness
-                .server
-                .messages()
-                .iter()
-                .filter(|message| {
-                    message.get("method").and_then(Value::as_str)
-                        == Some("workspace/executeCommand")
-                })
-                .count(),
-            3,
-            "a duplicate readiness notification must not enqueue duplicate profile updates"
-        );
-        assert_eq!(harness.snapshot().state, LspLifecycleState::Ready);
-        let started_log = harness
-            .events
-            .iter()
-            .find(|event| {
-                event.message.as_deref() == Some("Applying Maven profiles to Java projects")
-            })
-            .unwrap();
-        assert_eq!(started_log.detail.as_deref(), Some("projectCount=3"));
-        assert_eq!(started_log.fields.as_ref().unwrap()["projects"], 3);
-        let completed_logs: Vec<_> = harness
-            .events
-            .iter()
-            .filter(|event| {
-                event.kind == "log"
-                    && event.maven_profile_project.is_none()
-                    && event.message.as_deref() == Some("Maven profile project update completed")
-            })
-            .collect();
-        assert_eq!(completed_logs.len(), 2);
-        assert!(completed_logs
-            .iter()
-            .all(|event| { event.level.as_deref() == Some("info") && event.error.is_none() }));
-
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": request_ids[2],
-            "result": null
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-    }
-
-    #[test]
-    fn java_profile_update_error_keeps_the_session_available() {
-        let workspace = TemporaryMavenWorkspace::recursive("maven-context-failure");
-        let mut harness = Harness::start(|request| workspace.configure(request));
-        harness.server.complete_initialize(ready_capabilities());
-        assert!(harness.server.await_notification("initialized"));
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "method": "language/status",
-            "params": { "type": "ServiceReady" }
-        }));
-        let request_id = harness
-            .server
-            .await_request("workspace/executeCommand")
-            .expect("the Maven profile request should be sent");
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "error": { "code": -32603, "message": "Maven project update failed" }
-        }));
-        let project_event = harness.await_event(|event| {
-            event
-                .maven_profile_project
-                .as_ref()
-                .is_some_and(|result| result.status == MavenProfileTaskStatus::Failed)
-        });
-        assert_eq!(
-            project_event
-                .maven_profile_project
-                .as_ref()
-                .map(|result| result.status),
-            Some(MavenProfileTaskStatus::Failed)
-        );
-        let project_uri = project_event
-            .maven_profile_project
-            .as_ref()
-            .map(|result| result.project_uri.as_str())
-            .unwrap_or_default();
-        assert!(!project_uri.contains("/Users/") && !project_uri.contains("\\Users\\"));
-        assert!(project_event.error.is_none());
-        assert!(harness.events.iter().any(|event| {
-            event.kind == "log"
-                && event.level.as_deref() == Some("error")
-                && event.error.as_ref().is_some_and(|error| {
-                    error.stage == "mavenProfile" && error.code == "mavenProfileUpdateFailed"
-                })
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-        assert_eq!(harness.snapshot().state, LspLifecycleState::Ready);
-    }
-
     /// Messages the scripted server received for `method`, in order.
     fn notifications(harness: &Harness, method: &str) -> Vec<Value> {
         harness
@@ -10170,410 +6390,15 @@ mod tests {
             .collect()
     }
 
-    fn user_settings(notification: &Value) -> String {
-        notification["params"]["settings"]["java"]["configuration"]["maven"]["userSettings"]
-            .as_str()
-            .expect("userSettings should be a path")
-            .to_string()
-    }
-
-    #[test]
-    fn a_maven_settings_change_reaches_the_running_java_session() {
-        // Regression for #970: saving Maven settings only marked a reload, and
-        // a restart reused the workspace state without re-resolving. The change
-        // must reach the live session as a new settings path, which is what
-        // makes JDT LS force-update every Maven project.
-        let workspace = TemporaryMavenWorkspace::recursive("maven-update-settings");
-        let initial = workspace.context_with_settings("<settings><mirrors/></settings>", None);
-        let mut harness = Harness::start(|request| {
-            workspace.configure(request);
-            request.maven_context = Some(initial.clone());
-        });
-        harness
-            .server
-            .complete_java_initialize(ready_capabilities());
-        harness.await_state(LspLifecycleState::Ready);
-        let before = notifications(&harness, "workspace/didChangeConfiguration");
-        assert_eq!(before.len(), 1);
-        let profile_updates = notifications(&harness, "workspace/executeCommand").len();
-
-        let mut changed = initial.clone();
-        changed.local_repository_path = Some("/fixture/repository".to_string());
-        let response = harness
-            .session()
-            .update_maven_configuration(changed, false)
-            .expect("a running Java session should accept the update");
-
-        assert_eq!(
-            response,
-            UpdateMavenConfigurationResponse {
-                settings_changed: true,
-                projects_reloaded: false,
-                profiles_updating: false,
-            }
-        );
-        let after = notifications(&harness, "workspace/didChangeConfiguration");
-        assert_eq!(after.len(), 2);
-        let (old_path, new_path) = (user_settings(&before[0]), user_settings(&after[1]));
-        assert_ne!(
-            old_path, new_path,
-            "a changed document must arrive under a new path"
-        );
-        let document = std::fs::read_to_string(&new_path).expect("the new copy should exist");
-        assert!(document.contains("<localRepository>/fixture/repository</localRepository>"));
-        assert_eq!(
-            notifications(&harness, "workspace/executeCommand").len(),
-            profile_updates,
-            "unchanged profiles must not restart the profile task"
-        );
-        assert!(notifications(&harness, "java/projectConfigurationsUpdate").is_empty());
-    }
-
-    #[test]
-    fn an_explicit_maven_reload_forces_a_project_update_when_settings_are_unchanged() {
-        // JDT LS skips re-importing projects whose pom.xml did not change, so
-        // reloading must use its forced "update project" notification.
-        let workspace = TemporaryMavenWorkspace::recursive("maven-update-reload");
-        let context = workspace.context_with_settings("<settings/>", Some("/fixture/repository"));
-        let mut harness = Harness::start(|request| {
-            workspace.configure(request);
-            request.maven_context = Some(context.clone());
-        });
-        harness
-            .server
-            .complete_java_initialize(ready_capabilities());
-        harness.await_state(LspLifecycleState::Ready);
-
-        let quiet = harness
-            .session()
-            .update_maven_configuration(context.clone(), false)
-            .expect("an unchanged update should be accepted");
-        let reload = harness
-            .session()
-            .update_maven_configuration(context, true)
-            .expect("a reload should be accepted");
-
-        assert!(!quiet.settings_changed && !quiet.projects_reloaded);
-        assert!(!reload.settings_changed && reload.projects_reloaded);
-        assert_eq!(
-            notifications(&harness, "workspace/didChangeConfiguration").len(),
-            1
-        );
-        let updates = notifications(&harness, "java/projectConfigurationsUpdate");
-        assert_eq!(
-            updates.len(),
-            1,
-            "only the explicit reload forces an update"
-        );
-        let identifiers = updates[0]["params"]["identifiers"]
-            .as_array()
-            .expect("identifiers should be an array");
-        let suffixes = ["reactor/", "reactor/module-a/", "reactor/module-a/nested/"];
-        assert_eq!(identifiers.len(), suffixes.len());
-        for (identifier, suffix) in identifiers.iter().zip(suffixes) {
-            let uri = identifier["uri"].as_str().expect("identifier URI");
-            assert!(uri.ends_with(suffix), "unexpected project URI {uri}");
-        }
-    }
-
-    #[test]
-    fn a_maven_update_before_initialized_is_sent_with_the_initial_settings() {
-        // Before the handshake completes JDT LS cannot take a configuration
-        // change; the pending post-initialize notification carries it instead.
-        let workspace = TemporaryMavenWorkspace::recursive("maven-update-early");
-        let initial = workspace.context_with_settings("<settings/>", None);
-        let mut harness = Harness::start(|request| {
-            workspace.configure(request);
-            request.maven_context = Some(initial.clone());
-        });
-        let mut changed = initial;
-        changed.local_repository_path = Some("/fixture/early".to_string());
-
-        let response = harness
-            .session()
-            .update_maven_configuration(changed, true)
-            .expect("an initializing session should accept the update");
-        harness
-            .server
-            .complete_java_initialize(ready_capabilities());
-        harness.await_state(LspLifecycleState::Ready);
-
-        assert!(!response.settings_changed && !response.projects_reloaded);
-        let sent = notifications(&harness, "workspace/didChangeConfiguration");
-        assert_eq!(sent.len(), 1);
-        let document =
-            std::fs::read_to_string(user_settings(&sent[0])).expect("the copy should exist");
-        assert!(document.contains("<localRepository>/fixture/early</localRepository>"));
-        assert_eq!(
-            notifications(&harness, "java/projectConfigurationsUpdate").len(),
-            1
-        );
-    }
-
-    #[test]
-    fn unchanged_settings_reload_before_initialize_waits_for_service_ready() {
-        let workspace = TemporaryMavenWorkspace::recursive("maven-reload-before-ready");
-        let context = workspace.context_with_settings("<settings/>", None);
-        let mut harness = Harness::start(|request| {
-            workspace.configure(request);
-            request.maven_context = Some(context.clone());
-        });
-        let session = harness.session();
-        session
-            .update_maven_configuration(context.clone(), true)
-            .unwrap();
-        harness.server.complete_initialize(ready_capabilities());
-        assert!(harness
-            .server
-            .await_notification("workspace/didChangeConfiguration"));
-        // Reloads coalesce, including another request during project import.
-        session.update_maven_configuration(context, true).unwrap();
-        assert!(notifications(&harness, "java/projectConfigurationsUpdate").is_empty());
-        session
-            .handle_server_message(
-                json!({
-                    "jsonrpc": "2.0", "method": "language/status",
-                    "params": { "type": "ServiceReady" }
-                })
-                .to_string(),
-            )
-            .unwrap();
-        harness.await_state(LspLifecycleState::Ready);
-        assert_eq!(
-            notifications(&harness, "java/projectConfigurationsUpdate").len(),
-            1
-        );
-        session
-            .handle_server_message(
-                json!({
-                    "jsonrpc": "2.0", "method": "language/status",
-                    "params": { "type": "ServiceReady" }
-                })
-                .to_string(),
-            )
-            .unwrap();
-        assert_eq!(
-            notifications(&harness, "java/projectConfigurationsUpdate").len(),
-            1
-        );
-    }
-
-    #[test]
-    fn changed_maven_profiles_restart_the_profile_task_on_a_ready_session() {
-        let workspace = TemporaryMavenWorkspace::recursive("maven-update-profiles");
-        let initial = workspace.context_with_settings("<settings/>", None);
-        let mut harness = Harness::start(|request| {
-            workspace.configure(request);
-            request.maven_context = Some(initial.clone());
-        });
-        harness
-            .server
-            .complete_java_initialize(ready_capabilities());
-        harness.await_state(LspLifecycleState::Ready);
-        for index in 0..3 {
-            let id = harness
-                .server
-                .await_request_at("workspace/executeCommand", index)
-                .expect("the initial profile task should update every project");
-            harness
-                .server
-                .send(json!({ "jsonrpc": "2.0", "id": id, "result": null }));
-        }
-        harness.await_event(|event| {
-            event.maven_profile_task == Some(MavenProfileTaskStatus::Succeeded)
-        });
-
-        let mut changed = initial;
-        changed.profiles = vec!["prod".to_string()];
-        let response = harness
-            .session()
-            .update_maven_configuration(changed, false)
-            .expect("a profile change should be accepted");
-
-        assert!(response.profiles_updating);
-        assert!(!response.settings_changed);
-        let updates = notifications(&harness, "workspace/executeCommand");
-        assert_eq!(updates.len(), 6);
-        assert_eq!(
-            updates[5]["params"]["arguments"][1]["org.eclipse.m2e.core.selectedProfiles"],
-            "prod"
-        );
-    }
-
-    #[test]
-    fn a_profile_change_during_a_running_profile_task_is_applied_afterwards() {
-        // The running task applies the old profiles. Recording the new
-        // configuration as applied when it finishes would silently drop the
-        // user's change, so a follow-up task must apply it.
-        let workspace = TemporaryMavenWorkspace::recursive("maven-update-profiles-running");
-        let initial = workspace.context_with_settings("<settings/>", None);
-        let mut harness = Harness::start(|request| {
-            workspace.configure(request);
-            request.maven_context = Some(initial.clone());
-        });
-        harness
-            .server
-            .complete_java_initialize(ready_capabilities());
-        harness.await_state(LspLifecycleState::Ready);
-        let first_batch: Vec<_> = (0..3)
-            .map(|index| {
-                harness
-                    .server
-                    .await_request_at("workspace/executeCommand", index)
-                    .expect("the initial profile task should update every project")
-            })
-            .collect();
-
-        let mut changed = initial;
-        changed.profiles = vec!["prod".to_string()];
-        let response = harness
-            .session()
-            .update_maven_configuration(changed, false)
-            .expect("a profile change should be accepted while the task runs");
-        assert!(response.profiles_updating);
-        assert_eq!(notifications(&harness, "workspace/executeCommand").len(), 3);
-
-        for id in first_batch {
-            harness
-                .server
-                .send(json!({ "jsonrpc": "2.0", "id": id, "result": null }));
-        }
-        let follow_up = harness
-            .server
-            .await_request_at("workspace/executeCommand", 5)
-            .expect("the changed profiles should be applied by a follow-up task");
-        let request = harness
-            .server
-            .messages()
-            .into_iter()
-            .find(|message| message["id"] == follow_up)
-            .expect("the follow-up request should be recorded");
-        assert_eq!(
-            request["params"]["arguments"][1]["org.eclipse.m2e.core.selectedProfiles"],
-            "prod"
-        );
-    }
-
-    #[test]
-    fn a_new_profile_selection_runs_after_a_failed_batch() {
-        profile_selection_after_unsuccessful_batch(false);
-    }
-
-    #[test]
-    fn a_new_profile_selection_waits_for_timed_out_requests_to_drain() {
-        profile_selection_after_unsuccessful_batch(true);
-    }
-
-    fn profile_selection_after_unsuccessful_batch(timeout: bool) {
-        let workspace = TemporaryMavenWorkspace::recursive("maven-profile-failure-followup");
-        let context = workspace.context_with_settings("<settings/>", None);
-        let mut harness = Harness::start(|request| {
-            workspace.configure(request);
-            request.maven_context = Some(context.clone());
-        });
-        harness
-            .server
-            .complete_java_initialize(ready_capabilities());
-        harness.await_state(LspLifecycleState::Ready);
-        let session = harness.session();
-        let first_batch: Vec<_> = (0..3)
-            .map(|index| {
-                harness
-                    .server
-                    .await_request_at("workspace/executeCommand", index)
-                    .unwrap()
-            })
-            .collect();
-        let mut next = context;
-        next.profiles = vec!["prod".to_string()];
-        assert!(
-            session
-                .update_maven_configuration(next, false)
-                .unwrap()
-                .profiles_updating
-        );
-        if timeout {
-            // Advance the owned deadlines directly; no wall-clock wait or overlap.
-            {
-                let mut state = session.lock_state().unwrap();
-                for pending in state.pending.values_mut() {
-                    if pending.kind == PendingKind::JdtMavenProfiles {
-                        pending.deadline = Instant::now();
-                    }
-                }
-            }
-            session.expire_deadlines();
-        }
-        for (index, id) in first_batch.into_iter().enumerate() {
-            session
-                .handle_server_message(
-                    json!({
-                        "jsonrpc": "2.0", "id": id,
-                        "error": { "code": -32603, "message": "old profile failed" }
-                    })
-                    .to_string(),
-                )
-                .unwrap();
-            session.pump_outbound_maintenance();
-            if index < 2 {
-                assert_eq!(notifications(&harness, "workspace/executeCommand").len(), 3);
-            }
-        }
-        let second_batch: Vec<_> = (3..6)
-            .map(|index| {
-                harness
-                    .server
-                    .await_request_at("workspace/executeCommand", index)
-                    .unwrap()
-            })
-            .collect();
-        for request in notifications(&harness, "workspace/executeCommand")
-            .iter()
-            .skip(3)
-        {
-            assert_eq!(
-                request["params"]["arguments"][1]["org.eclipse.m2e.core.selectedProfiles"],
-                "prod"
-            );
-        }
-        // A failure of the latest selection is terminal, not an infinite retry loop.
-        for id in second_batch {
-            session
-                .handle_server_message(
-                    json!({
-                        "jsonrpc": "2.0", "id": id,
-                        "error": { "code": -32603, "message": "new profile failed" }
-                    })
-                    .to_string(),
-                )
-                .unwrap();
-        }
-        session.pump_outbound_maintenance();
-        assert_eq!(notifications(&harness, "workspace/executeCommand").len(), 6);
-    }
-
-    #[test]
-    fn a_session_without_a_maven_context_rejects_maven_updates() {
-        let workspace = TemporaryMavenWorkspace::recursive("maven-update-reject");
-        let harness = Harness::ready();
-
-        let error = harness
-            .session()
-            .update_maven_configuration(workspace.context_with_settings("<settings/>", None), true)
-            .expect_err("a session without Maven import settings cannot be updated");
-
-        assert!(matches!(error.code, ErrorCode::InvalidRequest));
-    }
-
     #[test]
     fn structured_logging_warnings_keep_source_stage_and_code() {
         let harness = Harness::ready();
         let session = harness.session();
         session.log_issue(
             "warn",
-            "configurationCleanup",
-            "configurationCleanupFailed",
-            EngineLog::ConfigurationCleanupFailed,
+            "processCleanup",
+            "processCleanupFailed",
+            EngineLog::ProcessCleanupFailed,
             "Cleanup failed",
             None,
         );
@@ -10585,8 +6410,8 @@ mod tests {
             .unwrap();
         assert_eq!(event.level.as_deref(), Some("warn"));
         let error = event.error.unwrap();
-        assert_eq!(error.code, "configurationCleanupFailed");
-        assert_eq!(error.stage, "configurationCleanup");
+        assert_eq!(error.code, "processCleanupFailed");
+        assert_eq!(error.stage, "processCleanup");
         assert!(error.underlying_message.is_none());
         for (stage, code) in [
             ("stderr", "upstreamStderr"),
@@ -10767,12 +6592,14 @@ mod tests {
         // A JSON-looking v1 detail cannot supply or overwrite a catalog fact.
         session.log(
             "info",
-            EngineLog::MavenApplicationStarted.with_fields(json!({"projectCount": 2})),
-            "Applying Maven profiles to Java projects",
-            Some("{\"projectCount\":999}".into()),
+            EngineLog::StderrReceived.with_fields(json!({"diagnostic": "kept", "truncated": true})),
+            "Language-server stderr",
+            Some("{\"diagnostic\":\"overwritten\",\"truncated\":false}".into()),
         );
         let event = session.poll_events().unwrap().into_iter().next().unwrap();
-        assert_eq!(event.fields.unwrap()["projects"], 2);
+        let fields = event.fields.unwrap();
+        assert_eq!(fields["diagnostic"], "kept");
+        assert_eq!(fields["truncated"], true);
     }
 
     #[test]
@@ -11008,357 +6835,9 @@ mod tests {
     }
 
     #[test]
-    fn maven_profile_log_redacts_absolute_project_paths() {
-        let redacted = redacted_project_uri("file:///Users/alice/workspace/module-a/");
-        assert!(redacted.starts_with("file:///module-a-"));
-        assert!(!redacted.contains("alice"));
-        assert_ne!(
-            redacted_project_uri("file:///workspace/service-a/common/"),
-            redacted_project_uri("file:///workspace/service-b/common/")
-        );
-    }
-
-    #[test]
-    fn maven_profile_project_log_matches_its_status() {
-        let harness = Harness::ready();
-        let session = harness.session();
-        for (status, level, message) in [
-            (
-                MavenProfileTaskStatus::Running,
-                "info",
-                "Maven profile project update running",
-            ),
-            (
-                MavenProfileTaskStatus::Succeeded,
-                "info",
-                "Maven profile project update completed",
-            ),
-            (
-                MavenProfileTaskStatus::Failed,
-                "error",
-                "Maven profile project update failed",
-            ),
-            (
-                MavenProfileTaskStatus::TimedOut,
-                "error",
-                "Maven profile project update timed out",
-            ),
-        ] {
-            {
-                let mut state = session.lock_state().unwrap();
-                push_maven_profile_project_event(
-                    &session,
-                    &mut state,
-                    MavenProfileProjectResult {
-                        project_uri: "file:///workspace/module".to_string(),
-                        status,
-                        error_details: None,
-                    },
-                );
-            }
-            let event = session
-                .poll_events()
-                .unwrap()
-                .into_iter()
-                .find(|event| event.maven_profile_project.is_some())
-                .unwrap();
-            assert_eq!(event.level.as_deref(), Some(level));
-            assert_eq!(event.message.as_deref(), Some(message));
-            assert!(event.error.is_none());
-            assert_eq!(event.maven_profile_project.unwrap().status, status);
-        }
-    }
-
-    #[test]
-    fn maven_profile_retry_waits_for_ready_and_cancelled_responses() {
-        let workspace = TemporaryMavenWorkspace::recursive("maven-retry");
-        let mut modules = String::new();
-        for index in 0..9 {
-            let name = format!("module-{index}");
-            let directory = workspace.root.join("reactor").join(&name);
-            std::fs::create_dir_all(&directory).unwrap();
-            std::fs::write(
-                directory.join("pom.xml"),
-                format!("<project><artifactId>{name}</artifactId></project>"),
-            )
-            .unwrap();
-            modules.push_str(&format!("<module>{name}</module>"));
-        }
-        std::fs::write(
-            workspace.root.join("reactor/pom.xml"),
-            format!(
-                "<project><artifactId>reactor</artifactId><modules>{modules}</modules></project>"
-            ),
-        )
-        .unwrap();
-        let mut harness = Harness::start(|request| workspace.configure(request));
-        harness.server.complete_initialize(ready_capabilities());
-        assert!(harness.server.await_notification("initialized"));
-        let session = harness.session();
-        assert!(session.retry_maven_profiles().is_err());
-        assert_eq!(harness.snapshot().state, LspLifecycleState::Initializing);
-        harness.server.send(json!({
-            "jsonrpc": "2.0", "method": "language/status",
-            "params": { "type": "ServiceReady" }
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-        let ids: Vec<_> = (0..8)
-            .map(|index| {
-                harness
-                    .server
-                    .await_request_at("workspace/executeCommand", index)
-                    .unwrap()
-            })
-            .collect();
-        assert!(session.retry_maven_profiles().is_err());
-        {
-            let mut state = session.lock_state().unwrap();
-            for pending in state.pending.values_mut() {
-                if pending.kind == PendingKind::JdtMavenProfiles {
-                    pending.deadline = Instant::now();
-                }
-            }
-        }
-        session.expire_deadlines();
-        assert!(harness.server.await_notification("$/cancelRequest"));
-        assert!(session.retry_maven_profiles().is_err());
-        let cancelled_ids: Vec<_> = harness
-            .server
-            .messages()
-            .iter()
-            .filter(|message| message["method"] == "$/cancelRequest")
-            .map(|message| message["params"]["id"].clone())
-            .collect();
-        assert_eq!(cancelled_ids.len(), 8);
-        assert!(ids.iter().all(|id| cancelled_ids.contains(&json!(id))));
-        // Feed terminal responses synchronously: cancellation must keep every
-        // old slot occupied until its response arrives, without updating results.
-        for (index, id) in ids.iter().enumerate() {
-            session.handle_server_message(json!({
-                "jsonrpc": "2.0", "id": id, "error": { "code": -32800, "message": "cancelled" }
-            }).to_string()).unwrap();
-            if index < ids.len() - 1 {
-                assert!(session.retry_maven_profiles().is_err());
-            }
-        }
-        assert!(session
-            .lock_state()
-            .unwrap()
-            .maven_profile_results
-            .values()
-            .all(|result| result.status == MavenProfileTaskStatus::TimedOut));
-        session.retry_maven_profiles().unwrap();
-        assert!(harness
-            .server
-            .await_request_at("workspace/executeCommand", 15)
-            .is_some());
-        assert_eq!(harness.snapshot().state, LspLifecycleState::Ready);
-    }
-
-    #[test]
-    fn java_service_error_fails_the_preparing_session() {
-        let mut harness = Harness::start(|request| {
-            request.provider_id = "java".to_string();
-        });
-        harness.server.complete_initialize(ready_capabilities());
-        assert!(harness.server.await_notification("initialized"));
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "method": "language/status",
-            "params": { "type": "Error", "message": "Project import failed" }
-        }));
-        harness.await_state(LspLifecycleState::Failed);
-
-        let failure = harness
-            .events
-            .iter()
-            .find_map(|event| event.error.as_ref())
-            .expect("the Java service error should be retained");
-        assert_eq!(failure.code, "serviceReadyFailed");
-        assert_eq!(failure.stage, "serviceReady");
-        assert_eq!(
-            failure.underlying_message.as_deref(),
-            Some("Project import failed")
-        );
-    }
-
-    #[test]
-    fn java_quiet_import_remains_alive_until_service_ready() {
-        let mut harness = Harness::start(|request| {
-            request.provider_id = "java".to_string();
-        });
-        harness.server.complete_initialize(ready_capabilities());
-        assert!(harness.server.await_notification("initialized"));
-        let session = harness.session();
-        // A quiet m2e batch is not a heartbeat failure. Advance only the deadline
-        // clock so the test needs neither a real project nor a 46-second sleep.
-        session.expire_deadlines_at(Instant::now() + Duration::from_secs(46));
-        let warning = harness.await_event(|event| {
-            event.error.as_ref().is_some_and(|error| {
-                error.stage == "workspaceImport" && error.code == "workspaceImportStalled"
-            })
-        });
-        assert_eq!(warning.kind, "log");
-        assert_eq!(warning.level.as_deref(), Some("warning"));
-        assert_eq!(harness.snapshot().state, LspLifecycleState::Initializing);
-        harness.server.send(json!({
-            "jsonrpc": "2.0", "method": "language/status",
-            "params": { "type": "ServiceReady" }
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-        assert!(!harness
-            .events
-            .iter()
-            .any(|event| event.kind != "log" && event.error.is_some()));
-    }
-
-    #[test]
-    fn java_preparation_absolute_timeout_covers_quiet_project_import() {
-        let mut harness = Harness::start(|request| {
-            request.provider_id = "java".to_string();
-        });
-        harness.server.complete_initialize(ready_capabilities());
-        assert!(harness.server.await_notification("initialized"));
-        harness
-            .session()
-            .expire_deadlines_at(Instant::now() + Duration::from_secs(601));
-        harness.await_state(LspLifecycleState::Failed);
-
-        let failure = harness
-            .events
-            .iter()
-            .find_map(|event| event.error.as_ref())
-            .expect("project import timeout should be reported");
-        assert_eq!(failure.code, "serviceReadyTimeout");
-        assert_eq!(failure.stage, "serviceReady");
-        let detail: Value =
-            serde_json::from_str(failure.underlying_message.as_deref().unwrap()).unwrap();
-        assert_eq!(detail["timeoutKind"], "absolute");
-        assert_eq!(detail["classification"], "noProgressStall");
-    }
-
-    #[test]
-    fn java_import_notifications_are_logged_after_service_ready() {
-        let mut harness = Harness::start(|request| {
-            request.provider_id = "java".to_string();
-        });
-        harness.server.complete_initialize(ready_capabilities());
-        assert!(harness.server.await_notification("initialized"));
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "method": "$/progress",
-            "params": {
-                "token": "java-import",
-                "value": {
-                    "kind": "report",
-                    "message": "Importing Maven project(s) - Importing project module-a",
-                    "percentage": 20
-                }
-            }
-        }));
-        harness.await_event(|event| {
-            event.message.as_deref() == Some("Java workspace import progress")
-        });
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "method": "language/status",
-            "params": { "type": "ServiceReady" }
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-        assert!(
-            !harness.events.iter().any(|event| {
-                matches!(
-                    event.message.as_deref(),
-                    Some("$/progress" | "language/status")
-                )
-            }),
-            "structured preparation notifications should not be logged twice"
-        );
-
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "method": "$/progress",
-            "params": {
-                "token": "java-build",
-                "value": {
-                    "kind": "report",
-                    "message": "Building workspace - Project 'module-a'",
-                    "percentage": 50
-                }
-            }
-        }));
-        harness.await_event(|event| event.message.as_deref() == Some("$/progress"));
-
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "method": "language/status",
-            "params": {
-                "type": "Error",
-                "message": "Background build failed"
-            }
-        }));
-        harness.await_event(|event| event.message.as_deref() == Some("language/status"));
-        assert_eq!(harness.snapshot().state, LspLifecycleState::Ready);
-    }
-
-    #[test]
-    fn java_documents_wait_for_service_ready_and_latest_text_wins() {
-        let mut harness = Harness::start(|request| {
-            request.provider_id = "java".to_string();
-        });
-        let uri = "file:///workspace/Main.java";
-        harness.sync(uri, "class Main {}");
-        harness.server.complete_initialize(ready_capabilities());
-        assert!(harness
-            .server
-            .await_notification("workspace/didChangeConfiguration"));
-        assert!(!harness
-            .server
-            .messages()
-            .iter()
-            .any(|message| message["method"] == "textDocument/didOpen"));
-
-        harness.sync(uri, "class Main { int value; }");
-        assert_eq!(harness.snapshot().state, LspLifecycleState::Initializing);
-        assert_eq!(harness.snapshot().open_documents[uri].version, 0);
-        assert!(!harness.server.messages().iter().any(|message| {
-            matches!(
-                message["method"].as_str(),
-                Some("textDocument/didOpen" | "textDocument/didChange")
-            )
-        }));
-
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "method": "language/status",
-            "params": { "type": "ServiceReady" }
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-
-        let document_messages: Vec<_> = harness
-            .server
-            .messages()
-            .into_iter()
-            .filter(|message| {
-                matches!(
-                    message["method"].as_str(),
-                    Some("textDocument/didOpen" | "textDocument/didChange")
-                )
-            })
-            .collect();
-        assert_eq!(document_messages.len(), 1);
-        assert_eq!(document_messages[0]["method"], "textDocument/didOpen");
-        assert_eq!(
-            document_messages[0]["params"]["textDocument"]["text"],
-            "class Main { int value; }"
-        );
-        assert_eq!(harness.snapshot().open_documents[uri].version, 1);
-    }
-
-    #[test]
     fn ranged_edits_extend_text_retained_before_the_server_is_ready() {
-        let harness = Harness::start(|request| {
-            request.provider_id = "java".to_string();
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "gopls".to_string();
         });
         let uri = "file:///workspace/First.java";
         harness.sync(uri, "class First {}");
@@ -11387,14 +6866,7 @@ mod tests {
             .expect("ranged edits should extend the retained text");
 
         harness.server.complete_initialize(ready_capabilities());
-        assert!(harness
-            .server
-            .await_notification("workspace/didChangeConfiguration"));
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "method": "language/status",
-            "params": { "type": "ServiceReady" }
-        }));
+        harness.await_state(LspLifecycleState::Ready);
         assert!(harness.server.await_notification("textDocument/didOpen"));
         let written = String::from_utf8_lossy(&harness.server.written_bytes()).into_owned();
         assert!(written.contains("class FirstRenamed {}"));
@@ -11410,118 +6882,6 @@ mod tests {
             })
             .expect_err("edits to an unknown document cannot be resolved");
         assert_eq!(error.details.as_deref(), Some("documentNotSynchronized"));
-    }
-
-    #[test]
-    fn java_ready_flush_precedes_concurrent_edits_and_closes() {
-        let mut harness = Harness::start(|request| {
-            request.provider_id = "java".to_string();
-        });
-        let first_uri = "file:///workspace/First.java";
-        let second_uri = "file:///workspace/Second.java";
-        harness.sync(first_uri, "class First {}");
-        harness.sync(second_uri, "class Second {}");
-        harness.server.complete_initialize(ready_capabilities());
-        assert!(harness
-            .server
-            .await_notification("workspace/didChangeConfiguration"));
-
-        // Hold the first restored didOpen before it reaches the server. The
-        // complete ready flush must retain outbound ownership and keep Ready
-        // private until every restored document has been written.
-        harness.server.pause_input();
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "method": "language/status",
-            "params": { "type": "ServiceReady" }
-        }));
-        assert!(
-            harness.server.await_input_pause(),
-            "the restored document flush should reach the write barrier"
-        );
-        assert_eq!(
-            harness.snapshot().state,
-            LspLifecycleState::Initializing,
-            "Ready must not be published before queued didOpen messages are written"
-        );
-
-        let start = Arc::new(std::sync::Barrier::new(3));
-        let edit_session = harness.session();
-        let edit_session_id = harness.session_id.clone();
-        let edit_start = start.clone();
-        let edit = thread::spawn(move || {
-            edit_start.wait();
-            edit_session.sync_document(SyncDocumentRequest {
-                session_id: edit_session_id,
-                uri: second_uri.to_string(),
-                language_id: "java".to_string(),
-                text: "class Second { int value; }".to_string(),
-                content_changes: Vec::new(),
-            })
-        });
-        let close_session = harness.session();
-        let close_start = start.clone();
-        let close = thread::spawn(move || {
-            close_start.wait();
-            close_session.close_document(first_uri)
-        });
-        start.wait();
-
-        assert!(
-            harness.session().outbound_order.try_lock().is_err(),
-            "the ready flush should exclude concurrent protocol state commits"
-        );
-        harness.server.resume_input();
-        edit.join()
-            .expect("the concurrent edit thread should finish")
-            .expect("the concurrent edit should succeed after Ready");
-        close
-            .join()
-            .expect("the concurrent close thread should finish")
-            .expect("the concurrent close should succeed after Ready");
-        harness.await_state(LspLifecycleState::Ready);
-
-        let document_messages: Vec<_> = harness
-            .server
-            .messages()
-            .into_iter()
-            .filter(|message| {
-                matches!(
-                    message["method"].as_str(),
-                    Some(
-                        "textDocument/didOpen" | "textDocument/didChange" | "textDocument/didClose"
-                    )
-                )
-            })
-            .collect();
-        assert_eq!(document_messages.len(), 4);
-        assert_eq!(document_messages[0]["method"], "textDocument/didOpen");
-        assert_eq!(
-            document_messages[0]["params"]["textDocument"]["uri"],
-            first_uri
-        );
-        assert_eq!(document_messages[1]["method"], "textDocument/didOpen");
-        assert_eq!(
-            document_messages[1]["params"]["textDocument"]["uri"],
-            second_uri
-        );
-        assert!(document_messages[2..].iter().any(|message| {
-            message["method"] == "textDocument/didChange"
-                && message["params"]["textDocument"]["uri"] == second_uri
-                && message["params"]["textDocument"]["version"] == 2
-        }));
-        assert!(document_messages[2..].iter().any(|message| {
-            message["method"] == "textDocument/didClose"
-                && message["params"]["textDocument"]["uri"] == first_uri
-        }));
-
-        let snapshot = harness.snapshot();
-        assert!(!snapshot.open_documents.contains_key(first_uri));
-        assert_eq!(snapshot.open_documents[second_uri].version, 2);
-        assert_eq!(
-            &*snapshot.open_documents[second_uri].text,
-            "class Second { int value; }"
-        );
     }
 
     /// A path descriptor reaches the server with reserved characters escaped.
@@ -11654,47 +7014,6 @@ mod tests {
                 { "uri": "file:///workspace/pom.xml", "type": 2 },
                 { "uri": "file:///workspace/src/Main.java", "type": 2 }
             ])
-        );
-    }
-
-    #[test]
-    fn java_workspace_changes_wait_for_service_ready() {
-        let mut harness = Harness::start(|request| {
-            request.provider_id = "java".to_string();
-        });
-        harness
-            .session()
-            .workspace_files_changed(vec![WorkspaceFileChange {
-                uri: "file:///workspace/src/Main.java".to_string(),
-                kind: WorkspaceFileChangeKind::Changed,
-            }])
-            .expect("Java watcher events should queue while project import is pending");
-        harness.server.complete_initialize(ready_capabilities());
-        assert!(harness
-            .server
-            .await_notification("workspace/didChangeConfiguration"));
-        assert!(!harness
-            .server
-            .messages()
-            .iter()
-            .any(|message| { message["method"] == "workspace/didChangeWatchedFiles" }));
-
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "method": "language/status",
-            "params": { "type": "ServiceReady" }
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-
-        let notification = harness
-            .server
-            .messages()
-            .into_iter()
-            .find(|message| message["method"] == "workspace/didChangeWatchedFiles")
-            .expect("queued Java watcher events should flush after project import");
-        assert_eq!(
-            notification["params"]["changes"],
-            json!([{ "uri": "file:///workspace/src/Main.java", "type": 2 }])
         );
     }
 
@@ -11865,177 +7184,6 @@ mod tests {
         );
     }
 
-    /// Provider adaptation has to reach the process boundary, not just the
-    /// adapter: the arguments a Windows launcher receives are the ones asserted
-    /// here.
-    #[test]
-    fn the_launched_process_receives_the_adapted_provider_arguments() {
-        let server = ScriptedServer::new();
-        let engine = LspEngine::with_launcher(server.launcher());
-        let cache = std::env::temp_dir().join("lithe-core-engine-tests");
-        let mut request = start_request(&server);
-        request.provider_id = "java".to_string();
-        request.arguments = vec!["-data".to_string(), "/stale/data".to_string()];
-        request.runtime_executable_path = Some("/opt/jdk/bin/java".to_string());
-        request.cache_directory = Some(cache.to_string_lossy().into_owned());
-        engine
-            .start_server(request)
-            .expect("the server should start");
-
-        let spec = server
-            .launched_spec()
-            .expect("starting a server must launch a process");
-        assert_eq!(spec.executable, "/usr/bin/scripted-server");
-        assert_eq!(spec.working_directory, "/workspace");
-        assert!(
-            !spec
-                .arguments
-                .iter()
-                .any(|argument| argument == "/stale/data"),
-            "a caller-supplied -data must be replaced, not appended: {:?}",
-            spec.arguments
-        );
-        assert_eq!(
-            spec.arguments
-                .iter()
-                .position(|argument| argument == "--java-executable")
-                .map(|index| spec.arguments[index + 1].as_str()),
-            Some("/opt/jdk/bin/java")
-        );
-        let data = spec
-            .arguments
-            .iter()
-            .position(|argument| argument == "-data")
-            .map(|index| spec.arguments[index + 1].clone())
-            .expect("JDT requires a data directory");
-        assert!(Path::new(&data).starts_with(&cache));
-        assert!(
-            Path::new(&data).is_dir(),
-            "the data directory must exist before the server starts"
-        );
-        let _ = std::fs::remove_dir_all(&cache);
-    }
-
-    /// Lithe deletes files from the user's project before JDT LS starts; the
-    /// session log is the only place a user or support can see which ones.
-    #[test]
-    fn java_start_logs_legacy_project_files_it_removed() {
-        let root =
-            std::env::temp_dir().join(format!("lithe-core-legacy-metadata-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        let workspace = root.join("workspace");
-        std::fs::create_dir_all(&workspace).expect("workspace should be creatable");
-        std::fs::write(workspace.join("pom.xml"), "<project/>").expect("pom should be writable");
-        std::fs::write(workspace.join(".classpath"), "legacy")
-            .expect("classpath should be writable");
-        let initialized = std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(&workspace)
-            .status()
-            .expect("git should run");
-        assert!(initialized.success());
-
-        let mut harness = Harness::start(|request| {
-            request.provider_id = "java".to_string();
-            request.working_directory = workspace.to_string_lossy().into_owned();
-            request.cache_directory = Some(root.join("cache").to_string_lossy().into_owned());
-        });
-        let detail = harness
-            .await_event(|event| {
-                event.kind == "log"
-                    && event.message.as_deref()
-                        == Some("Removed Java project files that earlier versions left in the workspace")
-            })
-            .detail
-            .clone()
-            .expect("the log must name the removed files");
-        let removed_on_disk = !workspace.join(".classpath").exists();
-        let _ = std::fs::remove_dir_all(&root);
-
-        assert!(removed_on_disk);
-        assert_eq!(
-            serde_json::from_str::<Value>(&detail).expect("detail should be JSON"),
-            json!({ "removedFiles": [".classpath"], "stateReset": false })
-        );
-    }
-
-    #[test]
-    fn structured_jdtls_resources_launch_the_runtime_executable_directly() {
-        let server = ScriptedServer::new();
-        let engine = LspEngine::with_launcher(server.launcher());
-        let root = std::env::temp_dir().join(format!(
-            "lithe-core-direct-jdtls-tests-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        let cache = root.join("cache");
-        let packaged_configuration = packaged_jdtls_configuration(&root.join("installation"));
-        let mut request = start_request(&server);
-        request.provider_id = "java".to_string();
-        request.arguments = vec!["--jvm-arg=-Duser.language=en".to_string()];
-        request.runtime_executable_path = Some("/opt/lithe/jdk/bin/java".to_string());
-        request.jdtls_launch_resources = Some(JdtlsLaunchResources {
-            launcher_jar_path: "/opt/lithe/jdtls/plugins/equinox.jar".to_string(),
-            configuration_directory: packaged_configuration.to_string_lossy().into_owned(),
-            lombok_agent_path: "/opt/lithe/jdtls/lombok/lombok.jar".to_string(),
-            java_debug_bundle_path: Some(
-                "/opt/lithe/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"
-                    .to_string(),
-            ),
-            java_extension_bundle_paths: vec![
-                "/opt/lithe/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"
-                    .to_string(),
-                "/opt/lithe/jdtls/java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar"
-                    .to_string(),
-            ],
-        });
-        request.cache_directory = Some(cache.to_string_lossy().into_owned());
-        engine
-            .start_server(request)
-            .expect("the server should start with direct Java");
-
-        let spec = server
-            .launched_spec()
-            .expect("starting a server must launch a process");
-        assert_eq!(spec.executable, "/opt/lithe/jdk/bin/java");
-        assert_eq!(
-            spec.arguments.first().map(String::as_str),
-            Some("-javaagent:/opt/lithe/jdtls/lombok/lombok.jar")
-        );
-        assert!(spec.arguments.contains(&"-Duser.language=en".to_string()));
-        assert_eq!(
-            spec.arguments
-                .iter()
-                .position(|argument| argument == "-jar")
-                .map(|index| spec.arguments[index + 1].as_str()),
-            Some("/opt/lithe/jdtls/plugins/equinox.jar")
-        );
-        // Equinox writes into -configuration, so it must name the writable
-        // copy in the cache and never the packaged directory.
-        let configuration = spec
-            .arguments
-            .iter()
-            .position(|argument| argument == "-configuration")
-            .map(|index| PathBuf::from(&spec.arguments[index + 1]))
-            .expect("direct launch must pass a configuration area");
-        let copied_config = std::fs::read(configuration.join("config.ini"));
-        let packaged_entries = std::fs::read_dir(&packaged_configuration)
-            .expect("packaged configuration should stay readable")
-            .count();
-        assert!(!spec
-            .arguments
-            .iter()
-            .any(|argument| argument.starts_with("--java-executable")));
-        let _ = std::fs::remove_dir_all(&root);
-
-        assert!(configuration.starts_with(cache.join("jdtls-configuration")));
-        assert_eq!(
-            copied_config.ok().as_deref(),
-            Some(PACKAGED_JDTLS_CONFIG_INI.as_bytes())
-        );
-        assert_eq!(packaged_entries, 1, "only the shipped config.ini remains");
-    }
-
     /// A write that fails mid-session is a transport failure, not a silent drop.
     #[test]
     fn a_broken_stdin_fails_the_session_and_stops_writing() {
@@ -12110,84 +7258,6 @@ mod tests {
     }
 
     #[test]
-    fn indexing_java_retains_plugin_exclusions_across_all_configuration_channels() {
-        let workspace = TemporaryMavenWorkspace::recursive("indexing-java-base");
-        let root = workspace.root.canonicalize().unwrap();
-        let root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
-        struct Lease {
-            root: PathBuf,
-            revision: u64,
-        }
-        impl Drop for Lease {
-            fn drop(&mut self) {
-                let _ = crate::project::indexing::release(
-                    crate::project::indexing::ReleaseIndexingRequest {
-                        owner_id: None,
-                        root: self.root.to_string_lossy().into_owned(),
-                        revision: self.revision,
-                    },
-                );
-            }
-        }
-        let mut lease = Lease {
-            root: root.clone(),
-            revision: 0,
-        };
-        let plugin = json!({"settings":{"java":{"import":{"exclusions":["**/vendor/**"]}}}});
-        let mut harness = Harness::start(|request| {
-            workspace.configure(request);
-            request.root_uri = root_uri.clone();
-            request.initialization_options = Some(plugin.clone());
-        });
-        harness
-            .server
-            .complete_java_initialize(ready_capabilities());
-        harness.await_state(LspLifecycleState::Ready);
-        for (index, excluded) in [true, false, true, false].into_iter().enumerate() {
-            let status = crate::project::indexing::configure(serde_json::from_value(json!({
-                "root":root,"manualExcludedDirectories":if excluded {vec!["reactor"]} else {vec![]},
-                "includedDirectories":[],"gitIgnoreEnabled":false
-            })).unwrap()).unwrap();
-            lease.revision = status.revision;
-            apply_indexing_to_sessions(&root, vec![harness.session()]).unwrap();
-            let mut expected = vec![json!("**/vendor/**")];
-            if excluded {
-                let directory = root.join("reactor").to_string_lossy().replace('\\', "/");
-                expected.extend([json!(directory), json!(format!("{directory}/**"))]);
-            }
-            let notifications = notifications(&harness, "workspace/didChangeConfiguration");
-            assert_eq!(
-                notifications.last().unwrap()["params"]["settings"]["java"]["import"]["exclusions"],
-                json!(expected)
-            );
-            let id = format!("indexing-java-{index}");
-            harness.server.send(json!({"jsonrpc":"2.0", "id":id, "method":"workspace/configuration", "params":{"items":[
-                {"section":"java.import.exclusions"},{"section":"java.import"},{"section":"java"}
-            ]}}));
-            let reply = await_reply(&harness, &id);
-            assert_eq!(reply["result"][0], json!(expected));
-            assert_eq!(reply["result"][1]["exclusions"], json!(expected));
-            assert_eq!(reply["result"][2]["import"]["exclusions"], json!(expected));
-        }
-        assert_eq!(
-            harness.session().jdt_import_exclusions,
-            Some(json!(["**/vendor/**"]))
-        );
-        // Restarting from the same immutable plugin input must not accumulate old overlays.
-        let restarted = Harness::start(|request| {
-            workspace.configure(request);
-            request.root_uri = root_uri;
-            request.initialization_options = Some(plugin);
-        });
-        let initialize = notifications(&restarted, "initialize").pop().unwrap();
-        assert_eq!(
-            initialize["params"]["initializationOptions"]["settings"]["java"]["import"]
-                ["exclusions"],
-            json!(["**/vendor/**"])
-        );
-    }
-
-    #[test]
     fn indexing_policy_withdrawal_serializes_with_a_checked_document_commit() {
         assert_policy_withdrawal_serializes_with_checked_commit(false);
     }
@@ -12198,15 +7268,13 @@ mod tests {
     }
 
     fn assert_policy_withdrawal_serializes_with_checked_commit(diagnostics: bool) {
-        let workspace = TemporaryMavenWorkspace::recursive("indexing-document-commit");
+        let workspace = TemporaryWorkspace::recursive("indexing-document-commit");
         let root = workspace.root.canonicalize().unwrap();
         let mut policy = IndexingPolicyFixture::new(root.clone());
         let mut harness = Harness::start(|request| workspace.configure(request));
-        harness
-            .server
-            .complete_java_initialize(ready_capabilities());
+        harness.server.complete_initialize(ready_capabilities());
         harness.await_state(LspLifecycleState::Ready);
-        let uri = url::Url::from_file_path(root.join("reactor/Hidden.java"))
+        let uri = url::Url::from_file_path(root.join("reactor/hidden.go"))
             .unwrap()
             .to_string();
         let session = harness.session();
@@ -12291,14 +7359,14 @@ mod tests {
 
     #[test]
     fn indexing_policy_withdraws_queued_file_changes_before_service_readiness() {
-        let workspace = TemporaryMavenWorkspace::recursive("indexing-pending-file-changes");
+        let workspace = TemporaryWorkspace::recursive("indexing-pending-file-changes");
         let root = workspace.root.canonicalize().unwrap();
         let mut policy = IndexingPolicyFixture::new(root.clone());
         let mut harness = Harness::start(|request| workspace.configure(request));
-        let hidden = url::Url::from_file_path(root.join("reactor/Hidden.java"))
+        let hidden = url::Url::from_file_path(root.join("reactor/hidden.go"))
             .unwrap()
             .to_string();
-        let visible = url::Url::from_file_path(root.join("Visible.java"))
+        let visible = url::Url::from_file_path(root.join("visible.go"))
             .unwrap()
             .to_string();
         harness
@@ -12326,9 +7394,7 @@ mod tests {
         policy.exclude(&["reactor"]);
         // The policy is installed, but this independent session has not received
         // its withdrawal callback yet. Readiness must recheck queued eligibility.
-        harness
-            .server
-            .complete_java_initialize(ready_capabilities());
+        harness.server.complete_initialize(ready_capabilities());
         harness.await_state(LspLifecycleState::Ready);
         let changes = notifications(&harness, "workspace/didChangeWatchedFiles");
         assert!(changes.iter().any(|message| message["params"]["changes"]
@@ -12395,7 +7461,7 @@ mod tests {
             (false, true, true),
             (true, true, true),
         ] {
-            let workspace = TemporaryMavenWorkspace::recursive(&format!(
+            let workspace = TemporaryWorkspace::recursive(&format!(
                 "indexing-startup-retired-{initially_configured}"
             ));
             let root = workspace.root.canonicalize().unwrap();
@@ -12480,7 +7546,7 @@ mod tests {
     #[test]
     fn native_owner_retains_indexing_cancellation_after_registration() {
         const CANCELLED_PLUGIN: &str = "io.example.indexing-cancel-registered";
-        let workspace = TemporaryMavenWorkspace::recursive("indexing-owned-startup");
+        let workspace = TemporaryWorkspace::recursive("indexing-owned-startup");
         let root = workspace.root.canonicalize().unwrap();
         let mut policy = IndexingPolicyFixture::new(root.clone());
         let server = ScriptedServer::new();
@@ -12518,7 +7584,7 @@ mod tests {
 
     #[test]
     fn indexing_released_root_allows_a_standalone_provider_without_old_exclusions() {
-        let workspace = TemporaryMavenWorkspace::recursive("indexing-released-standalone");
+        let workspace = TemporaryWorkspace::recursive("indexing-released-standalone");
         let root = workspace.root.canonicalize().unwrap();
         let root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
         let status = crate::project::indexing::configure(serde_json::from_value(json!({
@@ -12547,7 +7613,7 @@ mod tests {
                 ["exclusions"],
             json!(["**/vendor/**"])
         );
-        let file_uri = url::Url::from_file_path(root.join("reactor/Visible.java"))
+        let file_uri = url::Url::from_file_path(root.join("reactor/visible.go"))
             .unwrap()
             .to_string();
         assert!(!crate::project::indexing::uri_is_excluded(&root_uri, &file_uri).unwrap());
@@ -12555,7 +7621,7 @@ mod tests {
 
     #[test]
     fn indexing_cold_start_resolves_git_before_provider_initialization() {
-        let workspace = TemporaryMavenWorkspace::recursive("indexing-cold-start");
+        let workspace = TemporaryWorkspace::recursive("indexing-cold-start");
         let root = workspace.root.canonicalize().unwrap();
         std::fs::create_dir_all(root.join("ignored")).unwrap();
         std::fs::write(root.join("ignored/hidden.txt"), "hidden").unwrap();
@@ -12573,16 +7639,8 @@ mod tests {
         let harness = Harness::start(|request| {
             workspace.configure(request);
             request.root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
-            request.initialization_options =
-                Some(json!({"settings":{"java":{"import":{"exclusions":["**/vendor/**"]}}}}));
         });
-        let initialize = notifications(&harness, "initialize").pop().unwrap();
-        let excluded = root.join("ignored").to_string_lossy().replace('\\', "/");
-        assert_eq!(
-            initialize["params"]["initializationOptions"]["settings"]["java"]["import"]
-                ["exclusions"],
-            json!(["**/vendor/**", excluded, format!("{excluded}/**")])
-        );
+        assert!(notifications(&harness, "initialize").pop().is_some());
         for (provider, pointer) in [
             ("go", "/gopls/directoryFilters"),
             ("rust", "/rust-analyzer/files/exclude"),
@@ -12615,118 +7673,8 @@ mod tests {
     }
 
     #[test]
-    fn indexing_watcher_rebuild_publishes_recomputed_git_exclusions_to_java() {
-        // This regression owns indexing notifications, not Maven reactor discovery.
-        // Keep unrelated recursive projects out of the real Git ignore inventory.
-        let workspace = ScratchDirectory(std::env::temp_dir().join(format!(
-            "lithe-indexing-watcher-provider-{}",
-            std::process::id()
-        )));
-        std::fs::create_dir_all(&workspace.0).unwrap();
-        let root = workspace.0.canonicalize().unwrap();
-        std::fs::create_dir_all(root.join("ignored")).unwrap();
-        std::fs::write(root.join("ignored/hidden.txt"), "hidden").unwrap();
-        std::fs::write(root.join(".gitignore"), "ignored/\n").unwrap();
-        let git = crate::git::execute_git_readonly(
-            &root.to_string_lossy(),
-            &["init".into(), "--quiet".into()],
-            None,
-        )
-        .unwrap();
-        assert_eq!(git.exit_code, 0, "{}", git.stderr);
-        let mut harness = Harness::start(|request| {
-            request.provider_id = "java".into();
-            request.root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
-            request.working_directory = root.to_string_lossy().into_owned();
-            request.cache_directory = Some(root.join("cache").to_string_lossy().into_owned());
-        });
-        harness
-            .server
-            .complete_java_initialize(ready_capabilities());
-        harness.await_state(LspLifecycleState::Ready);
-        // Production notifications address the registry. Install this scripted
-        // session under a fixture-unique key and remove it even on assertion failure.
-        struct Registered {
-            key: String,
-            root: PathBuf,
-            revision: u64,
-        }
-        impl Drop for Registered {
-            fn drop(&mut self) {
-                engine().sessions.lock().unwrap().remove(&self.key);
-                let _ = crate::project::indexing::release(
-                    crate::project::indexing::ReleaseIndexingRequest {
-                        owner_id: None,
-                        root: self.root.to_string_lossy().into_owned(),
-                        revision: self.revision,
-                    },
-                );
-            }
-        }
-        let mut registered = Registered {
-            key: root.to_string_lossy().into_owned(),
-            root: root.clone(),
-            revision: 0,
-        };
-        engine()
-            .sessions
-            .lock()
-            .unwrap()
-            .insert(registered.key.clone(), harness.session());
-        let status = crate::project::indexing::configure(
-            serde_json::from_value(json!({
-                "root":root,"manualExcludedDirectories":[],"includedDirectories":[],
-                "gitIgnoreEnabled":true,"paths":["ignored"]
-            }))
-            .unwrap(),
-        )
-        .unwrap();
-        registered.revision = status.revision;
-        let before = notifications(&harness, "workspace/didChangeConfiguration");
-        assert!(
-            before.last().unwrap()["params"]["settings"]["java"]["import"]["exclusions"]
-                .as_array()
-                .unwrap()
-                .len()
-                >= 2
-        );
-        // Hosts first refresh with no paths, before rebuilding their inventory.
-        let refreshed = crate::project::indexing::configure(
-            serde_json::from_value(json!({
-                "root":root,"manualExcludedDirectories":[],"includedDirectories":[],
-                "gitIgnoreEnabled":true,"refresh":true,"paths":[]
-            }))
-            .unwrap(),
-        )
-        .unwrap();
-        registered.revision = refreshed.revision;
-        let host_refresh = notifications(&harness, "workspace/didChangeConfiguration");
-        assert_eq!(
-            host_refresh.last().unwrap()["params"]["settings"]["java"]["import"]["exclusions"],
-            before.last().unwrap()["params"]["settings"]["java"]["import"]["exclusions"]
-        );
-        crate::project::files::update_search_index(
-            serde_json::from_value(json!({
-                "root":root,"paths":[".gitignore"]
-            }))
-            .unwrap(),
-        )
-        .unwrap();
-        let after = notifications(&harness, "workspace/didChangeConfiguration");
-        assert!(after.len() > before.len());
-        assert_eq!(
-            after.last().unwrap()["params"]["settings"]["java"]["import"]["exclusions"],
-            before.last().unwrap()["params"]["settings"]["java"]["import"]["exclusions"]
-        );
-        assert_eq!(
-            harness.session().indexing_revision.load(Ordering::Acquire),
-            crate::project::indexing::context(&root).unwrap().revision
-        );
-    }
-
-    #[test]
     fn indexing_change_withdraws_open_working_copies_and_rejects_sync() {
-        let workspace = TemporaryMavenWorkspace::recursive("indexing-working-copy");
+        let workspace = TemporaryWorkspace::recursive("indexing-working-copy");
         let root = workspace.root.canonicalize().unwrap();
         let root_uri = url::Url::from_directory_path(&root).unwrap().to_string();
         let mut harness = Harness::start(|request| {
@@ -13119,7 +8067,6 @@ mod tests {
                     operation_id: Some("op-formatting".to_string()),
                     operation: LspSemanticOperation::Formatting,
                     uri: Some(uri.to_string()),
-                    virtual_uri: None,
                     position: None,
                     new_name: None,
                     range: None,
@@ -13186,7 +8133,6 @@ mod tests {
                         operation_id: Some("op-formatting-2".to_string()),
                         operation: LspSemanticOperation::Formatting,
                         uri: Some(uri.to_string()),
-                        virtual_uri: None,
                         position: None,
                         new_name: None,
                         range: None,
@@ -13297,10 +8243,6 @@ mod tests {
             semantic_method(LspSemanticOperation::Definition),
             "textDocument/definition"
         );
-        assert_eq!(
-            semantic_capability(LspSemanticOperation::VirtualDocument),
-            Some("executeCommand")
-        );
     }
 
     #[test]
@@ -13320,7 +8262,6 @@ mod tests {
                     operation_id: Some(operation_id.clone()),
                     operation: LspSemanticOperation::ExecuteCommand,
                     uri: None,
-                    virtual_uri: None,
                     position: None,
                     new_name: None,
                     range: None,
@@ -13346,234 +8287,6 @@ mod tests {
             .expect("the command should reach the language server");
         assert_eq!(request["params"]["command"], "source.fix");
         assert!(request["params"].get("textDocument").is_none());
-    }
-
-    #[test]
-    fn java_start_enables_and_normalizes_class_file_navigation() {
-        let completion_fixture: Value = serde_json::from_str(include_str!(
-            "../../../../../shared/fixtures/lsp/java-completion-v1.json"
-        ))
-        .unwrap();
-        let root = std::env::temp_dir().join(format!(
-            "lithe-core-java-navigation-tests-{}",
-            std::process::id()
-        ));
-        let cache = root.join("cache");
-        let packaged_configuration = packaged_jdtls_configuration(&root.join("installation"));
-        let mut harness = Harness::start(|request| {
-            request.provider_id = "java".to_string();
-            request.cache_directory = Some(cache.to_string_lossy().into_owned());
-            request.runtime_executable_path = Some("/opt/lithe/jdk/bin/java".to_string());
-            request.jdtls_launch_resources = Some(JdtlsLaunchResources {
-                launcher_jar_path: "/opt/lithe/jdtls/plugins/equinox.jar".to_string(),
-                configuration_directory: packaged_configuration.to_string_lossy().into_owned(),
-                lombok_agent_path: "/opt/lithe/jdtls/lombok/lombok.jar".to_string(),
-                java_debug_bundle_path: Some("/plugins/java-debug.jar".to_string()),
-                java_extension_bundle_paths: vec![
-                    "/plugins/java-debug.jar".to_string(),
-                    "/plugins/java-test.jar".to_string(),
-                ],
-            });
-            request.initialization_options = Some(json!({
-                "extendedClientCapabilities": { "customCapability": true },
-                "bundles": ["/plugins/catalog.jar"],
-                "settings": { "java": { "completion": completion_fixture["pluginCompletion"] } }
-            }));
-        });
-        let initialize = harness
-            .server
-            .messages()
-            .into_iter()
-            .find(|message| message["method"] == "initialize")
-            .expect("the initialize request should reach JDT LS");
-        assert_eq!(
-            initialize["params"]["initializationOptions"]["extendedClientCapabilities"]
-                ["classFileContentsSupport"],
-            true
-        );
-        assert_eq!(
-            initialize["params"]["initializationOptions"]["extendedClientCapabilities"]
-                ["customCapability"],
-            true
-        );
-        assert_eq!(
-            initialize["params"]["initializationOptions"]["bundles"],
-            json!([
-                "/plugins/catalog.jar",
-                "/plugins/java-debug.jar",
-                "/plugins/java-test.jar"
-            ])
-        );
-
-        harness
-            .server
-            .complete_java_initialize(json!({ "definitionProvider": true }));
-        harness.await_state(LspLifecycleState::Ready);
-        let expected_completion = &completion_fixture["javaSettings"]["completion"];
-        assert_eq!(
-            initialize["params"]["initializationOptions"]["settings"]["java"]["completion"],
-            *expected_completion,
-        );
-        assert!(harness
-            .server
-            .await_notification("workspace/didChangeConfiguration"));
-        let notification = harness
-            .server
-            .messages()
-            .into_iter()
-            .find(|message| message["method"] == "workspace/didChangeConfiguration")
-            .unwrap();
-        assert_eq!(
-            notification["params"]["settings"]["java"]["completion"],
-            *expected_completion
-        );
-        harness.server.send(json!({
-            "jsonrpc": "2.0", "id": "java-completion-config", "method": "workspace/configuration",
-            "params": { "items": completion_fixture["workspaceConfigurationSections"]
-                .as_array().unwrap().iter().map(|section| json!({ "section": section })).collect::<Vec<_>>() }
-        }));
-        let configuration = await_reply(&harness, "java-completion-config");
-        assert_eq!(
-            configuration["result"][0]["completion"],
-            *expected_completion
-        );
-        assert_eq!(configuration["result"][1], *expected_completion);
-        assert_eq!(
-            configuration["result"][2],
-            expected_completion["guessMethodArguments"]
-        );
-        assert_eq!(
-            configuration["result"][3],
-            expected_completion["favoriteStaticMembers"]
-        );
-        assert_eq!(
-            configuration["result"][4],
-            expected_completion["filteredTypes"]
-        );
-        assert_eq!(configuration["result"][5], Value::Null);
-        let uri = "file:///workspace/Main.java";
-        harness.sync(uri, "class Main { String value; }");
-        let operation_id = harness.request(LspSemanticOperation::Definition, uri);
-        let request_id = harness
-            .server
-            .await_request("textDocument/definition")
-            .expect("the definition request should reach JDT LS");
-        let virtual_uri = "jdt://contents/java.base/java/lang/String.class?=demo";
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": [{
-                "uri": virtual_uri,
-                "range": {
-                    "start": { "line": 10, "character": 4 },
-                    "end": { "line": 10, "character": 10 }
-                }
-            }]
-        }));
-        let event = harness
-            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
-            .clone();
-        let location = &event.result.as_ref().unwrap()["locations"][0];
-        assert_eq!(location["uri"], virtual_uri);
-        assert_eq!(location["isReadOnly"], true);
-        assert_eq!(location["displayPath"], "java.base/java/lang/String.java");
-
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn java_virtual_document_returns_decompiled_text_without_an_open_document() {
-        let mut harness = Harness::start(|request| {
-            request.provider_id = "java".to_string();
-            request.cache_directory = Some("/tmp/lithe-lsp-engine-tests".to_string());
-        });
-        harness.server.complete_java_initialize(json!({
-            "executeCommandProvider": { "commands": ["java.decompile"] }
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-        let operation_id = harness.engine.next_operation_id();
-        let virtual_uri = "jdt://contents/java.base/java/lang/String.class";
-
-        harness
-            .session()
-            .request(
-                SemanticRequest {
-                    session_id: harness.session_id.clone(),
-                    operation_id: Some(operation_id.clone()),
-                    operation: LspSemanticOperation::VirtualDocument,
-                    uri: None,
-                    virtual_uri: Some(virtual_uri.to_string()),
-                    position: None,
-                    new_name: None,
-                    range: None,
-                    diagnostics: Vec::new(),
-                    completion_context: None,
-                    completion_item: None,
-                    code_action: None,
-                    command: None,
-                },
-                operation_id.clone(),
-            )
-            .expect("virtual documents should not require an open file");
-
-        let request_id = harness
-            .server
-            .await_request("workspace/executeCommand")
-            .expect("the decompile command should reach JDT LS");
-        let request = harness
-            .server
-            .messages()
-            .into_iter()
-            .find(|message| message["id"] == request_id)
-            .expect("the decompile request should be recorded");
-        assert_eq!(request["params"]["command"], "java.decompile");
-        assert_eq!(request["params"]["arguments"], json!([virtual_uri]));
-
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": "public final class String {}"
-        }));
-        let event = harness
-            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
-            .clone();
-        assert_eq!(
-            event.result,
-            Some(json!({
-                "text": "public final class String {}"
-            }))
-        );
-        assert!(event.error.is_none());
-    }
-
-    fn request_java_entrypoints(harness: &Harness) -> (String, String) {
-        let operation_id = harness.engine.next_operation_id();
-        harness
-            .session()
-            .request(
-                SemanticRequest {
-                    session_id: harness.session_id.clone(),
-                    operation_id: Some(operation_id.clone()),
-                    operation: LspSemanticOperation::JavaEntrypoints,
-                    uri: None,
-                    virtual_uri: None,
-                    position: None,
-                    new_name: None,
-                    range: None,
-                    diagnostics: Vec::new(),
-                    completion_context: None,
-                    completion_item: None,
-                    code_action: None,
-                    command: None,
-                },
-                operation_id.clone(),
-            )
-            .expect("entry-point discovery should not require an open file");
-        let request_id = harness
-            .server
-            .await_request("workspace/executeCommand")
-            .expect("main-class discovery should reach JDT LS");
-        (operation_id, request_id)
     }
 
     #[test]
@@ -13624,458 +8337,6 @@ mod tests {
             );
             assert_eq!(state.client.open_documents[uri].version, 2);
         }
-    }
-
-    fn java_entrypoints_harness() -> Harness {
-        let mut harness = Harness::start(|request| {
-            request.provider_id = "java".to_string();
-            request.cache_directory = Some("/tmp/lithe-lsp-engine-tests".to_string());
-        });
-        harness.server.complete_java_initialize(json!({
-            "executeCommandProvider": { "commands": ["vscode.java.resolveMainClass"] }
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-        harness
-    }
-
-    fn queue_java_entrypoints(harness: &Harness, operation: &str) -> Result<(), CoreError> {
-        harness.session().request(
-            SemanticRequest {
-                session_id: harness.session_id.clone(),
-                operation_id: Some(operation.into()),
-                operation: LspSemanticOperation::JavaEntrypoints,
-                uri: None,
-                virtual_uri: None,
-                position: None,
-                new_name: None,
-                range: None,
-                diagnostics: Vec::new(),
-                completion_context: None,
-                completion_item: None,
-                code_action: None,
-                command: None,
-            },
-            operation.into(),
-        )
-    }
-
-    #[test]
-    fn java_entrypoints_wait_for_profiles_and_project_jobs_before_querying_the_server() {
-        let mut harness = java_entrypoints_harness();
-        let session = harness.session();
-        session.lock_state().unwrap().maven_profile_status = MavenProfileTaskStatus::Running;
-        queue_java_entrypoints(&harness, "launch-discovery").unwrap();
-        assert!(queue_java_entrypoints(&harness, "launch-discovery").is_err());
-        session.pump_outbound_maintenance();
-        assert!(!harness
-            .server
-            .messages()
-            .iter()
-            .any(|m| m["method"] == "workspace/executeCommand"));
-        {
-            let mut state = session.lock_state().unwrap();
-            state.java_builds.observe_progress(
-                crate::lsp::languages::jdt_build::ProjectJobProgress::Begin {
-                    token: "project-update".into(),
-                    label: "Update project app".into(),
-                },
-                Instant::now(),
-            );
-            state.maven_profile_status = MavenProfileTaskStatus::Succeeded;
-        }
-        session.pump_outbound_maintenance();
-        assert!(!harness
-            .server
-            .messages()
-            .iter()
-            .any(|m| m["method"] == "workspace/executeCommand"));
-        session.lock_state().unwrap().java_builds.observe_progress(
-            crate::lsp::languages::jdt_build::ProjectJobProgress::End {
-                token: "project-update".into(),
-            },
-            Instant::now(),
-        );
-        session.pump_outbound_maintenance();
-        let id = harness
-            .server
-            .await_request("workspace/executeCommand")
-            .unwrap();
-        harness
-            .server
-            .send(json!({"jsonrpc":"2.0","id":id,"result":[]}));
-        let event = harness.await_event(|e| {
-            e.operation_id.as_deref() == Some("launch-discovery") && e.kind == "requestCompleted"
-        });
-        assert!(event.error.is_none(), "{event:?}");
-        assert_eq!(event.result.as_ref().unwrap()["entries"], json!([]));
-    }
-
-    #[test]
-    fn java_entrypoints_waiters_cancel_timeout_and_stop_without_a_discovery_or_wire_cancellation() {
-        for mode in ["cancel", "timeout", "stop"] {
-            let mut harness = java_entrypoints_harness();
-            let session = harness.session();
-            session.lock_state().unwrap().maven_profile_status = MavenProfileTaskStatus::Running;
-            queue_java_entrypoints(&harness, mode).unwrap();
-            match mode {
-                "cancel" => session.cancel_operation(mode).unwrap(),
-                "timeout" => session.expire_deadlines_at(Instant::now() + Duration::from_secs(601)),
-                _ => session.stop().unwrap(),
-            }
-            let event = harness.await_event(|e| {
-                e.operation_id.as_deref() == Some(mode) && e.kind == "requestCompleted"
-            });
-            assert!(event.error.is_some());
-            assert!(session
-                .lock_state()
-                .unwrap()
-                .java_entrypoint_waiters
-                .is_empty());
-            assert!(!harness.server.messages().iter().any(|m| {
-                m["params"]["command"] == "vscode.java.resolveMainClass"
-                    || m["method"] == "$/cancelRequest"
-            }));
-        }
-    }
-
-    #[test]
-    fn java_entrypoints_configuration_wait_queue_is_bounded() {
-        let harness = java_entrypoints_harness();
-        harness.session().lock_state().unwrap().maven_profile_status =
-            MavenProfileTaskStatus::Running;
-        for index in 0..128 {
-            queue_java_entrypoints(&harness, &format!("queued-{index}")).unwrap();
-        }
-        assert!(queue_java_entrypoints(&harness, "overflow").is_err());
-    }
-
-    fn begin_java_launch(harness: &Harness) -> (String, String) {
-        let operation_id = harness.engine.next_operation_id();
-        harness
-            .session()
-            .prepare_java_launch(
-                JavaPrepareLaunchRequest {
-                    session_id: harness.session_id.clone(),
-                    operation_id: Some(operation_id.clone()),
-                    source_path: "/workspace/app/src/TestMain.java".to_string(),
-                    main_class: Some("demo.TestMain".to_string()),
-                },
-                operation_id.clone(),
-            )
-            .expect("Java launch should start");
-        let discovery = harness
-            .server
-            .await_request("workspace/executeCommand")
-            .expect("entry request");
-        (operation_id, discovery)
-    }
-
-    fn answer_java_launch_entries(harness: &Harness, request_id: &str) {
-        harness.server.send(json!({"jsonrpc": "2.0", "id": request_id, "result": [
-            {"mainClass": "demo.Other", "projectName": "app", "filePath": "/workspace/app/src/TestMain.java"},
-            {"mainClass": "test.module/demo.TestMain", "projectName": "app", "filePath": "/workspace/app/src/TestMain.java"},
-            {"mainClass": "demo.TestMain", "projectName": "lib", "filePath": "/workspace/lib/src/TestMain.java"}
-        ]}));
-    }
-
-    /// The composed operation must wait for the same import barrier as discovery.
-    #[test]
-    fn java_launch_preparation_waits_for_configuration_and_reclaims_queued_attempts() {
-        for outcome in ["launch", "cancel", "timeout", "stop"] {
-            let mut harness = java_entrypoints_harness();
-            let session = harness.session();
-            session.lock_state().unwrap().maven_profile_status = MavenProfileTaskStatus::Running;
-            session
-                .prepare_java_launch(
-                    JavaPrepareLaunchRequest {
-                        session_id: harness.session_id.clone(),
-                        operation_id: Some(outcome.into()),
-                        source_path: "/workspace/app/src/TestMain.java".into(),
-                        main_class: Some("demo.TestMain".into()),
-                    },
-                    outcome.into(),
-                )
-                .unwrap();
-            session.pump_outbound_maintenance();
-            assert!(!harness
-                .server
-                .messages()
-                .iter()
-                .any(|message| message["method"] == "workspace/executeCommand"));
-            match outcome {
-                "launch" => {
-                    session.lock_state().unwrap().maven_profile_status =
-                        MavenProfileTaskStatus::Succeeded;
-                    session.pump_outbound_maintenance();
-                    let request = harness
-                        .server
-                        .await_request("workspace/executeCommand")
-                        .unwrap();
-                    answer_java_launch_entries(&harness, &request);
-                    harness
-                        .server
-                        .await_request_at("workspace/executeCommand", 1)
-                        .unwrap();
-                    session.cancel_operation(outcome).unwrap();
-                }
-                "cancel" => session.cancel_operation(outcome).unwrap(),
-                "timeout" => session.expire_deadlines_at(Instant::now() + Duration::from_secs(601)),
-                _ => session.stop().unwrap(),
-            }
-            let event = harness.await_event(|event| {
-                event.operation_id.as_deref() == Some(outcome) && event.kind == "requestCompleted"
-            });
-            assert!(event.error.is_some(), "{outcome}: {event:?}");
-            let state = session.lock_state().unwrap();
-            assert!(state.java_entrypoint_waiters.is_empty());
-            assert!(!state.java_launches.contains_key(outcome));
-        }
-    }
-
-    #[test]
-    fn java_launch_preparation_owns_selection_build_and_classpath_under_one_operation() {
-        let mut harness = java_entrypoints_harness();
-        let (operation, discovery) = begin_java_launch(&harness);
-        answer_java_launch_entries(&harness, &discovery);
-        let build = harness
-            .server
-            .await_request_at("workspace/executeCommand", 1)
-            .expect("build request");
-        let request = harness.written_request(&build);
-        assert_eq!(request["params"]["command"], "vscode.java.buildWorkspace");
-        let payload: Value =
-            serde_json::from_str(request["params"]["arguments"][0].as_str().unwrap()).unwrap();
-        assert_eq!(
-            payload,
-            json!({"mainClass": "test.module/demo.TestMain", "projectName": "app",
-            "filePath": "/workspace/app/src/TestMain.java", "isFullBuild": false})
-        );
-        assert!(!harness
-            .poll()
-            .iter()
-            .any(|event| event.operation_id.as_deref() == Some(&operation)));
-        harness
-            .server
-            .send(json!({"jsonrpc": "2.0", "id": build, "result": 1}));
-        let paths = harness
-            .server
-            .await_request_at("workspace/executeCommand", 2)
-            .expect("classpath request");
-        assert_eq!(
-            harness.written_request(&paths)["params"],
-            json!({
-                "command": "vscode.java.resolveClasspath", "arguments": ["test.module/demo.TestMain", "app"]
-            })
-        );
-        harness.server.send(json!({"jsonrpc": "2.0", "id": paths, "result": [
-            ["/workspace/app/custom-modules"], ["/workspace/app/custom-tests", "/cache/junit.jar"]
-        ]}));
-        let event = harness
-            .await_event(|event| event.operation_id.as_deref() == Some(&operation))
-            .clone();
-        assert!(event.error.is_none(), "{event:?}");
-        assert_eq!(
-            event.result.unwrap(),
-            json!({"kind": "ready", "target": {
-                "mainClass": "test.module/demo.TestMain", "projectName": "app",
-                "modulePaths": ["/workspace/app/custom-modules"], "classPaths": ["/workspace/app/custom-tests", "/cache/junit.jar"]
-            }})
-        );
-        assert_eq!(
-            harness
-                .poll()
-                .iter()
-                .filter(|event| event.operation_id.as_deref() == Some(&operation))
-                .count(),
-            1
-        );
-        assert!(harness.snapshot().pending_operation_ids.is_empty());
-        assert!(harness
-            .session()
-            .lock_state()
-            .unwrap()
-            .java_launches
-            .is_empty());
-    }
-
-    #[test]
-    fn java_launch_preparation_preserves_failed_build_evidence_with_resolved_paths() {
-        for (status, code) in [(0, "javaBuildFailed"), (2, "javaBuildCompilationErrors")] {
-            let mut harness = java_entrypoints_harness();
-            let (operation, discovery) = begin_java_launch(&harness);
-            answer_java_launch_entries(&harness, &discovery);
-            let build = harness
-                .server
-                .await_request_at("workspace/executeCommand", 1)
-                .expect("build request");
-            harness
-                .server
-                .send(json!({"jsonrpc": "2.0", "id": build, "result": status}));
-            let paths = harness
-                .server
-                .await_request_at("workspace/executeCommand", 2)
-                .expect("classpath request after terminal build");
-            harness.server.send(
-                json!({"jsonrpc": "2.0", "id": paths, "result": [[], ["/workspace/app/out"]]}),
-            );
-            let event =
-                harness.await_event(|event| event.operation_id.as_deref() == Some(&operation));
-            assert!(event.error.is_none());
-            let result = event.result.as_ref().unwrap();
-            assert_eq!(result["kind"], "buildFailed");
-            assert_eq!(result["failure"]["code"], code);
-            assert_eq!(result["failure"]["report"]["markerScope"], "launchTarget");
-            assert_eq!(
-                result["target"]["classPaths"],
-                json!(["/workspace/app/out"])
-            );
-        }
-    }
-
-    #[test]
-    fn java_launch_preparation_rejects_cancelled_build_without_resolving_paths() {
-        let mut harness = java_entrypoints_harness();
-        let (operation, discovery) = begin_java_launch(&harness);
-        answer_java_launch_entries(&harness, &discovery);
-        let build = harness
-            .server
-            .await_request_at("workspace/executeCommand", 1)
-            .expect("build request");
-        harness
-            .server
-            .send(json!({"jsonrpc": "2.0", "id": build, "result": 3}));
-        let event = harness.await_event(|event| event.operation_id.as_deref() == Some(&operation));
-        assert_eq!(event.error.as_ref().unwrap().code, "javaBuildCancelled");
-        assert!(event.result.is_none());
-        assert!(harness
-            .session()
-            .lock_state()
-            .unwrap()
-            .java_launches
-            .is_empty());
-        assert!(!harness
-            .server
-            .messages()
-            .iter()
-            .any(|message| message["params"]["command"] == "vscode.java.resolveClasspath"));
-    }
-
-    #[test]
-    fn java_launch_preparation_cancel_during_build_ignores_its_late_success() {
-        let mut harness = java_entrypoints_harness();
-        let (operation, discovery) = begin_java_launch(&harness);
-        answer_java_launch_entries(&harness, &discovery);
-        let build = harness
-            .server
-            .await_request_at("workspace/executeCommand", 1)
-            .expect("build request");
-        harness
-            .session()
-            .cancel_operation(&operation)
-            .expect("cancel composed launch");
-        let event = harness.await_event(|event| event.operation_id.as_deref() == Some(&operation));
-        assert_eq!(event.error.as_ref().unwrap().code, "requestCancelled");
-        harness
-            .server
-            .send(json!({"jsonrpc": "2.0", "id": build, "result": 1}));
-        // The log is emitted after the late build answer was processed; no sleep
-        // or negative timeout is used to infer that no next stage was scheduled.
-        harness
-            .await_event(|event| event.message.as_deref() == Some("Java project build finished"));
-        assert!(harness
-            .session()
-            .lock_state()
-            .unwrap()
-            .java_launches
-            .is_empty());
-        assert!(!harness
-            .server
-            .messages()
-            .iter()
-            .any(|message| message["params"]["command"] == "vscode.java.resolveClasspath"));
-        assert_eq!(
-            harness
-                .poll()
-                .iter()
-                .filter(|event| event.operation_id.as_deref() == Some(&operation))
-                .count(),
-            1
-        );
-    }
-
-    #[test]
-    fn java_launch_preparation_rejects_malformed_classpath_instead_of_dropping_entries() {
-        for paths in [
-            json!([[], []]),
-            json!([[], [42]]),
-            json!([[], [" "]]),
-            json!([null, ["/out"]]),
-        ] {
-            let mut harness = java_entrypoints_harness();
-            let (operation, discovery) = begin_java_launch(&harness);
-            answer_java_launch_entries(&harness, &discovery);
-            let build = harness
-                .server
-                .await_request_at("workspace/executeCommand", 1)
-                .expect("build request");
-            harness
-                .server
-                .send(json!({"jsonrpc": "2.0", "id": build, "result": 1}));
-            let request = harness
-                .server
-                .await_request_at("workspace/executeCommand", 2)
-                .expect("classpath request");
-            harness
-                .server
-                .send(json!({"jsonrpc": "2.0", "id": request, "result": paths}));
-            let event =
-                harness.await_event(|event| event.operation_id.as_deref() == Some(&operation));
-            assert_eq!(event.error.as_ref().unwrap().code, "invalidServerResult");
-            assert!(event.result.is_none());
-        }
-    }
-
-    #[test]
-    fn java_entrypoints_asks_jdt_for_the_workspace_and_normalizes_the_answer() {
-        let mut harness = java_entrypoints_harness();
-        let (operation_id, request_id) = request_java_entrypoints(&harness);
-        let request = harness
-            .server
-            .messages()
-            .into_iter()
-            .find(|message| message["id"] == request_id)
-            .expect("the discovery request should be recorded");
-        assert_eq!(request["params"]["command"], "vscode.java.resolveMainClass");
-        assert_eq!(request["params"]["arguments"], json!([]));
-
-        // Java 25 forms (no-argument, instance) arrive from JDT like any other
-        // entry; Core must pass them through without judging the signature.
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": [
-                { "mainClass": "demo.StaticNoArgs", "projectName": "app", "filePath": "/workspace/src/main/java/demo/StaticNoArgs.java" },
-                { "mainClass": "Compact", "projectName": "app", "filePath": "/workspace/src/main/java/Compact.java" },
-                { "mainClass": "demo.Pathless", "projectName": "app" }
-            ]
-        }));
-        let event = harness
-            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
-            .clone();
-        assert!(event.error.is_none(), "{event:?}");
-        assert_eq!(
-            event.result,
-            Some(json!({
-                "schemaVersion": 1,
-                "entries": [
-                    { "sourcePath": "src/main/java/Compact.java", "mainClass": "Compact", "projectName": "app" },
-                    { "sourcePath": "src/main/java/demo/StaticNoArgs.java", "mainClass": "demo.StaticNoArgs", "projectName": "app" }
-                ],
-                "diagnostics": [
-                    { "code": "missingSourcePath", "mainClass": "demo.Pathless" }
-                ]
-            }))
-        );
     }
 
     /// Removes a scratch directory when the owning test ends or unwinds.
@@ -14208,340 +8469,6 @@ mod tests {
     }
 
     #[test]
-    fn a_malformed_java_entrypoint_answer_is_an_error_not_an_empty_list() {
-        // Reporting "no entry points" here would let callers wipe a good list.
-        let mut harness = java_entrypoints_harness();
-        let (operation_id, request_id) = request_java_entrypoints(&harness);
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": { "unexpected": true }
-        }));
-        let event = harness
-            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
-            .clone();
-        assert!(event.result.is_none(), "{event:?}");
-        assert_eq!(
-            event.error.as_ref().map(|error| error.code.as_str()),
-            Some("invalidServerResult")
-        );
-    }
-
-    #[test]
-    fn a_java_entrypoint_server_error_is_reported() {
-        let mut harness = java_entrypoints_harness();
-        let (operation_id, request_id) = request_java_entrypoints(&harness);
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "error": { "code": -32601, "message": "No delegateCommandHandler for vscode.java.resolveMainClass" }
-        }));
-        let event = harness
-            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
-            .clone();
-        assert!(event.result.is_none(), "{event:?}");
-        assert_eq!(
-            event.error.as_ref().map(|error| error.code.as_str()),
-            Some("serverError")
-        );
-    }
-
-    #[test]
-    fn java_entrypoints_are_refused_for_other_languages() {
-        let mut harness = Harness::start(|_| {});
-        harness
-            .server
-            .complete_initialize(json!({ "executeCommandProvider": {} }));
-        harness.await_state(LspLifecycleState::Ready);
-        let operation_id = harness.engine.next_operation_id();
-        let error = harness
-            .session()
-            .request(
-                SemanticRequest {
-                    session_id: harness.session_id.clone(),
-                    operation_id: Some(operation_id.clone()),
-                    operation: LspSemanticOperation::JavaEntrypoints,
-                    uri: None,
-                    virtual_uri: None,
-                    position: None,
-                    new_name: None,
-                    range: None,
-                    diagnostics: Vec::new(),
-                    completion_context: None,
-                    completion_item: None,
-                    code_action: None,
-                    command: None,
-                },
-                operation_id,
-            )
-            .expect_err("only the Java provider can discover Java entry points");
-        assert!(matches!(error.code, ErrorCode::NotSupported), "{error:?}");
-    }
-
-    #[test]
-    fn java_test_items_ask_the_extension_for_one_file_and_normalize_the_answer() {
-        let mut harness = java_entrypoints_harness();
-        let operation_id = harness.engine.next_operation_id();
-        let uri = "file:///workspace/src/test/java/demo/OddlyNamedSpec.java";
-        harness
-            .session()
-            .request(
-                SemanticRequest {
-                    session_id: harness.session_id.clone(),
-                    operation_id: Some(operation_id.clone()),
-                    operation: LspSemanticOperation::JavaTestItems,
-                    uri: Some(uri.to_string()),
-                    virtual_uri: None,
-                    position: None,
-                    new_name: None,
-                    range: None,
-                    diagnostics: Vec::new(),
-                    completion_context: None,
-                    completion_item: None,
-                    code_action: None,
-                    command: None,
-                },
-                operation_id.clone(),
-            )
-            .expect("test discovery should not require the file to be open");
-        let request_id = harness
-            .server
-            .await_request("workspace/executeCommand")
-            .expect("test discovery should reach the Java Test extension");
-        let request = harness
-            .server
-            .messages()
-            .into_iter()
-            .find(|message| message["id"] == request_id)
-            .expect("the discovery request should be recorded");
-        assert_eq!(
-            request["params"],
-            json!({
-                "command": "vscode.java.test.findTestTypesAndMethods",
-                "arguments": [uri]
-            })
-        );
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": [{
-                "id": "class-id",
-                "label": "OddlyNamedSpec",
-                "fullName": "demo.OddlyNamedSpec",
-                "projectName": "app",
-                "testKind": 0,
-                "testLevel": 5,
-                "children": [{
-                    "id": "method-id",
-                    "label": "customAnnotation()",
-                    "fullName": "demo.OddlyNamedSpec#customAnnotation()",
-                    "projectName": "app",
-                    "testKind": 0,
-                    "testLevel": 6,
-                    "jdtHandler": "method-handler",
-                    "range": {
-                        "start": { "line": 7, "character": 2 },
-                        "end": { "line": 9, "character": 3 }
-                    }
-                }]
-            }]
-        }));
-        let event = harness
-            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
-            .clone();
-        assert!(event.error.is_none(), "{event:?}");
-        assert_eq!(
-            event
-                .result
-                .as_ref()
-                .and_then(|value| value["schemaVersion"].as_u64()),
-            Some(1)
-        );
-        assert_eq!(
-            event
-                .result
-                .as_ref()
-                .map(|value| &value["items"][0]["children"][0]["jdtHandler"]),
-            Some(&json!("method-handler"))
-        );
-    }
-
-    fn request_java_main_methods(harness: &mut Harness, uri: &str) -> (String, String) {
-        let operation_id = harness.engine.next_operation_id();
-        harness
-            .session()
-            .request(
-                SemanticRequest {
-                    session_id: harness.session_id.clone(),
-                    operation_id: Some(operation_id.clone()),
-                    operation: LspSemanticOperation::JavaMainMethods,
-                    uri: Some(uri.to_string()),
-                    virtual_uri: None,
-                    position: None,
-                    new_name: None,
-                    range: None,
-                    diagnostics: Vec::new(),
-                    completion_context: None,
-                    completion_item: None,
-                    code_action: None,
-                    command: None,
-                },
-                operation_id.clone(),
-            )
-            .expect("main-method discovery should not require the file to be open");
-        let request_id = harness
-            .server
-            .await_request("workspace/executeCommand")
-            .expect("main-method discovery should reach the Java Debug Server");
-        (operation_id, request_id)
-    }
-
-    #[test]
-    fn java_main_methods_ask_java_debug_for_one_file_and_normalize_the_answer() {
-        let mut harness = java_entrypoints_harness();
-        let uri = "file:///workspace/src/main/java/demo/App.java";
-        let (operation_id, request_id) = request_java_main_methods(&mut harness, uri);
-        let request = harness
-            .server
-            .messages()
-            .into_iter()
-            .find(|message| message["id"] == request_id)
-            .expect("the discovery request should be recorded");
-        assert_eq!(
-            request["params"],
-            json!({ "command": "vscode.java.resolveMainMethod", "arguments": [uri] })
-        );
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": [{
-                "range": {
-                    "start": { "line": 4, "character": 23 },
-                    "end": { "line": 4, "character": 27 }
-                },
-                "mainClass": "demo.App",
-                "projectName": "app"
-            }]
-        }));
-        let event = harness
-            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
-            .clone();
-        assert!(event.error.is_none(), "{event:?}");
-        let result = event.result.expect("main methods");
-        assert_eq!(result["schemaVersion"], json!(1));
-        assert_eq!(result["methods"][0]["mainClass"], json!("demo.App"));
-        assert_eq!(result["methods"][0]["range"]["startLine"], json!(4));
-    }
-
-    #[test]
-    fn malformed_java_main_method_answer_is_an_error_not_an_empty_list() {
-        let mut harness = java_entrypoints_harness();
-        let (operation_id, request_id) = request_java_main_methods(
-            &mut harness,
-            "file:///workspace/src/main/java/demo/App.java",
-        );
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": { "unexpected": true }
-        }));
-        let event = harness
-            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
-            .clone();
-        assert!(event.result.is_none());
-        assert_eq!(
-            event.error.as_ref().map(|error| error.code.as_str()),
-            Some("invalidServerResult")
-        );
-    }
-
-    #[test]
-    fn malformed_java_test_answer_is_an_error_not_an_empty_list() {
-        let mut harness = java_entrypoints_harness();
-        let operation_id = harness.engine.next_operation_id();
-        harness
-            .session()
-            .request(
-                SemanticRequest {
-                    session_id: harness.session_id.clone(),
-                    operation_id: Some(operation_id.clone()),
-                    operation: LspSemanticOperation::JavaTestItems,
-                    uri: Some("file:///workspace/src/test/java/demo/App.java".to_string()),
-                    virtual_uri: None,
-                    position: None,
-                    new_name: None,
-                    range: None,
-                    diagnostics: Vec::new(),
-                    completion_context: None,
-                    completion_item: None,
-                    code_action: None,
-                    command: None,
-                },
-                operation_id.clone(),
-            )
-            .unwrap();
-        let request_id = harness
-            .server
-            .await_request("workspace/executeCommand")
-            .unwrap();
-        harness.server.send(json!({
-            "jsonrpc": "2.0", "id": request_id, "result": { "unexpected": true }
-        }));
-        let event = harness
-            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
-            .clone();
-        assert!(event.result.is_none(), "{event:?}");
-        assert_eq!(
-            event.error.as_ref().map(|error| error.code.as_str()),
-            Some("invalidServerResult")
-        );
-    }
-
-    #[test]
-    fn null_java_test_answer_for_a_file_without_tests_is_an_empty_list() {
-        // Issue #840: vscode-java-test answers `null` for a file with no tests;
-        // that must not surface as an `invalidServerResult` error in the logs.
-        let mut harness = java_entrypoints_harness();
-        let operation_id = harness.engine.next_operation_id();
-        harness
-            .session()
-            .request(
-                SemanticRequest {
-                    session_id: harness.session_id.clone(),
-                    operation_id: Some(operation_id.clone()),
-                    operation: LspSemanticOperation::JavaTestItems,
-                    uri: Some("file:///workspace/src/main/java/demo/App.java".to_string()),
-                    virtual_uri: None,
-                    position: None,
-                    new_name: None,
-                    range: None,
-                    diagnostics: Vec::new(),
-                    completion_context: None,
-                    completion_item: None,
-                    code_action: None,
-                    command: None,
-                },
-                operation_id.clone(),
-            )
-            .unwrap();
-        let request_id = harness
-            .server
-            .await_request("workspace/executeCommand")
-            .unwrap();
-        harness.server.send(json!({
-            "jsonrpc": "2.0", "id": request_id, "result": null
-        }));
-        let event = harness
-            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
-            .clone();
-        assert!(event.error.is_none(), "{event:?}");
-        assert_eq!(
-            event.result,
-            Some(json!({ "schemaVersion": 1, "items": [], "diagnostics": [] }))
-        );
-    }
-
-    #[test]
     fn wait_events_returns_queued_events_without_waiting_the_timeout() {
         let harness = Harness::start(|_| {});
         let started = Instant::now();
@@ -14636,1430 +8563,6 @@ mod tests {
             .expect_err("drained terminal sessions must not return empty Ok");
         assert!(matches!(error.code, ErrorCode::ProcessFailed));
         assert_eq!(error.details.as_deref(), Some("sessionStopped"));
-    }
-
-    #[test]
-    fn java_virtual_semantics_bypass_did_open_without_weakening_physical_ownership() {
-        let mut harness = Harness::start(|request| {
-            request.provider_id = "java".to_string();
-            request.cache_directory = Some("/tmp/lithe-lsp-engine-tests".to_string());
-        });
-        harness.server.complete_java_initialize(json!({
-            "referencesProvider": true
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-        let virtual_uri = "jdt://contents/java.base/java/lang/String.class?=smoke";
-        let operation_id = harness.request(LspSemanticOperation::References, virtual_uri);
-        let request_id = harness
-            .server
-            .await_request("textDocument/references")
-            .expect("virtual references should reach JDT LS without didOpen");
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": []
-        }));
-        let event = harness
-            .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()));
-        assert!(event.error.is_none());
-
-        let physical_operation_id = harness.engine.next_operation_id();
-        let error = harness
-            .session()
-            .request(
-                SemanticRequest {
-                    session_id: harness.session_id.clone(),
-                    operation_id: Some(physical_operation_id.clone()),
-                    operation: LspSemanticOperation::References,
-                    uri: Some("file:///workspace/Unopened.java".to_string()),
-                    virtual_uri: None,
-                    position: Some(LspPosition {
-                        line: 0,
-                        utf16_column: 0,
-                    }),
-                    new_name: None,
-                    range: None,
-                    diagnostics: Vec::new(),
-                    completion_context: None,
-                    completion_item: None,
-                    code_action: None,
-                    command: None,
-                },
-                physical_operation_id,
-            )
-            .expect_err("an unopened physical document must remain rejected");
-        assert_eq!(
-            error.message,
-            "The document is not open in the language server."
-        );
-    }
-
-    #[test]
-    fn real_jdtls_routes_physical_and_virtual_references() {
-        let Ok(executable_path) = std::env::var("LITHE_JDTLS_SMOKE_EXECUTABLE") else {
-            return;
-        };
-        let java_path = std::env::var("LITHE_JDTLS_SMOKE_JAVA")
-            .expect("LITHE_JDTLS_SMOKE_JAVA must accompany the JDTLS smoke executable");
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should follow the Unix epoch")
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "lithe-real-jdtls-smoke-{}-{stamp}",
-            std::process::id()
-        ));
-        let workspace = root.join("workspace");
-        let source_directory = workspace
-            .join("src")
-            .join("main")
-            .join("java")
-            .join("smoke");
-        let dependency_source_directory = root.join("dependency-source").join("dependency");
-        let dependency_classes = root.join("dependency-classes");
-        let dependency_jar = workspace.join("lib").join("smoke-dependency.jar");
-        std::fs::create_dir_all(&source_directory).expect("smoke source directory should exist");
-        std::fs::create_dir_all(&dependency_source_directory)
-            .expect("smoke dependency source directory should exist");
-        std::fs::create_dir_all(&dependency_classes)
-            .expect("smoke dependency classes directory should exist");
-        std::fs::create_dir_all(
-            dependency_jar
-                .parent()
-                .expect("dependency JAR should have a parent"),
-        )
-        .expect("smoke dependency library directory should exist");
-        let java_home = PathBuf::from(&java_path)
-            .parent()
-            .and_then(Path::parent)
-            .expect("smoke Java executable should be inside a JDK bin directory")
-            .to_path_buf();
-        let executable_suffix = if cfg!(windows) { ".exe" } else { "" };
-        let dependency_source = dependency_source_directory.join("Widget.java");
-        std::fs::write(
-            &dependency_source,
-            "package dependency; public class Widget { public String value() { return \"widget\"; } }\n",
-        )
-        .expect("smoke dependency source should be written");
-        let javac_status = std::process::Command::new(
-            java_home
-                .join("bin")
-                .join(format!("javac{executable_suffix}")),
-        )
-        .arg("-d")
-        .arg(&dependency_classes)
-        .arg(&dependency_source)
-        .status()
-        .expect("smoke javac should start");
-        assert!(javac_status.success(), "smoke dependency should compile");
-        let jar_status = std::process::Command::new(
-            java_home
-                .join("bin")
-                .join(format!("jar{executable_suffix}")),
-        )
-        .arg("--create")
-        .arg("--file")
-        .arg(&dependency_jar)
-        .arg("-C")
-        .arg(&dependency_classes)
-        .arg(".")
-        .status()
-        .expect("smoke jar should start");
-        assert!(
-            jar_status.success(),
-            "smoke dependency JAR should be created"
-        );
-        std::fs::write(
-            workspace.join("pom.xml"),
-            r#"<project xmlns="http://maven.apache.org/POM/4.0.0">
-  <modelVersion>4.0.0</modelVersion>
-  <groupId>smoke</groupId>
-  <artifactId>lithe-jdtls-smoke</artifactId>
-  <version>1.0.0</version>
-  <properties><maven.compiler.release>17</maven.compiler.release></properties>
-  <dependencies>
-    <dependency>
-      <groupId>smoke</groupId>
-      <artifactId>dependency</artifactId>
-      <version>1.0.0</version>
-      <scope>system</scope>
-      <systemPath>${project.basedir}/lib/smoke-dependency.jar</systemPath>
-    </dependency>
-  </dependencies>
-</project>
-"#,
-        )
-        .expect("smoke pom should be written");
-        let source = r#"package smoke;
-
-import dependency.Widget;
-
-public class Main {
-  private Widget widget;
-  public Widget read() { return widget; }
-  public void write(Widget replacement) { widget = replacement; }
-}
-"#;
-        let source_path = source_directory.join("Main.java");
-        std::fs::write(&source_path, source).expect("smoke source should be written");
-
-        let canonical_workspace = workspace
-            .canonicalize()
-            .expect("smoke workspace should canonicalize");
-        let canonical_source_path = source_path
-            .canonicalize()
-            .expect("smoke source should canonicalize");
-        let root_uri = url::Url::from_directory_path(&canonical_workspace)
-            .expect("workspace should convert to a file URI")
-            .to_string();
-        let source_uri = url::Url::from_file_path(&canonical_source_path)
-            .expect("source should convert to a file URI")
-            .to_string();
-        let engine = LspEngine::new();
-        let started = engine
-            .start_server(StartServerRequest {
-                provider_id: "java".to_string(),
-                role: SessionRole::LanguageServer,
-                log_subject: None,
-                plugin_id: None,
-                startup_operation: None,
-                host_services: Vec::new(),
-                host_options: Default::default(),
-                toolchain_providers: Vec::new(),
-                keymap_import_providers: Vec::new(),
-                session_policy: None,
-                executable_path,
-                arguments: Vec::new(),
-                environment: BTreeMap::from([(
-                    "JAVA_HOME".to_string(),
-                    java_home.to_string_lossy().into_owned(),
-                )]),
-                root_uri,
-                working_directory: workspace.to_string_lossy().into_owned(),
-                initialization_options: None,
-                workspace_configuration: None,
-                runtime_executable_path: Some(java_path),
-                jdtls_launch_resources: None,
-                cache_directory: Some(root.join("cache").to_string_lossy().into_owned()),
-                workspace_fingerprint: None,
-                maven_context: None,
-                java_runtimes: Vec::new(),
-                java_gradle: None,
-                initialize_timeout_milliseconds: 90_000,
-                service_ready_idle_timeout_milliseconds: 45_000,
-                service_ready_absolute_timeout_milliseconds: 600_000,
-                request_timeout_milliseconds: 30_000,
-                java_build_timeout_milliseconds: DEFAULT_JAVA_BUILD_TIMEOUT_MS,
-                shutdown_timeout_milliseconds: 10_000,
-            })
-            .expect("real JDTLS should start");
-        let _cleanup = RealSmokeCleanup {
-            engine: &engine,
-            session_id: started.session_id.clone(),
-            root,
-        };
-        let session = engine
-            .session(&started.session_id)
-            .expect("real JDTLS session should be registered");
-        let mut ready_events =
-            await_real_smoke_ready(&session).unwrap_or_else(|error| panic!("{error}"));
-        let capability_deadline = Instant::now() + Duration::from_secs(30);
-        let capabilities = loop {
-            if let Some(capabilities) = ready_events.iter().find_map(|event| {
-                event
-                    .capabilities
-                    .as_ref()
-                    .filter(|capabilities| {
-                        ["definition", "references", "executeCommand"]
-                            .iter()
-                            .all(|required| capabilities.iter().any(|feature| feature == required))
-                    })
-                    .cloned()
-            }) {
-                break capabilities;
-            }
-            assert!(
-                Instant::now() < capability_deadline,
-                "real JDTLS should dynamically publish capabilities: {ready_events:?}"
-            );
-            ready_events.extend(
-                session
-                    .poll_events()
-                    .expect("real JDTLS capability events should poll"),
-            );
-            thread::sleep(Duration::from_millis(20));
-        };
-        for required in ["definition", "references", "executeCommand"] {
-            assert!(
-                capabilities.iter().any(|feature| feature == required),
-                "real JDTLS did not negotiate {required}: {capabilities:?}"
-            );
-        }
-
-        session
-            .sync_document(SyncDocumentRequest {
-                session_id: started.session_id.clone(),
-                uri: source_uri.clone(),
-                language_id: "java".to_string(),
-                text: source.to_string(),
-                content_changes: Vec::new(),
-            })
-            .expect("smoke source should synchronize");
-
-        let field_position = real_smoke_token_position(source, "Widget widget", "Widget ".len());
-        let physical_deadline = Instant::now() + Duration::from_secs(30);
-        let physical_references = loop {
-            let result = real_smoke_request(
-                &engine,
-                &session,
-                LspSemanticOperation::References,
-                Some(&source_uri),
-                None,
-                Some(field_position),
-            )
-            .unwrap_or_else(|error| panic!("{error}"));
-            if real_smoke_locations(&result).len() >= 3 {
-                break result;
-            }
-            assert!(
-                Instant::now() < physical_deadline,
-                "real JDTLS did not index physical references: {result}"
-            );
-            thread::sleep(Duration::from_millis(250));
-        };
-        assert!(real_smoke_locations(&physical_references).len() >= 3);
-
-        let widget_position = real_smoke_token_position(source, "Widget widget", 1);
-        let definition = real_smoke_request(
-            &engine,
-            &session,
-            LspSemanticOperation::Definition,
-            Some(&source_uri),
-            None,
-            Some(widget_position),
-        )
-        .unwrap_or_else(|error| panic!("{error}"));
-        let virtual_uri = real_smoke_locations(&definition)
-            .iter()
-            .find_map(|location| location.get("uri").and_then(Value::as_str))
-            .filter(|uri| uri.starts_with("jdt://"))
-            .expect("Widget definition should resolve to a JDT virtual URI")
-            .to_string();
-        let virtual_document = real_smoke_request(
-            &engine,
-            &session,
-            LspSemanticOperation::VirtualDocument,
-            None,
-            Some(&virtual_uri),
-            None,
-        )
-        .unwrap_or_else(|error| panic!("{error}"));
-        let virtual_source = virtual_document
-            .get("text")
-            .and_then(Value::as_str)
-            .filter(|text| !text.is_empty())
-            .expect("JDTLS should return decompiled Widget source");
-        let virtual_position =
-            real_smoke_token_position(virtual_source, "class Widget", "class ".len());
-        let virtual_references = real_smoke_request(
-            &engine,
-            &session,
-            LspSemanticOperation::References,
-            Some(&virtual_uri),
-            None,
-            Some(virtual_position),
-        )
-        .unwrap_or_else(|error| panic!("{error}"));
-        assert!(
-            real_smoke_locations(&virtual_references).iter().any(|location| {
-                location.get("uri").and_then(Value::as_str) == Some(source_uri.as_str())
-            }),
-            "virtual Widget references should include the synchronized project source: {virtual_references}"
-        );
-    }
-
-    #[test]
-    fn java_navigation_markers_resolve_only_implementation_lenses_and_omit_zero_targets() {
-        let mut harness = Harness::start(|_| {});
-        harness.server.complete_initialize(json!({
-            "codeLensProvider": { "resolveProvider": true }
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-        let uri = "file:///workspace/Service.java";
-        harness.sync(uri, "public interface Service {}\n");
-        let version = harness.snapshot().open_documents[uri].version;
-        let operation_id = harness.engine.next_operation_id();
-        harness
-            .session()
-            .request_with_kind(
-                SemanticRequest {
-                    session_id: harness.session_id.clone(),
-                    operation_id: Some(operation_id.clone()),
-                    operation: LspSemanticOperation::CodeLens,
-                    uri: Some(uri.to_string()),
-                    virtual_uri: None,
-                    position: None,
-                    new_name: None,
-                    range: None,
-                    diagnostics: Vec::new(),
-                    completion_context: None,
-                    completion_item: None,
-                    code_action: None,
-                    command: None,
-                },
-                operation_id.clone(),
-                PendingKind::JavaNavigationMarkers,
-                Some(version),
-            )
-            .expect("marker request should start");
-
-        let code_lens_id = harness
-            .server
-            .await_request("textDocument/codeLens")
-            .expect("the marker operation should request CodeLens data");
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": code_lens_id,
-            "result": [
-                {
-                    "range": {
-                        "start": { "line": 0, "character": 17 },
-                        "end": { "line": 0, "character": 24 }
-                    },
-                    "data": [uri, { "line": 0, "character": 17 }, "implementations"]
-                },
-                {
-                    "range": {
-                        "start": { "line": 0, "character": 17 },
-                        "end": { "line": 0, "character": 24 }
-                    },
-                    "data": [uri, { "line": 0, "character": 17 }, "references"]
-                }
-            ]
-        }));
-        let resolve_id = harness
-            .server
-            .await_request("codeLens/resolve")
-            .expect("only the implementation lens should be resolved");
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": resolve_id,
-            "result": {
-                "range": {
-                    "start": { "line": 0, "character": 17 },
-                    "end": { "line": 0, "character": 24 }
-                },
-                "command": {
-                    "title": "0 implementations",
-                    "command": "java.show.implementations",
-                    "arguments": []
-                }
-            }
-        }));
-
-        let event = harness.await_event(|event| {
-            event.operation_id.as_deref() == Some(operation_id.as_str())
-                && event.kind == "requestCompleted"
-        });
-        assert_eq!(event.result.as_ref().unwrap()["documentVersion"], version);
-        assert_eq!(
-            event.result.as_ref().unwrap()["markers"]
-                .as_array()
-                .map(Vec::len),
-            Some(0)
-        );
-        assert_eq!(
-            harness
-                .server
-                .messages()
-                .iter()
-                .filter(|message| {
-                    message.get("method").and_then(Value::as_str) == Some("codeLens/resolve")
-                })
-                .count(),
-            1
-        );
-
-        let cached_operation_id = harness.engine.next_operation_id();
-        assert!(harness
-            .session()
-            .complete_cached_java_navigation_markers(&cached_operation_id, uri, Some(version))
-            .expect("the completed marker result should be cached"));
-        let logs = harness.session().poll_events().unwrap();
-        let log = logs
-            .iter()
-            .find(|event| event.event.as_deref() == Some("lsp.navigation.cache_hit"))
-            .unwrap();
-        assert_eq!(log.detail.as_deref(), Some(format!("operationId={cached_operation_id}, uri={uri}, documentVersion={version}, markers=0").as_str()));
-        assert_eq!(log.fields.as_ref().unwrap()["document_version"], version);
-        assert_eq!(log.fields.as_ref().unwrap()["markers"], 0);
-        harness.events.extend(logs);
-        let cached_event = harness.await_event(|event| {
-            event.operation_id.as_deref() == Some(cached_operation_id.as_str())
-                && event.kind == "requestCompleted"
-        });
-        assert_eq!(
-            cached_event.result.as_ref().unwrap()["documentVersion"],
-            version
-        );
-        assert_eq!(
-            harness
-                .server
-                .messages()
-                .iter()
-                .filter(|message| {
-                    message.get("method").and_then(Value::as_str) == Some("textDocument/codeLens")
-                })
-                .count(),
-            1
-        );
-
-        harness.sync(uri, "public interface Service { void run(); }\n");
-        let new_version = harness.snapshot().open_documents[uri].version;
-        assert_ne!(new_version, version);
-        assert!(!harness
-            .session()
-            .complete_cached_java_navigation_markers(
-                &harness.engine.next_operation_id(),
-                uri,
-                Some(new_version)
-            )
-            .expect("editing the document should invalidate the marker cache"));
-    }
-
-    #[test]
-    fn java_navigation_marker_batch_verifies_method_targets_and_keeps_both_directions() {
-        let mut harness = Harness::start(|_| {});
-        harness.server.complete_initialize(json!({
-            "codeLensProvider": { "resolveProvider": true },
-            "implementationProvider": true
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-        let uri = "file:///workspace/Service.java";
-        let source = concat!(
-            "interface Service { void run(); }\n",
-            "class ServiceImpl implements Service {\n",
-            "    @Override public void run() {}\n",
-            "}\n"
-        );
-        harness.sync(uri, source);
-        let version = harness.snapshot().open_documents[uri].version;
-        let operation_id = harness.engine.next_operation_id();
-        harness
-            .session()
-            .request_with_kind(
-                SemanticRequest {
-                    session_id: harness.session_id.clone(),
-                    operation_id: Some(operation_id.clone()),
-                    operation: LspSemanticOperation::CodeLens,
-                    uri: Some(uri.to_string()),
-                    virtual_uri: None,
-                    position: None,
-                    new_name: None,
-                    range: None,
-                    diagnostics: Vec::new(),
-                    completion_context: None,
-                    completion_item: None,
-                    code_action: None,
-                    command: None,
-                },
-                operation_id.clone(),
-                PendingKind::JavaNavigationMarkers,
-                Some(version),
-            )
-            .expect("marker request should start");
-
-        let code_lens_id = harness
-            .server
-            .await_request("textDocument/codeLens")
-            .expect("the marker operation should request CodeLens data");
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": code_lens_id,
-            "result": []
-        }));
-
-        let super_id = harness
-            .server
-            .await_request("java/findLinks")
-            .expect("the override candidate should request its super implementation");
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": super_id,
-            "result": [{
-                "uri": uri,
-                "range": {
-                    "start": { "line": 0, "character": 25 },
-                    "end": { "line": 0, "character": 28 }
-                }
-            }]
-        }));
-
-        let interface_implementation_id = harness
-            .server
-            .await_request_at("textDocument/implementation", 0)
-            .expect("the interface declaration should query implementations");
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": interface_implementation_id,
-            "result": [{
-                "uri": uri,
-                "range": {
-                    "start": { "line": 2, "character": 26 },
-                    "end": { "line": 2, "character": 29 }
-                }
-            }]
-        }));
-
-        let overriding_implementation_id = harness
-            .server
-            .await_request_at("textDocument/implementation", 1)
-            .expect("the overriding method should query lower implementations");
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": overriding_implementation_id,
-            "result": [{
-                "uri": "file:///workspace/SpecialService.java",
-                "range": {
-                    "start": { "line": 1, "character": 16 },
-                    "end": { "line": 1, "character": 19 }
-                }
-            }]
-        }));
-
-        let event = harness.await_event(|event| {
-            event.operation_id.as_deref() == Some(operation_id.as_str())
-                && event.kind == "requestCompleted"
-        });
-        let markers = event.result.as_ref().unwrap()["markers"]
-            .as_array()
-            .expect("marker result should be an array");
-        assert_eq!(markers.len(), 3);
-        assert!(markers.iter().any(|marker| {
-            marker["line"] == 0
-                && marker["direction"] == "down"
-                && marker["relation"] == "interface"
-        }));
-        assert!(markers.iter().any(|marker| {
-            marker["line"] == 2 && marker["direction"] == "up" && marker["relation"] == "interface"
-        }));
-        assert!(markers.iter().any(|marker| {
-            marker["line"] == 2
-                && marker["direction"] == "down"
-                && marker["relation"] == "inheritance"
-        }));
-    }
-
-    #[test]
-    fn java_navigation_marker_batch_is_cancelled_when_the_document_changes() {
-        let mut harness = Harness::start(|_| {});
-        harness.server.complete_initialize(json!({
-            "codeLensProvider": { "resolveProvider": true },
-            "implementationProvider": true
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-        let uri = "file:///workspace/Service.java";
-        harness.sync(
-            uri,
-            "class ServiceImpl implements Service { @Override public void run() {} }\n",
-        );
-        let version = harness.snapshot().open_documents[uri].version;
-        let operation_id = harness.engine.next_operation_id();
-        harness
-            .session()
-            .request_with_kind(
-                SemanticRequest {
-                    session_id: harness.session_id.clone(),
-                    operation_id: Some(operation_id.clone()),
-                    operation: LspSemanticOperation::CodeLens,
-                    uri: Some(uri.to_string()),
-                    virtual_uri: None,
-                    position: None,
-                    new_name: None,
-                    range: None,
-                    diagnostics: Vec::new(),
-                    completion_context: None,
-                    completion_item: None,
-                    code_action: None,
-                    command: None,
-                },
-                operation_id.clone(),
-                PendingKind::JavaNavigationMarkers,
-                Some(version),
-            )
-            .expect("marker request should start");
-
-        let code_lens_id = harness
-            .server
-            .await_request("textDocument/codeLens")
-            .expect("the marker operation should request CodeLens data");
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": code_lens_id,
-            "result": []
-        }));
-        harness
-            .server
-            .await_request("java/findLinks")
-            .expect("the first verification request should be in flight");
-
-        harness.sync(
-            uri,
-            "class ServiceImpl implements Service { @Override public void changed() {} }\n",
-        );
-        let event = harness.await_event(|event| {
-            event.operation_id.as_deref() == Some(operation_id.as_str())
-                && event.kind == "requestCompleted"
-        });
-        assert_eq!(
-            event.error.as_ref().map(|error| error.code.as_str()),
-            Some("staleDocumentVersion")
-        );
-        assert_eq!(
-            harness
-                .server
-                .messages()
-                .iter()
-                .filter(|message| {
-                    message.get("method").and_then(Value::as_str)
-                        == Some("textDocument/implementation")
-                })
-                .count(),
-            0
-        );
-    }
-
-    #[test]
-    fn failed_java_marker_task_preserves_other_verified_markers() {
-        let mut harness = Harness::start(|_| {});
-        harness.server.complete_initialize(json!({
-            "codeLensProvider": { "resolveProvider": true },
-            "implementationProvider": true
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-        let uri = "file:///workspace/Service.java";
-        harness.sync(uri, "interface Service { void run(); }\n");
-        let version = harness.snapshot().open_documents[uri].version;
-        let operation_id = harness.engine.next_operation_id();
-        harness
-            .session()
-            .request_with_kind(
-                SemanticRequest {
-                    session_id: harness.session_id.clone(),
-                    operation_id: Some(operation_id.clone()),
-                    operation: LspSemanticOperation::CodeLens,
-                    uri: Some(uri.to_string()),
-                    virtual_uri: None,
-                    position: None,
-                    new_name: None,
-                    range: None,
-                    diagnostics: Vec::new(),
-                    completion_context: None,
-                    completion_item: None,
-                    code_action: None,
-                    command: None,
-                },
-                operation_id.clone(),
-                PendingKind::JavaNavigationMarkers,
-                Some(version),
-            )
-            .expect("marker request should start");
-
-        let code_lens_id = harness
-            .server
-            .await_request("textDocument/codeLens")
-            .expect("the marker operation should request CodeLens data");
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": code_lens_id,
-            "result": [{
-                "range": {
-                    "start": { "line": 0, "character": 25 },
-                    "end": { "line": 0, "character": 28 }
-                },
-                "command": { "title": "1 implementation" }
-            }]
-        }));
-        let implementation_id = harness
-            .server
-            .await_request("textDocument/implementation")
-            .expect("the method candidate should be verified");
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": implementation_id,
-            "error": { "code": -32603, "message": "index temporarily unavailable" }
-        }));
-
-        let event = harness.await_event(|event| {
-            event.operation_id.as_deref() == Some(operation_id.as_str())
-                && event.kind == "requestCompleted"
-        });
-        assert!(event.error.is_none());
-        assert_eq!(
-            event.result.as_ref().unwrap()["markers"]
-                .as_array()
-                .map(Vec::len),
-            Some(1)
-        );
-        assert!(harness.events.iter().any(|event| {
-            event.kind == "log"
-                && event.error.as_ref().is_some_and(|error| {
-                    error.stage == "navigation" && error.code == "navigationMarkerFailed"
-                })
-        }));
-    }
-
-    #[test]
-    fn java_navigation_marker_batch_enforces_the_task_limit() {
-        let mut harness = Harness::start(|_| {});
-        harness.server.complete_initialize(json!({
-            "codeLensProvider": { "resolveProvider": true },
-            "implementationProvider": true
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-        let uri = "file:///workspace/LargeService.java";
-        let methods = (0..(MAX_JAVA_NAVIGATION_TASKS + 1))
-            .map(|index| format!("    void method{index}();"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let source = format!("interface LargeService {{\n{methods}\n}}\n");
-        harness.sync(uri, &source);
-        let version = harness.snapshot().open_documents[uri].version;
-        let operation_id = harness.engine.next_operation_id();
-        harness
-            .session()
-            .request_with_kind(
-                SemanticRequest {
-                    session_id: harness.session_id.clone(),
-                    operation_id: Some(operation_id.clone()),
-                    operation: LspSemanticOperation::CodeLens,
-                    uri: Some(uri.to_string()),
-                    virtual_uri: None,
-                    position: None,
-                    new_name: None,
-                    range: None,
-                    diagnostics: Vec::new(),
-                    completion_context: None,
-                    completion_item: None,
-                    code_action: None,
-                    command: None,
-                },
-                operation_id.clone(),
-                PendingKind::JavaNavigationMarkers,
-                Some(version),
-            )
-            .expect("marker request should start");
-
-        let code_lens_id = harness
-            .server
-            .await_request("textDocument/codeLens")
-            .expect("the marker operation should request CodeLens data");
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": code_lens_id,
-            "result": []
-        }));
-        for index in 0..MAX_JAVA_NAVIGATION_TASKS {
-            let request_id = harness
-                .server
-                .await_request_at("textDocument/implementation", index)
-                .expect("every task within the limit should be requested");
-            harness.server.send(json!({
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": []
-            }));
-        }
-
-        let event = harness.await_event(|event| {
-            event.operation_id.as_deref() == Some(operation_id.as_str())
-                && event.kind == "requestCompleted"
-        });
-        assert_eq!(
-            event.result.as_ref().unwrap()["markers"]
-                .as_array()
-                .map(Vec::len),
-            Some(0)
-        );
-        assert_eq!(
-            harness
-                .server
-                .messages()
-                .iter()
-                .filter(|message| {
-                    message.get("method").and_then(Value::as_str)
-                        == Some("textDocument/implementation")
-                })
-                .count(),
-            MAX_JAVA_NAVIGATION_TASKS
-        );
-        assert!(harness.events.iter().any(|event| {
-            event.kind == "log"
-                && event.error.as_ref().is_some_and(|error| {
-                    error.stage == "navigation" && error.code == "navigationLimited"
-                })
-        }));
-    }
-
-    #[test]
-    fn java_super_navigation_normalizes_find_links_locations() {
-        let mut harness = Harness::start(|_| {});
-        harness.server.complete_initialize(json!({
-            "definitionProvider": true
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-        let uri = "file:///workspace/ServiceImpl.java";
-        harness.sync(
-            uri,
-            "class ServiceImpl { @Override public void run() {} }\n",
-        );
-        let version = harness.snapshot().open_documents[uri].version;
-        let operation_id = harness.engine.next_operation_id();
-        harness
-            .session()
-            .request_with_kind(
-                SemanticRequest {
-                    session_id: harness.session_id.clone(),
-                    operation_id: Some(operation_id.clone()),
-                    operation: LspSemanticOperation::JavaSuperImplementation,
-                    uri: Some(uri.to_string()),
-                    virtual_uri: None,
-                    position: Some(LspPosition {
-                        line: 0,
-                        utf16_column: 42,
-                    }),
-                    new_name: None,
-                    range: None,
-                    diagnostics: Vec::new(),
-                    completion_context: None,
-                    completion_item: None,
-                    code_action: None,
-                    command: None,
-                },
-                operation_id.clone(),
-                PendingKind::JavaResolveNavigation,
-                Some(version),
-            )
-            .expect("super navigation should start");
-
-        let find_links_id = harness
-            .server
-            .await_request("java/findLinks")
-            .expect("super navigation should use JDT LS findLinks");
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "id": find_links_id,
-            "result": [{
-                "uri": "file:///workspace/Service.java",
-                "range": {
-                    "start": { "line": 0, "character": 25 },
-                    "end": { "line": 0, "character": 28 }
-                }
-            }]
-        }));
-
-        let event = harness.await_event(|event| {
-            event.operation_id.as_deref() == Some(operation_id.as_str())
-                && event.kind == "requestCompleted"
-        });
-        let locations = event.result.as_ref().unwrap()["locations"]
-            .as_array()
-            .expect("findLinks should be normalized to locations");
-        assert_eq!(locations.len(), 1);
-        assert_eq!(locations[0]["uri"], "file:///workspace/Service.java");
-        assert_eq!(event.result.as_ref().unwrap()["documentVersion"], version);
-    }
-
-    #[test]
-    fn java_runtime_is_derived_from_the_start_environment() {
-        let environment = BTreeMap::from([("JAVA_HOME".to_string(), "/jdk".to_string())]);
-        let path = java_executable_from_environment(&environment).unwrap();
-        assert!(path.ends_with(if cfg!(windows) {
-            "bin/java.exe"
-        } else {
-            "bin/java"
-        }));
-    }
-
-    #[test]
-    fn start_contract_rejects_missing_runtime_identity() {
-        let request = StartServerRequest {
-            provider_id: String::new(),
-            role: SessionRole::LanguageServer,
-            log_subject: None,
-            plugin_id: None,
-            startup_operation: None,
-            host_services: Vec::new(),
-            host_options: Default::default(),
-            toolchain_providers: Vec::new(),
-            keymap_import_providers: Vec::new(),
-            session_policy: None,
-            executable_path: "/bin/server".to_string(),
-            arguments: Vec::new(),
-            environment: BTreeMap::new(),
-            root_uri: "file:///workspace".to_string(),
-            working_directory: "/workspace".to_string(),
-            initialization_options: None,
-            workspace_configuration: None,
-            runtime_executable_path: None,
-            jdtls_launch_resources: None,
-            cache_directory: None,
-            workspace_fingerprint: None,
-            maven_context: None,
-            java_runtimes: Vec::new(),
-            java_gradle: None,
-            initialize_timeout_milliseconds: 1,
-            service_ready_idle_timeout_milliseconds: 1,
-            service_ready_absolute_timeout_milliseconds: 1,
-            request_timeout_milliseconds: 1,
-            java_build_timeout_milliseconds: DEFAULT_JAVA_BUILD_TIMEOUT_MS,
-            shutdown_timeout_milliseconds: 1,
-        };
-        assert!(validate_start_request(&request).is_err());
-    }
-
-    #[test]
-    fn direct_jdtls_contract_requires_a_java_provider_and_runtime() {
-        let server = ScriptedServer::new();
-        let mut request = start_request(&server);
-        request.jdtls_launch_resources = Some(JdtlsLaunchResources {
-            launcher_jar_path: "/jdtls/plugins/equinox.jar".to_string(),
-            configuration_directory: "/jdtls/config_mac".to_string(),
-            lombok_agent_path: "/jdtls/lombok/lombok.jar".to_string(),
-            java_debug_bundle_path: None,
-            java_extension_bundle_paths: Vec::new(),
-        });
-
-        assert!(validate_start_request(&request).is_err());
-        request.provider_id = "java".to_string();
-        assert!(validate_start_request(&request).is_err());
-        request.runtime_executable_path = Some("/jdk/bin/java".to_string());
-        assert!(validate_start_request(&request).is_ok());
-    }
-
-    #[test]
-    fn direct_jdtls_start_request_matches_the_shared_contract_fixture() {
-        let fixture: Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../shared/fixtures/lsp/jdt-direct-launch-v1.json"
-        )))
-        .expect("direct JDTLS fixture should be valid JSON");
-        let request: StartServerRequest = serde_json::from_value(fixture["request"].clone())
-            .expect("fixture request should match the Core contract");
-
-        validate_start_request(&request).expect("fixture request should be valid");
-        let resources = request
-            .jdtls_launch_resources
-            .expect("fixture should use structured direct launch");
-        assert_eq!(
-            request.runtime_executable_path.as_deref(),
-            Some("/opt/lithe/jdk/bin/java")
-        );
-        assert_eq!(
-            resources.configuration_directory,
-            "/opt/lithe/jdtls/config_mac"
-        );
-        assert_eq!(
-            resources.java_extension_bundle_paths,
-            vec![
-                "/opt/lithe/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar",
-                "/opt/lithe/jdtls/java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar",
-            ]
-        );
-        assert_eq!(request.initialize_timeout_milliseconds, 30_000);
-        assert_eq!(request.service_ready_idle_timeout_milliseconds, 45_000);
-        assert_eq!(request.service_ready_absolute_timeout_milliseconds, 600_000);
-    }
-
-    const JAVA_PROBE_COMMAND: &str = "java.probe";
-
-    fn java_build_command() -> Value {
-        json!({
-            "title": "Build Java Workspace",
-            "command": "vscode.java.buildWorkspace",
-            "arguments": ["{\"mainClass\":\"demo.App\",\"isFullBuild\":false}"]
-        })
-    }
-
-    fn java_probe_command() -> Value {
-        json!({ "command": JAVA_PROBE_COMMAND, "arguments": [] })
-    }
-
-    /// A ready JDT session whose Java builds use `java_build_timeout_milliseconds`.
-    fn java_build_harness(java_build_timeout_milliseconds: u64) -> Harness {
-        let mut harness = Harness::start(|request| {
-            request.provider_id = "java".to_string();
-            request.cache_directory = Some(
-                std::env::temp_dir()
-                    .join("lithe-lsp-engine-tests")
-                    .to_string_lossy()
-                    .into_owned(),
-            );
-            request.java_build_timeout_milliseconds = java_build_timeout_milliseconds;
-        });
-        harness.server.complete_java_initialize(json!({
-            "executeCommandProvider": {
-                "commands": ["vscode.java.buildWorkspace", JAVA_PROBE_COMMAND]
-            }
-        }));
-        harness.await_state(LspLifecycleState::Ready);
-        harness
-    }
-
-    #[test]
-    fn java_preparation_reports_configuration_but_not_background_indexing() {
-        let mut harness = java_build_harness(60_000);
-        let session = harness.engine.session(&harness.session_id).unwrap();
-        send_project_job_progress(
-            &mut harness,
-            "index",
-            json!({ "kind": "begin", "title": "Indexing" }),
-        );
-        assert_eq!(
-            session
-                .lock_state()
-                .unwrap()
-                .preparation_snapshot
-                .as_ref()
-                .unwrap()
-                .phase,
-            "ready"
-        );
-        send_project_job_progress(
-            &mut harness,
-            "config",
-            json!({ "kind": "begin", "message": "Update project sample" }),
-        );
-        assert_eq!(
-            session
-                .lock_state()
-                .unwrap()
-                .preparation_snapshot
-                .as_ref()
-                .unwrap()
-                .phase,
-            "configuring"
-        );
-        send_project_job_progress(&mut harness, "config", json!({ "kind": "end" }));
-        harness.poll();
-        // The snapshot survives consuming all events, so a reconnect can render readiness.
-        assert_eq!(
-            session
-                .lock_state()
-                .unwrap()
-                .preparation_snapshot
-                .as_ref()
-                .unwrap()
-                .phase,
-            "ready"
-        );
-        assert!(harness
-            .events
-            .iter()
-            .any(|event| event.kind == "projectPreparation"
-                && event
-                    .result
-                    .as_ref()
-                    .is_some_and(|result| result["phase"] == "configuring")));
-    }
-
-    fn send_project_job_progress(harness: &mut Harness, token: &str, value: Value) {
-        harness.server.send(json!({
-            "jsonrpc": "2.0",
-            "method": "$/progress",
-            "params": { "token": token, "value": value }
-        }));
-        // Progress is logged and recorded under the same state lock, so the
-        // log proves the coordinator observed it.
-        let token = token.to_string();
-        harness.await_event(move |event| {
-            event.message.as_deref() == Some("$/progress")
-                && event.detail.as_deref().is_some_and(|detail| {
-                    detail.contains(&token) && detail.contains(value_kind(&value))
-                })
-        });
-    }
-
-    fn value_kind(value: &Value) -> &str {
-        value["kind"].as_str().unwrap_or_default()
-    }
-
-    fn java_log_detail<'a>(harness: &'a mut Harness, message: &'static str) -> &'a str {
-        harness
-            .await_event(move |event| event.message.as_deref() == Some(message))
-            .detail
-            .as_deref()
-            .unwrap_or_default()
-    }
-
-    /// Issue #692: Run built while JDT was still updating Maven projects and
-    /// repeated Run clicks started overlapping builds. Builds now wait for the
-    /// project job to end, run one at a time, and identical queued requests
-    /// share the next build.
-    #[test]
-    fn java_builds_wait_for_project_updates_and_never_overlap() {
-        let mut harness = java_build_harness(60_000);
-        send_project_job_progress(
-            &mut harness,
-            "update-1",
-            json!({ "kind": "begin", "message": "Update project ruoyi-vue-plus" }),
-        );
-
-        let first = harness.execute_command(java_build_command());
-        assert!(
-            java_log_detail(&mut harness, "Java project build is waiting")
-                .contains("waitingForProjectConfiguration")
-        );
-        // An ordinary command is written immediately; being the first
-        // executeCommand on the wire proves the build was held back.
-        let probe = harness.execute_command(java_probe_command());
-        let probe_id = harness
-            .server
-            .await_request_at("workspace/executeCommand", 0)
-            .expect("the probe should reach JDT LS");
-        assert_eq!(
-            harness.written_request(&probe_id)["params"]["command"],
-            JAVA_PROBE_COMMAND
-        );
-
-        send_project_job_progress(&mut harness, "update-1", json!({ "kind": "end" }));
-        let first_build = harness
-            .server
-            .await_request_at("workspace/executeCommand", 1)
-            .expect("the build should start once the project update ends");
-        assert_eq!(
-            harness.written_request(&first_build)["params"],
-            java_build_command()
-        );
-
-        let second = harness.execute_command(java_build_command());
-        let third = harness.execute_command(java_build_command());
-        harness.execute_command(java_probe_command());
-        let second_probe = harness
-            .server
-            .await_request_at("workspace/executeCommand", 2)
-            .expect("the second probe should reach JDT LS");
-        assert_eq!(
-            harness.written_request(&second_probe)["params"]["command"],
-            JAVA_PROBE_COMMAND,
-            "no second build may start while the first is running"
-        );
-
-        harness
-            .server
-            .send(json!({ "jsonrpc": "2.0", "id": first_build, "result": 1 }));
-        let first_event = harness
-            .await_event(|event| event.operation_id.as_deref() == Some(first.as_str()))
-            .clone();
-        assert!(first_event.error.is_none());
-        assert_eq!(first_event.result, Some(json!({ "value": 1 })));
-
-        let shared_build = harness
-            .server
-            .await_request_at("workspace/executeCommand", 3)
-            .expect("the queued callers should start one shared build");
-        assert_eq!(
-            harness.written_request(&shared_build)["params"],
-            java_build_command()
-        );
-        harness
-            .server
-            .send(json!({ "jsonrpc": "2.0", "id": shared_build, "result": 2 }));
-        for operation_id in [&second, &third] {
-            let event = harness
-                .await_event(|event| event.operation_id.as_deref() == Some(operation_id.as_str()))
-                .clone();
-            let error = event
-                .error
-                .as_ref()
-                .expect("WITH_ERROR must report build evidence");
-            assert_eq!(error.code, "javaBuildCompilationErrors");
-            assert_eq!(error.stage, "javaBuild");
-            let report = error
-                .java_build_report
-                .as_ref()
-                .expect("a terminal build verdict must include its evidence");
-            assert_eq!(report.marker_scope, JavaBuildMarkerScope::Workspace);
-            assert!(!report.builder_failed_earlier);
-            assert_eq!(report.recovery, JavaBuildRecovery::RebuildJavaIndex);
-            let serialized = serde_json::to_value(error).expect("runtime error should serialize");
-            assert_eq!(serialized["javaBuildReport"]["markerScope"], "workspace");
-            assert_eq!(serialized["javaBuildReport"]["builderFailedEarlier"], false);
-            assert!(serialized["javaBuildReport"]["elapsedMilliseconds"].is_u64());
-            assert_eq!(
-                serialized["javaBuildReport"]["recovery"],
-                "rebuildJavaIndex"
-            );
-        }
-        let builds_written = harness
-            .server
-            .messages()
-            .into_iter()
-            .filter(|message| message["params"]["command"] == "vscode.java.buildWorkspace")
-            .count();
-        assert_eq!(builds_written, 2);
-
-        for request_id in [probe_id, second_probe] {
-            harness
-                .server
-                .send(json!({ "jsonrpc": "2.0", "id": request_id, "result": null }));
-        }
-        harness.await_event(|event| event.operation_id.as_deref() == Some(probe.as_str()));
-    }
-
-    /// A caller deadline sends advisory cancellation, but JDT may keep
-    /// building, so the next build waits for the old build's late answer.
-    #[test]
-    fn a_timed_out_java_build_keeps_its_slot_until_jdt_answers() {
-        let mut harness = java_build_harness(100);
-        let first = harness.execute_command(java_build_command());
-        let first_build = harness
-            .server
-            .await_request_at("workspace/executeCommand", 0)
-            .expect("an unblocked build should start immediately");
-
-        let timeout = harness
-            .await_event(|event| event.operation_id.as_deref() == Some(first.as_str()))
-            .clone()
-            .error
-            .expect("the caller deadline should fail the operation");
-        assert_eq!(timeout.code, "requestTimeout");
-        assert!(timeout
-            .underlying_message
-            .as_deref()
-            .is_some_and(|detail| detail.contains("phase=building")));
-        assert!(harness.server.await_notification("$/cancelRequest"));
-        let cancellation = harness
-            .notification("$/cancelRequest")
-            .expect("the cancellation should be recorded");
-        assert_eq!(cancellation["params"]["id"], first_build);
-
-        let second = harness.execute_command(java_build_command());
-        let queued_timeout = harness
-            .await_event(|event| event.operation_id.as_deref() == Some(second.as_str()))
-            .clone()
-            .error
-            .expect("the queued caller should time out");
-        assert!(queued_timeout
-            .underlying_message
-            .as_deref()
-            .is_some_and(|detail| detail.contains("phase=waitingForPreviousBuild")));
-
-        harness
-            .server
-            .send(json!({ "jsonrpc": "2.0", "id": first_build, "result": 3 }));
-        assert!(java_log_detail(&mut harness, "Java project build finished")
-            .contains("\"waiterCount\":0"));
-        harness.execute_command(java_build_command());
-        let next_build = harness
-            .server
-            .await_request_at("workspace/executeCommand", 1)
-            .expect("the answered build should release the slot");
-        assert_ne!(next_build, first_build);
-    }
-
-    /// A stalled maintenance write must not stop waiter deadlines or prevent
-    /// transport termination. Past timestamps drive each timeout without sleeps.
-    fn assert_blocked_maintenance_write_terminates(cancellation: bool) {
-        struct Cleanup(Arc<RuntimeSession>);
-        impl Drop for Cleanup {
-            fn drop(&mut self) {
-                self.0.kill_process();
-            }
-        }
-
-        let mut harness = java_build_harness(60_000);
-        let session = harness.session();
-        let _cleanup = Cleanup(session.clone());
-        if cancellation {
-            let probe = harness.execute_command(java_probe_command());
-            let request_id = harness
-                .server
-                .await_request("workspace/executeCommand")
-                .unwrap();
-            harness.server.pause_input();
-            session
-                .lock_state()
-                .unwrap()
-                .pending
-                .get_mut(&request_id)
-                .unwrap()
-                .deadline = Instant::now();
-            harness.await_event(|event| event.operation_id.as_deref() == Some(probe.as_str()));
-            assert!(harness.server.await_input_pause());
-        } else {
-            harness.server.pause_input();
-        }
-        // Queue directly to exercise the maintenance writer, not the caller's
-        // immediate dispatch or the stdout reader's progress-triggered dispatch.
-        session.lock_state().unwrap().java_builds.enqueue(
-            "blocked-build".into(),
-            java_build_command(),
-            Instant::now(),
-            Duration::from_secs(60),
-        );
-        if !cancellation {
-            assert!(harness.server.await_input_pause());
-        }
-
-        for operation_id in ["expired-one", "expired-two"] {
-            session.lock_state().unwrap().java_builds.enqueue(
-                operation_id.into(),
-                java_build_command(),
-                Instant::now() - Duration::from_secs(2),
-                Duration::from_secs(1),
-            );
-            let error = harness
-                .await_event(|event| event.operation_id.as_deref() == Some(operation_id))
-                .error
-                .as_ref()
-                .expect("the monitor must keep expiring callers");
-            assert_eq!(error.code, "requestTimeout");
-        }
-
-        // Force the write's own deadline after proving the monitor remained live.
-        session.lock_state().unwrap().maintenance_write_deadline = Some(Instant::now());
-        harness.await_state(LspLifecycleState::Failed);
-        let error = harness
-            .await_event(|event| event.operation_id.as_deref() == Some("blocked-build"))
-            .error
-            .as_ref()
-            .expect("the stalled transport must fail its remaining caller");
-        assert_eq!(error.code, "transportFailed");
-        assert!(harness.server.await_input_resumed());
-        assert!(session.process.exit_status().is_some());
-        assert!(harness.snapshot().pending_operation_ids.is_empty());
-    }
-
-    #[test]
-    fn blocked_java_build_write_preserves_deadlines_and_terminates() {
-        assert_blocked_maintenance_write_terminates(false);
-    }
-
-    #[test]
-    fn blocked_deadline_cancellation_preserves_deadlines_and_terminates() {
-        assert_blocked_maintenance_write_terminates(true);
-    }
-
-    #[test]
-    fn stopping_the_session_fails_queued_java_builds() {
-        let mut harness = java_build_harness(60_000);
-        send_project_job_progress(
-            &mut harness,
-            "update-1",
-            json!({ "kind": "begin", "message": "Updating project configurations" }),
-        );
-        let queued = harness.execute_command(java_build_command());
-        java_log_detail(&mut harness, "Java project build is waiting");
-
-        harness.session().stop().expect("stop should succeed");
-        let error = harness
-            .await_event(|event| event.operation_id.as_deref() == Some(queued.as_str()))
-            .clone()
-            .error
-            .expect("a stopping session cannot build");
-        assert_eq!(error.code, "requestCancelled");
-        assert!(harness.snapshot().pending_operation_ids.is_empty());
     }
 
     /// Execution must not reach a model-only provider.

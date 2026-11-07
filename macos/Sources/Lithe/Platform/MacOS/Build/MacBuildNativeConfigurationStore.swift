@@ -5,7 +5,7 @@ import LitheModuleAPI
 
 /// Generic native-file boundary. The provider owns source discovery and field
 /// edits; this adapter owns private staging, filesystem
-/// validation and conditional publication. No Maven precedence lives here.
+/// validation and conditional publication. No build-tool precedence lives here.
 struct MacBuildNativeConfigurationStore: BuildNativeConfigurationStoring {
     let storage: any FileStorage
     let planner: any BuildSystemPlanning

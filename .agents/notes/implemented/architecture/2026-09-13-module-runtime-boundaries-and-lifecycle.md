@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 模块的启动、停止、资源持有和故障恢复由统一运行时负责，模块本身只使用被授予的能力。禁用模块不能偷偷启动进程或 watcher；模块启动失败后，运行时必须能记录状态并支持后续恢复。
@@ -338,7 +340,7 @@ SQL 执行状态栏沿同版 `EditorMarkupModelImpl` 的共享几何：右侧 14
 - `macos/Sources/LitheApplicationKernel/Registry/ModuleRegistry.swift`
 - `macos/Sources/Lithe/`
 - `macos/Sources/Lithe*Module/`
-- `Plugins/mac/Official/`
+- 已迁出：原 `Plugins/mac/Official/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - `macos/Tests/LitheApplicationKernelTests/`
 - `scripts/architecture/verify-module-boundaries.sh`
 

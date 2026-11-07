@@ -186,10 +186,6 @@ pub(crate) fn is_hot(method: &str) -> bool {
                 | "lsp.builtinNavigation"
                 | "lsp.mergeCompletions"
                 | "lsp.problems.query"
-                | "java.codeVision"
-                | "java.navigationMarkers"
-                | "java.runMarkers"
-                | "java.structure"
         )
         // Search-as-you-type issues one request per query revision.
         || matches!(

@@ -548,7 +548,7 @@
         "stage": {
           "type": "token",
           "required": true,
-          "description": "Storage cleanup owner, e.g. snapshot-rollback, history-pruning, or jdt-settings"
+          "description": "Storage cleanup owner, e.g. snapshot-rollback or history-pruning"
         },
         "error": {
           "type": "error",

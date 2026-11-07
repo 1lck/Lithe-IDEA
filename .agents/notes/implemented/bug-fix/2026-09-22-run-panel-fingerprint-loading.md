@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 Windows 运行面板先读取并解析配置文档，展示已有配置后再检查项目文件是否变化。
@@ -141,4 +143,4 @@ JDT 就绪后才出现，JDT 不可用时这一项没有提示（其他输入照
 - `rust/lithe-core/src/execution/configuration.rs`
 - `shared/contracts/run-configuration-v2.schema.json`
 - `macos/Sources/LitheExecutionModule/Services/RunService.swift`
-- `macos/Sources/Lithe/Models/AppModel/AppModel+JavaEntrypoints.swift`
+- 已迁出：原 `macos/Sources/Lithe/Models/AppModel/AppModel+JavaEntrypoints.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。

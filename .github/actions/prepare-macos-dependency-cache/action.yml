@@ -18,18 +18,6 @@ inputs:
     description: Partition compilation caches by arm64, x86_64, or universal packaging.
     required: false
     default: "universal"
-  jdtls:
-    description: Restore JDTLS and Lombok downloads.
-    required: false
-    default: "false"
-  jdk:
-    description: Restore the bundled JDTLS runtime JDK download.
-    required: false
-    default: "false"
-  jdk-architecture:
-    description: Target JDK architecture, arm64, x86_64, or universal for both.
-    required: false
-    default: ""
   restore-only:
     description: Restore caches without saving them at the end of the job. Cargo compilation outputs are always restore-only here; save them with save-macos-cargo-build-cache.
     required: false
@@ -54,17 +42,6 @@ runs:
           echo "CARGO_HOME=$GITHUB_WORKSPACE/.artifacts/cargo-home"
           echo "LITHE_SWIFTPM_CACHE_PATH=$GITHUB_WORKSPACE/.artifacts/swiftpm-cache"
         } >> "$GITHUB_ENV"
-
-    - name: Validate JDK cache inputs
-      if: inputs.jdk == 'true'
-      shell: zsh {0}
-      env:
-        JDK_ARCHITECTURE: ${{ inputs.jdk-architecture }}
-      run: |
-        case "$JDK_ARCHITECTURE" in
-          arm64|x86_64|universal) ;;
-          *) print -u2 -- "jdk-architecture must be arm64, x86_64, or universal when the JDK cache is enabled"; exit 2 ;;
-        esac
 
     - name: Restore SwiftPM repositories
       id: swiftpm_cache
@@ -114,50 +91,6 @@ runs:
         restore-keys: |
           macos-cargo-crates-${{ runner.os }}-
 
-    - name: Restore JDTLS downloads
-      id: jdtls_cache
-      if: inputs.jdtls == 'true' && inputs.restore-only != 'true'
-      continue-on-error: true
-      uses: actions/cache@v6
-      with:
-        path: .artifacts/jdtls-downloads
-        key: macos-jdtls-downloads-${{ runner.os }}-${{ hashFiles('third_party/jdtls/manifest.json') }}
-        restore-keys: |
-          macos-jdtls-downloads-${{ runner.os }}-
-
-    - name: Restore JDTLS downloads without saving
-      id: jdtls_restore
-      if: inputs.jdtls == 'true' && inputs.restore-only == 'true'
-      continue-on-error: true
-      uses: actions/cache/restore@v6
-      with:
-        path: .artifacts/jdtls-downloads
-        key: macos-jdtls-downloads-${{ runner.os }}-${{ hashFiles('third_party/jdtls/manifest.json') }}
-        restore-keys: |
-          macos-jdtls-downloads-${{ runner.os }}-
-
-    - name: Restore JDK downloads
-      id: jdk_cache
-      if: inputs.jdk == 'true' && inputs.restore-only != 'true'
-      continue-on-error: true
-      uses: actions/cache@v6
-      with:
-        path: .artifacts/jdk-downloads
-        key: macos-jdk-downloads-${{ runner.os }}-${{ inputs.jdk-architecture }}-${{ hashFiles('third_party/jdk/manifest.json') }}
-        restore-keys: |
-          macos-jdk-downloads-${{ runner.os }}-${{ inputs.jdk-architecture }}-
-
-    - name: Restore JDK downloads without saving
-      id: jdk_restore
-      if: inputs.jdk == 'true' && inputs.restore-only == 'true'
-      continue-on-error: true
-      uses: actions/cache/restore@v6
-      with:
-        path: .artifacts/jdk-downloads
-        key: macos-jdk-downloads-${{ runner.os }}-${{ inputs.jdk-architecture }}-${{ hashFiles('third_party/jdk/manifest.json') }}
-        restore-keys: |
-          macos-jdk-downloads-${{ runner.os }}-${{ inputs.jdk-architecture }}-
-
     - name: Validate restored caches or fall back
       shell: zsh {0}
       env:
@@ -168,33 +101,21 @@ runs:
         SWIFTPM_RESTORE_HIT: ${{ steps.swiftpm_restore.outputs.cache-hit }}
         CARGO_CACHE_OUTCOME: ${{ steps.cargo_cache.outcome }}
         CARGO_RESTORE_OUTCOME: ${{ steps.cargo_restore.outcome }}
-        JDTLS_CACHE_OUTCOME: ${{ steps.jdtls_cache.outcome }}
-        JDTLS_RESTORE_OUTCOME: ${{ steps.jdtls_restore.outcome }}
-        JDK_CACHE_OUTCOME: ${{ steps.jdk_cache.outcome }}
-        JDK_RESTORE_OUTCOME: ${{ steps.jdk_restore.outcome }}
       run: |
         swiftpm_outcome="$SWIFTPM_CACHE_OUTCOME"
         swiftpm_hit="$SWIFTPM_CACHE_HIT"
         cargo_outcome="$CARGO_CACHE_OUTCOME"
-        jdtls_outcome="$JDTLS_CACHE_OUTCOME"
-        jdk_outcome="$JDK_CACHE_OUTCOME"
         if [[ "$RESTORE_ONLY" == "true" ]]; then
           swiftpm_outcome="$SWIFTPM_RESTORE_OUTCOME"
           swiftpm_hit="$SWIFTPM_RESTORE_HIT"
           cargo_outcome="$CARGO_RESTORE_OUTCOME"
-          jdtls_outcome="$JDTLS_RESTORE_OUTCOME"
-          jdk_outcome="$JDK_RESTORE_OUTCOME"
         fi
         "$GITHUB_WORKSPACE/scripts/macos/prepare/validate-macos-dependency-caches.sh" \
           --swiftpm-enabled "${{ inputs.swiftpm }}" \
           --swiftpm-outcome "${swiftpm_outcome:-skipped}" \
           --swiftpm-hit "${swiftpm_hit:-}" \
           --cargo-enabled "${{ inputs.cargo }}" \
-          --cargo-outcome "${cargo_outcome:-skipped}" \
-          --jdtls-enabled "${{ inputs.jdtls }}" \
-          --jdtls-outcome "${jdtls_outcome:-skipped}" \
-          --jdk-enabled "${{ inputs.jdk }}" \
-          --jdk-outcome "${jdk_outcome:-skipped}"
+          --cargo-outcome "${cargo_outcome:-skipped}"
 
     - name: Resolve SwiftPM dependencies with fallback
       if: inputs.swiftpm == 'true'

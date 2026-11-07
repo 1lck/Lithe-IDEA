@@ -24,21 +24,17 @@ extension AppModel {
                   let debug = genericDebugFeatureIfActive else { throw CancellationError() }
             runWorkflowCoordinator.reapplySelectedConfiguration(run)
             if configuration.buildProvider != nil {
-                try await prepareBuildLanguageImport()
+                try await awaitBuildSystemDetection()
                 guard let builds = buildSystemsFeatureIfActive else { throw CancellationError() }
                 try await builds.prepareRunGenerationModels(workspace: identity.url)
                 guard isCurrentWorkspace(identity), !Task.isCancelled else { throw CancellationError() }
-            } else {
-                try await prepareCurrentProviderGeneration(configuration: configuration, identity: identity)
             }
-            var languageImportIsCurrent: @MainActor @Sendable () -> Bool = { true }
             var connection: PreparedProviderConnectionDebug?
             let revision = buildSystemsFeatureIfActive?.inputRevision
             let current: @MainActor @Sendable () -> Bool = { [weak self, weak run] in
                 guard let self, let run else { return false }
                 return self.isCurrentWorkspace(identity) && !Task.isCancelled
                     && run.selectedConfiguration == configuration && self.buildSystemsFeatureIfActive?.inputRevision == revision
-                    && languageImportIsCurrent()
                     && (connection?.isCurrent() ?? true)
             }
             guard current() else { throw CancellationError() }
@@ -48,15 +44,6 @@ extension AppModel {
                     configurationType: configurationType, adapterID: configuration.debugAdapter, port: port)
                 connection = prepared
                 return prepared.options
-            }, languageImport: { [weak self] imported in
-                guard let self, current(), case .maven(let context) = imported else { throw CancellationError() }
-                let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
-                guard current() else { throw CancellationError() }
-                let defaults = try self.javaLanguageImportConfiguration(rootURL: identity.url)
-                try await sessions.applyJavaRunImport(rootURL: identity.url,
-                    languageImport: .init(mavenContext: context, javaGradle: defaults.javaGradle))
-                let revision = sessions.javaImportRevision
-                languageImportIsCurrent = { sessions.javaImportRevision == revision }
             }, isCurrent: current)
             operation = launched
             showToolWindow(.run)

@@ -53,7 +53,7 @@ struct MacTerminalSessionOwnership: Equatable, Sendable {
 /// Stops every process of a POSIX session, not just its leader.
 ///
 /// An interactive shell gives each job its own process group, so signalling
-/// the shell or the shell's group leaves `mvn spring-boot:run`, `nohup` jobs
+/// the shell or the shell's group leaves a build tool's child servers, `nohup` jobs
 /// and disowned jobs running. All of them keep the session ID of the shell
 /// that started them, which stays addressable after the shell itself exits.
 enum MacProcessSessionTerminator {

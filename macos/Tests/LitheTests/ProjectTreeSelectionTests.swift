@@ -171,7 +171,7 @@ struct ProjectTreeSelectionTests {
                      collapsedAncestorPaths: collapsed)
         }
         let root = node("/p", [
-            node("/p/src", [node("/p/src/com/acme", [node("/p/src/com/acme/App.java")],
+            node("/p/src", [node("/p/src/com/acme", [node("/p/src/com/acme/App.txt")],
                                    collapsed: ["/p/src/com"])]),
             node("/p/README.md")
         ])
@@ -192,7 +192,7 @@ struct ProjectTreeSelectionTests {
         press(.right)
         #expect(expanded.isSuperset(of: ["/p/src/com/acme", "/p/src/com"]))
         press(.down)
-        #expect(selection.focusedPath == "/p/src/com/acme/App.java")
+        #expect(selection.focusedPath == "/p/src/com/acme/App.txt")
         press(.left)
         #expect(selection.focusedPath == "/p/src/com/acme")
         press(.left)
@@ -511,7 +511,7 @@ struct ProjectTreeSelectionTests {
         let root = node("/p", [
             node("/p/dest", [node("/p/dest/a.txt")]),
             node("/p/dest copy", [node("/p/dest copy/a.txt"), node("/p/dest copy/b.txt")]),
-            node("/p/src", [node("/p/src/com/acme", [node("/p/src/com/acme/App.java")], collapsed: ["/p/src/com"])]),
+            node("/p/src", [node("/p/src/com/acme", [node("/p/src/com/acme/App.txt")], collapsed: ["/p/src/com"])]),
             node("/p/alpha.txt"), node("/p/gamma.txt")
         ])
         let topLevel: Set<String> = ["/p/dest", "/p/dest copy", "/p/src", "/p/alpha.txt", "/p/gamma.txt"]
@@ -532,11 +532,11 @@ struct ProjectTreeSelectionTests {
         #expect(selectAll(focusing: "/p/dest/a.txt") == ["/p/dest/a.txt"])
         // Compacted packages use their displayed parent.
         #expect(selectAll(focusing: "/p/src/com/acme") == ["/p/src/com/acme"])
-        #expect(selectAll(focusing: "/p/src/com/acme/App.java") == ["/p/src/com/acme/App.java"])
+        #expect(selectAll(focusing: "/p/src/com/acme/App.txt") == ["/p/src/com/acme/App.txt"])
         // Folder selection highlights only the folder, independent of descendants.
         #expect(selectAll(focusing: "/p/dest copy") == topLevel)
         #expect(!selection.covers("/p/dest copy/a.txt"))
-        #expect(!selection.covers("/p/src/com/acme/App.java"))
+        #expect(!selection.covers("/p/src/com/acme/App.txt"))
         #expect(!selection.paths.contains("/p/dest copy/a.txt"))
         // Right-clicking an unselected descendant targets only that row.
         selection.selectForContextMenu("/p/dest copy/a.txt")
@@ -589,7 +589,7 @@ struct ProjectTreeSelectionTests {
 
     @Test
     func flattenedRowsKeepDisplayedDepthAndCollapsedDirectoriesAtomic() {
-        let leaf = FileNode(url: URL(fileURLWithPath: "/p/src/com/acme/Main.java"), isDirectory: false, children: nil)
+        let leaf = FileNode(url: URL(fileURLWithPath: "/p/src/com/acme/Main.txt"), isDirectory: false, children: nil)
         let package = FileNode(url: URL(fileURLWithPath: "/p/src/com/acme"), isDirectory: true, children: [leaf])
         let root = FileNode(url: URL(fileURLWithPath: "/p"), isDirectory: true, children: [package])
         let collapsed = ProjectTreeSelection.visibleRows(in: root, expandedPaths: ["/p"])
