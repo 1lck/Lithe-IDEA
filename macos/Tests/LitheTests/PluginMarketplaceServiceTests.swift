@@ -212,7 +212,7 @@ struct PluginMarketplaceServiceTests {
     }
 
     @Test
-    func sourcesPersistWithTheOfficialSourceFirst() throws {
+    func sourcesDiscardTheRetiredOfficialPresetAndKeepCustomSources() throws {
         let root = PluginMarketplaceTestSupport.temporaryRoot("sources")
         defer { try? FileManager.default.removeItem(at: root) }
         let service = MacPluginMarketplaceService(
@@ -225,10 +225,13 @@ struct PluginMarketplaceServiceTests {
             bundledOfficialIndexURL: DeclarativePluginTestSupport.repositoryRoot
                 .appendingPathComponent("Plugins/marketplace/index.json")
         )
-        #expect(service.loadSources().map(\.id) == [PluginMarketplaceSource.officialID, PluginMarketplaceSource.communityID])
-        // The bundled official index keeps the catalog usable offline.
-        #expect(service.cachedIndex(for: MacPluginMarketplaceService.officialSource)?.fetchedAt == nil)
-        #expect(service.cachedIndex(for: MacPluginMarketplaceService.officialSource) != nil)
+        #expect(service.loadSources().map(\.id) == [PluginMarketplaceSource.communityID])
+        let oldCache = root.appendingPathComponent("Lithe/PluginMarketplace/lithe-official/index.json")
+        try FileManager.default.createDirectory(at: oldCache.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/marketplace/index.json"))
+            .write(to: oldCache)
+        #expect(service.cachedIndex(for: MacPluginMarketplaceService.communitySource) == nil)
 
         var official = MacPluginMarketplaceService.officialSource
         official.isEnabled = false
@@ -244,9 +247,7 @@ struct PluginMarketplaceServiceTests {
         try service.saveSources([community, official])
 
         let loaded = service.loadSources()
-        #expect(loaded.map(\.id) == [PluginMarketplaceSource.officialID, "source-1"])
-        #expect(loaded.first?.isEnabled == false)
-        #expect(loaded.first?.indexURL == MacPluginMarketplaceService.officialIndexURL)
+        #expect(loaded.map(\.id) == ["source-1"])
     }
 
     /// Lithe Store is preset as a community source: on by default, its
@@ -274,15 +275,15 @@ struct PluginMarketplaceServiceTests {
 
         var disabled = store
         disabled.isEnabled = false
-        try service.saveSources([MacPluginMarketplaceService.officialSource, disabled])
+        try service.saveSources([disabled])
         #expect(service.loadSources().last?.isEnabled == false)
 
-        try service.saveSources([MacPluginMarketplaceService.officialSource])
-        #expect(service.loadSources().map(\.id) == [PluginMarketplaceSource.officialID])
+        try service.saveSources([])
+        #expect(service.loadSources().isEmpty)
 
         let sourcesURL = root.appendingPathComponent("Lithe/PluginMarketplace/sources.json")
         try Data(#"{"schemaVersion":1,"sources":[]}"#.utf8).write(to: sourcesURL)
-        #expect(service.loadSources().map(\.id) == [PluginMarketplaceSource.officialID, PluginMarketplaceSource.communityID])
+        #expect(service.loadSources().map(\.id) == [PluginMarketplaceSource.communityID])
     }
 
     /// A sources file from a release without the preset where the user added
@@ -320,12 +321,12 @@ struct PluginMarketplaceServiceTests {
         let manual = try writeLegacySources("https://github.com/Lithe-IDEA/Lithe-store")
         #expect(manual.id == PluginMarketplaceSource.communityID)
         let loaded = service.loadSources()
-        #expect(loaded.map(\.id) == [PluginMarketplaceSource.officialID, PluginMarketplaceSource.communityID])
+        #expect(loaded.map(\.id) == [PluginMarketplaceSource.communityID])
         #expect(loaded.last?.isEnabled == false)
 
         let lowercased = try writeLegacySources("https://github.com/lithe-idea/lithe-store")
         #expect(lowercased.id != PluginMarketplaceSource.communityID)
-        #expect(service.loadSources().map(\.id) == [PluginMarketplaceSource.officialID, lowercased.id])
+        #expect(service.loadSources().map(\.id) == [lowercased.id])
         #expect(service.loadSources().last?.isEnabled == false)
     }
 

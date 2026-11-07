@@ -33,11 +33,17 @@ export function parseArguments(arguments_) {
     shardIndex: 1,
     shardCount: 1,
     testPrefix: null,
+    prepareBins: [],
   };
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
     if (argument === "--manifest") options.manifest = arguments_[++index];
     else if (argument === "--package") options.package = arguments_[++index];
+    else if (argument === "--prepare-bin") {
+      const name = arguments_[++index];
+      if (!name || !/^[A-Za-z0-9_-]+$/.test(name)) throw new Error("--prepare-bin requires a Cargo binary target name.");
+      options.prepareBins.push(name);
+    }
     else if (argument === "--features") {
       options.features = arguments_[++index];
       if (!options.features || options.features.startsWith("--")) throw new Error("--features requires a feature list.");
@@ -162,6 +168,7 @@ export async function run(
       warnMs: options.warnMs,
       maxMs: options.maxMs,
       testBudgets: options.testBudgets ?? [],
+      prepareBins: options.prepareBins ?? [],
       suiteTimeoutMs: options.suiteTimeoutMs,
       buildDurationMs,
       inventory,
@@ -194,6 +201,27 @@ export async function run(
     if (options.features) cargoArguments.push("--features", options.features);
     if (options.noDefaultFeatures) cargoArguments.push("--no-default-features");
 
+    // Integration fixtures are normal binaries, not libtest executables. Build
+    // them before per-case watchdogs; cold compilation still spends suite budget.
+    for (const binary of options.prepareBins ?? []) {
+      const budget = timeoutBudget(`fixture preparation for ${binary}`, options.buildTimeoutMs);
+      const args = ["build", "--manifest-path", options.manifest, "--bin", binary];
+      if (options.package) args.push("--package", options.package);
+      if (options.features) args.push("--features", options.features);
+      if (options.noDefaultFeatures) args.push("--no-default-features");
+      const result = await runProcessImpl({ command: "cargo", args, cwd: REPOSITORY_ROOT,
+        timeoutMs: budget.timeoutMs, streamStderr: true });
+      buildDurationMs += Math.round(result.durationMs);
+      appendFileSync(logPath, result.stderr);
+      if (result.timedOut && budget.limitedBySuite) throw new SuiteTimeoutError(`fixture preparation for ${binary}`);
+      if (result.timedOut || result.code !== 0) {
+        records.push({ target: binary, name: "Cargo fixture preparation", status: result.timedOut ? "timeout" : "failed",
+          durationMs: Math.round(result.durationMs), details: result.stderr.slice(0, 8000) });
+        writeReport();
+        throw new Error(`Cargo fixture preparation failed for ${binary}.`);
+      }
+    }
+
     console.log(`Compiling Rust tests from ${options.manifest}`);
     const buildBudget = timeoutBudget("compilation", options.buildTimeoutMs);
     const build = await runProcessImpl({
@@ -210,7 +238,7 @@ export async function run(
       },
       streamStderr: true,
     });
-    buildDurationMs = Math.round(build.durationMs);
+    buildDurationMs += Math.round(build.durationMs);
 
     const compilerOutput = compilerMessages.join("\n").trim();
 

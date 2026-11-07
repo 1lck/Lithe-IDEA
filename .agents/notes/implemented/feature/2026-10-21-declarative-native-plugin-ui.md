@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-插件可以声明树、列表、输入框、下拉选择、复选框、工具栏按钮和右键菜单，由 macOS 使用 Lithe 共享控件显示。开发者只提供数据与函数，不必开发前端样式。本轮复用现有插件函数调用和跨项目生命周期，不增加后端执行系统；Windows 原生渲染留待后续独立实现和验证。
+插件可以声明树、列表、输入框、下拉选择、复选框、工具栏按钮和右键菜单，由宿主使用 Lithe 公共控件显示；开发者只提供数据与函数，不必开发前端样式。macOS 已接入原生工作台，Windows 已接入保留准入门控的渲染器、类型化函数通道及左、下、右三侧面板，继续复用既有执行和清理机制。Windows 的 `ui:3` 准入仍关闭，位置覆盖仅保存在当前宿主窗口和工作区的内存中；完整产品、WebView2（Windows 网页视图运行时）及与 macOS 六组停靠的对齐仍未验收。
 
 ## 问题
 
@@ -14,7 +14,7 @@
 
 在 ui 能力版本 3 下引入独立版本的原生声明，首版支持一棵树、一个列表或一个表单及其面板动作。共享 Core 同时负责初始声明与刷新数据的结构、所有权和预算校验（原生适配器不复制节点规则），应用功能模型负责选择、展开、数据替换和事件，视图只使用已有标题栏、工具栏按钮、菜单、行样式和滚动条。声明不能携带颜色、字体或脚本。树/列表的行容器在共享行背景外提供 Tree.horizontalInset 的左右留白，让悬停与选中保持同一外边界；文字内部仅保留层级缩进。键盘区域复用 litheFocusEffectHidden 关闭系统矩形焦点环，仍通过共享行的活动/非活动选中配色表达焦点，保留方向键和无障碍。
 
-数据源和动作复用现有插件函数入口：它负责授权、工作区和插件范围、超时及取消。原生窗口使用与网页相同的会话登记表，插件停用、替换及关闭项目时同步取消请求。隐藏窗口也释放请求，重开从已有状态存储恢复选择和展开。发布包与插件包只读，状态只写平台提供的原有可写存储，不改变签名或 Sparkle 增量更新基线；没有新增可跨工作树复用的缓存资源。
+数据源和动作复用现有插件函数入口：它负责授权、工作区和插件范围、超时及取消。原生窗口使用与网页相同的会话登记表，插件停用、替换及关闭项目时同步取消请求。隐藏窗口也释放请求，重开从已有状态存储恢复选择和展开。发布包与插件包只读，macOS 状态使用平台提供的原有可写存储，Windows 面板草稿与位置覆盖只保存在内存中，不改变签名或 Sparkle 增量更新基线；没有新增可跨工作树复用的缓存资源。
 
 正确做法：插件声明树和刷新动作，函数只返回稳定节点 ID 与标签。不要这样做：按插件名在工作台增加视图分支，或为了渲染树另建后端进程与生命周期。
 
@@ -150,8 +150,45 @@ Git未跟踪目录摘要和可见行缓存；这些界面仍使用完整公共�
 
 本次同步后的验证：macOS 323项/56套件通过（10.561s），覆盖公共按钮、实际声明式挂载、输入/树列表、设置、Git及HTML预览；Rust Core全量1106项通过。UI Lab源码及打包后的SDK检查通过。完整产品人工视觉验收仍pending。
 
+### Windows 渲染、函数通道与三侧面板
+
+Windows 的树、列表和表单复用已有公共控件与虚拟列表，由共享 Core 校验声明、字段草稿和返回节点。面板通过类型化函数接口 `NativeFunctionPort` 加载数据和执行动作，复用设置及网页已有的 Core 函数会话、审批和清理提示；前端不能自行挑选函数、程序或构建实例。原生登记由可信插件目录绑定包内容身份、面板、宿主窗口实例、工作区和唯一构建实例。渲染与函数接线已存在，但不因此开放 `ui:3`；正常插件准入仍保留门控。
+
+左、下、右三侧显示接入既有 `MainLayout`、`BottomPane`、`TerminalDockLayout` 和 `ResizablePane`。声明位置是首次打开的默认值，入口右键菜单允许移动到另两侧；移动只关闭同一贡献原来的槽，其他工具的选择和可见状态不受影响。同一贡献只挂载一个面板，每个挂载实例持有准确的原生句柄；隐藏、移动、同槽替换和工作区切换均释放该句柄，晚到的旧登记不能释放后来的所有者。关闭按钮只有在包、工作区、选中贡献和位置仍匹配时才关闭，并把焦点还给对应入口；过期回调不能关闭新工作区的面板。
+
+位置覆盖按当前宿主窗口和工作区保存在内存中，面板的选择、展开和字段草稿还按包内容身份隔离。隐藏重开、在三侧之间移动及返回同一工作区可以恢复现有草稿；包替换不能继承旧包草稿。位置覆盖可以跨同一窗口内的暂时移除保留，但不是重启恢复契约，也不写入插件包、发行目录或跨工作树缓存。
+
+正确做法：把当前贡献从右侧移动到底部，复用现有分隔布局并释放原槽持有的句柄。不要这样做：为三个位置分别创建函数执行器，或让旧面板的关闭回调直接修改当前活动项目；前者会重复执行，后者会关闭无关工作区的工具。三侧接入也不代表已经具备 macOS 六组停靠、自由拖动、入口重排或持久布局。
+
+R13 的 `native-docking.test.tsx` 在集成树独立进程中实跑 10 项、137 项断言通过（5.54s，最慢 218ms）。测试组合真实 `TerminalDockLayout`、`ResizablePane`、`BottomPane`、`NativeToolWindow` 和 `NativePanel`，覆盖三侧挂载与移动、精确释放、隐藏重开、关闭后焦点、工作区及包隔离、长树、窄窗口和组合输入；插件目录、UI 状态动作及原生宿主使用替身。该证据不能代替真实 `MainLayout` 产品、完整包、双窗口与 WebView2 的视觉、输入法及浅深色验收，Windows 状态继续保持 `partial` / `pending`。
+
+R14 的 `native-main-layout.test.tsx` 补齐真实 `MainLayout` 组合链：插件目录刷新与撤回、生产活动入口、UI 状态动作、三个布局槽、原生面板和类型化函数通道均保持真实；原生调用、审批、校验、终端内容及无关功能仍使用替身。集成树独立计时实跑 9 项、161 项断言通过（Bun 2.29s，最慢 329ms），覆盖三侧同时显示、终端挂载身份不变、逆序登记与迟到释放、同槽替换、工作区及包隔离、关闭后焦点，以及重建后的字段和树状态。
+
+重建测试保留当前进程的工作区存储，并使用内存会话仓库验证既有 UI 动作的保存与恢复；位置覆盖与草稿没有经历应用重启。切换宿主窗口标签后重建只证明模拟身份下草稿隔离与精确释放，没有同时启动两个真实窗口。这些组合证据仍不替代完整包、WebView2、真实输入法、浅深色和双窗口验收，也不开放 `ui:3` 或升级 `partial` / `pending`。
+
+Windows 工具栏按 Core 批准的 15 个 host 图标 ID 显式映射到公共图标；未声明时保留 refresh/invoke 默认。补齐的 IDEA SVG 与仓库已批准的 macOS 原文件逐字节一致，保留浅深变体，不从插件包解析任意路径。这些 Git 跟踪的静态输入在构建时打包、运行时只读，没有新增下载、缓存或可复用生成目录，不改变签名及增量更新基线。
+
+字段和动作说明统一调用公共 `ui/info-tip.tsx`，由既有 Button 与 Base UI Popover 管理 500ms 悬停、点击或按钮键盘激活后的固定、再次激活关闭、Escape/外点击及卸载清理。禁用字段和动作只禁用实际输入或执行，说明按钮保持可用；关闭时仍保留可访问的辅助说明。不要在每个 renderer 内复制悬停计时或弹层，也不要修改全站 Tooltip 语义来兼容一个调用方。
+
+Windows 搜索统一使用公共 `SearchField`。非空时的本地化清空按钮只把值交回调用者并恢复输入焦点；原生表单仅保存空草稿，按 Enter 后才提交包括空字符串在内的当前值。禁用或只读字段不能清空，说明按钮仍独立可用。尾部按钮的定位由公共 `Input` 的 accessory 接口负责，不在原生 renderer 复制输入框布局。组件键盘测试显式补发 Happy DOM 缺少的原生按钮默认 click，不代替真实 WebView2、输入法或主题验收。
+
+表单的 primary/normal 只选择公共 Button 的语义变体：primary 使用 accent，普通动作使用 default；渲染器不自定义颜色或重做按钮。真实 native-controls 夹具回归同时检查禁用、说明、草稿恢复与完整动作参数。已开放插件设置列表中的公共 SearchField 另有真实 WebView2/CDP Enter、Space 默认清空、同一输入焦点、过滤和选中恢复证据；这不等于原生 ui:3、物理键盘、输入法或主题视觉验收。
+
+Windows 虚拟树的键盘焦点属于 viewport（只挂载可见行的滚动容器），因此 Shift+F10/ContextMenu 由容器为当前选择打开公共 Base UI 菜单，并先滚动挂载目标行。菜单复用公共定位器的 anchor，不合成右键事件；菜单自己的按键不再触发树导航，输入法组合和重复按键不重复执行动作。行离开虚拟窗口后关闭菜单。Escape 可以返回树焦点；外点击或动作已把焦点交给新输入/对话框时，必须尊重新焦点所有者，不能无条件把焦点抢回树。该路径只有组件和 typed 函数端口回归，不能据此开放 ui:3 或宣称真实键盘、WebView2/IME 和视觉通过。
+
+Windows 原生表单动作组按完整组宽度选择横排或纵排：测量现有公共 Button/InfoTip 行的自然宽度和既有间距，空间不足时整组纵排，不能用 flex-wrap 留下多列折行。只切换同一个容器的方向，保留 DOM、输入草稿、焦点和单次完整 values 提交；首次同步测量，后续 ResizeObserver 通知合并到一个动画帧，卸载取消待执行帧，避免观察回调改高度产生反馈错误；字段栅格与旧 width/span 兼容语义不变。组件与真实 Edge 几何回归证明宽窄切换，不代表真实 MainLayout/WebView2、物理键盘、IME 或完整包验收。仓库入口 `scripts/plugins/test-windows-native-plugin-ui-browser.mjs` 使用真实 Edge、生产样式和公共组件，Tauri 调用使用官方 mock；导航前捕获全部 window.error/pageerror。执行与清理共用总期限，工作进程先归属 Windows Job（关闭即终止全部成员的系统进程组）再释放，退出后核实零成员才删除 profile/cache；早退、超时或缺失清理证明均失败。JSON/HTML/JUnit 与独立 CI 步骤维护六阶段组件回归；它不启动产品，不等于 WebView2 或 ui:3 完整包验收，ui:3 继续关闭。
+
+R21 为 NativeTree 增加真实 Edge 七阶段回归，复用上述 runner、生产样式、公共 ContextMenu/Dialog 和受控 typed 函数端口；键盘操作走 Playwright 浏览器默认行为。公共 modal 会把背景移出可访问树，测试使用局部 DOM locator 观察挂载行，不改变 modal。菜单打开后的上游 500ms 外点击保护期由 Playwright 受控时钟推进；随后第一次外点击由遮罩消费并关闭菜单，下一次正常点击才编辑输入，不声称立即穿透或同一次点击取得输入焦点。回归覆盖两种菜单键、Escape 焦点恢复、单次 Inspect、busy 禁用、对话框焦点和虚拟行卸载；真实包、WebView2、物理键盘、IME 与 ui:3 仍待验收。
+
+R22 的表单栅格回归固定浏览器 viewport，只改变原 native-controls 夹具容器，在 900→639→640→900px 检查 12 列/span 的几何、同一控件 DOM、当前草稿与编辑焦点、禁用说明、公共 readOnly 原语和完整 values 单次提交。宽度按真实 grid 校准，包含滚动条占宽，不关闭 overflow 或硬写滚动条像素；segmented 的禁用沿 fieldset 检查实际按钮；typed 端口无 selection 为 undefined，不冒充下游 JSON null。主集成首次 Edge 发现测试断言错误，修复测试后七阶段真实 Edge 通过（36.5 秒），window.error/pageerror 为零，Job 归零后 profile/cache 已清理；未改生产组件。lane 原先的 TLS 安装失败和未执行项保持原记录，主集成通过只补受控组件证据，不升级 ui:3、WebView2、物理键盘、IME 或完整包验收。
+
+控件输入回归继续使用原 native-controls 完整夹具和公共控件。真实浏览器负责指针、键盘默认行为与焦点：文本/多行编辑只改草稿，搜索 Enter 和声明的 onCommit 才提交；select、checkbox、segmented、stepper 按各自契约提交完整当前 values，最后显式按钮只提交一次。定位 checkbox 的公开角色及 stepper 的实际编辑节点，不能把 BaseUI 隐藏校验 input 当成第二个用户输入；下拉键盘操作先在局部期限内证明列表和选项焦点已就绪，不用 sleep 猜测上游安排。禁用组仍可查看说明，但指针和 Tab 不得进入编辑节点。失败证据单独保留，成功也必须核实页面错误为零、Job 零成员和 profile/cache 清理；这些是受控 Edge 组件证据，不升级 ui:3、WebView2、真实 IME 或完整包验收。
+
+工作台组合回归将真实 MainLayout、活动入口、项目页签、公共控件、三侧槽及 typed 函数会话放在同一 Edge 页面中验证；原生 I/O、审批、终端内容和包/窗口外部事件仍使用与 Bun 组件测试共享的受控边界。替换包时暂停旧 prepare，再释放后必须证明旧操作没有 confirm 或读取结果，新 owner 的动作确实完成这两步；单独看到 cancel 不足以证明旧动作未执行，因为成功动作收尾也会取消原会话。工作区切换使用真实项目入口；同页重建受控窗口身份仅验证隔离规则，不冒充真实双窗口、产品 WebView2 或 ui:3 准入。
+
 ## 验证
 
+- Windows 受控浏览器：按 `docs/ci-builds.md` 中的 Playwright driver 解析命令运行 `scripts/plugins/test-windows-native-plugin-ui-browser.mjs`。R21 的动作组六阶段（41.0 秒）及 NativeTree 七阶段（38.5 秒）通过，window.error/pageerror 均为零，Job 归零后 profile/cache 已清理；worker 早退/挂起的生命周期回归通过，原始预期失败报告单独保留。R20 的页面错误、缺失模块、执行超时故障注入保持原证据范围。supervisor 早退时缺失证明，报告失败并保留隔离 scratch，不把故障注入算作产品验收。
 - `./scripts/architecture/verify-shared-contracts.sh`
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib native_ui_validates_version_ownership_actions_and_budgets`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginNativeUI|PluginWeb|WorkbenchContributionHostTests'`
@@ -159,6 +196,9 @@ Git未跟踪目录摘要和可见行缓存；这些界面仍使用完整公共�
 - `./scripts/architecture/verify-service-boundaries.sh`
 - `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
+- Windows 组件测试分别在独立进程运行，避免模块替身互相污染：`bun test --timeout 15000 src/features/plugins/native-ui/native-panel-session.test.ts`、`bun test --timeout 15000 src/features/plugins/native-ui/native-panel.test.tsx`、`bun test --timeout 15000 src/features/plugins/native-ui/native-functions.test.ts`、`bun test --timeout 15000 src/features/plugins/native-ui/native-docking.test.tsx`（工作目录 `windows/tauri`）。
+- Windows 原生登记与函数边界：运行 Tauri 宿主的 `plugin_host::native_ui` 和 `plugin_host::functions::native` 定向测试；组件结果不代替宿主或完整产品验收。
+- Windows 真实工作台组合在独立进程运行 `bun test --timeout 15000 src/features/plugins/native-ui/native-main-layout.test.tsx`（工作目录 `windows/tauri`）；按前端计时 runner 生成每项 JUnit/HTML 报告，不与其他含模块替身的 suite 合并运行。
 
 ## 适用范围
 
@@ -168,6 +208,11 @@ Git未跟踪目录摘要和可见行缓存；这些界面仍使用完整公共�
 - `macos/Sources/Lithe/Application/Features/PluginNativeUIFeature.swift`
 - `macos/Sources/Lithe/Views/Workbench/PluginNativeToolWindowView.swift`
 - `macos/Tests/Fixtures/native-ui-lab/`（宿主验收 fixture，打包使用外部官方 SDK）
+- `windows/tauri/src/features/plugins/native-ui/`
+- `windows/tauri/src/features/layout/components/main-layout.tsx`
+- `windows/tauri/src/features/layout/components/bottom-pane/bottom-pane.tsx`
+- `windows/tauri/src-tauri/src/plugin_host/native_ui/`
+- `windows/tauri/src-tauri/src/plugin_host/functions/native.rs`
 
 ## 2026-10-23 SDK 迁移后的验收归属
 
@@ -184,3 +229,21 @@ VCS Provider 的变更分组与文件行也通过 `LitheTreeList` 呈现，使�
 选择绑定是调用方发布当前选中的唯一入口。公共控件记录自身发起的选择，只有外部改选才重置键盘游标和范围锚点，避免画面已到新行而 Return 仍操作旧行；Shift 扩选与缩选保留原锚点，并直接处理 AppKit 的范围选择命令。普通不可选标题不进入上下键遍历，可展开分组仍保留键盘焦点和左右键语义。原生挂载回归验证外部 a→c 后 Return/方向键及 Shift 的最终对象，并在真实 Problems 视图检查 A 诊断→Down→Return 最终打开 B 文件的行列。
 
 同步 preview 的会话历史时保留排序/行模型缓存和 Equatable 列表边界，公共树仅接管平铺可见行与交互；新建项目复用已抽出的 PluginFieldControls，侧栏与 Settings 共用公共树，不恢复旧样式 modifier。
+
+## Windows 表单草稿的逐字段恢复
+
+隐藏后重开原生表单时，一个无效字段不能清空其余合法草稿。Windows 先让 Core 验证当前声明的默认值，
+再按控件声明顺序逐项尝试保存值；每个候选仍交给既有 `plugins.nativeUI.validateData`，不在 TypeScript
+复制类型、UTF-8 长度、选项或数值范围规则。已删除字段不会进入候选，Core 明确拒绝的字段保留当前默认值。
+恢复全部完成且仍属于同一次打开后，才一次发布并保存规范化快照。
+
+默认声明和全部候选共享一次 15 秒期限及同一个取消信号。Core 已完成的 `plugin.ui.invalidData` 拒绝通过
+专用错误类型识别；通信失败、取消、超时、其他 Core 错误或默认声明本身无效都会中止恢复并保留原快照，
+方便用户重试，不能把这些故障解释为“用户字段无效”。显式 null 不用缺省值遮掩；Core 的标量反序列化
+失败仍按顶层错误处理并保留快照，真正缺失的字段使用已验证默认值。关闭、重置或新一次打开后，旧回复不能
+发布状态或删除新草稿。快照继续仅存于既有按插件/包/宿主窗口/工作区/窗口/面板隔离的有界内存，未新增磁盘路径，
+不写插件包或安装资源，也不改变签名或增量更新基线。
+
+这些修复和受控组件/Edge 回归只证明 renderer 与 session 工作流；完整原生样例仍要求未全部开放的
+`ui:3`、`buildSystems:1` 和 `buildProviders:1`。完整包、真实 WebView2/输入法、主题和双窗口验收没有完成前，
+继续关闭 ui3 准入，并保持 Windows `partial` / `pending`。

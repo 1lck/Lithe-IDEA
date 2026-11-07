@@ -90,6 +90,7 @@ import GitRemoteManager from "./git-remote-manager";
 import GitTagManager from "./git-tag-manager";
 import GitOperationBanner from "./git-operation-banner";
 import GitStatusPanel from "./status/git-status-panel";
+import { VcsRootSources } from "@/features/vcs/vcs-root-sources";
 import { GitRepositoryEmptyState } from "./git-repository-empty-state";
 
 interface GitViewProps {
@@ -171,6 +172,8 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const [isStaging, setIsStaging] = useState(false);
   const [commitFocusRequest, setCommitFocusRequest] = useState(0);
   const repositoryPaths = useRepositoryStore((state) => state.availableRepoPaths);
+  const vcsRoots = useRepositoryStore((state) => state.vcsRoots);
+  const vcsSources = vcsRoots ? <VcsRootSources controller={vcsRoots} /> : null;
   const collapsedStatusFolders = useMemo(
     () => new Set(sourceControlSession?.collapsedFolders ?? []),
     [sourceControlSession],
@@ -782,6 +785,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
           >
             {renderActionsButton()}
           </SidebarTitleBar>
+          {vcsSources}
           {repoPath ? (
             <GitRepositoryEmptyState
               root={repoPath}
@@ -812,6 +816,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
       <>
         <SidebarPanel>
           <SidebarTitleBar title={t("workbench.commit")}>{renderActionsButton()}</SidebarTitleBar>
+          {vcsSources}
           <Spinner label={t("git.loadingGitStatus")} showLabel compact className="m-auto" />
         </SidebarPanel>
         {renderGitActionsMenu({ hasGitRepo: false, onRefresh: handleManualRefresh })}
@@ -845,6 +850,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         <SidebarPanel>
           <SidebarTitleBar title={t("workbench.commit")}>{renderActionsButton()}</SidebarTitleBar>
           {showLoadError && loadError}
+          {vcsSources}
           <GitRepositoryEmptyState
             root={activeRepoPath}
             context="changes"
@@ -891,6 +897,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         >
           {renderActionsButton()}
         </SidebarTitleBar>
+        {vcsSources}
         {showLoadError && loadError}
         {commitTab === "stash" && activeRepoPath ? (
           <GitSavedChanges

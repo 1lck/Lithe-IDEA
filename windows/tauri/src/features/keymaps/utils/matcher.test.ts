@@ -22,12 +22,12 @@ describe("keymap matcher", () => {
       shiftKey: true,
     });
 
-    expect(matchKeybinding(event, "cmd+shift+f").matched).toBe(true);
+    expect(matchKeybinding(event, "ctrl+shift+f").matched).toBe(true);
   });
 
   test("does not treat a modifier-only key as global search", () => {
     const event = keyboardEvent({ code: "ShiftLeft", key: "Shift", shiftKey: true });
 
-    expect(matchKeybinding(event, "cmd+shift+f").matched).toBe(false);
+    expect(matchKeybinding(event, "ctrl+shift+f").matched).toBe(false);
   });
 });

@@ -4,11 +4,11 @@
 
 ## 先说结论
 
-Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安装”两个标签。插件从“插件仓库源”（一个 JSON 索引文件）里列出：默认源是主仓库的 `Plugins/marketplace/index.json`；另外预置一个社区源 Lithe Store（`Lithe-IDEA/Lithe-store` 仓库，默认开启、可删除）；用户还能添加第三方源（HTTPS 索引地址，或 GitHub 仓库地址，自动指向仓库根目录的 `lithe-plugin-index.json`）。
+Lithe 的插件管理有“插件市场 / 已安装”两个标签。默认市场以 Lithe Store（`Lithe-IDEA/Lithe-store` 的 `lithe-plugin-index.json`）为准：它默认开启、可删除，仍按第三方源验证；用户还能添加其他 HTTPS 索引或 GitHub 仓库源。旧 `lithe-official` 预置源不再加载，升级时忽略其保存记录与索引缓存，保留 Store 的启停、移除和用户自定义源。
 
-“官方”市场条目必须同时满足两点：来自默认源，并且带 Lithe 发布者签名。社区包也可以从磁盘 ZIP 或解包目录安装：先复制到本次操作的私有快照，再让用户确认权限和完整程序声明。市场索引校验值、本地快照摘要和发布者签名各自证明不同的事实，不能互相冒充；本地安装不会因市场出现同 ID 条目而自动变成市场管理的插件。
+Store 不因组织归属自动获得旧官方源的信任级别。社区包可从市场、磁盘 ZIP 或解包目录安装：先复制到本次操作的私有快照，再让用户确认权限和完整程序声明。历史官方安装记录及宿主固定的发布者签名要求保持原有身份；市场索引校验值、本地快照摘要和发布者签名各自证明不同的事实。正式签名包如何进入 Store 尚未完成，不能通过把社区源标成官方来绕过现有契约。
 
-对日常开发的直接影响：索引格式和校验规则只在 `shared/contracts/plugins/v1/` 与 `rust/lithe-core/src/plugins/marketplace.rs` 定义一次；官方插件不再跟随 Lithe 发版，而是每个插件按自己的标签单独发布。
+对日常开发的直接影响：索引格式和校验规则只在 `shared/contracts/plugins/v1/` 与 `rust/lithe-core/src/plugins/marketplace.rs` 定义一次；插件发行与市场登记分别核对，未完成的正式签名发行不以候选包代替。
 
 ## 问题
 
@@ -51,9 +51,9 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 
 没有图标、仍在加载或图标不可用时，按 IDEA 项目头像的做法显示首字母头像，直接复用 `ProjectAvatarBadge` 和同一套 Islands 配色，颜色按插件 ID 稳定取值：名称以中日韩字符开头时只取第一个字，否则取前两个单词的首字母，只有一个单词时取前两个字母（`Go Support` → GS，`Lua` → LU，`数据库工具` → 数）。头像是 SwiftUI 原生绘制，没有先生成 SVG 再解码。只有详情页的“未选择插件”空状态仍用 IDEA 的插件节点图标。索引图标统一按原色显示，深色主题下深色品牌色（如 Lua 的 `#2C2D72`）对比度偏低，模板/品牌模式需要索引契约另加字段，暂不处理。
 
-源列表写在 Application Support，索引缓存写在 Caches，网络下载和解压也只使用本次临时目录。app bundle 只读地附带官方索引，作为离线和首次启动兜底。运行时不写 macOS 发行 bundle 或 Windows 安装资源，不影响代码签名和 Sparkle delta 的发布基线；静态门禁之外，真实验收还需比较典型工作流前后的 bundle 文件清单和哈希。
+源列表写在 Application Support，索引缓存写在 Caches，网络下载和解压也只使用本次临时目录。旧官方索引缓存与 Store 使用不同来源 ID，退役后不会作为 Store 的离线结果；bundle 内旧索引不再作为默认市场兜底。运行时不写 macOS 发行 bundle 或 Windows 安装资源，不影响代码签名和 Sparkle delta 的发布基线；静态门禁之外，真实验收还需比较典型工作流前后的 bundle 文件清单和哈希。
 
-**官方插件发布。** `Plugins/marketplace/official-plugins.json` 登记每个官方插件的标签前缀、包目录和资产名。`release-official-plugins.yml` 在 PR 上检查“插件内容变了但版本没升”，合入 preview 后只为版本有变化的插件新建 `plugin-<名称>-v<版本>` 标签和 Release。插件代码不变，它的标签就不动。
+**历史官方插件发布。** `Plugins/marketplace/official-plugins.json` 和 `release-official-plugins.yml` 仍保留历史发布元数据与恢复工具；它们写入的主仓库索引不再是默认市场。正式签名包接入 Store 需要单独完成契约与发布流程，当前不能声称已有该发行链。
 
 “发布”和“登记到索引”是两个独立的 job。登记 job 每次运行都重新找出“已打标签、但索引里没有”的版本（扫描整个标签系列），从已发布的 Release 下载资产计算 SHA-256，再开索引 PR；已有打开的索引 PR 就跳过。这样即使 Release 发出去后开 PR 失败，重跑工作流也能补上。如果像以前那样只在“标签不存在”时才处理，Release 一旦发出就再也不会被登记。
 

@@ -5,6 +5,8 @@ import type { SearchFilesRequest, SearchFilesResponse } from "@/features/file-se
 import { installHappyDom } from "@/test-utils/happy-dom";
 
 const restoreDom = installHappyDom();
+const previousLocalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+Object.defineProperty(globalThis, "localStorage", { configurable: true, value: window.localStorage });
 const previousActEnvironment =
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
     .IS_REACT_ACT_ENVIRONMENT;
@@ -41,6 +43,10 @@ const searchFilesContent = mock(async (_request: SearchFilesRequest) => response
 const executeCore = mock(async () => { throw new Error("Unexpected native request"); });
 const fileSystemState = { rootFolderPath: "C:/workspace", workspaceFolders: [] as never[] };
 
+mock.module("@tauri-apps/api/webviewWindow", () => ({
+  getCurrentWebviewWindow: () => ({ label: "main" }),
+  getAllWebviewWindows: async () => [],
+}));
 mock.module("use-debounce", () => ({
   useDebounce: <Value,>(value: Value) => [value] as const,
 }));
@@ -146,6 +152,8 @@ afterEach(async () => {
 afterAll(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
     .IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+  if (previousLocalStorage) Object.defineProperty(globalThis, "localStorage", previousLocalStorage);
+  else Reflect.deleteProperty(globalThis, "localStorage");
   restoreDom();
 });
 

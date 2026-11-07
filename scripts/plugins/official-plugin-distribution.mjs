@@ -28,10 +28,12 @@ export function isBundledOfficialPlugin(id, index = readDistributionIndex(), con
     const comparison = parts[0] - minimum[0] || parts[1] - minimum[1] || parts[2] - minimum[2];
     if (comparison < 0 || version.pluginAPIVersion !== current.pluginAPIVersion
         || canonical(version.requires) !== canonical(current.requires)) return false;
-    const assets = plugin.assets;
+    const assets = plugin.assets.filter((asset) => asset.platforms.every((platform) => platform.startsWith("darwin-")));
     // Exactly one download per configured asset, with no ambiguous platform.
-    if (!Array.isArray(version.downloads) || version.downloads.length !== assets.length) return false;
-    return assets.every((asset) => version.downloads.filter((download) =>
+    if (!Array.isArray(version.downloads)) return false;
+    const downloads = version.downloads.filter((download) => download.platforms?.some((platform) => platform.startsWith("darwin-")));
+    if (downloads.length !== assets.length) return false;
+    return assets.every((asset) => downloads.filter((download) =>
       JSON.stringify(download.platforms?.slice().sort()) === JSON.stringify(asset.platforms.slice().sort())
       && /^[0-9a-f]{64}$/.test(download.sha256 ?? "")
       && download.downloadURL === `${current.index.repository}/releases/download/${plugin.tagPrefix}${version.version}/${asset.assetName.replaceAll("{version}", version.version)}`

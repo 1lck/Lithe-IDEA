@@ -4,12 +4,11 @@ import LitheModuleAPI
 
 // Note: 插件市场的来源、信任与安装确认见 .agents/notes/implemented/feature/2026-10-12-plugin-marketplace.md
 
-/// A plugin repository the user browses. The official source is built in and
-/// can be disabled but not removed; every other source is third-party.
+/// A plugin repository the user browses. The retired official identity remains
+/// recognizable for existing installations; active Store sources are third-party.
 struct PluginMarketplaceSource: Equatable, Codable, Sendable, Identifiable {
     static let officialID = "lithe-official"
-    /// Lithe Store, the preset community source. Unlike the official source
-    /// it is third-party and the user may remove it.
+    /// Lithe Store, the removable preset community source.
     static let communityIndexURL =
         "https://raw.githubusercontent.com/Lithe-IDEA/Lithe-store/HEAD/lithe-plugin-index.json"
     /// The same ID Lithe Store gets when added by hand, so a plugin installed

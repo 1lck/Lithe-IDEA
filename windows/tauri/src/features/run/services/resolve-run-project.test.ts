@@ -70,6 +70,34 @@ function fixture(
 }
 
 describe("Run diagnostics use the effective Maven selection", () => {
+  test("matches discovered absolute JDK paths to persisted relative selections without changing preferences", async () => {
+    const selection: GlobalToolchain = { javaHomePath: "toolchains/JDK 21", mavenExecutablePath: "",
+      mavenJavaHomePath: "", runtimeExecutablePaths: { "project-node": "tools/node.exe" } };
+    const discoveries: Array<GlobalToolchain | undefined> = [];
+    const jdk = { homePath: `${root}/toolchains/JDK 21`, version: "21", vendor: "fixture" };
+    const node = { id: "project-node", type: "node", executablePath: `${root}/tools/node.exe`, version: "22", vendor: "fixture" };
+    const dependencies = {
+      discoverRunToolchains: async (_root: string, selected?: GlobalToolchain) => {
+        discoveries.push(selected);
+        return { java: selected ? [jdk] : [], maven: [], runtimes: selected ? [node] : [] };
+      },
+      resolveRunConfiguration: mock(async (_root: string, _candidates: Array<{ id: string; type: string; version: string; vendor: string }>): Promise<CoreResolveResult> => ({
+        configurations: [], toolchain: { java: { homePath: selection.javaHomePath } },
+        localToolchains: { version: 1, toolchains: { "project-node": { executable: "tools/node.exe" } } },
+      })),
+      mavenLaunchContextForWorkspace: fixture().mavenLaunchContextForWorkspace,
+      formatArgumentTexts: fixture().formatArgumentTexts,
+    };
+    const resolved = await resolveConfigurations(root, "relative-workspace", dependencies);
+    expect(discoveries[1]?.javaHomePath).toBe(jdk.homePath);
+    expect(discoveries[1]?.runtimeExecutablePaths["project-node"]).toBe(node.executablePath);
+    expect(dependencies.resolveRunConfiguration.mock.calls[1][1]).toEqual([
+      { id: "project-jdk", type: "java", version: "21", vendor: "fixture" },
+      { id: "project-node", type: "node", version: "22", vendor: "fixture" },
+    ]);
+    expect(resolved.globalToolchain.javaHomePath).toBe(selection.javaHomePath);
+    expect(resolved.effectiveRuntimeExecutablePaths["project-node"]).toBe(node.executablePath);
+  });
   test("recognizes a Maven home configured only in the workspace Maven panel", async () => {
     const dependencies = fixture();
     const result = await resolveConfigurations(root, "workspace-A", dependencies);

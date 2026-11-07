@@ -10,6 +10,7 @@ use super::store::{self, DiscoveredPackage};
 pub(crate) use super::ScannedPackage;
 use super::{CatalogEntry, CatalogLanguage, CatalogRejection};
 use serde_json::{json, Value};
+use std::io::Read;
 use tauri::AppHandle;
 
 pub fn build_catalog(app: &AppHandle) -> Result<Vec<ScannedPackage>, String> {
@@ -24,10 +25,37 @@ pub fn build_catalog_from(
 ) -> Result<Vec<ScannedPackage>, String> {
     let mut discovered = store::discover_bundled_in(bundled_root)?;
     discovered.extend(store::discover_installed_in(install_root)?);
-    Ok(discovered.into_iter().map(scan_package).collect())
+    // A broken/removed manifest must not lose the store-owned ID and expose
+    // its bundled predecessor. The first segment is the install transaction's
+    // plugin directory, independent of bytes inside the active version.
+    let installed_ids: std::collections::BTreeSet<String> = discovered
+        .iter()
+        .filter(|package| package.source == "installed")
+        .filter_map(|package| package.root.strip_prefix(install_root).ok())
+        .filter_map(|relative| relative.components().next())
+        .filter_map(|component| component.as_os_str().to_str().map(str::to_string))
+        .collect();
+    let packages: Vec<_> = discovered
+        .into_iter()
+        .map(|package| scan_package(package, Some(bundled_root)))
+        .collect();
+    // One ID has one effective source. An installed version (including an
+    // explicitly disabled or quarantined version) supersedes its bundled
+    // copy; silently falling back would undo a user's choice or conceal a
+    // failed integrity check. Removing the installed version restores normal
+    // bundled discovery at the existing rescan boundary.
+    Ok(packages
+        .into_iter()
+        .filter(|package| {
+            package.entry.source != "bundled" || !installed_ids.contains(&package.entry.plugin_id)
+        })
+        .collect())
 }
 
-fn scan_package(package: DiscoveredPackage) -> ScannedPackage {
+fn scan_package(
+    package: DiscoveredPackage,
+    bundled_root: Option<&std::path::Path>,
+) -> ScannedPackage {
     let fallback_id = package
         .root
         .file_name()
@@ -54,13 +82,48 @@ fn scan_package(package: DiscoveredPackage) -> ScannedPackage {
     }
     match validate_manifest(&manifest) {
         Ok(plugin) => {
+            let plugin_id = plugin["id"].as_str().unwrap_or(&fallback_id).to_string();
+            let version = plugin["version"].as_str().unwrap_or("0").to_string();
+            // The trust gate runs after manifest validation so Core's stable
+            // manifest codes stay primary, and before the package is
+            // registered: signature policy, origin, and the approved content
+            // digest must all hold for the bytes on disk right now.
+            let Some(origin) = package.origin else {
+                return quarantined(
+                    package,
+                    plugin_id,
+                    &version,
+                    catalog_rejection(
+                        super::signature::TrustError::ProvenanceMissing.code(),
+                        super::signature::TrustError::ProvenanceMissing.message(),
+                        None,
+                    ),
+                );
+            };
+            if let Err(error) = super::signature::verify_for_origin(
+                &package.root,
+                &plugin_id,
+                &version,
+                &manifest,
+                origin,
+                package.content_digest.as_deref(),
+                bundled_root,
+                &super::signature::trusted_keys(),
+            ) {
+                return quarantined(
+                    package,
+                    plugin_id,
+                    &version,
+                    catalog_rejection(error.code(), error.message(), None),
+                );
+            }
             let entry = CatalogEntry {
-                plugin_id: plugin["id"].as_str().unwrap_or(&fallback_id).to_string(),
+                plugin_id: plugin_id.clone(),
                 display_name: plugin["displayName"]
                     .as_str()
                     .unwrap_or("plugin")
                     .to_string(),
-                version: plugin["version"].as_str().unwrap_or("0").to_string(),
+                version: version.clone(),
                 api_version: plugin["pluginAPIVersion"].as_u64().unwrap_or(0) as u32,
                 source: package.source,
                 enabled: package.enabled,
@@ -85,6 +148,10 @@ fn scan_package(package: DiscoveredPackage) -> ScannedPackage {
                 entry,
                 root: package.root,
                 manifest,
+                trust: Some(super::TrustEvidence {
+                    origin,
+                    expected_content_digest: package.content_digest,
+                }),
             }
         }
         Err(rejection) => quarantined(
@@ -119,6 +186,7 @@ fn quarantined(
         },
         root: package.root,
         manifest: Value::Null,
+        trust: None,
     }
 }
 
@@ -178,10 +246,33 @@ fn string_list(value: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn read_manifest(root: &std::path::Path) -> Result<Value, String> {
-    let text = std::fs::read_to_string(root.join("plugin.json"))
+pub(super) fn read_manifest(root: &std::path::Path) -> Result<Value, String> {
+    let text = read_package_metadata(&root.join("plugin.json"), 4 * 1024 * 1024)
         .map_err(|error| format!("plugin.json could not be read: {error}"))?;
     serde_json::from_str(&text).map_err(|error| format!("plugin.json is not valid JSON: {error}"))
+}
+
+/// Metadata keeps its own memory budget even when package runtime files are large.
+pub(super) fn read_package_metadata(
+    path: &std::path::Path,
+    maximum: u64,
+) -> std::io::Result<String> {
+    let file = std::fs::File::open(path)?;
+    if file.metadata()?.len() > maximum {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "package metadata exceeds its size limit",
+        ));
+    }
+    let mut text = String::new();
+    file.take(maximum + 1).read_to_string(&mut text)?;
+    if text.len() as u64 > maximum {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "package metadata exceeds its size limit",
+        ));
+    }
+    Ok(text)
 }
 
 /// Executes one Core command through the shared JSON envelope. Command-level
@@ -242,6 +333,9 @@ pub(crate) fn validate_manifest(manifest: &Value) -> Result<Value, CatalogReject
 
 /// Test entry point for the per-package scan path.
 #[cfg(test)]
-pub(crate) fn scan_package_for_tests(package: super::store::DiscoveredPackage) -> ScannedPackage {
-    scan_package(package)
+pub(crate) fn scan_package_for_tests(
+    package: super::store::DiscoveredPackage,
+    bundled_root: Option<&std::path::Path>,
+) -> ScannedPackage {
+    scan_package(package, bundled_root)
 }

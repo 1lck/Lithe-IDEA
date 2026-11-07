@@ -14,6 +14,7 @@ CONFIGURATION="debug"
 TRIPLE=""
 OUTPUT_DIR=""
 PLUGIN_ID=""
+PACKAGE_DIRECTORY=""
 BUNDLED_ONLY=false
 MARKETPLACE_INDEX="$ROOT_DIR/Plugins/marketplace/index.json"
 # Architectures a package's own runtime is assembled for: arm64, x86_64, or
@@ -32,9 +33,10 @@ while [[ $# -gt 0 ]]; do
         --bundled-only) BUNDLED_ONLY=true; shift ;;
         --marketplace-index) MARKETPLACE_INDEX="$2"; shift 2 ;;
         --plugin-id) PLUGIN_ID="$2"; shift 2 ;;
+        --package-directory) PACKAGE_DIRECTORY="$2"; shift 2 ;;
         --arch) RUNTIME_ARCH="$2"; shift 2 ;;
         --development-unsigned) DEVELOPMENT_UNSIGNED=true; shift ;;
-        *) print -u2 -- "Usage: $0 --triple triple [--configuration debug|release] [--output directory] [--plugin-id id] [--arch arm64|x86_64|universal] [--bundled-only] [--marketplace-index path] [--development-unsigned]"; exit 2 ;;
+        *) print -u2 -- "Usage: $0 --triple triple [--configuration debug|release] [--output directory] [--plugin-id id] [--package-directory Plugins/mac/Official/name] [--arch arm64|x86_64|universal] [--bundled-only] [--marketplace-index path] [--development-unsigned]"; exit 2 ;;
     esac
 done
 
@@ -78,6 +80,9 @@ done
 matched=0
 signer_binary=""
 for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
+    if [[ -n "$PACKAGE_DIRECTORY" && "$plugin_source" != "$ROOT_DIR/$PACKAGE_DIRECTORY" ]]; then
+        continue
+    fi
     manifest="$plugin_source/plugin.json"
     [[ -f "$manifest" ]] || continue
     package_id=$(/usr/bin/plutil -extract id raw "$manifest")

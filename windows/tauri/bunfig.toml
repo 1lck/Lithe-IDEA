@@ -1,0 +1,3 @@
+# Match Vite's SVG URL imports, including upstream XML comments.
+[loader]
+".svg" = "file"
