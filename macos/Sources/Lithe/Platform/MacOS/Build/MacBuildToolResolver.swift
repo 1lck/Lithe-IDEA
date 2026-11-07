@@ -129,8 +129,12 @@ final class MacBuildToolResolver: BuildToolResolving {
                       environment: environment, minimumVersion: minimumVersion, projectCodeAllowed: true, fixed: selections[id], use: use, consumerID: consumerID) else {
                 throw BuildToolResolutionError(L10n.string("The selected toolchain is unavailable."), terminal: true)
             }
+            // The choice carries only what the selection added. Its full
+            // environment is the caller's plus these exports, so merging the
+            // exports back reproduces it without marking every variable the
+            // host process already had as contributed by the tool.
             definitions[id + "\n" + root] = .resolved([.init(url: selected.executable,
-                executesProjectCode: selected.projectCode, terminal: true, environment: selected.environment)])
+                executesProjectCode: selected.projectCode, terminal: true, environment: selected.exports)])
         }
         guard let binding = registry?.resolve(workspaceURL)?.binding else {
             return candidateResolver(runtimes, workspaceURL: workspaceURL, definitions: definitions)

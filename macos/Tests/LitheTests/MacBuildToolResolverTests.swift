@@ -184,6 +184,58 @@ struct MacBuildToolResolverTests {
         #expect(resolved.executableURL == executable.standardizedFileURL)
         #expect(!FileManager.default.fileExists(atPath: marker.path))
     }
+
+    /// A tool definition's selection runs with the caller's whole environment,
+    /// but the provider learns only what the selection added. Treating every
+    /// inherited variable as contributed made Core reject the hints as too large.
+    @Test
+    func toolchainSelectionContributesOnlyItsExportsToTheProvider() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let home = root.appendingPathComponent("jdk")
+        let executable = home.appendingPathComponent("bin/java")
+        let base = ["PATH": "/usr/bin:/bin", "FIXTURE_SECRET": "test-only-secret", "SHELL": "/bin/zsh"]
+        let exports = ["FIXTURE_HOME": home.path, "PATH": home.appendingPathComponent("bin").path + ":/usr/bin:/bin"]
+        let selection = ResolvedDefinedToolchain(
+            executable: executable, environment: base.merging(exports) { _, new in new },
+            projectCode: true, version: "21", home: home.path, exports: exports
+        )
+        let runtime = ProjectRuntimeService(runtimeLocator: FixedEnvironmentRuntimeLocator(values: base))
+        let resolver = MacBuildToolResolver(
+            runtime: runtime, processRunner: MacProcessRunner(), fileStorage: MacFileStorage(),
+            definedTools: FixedDefinedTools(selection: selection)
+        )
+        let invocation = BuildInvocation(executables: [.toolchain(id: "fixture-tool", root: ".")])
+        let resolved = try await resolver.resolve(invocation, displayName: "Fixture", workspaceURL: root) { _, _ in
+            Issue.record("A toolchain that executes project code must not be probed")
+            return BuildVersionCheck(satisfied: false, version: nil)
+        }
+        #expect(resolved.executableURL == executable)
+        #expect(resolved.executesProjectCode)
+        #expect(resolved.environment["FIXTURE_SECRET"] == "test-only-secret")
+        #expect(resolved.environment["FIXTURE_HOME"] == home.path)
+        #expect(Set(resolved.providerEnvironment.keys) == ["PATH", "FIXTURE_HOME"])
+        #expect(resolved.providerEnvironment["PATH"]?.hasPrefix(home.appendingPathComponent("bin").path + ":") == true)
+    }
+}
+
+private struct FixedEnvironmentRuntimeLocator: RuntimeLocator {
+    let values: [String: String]
+    func environment() -> [String: String] { values }
+    func isExecutable(at url: URL) -> Bool { false }
+}
+
+private final class FixedDefinedTools: DefinedToolchainResolving {
+    private let selection: ResolvedDefinedToolchain
+    init(selection: ResolvedDefinedToolchain) { self.selection = selection }
+    func resolve(tool _: String, directory _: String, workspace _: URL, environment _: [String: String],
+                 minimumVersion _: String?, projectCodeAllowed _: Bool,
+                 fixed _: FixedToolchainSelection?, use _: DefinedToolchainUse, consumerID _: String?) async throws -> ResolvedDefinedToolchain? {
+        selection
+    }
+    func resolve(tool _: String, directory _: String, workspace _: URL, environment _: [String: String],
+                 minimumVersion _: String?, projectCodeAllowed _: Bool) async throws -> ResolvedDefinedToolchain? {
+        selection
+    }
 }
 
 private struct BuildProbeRuntimeLocator: RuntimeLocator {

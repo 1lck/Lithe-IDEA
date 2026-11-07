@@ -175,12 +175,16 @@ extension MacToolchainDiscovery {
               let outcome = resolution["outcome"] as? [String: Any] else { throw Self.unavailable() }
         guard outcome["kind"] as? String == "resolved", let selected = outcome["selection"] as? [String: Any],
               let executable = selected["executable"] as? String else { throw Self.unavailable() }
-        var environment = request.environment.merging(selected["environment"] as? [String: String] ?? [:]) { _, new in new }
+        var exports = selected["environment"] as? [String: String] ?? [:]
+        var environment = request.environment.merging(exports) { _, new in new }
         let prepend = selected["pathPrepend"] as? [String] ?? []
-        if !prepend.isEmpty { environment["PATH"] = (prepend + [environment["PATH"] ?? ""]).joined(separator: ":") }
+        if !prepend.isEmpty {
+            environment["PATH"] = (prepend + [environment["PATH"] ?? ""]).joined(separator: ":")
+            exports["PATH"] = environment["PATH"]
+        }
         return Selection(executable: URL(fileURLWithPath: executable), environment: environment,
                          projectCode: selected["projectCode"] as? Bool == true, version: selected["version"] as? String,
-                         home: selected["home"] as? String)
+                         home: selected["home"] as? String, exports: exports)
     }
 
     /// The tool registry Core reads: the enabled plugins that define tools or providers.
