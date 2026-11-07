@@ -53,6 +53,11 @@ export const CI_INFRA_RULES = Object.freeze([
   { pattern: /^\.github\/(workflows|actions)\//, workflows: REFERENCED },
   // This cross-engine check runs in the Linux job on every revision.
   { pattern: /^scripts\/plugins\/plugin-settings-schema\.test\.mjs$/, workflows: [] },
+  // `desktop/` (the Go desktop client) and `scripts/desktop/` are deliberately not listed. No
+  // workflow builds them yet, so a base-branch change cannot alter any lane and they are not CI
+  // infrastructure; a `workflows: []` rule would only list every file of the Go module in the
+  // "ignored" summary. The classifier selects no lane for them either. Add rules here, together
+  // with the classifier, once a workflow starts building the desktop client.
   { pattern: /^\.agents\/skills\/write-stable-tests\/scripts\/test-stability-windows\.ps1$/, workflows: ['windows'] },
   { pattern: /^\.agents\/skills\/write-stable-tests\/scripts\/test-stability-macos\.sh$/, workflows: MACOS_FAMILY },
   { pattern: /^\.agents\/skills\/write-stable-tests\/scripts\//, workflows: ALL_WORKFLOWS },

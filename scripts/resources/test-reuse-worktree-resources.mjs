@@ -184,6 +184,33 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /core-rules-wasm.*cannot be reused/);
   });
+  await test("the desktop core build state and binaries are built per worktree, never reused", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "desktop-core-build-state");
+    assert.equal(resource.reusable, false);
+    assert.deepEqual(resource.locations, [
+      ".artifacts/desktop/lithe-core-rust/",
+      ".artifacts/desktop/lithe-core/",
+      ".artifacts/desktop/bin/",
+    ]);
+    assert.match(resource.identity, /LITHE_CORE_RUST_DIR/);
+    assert.match(resource.identity, /core revision.*dirty.*pinned or override.*rustc.*target.*profile.*deployment target/);
+    // The registered locations must be where the desktop scripts really write.
+    const buildCore = await fs.readFile(path.join(scriptDirectory, "../desktop/build-desktop-core.sh"), "utf8");
+    assert.ok(buildCore.includes('ARTIFACTS_DIR="$ROOT_DIR/.artifacts/desktop"'));
+    assert.ok(buildCore.includes('STAGE_DIR="$ARTIFACTS_DIR/lithe-core/$PROFILE"'));
+    assert.ok(buildCore.includes('CARGO_TARGET_DIR="$ARTIFACTS_DIR/lithe-core-rust/target"'));
+    assert.ok(buildCore.includes('CORE_DIR="$ARTIFACTS_DIR/lithe-core-rust/source"'));
+    const desktopGo = await fs.readFile(path.join(scriptDirectory, "../desktop/desktop-go.sh"), "utf8");
+    assert.ok(desktopGo.includes('STAGE_DIR="$ROOT_DIR/.artifacts/desktop/lithe-core/$PROFILE"'));
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(resource.id));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /desktop-core-build-state is isolated.*cannot be reused/);
+    await assert.rejects(fs.access(targetRoot), { code: "ENOENT" });
+  });
   await test("shared translations are regenerated locally rather than reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "shared-i18n");

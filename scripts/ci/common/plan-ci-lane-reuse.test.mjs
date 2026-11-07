@@ -97,6 +97,21 @@ test('a small follow-up commit reuses every lane that already passed', async (t)
   assert.match(planOutputs('macos', result), /^run_swift=false\nrun_rust=false\nrun_release=false\nreuse=\{/);
 });
 
+test('a follow-up commit that only changes the desktop client reuses every lane that already passed', async (t) => {
+  const f = fixtureRepository(t);
+  f.write('macos/Sources/Lithe/App.swift', 'struct App { let a = 1 }');
+  f.write('rust/lithe-core/src/lib.rs', 'pub fn value() -> u8 { 2 }');
+  const first = f.commit('swift and rust');
+  f.write('desktop/go.mod', 'module lithe.test/desktop');
+  f.write('desktop/cmd/lithe/main.go', 'package main');
+  f.write('scripts/desktop/build-desktop-core.sh', '#!/bin/zsh');
+  const second = f.commit('desktop');
+  const github = fakeGitHub({ runs: [run(10, first, 'completed', '2026-10-17T01:00:00Z')], jobs: { 10: fullMacJobs(100) }, baseTips: [{ at: '2026-10-17T00:00:00Z', sha: f.base }] });
+  const result = await plan(f, { head: second, github });
+  assert.deepEqual(result.run, { swift: false, rust: false, release: false });
+  assert.deepEqual(Object.keys(result.reuse).sort(), ['release', 'rust', 'swift']);
+});
+
 test('a follow-up commit reruns only the lanes its own changes affect', async (t) => {
   const f = fixtureRepository(t);
   f.write('macos/Sources/Lithe/App.swift', 'struct App { let a = 1 }');
@@ -360,7 +375,8 @@ test('CI infrastructure paths are recognised', () => {
   for (const path of ['.github/workflows/ci-macos.yml', 'scripts/ci/common/classify-ci-changes.sh', 'scripts/ci/common/verify-rust-shards.mjs', 'scripts/ci/common/rust-shards.test.mjs', 'scripts/rust-core/verify-rust-core-static.sh', 'scripts/macos/test/test-macos.sh', 'Package.resolved', 'rust/Cargo.lock', 'rust/lithe-core/Cargo.toml', 'windows/tauri/crates/project/Cargo.toml', 'windows/tauri/rust-toolchain.toml', '.agents/skills/write-stable-tests/scripts/x.sh']) {
     assert.equal(isCiInfrastructure(path), true, path);
   }
-  for (const path of ['macos/Sources/Lithe/App.swift', 'README.md', 'rust/lithe-core/src/lib.rs', 'scripts/architecture/verify-java-semantic-ownership.mjs']) {
+  // The desktop client is built by no workflow, so it is not CI infrastructure either.
+  for (const path of ['macos/Sources/Lithe/App.swift', 'README.md', 'rust/lithe-core/src/lib.rs', 'scripts/architecture/verify-java-semantic-ownership.mjs', 'desktop/go.mod', 'desktop/cmd/lithe/main.go', 'scripts/desktop/build-desktop-core.sh', 'scripts/desktop/desktop-go.sh']) {
     assert.equal(isCiInfrastructure(path), false, path);
   }
 });
@@ -413,6 +429,10 @@ test('CI infrastructure reaches only the workflows that read it', () => {
     '.github/actions/save-macos-cargo-build-cache/action.yml': [],
     // Not infrastructure: classified as the pull request's own changes instead.
     'macos/Sources/Lithe/App.swift': [],
+    // Nothing builds the desktop client yet, so a base-branch change reaches no workflow.
+    'desktop/go.mod': [],
+    'scripts/desktop/build-desktop-core.sh': [],
+    'scripts/desktop/desktop-go.sh': [],
   };
   for (const [path, workflows] of Object.entries(expectations)) assert.deepEqual(reached(path), workflows, path);
 });

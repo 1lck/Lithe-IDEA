@@ -456,6 +456,10 @@ async function main() {
       // inheritance. No validator or copy phase can turn them into build input.
       // editor-theme-assets rebuild palettes, bundled Make/CMake/Groovy grammars and notices together.
       // Git-owned grammar inputs and memory-only tokenizer workers never enter a copy validator.
+      // Includes desktop-core-build-state: the Viva desktop client's Lithe-core-rust checkout,
+      // Cargo target, staged static library and binaries are one worktree's mutable build output.
+      // identity.txt describes the last local build only (an override build holds uncommitted core
+      // changes), so there is no validator or copy stage.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         // Per-launch relays also own their provider admission route; they stay
         // excluded even when their embedded source matches another worktree.

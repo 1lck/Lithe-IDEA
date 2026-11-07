@@ -111,6 +111,9 @@ The required `macOS CI gate` still appears for documentation-only PRs. Its
 classifier skips native lanes and the independent Ubuntu tooling tests. Other
 native workflows filter documentation paths. Structured logging checks run on
 Ubuntu; i18n retains macOS's binary-plist packaging test and the other platforms.
+No workflow builds the Go desktop client yet, so changes under `desktop/` and
+`scripts/desktop/` select no macOS or Windows lane and run only the always-on
+checks; the classifier must select a lane for them once a workflow builds them.
 
 ### What runs after a pull request merges
 
@@ -443,6 +446,23 @@ identity stamp，无法证明与目标工作树的 Rust 源码一致，所有校
 `.artifacts/windows-perf/`，登记为 `windows-perf-state`，所有复用阶段均拒绝复制。这些内容
 跟随所在工作树的源码和机器，没有 identity stamp；工具在本工作树重新构建，不写 app bundle、
 安装目录或 Sparkle delta 基线。
+
+Viva 桌面端（`desktop/`，Go）的构建状态位于 `.artifacts/desktop/`，只由
+`scripts/desktop/build-desktop-core.sh` 和 `scripts/desktop/desktop-go.sh` 写入，登记为
+`desktop-core-build-state`，所有复用阶段均拒绝复制，复用脚本没有为它注册 validator：
+`lithe-core-rust/` 是 Lithe-core-rust 的源码检出和 `CARGO_TARGET_DIR` 指向的 Cargo 编译目录（数 GB），
+`lithe-core/<debug|release>/` 是暂存给 cgo 的 `include/lithe_core.h`、`lib/liblithe_core.a`、
+`native-static-libs.txt` 和 `identity.txt`（单个 profile 约 700 MB），`bin/` 是本工作树构建的桌面端二进制。
+默认从构建脚本中固定的 Lithe-core-rust 提交检出；联调尚未合入的 core 改动时，设置
+`LITHE_CORE_RUST_DIR=/path/to/Lithe-core-rust` 改用本地检出（脚本只读取它，不修改该检出）。
+`desktop-go.sh` 每次运行前都调用构建脚本重新暂存，固定提交变了或本地检出改了都不会继续链接旧库；
+没有变化时 git 和 cargo 都判定为最新，这一步约一秒。`LITHE_DESKTOP_CORE_PROFILE=release` 选择暂存的 profile。
+`identity.txt` 记录 core 提交、`core-worktree`（clean/dirty）、`core-source`（pinned/override）、rustc 版本、
+target、profile 和 macOS deployment target，但它只描述本工作树最近一次构建：override 构建包含未提交的 core 改动，
+提交号无法复现；二进制又随本工作树的 `desktop/` 源码变化。因此它不是可以授权跨工作树复制的封存身份，
+也没有复制阶段，每个工作树自行构建（`.artifacts/` 被 `.gitignore` 忽略，不提交）。
+这些目录只在构建时由上述脚本写入，应用运行时不写，也不进入 app bundle 或安装目录，
+不影响代码签名和 Sparkle delta 基线。
 
 结构化日志目录位于 `shared/logging/`，Swift/Rust 生成源码随 Git 获取。在每个工作树运行
 `node scripts/logging/generate-log-events.mjs --check`；修改目录后本地重新生成再编译。

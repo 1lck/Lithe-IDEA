@@ -73,6 +73,7 @@ description: 在 Lithe 仓库进行实现、重构、缺陷修复、审查、调
 | `macos/Sources/Lithe/Core/` | Swift 侧的平台无关端口和类型化 Rust 调用 |
 | `macos/Sources/Lithe/Platform/MacOS/` | macOS 原生适配器和依赖组装 |
 | `windows/` | 独立的 React/Tauri Windows 产品及其 Rust 原生适配器 |
+| `desktop/` | #1794 迁移中的 Viva（Go）统一客户端：窗口、工作台呈现和 Lithe-core-rust 的 C ABI 调用；业务规则仍在 Rust Core，尚未发行 |
 | `Plugins/mac/`、`Plugins/win/` | 各平台自己的插件包 |
 | `frontend/editor/` | 两端共用的 Monaco 呈现、词法着色和编辑器模型生命周期；不得调用平台 API |
 | `shared/` | 共享契约、fixture 和 i18n 词条；不放编译实现 |

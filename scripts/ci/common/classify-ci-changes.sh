@@ -329,6 +329,13 @@ classify_path() {
         scripts/logging/*)
             # Catalog generation and usage checks run in verify-logging.yml.
             ;;
+        desktop/*|scripts/desktop/*)
+            # The Viva desktop client (the Go module in desktop/, which links the
+            # Lithe-core-rust static library) and its build scripts are not built
+            # by any CI job yet, so no macOS or Windows lane has anything to
+            # validate. When a workflow starts building desktop/, select its lane
+            # here instead of leaving these paths unvalidated.
+            ;;
         scripts/architecture/verify-no-host-language-specifics.mjs|scripts/architecture/verify-no-host-language-specifics.test.mjs|scripts/architecture/language-specifics-baseline.json|scripts/architecture/language-specifics-allowlist.json)
             # The host language-specifics gate runs in
             # verify-host-language-specifics.yml, not in a product lane.

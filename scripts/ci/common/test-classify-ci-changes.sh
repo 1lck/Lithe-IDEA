@@ -410,6 +410,23 @@ modify_language_specifics_gate() {
 assert_classification language-specifics-gate-uses-independent-workflow \
     "$(classification false false false false false false false false)" \
     modify_language_specifics_gate
+modify_desktop_module() {
+    mkdir -p desktop/cmd/lithe
+    printf '%s\n' 'module lithe.test/desktop' > desktop/go.mod
+    printf '%s\n' 'package main' 'func main() {}' > desktop/cmd/lithe/main.go
+}
+# No CI job builds the Go desktop client yet, so neither its sources nor its
+# build scripts select a macOS or Windows lane.
+assert_classification desktop-module-selects-no-lane \
+    "$(classification false false false false false false false false)" \
+    modify_desktop_module
+modify_desktop_scripts() {
+    mkdir -p scripts/desktop
+    printf '%s\n' '#!/bin/zsh' 'print -- desktop' > scripts/desktop/build-desktop-core.sh
+}
+assert_classification desktop-scripts-select-no-lane \
+    "$(classification false false false false false false false false)" \
+    modify_desktop_scripts
 LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-defers-runner-lanes \
     "$(classification false false false false false false false false false false pull_request true)" \
     modify_unknown_script
