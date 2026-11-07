@@ -4478,7 +4478,56 @@ fn git_integration_preflight_scopes_cherry_pick_to_the_replayed_commit() {
 
 #[test]
 fn git_pull_preflight_reports_divergence_and_strategies_resolve_it() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    const ISOLATED_CHILD: &str = "LITHE_TEST_PULL_PREFLIGHT_ISOLATED";
+    if std::env::var_os(ISOLATED_CHILD).is_none() {
+        // Core launches Git itself, so isolate the whole test in a child
+        // instead of changing process-wide environment shared by other tests.
+        let root = temporary_root("git-pull-config");
+        fs::create_dir_all(&root).expect("isolated configuration directory");
+        let _cleanup = Cleanup(root.clone());
+        let global_config = root.join("global.gitconfig");
+        fs::write(&global_config, "").expect("empty Git configuration");
+        let mut command = Command::new(std::env::current_exe().expect("test executable"));
+        command
+            .args([
+                "--exact",
+                "tests::git::git_pull_preflight_reports_divergence_and_strategies_resolve_it",
+                "--nocapture",
+            ])
+            .env(ISOLATED_CHILD, "1")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", &global_config)
+            .env_remove("GIT_CONFIG")
+            .env_remove("GIT_CONFIG_COUNT")
+            .env_remove("GIT_CONFIG_PARAMETERS")
+            .env_remove("GIT_CONFIG_SYSTEM");
+        let deadline = std::time::Instant::now() + Duration::from_secs(12);
+        let output = lithe_git_host::run(
+            &mut command,
+            None,
+            || std::time::Instant::now() >= deadline,
+            || {},
+            |_, _| {},
+        );
+        assert!(
+            output.failure.is_none() && output.status.is_some_and(|status| status.success()),
+            "isolated pull preflight test failed: {:?}\n{}\n{}",
+            output.failure,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+
     let root = temporary_root("git-pull");
+    let _cleanup = Cleanup(root.clone());
     let upstream = root.join("upstream");
     let work = root.join("work");
     fs::create_dir_all(&upstream).expect("temporary workspace should be creatable");
@@ -5267,8 +5316,8 @@ fn history_write(root: &Path, overrides: Value) -> Value {
         .get("revisions")
         .cloned()
         .unwrap_or_else(|| serde_json::json!([payload["revision"].clone()]));
-    // A reviewed rewrite starts several real Git processes. Windows runners can
-    // exceed five seconds; keep each request bounded below the 15-second test watchdog.
+    // Preview stays bounded to ten seconds. Replaying reviewed history starts
+    // many serial Git children; Windows apply needs its own integration bound.
     let preview: Value = serde_json::from_str(&execute_json(
         &serde_json::json!({
             "id": "history-write-preview",
@@ -5284,7 +5333,7 @@ fn history_write(root: &Path, overrides: Value) -> Value {
     serde_json::from_str(&execute_json(
         &serde_json::to_string(&serde_json::json!({
             "id": "history-write",
-            "timeoutMilliseconds": 10_000,
+            "timeoutMilliseconds": if cfg!(windows) { 20_000 } else { 10_000 },
             "command": "git.write",
             "payload": payload
         }))

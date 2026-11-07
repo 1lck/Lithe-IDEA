@@ -1,6 +1,5 @@
-import { expect, spyOn, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 import { act } from "react";
-import { createRoot } from "react-dom/client";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import * as service from "@/features/agent/services/agent-hooks";
@@ -9,11 +8,15 @@ import * as switchControl from "@/ui/switch";
 import fixture from "../../../../../../../shared/fixtures/agent/hooks-management-v1.json";
 import { AgentHooksSettings } from "./agent-hooks-settings";
 
+// React DOM caches input-event support when its client module initializes.
+const restoreDom = installHappyDom();
+afterAll(restoreDom);
+const { createRoot } = await import("react-dom/client");
+
 test.each([
   { language: "en-US" as const, searchLabel: "Search Hooks", reloadLabel: "Reload from disk", noMatches: "No matching Hooks.", empty: "No Hooks yet." },
   { language: "zh-CN" as const, searchLabel: "搜索 Hook", reloadLabel: "从磁盘重新加载", noMatches: "没有匹配的 Hook。", empty: "还没有 Hook。" },
 ])("Hook search reports no matches and restores results ($language)", async ({ language, searchLabel, reloadLabel, noMatches, empty }) => {
-  const restoreDom = installHappyDom();
   const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
   const previousAct = environment.IS_REACT_ACT_ENVIRONMENT;
   const container = document.createElement("div");
@@ -58,13 +61,11 @@ test.each([
       container.remove();
       if (previousAct === undefined) delete environment.IS_REACT_ACT_ENVIRONMENT;
       else environment.IS_REACT_ACT_ENVIRONMENT = previousAct;
-      restoreDom();
     }
   }
 });
 
 test("Hook editor retains a failed draft, retries with its guard and updates native switches", async () => {
-  const restoreDom = installHappyDom();
   const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
   const previousAct = environment.IS_REACT_ACT_ENVIRONMENT;
   const container = document.createElement("div");
@@ -146,7 +147,6 @@ test("Hook editor retains a failed draft, retries with its guard and updates nat
       container.remove();
       if (previousAct === undefined) delete environment.IS_REACT_ACT_ENVIRONMENT;
       else environment.IS_REACT_ACT_ENVIRONMENT = previousAct;
-      restoreDom();
     }
   }
 });

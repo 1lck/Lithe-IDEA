@@ -7,6 +7,7 @@ import { writeTestReportArtifacts } from "./generate-test-report.mjs";
 import { parseJUnitCases } from "./parse-junit-cases.mjs";
 import { positiveInteger, runProcess } from "./test-timing-lib.mjs";
 
+// Note: .agents/notes/implemented/testing/2026-11-01-windows-frontend-joint-test-isolation.md
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIRECTORY, "../../../..");
 
@@ -41,6 +42,7 @@ function writeReport(options, result, tests) {
   const report = {
     schemaVersion: 1,
     runner: "bun",
+    isolation: "bun-global-per-file",
     warnMs: options.warnMs,
     maxMs: options.maxMs,
     suiteTimeoutMs: options.suiteTimeoutMs,
@@ -57,6 +59,10 @@ export async function run(options, { runProcessImpl = runProcess } = {}) {
   rmSync(junitPath, { force: true });
   const arguments_ = [
     "test",
+    // Bun owns module mocks for the lifetime of a global object. A joint suite
+    // needs independent globals so one file cannot replace another file's real
+    // imports. This remains one native Bun invocation and one JUnit result.
+    "--isolate",
     ...options.testArguments,
     "--timeout",
     String(options.maxMs),
@@ -72,11 +78,19 @@ export async function run(options, { runProcessImpl = runProcess } = {}) {
     streamStderr: true,
   });
   let tests = [];
+  let discoveryError;
   try {
     tests = parseJUnitCases(readFileSync(junitPath, "utf8"));
   } catch (error) {
     if (!result.timedOut) {
-      throw new Error(`Bun did not produce a readable JUnit report: ${error.message}`);
+      discoveryError = `Bun did not produce a readable JUnit report: ${error.message}`;
+      tests.push({
+        name: "Bun test discovery",
+        suite: "Bun test runner",
+        status: "error",
+        durationMs: Math.round(result.durationMs),
+        details: `${discoveryError}\n${result.stderr ?? ""}`,
+      });
     }
   }
   if (result.timedOut) {
@@ -88,6 +102,18 @@ export async function run(options, { runProcessImpl = runProcess } = {}) {
       details: `Bun test suite exceeded the shared ${options.suiteTimeoutMs}ms deadline.`,
     });
   }
+  // Bun can emit JUnit for passing files while omitting an import failure in
+  // another file. The dashboard must retain the failing process outcome too.
+  if (!result.timedOut && !discoveryError && result.code !== 0 &&
+      !tests.some((test) => ["failed", "error", "timeout"].includes(test.status))) {
+    tests.push({
+      name: "Bun test command",
+      suite: "Bun test runner",
+      status: "error",
+      durationMs: Math.round(result.durationMs),
+      details: `Bun exited with code ${result.code}.\n${(result.stderr ?? "").slice(-16000)}`,
+    });
+  }
   writeReport(options, result, tests);
   console.log(`Recorded ${tests.length} Bun test duration(s) in ${options.report}`);
   for (const test of tests
@@ -97,6 +123,7 @@ export async function run(options, { runProcessImpl = runProcess } = {}) {
     console.log(`SLOW ${test.durationMs}ms ${test.name}`);
   }
   if (result.timedOut) throw new Error(`Bun test suite exceeded ${options.suiteTimeoutMs}ms.`);
+  if (discoveryError) throw new Error(discoveryError);
   if (tests.length === 0) throw new Error("The Bun runner did not report any individual test durations.");
   if (result.code !== 0) throw new Error(`Bun test command exited with code ${result.code}.`);
   const overBudget = tests.filter((test) => test.durationMs >= options.maxMs || test.status === "failed");

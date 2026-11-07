@@ -30,6 +30,7 @@ import {
 } from "@/utils/document-resize-session";
 import { useTerminalDock } from "../terminal-dock-layout";
 import { BottomBufferPane } from "./bottom-buffer-pane";
+import { NativeToolWindowSlot } from "@/features/plugins/native-ui/native-tool-window-slot";
 
 const BottomPane = () => {
   const { t } = useTranslation();
@@ -260,6 +261,7 @@ const BottomPane = () => {
       onDrop={handleDrop}
     >
       <div className="h-full overflow-hidden">
+        <NativeToolWindowSlot placement="bottom" />
         {/* Terminal Container - Always mounted to preserve terminal sessions */}
         {terminalEnabled && isBackendCapabilityAvailable("terminal") && (
           <TerminalContainer

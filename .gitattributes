@@ -10,3 +10,5 @@ Plugins/mac/Official/JavaSupport/templates/** -text
 # Structured logging generated sources must compare byte-for-byte on Windows.
 macos/Sources/LitheModuleAPI/Logging/*.swift text eol=lf
 rust/lithe-core/src/diagnostics/catalog_generated.rs text eol=lf
+# Pinned upstream JavaScript is checked by its release SHA-256 on every host.
+macos/Sources/Lithe/Resources/MarkdownPreview/vendor/plantuml/plantuml.js -text

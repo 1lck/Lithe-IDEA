@@ -100,30 +100,28 @@ final class MacPluginMarketplaceService: PluginMarketplaceServicing {
     // MARK: Sources
 
     func loadSources() -> [PluginMarketplaceSource] {
-        var official = Self.officialSource
         var community = Self.communitySource
         guard let data = try? Data(contentsOf: sourcesURL),
               let file = try? JSONDecoder().decode(SourcesFile.self, from: data),
               file.schemaVersion == Self.sourcesSchemaVersion else {
-            return [official, community]
+            return [community]
         }
-        // Preset entries are rebuilt from host constants so a moved index
-        // follows the host; only their enabled state is the user's.
-        official.isEnabled = file.sources.first { $0.id == official.id }?.isEnabled ?? true
-        let presetIDs: Set<String> = [official.id, community.id]
+        // The retired official preset must not revive its cached index or
+        // regain official trust. Preserve unrelated user sources and Store state.
+        let presetIDs: Set<String> = [Self.officialSource.id, community.id]
         let thirdParty = file.sources.filter { !presetIDs.contains($0.id) && $0.kind == .thirdParty }
         // Lithe Store added by hand before it became a preset already has the
         // preset ID, so only its enabled state carries over.
         if let saved = file.sources.first(where: { $0.id == community.id }) {
             community.isEnabled = saved.isEnabled
         } else if file.removedPresetSourceIDs?.contains(community.id) == true {
-            return [official] + thirdParty
+            return thirdParty
         } else if thirdParty.contains(where: { PluginMarketplaceSource.sameIndex($0.indexURL, community.indexURL) }) {
             // Added by hand under a differently cased address: that entry
             // stands in for the preset, keeping the ID its plugins recorded.
-            return [official] + thirdParty
+            return thirdParty
         }
-        return [official, community] + thirdParty
+        return [community] + thirdParty
     }
 
     func saveSources(_ sources: [PluginMarketplaceSource]) throws {

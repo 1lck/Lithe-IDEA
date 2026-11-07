@@ -18,11 +18,22 @@
   },
   "windows": {
     "evidence": [
-      "windows/tauri/src/features/settings"
+      "windows/tauri/src-tauri/src/plugin_host/details.rs",
+      "windows/tauri/src-tauri/src/plugin_host/details_tests.rs",
+      "windows/tauri/src/features/plugins/details/plugin-details-view.tsx",
+      "windows/tauri/src/features/plugins/details/plugin-details.service.test.ts",
+      "windows/tauri/src/features/plugins/details/plugin-details-view.test.tsx",
+      "windows/tauri/src/features/plugins/declarative-plugins-section.tsx",
+      "windows/tauri/src/features/plugins/declarative-plugin-list-model.ts",
+      "windows/tauri/src/features/plugins/declarative-plugin-list.tsx",
+      "windows/tauri/src/features/plugins/declarative-plugin-list-model.test.ts",
+      "windows/tauri/src/features/plugins/declarative-plugins-section.test.tsx",
+      "scripts/plugins/host-acceptance/acceptance_driver.py",
+      "scripts/plugins/host-acceptance/acceptance_driver_test.py"
     ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
   },
   "owner": "Plugin Platform",
-  "verification": "macOS：打开设置 › 插件 › 已安装，选中 Java Support。头部显示名称、官方徽标、版本和状态胶囊，右侧有启用/禁用、卸载按钮。依次切换五个页签：概览显示状态、提供的能力、来源和设置数量，“在设置中配置”可跳到 LSP 和运行配置页；功能页签列出 Java 语言、语言服务器（使用插件自带的 java 运行）以及由 Lithe 提供的运行、测试、调试；设置页签显示最大内存和日志级别，修改后出现“重启语言服务器”，“恢复默认值”可一键还原；权限与程序页签列出 languageServer.launch 与 JDT LS 启动命令，内容与安装确认弹窗一致；版本与来源显示当前版本、插件 ID 和签名。安装一个社区插件，确认社区提示固定在页签上方，任何页签都能看到。在左侧点“语言服务”“社区 / 磁盘”“已禁用”等过滤芯片，确认列表随之变化并按“已启用 / 已禁用”分组；在搜索框输入 /，确认出现过滤选项，选中后搜索框清空并切换过滤。更新过的插件在版本与来源页签显示上一版本和“回滚…”，确认后需要重启 Lithe。布局：在浅色和深色下缩放设置窗口、往返拖动插件列表分隔条，切换 Java/Cargo 与各页签，确认标题、页签和正文不越过分隔线；窄设置表单可横向滚动至末尾，输入控件保持同一实例，扩大后恢复填满正文。运行 PluginDetailLayoutTests 检查这些边界。Windows：扩展管理尚未拆分页签。"
+  "verification": "Windows 逐文件运行 plugin-details service/view、declarative-plugin-list-model 和 declarative-plugins-section 回归及 typecheck；覆盖名称/ID 搜索、可信摘要筛选、状态分组、键盘选择、筛选保留选中项与页签、完整权限/程序、安装审批、启停/回滚/卸载后刷新，以及过期结果和卸载清理。验收驱动已适配分组列表与独立详情按钮，显式 --dom-browser msedge 的实际 DOM 回归通过；旧构建的13通过/4跳过不作为本轮新 UI 实机证据。新构建仍需实机检查五页签、中英文、窄窗口/主题、插件动作和多窗口；整体保持 partial/pending。macOS 按既有五页签和管理动作测试及实际界面验证。"
 }

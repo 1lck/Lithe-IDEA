@@ -50,7 +50,8 @@ const openBuffer = mock(
 
 const tauriCoreModule = await import("@/platform/tauri-core");
 mock.module("@/platform/tauri-core", () => ({ ...tauriCoreModule, invoke }));
-mock.module("@/core/lithe-core-client", () => ({ cancelCoreOperation }));
+const coreClientModule = await import("@/core/lithe-core-client");
+mock.module("@/core/lithe-core-client", () => ({ ...coreClientModule, cancelCoreOperation }));
 const lineHistoryModule = await import("@/features/git/api/git-line-history-api");
 let lineHistorySpy: ReturnType<typeof spyOn<typeof lineHistoryModule, "getGitLineHistory">>;
 const bufferStoreModule = await import("@/features/editor/stores/buffer.store");

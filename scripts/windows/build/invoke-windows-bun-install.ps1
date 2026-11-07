@@ -87,8 +87,15 @@ $installJob = [LitheBunInstallJob]::AttachWorker()
 [LitheBunInstallJob]::StartDeadline($TimeoutSeconds)
 $arguments = @("install", "--frozen-lockfile")
 if ($NoCache) { $arguments += "--no-cache" }
-& bun @arguments
-$installExitCode = $LASTEXITCODE
+$originalNodeOptions = $env:NODE_OPTIONS
+try {
+    $proxyPreload = (Join-Path $PSScriptRoot "windows-tree-sitter-proxy.cjs").Replace('\', '/')
+    $env:NODE_OPTIONS = ($originalNodeOptions + ' --require "' + $proxyPreload + '"').Trim()
+    & bun @arguments
+    $installExitCode = $LASTEXITCODE
+} finally {
+    $env:NODE_OPTIONS = $originalNodeOptions
+}
 [LitheBunInstallJob]::FinishDeadline()
 [GC]::KeepAlive($installJob)
 exit $installExitCode

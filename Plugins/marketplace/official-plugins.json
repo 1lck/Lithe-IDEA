@@ -8,19 +8,74 @@
       "bundledUntilPublishedVersion": "1.1.0",
       "tagPrefix": "plugin-java-support-v",
       "packageDirectory": "Plugins/mac/Official/JavaSupport",
-      "inputPaths": ["third_party/jdtls/manifest.json", "third_party/jdk/manifest.json", "scripts/macos/prepare/prepare-jdtls.sh", "scripts/macos/prepare/prepare-jdk.sh", "scripts/plugins/build-official-plugins.sh"],
+      "inputPaths": [
+        "third_party/jdtls/manifest.json",
+        "third_party/jdk/manifest.json",
+        "scripts/macos/prepare/prepare-jdtls.sh",
+        "scripts/macos/prepare/prepare-jdk.sh",
+        "scripts/plugins/build-official-plugins.sh",
+        "Plugins/win/Official/JavaSupport",
+        "scripts/plugins/assemble-windows-java-support.py",
+        "scripts/plugins/check-windows-java-signing-inputs.py",
+        "scripts/plugins/windows-java-release.py",
+        "scripts/plugins/official-plugin-releases.mjs",
+        "macos/Tools/LithePluginPackageSigner/main.swift",
+        "macos/Sources/LithePluginPackageSigning",
+        ".github/workflows/release-official-plugins.yml",
+        "Package.swift",
+        "Package.resolved",
+        ".swift-version",
+        "scripts/plugins/host-acceptance/acceptance_driver.py"
+      ],
       "assets": [
-        {"assetName": "Lithe-Java-Support-{version}-darwin-arm64.zip", "platforms": ["darwin-arm64"], "arch": "arm64"},
-        {"assetName": "Lithe-Java-Support-{version}-darwin-x64.zip", "platforms": ["darwin-x64"], "arch": "x86_64"}
+        {
+          "assetName": "Lithe-Java-Support-{version}-darwin-arm64.zip",
+          "platforms": [
+            "darwin-arm64"
+          ],
+          "arch": "arm64"
+        },
+        {
+          "assetName": "Lithe-Java-Support-{version}-darwin-x64.zip",
+          "platforms": [
+            "darwin-x64"
+          ],
+          "arch": "x86_64"
+        },
+        {
+          "assetName": "Lithe-Java-Support-{version}-windows-x64.zip",
+          "platforms": [
+            "windows-x64"
+          ],
+          "arch": "x86_64",
+          "packageDirectory": "Plugins/win/Official/JavaSupport"
+        },
+        {
+          "assetName": "Lithe-Java-Support-{version}-windows-arm64.zip",
+          "platforms": [
+            "windows-arm64"
+          ],
+          "arch": "arm64",
+          "packageDirectory": "Plugins/win/Official/JavaSupport"
+        }
       ],
       "index": {
         "name": "Java Support",
         "author": "Lithe",
         "repository": "https://github.com/1lck/Lithe-IDEA",
         "description": "Java language support with JDT LS, Lombok, debug and test extensions, a language-server JDK, and project generators.",
-        "tags": ["java", "language"],
+        "tags": [
+          "java",
+          "language"
+        ],
         "license": "Multiple; see bundled third-party licenses"
-      }
+      },
+      "requiredPlatforms": [
+        "darwin-arm64",
+        "darwin-x64",
+        "windows-x64",
+        "windows-arm64"
+      ]
     }
   ]
 }

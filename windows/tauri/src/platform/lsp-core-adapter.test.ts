@@ -67,6 +67,13 @@ let syncGate: Promise<void> | undefined;
 let releaseSync: (() => void) | undefined;
 let syncEntered: (() => void) | undefined;
 let omitSynchronizedURI = false;
+let stopFailures = 0;
+let initializationRace: {
+  entered(): void;
+  gate: Promise<void>;
+  destroyed(): void;
+  wasDestroyed: boolean;
+} | undefined;
 
 /** A queued semantic outcome that Core reports as a structured request error. */
 interface CoreRequestFailure {
@@ -122,6 +129,17 @@ const resolveNavigationCommand = "java_resolve_navigation";
 const executeCore = mock(
   async (request: { id: string; command: string; payload?: Record<string, unknown> }) => {
     commands.push(request.command);
+    if (initializationRace && request.command === "lsp.stopServer" && initializationRace.wasDestroyed) {
+      throw new Error("Unknown language-server session.");
+    }
+    if (initializationRace && request.command === "lsp.destroyServer") {
+      initializationRace.wasDestroyed = true;
+      initializationRace.destroyed();
+    }
+    if (request.command === "lsp.stopServer" && stopFailures > 0) {
+      stopFailures--;
+      throw new Error("fixture language stop failure");
+    }
     if (request.command === "lsp.startServer") {
       startCount += 1;
       startPayload = request.payload;
@@ -142,6 +160,12 @@ const executeCore = mock(
       };
     }
     if (request.command === "lsp.waitEvents") {
+      if (initializationRace) {
+        const race = initializationRace;
+        race.entered();
+        await race.gate;
+        if (race.wasDestroyed) throw new Error("Unknown language-server session.");
+      }
       pollCount += 1;
       const sessionId = String(request.payload?.sessionId ?? "java-session");
       const sessionPollCount = (sessionPollCounts.get(sessionId) ?? 0) + 1;
@@ -441,6 +465,7 @@ const {
   getLspWorkspaceSessionSnapshot,
   ownsLspSession,
   invokeLsp,
+  ensureBuildProviderLanguageSession,
   LSP_EXPLICITLY_UNAVAILABLE_COMMANDS,
   LSP_OPERATION_BY_COMMAND,
 } = await import("./lsp-core-adapter");
@@ -492,6 +517,8 @@ describe("Rust Core LSP adapter failures", () => {
     semanticRefreshOnReady = false;
     eventsAroundReady = { before: [], after: [] };
     releaseInitialization = undefined;
+    stopFailures = 0;
+    initializationRace = undefined;
     releaseRuntimeReady = undefined;
     syncGate = undefined;
     releaseSync = undefined;
@@ -739,8 +766,14 @@ describe("Rust Core LSP adapter failures", () => {
       projectsReloaded: false,
       profilesUpdating: false,
     });
-    expect(requestPayload).toEqual({ sessionId: "java-session", mavenContext, reloadProjects: true });
-    expect(commands.filter((command) => command === "lsp.updateMavenConfiguration")).toHaveLength(1);
+    expect(requestPayload).toEqual({
+      sessionId: "java-session",
+      mavenContext,
+      reloadProjects: true,
+    });
+    expect(commands.filter((command) => command === "lsp.updateMavenConfiguration")).toHaveLength(
+      1,
+    );
   });
 
   test("startup poll failure retires preparation and explicit stop clears the failed snapshot", async () => {
@@ -912,15 +945,17 @@ describe("Rust Core LSP adapter failures", () => {
     scenario = "semantic-request";
     const expected = {
       schemaVersion: 1,
-      items: [{
-        id: "method",
-        label: "composed()",
-        fullName: "demo.OddlyNamedSpec#composed()",
-        projectName: "app",
-        testKind: 0,
-        testLevel: 6,
-        children: [],
-      }],
+      items: [
+        {
+          id: "method",
+          label: "composed()",
+          fullName: "demo.OddlyNamedSpec#composed()",
+          projectName: "app",
+          testKind: 0,
+          testLevel: 6,
+          children: [],
+        },
+      ],
       diagnostics: [],
     };
     semanticRequestResults = [expected];
@@ -948,11 +983,13 @@ describe("Rust Core LSP adapter failures", () => {
     scenario = "semantic-request";
     const expected = {
       schemaVersion: 1,
-      methods: [{
-        mainClass: "demo.App",
-        projectName: "app",
-        range: { startLine: 3, startUtf16Column: 23, endLine: 3, endUtf16Column: 27 },
-      }],
+      methods: [
+        {
+          mainClass: "demo.App",
+          projectName: "app",
+          range: { startLine: 3, startUtf16Column: 23, endLine: 3, endUtf16Column: 27 },
+        },
+      ],
       diagnostics: [],
     };
     semanticRequestResults = [expected];
@@ -1318,7 +1355,12 @@ describe("Rust Core LSP adapter failures", () => {
 
   test("routes semantic tokens through Core and preserves its negotiated legend and null results", async () => {
     scenario = "semantic-request";
-    const fixture = JSON.parse(readFileSync(new URL("../../../../shared/fixtures/lsp/semantic-tokens-v1.json", import.meta.url), "utf8"));
+    const fixture = JSON.parse(
+      readFileSync(
+        new URL("../../../../shared/fixtures/lsp/semantic-tokens-v1.json", import.meta.url),
+        "utf8",
+      ),
+    );
     semanticRequestResult = fixture.expectedResult;
     const filePath = "C:/work/Main.java";
     await invokeLsp("lsp_start_for_file", { workspacePath: "C:/work", filePath, languageId: "java", serverPath: "java-lsp" });
@@ -1327,14 +1369,24 @@ describe("Rust Core LSP adapter failures", () => {
     semanticRequestResult = null;
     expect(await invokeLsp("lsp_get_semantic_tokens", { filePath })).toBeNull();
     semanticRequestResult = { coreError: { code: "cancelled", message: "Document changed" } };
-    await expect(invokeLsp("lsp_get_semantic_tokens", { filePath })).rejects.toMatchObject({ code: "cancelled" });
+    await expect(invokeLsp("lsp_get_semantic_tokens", { filePath })).rejects.toMatchObject({
+      code: "cancelled",
+    });
   });
 
   test("forwards Core semantic token refresh notifications", async () => {
     scenario = "semantic-request";
     semanticRefreshOnReady = true;
-    await invokeLsp("lsp_start_for_file", { workspacePath: "C:/work", filePath: "C:/work/Main.java", languageId: "java", serverPath: "java-lsp" });
-    expect(emit).toHaveBeenCalledWith("lsp://semantic-tokens-refresh", { sessionId: "java-session", workspacePath: "C:/work" });
+    await invokeLsp("lsp_start_for_file", {
+      workspacePath: "C:/work",
+      filePath: "C:/work/Main.java",
+      languageId: "java",
+      serverPath: "java-lsp",
+    });
+    expect(emit).toHaveBeenCalledWith("lsp://semantic-tokens-refresh", {
+      sessionId: "java-session",
+      workspacePath: "C:/work",
+    });
   });
 
   test("forwards one Core drain of diagnostics as one batch with the newest set per document", async () => {
@@ -1403,10 +1455,19 @@ describe("Rust Core LSP adapter failures", () => {
     scenario = "semantic-request";
     semanticRequestResult = { tokenTypes: ["class"], tokenModifiers: [], tokens: [] };
     const filePath = "C:/work/Main.java";
-    const start = { workspacePath: "C:/work", filePath, languageId: "java", serverPath: "java-lsp" };
+    const start = {
+      workspacePath: "C:/work",
+      filePath,
+      languageId: "java",
+      serverPath: "java-lsp",
+    };
     await invokeLsp("lsp_start_for_file", { ...start, attachmentId: "old" });
-    semanticResultGate = new Promise<void>((resolve) => { releaseSemanticResult = resolve; });
-    const requested = new Promise<void>((resolve) => { onSemanticRequest = resolve; });
+    semanticResultGate = new Promise<void>((resolve) => {
+      releaseSemanticResult = resolve;
+    });
+    const requested = new Promise<void>((resolve) => {
+      onSemanticRequest = resolve;
+    });
     const result = invokeLsp("lsp_get_semantic_tokens", { filePath });
     try {
       await requested;
@@ -1761,34 +1822,69 @@ describe("Rust Core LSP adapter failures", () => {
   test("declarative launch forwards Core plugin identity and configuration", async () => {
     scenario = "capabilities";
     await invokeLsp("lsp_start_for_file", {
-      workspacePath: "C:/work", filePath: "C:/work/Main.go", languageId: "go",
-      providerId: "acme.lang", pluginId: "acme.lang", serverPath: "fixture.exe",
+      workspacePath: "C:/work",
+      filePath: "C:/work/Main.go",
+      languageId: "go",
+      providerId: "acme.lang",
+      pluginId: "acme.lang",
+      serverPath: "fixture.exe",
       workspaceConfiguration: { gopls: { enabled: true } },
     });
     expect(startPayload?.pluginId).toBe("acme.lang");
     expect(startPayload?.workspaceConfiguration).toEqual({ gopls: { enabled: true } });
   }, 5000);
 
-  test("provider stop drains and destroys an in-flight Core start", async () => {
-    const entered = new Promise<void>((resolve) => { pluginStartEntered = resolve; });
-    pluginStartGate = new Promise<void>((resolve) => { releasePluginStart = resolve; });
+  test("plugin stop drains distinct provider IDs and preserves another package", async () => {
+    scenario = "multi-session";
+    await invokeLsp("lsp_start_for_file", {
+      workspacePath: "C:/plugin-target", filePath: "C:/plugin-target/Main.java",
+      languageId: "java", providerId: "java", pluginId: "acme.java", serverPath: "fixture.exe",
+    });
+    await invokeLsp("lsp_start_for_file", {
+      workspacePath: "C:/other-plugin", filePath: "C:/other-plugin/Main.java",
+      languageId: "java", providerId: "java", pluginId: "other.java", serverPath: "fixture.exe",
+    });
+    await invokeLsp("lsp_stop_for_provider", {pluginId: "acme.java"});
+    expect(getLspWorkspaceSessionSnapshot({workspacePath: "C:/plugin-target", languageId: "java"})).toBeNull();
+    expect(getLspWorkspaceSessionSnapshot({workspacePath: "C:/other-plugin", languageId: "java"}))
+      .toEqual(expect.objectContaining({id: "java-session-2"}));
+    expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(1);
+    expect(commands.filter((command) => command === "lsp.destroyServer")).toHaveLength(1);
+  }, 5000);
+
+  test.each([false, true])("provider/plugin stop drains and destroys an in-flight Core start, distinct=%s", async (distinct) => {
+    const entered = new Promise<void>((resolve) => {
+      pluginStartEntered = resolve;
+    });
+    pluginStartGate = new Promise<void>((resolve) => {
+      releasePluginStart = resolve;
+    });
     scenario = "held-plugin-start";
     const starting = invokeLsp("lsp_start_for_file", {
-      workspacePath: "C:/work", filePath: "C:/work/Main.go", languageId: "go",
-      providerId: "acme.lang", pluginId: "acme.lang", serverPath: "fixture.exe",
+      workspacePath: "C:/work",
+      filePath: "C:/work/Main.go",
+      languageId: "go",
+      providerId: distinct ? "go" : "acme.lang",
+      pluginId: "acme.lang",
+      serverPath: "fixture.exe",
     });
-    const outcome = starting.then(() => "started", () => "cancelled");
+    const outcome = starting.then(
+      () => "started",
+      () => "cancelled",
+    );
     let stopping: Promise<unknown> | undefined;
     try {
       await entered;
-      stopping = invokeLsp("lsp_stop_for_provider", { providerId: "acme.lang" });
+      stopping = invokeLsp("lsp_stop_for_provider", distinct ? { pluginId: "acme.lang" } : { providerId: "acme.lang" });
       scenario = "capabilities";
       releasePluginStart?.();
       await stopping;
       expect(await outcome).toBe("cancelled");
       expect(commands).toContain("lsp.stopServer");
       expect(commands).toContain("lsp.destroyServer");
-      expect(getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "go" })).toBeNull();
+      expect(
+        getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "go" }),
+      ).toBeNull();
     } finally {
       releasePluginStart?.();
       await Promise.allSettled([outcome, stopping]);
@@ -1798,4 +1894,281 @@ describe("Rust Core LSP adapter failures", () => {
     }
   }, 5000);
 
+  test("late initialization failure reuses the provider's completed cleanup", async () => {
+    let release!: () => void;
+    let entered!: () => void;
+    let destroyed!: () => void;
+    const initializing = new Promise<void>((resolve) => { entered = resolve; });
+    const cleanupComplete = new Promise<void>((resolve) => { destroyed = resolve; });
+    initializationRace = {
+      entered,
+      gate: new Promise<void>((resolve) => { release = resolve; }),
+      destroyed,
+      wasDestroyed: false,
+    };
+    const starting = invokeLsp("lsp_start_for_file", {
+      workspacePath: "C:/work",
+      filePath: "C:/work/Main.go",
+      languageId: "go",
+      providerId: "acme.lang",
+      pluginId: "acme.lang",
+      serverPath: "fixture.exe",
+    });
+    const outcome = starting.then(() => "started", () => "cancelled");
+    let stopping: Promise<unknown> | undefined;
+    try {
+      await initializing;
+      stopping = invokeLsp("lsp_stop_for_provider", { providerId: "acme.lang" });
+      await cleanupComplete;
+      // Deliver the failed initialize response after native destruction and
+      // the stop promise's finalizers, as happens during a window-wide drain.
+      await Promise.resolve();
+      release();
+      await stopping;
+      expect(await outcome).toBe("cancelled");
+      expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(1);
+      expect(commands.filter((command) => command === "lsp.destroyServer")).toHaveLength(1);
+      expect(getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "go" })).toBeNull();
+    } finally {
+      release();
+      await Promise.allSettled([outcome, stopping]);
+      initializationRace = undefined;
+    }
+  }, 5000);
+
+  test("cancelled sole build initializer drains the existing language process owner", async () => {
+    const entered = new Promise<void>((resolve) => {
+      pluginStartEntered = resolve;
+    });
+    pluginStartGate = new Promise<void>((resolve) => {
+      releasePluginStart = resolve;
+    });
+    scenario = "held-plugin-start";
+    const controller = new AbortController();
+    const starting = ensureBuildProviderLanguageSession(
+      {
+        workspacePath: "C:/work",
+        languageId: "go",
+        providerId: "acme.lang",
+        pluginId: "acme.lang",
+        serverPath: "fixture.exe",
+      },
+      controller.signal,
+    );
+    const outcome = starting.then(
+      () => "started",
+      () => "cancelled",
+    );
+    try {
+      await entered;
+      controller.abort();
+      scenario = "capabilities";
+      releasePluginStart?.();
+      expect(await outcome).toBe("cancelled");
+      expect(commands).toContain("lsp.stopServer");
+      expect(commands).toContain("lsp.destroyServer");
+      expect(
+        getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "go" }),
+      ).toBeNull();
+    } finally {
+      controller.abort();
+      releasePluginStart?.();
+      await outcome;
+      pluginStartEntered = undefined;
+      pluginStartGate = undefined;
+      releasePluginStart = undefined;
+    }
+  }, 5000);
+
+  test("failed sole initializer cleanup retains the original owner for a real Stop retry", async () => {
+    const entered = new Promise<void>((resolve) => {
+      pluginStartEntered = resolve;
+    });
+    pluginStartGate = new Promise<void>((resolve) => {
+      releasePluginStart = resolve;
+    });
+    scenario = "held-plugin-start";
+    const controller = new AbortController();
+    const starting = ensureBuildProviderLanguageSession(
+      {
+        workspacePath: "C:/work",
+        languageId: "go",
+        providerId: "acme.lang",
+        pluginId: "acme.lang",
+        serverPath: "fixture.exe",
+      },
+      controller.signal,
+    );
+    const outcome = starting.catch((error: unknown) => error);
+    try {
+      await entered;
+      stopFailures = 2;
+      controller.abort();
+      scenario = "capabilities";
+      releasePluginStart?.();
+      const failure = (await outcome) as Error & { retryCleanup: () => Promise<void> };
+      expect(failure.message).toBe("plugin.build.cleanupFailed");
+      expect(
+        getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "go" }),
+      ).toMatchObject({ phase: "stopping" });
+      expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(1);
+      const secondFailure = (await ensureBuildProviderLanguageSession({
+        workspacePath: "C:/work",
+        languageId: "go",
+        providerId: "acme.lang",
+        pluginId: "acme.lang",
+        serverPath: "fixture.exe",
+      }).catch((error: unknown) => error)) as Error & { retryCleanup: () => Promise<void> };
+      expect(secondFailure.message).toBe("plugin.build.cleanupFailed");
+      expect(startCount).toBe(1);
+      await expect(failure.retryCleanup()).rejects.toThrow("fixture language stop failure");
+      expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(2);
+      await secondFailure.retryCleanup();
+      expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(3);
+      expect(commands).toContain("lsp.destroyServer");
+      expect(
+        getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "go" }),
+      ).toBeNull();
+      await failure.retryCleanup();
+      expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(3);
+    } finally {
+      stopFailures = 0;
+      controller.abort();
+      releasePluginStart?.();
+      await outcome;
+      pluginStartEntered = undefined;
+      pluginStartGate = undefined;
+      releasePluginStart = undefined;
+    }
+  }, 5000);
+
+  test("an old failed initializer retry cannot stop a replacement retained by the editor", async () => {
+    const entered = new Promise<void>((resolve) => {
+      pluginStartEntered = resolve;
+    });
+    pluginStartGate = new Promise<void>((resolve) => {
+      releasePluginStart = resolve;
+    });
+    scenario = "held-plugin-start";
+    const controller = new AbortController();
+    const args = {
+      workspacePath: "C:/work",
+      languageId: "go",
+      providerId: "acme.lang",
+      pluginId: "acme.lang",
+      serverPath: "fixture.exe",
+    };
+    const outcome = ensureBuildProviderLanguageSession(args, controller.signal).catch(
+      (error: unknown) => error,
+    );
+    try {
+      await entered;
+      stopFailures = 1;
+      controller.abort();
+      scenario = "capabilities";
+      releasePluginStart?.();
+      const failure = (await outcome) as Error & { retryCleanup: () => Promise<void> };
+      expect(failure.message).toBe("plugin.build.cleanupFailed");
+      scenario = "multi-session";
+      await invokeLsp("lsp_start_for_file", { ...args, filePath: "C:/work/Main.go" });
+      const stopCount = commands.filter((command) => command === "lsp.stopServer").length;
+      await failure.retryCleanup();
+      expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(stopCount);
+      expect(getLspSessionSnapshot({ filePath: "C:/work/Main.go" })).not.toBeNull();
+    } finally {
+      stopFailures = 0;
+      controller.abort();
+      releasePluginStart?.();
+      await outcome;
+      pluginStartEntered = undefined;
+      pluginStartGate = undefined;
+      releasePluginStart = undefined;
+    }
+  }, 5000);
+
+  test("one build initializer can cancel while another reuses the same language start", async () => {
+    const entered = new Promise<void>((resolve) => {
+      pluginStartEntered = resolve;
+    });
+    pluginStartGate = new Promise<void>((resolve) => {
+      releasePluginStart = resolve;
+    });
+    scenario = "held-plugin-start";
+    const args = {
+      workspacePath: "C:/work",
+      languageId: "go",
+      providerId: "acme.lang",
+      pluginId: "acme.lang",
+      serverPath: "fixture.exe",
+    };
+    const controller = new AbortController();
+    const first = ensureBuildProviderLanguageSession(args, controller.signal).then(
+      () => "started",
+      () => "cancelled",
+    );
+    let second: Promise<void> | undefined;
+    try {
+      await entered;
+      second = ensureBuildProviderLanguageSession(args);
+      controller.abort();
+      scenario = "capabilities";
+      releasePluginStart?.();
+      expect(await first).toBe("cancelled");
+      await second;
+      expect(startCount).toBe(1);
+      expect(commands).not.toContain("lsp.stopServer");
+      expect(
+        getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "go" }),
+      ).not.toBeNull();
+    } finally {
+      controller.abort();
+      releasePluginStart?.();
+      await Promise.allSettled([first, second]);
+      pluginStartEntered = undefined;
+      pluginStartGate = undefined;
+      releasePluginStart = undefined;
+    }
+  }, 5000);
+
+  test("an editor joining a build initialization retains its own language session after cancellation", async () => {
+    const entered = new Promise<void>((resolve) => {
+      pluginStartEntered = resolve;
+    });
+    pluginStartGate = new Promise<void>((resolve) => {
+      releasePluginStart = resolve;
+    });
+    scenario = "held-plugin-start";
+    const args = {
+      workspacePath: "C:/work",
+      languageId: "go",
+      providerId: "acme.lang",
+      pluginId: "acme.lang",
+      serverPath: "fixture.exe",
+    };
+    const controller = new AbortController();
+    const build = ensureBuildProviderLanguageSession(args, controller.signal).then(
+      () => "started",
+      () => "cancelled",
+    );
+    let editor: Promise<unknown> | undefined;
+    try {
+      await entered;
+      editor = invokeLsp("lsp_start_for_file", { ...args, filePath: "C:/work/Main.go" });
+      controller.abort();
+      scenario = "capabilities";
+      releasePluginStart?.();
+      expect(await build).toBe("cancelled");
+      await editor;
+      expect(startCount).toBe(1);
+      expect(commands).not.toContain("lsp.stopServer");
+      expect(getLspSessionSnapshot({ filePath: "C:/work/Main.go" })).not.toBeNull();
+    } finally {
+      controller.abort();
+      releasePluginStart?.();
+      await Promise.allSettled([build, editor]);
+      pluginStartEntered = undefined;
+      pluginStartGate = undefined;
+      releasePluginStart = undefined;
+    }
+  }, 5000);
 });

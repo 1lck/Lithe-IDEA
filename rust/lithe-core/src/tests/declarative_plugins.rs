@@ -73,6 +73,14 @@ const OFFICIAL_JAVA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../Plugins/mac/Official/JavaSupport/plugin.json"
 ));
+const WINDOWS_MAVEN: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../Plugins/win/Official/MavenSupport/plugin.json"
+));
+const WINDOWS_GRADLE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../Plugins/win/Official/GradleSupport/plugin.json"
+));
 
 fn fixture(name: &str) -> Value {
     let source = match name {
@@ -136,6 +144,8 @@ fn contract_fixtures_and_official_plugins_validate() {
         EDITOR_PROVIDERS_FIXTURE,
         PROJECT_GENERATOR_TOOL_FIXTURE,
         OFFICIAL_JAVA,
+        WINDOWS_MAVEN,
+        WINDOWS_GRADLE,
     ] {
         let outcome = validate(serde_json::from_str(source).unwrap());
         assert_eq!(outcome["status"], "ok", "{outcome}");

@@ -70,10 +70,18 @@ fn git(root: &Path, arguments: &[&str]) -> String {
 }
 
 fn request(command: &str, root: &str) -> Value {
+    // Reference discovery performs several serial native Git reads. Windows
+    // tracing measured over five seconds before the final remote read; retain
+    // the case watchdog while allowing this integration request to finish.
+    let timeout = if cfg!(windows) && command == "git.references" {
+        15000
+    } else {
+        5000
+    };
     serde_json::from_str(&execute_json(
         &json!({
             "command": command,
-            "timeoutMilliseconds": 5000,
+            "timeoutMilliseconds": timeout,
             "payload": { "root": root }
         })
         .to_string(),
@@ -93,7 +101,7 @@ fn frontend_path(path: &str) -> String {
     // Node is already required by both platform timing harnesses. Import the
     // production TypeScript function rather than duplicating it in Rust.
     // Windows CI reached the old 10s deadline in this Node/TypeScript process.
-    // Keep Git and Core request deadlines unchanged;
+    // Keep Git and other Core request deadlines unchanged;
     // only this frontend subprocess gets 20s within the scoped 60s case budget.
     let timeout = Duration::from_secs(if cfg!(windows) { 20 } else { 10 });
     run_with_timeout(Command::new("node").args([

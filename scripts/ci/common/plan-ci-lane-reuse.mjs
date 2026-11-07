@@ -58,7 +58,11 @@ export const CI_INFRA_RULES = Object.freeze([
   { pattern: /^\.agents\/skills\/write-stable-tests\/scripts\//, workflows: ALL_WORKFLOWS },
   { pattern: /^scripts\/ci\/common\/(test-)?classify-ci-changes\.sh$/, workflows: ALL_WORKFLOWS },
   { pattern: /^scripts\/ci\/common\/(plan-ci-lane-reuse|verify-reused-ci-jobs|verify-rust-shards|rust-shards)(\.test)?\.mjs$/, workflows: ALL_WORKFLOWS },
+  { pattern: /^scripts\/resources\//, workflows: ALL_WORKFLOWS },
   { pattern: /^scripts\/(macos\/test\/test-macos|rust-core\/build-rust-core|macos\/prepare\/(prepare-macos-dependencies|validate-macos-dependency-caches)|rust-core\/verify-rust-core[a-z-]*)\.sh$/, workflows: MACOS_FAMILY },
+  { pattern: /^scripts\/plugins\/(host-acceptance\/|native-workbench-browser\.mjs$|test-(windows-declarative-plugin-host\.ps1|windows-native-plugin-ui-browser\.mjs|windows-plugin-vcs-core\.mjs|plugin-vcs-move-diagnostic\.mjs)$)/, workflows: ['windows'] },
+  { pattern: /^scripts\/plugins\/(assemble-windows-java-support\.py|test-assemble-windows-java-support\.py|check-windows-java-signing-inputs\.py|test-check-windows-java-signing-inputs\.py|windows-java-release\.py|test-windows-java-release\.py)$/, workflows: ['windows'] },
+  { pattern: /^scripts\/plugins\/(check-plugin-fixture-coverage(\.test)?\.mjs|plugin-fixture-coverage\.json)$/, workflows: ALL_WORKFLOWS },
   // Windows scripts are routed by directory, like the classifier does. The one Windows-only
   // script that stays with its cross-platform domain is listed by name.
   { pattern: /^scripts\/(windows|release\/windows)\/|^scripts\/ide-mcp\/build-windows-ide-mcp\.mjs$/, workflows: ['windows'] },

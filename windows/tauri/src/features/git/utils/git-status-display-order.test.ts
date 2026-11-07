@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { GitFile } from "../types/git.types";
-import { DEFAULT_CHANGELIST, changelistPathKey } from "./git-changelists";
+import { DEFAULT_CHANGELIST, changelistFileKey, changelistPathKey } from "./git-changelists";
 import { orderGitStatusFilesForDisplay } from "./git-status-display-order";
 
 const file = (
@@ -47,6 +47,10 @@ test("changelist assignment splits the order exactly like the panel sections", (
     ],
     activeId: DEFAULT_CHANGELIST,
     assignments: { [changelistPathKey("C:/repo", "b.py")]: "wip" },
+    projection: {
+      members: new Map(files.map((entry) => [changelistFileKey(entry, "C:/repo")!, entry.path === "b.py" ? "wip" : DEFAULT_CHANGELIST])),
+      scope: { include: true, paths: {} },
+    },
   };
   expect(
     orderGitStatusFilesForDisplay(files, {

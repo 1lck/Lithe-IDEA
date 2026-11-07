@@ -17,8 +17,24 @@ static verifier, Swift runner, and Rust runner are Node.js-only.
 
 The Windows timing harness passes an explicit timeout to Bun and reads the
 JUnit duration for every executed test case.
+It runs the complete selection in one Bun 1.3.14 invocation with native
+`--isolate`: each file owns its global object and module mocks. Bun module
+mocks outlive `mock.restore()`, so sharing the same global across test files
+can replace the real dependency of an unrelated test. This is the formal
+joint lane, without a shell loop or a per-file subprocess wrapper. The JSON
+report records this isolation mode. `windows/tauri/bunfig.toml` explicitly
+loads SVG files as file assets, matching the production Vite `?url` imports
+without parsing upstream XML comments as JavaScript.
+
 
 ## Rust
+
+The real-JDT lane gives only
+`lsp::interface::engine::real_jdt_tests::real_jdtls_lists_entrypoints_in_a_plain_java_folder`
+a 300-second process budget for starting the packaged service, importing its
+invisible project and discovering the open source. The test uses bounded JDT
+events, owns shutdown and temporary cache cleanup, and checks the installation
+listing. Other cases and the lane's suite deadline remain unchanged.
 
 - Prefer channels, barriers, and injected clocks to `thread::sleep`. Channel
   receives used for coordination require `recv_timeout` or an equivalent
@@ -164,6 +180,29 @@ The prefix matches the raw Rust test name, without the Cargo target printed
 before it in the console. Check each report's `maxMs` to confirm the allowance
 actually applies; a successful fast run alone does not prove prefix matching.
 
+The path roundtrip fixture gives only `git.references` requests 15 seconds on
+Windows. R39 reproduced a 5-second request cancellation with an unchanged
+binary; Git trace showed serial identity, local/remote reference and remote-list
+reads starting about one second apart. Native Git work itself stayed bounded.
+Other Core requests retain 5 seconds, fixture Git children retain 10 seconds,
+and the complete case retains its existing 60-second watchdog. This is a
+fixture integration allowance, not a change to production request deadlines.
+
+`push_target_choice_is_ignored_for_a_branch_that_tracks_its_own_name` gets
+30 seconds in SharedRust and real-JDT. Its two Core previews and real push
+passed assertions but took 18.731 seconds as a complete Windows test process;
+an unchanged-binary retry took 18.317 seconds. The fixture now reuses Git Host's
+process-tree cleanup with a 10-second child deadline, gives every Core request
+a 10-second deadline, and removes three initialization processes by setting the
+initial branch at creation and writing identity/signing only to the fixture's
+local Git config. The same case still measured 18.339 seconds after that change.
+The complete 25-case target then exposed nine more 15-second process timeouts,
+measuring 18.423–20.169 seconds; three were stopped before their assertions completed.
+SharedRust and real-JDT list exactly those ten measured raw-name prefixes at
+30 seconds. The remaining 15 push cases retain 15 seconds; the 20-minute suite
+deadline and all assertions remain unchanged. Preserve the first reports and
+require the longer bounded run to complete every assertion before counting a pass.
+
 `tests::git::git_write_executes_checkout_preflight_clone_and_validation`
 gets 30 seconds in both Windows lanes. Run 39935852248 reported its assertions
 passing in 15.22 seconds, but the complete test process took 18.529 seconds and
@@ -183,6 +222,43 @@ arm64; the Java 25 case took 39.4 seconds in that run. The budget covers both
 in-test deadlines so a silent server fails with the test's own diagnostic
 rather than the watchdog. Other real-JDT cases and the suite deadline keep
 their budgets.
+The two `git::configuration::inherited_tag_tests::` integration cases give only
+their `git.executionInspect` requests a 20-second deadline; initialization keeps
+5 seconds and both complete test processes retain the default 15-second watchdog.
+Inspection performs at least 27 Git calls for the tag spellings fixture and 19
+for the skip-fetch fixture, including Git's own boolean parser and scoped reads.
+A Windows SharedRust run failed at the old 5-second request deadline; focused
+unchanged-binary runs reproduced both failures. A 10-second request still failed
+the tag case while the skip-fetch case completed in 9.719 seconds. The complete
+20-second-request run finished them in 12.852 and 9.957 seconds, preserving every
+boolean, provenance and configured-value assertion. The process watchdog still
+requests termination at 15 seconds, before the nested request deadline; Windows
+Git children belong to the test's non-breakaway kill-on-close Job. Successful
+runs do not verify the watchdog's forced-cleanup branch or prove a 15-second
+cleanup bound. Do not infer a production deadline or increase CI budgets from
+this fixture-only allowance.
+
+R42 retained the original failures and repeated them with the same native Git
+adapter. Smart remote checkout exhausted its five-second fixture request while
+performing serial reference checks and stash preservation. Only Windows
+`git.write` checkout requests with `autoStash` receive ten seconds; ordinary
+checkout and fixture setup retain five seconds. Reviewed history apply exhausted
+ten seconds while replaying commits. Its Windows fixture allowance is twenty
+seconds, while preview stays at ten; the history fixture gives that allowance
+only to `git.write` requests carrying `expectedState`. Production deadlines do
+not change.
+
+Complete real-repository indexing and tag scenarios measured 28.6 and 19.2
+seconds. Only those raw test names receive 45 and 30 seconds respectively.
+The contiguous squash, full-message review/apply, four rebase edit/recovery
+scenarios, and independent failed-push/retry workflow also completed beyond
+their old 30-second watchdogs; each has an exact-name 45-second allowance.
+External rebase abort followed by recovery and a new reviewed plan measured
+45.6 seconds and receives 60 seconds. SharedRust and real-JDT list the same
+overrides, keep the module defaults and suite deadline, preserve every
+assertion, and record the effective per-case budget in the report. The first
+reports are diagnostic evidence; only a complete bounded pass verifies the
+adjusted case.
 
 ## Windows verification
 
@@ -190,3 +266,10 @@ Run the PowerShell harness in a real Windows environment. A macOS boundary
 check does not verify Bun timers, Windows process termination, or native Rust
 test execution. When using the Parallels guest, establish the user toolchain
 paths before invoking the script as required by `debug-windows-on-parallels`.
+
+The Windows host lane prepares `fake-acp-adapter` through the Rust runner's
+`--prepare-bin` option before enumerating cases. It is a normal executable,
+whereas `cargo test --no-run` emits only its libtest variant. A cold per-case
+fallback build previously consumed the Agent cleanup cases' 15-second watchdog.
+Preparation is recorded in `prepareBins` and `buildDurationMs`, shares the suite
+deadline, and must finish before lifecycle timing; no case budget is increased.

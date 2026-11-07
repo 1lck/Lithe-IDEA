@@ -125,6 +125,46 @@ function Invoke-TimedRustTests {
             # Two repositories, three confirmation previews and two pushes invoke
             # 287 Git processes; this integration case measured 49.9s on Windows.
             $arguments += @("--test-budget", "tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately=60000")
+            # R42 completed these workflows beyond their old 15s/30s bounds. Keep
+            # allowances on these exact scenarios, not the whole modules.
+            foreach ($integrationCase in @(
+                "project::indexing::tests::directory_action_fixture_preserves_real_git_search_eligibility",
+                "tests::git::git_write_squashes_a_contiguous_local_commit_range",
+                "tests::git_history_rewrite::history_preview_preserves_complete_messages_and_requires_reviewed_execution",
+                "tests::git_history_rewrite::native_rebase_edit_pause_restores_full_message_and_amend_flows_into_squash_fixup",
+                "tests::git_history_rewrite::native_rebase_large_escaped_manifest_remains_readable_through_abort",
+                "tests::git_history_rewrite::native_rebase_legacy_continue_restores_editor_and_keeps_newly_empty_commit",
+                "tests::git_history_rewrite::native_rebase_rejects_missing_or_stale_amend_head_without_changing_external_edits",
+                "tests::git_workspace_commit::git_workspace_workflow_failed_push_continues_independent_and_retries_without_duplicate_commits"
+            )) {
+                $arguments += @("--test-budget", "${integrationCase}=45000")
+            }
+            $arguments += @("--test-budget", "tests::git::git_write_creates_deletes_and_records_tags=30000")
+            # Abort, external recovery and a new reviewed plan measured 45.6s.
+            $arguments += @("--test-budget", "tests::git_history_rewrite::externally_aborted_rebase_keeps_recovery_but_allows_a_new_reviewed_plan=60000")
+            # These measured multi-preview/push cases took 18.3–20.2s on Windows.
+            # Fixture children and Core requests retain their own 10s deadline.
+            foreach ($pushCase in @(
+                "branch_created_from_remote_main_does_not_track_main",
+                "confirmed_upstream_push_resolves_a_slashed_branch_name",
+                "divergent_upstream_requires_an_explicit_choice",
+                "push_preview_and_write_share_destination_and_safe_options",
+                "push_rejects_a_preview_after_the_configured_destination_changes",
+                "push_target_choice_is_ignored_for_a_branch_that_tracks_its_own_name",
+                "reviewed_force_push_to_the_chosen_upstream_leases_that_branch",
+                "reviewed_push_rejects_a_different_destination_choice",
+                "reviewed_push_uses_default_remote_and_sets_upstream_when_missing",
+                "reviewed_upstream_push_is_rejected_when_the_upstream_moves"
+            )) {
+                $arguments += @("--test-budget", "${pushCase}=30000")
+            }
+        }
+        if (-not $Package -and $Manifest -eq "windows/tauri/src-tauri/Cargo.toml") {
+            # Agent cleanup cases measure lifecycle, not cold fixture compilation.
+            $arguments += @("--prepare-bin", "fake-acp-adapter")
+            # This real-Git integration case took 14.4s locally, while its
+            # repository initialization exceeded the former 5s Core deadline.
+            $arguments += @("--test-budget", "platform::tests::lightweight_tag_overrides_default_signing_without_running_signer_or_editor=30000")
         }
         return $arguments
     }
@@ -139,7 +179,7 @@ function Invoke-TimedRustTests {
         try {
             $timingReport = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
             $suiteTimedOut = $null -ne $timingReport.suite -and $timingReport.suite.timedOut -eq $true
-            $testsRan = @($timingReport.tests | Where-Object { $_.name -ne "Cargo test compilation" }).Count -gt 0
+            $testsRan = @($timingReport.tests | Where-Object { $_.name -notin @("Cargo test compilation", "Cargo fixture preparation") }).Count -gt 0
         } catch {
             Write-Warning "Could not inspect the Rust timing report after failure: $($_.Exception.Message)"
         }

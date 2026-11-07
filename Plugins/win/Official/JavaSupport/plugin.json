@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.plugin.java-support",
+  "displayName": "Java Support",
+  "version": "1.1.0",
+  "pluginAPIVersion": 3,
+  "requires": {"languages": 1, "languageServers": 1, "serverProcess": 1, "settings": 2, "projectGenerators": 1, "packageTrust": 1},
+  "vendor": {"id": "dev.lithe", "displayName": "Lithe", "signatureRequirement": "publisherPackage", "bundledSignatureRequirement": "sameTeamAsHost"},
+  "permissions": ["languageServer.launch", "project.generate"],
+  "activationEvents": ["onLanguage:java"],
+  "languages": [{"id": "java", "displayName": "Java", "fileExtensions": ["java"], "projectFileNames": ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]}],
+  "settings": [
+    {"id": "heapMaxMB", "type": "integer", "title": "Maximum memory", "description": "Upper bound of the Java language server's heap. Raise it for large multi-module projects.", "default": 2048, "minimum": 2048, "maximum": 16384, "unit": "MB", "page": {"languageID": "java"}, "section": "Language server"},
+    {"id": "logLevel", "type": "enum", "title": "Language server log level", "description": "How much the Java language server writes to its own log. Quieter levels reduce disk writes.", "default": "ALL", "options": [{"value": "ALL", "title": "All messages"}, {"value": "INFO", "title": "Information"}, {"value": "WARNING", "title": "Warnings"}, {"value": "SEVERE", "title": "Errors only"}], "page": {"languageID": "java"}, "section": "Language server"}
+  ],
+  "languageServers": [{
+    "languageID": "java",
+    "languageIdentifier": "java",
+    "launch": {
+      "kind": "runtime", "tool": "java", "packagedRuntime": "runtime/${arch}/bin/java.exe",
+      "runtimeArguments": ["-Xmx${setting:heapMaxMB}m", "-Dlog.level=${setting:logLevel}"],
+      "entry": "language-server/plugins/org.eclipse.equinox.launcher_1.8.0.v20260804-1928.jar"
+    },
+    "hostIntegration": {
+      "id": "jdt", "capabilities": ["debug", "run", "testing"],
+      "resources": {
+        "configuration": "language-server/configuration/${arch}",
+        "lombokAgent": "language-server/lombok/lombok.jar",
+        "extensionBundleDirectories": ["language-server/java-debug", "language-server/java-test/extensions"],
+        "testRunner": "language-server/java-test/runner/com.microsoft.java.test.runner-jar-with-dependencies.jar"
+      }
+    }
+  }],
+  "projectGenerators": [{
+    "id": "java", "displayName": "Java", "description": "A Java project with no build tool, Maven, or Gradle.",
+    "section": "project", "order": 10,
+    "fields": [
+      {"id": "buildSystem", "type": "enum", "title": "Build system", "presentation": "segmented", "default": "none", "options": [{"value": "none", "title": "Lithe"}, {"value": "maven", "title": "Maven"}, {"value": "gradle", "title": "Gradle"}]},
+      {"id": "jdk", "type": "runtime", "title": "JDK", "runtime": "java", "minimumVersion": "11"},
+      {"id": "groupId", "type": "text", "title": "GroupId", "default": "org.example", "pattern": "[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*", "maxLength": 200, "visibleWhen": {"field": "buildSystem", "oneOf": ["maven", "gradle"]}},
+      {"id": "artifactId", "type": "text", "title": "ArtifactId", "default": "${project.name}", "pattern": "[A-Za-z0-9_][A-Za-z0-9_.-]*", "maxLength": 200, "visibleWhen": {"field": "buildSystem", "oneOf": ["maven", "gradle"]}}
+    ],
+    "requirements": [
+      {"languageID": "java"},
+      {"buildSystemID": "maven", "when": {"field": "buildSystem", "equals": "maven"}},
+      {"buildSystemID": "gradle", "when": {"field": "buildSystem", "equals": "gradle"}}
+    ],
+    "steps": [
+      {"kind": "files", "source": "templates/plain", "when": {"field": "buildSystem", "equals": "none"}},
+      {"kind": "files", "source": "templates/maven", "when": {"field": "buildSystem", "equals": "maven"}},
+      {"kind": "files", "source": "templates/gradle", "when": {"field": "buildSystem", "equals": "gradle"}},
+      {"kind": "files", "source": "templates/standard", "target": "src/main/java/${field.groupId|package|path}", "when": {"field": "buildSystem", "oneOf": ["maven", "gradle"]}}
+    ],
+    "openFiles": [
+      {"path": "src/Main.java", "when": {"field": "buildSystem", "equals": "none"}},
+      {"path": "src/main/java/${field.groupId|package|path}/Main.java", "when": {"field": "buildSystem", "oneOf": ["maven", "gradle"]}}
+    ]
+  }]
+}

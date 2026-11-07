@@ -13,9 +13,9 @@ export type JavaRunLaunchPreparation =
 
 /** Returns whether a launch is prepared through the JDT LS project build. */
 export function usesJavaProjectPreparation(configuration: RunConfiguration): boolean {
-  const isJavaProjectLaunch =
-    configuration.provider === "java.main" || configuration.provider === "spring-boot.maven";
-  return isJavaProjectLaunch && Boolean(configuration.mavenReactorPath);
+  // JDT owns Java project readiness and runtime paths for every build system,
+  // including unmanaged projects. A Maven reactor is not a Java capability.
+  return configuration.provider === "java.main" || configuration.provider === "spring-boot.maven";
 }
 
 /** Builds one Java project target and resolves the runtime paths owned by JDT LS. */

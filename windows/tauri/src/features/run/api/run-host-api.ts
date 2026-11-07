@@ -1,5 +1,6 @@
 import { invoke } from "@/platform/tauri-core";
 import { getRunWindowLabel } from "../utils/run-window-context";
+import { workspaceToolchainSelection } from "../utils/workspace-toolchain-paths";
 import type {
   GenericRuntime,
   GlobalToolchain,
@@ -27,11 +28,12 @@ export function writeRunStdin(sessionId: string, input: string) {
 }
 
 export function discoverRunToolchains(root: string, selected?: GlobalToolchain) {
+  const resolved = selected ? workspaceToolchainSelection(root, selected) : undefined;
   return invoke<{ java: JavaRuntime[]; maven: MavenRuntime[]; runtimes: GenericRuntime[] }>("run_discover_toolchains", {
     root,
-    javaHomePath: selected?.javaHomePath,
-    mavenExecutablePath: selected?.mavenExecutablePath,
-    runtimeExecutablePaths: selected?.runtimeExecutablePaths,
+    javaHomePath: resolved?.javaHomePath,
+    mavenExecutablePath: resolved?.mavenExecutablePath,
+    runtimeExecutablePaths: resolved?.runtimeExecutablePaths,
   });
 }
 

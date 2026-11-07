@@ -447,7 +447,9 @@ mod platform {
     use std::os::windows::{io::AsRawHandle, process::CommandExt};
     use windows_sys::Win32::{
         Foundation::*,
-        System::{Diagnostics::ToolHelp::*, JobObjects::*, Pipes::PeekNamedPipe, Threading::*},
+        System::{
+            Diagnostics::ProcessSnapshotting::*, JobObjects::*, Pipes::PeekNamedPipe, Threading::*,
+        },
     };
     pub trait Pipe: AsRawHandle {}
     impl<T: AsRawHandle> Pipe for T {}
@@ -513,7 +515,7 @@ mod platform {
                 {
                     return Err(io::Error::last_os_error());
                 }
-                resume_child(child.id())?;
+                resume_child(child)?;
                 Ok(group)
             }
         }
@@ -547,38 +549,69 @@ mod platform {
             }
         }
     }
-    fn resume_child(process_id: u32) -> io::Result<()> {
-        // SAFETY: each OS handle is checked, borrowed only while valid, and
-        // closed on every return. The suspended process owns exactly one thread.
+    struct ThreadSnapshot(HPSS);
+    impl Drop for ThreadSnapshot {
+        fn drop(&mut self) {
+            // SAFETY: capture created the snapshot in this process, even though
+            // its contents describe our child. It must be freed in that context.
+            unsafe { PssFreeSnapshot(GetCurrentProcess(), self.0) };
+        }
+    }
+    struct WalkMarker(HPSSWALK);
+    impl Drop for WalkMarker {
+        fn drop(&mut self) {
+            // SAFETY: this marker has one owner and is freed exactly once.
+            unsafe { PssWalkMarkerFree(self.0) };
+        }
+    }
+    fn snapshot_result(code: u32) -> io::Result<()> {
+        if code == ERROR_SUCCESS {
+            Ok(())
+        } else {
+            // PSS returns the Win32 code directly, without setting last-error.
+            Err(io::Error::from_raw_os_error(code as i32))
+        }
+    }
+    fn resume_child(child: &Child) -> io::Result<()> {
+        // Snapshot only our suspended child. Toolhelp's thread snapshot scans
+        // the entire machine for every Git/toolchain probe and scales with
+        // unrelated processes. The job already owns the child before we resume.
+        // SAFETY: the child handle is borrowed, all created resources have one
+        // owner, and the thread-entry buffer matches the documented PSS class.
         unsafe {
-            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-            if snapshot == INVALID_HANDLE_VALUE {
+            let mut snapshot = std::ptr::null_mut();
+            snapshot_result(PssCaptureSnapshot(
+                child.as_raw_handle(),
+                PSS_CAPTURE_THREADS,
+                0,
+                &mut snapshot,
+            ))?;
+            let snapshot = ThreadSnapshot(snapshot);
+            let mut marker = std::ptr::null_mut();
+            snapshot_result(PssWalkMarkerCreate(std::ptr::null(), &mut marker))?;
+            let marker = WalkMarker(marker);
+            let mut entry: PSS_THREAD_ENTRY = std::mem::zeroed();
+            snapshot_result(PssWalkSnapshot(
+                snapshot.0,
+                PSS_WALK_THREADS,
+                marker.0,
+                &mut entry as *mut _ as *mut _,
+                std::mem::size_of_val(&entry) as u32,
+            ))?;
+            if entry.ProcessId != child.id() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Thread snapshot does not belong to the owned process",
+                ));
+            }
+            let thread = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.ThreadId);
+            if thread.is_null() {
                 return Err(io::Error::last_os_error());
             }
-            let mut entry: THREADENTRY32 = std::mem::zeroed();
-            entry.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
-            let mut available = Thread32First(snapshot, &mut entry);
-            while available != 0 {
-                if entry.th32OwnerProcessID == process_id {
-                    let thread = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID);
-                    let result = if thread.is_null() {
-                        Err(io::Error::last_os_error())
-                    } else {
-                        let resumed = ResumeThread(thread);
-                        let error = (resumed == u32::MAX).then(io::Error::last_os_error);
-                        CloseHandle(thread);
-                        error.map_or(Ok(()), Err)
-                    };
-                    CloseHandle(snapshot);
-                    return result;
-                }
-                available = Thread32Next(snapshot, &mut entry);
-            }
-            CloseHandle(snapshot);
-            Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                "Could not resume the owned Git process",
-            ))
+            let resumed = ResumeThread(thread);
+            let error = (resumed == u32::MAX).then(io::Error::last_os_error);
+            CloseHandle(thread);
+            error.map_or(Ok(()), Err)
         }
     }
     impl Drop for Group {
