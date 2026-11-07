@@ -161,6 +161,12 @@ jobs:
         shell: bash
         run: ./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh --platform all --base "$BASE_SHA" --head "$GITHUB_SHA"
 
+      # The gate decides which blocking patterns are new, so its own tests run
+      # wherever it runs; they only need Node.js and finish in seconds.
+      - name: Verify the test stability scripts
+        shell: bash
+        run: node .agents/skills/write-stable-tests/scripts/test-verify-test-stability.mjs
+
       - name: Set up Rust for comment verification
         if: steps.classify.outputs.rust_core == 'false' && steps.classify.outputs.rust_comments == 'true'
         uses: dtolnay/rust-toolchain@stable

@@ -68,12 +68,27 @@ fail locally with a useful diagnostic instead of waiting for a CI job timeout.
 
    ```bash
    ./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh
+   ./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh --base origin/preview
    ```
 
    On Windows use:
 
    ```powershell
    ./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1
+   ./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1 -BaseRevision origin/preview
+   ```
+
+   Without `--base` the gate compares the working tree with `HEAD`; with
+   `--base` it compares the committed `HEAD` (or `--head`) with that revision,
+   which is what CI runs with the pull request base. The gate is a ratchet on
+   blocking patterns in test code: a pattern is new when the base revision has
+   no line with the same rule, enclosing test declaration, and statement text.
+   Moving a test between files or re-indenting it is therefore not a violation,
+   while adding a second sleep to a test that already had one is. After
+   changing the gate scripts, run their self-test:
+
+   ```bash
+   node .agents/skills/write-stable-tests/scripts/test-verify-test-stability.mjs
    ```
 
 4. Run the platform timing harness. A changed test is not verified until its
