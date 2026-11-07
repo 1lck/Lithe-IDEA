@@ -19,34 +19,54 @@ const PHP_FIXTURE: &str = contract_file!("fixtures/languages/language-packaged-s
 const HELLO_FIXTURE: &str = contract_file!("fixtures/manifest/hello-lithe.plugin.json");
 const WEB_PANEL_FIXTURE: &str = contract_file!("fixtures/ui/web-panel.plugin.json");
 const GO_FIXTURE: &str = contract_file!("fixtures/languages/language-system-command.plugin.json");
-const JAVA_FIXTURE: &str = contract_file!("fixtures/languages/language-host-integration.plugin.json");
 const NODE_RUNTIME_FIXTURE: &str = contract_file!("fixtures/languages/node-runtime.plugin.json");
-const PUBLISHER_BUNDLED_FIXTURE: &str = contract_file!("fixtures/package-trust/publisher-bundled.plugin.json");
-const CARGO_BUILD_FIXTURE: &str = contract_file!("fixtures/build-systems/build-static-file.plugin.json");
-const GO_BUILD_FIXTURE: &str = contract_file!("fixtures/build-systems/build-command-stdout.plugin.json");
-const GRADLE_BUILD_FIXTURE: &str = contract_file!("fixtures/build-systems/build-command-output-file.plugin.json");
-const MAVEN_BUILD_FIXTURE: &str = contract_file!("fixtures/build-systems/build-host-integration.plugin.json");
-const GRADLE_PROVIDER_FIXTURE: &str = contract_file!("fixtures/build-providers/build-provider.plugin.json");
+const BUILD_TOOLCHAINS_FIXTURE: &str =
+    contract_file!("fixtures/build-systems/build-toolchains.plugin.json");
+const PUBLISHER_BUNDLED_FIXTURE: &str =
+    contract_file!("fixtures/package-trust/publisher-bundled.plugin.json");
+const CARGO_BUILD_FIXTURE: &str =
+    contract_file!("fixtures/build-systems/build-static-file.plugin.json");
+const GO_BUILD_FIXTURE: &str =
+    contract_file!("fixtures/build-systems/build-command-stdout.plugin.json");
+const GRADLE_BUILD_FIXTURE: &str =
+    contract_file!("fixtures/build-systems/build-command-output-file.plugin.json");
+const GRADLE_PROVIDER_FIXTURE: &str =
+    contract_file!("fixtures/build-providers/build-provider.plugin.json");
 const MIX_PROVIDER_FIXTURE: &str =
     contract_file!("fixtures/build-providers/build-provider-language-server.plugin.json");
 const SETTINGS_V2_FIXTURE: &str = contract_file!("fixtures/settings/settings-v2.plugin.json");
 const BACKEND_FIXTURE: &str = contract_file!("fixtures/backend/backend.plugin.json");
-const WORKSPACE_BACKEND_FIXTURE: &str = contract_file!("fixtures/backend/backend-workspace.plugin.json");
-const DEBUG_ADAPTER_FIXTURE: &str = contract_file!("fixtures/debug-adapters/debug-adapter.plugin.json");
+const WORKSPACE_BACKEND_FIXTURE: &str =
+    contract_file!("fixtures/backend/backend-workspace.plugin.json");
+const FUNCTION_EXPORTER_FIXTURE: &str =
+    contract_file!("fixtures/backend/plugin-functions-exporter.plugin.json");
+const FUNCTION_CALLER_FIXTURE: &str =
+    contract_file!("fixtures/backend/plugin-functions-caller.plugin.json");
+const DEBUG_ADAPTER_FIXTURE: &str =
+    contract_file!("fixtures/debug-adapters/debug-adapter.plugin.json");
 const DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE: &str =
     contract_file!("fixtures/debug-adapters/debug-adapter-language-server.plugin.json");
 const DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE: &str =
     contract_file!("fixtures/debug-adapters/debug-adapter-remote-attach.plugin.json");
-const DEBUG_ADAPTER_REJECTIONS: &str = contract_file!("fixtures/debug-adapters/debug-adapter-rejections.json");
+const DEBUG_ADAPTER_FEATURES_FIXTURE: &str =
+    contract_file!("fixtures/debug-adapters/debug-adapter-features.plugin.json");
+const TOOL_REFERENCE_FIXTURE: &str =
+    contract_file!("fixtures/run/tool-reference-launch.plugin.json");
+const DEBUG_ADAPTER_REJECTIONS: &str =
+    contract_file!("fixtures/debug-adapters/debug-adapter-rejections.json");
 const EDITOR_ACTIONS_FIXTURE: &str = contract_file!("fixtures/editor/editor-actions.plugin.json");
+const LANGUAGE_SERVER_BACKEND_FIXTURE: &str =
+    contract_file!("fixtures/languages/language-server-backend-launch.plugin.json");
+const EDITOR_PROVIDERS_FIXTURE: &str =
+    contract_file!("fixtures/editor/editor-providers.plugin.json");
 const GRAMMAR_FIXTURE: &str = contract_file!("fixtures/languages/language-grammar.plugin.json");
+const PROJECT_GENERATOR_FIXTURE: &str =
+    contract_file!("fixtures/project-generators/project-generator.plugin.json");
+const PROJECT_GENERATOR_TOOL_FIXTURE: &str =
+    contract_file!("fixtures/project-generators/project-generator-tool-field.plugin.json");
 const INVALID_MANIFESTS: &str = contract_file!("fixtures/manifest/invalid-manifests.json");
 const COMMAND_PLANS: &str = contract_file!("fixtures/languages/command-plans.json");
 const RUNTIME_VERSIONS: &str = contract_file!("fixtures/languages/runtime-versions.json");
-const OFFICIAL_JAVA: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../Plugins/mac/Official/JavaSupport/plugin.json"
-));
 
 fn fixture(name: &str) -> Value {
     let source = match name {
@@ -54,21 +74,29 @@ fn fixture(name: &str) -> Value {
         "language-system-command.plugin.json" => GO_FIXTURE,
         "hello-lithe.plugin.json" => HELLO_FIXTURE,
         "web-panel.plugin.json" => WEB_PANEL_FIXTURE,
-        "language-host-integration.plugin.json" => JAVA_FIXTURE,
         "node-runtime.plugin.json" => NODE_RUNTIME_FIXTURE,
+        "build-toolchains.plugin.json" => BUILD_TOOLCHAINS_FIXTURE,
+        "publisher-bundled.plugin.json" => PUBLISHER_BUNDLED_FIXTURE,
         "build-static-file.plugin.json" => CARGO_BUILD_FIXTURE,
         "build-command-stdout.plugin.json" => GO_BUILD_FIXTURE,
         "build-command-output-file.plugin.json" => GRADLE_BUILD_FIXTURE,
-        "build-host-integration.plugin.json" => MAVEN_BUILD_FIXTURE,
         "build-provider.plugin.json" => GRADLE_PROVIDER_FIXTURE,
         "build-provider-language-server.plugin.json" => MIX_PROVIDER_FIXTURE,
         "settings-v2.plugin.json" => SETTINGS_V2_FIXTURE,
         "backend.plugin.json" => BACKEND_FIXTURE,
         "backend-workspace.plugin.json" => WORKSPACE_BACKEND_FIXTURE,
+        "plugin-functions-exporter.plugin.json" => FUNCTION_EXPORTER_FIXTURE,
+        "plugin-functions-caller.plugin.json" => FUNCTION_CALLER_FIXTURE,
         "debug-adapter.plugin.json" => DEBUG_ADAPTER_FIXTURE,
         "debug-adapter-language-server.plugin.json" => DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE,
         "debug-adapter-remote-attach.plugin.json" => DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE,
+        "debug-adapter-features.plugin.json" => DEBUG_ADAPTER_FEATURES_FIXTURE,
+        "tool-reference-launch.plugin.json" => TOOL_REFERENCE_FIXTURE,
         "language-grammar.plugin.json" => GRAMMAR_FIXTURE,
+        "language-server-backend-launch.plugin.json" => LANGUAGE_SERVER_BACKEND_FIXTURE,
+        "editor-providers.plugin.json" => EDITOR_PROVIDERS_FIXTURE,
+        "project-generator.plugin.json" => PROJECT_GENERATOR_FIXTURE,
+        "project-generator-tool-field.plugin.json" => PROJECT_GENERATOR_TOOL_FIXTURE,
         other => panic!("unknown fixture {other}"),
     };
     serde_json::from_str(source).expect("fixture manifest is JSON")
@@ -85,16 +113,21 @@ fn contract_fixtures_and_official_plugins_validate() {
         GO_FIXTURE,
         HELLO_FIXTURE,
         WEB_PANEL_FIXTURE,
-        JAVA_FIXTURE,
         NODE_RUNTIME_FIXTURE,
         PUBLISHER_BUNDLED_FIXTURE,
         BACKEND_FIXTURE,
         WORKSPACE_BACKEND_FIXTURE,
+        FUNCTION_EXPORTER_FIXTURE,
+        FUNCTION_CALLER_FIXTURE,
         DEBUG_ADAPTER_FIXTURE,
         DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE,
+        DEBUG_ADAPTER_FEATURES_FIXTURE,
+        TOOL_REFERENCE_FIXTURE,
         GRAMMAR_FIXTURE,
         EDITOR_ACTIONS_FIXTURE,
-        OFFICIAL_JAVA,
+        LANGUAGE_SERVER_BACKEND_FIXTURE,
+        EDITOR_PROVIDERS_FIXTURE,
+        PROJECT_GENERATOR_TOOL_FIXTURE,
     ] {
         let outcome = validate(serde_json::from_str(source).unwrap());
         assert_eq!(outcome["status"], "ok", "{outcome}");
@@ -221,70 +254,6 @@ fn invalid_manifest_fixtures_report_their_stable_codes() {
     }
 }
 
-/// A plugin that owns a language keeps the host from running anything for it
-/// by default. The integration's capabilities are how the plugin hands a
-/// feature back to the host's own implementation, so each one must be a
-/// feature that integration has, with its files, and with no second owner.
-#[test]
-fn host_integration_capabilities_are_normalized_and_checked_against_the_integration() {
-    let mut manifest = fixture("language-host-integration.plugin.json");
-    let capabilities = "/languageServers/0/hostIntegration/capabilities";
-    *manifest.pointer_mut(capabilities).unwrap() = json!(["testing", "debug", "testing"]);
-    let outcome = validate(manifest.clone());
-    assert_eq!(outcome["status"], "ok", "{outcome}");
-    assert_eq!(
-        outcome["plugin"].pointer(capabilities),
-        Some(&json!(["debug", "testing"]))
-    );
-
-    // Omitting the list is valid and claims nothing.
-    manifest["languageServers"][0]["hostIntegration"]
-        .as_object_mut()
-        .unwrap()
-        .remove("capabilities");
-    let outcome = validate(manifest.clone());
-    assert_eq!(outcome["status"], "ok", "{outcome}");
-    assert_eq!(outcome["plugin"].pointer(capabilities), None);
-
-    let rejected_field = |manifest: Value| {
-        let outcome = validate(manifest);
-        assert_eq!(
-            outcome["error"]["code"], "plugin.manifest.invalid",
-            "{outcome}"
-        );
-        outcome["error"]["field"].as_str().unwrap().to_string()
-    };
-    let field = "languageServers[0].hostIntegration.capabilities";
-
-    let mut unknown = fixture("language-host-integration.plugin.json");
-    *unknown.pointer_mut(capabilities).unwrap() = json!(["formatting"]);
-    assert_eq!(rejected_field(unknown), field);
-
-    // Debugging loads the debugger as a JDT LS extension bundle.
-    let mut without_bundles = fixture("language-host-integration.plugin.json");
-    *without_bundles.pointer_mut(capabilities).unwrap() = json!(["debug"]);
-    let resources = "/languageServers/0/hostIntegration/resources";
-    let resources = without_bundles.pointer_mut(resources).unwrap();
-    resources
-        .as_object_mut()
-        .unwrap()
-        .remove("extensionBundleDirectories");
-    assert_eq!(rejected_field(without_bundles), field);
-
-    let mut owned_twice = fixture("language-host-integration.plugin.json");
-    owned_twice["permissions"] = json!(["languageServer.launch", "process.run"]);
-    owned_twice["activationEvents"] = json!(["onLanguage:java", "onRun:java"]);
-    owned_twice["executionProviders"] = json!([{
-        "languageID": "java",
-        "run": { "executable": { "command": "java" }, "arguments": ["${file}"] }
-    }]);
-    // The same provider is accepted once the integration stops claiming run.
-    let mut owned_once = owned_twice.clone();
-    *owned_once.pointer_mut(capabilities).unwrap() = json!(["debug", "testing"]);
-    assert_eq!(validate(owned_once)["status"], "ok");
-    assert_eq!(rejected_field(owned_twice), field);
-}
-
 #[test]
 fn command_plan_fixtures_match_golden_expansions() {
     let fixtures: Value = serde_json::from_str(COMMAND_PLANS).unwrap();
@@ -355,7 +324,7 @@ fn api_level_1_language_server_arguments_stay_literal() {
 #[test]
 fn runtime_launch_and_initialization_options_are_reviewed_programs() {
     let outcome = crate::plugins::marketplace::install_review_command(json!({
-        "manifest": fixture("language-host-integration.plugin.json"),
+        "manifest": fixture("publisher-bundled.plugin.json"),
     }))
     .expect("payload is well formed");
     let programs = outcome["review"]["programs"].as_array().unwrap();
@@ -363,15 +332,10 @@ fn runtime_launch_and_initialization_options_are_reviewed_programs() {
         .iter()
         .find(|program| program["kind"] == "runtimeLanguageServer")
         .expect("the runtime launch is listed");
-    assert_eq!(
-        server["entry"],
-        "language-server/plugins/org.eclipse.equinox.launcher.jar"
-    );
-    assert!(server["initializationOptions"].is_object());
+    assert_eq!(server["entry"], "server.jar");
     // The runtime the plugin ships is reviewed as part of its program; it is
     // not a runtime the host is asked to provide.
     assert_eq!(server["packagedRuntime"], "runtime/${arch}/bin/java");
-    assert_eq!(server["hostIntegration"]["id"], "jdt");
     assert!(programs.iter().all(|program| program["kind"] != "runtime"));
 
     let outcome = crate::plugins::marketplace::install_review_command(json!({
@@ -401,6 +365,102 @@ fn runtime_version_fixtures_match_golden_outcomes() {
             assert_eq!(outcome["status"], "ok", "{}: {outcome}", case["name"]);
             assert_eq!(outcome["check"], case["expected"], "{}", case["name"]);
         }
+    }
+}
+
+fn fixture_runtime_launch_plan(manifest: Value) -> Value {
+    language_server_launch_plan_command(json!({
+        "manifest": manifest,
+        "languageID": "fixture",
+        "request": {
+            "pluginDirectory": "/plugins/fixture",
+            "stateDirectory": "/state/fixture",
+            "workspaceStateDirectory": "/state/fixture/workspace",
+            "architecture": "arm64"
+        }
+    }))
+    .expect("payload is well formed")
+}
+
+/// Below `serverProcess` 4 a runtime launch whose tool is not a host runtime
+/// names the tool definition with the same ID. Its plan has the shape of an
+/// explicit tool reference, and the host adds no arguments of its own.
+#[test]
+fn runtime_launch_of_a_tool_definition_id_is_a_tool_plan() {
+    let mut manifest = fixture("node-runtime.plugin.json");
+    manifest["languageServers"][0]["launch"]["tool"] = json!("java");
+    assert_eq!(validate(manifest.clone())["status"], "ok");
+    let outcome = fixture_runtime_launch_plan(manifest);
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    assert_eq!(
+        outcome["plan"]["launch"],
+        json!({
+            "kind": "tool",
+            "tool": "java",
+            "entry": "/plugins/fixture/language-server/lib/server.js",
+            "runtimeArguments": [
+                "--max-old-space-size=2048",
+                "--require=/plugins/fixture/language-server/lib/preload.js"
+            ],
+            "minimumVersion": "18.17"
+        })
+    );
+    assert_eq!(
+        outcome["plan"]["arguments"],
+        json!([
+            "--stdio",
+            "--log-level=info",
+            "--storage",
+            "/state/fixture/storage",
+            "--workspace-cache",
+            "/state/fixture/workspace"
+        ])
+    );
+    assert_eq!(
+        outcome["plan"]["runtimeRequirements"],
+        json!([{ "tool": "java", "minimumVersion": "18.17", "kind": "tool" }])
+    );
+}
+
+/// `node` stays a host runtime: Core probes its version and passes the entry
+/// as the first positional argument.
+#[test]
+fn node_runtime_launch_keeps_the_host_runtime_plan() {
+    let outcome = fixture_runtime_launch_plan(fixture("node-runtime.plugin.json"));
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    assert_eq!(
+        outcome["plan"]["launch"],
+        json!({
+            "kind": "runtime",
+            "tool": "node",
+            "entry": "language-server/lib/server.js",
+            "minimumVersion": "18.17",
+            "versionArguments": ["--version"]
+        })
+    );
+    assert_eq!(
+        outcome["plan"]["arguments"][2],
+        "/plugins/fixture/language-server/lib/server.js"
+    );
+    assert_eq!(
+        outcome["plan"]["runtimeRequirements"],
+        json!([{ "tool": "node", "minimumVersion": "18.17" }])
+    );
+}
+
+/// Only an ID that cannot name a tool definition is unsupported; a
+/// plugin-qualified ID needs `serverProcess` 4 and `requiresTools`.
+#[test]
+fn runtime_launch_rejects_an_invalid_tool_definition_id() {
+    for tool in ["Java", "java 17", "org.example.tools:java"] {
+        let mut manifest = fixture("node-runtime.plugin.json");
+        manifest["languageServers"][0]["launch"]["tool"] = json!(tool);
+        let outcome = validate(manifest);
+        assert_eq!(outcome["status"], "rejected", "{tool}: {outcome}");
+        assert_eq!(
+            outcome["error"]["code"], "plugin.runtime.unsupported",
+            "{tool}"
+        );
     }
 }
 
@@ -818,6 +878,73 @@ fn workspace_backend_is_planned_with_its_version_and_workspace_service() {
     let mut manifest = fixture("backend.plugin.json");
     manifest["requires"]["backend"] = json!(2);
     assert_eq!(validate(manifest)["status"], "ok");
+}
+
+/// An exporting plugin is sorted by function ID and starts for a call without
+/// a page or an event. Only a plugin that declares calls is granted the host
+/// service that finds providers: exporting grants nothing, and a call needs
+/// no permission because both declarations are the consent.
+#[test]
+fn plugin_functions_are_normalized_and_granted_only_to_callers() {
+    let mut exporter = fixture("plugin-functions-exporter.plugin.json");
+    exporter["pluginFunctions"]["exports"]
+        .as_array_mut()
+        .unwrap()
+        .reverse();
+    let outcome = validate(exporter);
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    assert_eq!(
+        outcome["plugin"]["pluginFunctions"]["exports"],
+        json!([
+            { "id": "document.format", "version": 1, "context": "workspace" },
+            { "id": "symbols.list", "version": 2, "context": "workspace" }
+        ])
+    );
+
+    let backend_plan = |name: &str| {
+        language_server_launch_plan_command(json!({
+            "manifest": fixture(name),
+            "backend": true,
+            "request": {
+                "pluginDirectory": "/plugins/functions",
+                "stateDirectory": "/state/functions",
+                "architecture": "arm64"
+            },
+        }))
+        .expect("payload is well formed")
+    };
+    let exporter_plan = backend_plan("plugin-functions-exporter.plugin.json");
+    assert_eq!(exporter_plan["status"], "ok", "{exporter_plan}");
+    assert_eq!(
+        exporter_plan["plan"]["backend"],
+        json!({ "hostServices": [], "version": 2 })
+    );
+    let caller_plan = backend_plan("plugin-functions-caller.plugin.json");
+    assert_eq!(caller_plan["status"], "ok", "{caller_plan}");
+    assert_eq!(
+        caller_plan["plan"]["backend"],
+        json!({ "hostServices": ["functions"], "version": 2 })
+    );
+}
+
+/// A host that does not know `pluginFunctions` never runs a plugin that uses
+/// it, so a plugin cannot export a function nobody will route.
+#[test]
+fn plugin_functions_need_a_host_that_hosts_them() {
+    let hosted = |host: Value| {
+        validate_command(json!({
+            "manifest": fixture("plugin-functions-caller.plugin.json"),
+            "hostCapabilities": host,
+        }))
+        .expect("payload is well formed")
+    };
+    let old_host = hosted(json!({ "backend": [1, 2], "serverProcess": [1] }));
+    assert_eq!(old_host["error"]["code"], "plugin.api.unsupported");
+    assert_eq!(old_host["error"]["field"], "requires.pluginFunctions");
+    let host = hosted(json!({
+        "backend": [1, 2], "serverProcess": [1], "pluginFunctions": [1]
+    }));
+    assert_eq!(host["status"], "ok", "{host}");
 }
 
 /// Icon trust boundaries are shared; native decoding remains with the macOS host.
@@ -1464,6 +1591,54 @@ fn debug_adapter_inside_the_language_server_has_no_process_of_its_own() {
 }
 
 #[test]
+fn debug_adapter_inside_a_backend_launched_language_server_plans_without_scratch_directories() {
+    // The server's session asks the backend with the directories of its own
+    // start; resolving the adapter must not demand them.
+    let mut manifest = fixture("language-server-backend-launch.plugin.json");
+    manifest["requires"]["debugAdapters"] = json!(1);
+    manifest["permissions"]
+        .as_array_mut()
+        .unwrap()
+        .extend([json!("debug.launch"), json!("debug.attach")]);
+    manifest["activationEvents"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("onDebug:scala"));
+    manifest["debugAdapters"] = json!([{
+        "id": "scala",
+        "displayName": "Scala Debugger",
+        "adapterID": "scala-dap",
+        "requests": ["attach"],
+        "selectors": [{ "targetKinds": ["connection"], "languageIDs": ["scala"] }],
+        "launch": {
+            "transport": "tcpLanguageServer",
+            "endpoint": { "languageID": "scala", "command": "debug-adapter-start" }
+        },
+        "configurations": {
+            "attach": { "targetBindings": { "connection": { "host": "hostName", "port": "port" } } }
+        }
+    }]);
+    let plan = language_server_launch_plan_command(json!({
+        "manifest": manifest,
+        "debugAdapterID": "scala",
+        "request": {
+            "pluginDirectory": "/plugins/scala",
+            "stateDirectory": "/state/scala",
+            "architecture": "arm64"
+        },
+    }))
+    .expect("payload is well formed");
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(plan["plan"]["launch"]["kind"], "backend");
+    assert_eq!(plan["plan"]["launch"]["function"], "metals.resolveLaunch");
+    assert!(plan["plan"].get("resolveParams").is_none());
+    assert_eq!(plan["plan"]["requiredDirectories"], json!([]));
+    let descriptor = &plan["plan"]["debugAdapter"];
+    assert_eq!(descriptor["transport"], "tcpLanguageServer");
+    assert_eq!(descriptor["endpoint"]["command"], "debug-adapter-start");
+}
+
+#[test]
 fn debug_adapter_inside_the_language_server_is_a_reviewed_program() {
     let review = crate::plugins::marketplace::install_review_command(json!({
         "manifest": fixture("debug-adapter-language-server.plugin.json"),
@@ -2096,8 +2271,10 @@ fn debug_start_arguments_refuse_stale_registrations_and_missing_target_facts() {
 /// only their own methods rather than an entire growing service namespace.
 #[test]
 fn pure_backend_commands_require_ui_4_and_grant_methods_individually() {
-    let manifest: Value =
-        serde_json::from_str(contract_file!("fixtures/backend/command-backend.plugin.json")).unwrap();
+    let manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/backend/command-backend.plugin.json"
+    ))
+    .unwrap();
     assert_eq!(validate(manifest.clone())["status"], "ok");
     let mut old = manifest.clone();
     old["requires"]["ui"] = json!(3);
@@ -2117,8 +2294,10 @@ fn pure_backend_commands_require_ui_4_and_grant_methods_individually() {
 
 #[test]
 fn terminal_permission_grants_only_owned_terminal_methods_and_requires_backend_two() {
-    let manifest: Value =
-        serde_json::from_str(contract_file!("fixtures/backend/terminal-backend.plugin.json")).unwrap();
+    let manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/backend/terminal-backend.plugin.json"
+    ))
+    .unwrap();
     assert_eq!(validate(manifest.clone())["status"], "ok");
     let plan = language_server_launch_plan_command(json!({
         "manifest": manifest, "backend": true,
@@ -2139,8 +2318,8 @@ fn terminal_permission_grants_only_owned_terminal_methods_and_requires_backend_t
 fn launch_log_directory_is_explicit_for_servers_and_backends() {
     for (fixture_name, selection, process) in [
         (
-            "language-host-integration.plugin.json",
-            json!({"languageID":"java"}),
+            "node-runtime.plugin.json",
+            json!({"languageID":"fixture"}),
             "languageServers",
         ),
         ("backend.plugin.json", json!({"backend":true}), "backend"),

@@ -157,8 +157,8 @@ struct LitheTreeListTests {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Lithe.ProblemsKeyboard-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let first = directory.appendingPathComponent("A.java"), second = directory.appendingPathComponent("B.java")
-        for file in [first, second] { try "class Test {}\n\n\n".write(to: file, atomically: true, encoding: .utf8) }
+        let first = directory.appendingPathComponent("A.txt"), second = directory.appendingPathComponent("B.txt")
+        for file in [first, second] { try "test\n\n\n".write(to: file, atomically: true, encoding: .utf8) }
         let domain = "Lithe.ProblemsKeyboard.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
@@ -249,8 +249,8 @@ struct LitheTreeListTests {
                 selection: Binding(get: { state.selected }, set: { state.selected = $0 }),
                 onActivate: {
                     state.activated.append($0)
-                    model.documentFeature.openVirtualDocument(resultRoot.appendingPathComponent($0 + ".java"),
-                                                              text: "class Result {}", displayPath: nil)
+                    model.documentFeature.openVirtualDocument(resultRoot.appendingPathComponent($0 + ".txt"),
+                                                              text: "result", displayPath: nil)
                 }
             ) { value in
                 HStack {
@@ -300,7 +300,7 @@ struct LitheTreeListTests {
         let refresh = try #require(find(host, id: "embedded-refresh"))
         #expect(refresh.accessibilityPerformPress?() == true)
         #expect(state.activated == ["b", "refresh"])
-        #expect(model.activeDocument?.url == resultRoot.appendingPathComponent("b.java"))
+        #expect(model.activeDocument?.url == resultRoot.appendingPathComponent("b.txt"))
         #expect(state.selected == ["b"])
 
     }

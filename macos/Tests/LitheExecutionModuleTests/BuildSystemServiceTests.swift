@@ -9,39 +9,6 @@ import Testing
 @MainActor
 struct BuildSystemServiceTests {
     @Test
-    func runGenerationProjectsUseCurrentImportedModelsAndRevokePendingSnapshots() async throws {
-        let planner = FakeBuildPlanner()
-        planner.importEnabled = true; planner.dynamicOptions = true
-        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model:
-            #"{"projects":[{"id":"p","path":"app","name":"App","properties":{"run.modelVersion":"1","run.provider":"quarkus.maven","java.minimumVersion":"21","maven.minimumVersion":"3.9.9","maven.wrapper":"mvnw.cmd"}}],"contentRoots":[{"projectID":"p","path":"app/checks","kind":"testSource"},{"projectID":"p","path":"app/resources","kind":"resource"}]}"#)])
-        let harness = Harness(planner: planner)
-        defer { harness.service.stop() }
-        harness.service.reset(workspaceURL: Self.workspace)
-        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
-        let ownership = try harness.service.runProjectOwnership()
-        #expect(ownership == [RunProjectOwnership(path: "app", build: .init(pluginID: "dev.example", buildSystemID: "fixture", root: "app", projectID: "p"),
-            contentRoots: [.init(path: "app/checks", kind: "testSource")], name: "App", minimumJavaVersion: "21")])
-        let project = try #require(ownership.first?.build)
-        #expect(try harness.service.languageImport(workspaceURL: Self.workspace, project: project)
-                == harness.service.languageImport(workspaceURL: Self.workspace, root: "app"))
-        for wrong in [
-            RunBuildProjectReference(pluginID: "dev.other", buildSystemID: project.buildSystemID, root: project.root, projectID: project.projectID),
-            RunBuildProjectReference(pluginID: project.pluginID, buildSystemID: "other", root: project.root, projectID: project.projectID),
-            RunBuildProjectReference(pluginID: project.pluginID, buildSystemID: project.buildSystemID, root: ".", projectID: project.projectID),
-            RunBuildProjectReference(pluginID: project.pluginID, buildSystemID: project.buildSystemID, root: project.root, projectID: "other")
-        ] {
-            #expect(throws: CancellationError.self) { try harness.service.languageImport(workspaceURL: Self.workspace, project: wrong) }
-        }
-        harness.service.setOption(Self.instanceID, optionID: "features", value: .array([.string("next")]))
-        #expect(throws: (any Error).self) { try harness.service.runProjectOwnership() }
-        #expect(throws: CancellationError.self) { try harness.service.languageImport(workspaceURL: Self.workspace, project: project) }
-        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
-        #expect(try harness.service.runProjectOwnership() == ownership)
-        harness.service.reset(workspaceURL: nil)
-        #expect(throws: (any Error).self) { try harness.service.runProjectOwnership() }
-    }
-
-    @Test
     func runGenerationUsesDeclaredTargetsWithoutLanguageImportOrToolProperties() async throws {
         let planner = FakeBuildPlanner()
         planner.dynamicOptions = true
@@ -54,8 +21,7 @@ struct BuildSystemServiceTests {
         let harness = Harness(planner: planner, sources: [source])
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
-        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
-        #expect(try harness.service.runProjectOwnership().isEmpty)
+        try await harness.service.awaitDetection(workspaceURL: Self.workspace)
         let runs = try harness.service.providerRunConfigurations()
         #expect(runs.prefix(2).map(\.reference) == [
             .init(pluginID: "dev.example", buildSystemID: "fixture", root: "app", run: "custom-serve", projectID: "p", targetID: "http/opaque:1", execution: .service),
@@ -78,7 +44,7 @@ struct BuildSystemServiceTests {
         let harness = Harness(planner: planner, sources: [fixtureSource(providerRuns: runs)])
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
-        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        try await harness.service.awaitDetection(workspaceURL: Self.workspace)
         #expect(harness.service.entries.first?.model?.targets.count == 400)
         #expect(throws: (any Error).self) { try harness.service.providerRunConfigurations() }
     }
@@ -88,7 +54,6 @@ struct BuildSystemServiceTests {
         let planner = FakeBuildPlanner()
         planner.fingerprint = "o"
         planner.dynamicOptions = true
-        planner.importEnabled = true
         planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model:
             #"{"projects":[{"id":"p","path":"app","name":"App"},{"id":"other","path":".","name":"Other"}],"contentRoots":[{"projectID":"p","path":"app/spec","kind":"testSource"},{"projectID":"other","path":"app/spec/deeper","kind":"source"}],"optionValues":{"features":["run-only","changed"]}}"#)])
         planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
@@ -103,12 +68,11 @@ struct BuildSystemServiceTests {
         harness.service.reset(workspaceURL: Self.workspace)
         try #require(await harness.waitForEntries { !$0.isEmpty })
         var error: Error?
-        var prepared: BuildLanguageImport?
         let task = Task {
             defer { finished.open() }
             // A deeper root published by another project must not turn this
             // project's test source into a main-source preparation.
-            do { prepared = try await harness.service.prepareLanguageRun(fileURL: Self.workspace.appendingPathComponent("app/spec/deeper/UnrelatedName.java"),
+            do { try await harness.service.prepareLanguageRun(fileURL: Self.workspace.appendingPathComponent("app/spec/deeper/UnrelatedName.java"),
                 workspace: Self.workspace, purpose: "run",
                 optionOverrides: ["features": .array([.string("run-only")])],
                 tool: { _ in BuildProviderHints(toolExecutable: URL(fileURLWithPath: "/selected/tool"), toolEnvironment: ["JAVA_HOME": "/selected/jdk"]) },
@@ -131,18 +95,13 @@ struct BuildSystemServiceTests {
         try #require(await finished.waitUntilOpen())
         await task.value
         #expect((error == nil) == (mode == "success"))
-        if mode == "success" {
-            guard case .maven(let context)? = prepared else { Issue.record("Successful preparation must return its exact import"); return }
-            #expect(context.profiles == ["run-only"])
-            #expect(context.mavenExecutablePath == "/selected/tool")
-        }
         if ["cancel", "configuration", "workspace"].contains(mode) { #expect(error is CancellationError) }
     }
 
     @Test
     func languageRunUsesTheModelForItsTemporaryOptionsWithoutPublishingItAsTheDefaultModel() async throws {
         let planner = FakeBuildPlanner()
-        planner.fingerprint = "o"; planner.importEnabled = true; planner.dynamicOptions = true
+        planner.fingerprint = "o"; planner.dynamicOptions = true
         let baseline = #"{"projects":[{"id":"p","path":"app","name":"App"}],"contentRoots":[{"projectID":"p","path":"app/spec","kind":"source"}],"optionValues":{"features":["run-only"]}}"#
         planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider", model: baseline)])
         planner.decodedModel = try JSONDecoder().decode(BuildModel.self, from: Data(
@@ -156,7 +115,7 @@ struct BuildSystemServiceTests {
         harness.service.reset(workspaceURL: Self.workspace)
         try #require(await harness.waitForEntries { !$0.isEmpty })
         let finished = BuildTestGate()
-        var result: Result<BuildLanguageImport?, Error>?
+        var result: Result<Void, Error>?
         let task = Task {
             defer { finished.open() }
             do { result = .success(try await harness.service.prepareLanguageRun(
@@ -168,8 +127,7 @@ struct BuildSystemServiceTests {
         defer { task.cancel(); harness.service.stop() }
         try #require(await finished.waitUntilOpen())
         await task.value
-        guard case .maven(let context)? = try #require(result).get() else { Issue.record("Expected the task import"); return }
-        #expect(context.profiles == ["run-only"])
+        try #require(result).get()
         #expect(planner.taskRequests.last?.task == "prepare.test")
         #expect(planner.decodedModelOutputs.count == 1)
         #expect(planner.modelPlanHints.last?.toolExecutable?.path == "/selected/maven")
@@ -212,7 +170,7 @@ struct BuildSystemServiceTests {
     @Test(arguments: ["purpose", "role", "ambiguous", "unknownRoot", "ambiguousRole", "ambiguousProject"])
     func languagePreparationRequiresOneExplicitPurposeAndSourceRoleBinding(missing: String) async throws {
         let planner = FakeBuildPlanner()
-        planner.fingerprint = "o"; planner.importEnabled = true
+        planner.fingerprint = "o"
         let duplicateProject = missing == "ambiguousProject" ? #",{"id":"other","path":"app","name":"Other"}"# : ""
         let duplicateRoot = missing == "ambiguousRole" ? #",{"projectID":"p","path":"app/spec","kind":"source"}"# : ""
         let model = """
@@ -319,19 +277,17 @@ struct BuildSystemServiceTests {
     @Test
     func nativePreparationIdentityRejectsOptionsChangedAwayAndBackEvenWithoutModelSharing() async throws {
         let planner = FakeBuildPlanner()
-        planner.importEnabled = true
         planner.dynamicOptions = true
         planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static")])
         let harness = Harness(planner: planner)
         harness.optionsStore.values["fixture"] = ["features": .array([.string("first")])]
         harness.service.reset(workspaceURL: Self.workspace)
-        let initial = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        try await harness.service.awaitDetection(workspaceURL: Self.workspace)
         let revision = harness.service.inputRevision
         harness.service.setOption(Self.instanceID, optionID: "features", value: .array([.string("next")]))
-        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        try await harness.service.awaitDetection(workspaceURL: Self.workspace)
         harness.service.setOption(Self.instanceID, optionID: "features", value: .array([.string("first")]))
-        let returned = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
-        #expect(returned == initial)
+        try await harness.service.awaitDetection(workspaceURL: Self.workspace)
         #expect(harness.service.inputRevision > revision)
         harness.service.stop()
     }
@@ -339,109 +295,8 @@ struct BuildSystemServiceTests {
     private static let workspace = URL(fileURLWithPath: "/workspace/demo")
 
     @Test
-    func languageImportUsesEffectiveOptionsAndRefreshesAfterSelection() async throws {
+    func stoppingServiceFinishesARegisteredDetectionWaiter() async throws {
         let planner = FakeBuildPlanner()
-        planner.importEnabled = true
-        planner.dynamicOptions = true
-        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static")])
-        let harness = Harness(planner: planner)
-        defer { harness.service.stop() }
-        harness.optionsStore.values["fixture"] = ["features": .array([.string("first")])]
-        harness.service.reset(workspaceURL: Self.workspace)
-        let first = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
-        #expect(first.mavenContext?.profiles == ["first"])
-
-        harness.service.setOption(Self.instanceID, optionID: "features", value: .array([.string("next")]))
-        let next = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
-        #expect(next.mavenContext?.profiles == ["next"])
-        #expect(harness.service.languageImport == next)
-    }
-
-    @Test(arguments: [false, true])
-    func runPreparationUsesItsBuildRootAndRefusesPendingOrOldWorkspaceInputs(primary: Bool) async throws {
-        let planner = FakeBuildPlanner()
-        planner.importEnabled = true
-        planner.dynamicOptions = true
-        planner.detection = BuildDetection(instances: [
-            try Self.nestedInstance(id: "fixture:a", root: "a", features: ["cli"]),
-            try Self.nestedInstance(id: "fixture:b", root: "b", features: ["gui"])
-        ])
-        let harness = Harness(planner: planner)
-        let configuration = RunConfiguration(id: "main", name: "Main", kind: .javaMain,
-            modulePath: "b", mainClass: "example.Main", mavenReactorPath: "b")
-        let operations = MavenContextRunOperations(configuration: configuration)
-        let (runtime, graph) = try await makeBuildSystemTestRuntime(harness.service, runOperations: operations)
-        defer { graph.stop() }
-        harness.optionsStore.values["fixture"] = ["features": .array([.string("cli"), .string("gui")])]
-        harness.service.reset(workspaceURL: Self.workspace)
-        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
-        #expect(harness.service.languageImport?.mavenContext?.reactorPath == "a")
-        await graph.run.loadProject(at: Self.workspace, files: [])
-        func launch() {
-            if primary { graph.run.run(configuration: configuration, currentFileURL: nil) }
-            else { graph.run.startConfiguration(configuration) }
-        }
-        launch()
-        #expect(operations.callCount == 1)
-        #expect(operations.context?.reactorPath == "b")
-        #expect(operations.context?.profiles == ["gui"])
-
-        // Invalidation is synchronous, before coalesced detection can finish.
-        // Both Run entry points must report failure without planning old input.
-        harness.service.setOption("fixture:b", optionID: "features", value: .array([]))
-        launch()
-        #expect(operations.callCount == 1)
-        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
-        launch()
-        #expect(operations.callCount == 2)
-        #expect(operations.context?.profiles == [])
-
-        harness.service.reset(workspaceURL: URL(fileURLWithPath: "/workspace/other"))
-        launch()
-        #expect(operations.callCount == 2)
-        harness.service.reset(workspaceURL: Self.workspace)
-        harness.sources = []
-        harness.service.pluginsChanged()
-        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
-        launch()
-        #expect(operations.callCount == 3)
-        #expect(operations.context == nil)
-        await runtime.shutdownAll()
-    }
-
-    @Test
-    func languageImportWaiterCancellationDoesNotCancelSharedDetection() async throws {
-        let planner = FakeBuildPlanner()
-        planner.importEnabled = true
-        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static")])
-        let gate = GatedBuildDecode()
-        planner.detectGate = gate
-        let harness = Harness(planner: planner)
-        defer { gate.releaseDecode(); harness.service.stop() }
-        harness.service.reset(workspaceURL: Self.workspace)
-        try #require(await gate.entered.waitUntilOpen())
-        let waiterStarted = BuildTestGate()
-        let waiterFinished = BuildTestGate()
-        let cancelled = Task { @MainActor in
-            waiterStarted.open()
-            defer { waiterFinished.open() }
-            // No actor suspension before prepare registers its continuation.
-            return try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
-        }
-        defer { cancelled.cancel() }
-        try #require(await waiterStarted.waitUntilOpen())
-        cancelled.cancel()
-        try #require(await waiterFinished.waitUntilOpen())
-        await #expect(throws: CancellationError.self) { try await cancelled.value }
-        gate.releaseDecode()
-        let shared = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
-        #expect(shared.mavenContext?.reactorPath == "app")
-    }
-
-    @Test
-    func stoppingServiceFinishesARegisteredLanguageImportWaiter() async throws {
-        let planner = FakeBuildPlanner()
-        planner.importEnabled = true
         planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static")])
         let gate = GatedBuildDecode()
         planner.detectGate = gate
@@ -454,7 +309,7 @@ struct BuildSystemServiceTests {
         let pending = Task { @MainActor in
             waiterStarted.open()
             defer { waiterFinished.open() }
-            return try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+            try await harness.service.awaitDetection(workspaceURL: Self.workspace)
         }
         defer { pending.cancel() }
         try #require(await waiterStarted.waitUntilOpen())
@@ -465,93 +320,7 @@ struct BuildSystemServiceTests {
         await #expect(throws: CancellationError.self) { try await pending.value }
         gate.releaseDecode()
         try #require(await gate.finished.waitUntilOpen())
-        #expect(harness.service.languageImport == nil)
-    }
-
-    @Test
-    func watchedFilesInvalidateLanguageImportBeforeDebouncedDetection() async throws {
-        let planner = FakeBuildPlanner()
-        planner.importEnabled = true
-        planner.dynamicOptions = true
-        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static")])
-        let debounceStarted = BuildTestGate()
-        let releaseDebounce = BuildTestGate()
-        let debounceFinished = BuildTestGate()
-        let harness = Harness(planner: planner, waitForRedetection: {
-            debounceStarted.open()
-            defer { debounceFinished.open() }
-            guard await releaseDebounce.waitUntilOpen() else { throw GatedDecodeError.releaseTimedOut }
-        })
-        defer { releaseDebounce.open(); harness.service.stop() }
-        harness.optionsStore.values["fixture"] = ["features": .array([.string("first")])]
-        harness.service.reset(workspaceURL: Self.workspace)
-        let first = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
-        #expect(first.mavenContext?.profiles == ["first"])
-
-        harness.service.workspaceFilesChanged([Self.workspace.appendingPathComponent("build.file")])
-        #expect(harness.service.languageImport == nil)
-        try #require(await debounceStarted.waitUntilOpen())
-        harness.optionsStore.values["fixture"] = ["features": .array([.string("next")])]
-        let waiterStarted = BuildTestGate()
-        let pending = Task { @MainActor in
-            waiterStarted.open()
-            return try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
-        }
-        defer { pending.cancel() }
-        try #require(await waiterStarted.waitUntilOpen())
-        #expect(harness.service.languageImport == nil)
-
-        releaseDebounce.open()
-        let next = try await pending.value
-        try #require(await debounceFinished.waitUntilOpen())
-        #expect(next.mavenContext?.profiles == ["next"])
-        #expect(harness.service.languageImport == next)
-    }
-
-    @Test
-    func commandModelRecomputesLanguageImportWithItsAcceptedOptions() async throws {
-        let planner = FakeBuildPlanner()
-        planner.importEnabled = true
-        planner.dynamicOptions = true
-        planner.modelOptionValues = ["features": ["cli"]]
-        planner.modelOutput = .stdout
-        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "command")])
-        let runner = FakeBuildRunner()
-        runner.script = .init(chunks: [], result: BuildCommandResult(termination: .exited(0), standardOutput: "MODEL"))
-        let harness = Harness(planner: planner, runner: runner)
-        defer { harness.service.stop() }
-        harness.optionsStore.values["fixture"] = ["features": .array([.string("cli"), .string("removed")])]
-        harness.service.reset(workspaceURL: Self.workspace)
-        let initial = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
-        #expect(initial.mavenContext?.profiles == ["cli", "removed"])
-
-        harness.service.loadModel(Self.instanceID)
-        try #require(await harness.waitForEntries { $0.first?.modelState == .loaded })
-        let loaded = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
-
-        #expect(loaded.mavenContext?.profiles == ["cli"])
-        #expect(harness.service.languageImport == loaded)
-        #expect(runner.requests.count == 1)
-    }
-
-    @Test
-    func replacedWorkspaceDoesNotPublishItsPendingLanguageImport() async throws {
-        let planner = FakeBuildPlanner()
-        planner.importEnabled = true
-        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static")])
-        let gate = GatedBuildDecode()
-        planner.detectGate = gate
-        let harness = Harness(planner: planner)
-        defer { gate.releaseDecode(); harness.service.stop() }
-        var published: [URL] = []
-        harness.service.onLanguageImportChanged = { published.append($0) }
-        harness.service.reset(workspaceURL: Self.workspace)
-        try #require(await gate.entered.waitUntilOpen())
-        harness.service.reset(workspaceURL: nil)
-        gate.releaseDecode()
-        try #require(await gate.finished.waitUntilOpen())
-        #expect(harness.service.languageImport == nil)
-        #expect(published.isEmpty)
+        #expect(harness.service.entries.isEmpty)
     }
 
     @Test
@@ -1156,60 +925,6 @@ struct BuildSystemServiceTests {
         #expect(harness.service.entry("fixture:b")?.options.first?.value == .array([.string("gui")]))
     }
 
-    @Test
-    func languageImportPublishesTheSameEffectiveOptionsAsBuildPlansAndClearsDisabledPlugins() async throws {
-        let planner = FakeBuildPlanner()
-        planner.hasMavenLanguageImport = true
-        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static")])
-        planner.optionsResolution = try decode(BuildOptionsResolution.self, """
-        {"options": [
-          {"id":"profiles", "displayName":"Profiles", "kind":"multiSelect", "value":["dev"], "source":"user"},
-          {"id":"settingsFile", "displayName":"Settings", "kind":"file", "value":"/fixture/settings.xml", "source":"user"},
-          {"id":"localRepository", "displayName":"Repository", "kind":"directory", "value":"/fixture/repository", "source":"user"}
-         ], "dropped":["profiles"], "fingerprint":"first"}
-        """)
-        let harness = Harness(planner: planner)
-        defer { harness.service.stop() }
-        harness.optionsStore.values["fixture"] = [
-            "profiles": .array([.string("dev"), .string("removed")]),
-            "settingsFile": .string("/fixture/settings.xml"), "localRepository": .string("/fixture/repository")
-        ]
-        let published = BuildTestGate()
-        var callbacks = 0
-        harness.service.onLanguageImportChanged = { _ in callbacks += 1; published.open() }
-        harness.service.reset(workspaceURL: Self.workspace)
-        #expect(await published.waitUntilOpen())
-        let context = try #require(harness.service.languageImport?.mavenContext)
-        #expect(context.profiles == ["dev"])
-        #expect(context.settingsPath == "/fixture/settings.xml")
-        #expect(context.localRepositoryPath == "/fixture/repository")
-        harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build")
-        #expect(await harness.waitForRunState { $0 == .succeeded })
-        #expect(planner.languageImportInputs.last == planner.taskPlanContexts.last?.options)
-
-        let changed = BuildTestGate()
-        harness.service.onLanguageImportChanged = { _ in callbacks += 1; changed.open() }
-        planner.optionsResolution = try decode(BuildOptionsResolution.self, """
-        {"options": [{"id":"profiles", "displayName":"Profiles", "kind":"multiSelect", "value":[], "source":"user"}],
-         "dropped":[], "fingerprint":"second"}
-        """)
-        harness.service.setOption(Self.instanceID, optionID: "profiles", value: .array([]))
-        #expect(await changed.waitUntilOpen())
-        #expect(harness.service.languageImport?.mavenContext?.profiles == [])
-        #expect(harness.service.languageImport?.mavenContext?.settingsPath == nil)
-        harness.sources = []
-        harness.service.pluginsChanged()
-        let disabled = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
-        #expect(disabled == JavaLanguageImportConfiguration())
-        #expect(harness.service.languageImport == disabled)
-        #expect(callbacks == 3)
-        harness.service.reset(workspaceURL: nil)
-        #expect(harness.service.languageImport == nil)
-        await #expect(throws: CancellationError.self) {
-            _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
-        }
-    }
-
     /// Output still draining from a cancelled command must not appear in the
     /// run that replaced it.
     @Test
@@ -1770,8 +1485,7 @@ struct BuildSystemServiceTests {
         try #require(await harness.waitForEntries { !$0.isEmpty })
         let reference = BuildProviderRunReference(pluginID: "dev.example", buildSystemID: "fixture", root: "app",
             run: "application", projectID: "p", targetID: "t", userArguments: ["a b"])
-        let configuration = RunConfiguration(id: "user:main", name: "Saved Main", kind: .process(provider: "build.provider"),
-            modulePath: nil, mainClass: nil, buildProvider: reference)
+        let configuration = RunConfiguration(id: "user:main", name: "Saved Main", kind: .process(provider: "build.provider"), buildProvider: reference)
         #expect(harness.service.runProviderConfiguration(configuration, workspace: URL(fileURLWithPath: "/other")) == nil)
         try #require(harness.service.runProviderConfiguration(configuration, workspace: Self.workspace) != nil)
         try #require(await harness.waitForRunState { $0 == .succeeded })
@@ -3245,7 +2959,7 @@ extension BuildSystemServiceTests {
                               providers: providers, nativeConfigurationFiles: files)
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
-        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        try await harness.service.awaitDetection(workspaceURL: Self.workspace)
         let snapshot = try await harness.service.readNativeConfiguration(Self.instanceID)
         harness.service.setOption(Self.instanceID, optionID: "release", value: .bool(true))
         harness.service.setOption(Self.instanceID, optionID: "release", value: nil)
@@ -3584,7 +3298,6 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
 
     private struct State {
         var detection = BuildDetection(instances: [])
-        var importEnabled = false
         var modelOutput: BuildProcessPlan.Output = .outputFile
         var providerRequest: BuildProviderRequest?
         var decodedDependencyOutputs: [BuildCommandOutput] = []
@@ -3605,8 +3318,6 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         var optionsResolution: BuildOptionsResolution?
         var loadedOptionsResolution: BuildOptionsResolution?
         var dynamicOptions = false
-        var hasMavenLanguageImport = false
-        var languageImportInputs: [[String: ToolingJSONValue]] = []
         var modelOptionValues: [String: [String]]?
         var fingerprint = "initial"
         var decodedModelOutputs: [BuildCommandOutput] = []
@@ -3625,10 +3336,6 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
     var detection: BuildDetection {
         get { access { $0.detection } }
         set { access { $0.detection = newValue } }
-    }
-    var importEnabled: Bool {
-        get { access { $0.importEnabled } }
-        set { access { $0.importEnabled = newValue } }
     }
     var modelOutput: BuildProcessPlan.Output {
         get { access { $0.modelOutput } }
@@ -3665,11 +3372,6 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         get { access { $0.dynamicOptions } }
         set { access { $0.dynamicOptions = newValue } }
     }
-    var hasMavenLanguageImport: Bool {
-        get { access { $0.hasMavenLanguageImport } }
-        set { access { $0.hasMavenLanguageImport = newValue } }
-    }
-    var languageImportInputs: [[String: ToolingJSONValue]] { access { $0.languageImportInputs } }
 
     var modelOptionValues: [String: [String]]? {
         get { access { $0.modelOptionValues } }
@@ -3743,31 +3445,6 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
             gate.finished.open()
         }
         return detection
-    }
-
-    func languageImport(
-        _ target: BuildSystemTarget, workspaceURL: URL, root: String,
-        options: [String: ToolingJSONValue], executableURL: URL?
-    ) throws -> BuildLanguageImport? {
-        let profilesOptionID: String? = access {
-            $0.languageImportInputs.append(options)
-            if $0.importEnabled { return "features" }
-            return $0.hasMavenLanguageImport ? "profiles" : nil
-        }
-        guard let profilesOptionID else { return nil }
-        func text(_ id: String) -> String? {
-            guard case .string(let value)? = options[id] else { return nil }
-            return value
-        }
-        let profiles: [String]
-        if case .array(let values)? = options[profilesOptionID] {
-            profiles = values.compactMap { if case .string(let value) = $0 { value } else { nil } }
-        } else { profiles = [] }
-        return .maven(MavenLaunchContext(
-            reactorPath: root, profiles: profiles, settingsPath: text("settingsFile"),
-            localRepositoryPath: text("localRepository"), skipTests: false,
-            mavenExecutablePath: executableURL?.path, javaHomePath: nil
-        ))
     }
 
     func invocationPlan(_ target: BuildSystemTarget, root: String, settings: [String: ToolingJSONValue]) throws -> BuildInvocation {

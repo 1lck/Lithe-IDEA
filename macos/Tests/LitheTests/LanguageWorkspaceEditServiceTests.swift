@@ -7,7 +7,7 @@ import Testing
 struct LanguageWorkspaceEditServiceTests {
     @Test("rejects edits outside the workspace")
     func rejectsOutsideWorkspace() {
-        let outsideURL = URL(fileURLWithPath: "/other/Outside.java")
+        let outsideURL = URL(fileURLWithPath: "/other/Outside.txt")
         let edit = LanguageServerWorkspaceEdit(changes: [
             outsideURL: [replacement(in: outsideURL)]
         ])
@@ -33,7 +33,7 @@ struct LanguageWorkspaceEditServiceTests {
 
     @Test("rejects edits to read-only open documents")
     func rejectsReadOnlyDocument() {
-        let url = URL(fileURLWithPath: "/workspace/ReadOnly.java")
+        let url = URL(fileURLWithPath: "/workspace/ReadOnly.txt")
         let document = EditorDocument(
             url: url,
             text: "before",
@@ -62,8 +62,8 @@ struct LanguageWorkspaceEditServiceTests {
 
     @Test("rolls back files written before a later write fails")
     func rollsBackPartialWrite() {
-        let firstURL = URL(fileURLWithPath: "/workspace/First.java")
-        let secondURL = URL(fileURLWithPath: "/workspace/Second.java")
+        let firstURL = URL(fileURLWithPath: "/workspace/First.txt")
+        let secondURL = URL(fileURLWithPath: "/workspace/Second.txt")
         let edit = LanguageServerWorkspaceEdit(changes: [
             firstURL: [replacement(in: firstURL)],
             secondURL: [replacement(in: secondURL)]

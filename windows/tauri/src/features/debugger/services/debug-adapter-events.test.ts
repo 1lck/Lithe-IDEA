@@ -38,6 +38,26 @@ mock.module("@/features/debugger/services/debug-adapter-service", () => ({
   },
 }));
 
+// Stands in for Core's paging reducers; their own cases live in the shared fixture.
+const planVariablePage = mock(async (request: { variablesReference: number; pageSize: number }) => ({
+  variablesReference: request.variablesReference,
+  pageSize: request.pageSize,
+  segments: [],
+  loadedPages: [],
+  next: { filter: "indexed" as const, start: 0, count: request.pageSize, remainingCount: 250 },
+}));
+const reduceVariablePage = mock(
+  async (request: { state: { variablesReference: number; pageSize: number; segments: unknown[]; loadedPages: string[] } }) => ({
+    accept: true,
+    state: { ...request.state, next: undefined },
+  }),
+);
+mock.module("@/features/debugger/api/variable-paging-api", () => ({
+  planVariablePage,
+  reduceVariablePage,
+}));
+mock.module("../api/variable-paging-api", () => ({ planVariablePage, reduceVariablePage }));
+
 const { initializeDebuggerEventBridge, selectDebugThread } = await import("./debug-adapter-events");
 const { useDebuggerStore } = await import("../stores/debugger.store");
 
@@ -394,4 +414,92 @@ test("normalized running events clear stale paused inspection and ignore its lat
   expect(state.stackFrames).toEqual([]);
   expect(state.variablesByReference).toEqual({});
   expect(state.threads).toEqual([{ id: 7, name: "main" }]);
+});
+
+test("scopes load only non-expensive scopes, paging by the reported counts", async () => {
+  await initializeDebuggerEventBridge();
+  startSession("session-1");
+  useDebuggerStore.getState().actions.setSessionStatus("paused");
+  useDebuggerStore.getState().actions.selectStackFrame(5);
+  useDebuggerStore.getState().actions.registerAdapterRequest("scopes-op", {
+    command: "scopes",
+    frameId: 5,
+  });
+  planVariablePage.mockClear();
+  reduceVariablePage.mockClear();
+  sendDebugAdapterRequest.mockClear();
+
+  await emitMessage("session-1", {
+    type: "operationCompleted",
+    operationId: "scopes-op",
+    result: {
+      kind: "scopes",
+      scopes: [
+        { name: "Locals", variablesReference: 10, indexedVariables: 250 },
+        { name: "Registers", variablesReference: 11, expensive: true },
+      ],
+    },
+  });
+
+  expect(planVariablePage).toHaveBeenCalledTimes(1);
+  expect(planVariablePage.mock.calls[0]?.[0]).toMatchObject({
+    variablesReference: 10,
+    indexedVariables: 250,
+  });
+  expect(sendDebugAdapterRequest).toHaveBeenCalledTimes(1);
+  const request = sendDebugAdapterRequest.mock.calls[0];
+  expect(request?.[2]).toEqual({
+    variablesReference: 10,
+    filter: "indexed",
+    start: 0,
+    count: 100,
+  });
+
+  await emitMessage("session-1", {
+    type: "operationCompleted",
+    operationId: request?.[3],
+    result: { kind: "variables", variables: [{ name: "[0]", value: "1", variablesReference: 0 }] },
+  });
+  expect(reduceVariablePage.mock.calls[0]?.[0]).toMatchObject({ newItemCount: 1 });
+  expect(useDebuggerStore.getState().variablesByReference[10]).toEqual([
+    { name: "[0]", value: "1", type: undefined, evaluateName: undefined, variablesReference: 0, namedVariables: undefined, indexedVariables: undefined },
+  ]);
+});
+
+test("a frame served by sourceReference is never treated as a disk file", async () => {
+  await initializeDebuggerEventBridge();
+  startSession("session-1");
+  useDebuggerStore.getState().actions.setSessionStatus("paused");
+  useDebuggerStore.getState().actions.setStoppedState({ reason: "pause", threadId: 1 });
+  useDebuggerStore.getState().actions.registerAdapterRequest("stack-op", {
+    command: "stackTrace",
+    threadId: 1,
+  });
+
+  await emitMessage("session-1", {
+    type: "operationCompleted",
+    operationId: "stack-op",
+    result: {
+      kind: "stackTrace",
+      stackFrames: [
+        {
+          id: 1,
+          name: "decompiled",
+          sourcePath: "/Foo.class",
+          sourceReference: 7,
+          instructionPointerReference: "0x10",
+          isFiltered: true,
+          line: 3,
+          column: 1,
+        },
+      ],
+    },
+  });
+
+  expect(useDebuggerStore.getState().stackFrames[0]).toMatchObject({
+    sourcePath: undefined,
+    sourceReference: 7,
+    instructionPointerReference: "0x10",
+    isFiltered: true,
+  });
 });

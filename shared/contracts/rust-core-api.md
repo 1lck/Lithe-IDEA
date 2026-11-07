@@ -130,6 +130,86 @@ and native compilation to 16 outstanding requests. Cache limits, teardown and
 stale-store guards belong to the window adapter. macOS has no free-form
 `when` parser and is unchanged. See `shared/fixtures/keymap/context-v1.json`.
 
+## Shortcut binding conflicts
+
+`keymap.analyzeConflicts` accepts `{platform: "macos" | "windows", layers: [{entries: [{command, key, when?, enabled?}], disabledCommands?: string[]}]}`
+with layers ordered from the lowest priority (defaults) to the highest (user
+overrides) and returns `{conflicts: [{key, when, commands}], invalid: [{command, key, code}]}`.
+Within a layer, a command's entries replace every lower layer's entries for that
+command; `disabledCommands` unbind a command from lower layers first. An entry with
+`enabled: false` is in force but unbound. Conflicts are computed over the final
+effective bindings only: two different commands with the same canonical key sequence
+and whitespace-normalised `when` clause. Binding text is case-insensitive, modifier order
+and aliases do not matter (`cmd`/`command`/`mod` follow `platform`: Command on macOS, Control on
+Windows; `meta`/`super`/`win` are always Meta; `option`/`opt` are Alt; `return` is `enter`; `esc` is
+`escape`), chords are whitespace-separated steps, a trailing `+` is the plus key, and `doubleshift`
+is the double-tap Shift gesture. Parse failures are listed in `invalid` with `empty`, `empty_key`,
+`multiple_keys`, `too_long` or `too_many_steps` and never take part in conflicts; more than
+20000 entries is `invalid_request`. Hosts reject saving a binding when a conflict contains the edited
+command. Native key-event conversion and the synchronous matching path stay in the host.
+See `shared/fixtures/keymap/binding-conflicts-v1.json`.
+
+`keymap.modifierGestureStep` accepts `{state?, event, timestamp}` and returns `{state, triggered}`. It is the
+double-Shift gesture as a pure transition: `event` is `{kind: "keyDown"}`, `{kind: "reset"}` or
+`{kind: "flags", shift, otherModifiers}`; `timestamp` is seconds on a clock the host keeps; `state` is opaque
+host-held memory (omit it for the idle state) that the host sends back with the next event. The rule lives in the
+pure crate `rust/lithe-core-rules` (no I/O, no clock) so it can run on a synchronous key path: macOS calls it
+through the C ABI, and the Windows frontend runs the same source compiled to wasm (`lithe_rules_alloc`,
+`lithe_rules_dealloc`, `lithe_rules_execute` over JSON envelopes), loaded asynchronously at startup. A malformed
+payload is `invalid_request`. Hosts only convert native events to this input and act on `triggered`; both are
+tested step by step against `shared/fixtures/keymap/modifier-gesture-v1.json`.
+
+`editor.workbenchState.reduce` accepts `{state?, action}` and returns `{state, removedGroupIds}`. `state` is
+`{groups, focusedGroup?}`; a group is `{id, members, selected?, mru?, pinned?, preview?}` (ordered members, the shown
+member, most-recent-first order, pinned members, one transient preview), which is the union of what macOS (a flat
+tab list with placements and per-group selection) and Windows (pane groups with MRU, pins and preview) track.
+`action` is tagged by `kind`: `normalize {emptyGroups?, unplaced?}`, `open {group, member, activate?}`,
+`close {group, member, emptyGroups?, selectionFallback?}`, `activate {group, member?}`,
+`move {member, from, to, before?, after?, activate?, emptyGroups?, selectionFallback?}` (with `from == to` it only
+repositions), `reorder {group, fromIndex, toIndex}`, `setPinned {group, member, pinned}`,
+`setPinnedEverywhere {member, pinned}`, `setPreview {group, member?}`, `clearPreviewEverywhere {member}` and
+`mergeGroup {from, into, activateSelected?}`. Every group an action touches leaves with unique members, a selection
+that is a member (the first one when it was missing or stale, `null` when empty), an MRU order that starts at the
+selection and lists every member once, and pins and preview that only name members; groups an action does not touch are
+returned as sent, so a host may send only the groups an action involves. `emptyGroups` is `keep` (default), `remove`
+(may leave no group) or `removeKeepingFirst`; it applies to the group a `close` or `move` emptied and to every group for
+`normalize`. `selectionFallback` is `adjacent` (default: the member that slid into the vacated position) or `first`.
+`normalize.unplaced` members no group lists join the focused group (the first group when `focusedGroup` is missing or
+stale), and `focusedGroup` moves to the first remaining group when its group was removed. Actions that name an unknown
+group or an unknown move destination change nothing. `removedGroupIds` lists removed groups in their previous order so
+hosts prune their own layout tree; split directions, ratios, pixels and dragging never reach Core. A malformed payload is
+`invalid_request`. It lives in `rust/lithe-core-rules` and is called synchronously: macOS through the C ABI, Windows
+through the wasm build inside zustand `set()`, one call per user action. Both hosts run every case of
+`shared/fixtures/editor/workbench-state-v1.json` through it.
+
+`workspace.classifyVisibility` accepts `{hiddenDirectoryNames?, hiddenFilePatterns?, entries: [{path, isDirectory?}]}`
+and returns `{hidden: boolean[], watchedDespiteHiding: boolean[]}` with one answer per entry, in request order. `path`
+is workspace-relative with `/` separators; `isDirectory` is `true` for a folder, `false` for a file and omitted when the
+host does not know (every component may then be a folder). The two lists are the user's own entries: Core adds the
+built-in folders and patterns, and a `!entry` turns a built-in off. Matching ignores case. A folder name hides the folder,
+everything below it and a file with that exact name (a linked worktree's `.git` file). `hidden` means the tree, search and
+Local History leave the path out; `watchedDespiteHiding` marks the hidden project configuration folder (`.lithe`) whose file
+events must still be delivered, except the built-in noise below it such as `.lithe/run/local.json`. Hosts send all children
+of a directory in one call. `workspace.visibilityDefaults` takes `{}` and returns the built-in lists
+(`hiddenDirectoryNames`, `hiddenFilePatterns`, `builtInPatterns`, `configurationDirectory`, `configurationPattern`) so hosts
+display them without keeping a copy. Both live in `rust/lithe-core-rules` like `keymap.modifierGestureStep`, run in wasm on
+Windows, and are tested against `shared/fixtures/workspace/visibility-v1.json`.
+
+## Terminal link targets
+
+`terminal.parseLinkTarget` accepts `{texts: string[], baseDirectory?, homeDirectory?, providerSchemes?: string[]}`
+and returns `{targets: (Target | null)[]}` with one entry per text. A target is
+`{kind: "file", path, line, column, explicit}` or `{kind: "external", url}`. Core splits a trailing
+`:line[:column]` (positive integers), decodes `file://` URIs (percent escapes, `localhost`, Windows drive
+and UNC forms), expands `~` from `homeDirectory`, and resolves relative paths against `baseDirectory`
+lexically (`.` and `..`), keeping Windows drive/UNC separators. `providerSchemes` name host file
+providers (for example `remote`, `wsl`): such URIs are returned unchanged, and under a provider
+`baseDirectory` relative and rooted POSIX paths stay inside that provider. Other `scheme://` texts and
+`mailto:` are `external`; a bare `name:12` is a file, not a scheme. `explicit` is true when the text
+itself says it is a path (separator, `~`, `file://`, provider URI or line suffix). Core never inspects
+file extensions or touches the file system: the host checks existence, owns hit regions, and opens the
+target. At most 256 texts of 4096 bytes. See `shared/fixtures/terminal/link-target-v1.json`.
+
 The Rust core is the shared application runtime for macOS SwiftUI and Windows
 React/Tauri. macOS calls the stable C ABI while the Tauri host links the Rust
 crate directly. The C ABI remains:
@@ -369,10 +449,10 @@ is green through 60%, yellow above 60% through 90%, and red above 90%; unknown
 or stale data remains gray. Window duration and missing values are never invented.
 
 `lithe_agent_send_json` queues one command: `newSession`, `loadSession`,
-`listSessions`, `setConfigOption`, `prompt`, `steer`, `cancel`, `permission`, `authenticate`,
+`listSessions`, `setConfigOption`, `applyNextTurnConfiguration`, `prompt`, `steer`, `cancel`, `permission`, `authenticate`,
 or `refreshQuota`. Results arrive as events:
 `ready`, `sessionCreated`, `sessionLoaded`, `sessions`, `update`, `permission`,
-`sessionConfigured`, `steeringResult`, `turnRetrying`, `turnActivity`, `turnCancelling`, `turnFinished`, `requestFailed`, `stopped`,
+`sessionConfigured`, `nextTurnConfigured`, `modelCall`, `steeringResult`, `turnRetrying`, `turnActivity`, `turnCancelling`, `turnFinished`, `requestFailed`, `stopped`,
 `authenticationRequired`, `authenticating`, `account`, `quota`, and `quotaFailed`. Commands and events, including
 their camel-case field names, are fixed by
 `shared/fixtures/agent/acp-events-v1.json`; `token` values are echoed so a caller
@@ -491,13 +571,24 @@ full option list arrives as `sessionConfigured`. Consumers also accept ACP
 values remain authoritative; unsupported controls are not synthesized.
 Configuration failure echoes the token and does not finish a prompt. Native clients may stage next-turn choices while a
 prompt is active, without sending configuration commands or replacing the
-Agent-confirmed values. The macOS conversation model keeps that intent per
-session and submits it only after a terminal turn event, model first and then
-one acknowledged choice at a time against the latest option list. Rejection,
-unconfirmed values, or removed choices clear the remaining intent and surface a
-configuration error; disconnect clears it as well. The next prompt remains
-blocked until configuration requests finish. This does not change the Host's
-busy-session rejection or the command/event shape.
+Agent-confirmed values. Both products keep that intent per session and, after a
+terminal turn event (including a failed turn), send one
+`applyNextTurnConfiguration` command with `token`, `sessionId`, the product's
+latest `catalog` (`id`, optional `category`, `currentValue`, `choices` value
+IDs) and `choices` (`configId`, `value`). The Host owns the order and
+validation: model options first, then the rest in catalog order; each remaining
+choice is revalidated against the latest catalog the Agent returned, skipped
+when already current, and must be confirmed by the Agent's reported value. It
+answers with one `nextTurnConfigured` event (`token`, `sessionId`, optional
+`configOptions` = latest Agent catalog once any request succeeded, optional
+`failure` = `unsupported` | `notConfirmed` | `requestFailed`, and for a failed
+request the upstream `message`). Products localize the failure code, clear the
+remaining intent, keep confirmed settings, and fail a deferred supplement
+instead of sending it; disconnect clears the intent as well. A deferred
+supplement after a failed turn is failed with that turn's error, never replayed.
+The next prompt remains blocked until the command finishes. The Host still
+rejects the command while the session's prompt is running. Shape and cases:
+`shared/fixtures/agent/next-turn-configuration-v1.json`.
 
 For a new session, the host also preserves the adapter's optional legacy model
 catalog while decoding the ACP response and negotiates only the versioned
@@ -674,7 +765,18 @@ exactly one non-cancelling prompt was running when the request started; consumer
 drop unattributed calls instead of guessing. The host waits up to two seconds for
 a turn's attributed calls to report before emitting its `turnFinished`, so they
 arrive first. A call still open after that bound carries `afterTurnFinished: true`
-and counts for the session only, never for a later turn. The launch accepts `contextLimits` (`windowTokens`, `autoCompactTokens`, both optional;
+and counts for the session only, never for a later turn. Each `modelCall` also carries
+`statistics`, the Host's accounting contribution of that call (`requests`,
+`steps`, `failedSteps`, `nonStreamingSteps` for successful non-streamed steps
+only, `durationMs`, the four token buckets, optional `reasoningTokens`,
+`callsWithUsage`, `firstTokenMs`/`firstTokenCount` and
+`generationMs`/`generatedTokens` of streamed steps, and optional `context` when
+the call describes the current prompt: auxiliary requests never do, and once a
+session's main requests carry tools, tool-less ones no longer do). Products
+merge contributions in event order (counters add, `reasoningTokens` adds over
+calls that report it, a present `context` replaces the previous one) and never
+reinterpret `call` for accounting. Cases:
+`shared/fixtures/agent/model-call-statistics-v1.json`. The launch accepts `contextLimits` (`windowTokens`, `autoCompactTokens`, both optional;
 zero means unset). Codex receives them as `model_context_window` and
 `model_auto_compact_token_limit` in its session configuration. Claude Code has a single
 switch, so the threshold (else the context length) is exported as
@@ -766,6 +868,9 @@ configuration parsing, and response decoding. macOS uses `ai.commitInputBudget`,
 `ai.planCommit`, and `ai.decodeCommitMessage` over the existing JSON C ABI; Windows
 uses the typed API. The [AI commit contract](ai-commit.md) defines the bounded diff
 prefixes, payloads, errors and platform-owned I/O.
+`ai.pullRequest.plan` / `ai.pullRequest.decode` and `ai.inlineEdit.plan` /
+`ai.inlineEdit.decode` share that provider request model; see
+[AI generation requests](ai-generation-requests.md).
 
 Every request has this shape:
 
@@ -956,27 +1061,89 @@ unknown fields. Unchanged set plans also return the current entry's hashes;
 removal can return the old definition hash for filter retention; absence has no entry hashes. Hashes sent on the draft server
 are never trusted as write output or persisted into Agent configuration.
 
+The MCP server library is planned by three Core commands; hosts only discover
+paths, read and atomically write files, persist the ledger and localize codes.
+Each takes `files: LibraryFile[]` (at most 16, unique `id`), where a file is
+`{ id, source: "codex" | "claude", scope, projectPath?, path, content?: string |
+null, owned: LedgerEntry[] }`. `id` is the host's opaque ledger key and `path`
+the native path that keys retained tool filters. A ledger entry is `{ name,
+definitionHash, sourceHash?, toolFilters?: { <path>: {enabledTools?,
+disabledTools?} } }`; it never contains env/header values.
+
+`mcp.librarySnapshot` accepts `{ files }` and returns `{ rows, failures }`. Rows
+merge every parsed server by `name#definitionHash` (`id`), carry the definition
+from the first source in host file order, `sources: [{ file, definitionHash,
+sourceHash, ownedByLithe }]`, `hasDefinitionConflict` (another global entry
+with the same name has a different definition) and `projectOnly`. A source is
+owned when a ledger entry records its name and complete `sourceHash`. Rows are
+ordered by natural, case-insensitive name (digit runs compare numerically, bytes
+break ties), then global before project-only, then definition hash. A file that
+fails to parse contributes no rows and appears in `failures: [{ file, code,
+message }]` without echoing content; hosts report their own read failures.
+
+`mcp.validateDraft` accepts `{ draft: { name, transport, command, url,
+arguments, env, headers, enabledAgents, setup? } }` and returns `{ issues:
+[{ field, code }], definition }`. Issues are ordered by display priority:
+`name`/`nameRequired` or `nameInvalid` (`^[A-Za-z0-9][A-Za-z0-9._-]*$` after
+trimming), `enabledAgents`/`agentsRequired`, `env` or `headers`/`duplicateKeys`
+(active transport only, blank keys ignored), `command`/`commandRequired`,
+`url`/`urlInvalid` (an absolute URL with a host), then featured setup:
+`headers`/`bearerTokenRequired` (one `Authorization: Bearer <token>` value,
+scheme case-insensitive) or `arguments`/`allowedDirectoriesRequired` (at least
+one POSIX, drive or UNC absolute folder after the two fixed arguments).
+`definition` is the normalized server a save writes — trimmed name, command or
+URL, only the active transport's fields, blank keys dropped, entries sorted by
+key — or `null` while issues remain. Values are never echoed in issues.
+
+`mcp.batchPlan` accepts `{ files, intent }`, with `intent` one of:
+`{ kind: "save", draft, original?: { name, sources: [{ file, sourceHash?,
+ownedByLithe }] } }`, `{ kind: "setAgent", definition: McpServer, agent,
+enabled }` or `{ kind: "delete", name, files: string[] }`. `save` validates the
+draft as above, removes the captured original from every global source whose
+Agent is no longer enabled (requiring the captured `sourceHash` and a ledger
+entry with that exact hash), and sets the definition in every global file whose
+`source` is enabled, passing the captured hash as `expectedHash` and renaming
+from the original name where the original existed. `setAgent` targets the first
+global file of `agent`; `delete` removes the name from the listed files. Each
+file's operations are planned in order with `mcp.planWrite` rules against the
+previous output and the evolving ledger. The response is `{ status: "invalid",
+issues }`, `{ status: "rejected", rejection: { code, name, file } }` with code
+`notOwned`, `externallyModified` or `agentHasNoGlobalConfiguration` (`file` is
+the conflicting file, or `null` for draft-level checks), or `{ status: "ready",
+changes: [{ file, changed, content?, owned, renames: [{ from, to }] }] }` in
+host file order. `content` is present only when changed; `owned` is the file's
+next ledger (unchanged files return their input ledger). Hosts write every
+changed file as one rollback batch and publish ledgers and renames only after
+the whole batch succeeds. `shared/fixtures/mcp/library-v1.json` holds the shared
+cases; its `{{sourceHash:<file>:<name>}}` placeholders are resolved from the
+parsed fixture files.
+
 ### Agent adapters
 
-`agent.parseProviderConfiguration` takes `{source, configuration}` with `source`
-equal to `codex` (TOML) or `claude` (JSON). It reuses the typed AI configuration
-parsers with an empty environment and returns provider metadata only, without
-credentials or credential-presence flags. Configuration text is limited to
-64 KiB UTF-8. Invalid source, malformed text and oversized input return
-`invalid_request` without raw input or parser diagnostics. The fixture is
-`shared/fixtures/agent/provider-configuration-v1.json`. Hosts extract explicit
-API keys, validate Agent protocol compatibility, and persist credentials in their
-native vault. This operation does not discover or write local CLI files.
+`ai.configuration.sources` takes `{source, home, environment}` (`source` is
+`codex` or `claude`, `home` an absolute path, `environment` only the directory
+overrides `CODEX_HOME` / `CLAUDE_CONFIG_DIR`) and returns `{files}`: the native
+files `{file, path}` the platform should read. `ai.configuration.parse` takes
+`{source, files, environment, allowIncomplete}` with the file texts keyed
+`config`, `auth`, `settings`, `credentials` and `root`, each at most 1 MiB, and
+returns `null` when nothing is configured, otherwise `{model, provider, issue,
+reasoningEffort, hasCredential, credential, unsupportedAuthentication}`. The
+response never contains a secret: `credential` is a locator
+(`{kind: "environment", name}` or `{kind: "file", file, path}`) that the host
+resolves natively against the same text or environment. Malformed input returns
+`invalid_request` with a fixed code (`AI_COMMIT_INVALID_CONFIG`,
+`AI_CONFIGURATION_INVALID_AUTHENTICATION`, `AI_CONFIGURATION_SMART_QUOTES`,
+`AI_CONFIGURATION_TOO_LARGE`) and never echoes input. `allowIncomplete: true` is
+for editor drafts: it ignores the environment, accepts blank or partial text and
+keeps missing endpoint/model fields empty. The shared cases are in
+`shared/fixtures/ai/cli-configuration-v1.json`. It replaces the former
+`agent.parseProviderConfiguration`.
 
-The optional `allowIncomplete: true` is for switching an editor draft back to
-form fields. It accepts syntactically valid incomplete or blank input, preserves
-missing endpoint/model fields as empty strings, and does not inject CLI defaults.
-Claude metadata uses `apiKey` authentication when no credential is present;
-an explicit auth token still uses `bearer`. Credential extraction remains
-host-owned and may return an empty key only in this draft mode. Malformed text
-and the 64 KiB limit still fail with redacted errors. Omitting this flag keeps
-the existing parser behavior; saving still requires all fields, a compatible
-protocol and explicit consent for HTTP.
+`agent.edits.reversePlan` takes `{diffs, disk}` (normalized edit evidence plus the
+current file text, or `null` when the file is missing) and returns the rollback
+plan or a conflict; it never touches the file system. Path containment, encoding,
+guarded writes and Trash stay with the platform. Cases are in
+`shared/fixtures/agent/edit-review-v1.json`.
 
 `agent.instructions.read` takes `{agentId}` (`codex-acp` or `claude-acp`) and
 returns `{agentId, path, content, exists, revision}`. It does not create files.
@@ -1060,6 +1227,22 @@ requires native Hook enablement and approval in `/hooks`; `configuredAgents`
 does not claim execution. Source, ownership journal, lock and temporary siblings
 are user state outside installed resources and cannot be reused across worktrees.
 The shared fixture is `shared/fixtures/agent/hooks-management-v1.json`.
+
+`agent.hooks.validateDraft` validates an unsaved editor draft without reading or
+writing files, using the same rules `save` enforces in Agent Host. The payload is
+`{hook, existingHooks}`: `hook` has `id`, `name`, `description`, `event`, `matcher`,
+`command`, `agents` and the raw `timeoutText` of the timeout field (empty inherits
+the native default; only ASCII digits are integers), and `existingHooks` lists
+library rows as `{id, name}` for the case-insensitive unique-name rule. The result is
+`{valid, issues, timeoutSeconds}`: `issues` holds at most one `{field, code}` per
+field in editor order, and `timeoutSeconds` is the parsed value platforms store when
+saving (null when empty or rejected). Fields and codes: `id` `invalid`; `name`
+`required`, `too_long`, `invalid_characters`, `duplicate`; `description` `too_long`;
+`matcher` `incompatible_event`; `command` `required`, `too_long`, `contains_nul`;
+`timeout` `not_integer`, `out_of_range`; `agents` `required`, `unsupported`,
+`duplicate`. Platforms localize `agent.hooks.draft.<field>.<code>` and enable saving
+only when `valid`. A malformed payload fails with `invalid_request`. The fixture is
+`shared/fixtures/agent/hook-draft-validation-v1.json`.
 
 `agent.status`, `agent.install`, `agent.uninstall`, and `agent.installCli` manage ACP adapters in
 `<dataDirectory>/agents/<agentId>`, using the Node.js and npm the user installed.
@@ -1150,7 +1333,11 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `community.discourse.categories` | List normalized visible categories |
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
+| `lsp.planWorkspaceEdit` | Validate language-server workspace edit targets against the workspace and open documents, and order the commit |
+| `lsp.classifyNavigationTarget` | Classify a language-server jump target as workspace, external read-only or rejected |
+| `editor.planTextEdits` | Validate and order a plugin document edit batch into UTF-16 offsets with the document's line ending |
 | `editor.parseNavigationInput` | Parse a bounded line or line:column input into zero-based editor coordinates |
+| `editor.navigationHistory.reduce` | Reduce one bounded back/forward navigation history event and return the next state plus the location to open |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
 | `workspace.releaseIndexing` | Retire a policy and clear index/cache data at project close; accepts `root`, optional `ownerId`, and that owner's last observed `revision`, returns `released`; an old close must not retire a new generation |
 | `workspace.refreshIndexing` | Refresh external Git decisions for a live `root`, `ownerId`, `revision` lease without changing preferences or release tokens; returns lazy `IndexingStatus` |
@@ -1158,25 +1345,35 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `network.proxyPolicy` | Normalize the stored proxy settings into the policy a network stack must apply (mode, server, credentials, exclusions) |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index; the built-in hidden names are skipped without being read, and include `node_modules`, Python virtual environments (`.venv`, `venv`), `__pycache__` and `*.pyc` files; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
 | `workspace.filterChanges` | Filter an array of workspace-relative paths, or `{ paths, hiddenFilePatterns }` whose `!` entries turn default exclusions off, against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
+| `workspace.planDuplicate` | Name the copy of one project item next to its source (`foo.txt` → `foo copy.txt`, then `foo copy 2.txt`) from the sibling names the host has seen to exist |
+| `workspace.planPaste` | Name pasted project items in one destination directory: a free name is kept, a taken one gets the copy suffix, and earlier items of the same paste count as taken |
+| `workspace.reduceDirectoryAction` | Apply "set role", "exclude" or "cancel exclusion" to a root's persisted directory rules and return the complete state to persist |
+| `workspace.relocateDirectoryRules` | Move (or drop, after a delete) the directory rule keys of a renamed, moved or deleted subtree, optionally into another workspace root's rules |
 | `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation. Children list directories first, then names in IDEA's natural file-name order (digit runs compare by value, case-insensitive, `-` next to `_`; fixture `shared/fixtures/workspace/file-name-order-v1.json`) |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
+| `workspace.recentProjects.reduce` | Apply one record, remove, pin, import, or normalize action to the recent project list and return the retained order |
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
+| `workspace.rankNames` | Pure ranking of candidate names that the platform enumerates itself (`{ query, candidates: [{ name, path? }], context: { openPaths, recentPaths }, limitPerTier? }`). Use it only for lists Core cannot index: Windows remote/WSL roots, symbol lists, navigator lists. Roots Core indexes go through `workspace.searchEverywhere`, so an inventory is never sent back to Core. Returns `matches: [{ index, degree, tier, nameMatchRanges }]` ordered by degree, open/recent tier, recency, then file-name order (fixture `shared/fixtures/search/rank-names-v1.json`) |
 | `workspace.replacePreview` | Return deterministic replacement lines and complete replacement text |
 | `workspace.replaceText` | Plan replacement against a host-captured text snapshot without writing |
 | `workspace.searchTextBatch` | Search provider-captured text snapshots using workspace matching rules |
 | `file.read` | Read a UTF-8 file using a workspace-relative path |
 | `file.write` | Write a UTF-8 file using a workspace-relative path |
 | `document.lifecycle` | Reduce a shared document save, external-change, or conflict event without reading text or disk |
+| `document.planSaveBatch` | Select the open documents a Save All or save-before-launch batch writes |
+| `document.reduceSaveBatch` | Reduce save batch member outcomes and live documents into one batch status |
 | `history.record` | Store a versioned text snapshot and metadata |
 | `history.entries` | List valid history entries for one file or a workspace |
 | `history.content` | Read a stored history snapshot by relative storage path |
 | `history.relocate` | Move retained history for a file or directory subtree after a rename or move |
+| `history.planEvent` | Plan which snapshots an editing event (save, auto-save, restore, manual, discarded unsaved text, external change, before rename, before batch replace) records and under which reason |
 | `history.rename` | Set or clear a user-visible label on a history entry |
 | `history.delete` | Delete one history entry and its snapshot |
 | `history.ignorePreview` | Validate local history ignore rules and report which rule skips a sample path |
 | `history.usage` | Report one project's allocated history size and the storage cap |
 | `history.clear` | Delete every snapshot of one project's history |
+| `diff.compareTexts` | Compare two host-supplied texts line by line into paired side-by-side rows and unified lines |
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
 | `execution.resolveEnvironment` | Merge native `inherited` string values, selected `javaHome`/`mavenJavaHome` for the current `toolchain`, and `overrides` into `{ environment }`. `caseInsensitive: true` canonicalizes Windows keys to uppercase. Maven uses Maven JDK with project-JDK fallback; Java uses project JDK. String overrides win; structured `{ toolchain, property: "home" }` bindings use the current step's home for JAVA_HOME, and the named toolchain for other variables. Unknown bindings are omitted. |
@@ -1198,6 +1395,10 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `debug.javaTestLaunch` | Normalize JUnit or TestNG launch metadata into Java DAP arguments |
 | `debug.steppingFilters` | Return adapter defaults or normalize portable stepping filters |
 | `debug.relocateBreakpoints` | Move source breakpoints across one exact UTF-16 editor replacement |
+| `debug.planVariablePage` | Plan the first bounded `variables` page of one scope or structured variable from its reported counts |
+| `debug.reduceVariablePage` | Merge one returned variable page into its cursor and decide whether the container is exhausted |
+| `debug.planDisassemblyWindow` | Plan the first `disassemble` request of the window around the instruction pointer or one listed edge |
+| `debug.reduceDisassemblyPage` | Reduce one `disassemble` reply to the next bounded recovery request, a deduplicated page, or the adapter's failure |
 | `debug.setBreakpoints` | Replace and deterministically order one source's DAP breakpoints |
 | `debug.setExceptionBreakpoints` | Replace and deterministically order one session's exception filters |
 | `debug.setFunctionBreakpoints` | Replace and deterministically order one session's named function breakpoints |
@@ -1217,6 +1418,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.builtinCompletions` | Return lightweight current-file identifier completions |
 | `lsp.builtinHover` | Return lightweight current-symbol hover text |
 | `lsp.builtinNavigation` | Return lightweight current-file definition/reference locations |
+| `lsp.mergeCompletions` | Choose which candidates survive when several prioritized providers complete at one position |
+| `lsp.activationPolicy` | Decide whether a language server may start automatically after failures, using a platform monotonic clock |
+| `lsp.problems.query` | Filter, order, and group Problems tool-window diagnostics and count them by severity |
 | `lsp.documentUri` | Convert a native absolute path into a canonical file URI |
 | `lsp.startServer` | Start one Rust-owned process/session and begin initialization |
 | `lsp.jdtWorkspaceKey` | Derive the deterministic JDT LS workspace-state directory key |
@@ -1236,6 +1440,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.functionRequest` | Invoke one registered plugin function on a session its plugin started |
 | `lsp.hostResponse` | Answer one host-service request a plugin backend sent |
 | `lsp.hostNotify` | Send one host notification to a plugin backend that negotiated it |
+| `lsp.pluginServerRequest` | Send one request of a plugin backend to the plugin's own language server, under the plugin's declared session policy |
+| `lsp.pluginServerNotify` | Send one notification of a plugin backend to the plugin's own language server |
+| `lsp.configureFunctionRelay` | Replace the enabled plugins and live workspace contexts Core's plugin-to-plugin function relay checks calls against |
 | `lsp.toolchainRequest` | Send one `toolchains/query` to a plugin backend that negotiated the provider |
 | `lsp.keymapImportRequest` | Send one shortcut import request to a negotiated plugin provider |
 | `lsp.vcsRequest` | Send one VCS operation, planned by Core, to a session that negotiated the VCS-provider protocol |
@@ -1311,6 +1518,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.diff` | Produce a structured working-tree, index, reference, commit, or stash patch |
 | `git.parsePatch` | Parse a complete saved patch into Core-owned per-file documents |
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
+| `git.planDiffBlocks` | Plan commit-review blocks for one file; Core owns every block patch |
+| `git.applyDiffBlock` | Include, exclude or roll back one planned block under the write lease |
+| `git.stageGutterChange` | Stage one editor gutter change with its original bytes |
 | `git.history` | Return the legacy combined reference snapshot and first bounded commit page |
 | `git.references` | Return deterministic refs, recent local branches, ahead/behind state, and effective Git identity without scanning commit history |
 | `git.remotes` | Return configured fetch remote names and URLs |
@@ -1329,7 +1539,10 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.comparison` | Return files changed between a reference and the working tree |
 | `git.stashes` | Return structured stash references and messages |
 | `git.checkoutPreflight` | Return local paths that would block switching to a reference |
-| `git.pullPreflight` | Report the configured upstream, ahead/behind counts, divergence, and tracked local changes without fetching |
+| `git.pullPreflight` | Report the configured upstream, ahead/behind counts, divergence, tracked local changes, and the strategy Git is configured for, without fetching |
+| `git.updatePlan` | Route a branch Update and gate a Pull from facts the host collected: blockers, strategy default, whether to ask, and the expected checkout |
+| `git.historyWindow` | Plan a history refresh window, page merge, and selection retention over commit identities |
+| `git.graphProjection` | Project a loaded history window into commit-graph lanes, color IDs, routes, print elements, and labels, optionally filtered |
 | `git.integrationPreflight` | Return local paths that block a merge, rebase, cherry-pick, or revert |
 | `git.conflictMarkers` | Return staged text files that still contain conflict markers |
 | `git.operationState` | Report an interrupted merge, rebase, cherry-pick, or revert and its conflicted paths |
@@ -1360,12 +1573,15 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
 | `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server, build-provider, VCS-provider, backend, or debug-adapter launch with host directories and architecture |
+| `plugins.languageServers.decodeLaunch` | Bound the answer of a plugin backend that resolved a language server's launch and return the plan the host starts |
+| `plugins.languageServers.stateRetention` | Choose which inactive per-workspace state directories of a plugin language server the host deletes |
+| `plugins.contentProviders.decode` | Bound the answer of a plugin content provider function and return the document text |
 | `debug.adapters.startArguments` | Check one debug start against a plugin's `debugAdapters[]` entry and return its DAP launch arguments |
 | `debug.adapters.executablePlan` | Say where to look for the program a launch debugs: the user's setting and the adapter's candidate paths |
 | `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
 | `plugins.declarative.workspaceConfiguration` | Expand a language server's `workspaceConfiguration` with the merged setting values |
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
-| `toolchains.registry` | Revalidate complete enabled plugin manifests and host-verified official origin into a deterministic tool-definition/provider registry; no native host capability claim |
+| `toolchains.registry` | Revalidate complete enabled plugin manifests, `{plugins:[{manifest}]}`, into a deterministic tool-definition/provider registry; the host supplies no origin evidence. A short tool ID defined by several enabled plugins belongs to none of them: none of those definitions is registered, the rest register as usual, and `conflicts: [{tool, pluginIDs}]` (sorted by tool, `pluginIDs` sorted) reports each contested tool. A repeated plugin ID rejects the batch. No native host capability claim |
 | `toolchains.decodeReply` | Validate an inert toolchain query/reply pair against bound provider identity, generation, declared tools and host-native filesystem evidence; no transport or native I/O |
 | `toolchains.failureReply` | Build the JSON-RPC error reply for a query that missed its deadline or found no backend, so the host passes it to `toolchains.decodeReply` like a provider's own error; cancellation has none |
 | `toolchains.resolvePins` | Validate a captured local document and find the nearest ancestor directory pin, retaining dormant and legacy entries without probing or writing |
@@ -1373,10 +1589,18 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `toolchains.editConsumerPreferences` | Edit or reset one exact consumer/directory tool preference; return the document and effective input without native writes |
 | `toolchains.resolve` | Resolve the fixed/project/global/automatic layers from one generation-bound snapshot, retaining unmet requirements, unavailable providers with their cause, conflicts and terminal fixed-value failures |
 | `toolchains.checkVersion` | Match captured output with an enabled plugin definition's version expression and compare generic numeric components with an optional minimum; never starts a probe |
+| `toolchains.instantiateLaunch` | Expand an enabled tool definition's `launch` template for a selected executable, entry, runtime arguments and arguments; a part the template cannot carry is `plugin.toolchain.launchMismatch`; performs no I/O |
 | `toolchains.discoveryPlan` | Return platform-filtered definition-owned scan declarations, layouts, probes, PATH entries, login-shell home variables and budgets; never scans native directories |
 | `toolchains.candidates` | List one tool's login-shell homes and host-scanned installations with checked executables, versions or skip reasons, and the automatic-layer choice; never starts a probe |
 | `plugins.declarative.decodeGrammar` | Validate independent static editor resources (`languages` 2) |
-| `plugins.editorActions.decode` | Validate independent action registration or collection results |
+| `plugins.editorActions.decode` | Validate independent action registration, collection or click results |
+| `plugins.hostApi.describe` | Describe backend host methods and their required grants from Core's method table |
+| `plugins.hostApi.authorize` | Check a method, service and current session grants using Core's capability rules; the host still checks session and resource ownership |
+| `plugins.editorProviders.decode` | Validate editor provider registrations and provider function results |
+| `run.decodeStart` | Validate a plugin backend's `lithe/host/run/start` params against its manifest and the workspace, and return the normalized start with temporary-file paths substituted |
+| `debug.decodeBackendConfiguration` | Validate a plugin backend's `lithe/host/debug/start` params against its manifest and return the qualified adapter, request, label and configuration |
+| `outputLinks.match` | Find the links plugin `outputLinkMatchers` declare in Run or Test console lines, as UTF-16 ranges with candidate paths or a backend function to resolve them |
+| `outputLinks.decodeResolution` | Check a matcher's `resolve` function reply and return the 1-based file location to open, or `null` |
 | `build.detect` | Find every build-system instance the enabled plugins declare in a workspace, with models that need no process |
 | `build.resolveStoredOptions` | `{ document, local: { version: 1, document, emptySelections?: { <systemID>: { <root>: [optionID] } } } }`, without a manifest | `storage: { document, local, emptySelections }`: checked team/local merge; local values override matching keys, unrelated systems/roots/choices stay intact. No filesystem I/O. Local documents are machine/workspace preferences, not team files or plugin-native configuration. Their storage syntax is [build-local-options-v1.schema.json](build-local-options-v1.schema.json), with additional cross-field membership and byte limits checked by Core. |
 | `build.editStoredOption` | `{ document, local, root, optionID, value, modelValues? }` in the standard manifest/build-system envelope | `edit: { local, options }`: changes one declared local preference. `null` removes the local override and restores team/declaration inheritance. Invalid or partially accepted edits reject before persistence. Workspace multi-selections preserve sibling-only values; explicit per-root empty markers apply only to workspace multi-select declarations. Platforms compare both native source revisions, atomically write only the local document and read back. |
@@ -1404,6 +1628,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.decodeDependencies` | Decode dependency output or a provider result into one project's bounded tree |
 | `build.syncFingerprint` | Digest the files a build model depends on, to tell whether it is stale |
 | `build.languageImport` | Map a build system's options to the Java language server's Maven or Gradle project import |
+| `build.resolveTestRunOutcome` | Reduce a test run's termination, selected scope and decoded summary to one tool-neutral verdict |
+| `build.mergeTestOutcomes` | Merge a run's test result ids into the stored history inside the host-stated id/prefix scope |
 | `vcs.detectRoots` | Find the VCS roots of a workspace from static markers, with registered providers, ambiguous directories, and applied mappings |
 | `vcs.ownerOf` | Assign workspace paths to the detected root that owns each |
 | `vcs.decodeReply` | Validate a VCS provider's reply and return the normalized result |
@@ -1495,6 +1721,24 @@ are one-based. `git.status.repositoryRoot` may be an absolute path when the
 opened workspace is a subdirectory of the repository; all Git change paths are
 relative to that repository root. `git.status.ahead` and `behind` report the
 current branch's tracking counts and are zero when no upstream is configured.
+`workspace.recentProjects.reduce` accepts `{ entries, action, capacity? }` and
+returns `{ entries, added, removed }`. Entries are `{ path, lastOpenedAt, pinned }`
+where `path` is the host's normalized root identity compared byte for byte and
+`lastOpenedAt` is non-negative Unix milliseconds from the host clock (missing
+means oldest). `action.kind` is `record { path, openedAt }` (moves the project
+first and keeps its pin), `remove { paths }`, `togglePinned { path }` (unknown
+paths are ignored), `import { paths, openedAt }` (adds only unlisted paths, the
+first stamped `openedAt` and each later one a millisecond older), or `normalize`.
+Core keeps the newest record of duplicated paths, orders pinned projects first
+and then by descending `lastOpenedAt` with ties in caller order, and keeps at
+most `capacity` unpinned projects (default 20, range 1–200); pins never count
+against it. `added` and `removed` list paths the reduction introduced or dropped
+so hosts attach or discard their own metadata (names, icons, branches). Empty,
+NUL-containing or over-4,096-byte paths, negative times and out-of-range
+capacities return `invalid_request`. Hosts own persistence and which roots are
+worth recording; menus may show fewer rows than are retained. See
+`shared/fixtures/workspace/recent-projects-v1.json`.
+
 `workspace.repositories.repositories` is ordered with the containing workspace
 repository first when present, then repositories under the opened workspace by
 workspace containment, depth, and path. Each entry contains an absolute native
@@ -1580,6 +1824,22 @@ lifecycle remains encoding-agnostic. Watchers are refresh hints, not write
 authorization. Conflict resolution acknowledges only the disk snapshot
 observed by the user, and subsequent saves must validate that snapshot again. The
 portable examples are in `shared/fixtures/documents/lifecycle-v1.json`.
+
+`document.planSaveBatch` accepts `{ documents }`, where each open document is
+`{ id, dirty, readOnly, contentSynchronized }`, and returns `{ members }` in
+request order. A writable document takes part when it is dirty, or when
+`contentSynchronized` is false because its editor view may still hold input
+that the platform model has not received. `document.reduceSaveBatch` accepts
+`{ members, results, documents }`: one `{ id, outcome }` result per member
+(`saved`, `failed` or `cancelled`) and the live documents observed after every
+write finished. It returns `{ status, savedCount, failed, cancelled,
+remainingDirty }`. `status` is `cancelled`, `failed`, `incomplete` or `saved`,
+in that precedence; any live dirty document, including one dirtied or opened
+while the batch ran, keeps the batch `incomplete`. Platforms attempt every
+member (sequentially or concurrently) instead of stopping at the first failure,
+and own dialogs and failure notifications. Duplicate or empty identities,
+missing or extra results, and more than 10,000 documents are `invalid_request`.
+See `shared/fixtures/documents/save-batch-v1.json`.
 
 GitHub command shapes, authorization behavior, and supported pull-request
 operations are documented in [`github.md`](github.md). Rust Core performs no
@@ -2215,6 +2475,57 @@ string or `null`, numeric `ahead` and `behind` counts, `diverged`, and
 `diverged` is true only when both counts are non-zero. `hasLocalChanges` checks
 tracked changes and excludes untracked files. A branch with no configured
 upstream returns `null`, zero counts, and false for both booleans.
+`configuredStrategy` is `"rebase"` when `pull.rebase` is true, `"ffOnly"` when
+`pull.ff` is `only`, `"merge"` when `pull.ff` or `pull.rebase` is false, and
+`null` when Git is not configured for a strategy.
+
+`git.updatePlan` is a pure planner; it never starts Git. `{ "stage": "route",
+"branch": { "fullName", "upstream", "isCurrent" }, "worktrees": [{ "path",
+"branch", "isCurrent" }] }` returns `blocked`, `fastForwardReference`, or
+`inspect` with the `checkout` worktree (or `null` for the request root), the
+`expectedBranch`, and whether the user may be asked. `{ "stage": "inspect",
+"preflight", "interactive", "explicitSource"?, "strategy"?, "confirmation"? }`
+returns `blocked` (`noUpstream`, `localChanges`, `upToDate`, `notFastForward`,
+`stateChanged`), `chooseStrategy`, or `pull` with the mode for `git.write`.
+The strategy is the user's choice, else the preflight's `configuredStrategy`,
+else `ffOnly`; a diverged history that would need `ffOnly` asks when
+`interactive` and is refused otherwise. `{ "stage": "defaultStrategy",
+"preflight", "fastForwardPossible" }` returns the strategy a Pull dialog
+preselects. `shared/fixtures/git/update-plan-v1.json` defines the rules.
+
+`git.historyWindow` is a pure planner over commit identities in display order.
+`refreshPlan` returns the first-page `limit`: with `preserveLoaded` it is at
+least the loaded count, so a refresh never shrinks a deep window. `extendPlan`
+returns the `extensionLimit` that keeps the previous tail loaded after new
+commits appeared at the head. `mergePage` returns the `append` positions of a
+page that are not yet in the window and whether `hasMore`, bounded to 5000
+commits. `reconcileSelection` returns the retained `selected` identities in
+window order plus `focused` and `anchor`, falling back to the first loaded
+commit. `shared/fixtures/git/history-window-v1.json` defines the rules.
+
+`git.graphProjection` is a pure projection of one loaded history window; it never
+starts Git. The request is `{ "commits": [{ "hash", "parentHashes", "decorations" }],
+"remoteNames"?, "repositoryCommits"?, "visibleHashes"?, "displayMode"?,
+"currentBranch"? }`: `commits` are in Git's child-before-parent order, `remoteNames`
+are the remote short names that type a bare remote-tracking decoration,
+`repositoryCommits` is the complete repository window that fixes the permanent layout
+(ignored unless it is unique and covers every scoped commit), `visibleHashes` applies
+a filter (omit it to show every commit), `displayMode` is `compact` (default) or
+`expanded`, and `currentBranch` asks for the ancestry of that local branch. Hosts call
+it once per loaded window, never per commit, and recompute the whole window when a page
+is appended or the history refreshes; lanes depend on every loaded edge, and a head
+fragment's color ID is the Java `String.hashCode` of its principal reference name, so a
+named branch keeps its color across pages. The response is `{ "version", "rows",
+"laneCount", "recommendedLaneCount", "hasMissingParents", "currentBranchHashes" }`.
+Each visible row carries `commitHash`, integer `lane` and `laneCount`, a signed
+`colorId`, `layoutIndex`, `incomingLaneColors`, `parentEdges` (`id`, `parentHash`,
+`targetLane`, `colorId`, `isMissing`, `isDotted`), typed `labels`, and
+`printElements` (the up and down half-edges with `position`, `adjacentPosition`,
+`colorId`, `isDotted`, `isMissing`, `hasArrow`, `isTerminal`, `targetHash`). Hosts own
+pixels, curves, and the mapping from a color ID to a theme color; `colorId` `0` means
+an unreferenced fragment. Requests over 20,000 commits fail with `invalid_request`.
+`shared/fixtures/git/graph-projection-v1.json` defines the rules and
+`shared/fixtures/git/graph-idea/` holds the pinned IntelliJ oracles.
 
 `git.integrationPreflight` accepts either `reference` or `gitReference` with
 `root` and `operation`, where `operation` is `merge`, `rebase`, `cherryPick`,
@@ -2272,7 +2583,33 @@ already applies, so Shelf restoration can be retried after a partial failure.
 It returns the normal Git process result. `restoreIndex` applies a saved
 index patch to both the index and worktree; `worktree` applies only to the
 worktree. Pathspecs must be workspace-relative and must not contain absolute
-paths or `..` components.
+paths or `..` components. A `discard` patch is refused with
+`GIT_HUNK_ROLLBACK_UNSAFE` when Git's attributes for any touched path name a
+`filter` or `working-tree-encoding`, because those can rewrite bytes the patch
+never saw.
+
+`git.diff` with `includeFileSections` and a complete-file context splits each
+file's single hunk into Git-default (3 context line) hunks. Each hunk carries
+its own byte-faithful `patch` plus `lineStart` / `lineEnd` (end-exclusive
+indices into the file's `lines`); a section that cannot be split yields no
+hunks, so no writable hunk is offered. Hosts never build patch text.
+
+`git.planDiffBlocks` accepts `{root, path, originalPath?, staged?}` and returns
+`{token, blocks, worktree, index}`. `worktree` is the HEAD to worktree (or, with
+`staged`, HEAD to index) complete-file section and `index` is HEAD to index,
+both without patch text. Each block is `{id, checked, indeterminate, canToggle,
+canRollback, wholeFile?}`; `id` is `line-<index>` into the section's unified
+lines. `token` identifies the read. `git.applyDiffBlock` accepts the same
+target plus `{blockId, action, token}` where `action` is `include`, `exclude`
+or `rollback`. Core rebuilds the plan under the repository write lease and
+refuses with `GIT_DIFF_BLOCK_STALE` when the token no longer matches,
+`GIT_DIFF_BLOCK_UNAVAILABLE` for a block that cannot take the action, and
+`GIT_HUNK_ROLLBACK_UNSAFE` for a rollback blocked by attributes.
+`git.stageGutterChange` accepts `{root, path, originalStart, originalEnd,
+modifiedStart, modifiedEnd, originalLines, modifiedLines}` (one-based,
+end-exclusive) and stages exactly that change from the original bytes, or fails
+with `GIT_GUTTER_CHANGE_STALE` when the index or saved file no longer shows the
+compared lines. See `shared/fixtures/git/diff-blocks-v1.json`.
 
 `git.remotes` returns `{remotes: [{name, url}]}` for fetch entries. `git.tags`
 returns `{tags: [{name, objectId, targetId, message, date, isAnnotated}]}`;
@@ -2465,6 +2802,8 @@ Agent file completion uses project visibility and leaves generated names disable
 only the Search Everywhere UI explicitly enables them. Directory-versus-file
 matching examples are shared in `shared/fixtures/search/exclusions.json`.
 
+`workspace.searchEverywhere` takes an optional `context: { openPaths, recentPaths }` (paths relative to `root`, `/` separators, recent first). It only breaks ties between equal file-name matches (open first, then recent by recency) and scales the returned `matchingDegree` by 1024 plus the tie-break, using the same code as `workspace.rankNames`; omit it and results are unchanged (fixture `shared/fixtures/search/search-everywhere-context-v1.json`).
+
 `workspace.searchEverywhere` uses the same query options and visibility fields,
 and additionally accepts `maxSymbolResults` and optional
 `includeGeneratedFileNames` (default `false`). Ordinary name queries match
@@ -2604,10 +2943,57 @@ line clamp before its line ending, and positions inside a UTF-16 surrogate pair
 resolve to the character start. Missing/negative lines, negative columns,
 reversed ranges and overlapping replacements are rejected.
 
+The line index and batch rules are shared with `editor.planTextEdits`: `\r\n`,
+`\n` and a lone `\r` each end one line (as in the LSP specification), and a
+batch is applied in a stable order by start, end and then caller order.
+Insertions at the same position keep the caller's order, and an insertion at
+the boundary of a replaced range is adjacent regardless of where it appears in
+the batch.
+
 `lsp.plainSnippet` accepts `{ "value": string }` and returns `{ "text": string }`
 after removing LSP tab stops and replacing simple placeholder defaults such as
 `${1:name}` with `name`.
 
+
+`editor.planTextEdits` accepts `{ text, edits, positions? }`. Each edit is
+`{ range: { start, end }, text }` with one-based `line` and one-based UTF-16
+`column`; `positions` lists extra one-based positions that must exist (for
+example reported selection endpoints). It returns `{ lineEnding,
+lineSeparator, edits, rejection }`. `lineEnding` is `lf`, `crlf`, `cr` or
+`mixed`; `lineSeparator` is the text's first terminator, LF when there is
+none. On success `edits` is the stable application order with `index` (caller
+order), `utf16Offset`, `utf16Length`, `text` (line breaks rewritten to
+`lineSeparator`) and `normalizedText` (LF), and `rejection` is null. Unlike
+`lsp.applyTextEdits`, positions are strict: a missing line, column zero, a
+column past the line content or a position inside a surrogate pair rejects the
+batch. A rejected batch returns empty `edits` and `rejection: { reason,
+editIndex, otherEditIndex }` with `reason` `rangeOutOfBounds`, `reversed`,
+`splitsSurrogatePair` or `overlappingRanges`, or `{ reason, positionIndex }`
+for a failed extra position. An empty batch still reports the line ending.
+Malformed payloads return `invalid_request`. The host keeps document versions,
+undo grouping and the editor surface. See
+`shared/fixtures/editor/text-edit-plan-v1.json`.
+
+`lsp.planWorkspaceEdit` accepts `{ platform, workspaceRoot, changes,
+openDocuments? }`, where `changes` maps a file URI or absolute native path to
+its text edits and `openDocuments` lists `{ path, isReadOnly? }` for open
+editor documents. It returns `{ rejection, targets }`. Every target must be a
+workspace file; otherwise `rejection` is `{ code: "outsideWorkspace" |
+"readOnlyDocument", path }` and `targets` is empty. On success `rejection` is
+null and each target is `{ path, relativePath, effect, edits }` with `effect`
+`writeFile` (closed files first) or `updateDocument` (open documents), each
+group ordered by `relativePath`; keys naming one file merge. The host reads and
+writes files, owns buffers, stale-input checks and rollback, and applies each
+target's edits with `lsp.applyTextEdits`. See
+`shared/fixtures/lsp/workspace-edit-plan-v1.json`.
+
+`lsp.classifyNavigationTarget` accepts `{ platform, workspaceRoot?,
+resolvedWorkspaceRoot?, path, resolvedPath?, sourceLanguageID?, languageID?,
+resolvedLanguageID?, isReadOnly? }`; the host supplies symlink resolution and
+the path-to-language lookup as facts. It returns `{ classification,
+isReadOnly }` where `classification` is `workspace`, `externalReadOnly` (a
+source file of the language that produced the jump, opened read-only) or
+`rejected`. See `shared/fixtures/lsp/navigation-target-v1.json`.
 
 `editor.parseNavigationInput` accepts `{ text }` and returns `{ target }`.
 `target` is null for invalid input, otherwise `{ line, column, selectsWholeLine }`
@@ -2618,6 +3004,22 @@ integer are invalid. Text over 128 UTF-8 bytes is invalid. A line-only input
 selects its content without the terminator; an explicit column places the caret.
 Hosts clamp against the current document, not an old snapshot. See
 `shared/fixtures/editor/navigation-input-v1.json`.
+
+`editor.navigationHistory.reduce` accepts `{ state, event }` and returns
+`{ state, destination }`. `state` is `{ back, forward }`, each ordered oldest
+first, and each location is `{ document, line, column, context? }`. Identity is
+`document`, `line` and `column`; coordinates are opaque to Core and `context` is
+platform data (pane, scroll, read-only presentation) carried unchanged. Events
+are `record { departure, destination? }`, `back { current }` and
+`forward { current }`. Recording pushes the departure unless it equals the
+destination and clears the forward branch; a repeated position replaces the top
+entry so the newest context wins. Back and forward discard entries equal to the
+live `current` location, return the next distinct one as `destination`, and
+push `current` onto the opposite stack so caret movement since the last jump
+survives a return trip. Each stack keeps the newest 100 entries. Platforms
+decide which gestures record history and restore their previous state when the
+destination cannot be opened. See
+`shared/fixtures/editor/navigation-history-v1.json`.
 
 `editor.lineEdit` applies one deterministic line-level transform. All offsets
 are UTF-16 code units so both hosts can feed the result straight into their
@@ -2822,29 +3224,21 @@ requests when the session disconnects. The shared compatibility cases are in
 `debug.launch` accepts an `operationId` and a language-neutral configuration
 containing `name`, request kind (`launch` or `attach`), provider arguments, and
 optional portable `steppingFilters`.
-`debug.javaTestLaunch` accepts JDT LS-owned working directory, main class,
-project, classpath, module path, VM arguments, program arguments, Java test
-framework, and a platform-owned loopback result port. JUnit placeholder ports
-are replaced deterministically. TestNG appends the packaged runner once and
-uses its selected method names. Core serializes JDT's VM and program argument
-arrays into the string fields required by Java Debug Server's DAP launch model.
-JDT LS remains responsible for resolving file,
-class, and method selections to this metadata; Core does not parse Java source
-or infer a test framework in this command. The command creates no process,
-socket, timer, or persistent session; compatibility cases live in
-`shared/fixtures/debug/java-test-launch-v1.json`.
+Test launches are not a Core command: a debug adapter plugin resolves test
+selections to launch arguments in its own backend and submits them through
+`debug.launch` like any other configuration.
 Launch submitted during initialization is retained until the initialize
-response. For Java, Core projects those filters into the adapter's `stepFilters`
-launch object unless the provider arguments already contain an explicit value.
+response. Core projects the stepping filters into the launch argument the
+adapter declared in its `stepFilters` feature unless the provider arguments
+already contain an explicit value; an adapter without that declaration never
+receives invented launch arguments.
 `debug.steppingFilters` accepts `{ adapterId, filters? }`; omission of `filters`
-returns deterministic adapter defaults, while a supplied value is trimmed,
+returns an unfiltered policy, while a supplied value is trimmed,
 sorted, de-duplicated, and validated before persistence or launch. Omitted
-fields inside a supplied value are empty or false, so future adapters never
-inherit Java policy accidentally. Java class
-patterns support `$JDK`, `$Libraries`, and adapter-compatible wildcards. Other
-adapters default to an unfiltered policy until their integration defines one.
-Java defaults include both `$JDK` and `$Libraries`, matching the IDE convention
-of collapsing platform and dependency frames while retaining project frames.
+fields inside a supplied value are empty or false, so adapters never inherit
+another adapter's policy. Adapter defaults come from the plugin's declared
+debug-adapter defaults, and class patterns are passed through to the adapter
+unchanged, so an adapter may use its own placeholder and wildcard syntax.
 The portable cases are in
 `shared/fixtures/debug/stepping-filters-v1.json`.
 
@@ -3042,6 +3436,41 @@ all matching identifier occurrences. These commands are deliberately
 text-level fallbacks; precise type-aware behavior belongs to a started language
 server.
 
+`lsp.mergeCompletions` accepts `{ lists: [{ labels, isIncomplete }] }` ordered
+from the highest-priority provider to the lowest and returns
+`{ keep: [[index]], isIncomplete }`. A provider's own candidates are never
+collapsed, so overloads that share a label stay visible; a lower-priority
+candidate is dropped when a higher-priority provider already offered the same
+label. Only labels cross the boundary and the platform applies the indices to
+its full items. A host with a single completion provider (Windows today) keeps
+that provider's list unchanged and does not call the command. Cases:
+`shared/fixtures/lsp/completion-merge-v1.json`.
+
+`lsp.activationPolicy` accepts `{ state, event, nowMs }` and returns
+`{ state, decision, retryAfterMs }`. `event` is `automaticStart`,
+`explicitStart`, `startFailed`, or `ready`; `decision` is `allow`, `wait`, or
+`explicitRetryRequired`. The platform stores the returned `state` per server
+identity (language or provider plus workspace root) and passes it back
+verbatim; `null` means no failure history. After each failure automatic starts
+wait 5000 ms, and after 3 consecutive failures only an explicit start (restart,
+retry, or repair) may run. A ready session or an explicit start clears the
+history. `nowMs` must come from a monotonic clock; a reading earlier than the
+stored failure restarts the cooldown. Cases:
+`shared/fixtures/lsp/activation-policy-v1.json`.
+
+`lsp.problems.query` accepts the displayed diagnostics as
+`{ fileKey, displayPath, line, column, severity, message, source, code }`
+together with `groupBy` (`file` default, `severity`, `none`), `sortBy`
+(`severity` default, `file`, `position`), and an optional `filter`
+(`severities`, `fileKey`, `source`, `query`). It returns `groups` (each with a
+stable `key`, `indices` into the submitted list, and per-severity `counts`),
+`files` (file summaries in file order regardless of `groupBy`),
+`visibleCounts`, and `totalCounts`. `fileKey` is the platform's native file
+identity; `displayPath` is the workspace-relative path and orders files with
+the Project view's natural file-name order. Severity is the LSP number;
+missing or out-of-range values are unknown (`0`) and rank last. Cases:
+`shared/fixtures/lsp/problems-query-v1.json`.
+
 The LSP provider catalog is returned by `lithe_core_lsp_provider_catalog_json`.
 Each provider descriptor may include `languageServerLaunch` with ordered
 `executableNames` and `arguments`; Swift adapters use this metadata when they
@@ -3060,7 +3489,11 @@ directory, initialization options, optional runtime executable,
 optional `pluginId` of the plugin that owns the process, its optional
 `workspaceConfiguration` (an object, plugin-owned sessions only), its
 optional `hostServices` (the launch plan's `backend.hostServices`;
-plugin-owned sessions only; legacy service grants or full public host-method names Core defines), plus
+plugin-owned sessions only; legacy service grants or full public host-method names Core defines),
+its optional `hostOptions` (plugin-owned sessions only; `editor:{actionIcons,
+actionSourceBytes, providerTypes}` declares the icons, collector source bound and
+provider types the host implements, reported through `lithe/host/getCapabilities`
+to sessions granted the matching editor methods), plus
 initialize, post-initialize readiness, request, Java project build
 (`javaBuildTimeoutMilliseconds`), and shutdown deadlines.
 Java callers may also provide the versioned `mavenContext` accepted by
@@ -3507,6 +3940,79 @@ ungranted service, malformed or oversized params, a session that is not
 plugin-owned, or one that is not ready is `invalid_request` with the
 `plugin.host.*` code in `details`.
 
+`lsp.pluginServerRequest` accepts `{ sessionId, operationId?, pluginId,
+serverID, method, params?, timeoutMilliseconds? }` and returns `{ operationId }`;
+`params` defaults to `{}` and the deadline to 60000 milliseconds (at most
+300000). The host resolves `{context, serverID}` of a backend's
+`lithe/host/languageServer/request` to the session and calls this command; Core
+checks that the session belongs to `pluginId` and `serverID` and enforces the
+server's declared session policy: the `requestMethods` whitelist, the
+`commands` of `workspace/executeCommand`, `serializedCommands` (a request for a
+command already running joins it), and `gates` (a request waits, in order, until
+every gate has seen its notification; at most 128 wait, then the request fails
+as `plugin.host.busy`). The answer arrives as a `requestCompleted` event whose
+`result.value` is the server's result. A failure carries its `plugin.host.*`
+code as the event's `error.code` and its details as `error.details`; the host
+returns both to the backend unchanged. The codes are
+`plugin.host.languageServerUnavailable` (-32022: the session is not ready or
+has stopped), `plugin.host.languageServerError` (-32023: the server answered
+with an error, in `details.code` and `details.message`),
+`plugin.host.methodNotDeclared` (-32024), `plugin.host.foreignContribution`
+(-32026), `plugin.host.timeout`, `plugin.host.cancelled`, `plugin.host.busy`,
+and `plugin.host.limitExceeded`. The
+[plugin contract](plugins/v1/README.md#language-server-host-methods) owns their
+meaning.
+
+`lsp.pluginServerNotify` accepts `{ sessionId, pluginId, serverID, method,
+params? }` and returns `{ delivered }`. It sends `workspace/didChangeConfiguration`
+and every declared `requestMethods` entry except `workspace/executeCommand`; a
+notification is never held behind a gate. `delivered: false` means the server
+was not initialized yet and receives the stored configuration with its
+`initialized` notification instead. A notification the server sends and
+`forwardNotifications` lists is queued as a `pluginServerNotification` event
+with `result: { serverID, method, params? }` for the host to relay as
+`lithe/host/languageServer/didReceiveNotification`.
+
+`lsp.startServer` for a plugin-owned server whose manifest declares
+`remote: "unsupported"` fails with `not_supported` when the workspace is
+remote, before any process is started.
+
+A session that negotiated `litheFunctions` version 4 and holds the `functions`
+grant may call another plugin's exported function through the
+[plugin-to-plugin relay](plugins/v1/README.md#cross-plugin-calls-protocol-version-4).
+Core runs the whole relay: it checks the declarations, keeps the call chain,
+writes the forwarded request, and answers the caller. `lsp.configureFunctionRelay`
+accepts the host's complete view and returns `{}`; every call replaces the
+previous view, and a call in flight that the new view forbids ends with an
+explicit `plugin.function.*` error.
+
+```json
+{
+  "plugins": [
+    {
+      "pluginID": "dev.example.formatter",
+      "exports": [{ "id": "document.format", "version": 1, "context": "workspace" }],
+      "calls": []
+    }
+  ],
+  "contexts": [{ "contextID": "w-1", "generation": 1, "authority": "local" }]
+}
+```
+
+- `plugins` lists the enabled plugins that declare `pluginFunctions`, and each
+  `exports` and `calls` is the normalized manifest's own list. The host
+  copies them and does not interpret them. A plugin that is disabled,
+  replaced, or removed is left out, which ends its calls.
+- `contexts` lists the live workspace contexts; `authority` is `local` or
+  `remote`, and a call in a remote workspace is refused.
+- A malformed snapshot (an unknown field, a bad plugin or function ID, a
+  duplicate plugin, more than 4096 plugins) is `invalid_request`.
+- Core publishes the runtime event `functionProviderStartRequired` with
+  `result: { pluginID }` on the calling plugin's session when a call waits for
+  a callee whose backend is not running. The host starts that backend as plain
+  I/O; Core ends the call with `plugin.function.providerUnavailable` if the
+  callee does not register the function within 30 seconds.
+
 `lsp.request` accepts a semantic `operation` plus
 the operation-specific URI, position, range, diagnostics, item, action, or
 command fields, and returns `{ operationId }`. Supported operations include
@@ -3702,6 +4208,23 @@ It is informational; local history does not follow Git ignore rules. `history.us
 reports back as `limitBytes`; usage rescans the disk and returns `{ usedBytes, limitBytes }` in
 allocated bytes, and clear removes every snapshot directory while keeping the
 storage root, returning `{ "cleared": true }`.
+
+`diff.compareTexts` accepts `{ oldText, newText }` (each at most 16 MiB of
+UTF-8; larger input is `invalid_request`) and never reads files: hosts pass the
+snapshot, buffer, or proposal they already hold. `\r\n`, `\r`, and `\n` all end
+a line and are not part of its content, one final terminator does not add an
+empty line, and empty text has no lines, so texts that differ only in line
+endings compare as identical. Lines are matched with the patience algorithm;
+each block of removed and added lines is then aligned by character-bigram
+similarity (the same pairing `git.diff` uses), so an unrelated delete and
+insert stay separate rows. The response is `{ rows, lines, oldLineCount,
+newLineCount, additions, deletions }`. `rows` are side-by-side
+`{ oldLine, newLine, left, right?, kind }` with one-based line numbers and
+`kind` of `context`, `changed`, `addition`, or `removal`; `context` rows omit
+`right` because both sides equal `left`. `lines` are unified
+`{ kind, content, oldLine, newLine }` with `kind` of `context`, `removed`, or
+`added`, each changed block listing its removals before its additions. See
+`shared/fixtures/diff/compare-texts-v1.json`.
 
 `maven.scan` accepts `{ "root": string, "paths"?: string[] }` and returns
 `null` when neither the root nor the supplied visible workspace-relative paths
@@ -4801,6 +5324,51 @@ architecture or an empty directory is refused with
 build system, and a build system without a provider with
 `plugin.launch.unavailable`.
 
+A language server declared with `launch.kind: "backend"` (`serverProcess` 3) has
+no command line in its manifest; the plugin's backend chooses it. The plan this
+command returns is then only the first step: `launch` is `{ kind: "backend",
+function, timeoutMilliseconds }` (30000 when absent) and `resolveParams` is the
+params the host sends to that backend function, `{ serverID, platform: { os,
+arch }, stateDirectory, workspaceStateDirectory, logDirectory,
+temporaryDirectory, settings }`; the host adds `context` and, when the plugin
+declares tool definitions, `tools`. The request must carry all four of
+`stateDirectory`, `workspaceStateDirectory`, `logDirectory`, and
+`temporaryDirectory`, and the plan lists them in `requiredDirectories`. A server
+below `languageServers` 3 has no `sessionPolicy`; a version 3 plan carries it
+(`serverID`, `requestMethods`, `commands`, `serializedCommands`,
+`forwardNotifications`, `remote`, `gates`, `state`) for the engine to enforce.
+
+`plugins.languageServers.decodeLaunch` is the second step. It accepts
+`{ manifest, languageID, request, result }`, where `request` is the first
+step's request and `result` is what the backend function returned, and answers
+`{ status: "ok", plan }` with the plan the host starts like any other (launch
+`packaged` or `tool`, `arguments`, `environment`, `writablePaths`,
+`requiredDirectories`, `initializationOptions?`, `workspaceConfiguration?`, and
+`sessionPolicy` with the answer's `gates`) or `{ status: "rejected", error }`.
+Refusals are `plugin.launch.unavailable` (no such server),
+`plugin.launch.notBackend` (the server is not launched by a backend),
+`plugin.launch.invalidRequest` (a missing directory), and
+`plugin.launch.invalidResult`, `plugin.launch.outsidePackage`,
+`plugin.launch.undeclaredTool`, and `plugin.launch.unwritablePath` for the
+answer. The golden cases are
+`shared/contracts/plugins/v1/fixtures/languages/language-server-launch-resolution.json`.
+
+`plugins.languageServers.stateRetention` accepts `{ retention: { maxEntries,
+maxAgeDays }, nowUnixSeconds, entries: [{ name, lastModifiedUnixSeconds }],
+activeNames }` and returns `{ expiredNames }`: the inactive per-workspace state
+directories the host deletes. Directories used by a running session
+(`activeNames`) are never listed and count against `maxEntries`; of the others,
+those older than `maxAgeDays` and those beyond the newest that fit are listed.
+The host lists and deletes only directories under its own state storage, never
+inside an app bundle or installation directory.
+
+`plugins.contentProviders.decode` accepts `{ result }`, the value a plugin
+function returned for a document of its content scheme, and returns
+`{ content }`. `result` is a string, or an object whose only member is
+`content: string`; anything else is `invalid_request`, and so is text of more
+than 1 MiB (1,048,576 UTF-8 bytes). The host opens `content` as a read-only
+document and never interprets it.
+
 A `debugAdapterID` selects a `debugAdapters[]` entry with a `serverProcess`
 or a `tcpLanguageServer` transport (naming it together with another selector is
 the same `invalid_request` failure); the plan adds `debugAdapter: { id,
@@ -4811,7 +5379,12 @@ selected runtime is refused with `plugin.launch.unavailable`. A
 plan of the plugin language server that `endpoint.languageID` names, so the
 host starts that server as for editing, then sends `workspace/executeCommand`
 with `endpoint.command` and connects to the loopback port the server answers
-with (an integer or a numeric string from 1 to 65535). Core validates every declared
+with (an integer or a numeric string from 1 to 65535). When that server's
+launch is resolved by the plugin backend (`serverProcess` 3), the plan names
+only `launch: { kind: "backend", function, timeoutMilliseconds }` with empty
+`requiredDirectories` and no `resolveParams`: the server's own session asks
+the backend with the directories of its start, so resolving the adapter needs
+no `workspaceStateDirectory`, `logDirectory` or `temporaryDirectory`. Core validates every declared
 `transport`, but a host starts only the transports it implements: the macOS host
 runs `stdio` and refuses `tcpPort` and `tcpAnnounced` before starting the
 process, with `plugin.launch.unsupportedTransport`.
@@ -4889,12 +5462,83 @@ refuses is `plugin.grammar.invalid` with the failing `field`; a language
 without static editor resources is `plugin.grammar.unavailable`. Configuration-only
 languages return `grammar:null` and require no file read. Core reads no files.
 
+`plugins.hostApi.describe` accepts `{}` and returns `{methods:[{method,service,grant,coreServed}]}`.
+`grant` is null for implicit methods, a service name for legacy aggregate grants, or the
+exact method for individual grants. `coreServed` identifies methods dispatched inside
+Core rather than by a native handler. The host admits a requested grant only when all of
+its non-Core methods have registered handlers.
+
+`plugins.hostApi.authorize` accepts `{method,service,grants}` and returns `{allowed:true}`
+or `{allowed:false,code}`. It uses Core's method catalog and capability rules; unknown or
+mismatched methods return `plugin.host.unavailable`, and missing grants return
+`plugin.host.permissionDenied`. This decision does not replace negotiated-version,
+parameter, current-session, workspace-context, or resource-ownership checks. Hosts must
+deny access if the Core call fails.
+Shared cases are in `shared/fixtures/plugins/host-api-v1.json`.
+
 `plugins.editorActions.decode` accepts `{kind:"registration",value}` or
 `{kind:"actions",value,text}` and returns `{registration}` or `{actions}`.
 Core validates literal selectors, one-based UTF-16 ranges and bounded opaque
-function bindings. Hosts enforce permission, live document versions and session
-ownership; HTTP/SQL business semantics stay with plugins. See the plugin
-contract's independent editor actions section.
+function bindings. Version 1 (the default) admits the icons `run` and
+`run-all` and a 128 KiB source. `version: 2` with the host's `icons` and
+`sourceBytes` also admits `alternatives` and `{kind:"invokeResult",value}`,
+which returns `{}` or `{reveal:{locations}}` for a clicked action. Hosts enforce
+permission, live document versions and session ownership; HTTP/SQL business
+semantics stay with plugins. See the plugin contract's independent editor
+actions section.
+
+`plugins.editorProviders.decode` accepts `{kind:"registration",value,types}`
+(the provider types the host routes) and returns `{registration}` with
+lowercased literal selectors and Core's per-type `budgetMs`; a type outside
+`types` is `not_supported` with details `providers.<type>`. It also accepts
+`{kind:"result",type,value,legend?}` (one provider function's LSP 3.17 shaped
+result; semantic tokens need the registered legend) and returns `{result}`
+normalized to `{locations}`, `{contents,range?}`, `{isIncomplete,items}`,
+`{lenses}`, `{ranges}`, `{data}` or `{links}`. Hosts own calls, budgets,
+stale-version drops and the merge after language-server answers; see the
+plugin contract's editor language-feature providers section. The definition
+merge is Core's too: `{kind:"mergeDefinitions",value:{documentUri,position,server,plugin}}`
+takes the language server's and the plugins' validated `Location[]` and returns
+the indices each side keeps as `{server,plugin}`. The server's answer comes
+first; a plugin location equal to one already kept is dropped, and a server
+location that covers the requested position itself (the caret already sits on
+the declaration) yields when a plugin answered.
+
+`toolchains.instantiateLaunch` accepts `{ registry, tool, executable, home?,
+entry?, runtimeArguments, arguments }` and returns `{ status: "ok", launch:
+{ executable, arguments, versionArguments } }`. See
+[Launching a tool definition](plugins/v1/toolchains/README.md#launching-a-tool-definition).
+
+`run.decodeStart` accepts `{ manifest, workspaceRoot, temporaryDirectory?,
+params }`, where `params` are those of `lithe/host/run/start` as the backend sent
+them. It returns `{ status: "ok", start }` with `start` being `{ label,
+executable: { kind: "toolchain" | "packaged", value }, arguments,
+workingDirectory, environment, temporaryFiles: [{ path, contents }], debug?,
+rerun? }`. The tool must be listed in the manifest's `requiresTools`, and the
+working directory must be a relative path of an existing directory inside
+`workspaceRoot`, which Core checks read-only the way it does for run preparation.
+`${temporaryFile:<name>}` in arguments and environment becomes a file path under
+`temporaryDirectory`, which the host supplies when the start has temporary files;
+Core writes nothing, the host writes `temporaryFiles`. A start Core refuses is
+`{ status: "rejected", error }` with `plugin.run.invalidStart` and the failing
+`field`. See the plugin contract's
+[run and debug sessions](plugins/v1/README.md#run-and-debug-sessions-protocol-version-3).
+
+`debug.decodeBackendConfiguration` accepts `{ manifest, params }` with the
+params of `lithe/host/debug/start` and returns `{ status: "ok", start }` with
+`start` being `{ adapterID, request, label, configuration }`, `adapterID` the
+qualified ID. A start Core refuses is `{ status: "rejected", error }` with
+`plugin.debug.invalidStart`, `plugin.debug.unknownAdapter`,
+`plugin.debug.foreignAdapter`, or `plugin.debug.limitExceeded`.
+
+`outputLinks.match` accepts `{ scope, platform, caseSensitive?, workspaceRoots,
+sources: [{ pluginID, matchers }], lines }` and returns `{ links }`;
+`outputLinks.decodeResolution` accepts `{ reply }` and returns the location
+`{ path, line?, column? }` or `null`. Neither takes a manifest: the host passes
+the matchers of each enabled plugin as `plugins.declarative.validate` returned
+them. A request Core cannot accept is `invalid_request`, not a policy outcome.
+See the plugin contract's
+[output link matchers](plugins/v1/README.md#output-link-matchers-outputlinkmatchers-1).
 
 
 The `plugins.marketplace.*` commands are equally pure: hosts fetch indexes and
@@ -5031,6 +5675,13 @@ problem codes are specified in the plugin contract's
 answers. Results use the `plugins.declarative.*` envelope: `catalog`, `form`,
 `plan`, `name`, and `extracted`. Commands that take a manifest revalidate it
 and answer `plugin.project.unavailable` for an undeclared generator.
+
+A `projectGenerators` 2 generator picks tool installations with `tool` fields.
+The host lists the installations of each field's tool and sends them as the
+form's `tools`; Core chooses among them, checks `minimumVersion`, expands
+`${field.<id>.executable}`, and returns `toolPins` in the plan. Core lists no
+installations itself, so the commands touch neither the file system nor a
+process for tools.
 
 `project.generationPlan` reads template files below `packagePath` (bounded,
 no symbolic links). `project.extractArchive` is the only command that writes:
@@ -5749,6 +6400,34 @@ workspaces. Preferences and refresh completion use distinct events to avoid writ
 The native host injects the window identity for Git/file watcher ownership, shares paths
 and releases only the last holder; window destruction also revokes late registrations.
 
+### Directory rules, copy names and history events
+
+`workspace.reduceDirectoryAction` takes `{ path, action, caseInsensitive?, rules }`, where
+`path` is workspace-relative (`.` is the root), `action` is `{ kind: "setRole", role }`,
+`{ kind: "exclude" }` or `{ kind: "cancelExclusion" }`, and `rules` is the root's persisted
+`{ marks, includedDirectories, previousRoles }`. It returns `{ changed, rules }`; hosts persist
+`rules` verbatim and skip the write when `changed` is false. Excluding remembers the replaced role in
+`previousRoles` and canceling a manual exclusion restores it. `workspace.relocateDirectoryRules`
+takes `{ source, destination?, caseInsensitive?, rules, target? }` and returns `{ rules, target }`:
+keys at or below `source` leave `rules`, reappear under `destination` (in `target` for a move across
+workspace roots) and are dropped when there is no destination. Request and response pairs are pinned
+by `shared/fixtures/workspace/directory-rules-v1.json`.
+
+`workspace.planDuplicate` takes `{ name, isDirectory, existing?, caseInsensitive? }` and returns
+`{ name }`; `workspace.planPaste` takes `{ items: [{ name, isDirectory }], existing?, caseInsensitive? }`
+and returns `{ names }`. A file name is split at its last dot, a directory name and a leading-dot name
+are not. Core never touches the file system: the host passes the names it has seen to exist, creates the
+copy without replacing anything (`FileManager.copyItem`, which refuses an existing destination, on macOS;
+`create_new` and `MoveFileEx` without replacement on Windows) and, when that fails because the name
+appeared meanwhile, adds the name to `existing` and plans again. After 512 rounds the host reports
+the stable `destination_exists` error. Cases are in `shared/fixtures/workspace/file-copy-names-v1.json`.
+
+`history.planEvent` takes `{ event }` and returns `{ snapshots: [{ source, reason }] }`. `source` says
+whose text the host records: `beforeChange` (the text an event replaces), `afterChange` (the text it
+produced) or `editorBuffer` (unsaved editor text that is discarded). A save or auto-save records
+`beforeChange` and `afterChange`, so a snapshot of the saved state exists immediately.
+Cases are in `shared/fixtures/history/event-plan-v1.json`.
+
 The directory-action sequence contract is `shared/fixtures/workspace/directory-actions-v1.json`.
 Role changes retain include exceptions, explicit exclusion deletes only its own exception,
 and canceling Git exclusion preserves the current role. Only canceling a manual exclusion
@@ -5838,6 +6517,72 @@ versions are rejected without numeric narrowing. The native adapter owns bounded
 read-only package boundaries, optimistic comparison, metadata-preserving atomic replacement and
 read-back. No editor command discovers or executes tools. Global defaults and complete one-time
 legacy migration remain incomplete; these APIs alone do not complete Stage D.
+
+### Test run verdict
+
+`build.resolveTestRunOutcome` takes `{ termination, scope, summary? }`, where
+`termination` is `{ kind: "exited", exitCode }`, `{ kind: "timedOut" }` or
+`{ kind: "cancelled" }`, `scope` is `workspace`, `project`, `suite` or `case`,
+and `summary` is the `{ total, passed?, failed?, errors?, skipped? }` the
+provider's decoded results reported, or `null` when the run has no structured
+results. It returns `{ outcome, success, exitCode }` with `outcome` one of
+`passed`, `testsFailed`, `exitedWithError`, `noTestsMatched` (an explicit suite
+or case ran nothing), `noTestsFound` (a project or workspace scope ran nothing),
+`timedOut` or `cancelled`. Interruptions never claim a test outcome, reported
+failures outrank the exit code, a non-zero exit outranks an empty result, and a
+zero exit with decoded results but no executed test is not a pass. Counts that
+exceed `total` are `InvalidRequest`. No tool or selector syntax is interpreted.
+Hosts localize the outcome. Cases: `shared/fixtures/build/test-run-outcome-v1.json`.
+
+### Test history merge
+
+`build.mergeTestOutcomes` takes `{ previous, incoming, scope }`: `previous` and
+`incoming` are lists of result identifiers (strings) in display and report order,
+and `scope` is `{ ids?, prefixes? }`, the identifiers the run replaces. A result is
+covered when its id equals one of `ids` or starts with one of `prefixes`; an empty
+scope covers nothing and an empty prefix is `InvalidRequest`. It returns
+`{ entries: [{ source, index }] }` with `source` `previous` or `incoming` and
+`index` the position in that input: covered history entries are dropped, the
+others stay in place, then the run's covered results follow. Incoming results
+outside the scope are discarded, and for a repeated id the later entry wins.
+Core compares strings only: hosts keep the result payloads, and the provider
+adapter builds the scope (for example turning Java nested classes `Outer$Inner`
+into the prefix `Outer$`). Cases: `shared/fixtures/build/test-outcome-merge-v1.json`.
+
+### Variable and disassembly paging
+
+`debug.planVariablePage { variablesReference, namedVariables?, indexedVariables?, pageSize }`
+returns a cursor `{ variablesReference, pageSize, segments, loadedPages, next? }`.
+Named children page before indexed ones; without counts the container pages
+unfiltered until a short page. `next` is the `{ filter?, start, count, remainingCount? }`
+to send as `debug.inspect` `variableFilter`/`start`/`count`; it is absent once the
+container is exhausted. `debug.reduceVariablePage { state, requested, page, newItemCount }`
+takes the page's `{ name, value, type?, evaluateName?, variablesReference }`
+identities and how many of them the host did not already show, and returns
+`{ accept, state }`. `accept: false` means the host drops the page: it answers an
+older cursor or repeats a page (an adapter that ignores `start`). Paging stops on
+an oversized page, a page of only known children, the reported count, or a short
+page without a count. Hosts keep the page size, expansion and child identity.
+Cases: `shared/fixtures/debug/variable-page-plan-v1.json`.
+
+`debug.planDisassemblyWindow { direction, reference, count, instructionsBefore? }`
+returns a fetch whose `request` is the exact DAP `disassemble` arguments;
+`direction` is `around` (the first window, `instructionsBefore` of `count` above
+the instruction pointer), `before` or `after` (one listed edge).
+`debug.reduceDisassemblyPage { fetch, reply, knownAddresses? }` takes the reply as
+`{ kind: "instructions", instructions: [{ address, instruction, instructionBytes? }] }`,
+`{ kind: "rejected", message }` (the adapter answered `success: false`) or
+`{ kind: "failed", message }` (transport, timeout, cancellation) and returns
+`{ kind: "request", fetch }`, `{ kind: "page", keep, exhausted }` or
+`{ kind: "failed", message }`. `keep` indexes the reply's addressable
+instructions (empty padding removed) not already in `knownAddresses`, compared
+as canonical address text. A refused first window with a negative offset is
+retried from the instruction pointer; a refused edge page is halved down to one
+instruction, then the known edge is probed: only an edge that still
+disassembles ends the direction (`exhausted`), otherwise the refused window's
+message is returned. Transport failures are never treated as a boundary.
+Addresses are never parsed or offset by Core or hosts. Hosts keep the viewport,
+scroll anchor and rendering. Cases: `shared/fixtures/debug/disassembly-paging-v1.json`.
 
 ### Windows source-breakpoint relocation
 
@@ -6253,3 +6998,19 @@ the failure again.
 ```json
 {"ts":"2026-11-03T08:00:01.123Z","level":"WARN","event":"vcs.git.command.failed","channel":"vcs/git","op":"op-7f3a","fields":{"command":"fetch","arguments":"fetch --prune origin","repository":"<HOME>/src/app","source":"user","duration_ms":311,"exit_code":128,"stderr":"fatal: could not read from remote repository."}}
 ```
+
+`agent.attachments.retentionPlan` decides which pasted Agent images the platform may
+delete; it reads and writes no files. The payload is `{nowMs, entries, acceptedReferences,
+ledgerPresent, caseInsensitive}`: `entries` lists the platform's pasted-image cache as `{path, modifiedMs,
+abandoned}` (`modifiedMs` is Unix milliseconds and may be omitted; `abandoned` marks a
+paste that failed or was discarded before any conversation accepted it),
+`acceptedReferences` is the platform ledger of paths a conversation accepted, and
+`caseInsensitive` (Windows) compares paths without case; separators are always normalized.
+`ledgerPresent` reports only whether the ledger file exists, never whether it is empty: when it
+is missing, every non-abandoned cached image counts as accepted (the cache predates the
+ledger) and is returned in `seed`, which the platform writes atomically (temporary file, then
+rename) before deleting anything. The result is `{delete, keep, seed}`, the first two lists of `{path, reason}` in entry order. Reasons:
+`referenced` (kept, even when flagged abandoned), `recent` (kept, unreferenced and at most
+seven days old or of unknown age), `abandoned` and `expired` (deleted). The cache and the
+ledger live in the platform cache directory, never in the app bundle or install directory.
+The fixture is `shared/fixtures/agent/attachment-retention-v1.json`.

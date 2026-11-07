@@ -12,44 +12,6 @@ package enum RunConfigurationGenerationIntent: Sendable {
 
 @MainActor
 package final class RunFeatureModel: ObservableObject {
-    @Published package private(set) var updatingServiceExecutionID: String?
-    @Published package private(set) var serviceUpdateMessage: String?
-    @Published package private(set) var serviceUpdateSessionID: String?
-    @Published package private(set) var serviceUpdateExecutionID: String?
-
-    package func canUpdateService(_ session: RunSession) -> Bool {
-        guard session.isRunning, let target = session.javaUpdateTarget,
-              session.javaUpdateSource != nil else { return false }
-        return target.classPaths.contains {
-            URL(fileURLWithPath: $0).lastPathComponent.hasPrefix("spring-boot-devtools-")
-                && $0.hasSuffix(".jar")
-        }
-    }
-
-    package func updateService(
-        _ session: RunSession,
-        build: (JavaDebugLaunchTarget, URL) async throws -> Void
-    ) async {
-        guard updatingServiceExecutionID == nil, canUpdateService(session),
-              let target = session.javaUpdateTarget, let source = session.javaUpdateSource else { return }
-        updatingServiceExecutionID = session.executionID
-        serviceUpdateSessionID = session.id
-        serviceUpdateExecutionID = session.executionID
-        serviceUpdateMessage = "Saving and compiling service changes…"
-        defer { updatingServiceExecutionID = nil }
-        func isCurrent() -> Bool {
-            moduleSessions.contains { $0.executionID == session.executionID && $0.isRunning }
-        }
-        do {
-            try await build(target, source)
-            guard isCurrent() else { serviceUpdateMessage = nil; return }
-            serviceUpdateMessage = "Compilation finished. Check service logs for the DevTools restart. If a trigger file is configured, update it to restart."
-        } catch {
-            guard isCurrent() else { serviceUpdateMessage = nil; return }
-            serviceUpdateMessage = "Could not update service: " + error.localizedDescription
-        }
-    }
-
     private let service: RunService
     private var observation: AnyCancellable?
     @Published package var isGenerationConfirmationPresented = false
@@ -101,32 +63,37 @@ package final class RunFeatureModel: ObservableObject {
     package var runningTitle: String? { service.runningTitle }
     package var output: String { service.output }
     package var lastExitCode: Int32? { service.lastExitCode }
-    package var mavenProfiles: [MavenProfile] { service.mavenProfiles }
     package var primaryExecutionID: String? { service.primaryExecutionID }
     package var providerDebugEnded: AnyPublisher<String, Never> { service.providerDebugEnded.eraseToAnyPublisher() }
     package func prepareProviderDebug(_ configuration: RunConfiguration,
         debug: @escaping @MainActor (String) throws -> BuildLaunchOptions.Debug,
-        languageImport: @escaping @MainActor (BuildLanguageImport) async throws -> Void = { _ in },
         isCurrent: @escaping @MainActor @Sendable () -> Bool) async throws -> String {
-        try await service.prepareProviderDebug(configuration, debug: debug, languageImport: languageImport, isCurrent: isCurrent)
+        try await service.prepareProviderDebug(configuration, debug: debug, isCurrent: isCurrent)
     }
     package func isProviderDebugActive(_ operation: String) -> Bool { service.isProviderDebugActive(operation) }
     package func providerDebugProcessID(_ operation: String) -> Int32? { service.providerDebugProcessID(operation) }
     package func stopProviderDebug() { service.stopProviderDebug() }
+    package var hasPluginRun: Bool { service.hasPluginRun }
+    package var canRestartPluginRun: Bool { service.canRestartPluginRun }
+    package var pluginRunEnded: AnyPublisher<PluginRunEnd, Never> { service.pluginRunEnded.eraseToAnyPublisher() }
+    package func launchPluginRun(_ launch: PluginRunLaunch, rerun: (@MainActor () -> Void)?) throws {
+        try service.launchPluginRun(launch, rerun: rerun)
+    }
+    @discardableResult
+    package func restartPluginRun() -> Bool { service.restartPluginRun() }
+    package func isPluginRunActive(_ runID: String) -> Bool { service.isPluginRunActive(runID) }
+    package func pluginRunProcessID(_ runID: String) -> Int32? { service.pluginRunProcessID(runID) }
+    package func stopPluginRun(_ runID: String) { service.stopPluginRun(runID) }
     package var moduleSessions: [RunSession] { service.moduleSessions }
-    package var portConflicts: [RunPortConflict] { service.portConflicts }
     package var configurationStatus: ProjectRunConfigurationStatus { service.configurationStatus }
     package var requiresConfigurationGeneration: Bool { service.requiresConfigurationGeneration }
     package var configurationDiagnostics: [RunConfigurationDiagnostic] { service.configurationDiagnostics }
     package var generationState: RunConfigurationGenerationState { service.generationState }
-    package var javaDiscoveryStatus: JavaDiscoveryStatus { service.javaDiscoveryStatus }
     package var projectLoadState: ProjectLoadState { service.projectLoadState }
     package func reportGenerationProjectNotReady() { service.reportGenerationProjectNotReady() }
     package var recoveryAction: RunConfigurationRecoveryAction { service.recoveryAction }
     package var recoveryPath: String? { service.recoveryPath }
     package var configurationSaveError: String? { service.configurationSaveError }
-    package var projectToolchain: ProjectToolchainSelection { service.projectToolchain }
-    package var savedProjectToolchain: ProjectToolchainSelection? { service.savedProjectToolchain }
     package var blockingToolchainDiagnostic: RunConfigurationDiagnostic? {
         service.blockingToolchainDiagnostic(for: service.selectedConfiguration)
     }
@@ -169,35 +136,22 @@ package final class RunFeatureModel: ObservableObject {
     package func isProjectReady(for workspace: URL, snapshotID: UUID?) -> Bool { service.isProjectReady(for: workspace, snapshotID: snapshotID) }
     package func hasReadyInventory(for workspace: URL) -> Bool { service.hasReadyInventory(for: workspace) }
 
-    package func validateProviderGeneration(for configuration: RunConfiguration) throws {
-        try service.validateProviderGeneration(for: configuration)
-    }
-
     package func options(for configuration: RunConfiguration) -> RunOptions {
         service.options(for: configuration)
-    }
-
-    package func configuredServerPort(for configuration: RunConfiguration) -> Int? {
-        service.configuredServerPort(for: configuration)
     }
 
     package func source(for configuration: RunConfiguration) -> RunConfigurationSource {
         service.source(for: configuration)
     }
 
-    /// Applies the same selected configuration side effects used by Run,
-    /// including project-scoped Java runtime selection, before Debug starts.
+    /// Applies the same selected configuration side effects used by Run
+    /// before Debug starts.
     package func select(_ configuration: RunConfiguration) {
         service.select(configuration)
     }
 
     package func serviceURL(for configuration: RunConfiguration) -> URL? {
         service.serviceURL(for: configuration)
-    }
-
-    @discardableResult
-    package func saveProjectToolchain(_ toolchain: ProjectToolchainSelection) -> Bool {
-        service.saveProjectToolchain(toolchain)
     }
 
     @discardableResult
@@ -217,15 +171,8 @@ package final class RunFeatureModel: ObservableObject {
         service.resetOptions(for: configuration)
     }
 
-    @discardableResult
-    package func createConfiguration(_ draft: RunConfigurationDraft) -> Bool {
-        service.createConfiguration(draft)
-    }
-
-    package func runAllServices(
-        javaLaunches: [String: JavaDebugLaunchTarget] = [:]
-    ) {
-        service.runAllServices(javaLaunches: javaLaunches)
+    package func runAllServices() {
+        service.runAllServices()
     }
 
     package func stopAllServices() {
@@ -256,17 +203,9 @@ package final class RunFeatureModel: ObservableObject {
         await service.loadProject(at: workspaceURL, files: files, snapshotID: snapshotID)
     }
 
-    /// Adds JDT's view of the generated Java entries to the Run diagnostics.
-    package func reportJavaEntrypointFreshness(_ entrypoints: JavaEntrypoints) async {
-        await service.reportJavaEntrypointFreshness(entrypoints)
-    }
-
-    package func generateRunConfigurations(
-        javaDiscovery: JavaEntrypointDiscovery = .notJava,
-        automatic: Bool = false
-    ) async {
+    package func generateRunConfigurations(automatic: Bool = false) async {
         isGenerationConfirmationPresented = false
-        await service.generateRunConfigurations(javaDiscovery: javaDiscovery, automatic: automatic)
+        await service.generateRunConfigurations(automatic: automatic)
     }
 
     package func requestRunConfigurationGeneration(intent: RunConfigurationGenerationIntent = .identifyOnly) {
@@ -286,20 +225,14 @@ package final class RunFeatureModel: ObservableObject {
     package func unregisterLanguageRunExtension(languageID: String) {
         service.unregisterLanguageRunExtension(languageID: languageID)
     }
-    package func runSelected(
-        currentFileURL: URL?,
-        javaLaunch: JavaDebugLaunchTarget? = nil
-    ) {
-        service.runSelected(currentFileURL: currentFileURL, javaLaunch: javaLaunch)
+    package func runSelected(currentFileURL: URL?) {
+        service.runSelected(currentFileURL: currentFileURL)
     }
-    package func startConfiguration(
-        _ configuration: RunConfiguration,
-        javaLaunch: JavaDebugLaunchTarget? = nil
-    ) {
-        service.startConfiguration(configuration, javaLaunch: javaLaunch)
+    package func startConfiguration(_ configuration: RunConfiguration) {
+        service.startConfiguration(configuration)
     }
-    package func restart(javaLaunch: JavaDebugLaunchTarget? = nil) {
-        service.restart(javaLaunch: javaLaunch)
+    package func restart() {
+        service.restart()
     }
     package func stop() { service.stop() }
     package func reset() { service.reset() }
@@ -318,5 +251,3 @@ package final class ProjectDevelopmentFeatureModel {
         await runFeature.loadProject(at: workspaceURL, files: files, snapshotID: snapshotID)
     }
 }
-
-package typealias JavaRunFeatureModel = RunFeatureModel

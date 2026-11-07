@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 Performance 展示 Lithe 启动的目标 Java 进程的真实 CPU 和 JVM 堆数据。
@@ -143,7 +145,7 @@ Windows 当前没有对应 UI/采集实现，矩阵明确标记缺失。完整�
 - `macos/Sources/Lithe/Platform/MacOS/Debug/MacDebugPerformanceSampler.swift`
 - `macos/Sources/Lithe/Views/Debug/DebugPerformancePane.swift`
 - `macos/Tests/LitheTests/DebugPerformanceSamplingTests.swift`
-- `macos/Tests/LitheTests/JVMPerformanceIntegrationTests.swift`
+- 已迁出：原 `macos/Tests/LitheTests/JVMPerformanceIntegrationTests.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
 
 审核回归增加非 Maven 成功/失败/取消、停止失败后重试、隐藏期间报告成功/失败与录制
 启动失败。Gradle 真实集成测试显式设置 LITHE_TEST_GRADLE_EXECUTABLE、

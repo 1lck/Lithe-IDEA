@@ -111,10 +111,8 @@ public struct LanguageServerExtensionConfiguration: Equatable, Sendable {
     /// and still starts as a host-owned process.
     public let pluginID: String?
     /// Minimum version a discovered executable must report, for a server
-    /// started by a runtime such as `java`.
+    /// started by a runtime such as `node`.
     public let executableVersionRequirement: LanguageServerExecutableVersionRequirement?
-    /// Native host integration the provider declares, such as `jdt`.
-    public let hostIntegrationID: String?
     /// Runtime tool, such as `node`, the host starts the server with. The
     /// executable the host selects for it is also what the server's own
     /// commands resolve by name.
@@ -133,7 +131,6 @@ public struct LanguageServerExtensionConfiguration: Equatable, Sendable {
         launchSource: DeclarativeLanguageServerLaunchSource? = nil,
         pluginID: String? = nil,
         executableVersionRequirement: LanguageServerExecutableVersionRequirement? = nil,
-        hostIntegrationID: String? = nil,
         launchRuntimeTool: String? = nil
     ) {
         self.languageID = languageID
@@ -148,7 +145,6 @@ public struct LanguageServerExtensionConfiguration: Equatable, Sendable {
         self.launchSource = launchSource
         self.pluginID = pluginID ?? launchSource?.pluginID
         self.executableVersionRequirement = executableVersionRequirement
-        self.hostIntegrationID = hostIntegrationID
         self.launchRuntimeTool = launchRuntimeTool
     }
 }

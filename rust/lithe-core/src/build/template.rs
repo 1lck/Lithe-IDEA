@@ -56,8 +56,8 @@ impl Conditions {
 }
 
 /// What the request selected. `nestedProjectSelected` means a project other
-/// than the one at the build-system root, which tools such as Maven address
-/// with a project-list flag.
+/// than the one at the build-system root, which some tools address with a
+/// project-list flag instead of a working directory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(clippy::enum_variant_names)] // The names are the manifest's wire format.

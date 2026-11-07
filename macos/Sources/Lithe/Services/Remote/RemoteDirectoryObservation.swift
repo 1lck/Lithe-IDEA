@@ -134,8 +134,7 @@ final class RemoteDirectoryObservation: DirectoryChangeSource, @unchecked Sendab
                     if configuration.containsWorkspacePath(url) {
                         onlyIndex = false
                         batch.gitStateMayHaveChanged = true
-                        if !visibilityRules.isHiddenPath(url, relativeTo: configuration.workspaceRoot)
-                            || visibilityRules.isWatchedDespiteHiding(url, relativeTo: configuration.workspaceRoot) {
+                        if visibilityRules.deliversEvents(at: url, relativeTo: configuration.workspaceRoot) {
                             workspacePaths.insert(url.path)
                         }
                     }

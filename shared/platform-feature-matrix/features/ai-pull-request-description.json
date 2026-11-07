@@ -1,0 +1,30 @@
+{
+  "id": "ai-pull-request-description",
+  "area": "协作",
+  "group": "GitHub",
+  "capability": "AI 生成 Pull Request 标题与描述：Rust Core 统一证据预算、敏感文件策略、提示词与严格的 JSON 响应格式（ai.pullRequest.plan / ai.pullRequest.decode），凭据与 HTTP 留在平台",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-core/src/ai/pull_request.rs",
+      "shared/contracts/ai-generation-requests.md",
+      "shared/fixtures/ai/pull-request-description-v1.json",
+      "macos/Sources/Lithe/Core/Rust/RustAICommitPlanning.swift",
+      "macos/Sources/LitheAIAssistanceModule/Services/CommitMessageGenerationService.swift",
+      "macos/Tests/LitheTests/CommitMessageTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/github/services/pull-request-description-ai.ts",
+      "windows/tauri/src/features/github/components/github-create-view.tsx",
+      "windows/tauri/src-tauri/src/ai_commit.rs"
+    ]
+  },
+  "owner": "AI",
+  "verification": "macOS：在测试仓库的新建 PR 页面生成描述，确认标题和描述同时填入、含敏感文件（如 credentials.json）的比较被拒绝、只返回标题的响应报错。Windows：使用 AI 提交服务商在新建 PR 页面生成草稿，确认使用本地 base...head 差异并报告本地化错误。",
+  "notes": "两端统一到 macOS 原有的严格语义：只接受同时带非空 title 与 description 的 JSON，拒绝部分字段或 JSON 外的说明文字；敏感路径改用 Core 的完整清单（新增 credentials.json、auth.json、id_rsa、id_ed25519 等），并检查无文本补丁的文件；输出上限与提交信息一致为 4096（原 macOS 为 1600，推理会消耗同一额度）。Windows 改为使用 AI 提交服务商设置（原为补全服务商的行内编辑通道），不再只取前 12 个文件每个 30 行，也不再把工作区状态、已有标题与正文送给模型；Windows 暂不收集分支提交信息。Windows GitHub 后端能力当前关闭，PR 创建本身不可用，因此 Windows 标记为 partial。"
+}

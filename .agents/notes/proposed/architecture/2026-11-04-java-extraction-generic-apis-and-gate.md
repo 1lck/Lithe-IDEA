@@ -163,13 +163,13 @@ SDK：三份官方后端 SDK（Node、Java、Rust）各自增加发现、调用�
 
 ### 六、Windows legacy crate
 
-Windows 现在还通过 Core 的命令调用 Maven 和 Java 功能，而 Windows 宿主尚未实现通用插件接口，不能直接换成插件。所以 W1 新建 `windows/tauri/crates/lithe-legacy-java`（legacy crate，意为过渡用的旧功能库，尚不存在，W1 创建），把 Core 里只有 Windows 使用的 Maven 和 Java 代码搬过去：
+Windows 现在还通过 Core 的命令调用 Maven 和 Java 功能，而 Windows 宿主尚未实现通用插件接口，不能直接换成插件。所以 W1 新建 `windows/tauri/crates/lithe-legacy-tooling`（legacy crate，意为过渡用的旧功能库，尚不存在，W1 创建），把 Core 里只有 Windows 使用的 Maven 和 Java 代码搬过去：
 
 - 入口是 `try_execute(request) -> Option<String>`，命中旧命令名就处理，否则返回 `None`。`windows/tauri/src-tauri/src/core.rs` 的 `core_execute` 在调用 `execute_for_window(..., lithe_core::execute_json)` 之前，以及 `platform.rs` 的 `platform_invoke` 在 `lithe_core::execute_json` 之前，都先调它。Windows 的 TypeScript 消费者不变。
 - W2 增加会话命令，经通用的 `lsp.request`、`lsp.updateWorkspaceConfiguration`、`lsp.waitEvents` 工作。
 - 它在 Windows 自己的目录里，不在闸门的扫描根目录内，所以不进白名单；但 Windows 的 TypeScript 和 Rust 消费文件在白名单里，每项的 `issue` 填 #1495，`removeWhen` 写明删除条件。
 
-**删除条件：** Windows 宿主实现了通用接口，并能安装 `lithe-plugin-java`。到那时整个目录删除，白名单里的 Windows 项一并删除。跟踪 Issue 草稿的标题是“Windows：用 Java 插件取代 lithe-legacy-java”，用户确认后再按 `submit-lithe-issue` Skill 提交。
+**删除条件：** Windows 宿主实现了通用接口，并能安装 `lithe-plugin-java`。到那时整个目录删除，白名单里的 Windows 项一并删除。跟踪 Issue 草稿的标题是“Windows：用 Java 插件取代 lithe-legacy-tooling”，用户确认后再按 `submit-lithe-issue` Skill 提交。
 
 代价：这段时间同一份逻辑同时存在于 Java 插件和 legacy crate。证据要求是 `cargo check --manifest-path windows/tauri/src-tauri/Cargo.toml`、Windows 单元测试和 Parallels 真机冒烟。
 
@@ -219,7 +219,7 @@ A0 提交时的基线快照（以 baseline 文件为准）：
 
 | 编号 | 决定 |
 | --- | --- |
-| Q1 | 保留官方 ID `dev.lithe.plugin.java-support` 和工具短 ID `java`，从外部仓库构建 |
+| Q1 | 2026-11-05 改定：不再区分官方插件和普通插件，Java 插件和 Cargo、Maven、Gradle 一样是普通插件，ID 为 `io.github.lithe-idea.java-support`，vendor 为 `Lithe Community`，`signatureRequirement: "none"`，不再带发布者签名和 `packageTrust`，从外部仓库 [Lithe-IDEA/lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 构建，由 Lithe Store 自动收录。工具短 ID `java` 保留。E1 必须先做两件事，否则宿主会拒绝这个包，两件事都已完成：(a) `languageServers[].hostIntegration` 不再按 ID 命名空间判定官方，任何插件都可以声明（构建系统的 `hostIntegration: maven` 不变，仍只给官方命名空间，后续整体删除）；(b) 普通插件可以定义不带 `:` 的短工具 ID，`toolchains.registry` 不再接收 `verifiedOfficial`，多个已启用插件定义同一短 ID 时按“争用即不归属”处理：这些定义都不注册，结果里的 `conflicts` 列出它们，macOS 设置页为每个冲突显示一条诊断。旧 ID `dev.lithe.plugin.java-support` 按 [#1357](https://github.com/1lck/Lithe-IDEA/pull/1357) 迁移 Go 和 PHP 的做法处理：保留在 `OfficialPluginCatalog` 并填写 `communityReplacementID`，引导用户换装新 ID。这项迁移推迟到 lithe-plugin-java 发布第一个 Release 时再做，否则会把用户引向不存在的插件。在此之前 Java 仓库只发预发布 |
 | Q2 | E1 之后旧版 1.1.0 必须更新，不保留兼容翻译 |
 | Q3 | 共享前端内置的 TextMate 语法、主题、文件关联里的 Java 项，算通用语言目录数据，进白名单 |
 | Q4 | 作废：不做商店索引 v2 |

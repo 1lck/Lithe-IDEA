@@ -592,7 +592,7 @@ struct DiffToolbarGitOperations: GitOperations {
     func mergeBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
     func rebaseCurrentBranch(onto reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
     func checkoutAndRebase(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
-    func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy) -> GitProcessResult? { nil }
+    func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy, expectedBranch: String?) -> GitProcessResult? { nil }
     func pullRemoteReference(_ reference: GitReference, strategy: GitPullStrategy, at rootURL: URL) -> GitProcessResult? { nil }
     func pullPreflight(at rootURL: URL) -> GitPullPreflightState? { nil }
     func conflictMarkerPaths(at rootURL: URL) -> [String] { [] }

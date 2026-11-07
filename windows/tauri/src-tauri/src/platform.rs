@@ -146,6 +146,11 @@ pub async fn platform_invoke(
     };
     let response = tauri::async_runtime::spawn_blocking(move || {
         let _completion = completion;
+        // Same early answer as `core_execute`: the legacy Java-family commands
+        // are served by the transitional crate before Core sees them.
+        if let Some(response) = lithe_legacy_tooling::try_execute(&request) {
+            return response;
+        }
         if let Some(events) = events {
             return lithe_core::execute_json_with_events(&request, events);
         }
@@ -262,6 +267,8 @@ fn is_interactive_git(core_command: &str, command: &str) -> bool {
             | "git.workspaceCommitStep"
             | "git.commit"
             | "git.apply"
+            | "git.applyDiffBlock"
+            | "git.stageGutterChange"
             | "git.patchApply"
             | "git.shelf"
             | "git.rebaseStart"
@@ -802,22 +809,14 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             let hunk = payload
                 .remove("hunk")
                 .ok_or_else(|| "Hunk payload is required".to_string())?;
-            // A raw patch from the byte-faithful channel carries original CR
-            // and EOF markers and zero context; reconstructing from display
-            // lines would lose both. Fall back to reconstruction (which
-            // propagates its own error) only when no raw patch exists.
-            let raw_patch = hunk
+            // Only Core builds patch text: the hunk carries the byte-faithful
+            // patch Core returned with the diff, never display lines to rebuild.
+            let patch = hunk
                 .get("rawPatch")
                 .and_then(Value::as_str)
-                .filter(|value| !value.is_empty());
-            let (patch, unidiff_zero) = match raw_patch {
-                Some(raw) => (raw.to_string(), true),
-                None => (hunk_patch(&hunk)?, false),
-            };
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| "Hunk requires a Core patch".to_string())?;
             payload.insert("patch".into(), json!(patch));
-            if unidiff_zero {
-                payload.insert("unidiffZero".into(), json!(true));
-            }
             payload.insert(
                 "mode".into(),
                 // `discard` reverse-applies the worktree hunk without touching
@@ -841,39 +840,6 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
     };
 
     Ok((core_command.to_string(), Value::Object(payload)))
-}
-
-fn hunk_patch(hunk: &Value) -> Result<String, String> {
-    let path = hunk
-        .get("file_path")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| "Hunk requires file_path".to_string())?;
-    let lines = hunk
-        .get("lines")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "Hunk requires lines".to_string())?;
-    let mut patch = format!("diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n");
-    for line in lines {
-        let kind = line
-            .get("line_type")
-            .and_then(Value::as_str)
-            .unwrap_or("context");
-        let content = line
-            .get("content")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let prefix = match kind {
-            "added" => "+",
-            "removed" => "-",
-            "header" => "",
-            _ => " ",
-        };
-        patch.push_str(prefix);
-        patch.push_str(content);
-        patch.push('\n');
-    }
-    Ok(patch)
 }
 
 fn move_field(payload: &mut Map<String, Value>, from: &str, to: &str) {
@@ -2027,64 +1993,42 @@ mod tests {
     }
 
     #[test]
-    fn translates_hunk_lines_to_apply_patch() {
-        let (command, payload) = translate(
-            "git_stage_hunk",
-            json!({
-                "repoPath": "C:/work",
-                "hunk": {
-                    "file_path": "src/main.rs",
-                    "lines": [
-                        { "line_type": "header", "content": "@@ -1 +1 @@" },
-                        { "line_type": "removed", "content": "old" },
-                        { "line_type": "added", "content": "new" }
-                    ]
-                }
-            }),
-        )
-        .unwrap();
-
-        assert_eq!(command, "git.apply");
-        assert_eq!(payload["mode"], "stage");
-        assert_eq!(
-            payload["patch"],
-            "diff --git a/src/main.rs b/src/main.rs\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1 +1 @@\n-old\n+new\n"
-        );
+    fn translates_core_hunk_patches_to_apply_modes() {
+        let patch = "diff --git a/src/main.rs b/src/main.rs\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,2 +1,2 @@\n keep\n-old\r\n+new\r\n";
+        let hunk = json!({ "file_path": "src/main.rs", "lines": [], "rawPatch": patch });
+        for (name, mode) in [
+            ("git_stage_hunk", "stage"),
+            ("git_unstage_hunk", "unstage"),
+            ("git_discard_hunk", "discard"),
+        ] {
+            let (command, payload) =
+                translate(name, json!({ "repoPath": "C:/work", "hunk": hunk.clone() })).unwrap();
+            assert_eq!(command, "git.apply");
+            assert_eq!(
+                payload,
+                json!({ "root": "C:/work", "mode": mode, "patch": patch }),
+                "{name}"
+            );
+        }
     }
 
     #[test]
-    fn translates_hunk_discard_to_reverse_worktree_apply() {
-        let hunk = json!({
+    fn hunk_writes_never_rebuild_patches_from_display_lines() {
+        let display_only = json!({
             "file_path": "src/main.rs",
             "lines": [
-                { "line_type": "header", "content": "@@ -1,2 +1,2 @@" },
-                { "line_type": "context", "content": "keep" },
+                { "line_type": "header", "content": "@@ -1 +1 @@" },
                 { "line_type": "removed", "content": "old" },
                 { "line_type": "added", "content": "new" }
             ]
         });
-        let (command, payload) = translate(
-            "git_discard_hunk",
-            json!({ "repoPath": "C:/work", "hunk": hunk.clone() }),
-        )
-        .unwrap();
-
-        assert_eq!(command, "git.apply");
-        assert_eq!(
-            payload,
-            json!({
-                "root": "C:/work",
-                "mode": "discard",
-                "patch": "diff --git a/src/main.rs b/src/main.rs\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,2 +1,2 @@\n keep\n-old\n+new\n"
-            })
-        );
-
-        // Stage and unstage keep their modes when the discard arm is shared.
-        for (name, mode) in [("git_stage_hunk", "stage"), ("git_unstage_hunk", "unstage")] {
-            let (_, payload) =
-                translate(name, json!({ "repoPath": "C:/work", "hunk": hunk.clone() })).unwrap();
-            assert_eq!(payload["mode"], mode);
+        for name in ["git_stage_hunk", "git_unstage_hunk", "git_discard_hunk"] {
+            assert!(translate(
+                name,
+                json!({ "repoPath": "C:/work", "hunk": display_only.clone() })
+            )
+            .is_err());
+            assert!(translate(name, json!({ "repoPath": "C:/work" })).is_err());
         }
-        assert!(translate("git_discard_hunk", json!({ "repoPath": "C:/work" })).is_err());
     }
 }

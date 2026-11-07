@@ -3,6 +3,8 @@ import {
   type ProviderHeaders,
   type ProviderModel,
   type StreamRequest,
+  chatCompletionsFacts,
+  type ProviderRequestFacts,
 } from "./ai-provider-interface";
 
 export class GrokProvider extends AIProvider {
@@ -36,6 +38,10 @@ export class GrokProvider extends AIProvider {
       console.error(`${this.id} model fetch error:`, error);
       return [];
     }
+  }
+
+  requestFacts(): ProviderRequestFacts {
+    return chatCompletionsFacts(this.config.apiUrl);
   }
 
   buildHeaders(apiKey?: string): ProviderHeaders {

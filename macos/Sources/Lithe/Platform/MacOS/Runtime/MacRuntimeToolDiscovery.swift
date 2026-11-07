@@ -174,13 +174,6 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
                 summary: "Rust tooling (\(command)) was not found.",
                 recovery: "Install Rust with rustup and ensure Cargo's bin directory is on PATH."
             )
-        case "java-debug-adapter", "java-debug":
-            return RuntimeToolGuidance(
-                command: command,
-                displayName: "Java Debug Adapter",
-                summary: "A Java DAP adapter was not found.",
-                recovery: "Reinstall Lithe's bundled Java language and Debug Adapter resources."
-            )
         case "intelephense":
             return RuntimeToolGuidance(
                 command: command,

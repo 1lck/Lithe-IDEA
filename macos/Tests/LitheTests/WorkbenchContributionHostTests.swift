@@ -319,7 +319,7 @@ struct WorkbenchContributionHostTests {
         #expect((expected == .leftSidebar ? workbench.activeLeftToolWindow : (expected == .rightSidebar ? workbench.activeRightToolWindow : workbench.activeToolWindow)) == window)
     }
 
-    @Test(arguments: ["toggle-terminal", "toggle-problems", "toggle-git-log", "toggle-run", "toggle-tests", "toggle-debug", "spring-endpoints"])
+    @Test(arguments: ["toggle-terminal", "toggle-problems", "toggle-git-log", "toggle-run", "toggle-tests", "toggle-debug"])
     func nativeWindowCommandsReuseRegisteredActionsAndCheckedState(id: String) async throws {
         let suite = "lithe-native-window-command-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -1012,19 +1012,6 @@ struct WorkbenchContributionHostTests {
         }
     }
 
-    @Test func rebuildJavaIndexIsEnabledOnlyWithAWorkspace() throws {
-        let suite = "lithe-rebuild-index-" + UUID().uuidString
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let store = MacUserDefaultsStore(defaults: defaults), settings = AppSettings(store: store)
-        let container = MacServiceContainer(store: store, settings: settings)
-        defer { container.moduleLifecycleCoordinator.stop() }
-        let model = AppModel(settings: settings, services: container.services)
-        #expect(!model.canPerformShortcutCommand(id: "rebuild-java-index"))
-        model.workspaceSessionCoordinator.beginWorkspace(at: URL(fileURLWithPath: "/fixture/rebuild-index"))
-        #expect(model.canPerformShortcutCommand(id: "rebuild-java-index"))
-    }
-
     @Test func activationWaitsForGatedSleepWithoutReactivatingTheSleepingInstance() async throws {
         let runtime = ModuleRuntime()
         let owner = ModuleID("org.example.sleep-race")
@@ -1129,7 +1116,7 @@ struct WorkbenchContributionHostTests {
         let position = DockPosition(anchor: .right, group: .primary)
         let window = WorkbenchFeatureModel.ToolWindow(
             rawValue: DeclarativeBuildSystem.toolWindowID(pluginID: "org.example.make", buildSystemID: "make"))
-        // A build system's window docks on the right like the Maven window it replaces.
+        // A build system's window docks on the right beside the Agent pane.
         #expect(workbench.tools(in: position) == [.agent, window])
         workbench.moveContribution(window.rawValue, earlier: true)
         #expect(workbench.tools(in: position) == [window, .agent])

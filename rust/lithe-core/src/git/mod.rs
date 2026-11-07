@@ -4,12 +4,14 @@
 // until both native products can consume the same versioned contract.
 mod branch_names;
 pub(crate) mod catalog;
+mod change_targets;
 mod changelists;
 mod command_trace;
 mod commit_message_context;
 mod commit_selection;
 mod commit_state;
 mod deleted_selection;
+mod diff_blocks;
 pub(crate) mod workspace_commit;
 pub(crate) mod workspace_status;
 pub use commit_state::{inspect as commit_state, GitCommitGitlink, GitCommitState};
@@ -22,15 +24,16 @@ mod fetch;
 mod fetch_execution;
 pub(crate) mod file_context;
 mod github_checkout;
-#[allow(dead_code)]
-pub(crate) mod graph;
+mod graph;
 mod history;
 mod history_query;
+mod history_window;
 mod metadata_watch;
 mod mutations;
 mod patch_exchange;
 mod progress;
 mod rebase_session;
+mod reference_tree;
 mod remote_history;
 mod remote_process;
 mod repository_colors;
@@ -39,6 +42,7 @@ mod rollback;
 mod setup;
 mod shelf;
 mod untracked_directories;
+mod update_plan;
 
 // The response and reference types stay owned by the module; callers consume
 // them through the command contract instead of naming more shared types.
@@ -55,20 +59,28 @@ pub use setup::{
     GitConfigureIdentityRequest, GitSetupRequest,
 };
 
+pub(crate) use change_targets::command as normalize_change_targets_command;
 pub(crate) use changelists::changelists_command;
 pub(crate) use commit_message_context::commit_message_context_command;
 pub(crate) use commit_selection::prepare_commit_selection_command;
 pub(crate) use deleted_selection::reconcile_deleted_selection_command;
+#[cfg(test)]
+pub(crate) use diff_blocks::fixture_support as diff_blocks_fixture;
+pub(crate) use diff_blocks::{
+    apply_diff_block_command, plan_diff_blocks_command, stage_gutter_change_command,
+};
 pub use github_checkout::{
     checkout as checkout_pull_request, preview as checkout_pull_request_preview,
     PullRequestCheckoutPreviewRequest, PullRequestCheckoutRequest,
 };
+pub(crate) use graph::command as graph_projection_command;
 pub use history::{
     close_history_cursor, history, history_locate, history_page, references,
     GitHistoryCursorCloseRequest, GitHistoryLocateRequest, GitHistoryPageRequest,
     GitHistoryRequest, GitReferencesRequest,
 };
 pub(crate) use history_query::query_command as history_query_command;
+pub(crate) use history_window::command as history_window_command;
 pub(crate) use metadata_watch::classify_command as metadata_classification_command;
 pub use metadata_watch::{
     classify_git_metadata_change, GitMetadataChangeKind, GitMetadataEventClassification,
@@ -78,14 +90,17 @@ pub use patch_exchange::{
     apply_reviewed as apply_patch_reviewed, export as export_patch, preview as preview_patch,
     PatchApplyRequest, PatchExportRequest, PatchPreviewRequest,
 };
+pub(crate) use rebase_session::plan_preview_command as rebase_plan_preview_command;
 pub use rebase_session::{
     control as rebase_control, preview as rebase_preview, session as rebase_session,
     start as rebase_start, GitRebaseControlRequest, GitRebasePreviewRequest,
     GitRebaseSessionRequest, GitRebaseStartRequest,
 };
+pub(crate) use reference_tree::command as reference_tree_command;
 pub(crate) use repository_colors::assign_command as repository_color_assignments_command;
 pub(crate) use rollback::{rollback_plan_command, rollback_prepare_command};
 pub(crate) use shelf::shelf_command;
+pub(crate) use update_plan::command as update_plan_command;
 
 pub(crate) use rewrite::history_action_capabilities_command;
 pub use rewrite::{
@@ -790,10 +805,6 @@ pub struct GitApplyRequest {
     pub patch: String,
     /// Patch target or validation mode, including `stage`, `unstage`, and `worktree`.
     pub mode: String,
-    /// True when the patch carries zero context lines from the byte-faithful
-    /// raw-slicing channel; only then may git apply bypass the context check.
-    #[serde(default)]
-    pub unidiff_zero: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2055,10 +2066,22 @@ fn git_process_creation_flags() -> u32 {
 /// Builds a structured working-tree, staged, untracked, or commit diff.
 pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     let omit_file_patch = request.include_file_sections && request.omit_file_patch;
+    // A complete-file review prints one hunk per file. Staging that hunk would
+    // write the whole file, so Core splits it into Git-default hunks.
+    let complete_file = request.include_file_sections
+        && request.context_lines >= FULL_FILE_CONTEXT_LINES
+        && request.stash_reference.is_none();
     let mut response = diff_impl(request)?;
-    if omit_file_patch {
-        if let Some(files) = &mut response.files {
-            for file in files {
+    if let Some(files) = &mut response.files {
+        for file in files {
+            if complete_file && !file.is_binary && !file.hunks.is_empty() {
+                // Fail closed: an unsplittable section offers no writable hunk.
+                file.hunks = diff_blocks::stageable_hunks(&file.patch).unwrap_or_default();
+                if file.status == "R" {
+                    attach_rename_content_patches(&file.patch, &mut file.hunks);
+                }
+            }
+            if omit_file_patch {
                 file.patch = String::new();
             }
         }
@@ -2537,6 +2560,35 @@ fn structured_diff_from_output(output: GitProcessOutput) -> GitDiffResponse {
     }
 }
 
+/// Adds a content-only patch to every hunk of a rename section, so applying
+/// one hunk changes the target file's text without reversing the rename.
+fn attach_rename_content_patches(section: &str, hunks: &mut [GitDiffHunkResponse]) {
+    let target = section
+        .lines()
+        .take_while(|line| !line.starts_with("@@"))
+        .find(|line| line.starts_with("+++ b/") || line.starts_with("+++ \"b/"));
+    let Some(target) = target else {
+        return;
+    };
+    let old = target
+        .strip_prefix("+++ b/")
+        .map(|path| format!("--- a/{path}"))
+        .or_else(|| {
+            target
+                .strip_prefix("+++ \"b/")
+                .map(|path| format!("--- \"a/{path}"))
+        });
+    let Some(old) = old else {
+        return;
+    };
+    for hunk in hunks {
+        let marker = format!("\n{}", hunk.header);
+        if let Some(offset) = hunk.patch.find(&marker) {
+            hunk.content_patch = Some(format!("{old}\n{target}\n{}", &hunk.patch[offset + 1..]));
+        }
+    }
+}
+
 // Git owns filename decoding. Pair its ordered NUL-delimited metadata with
 // byte-preserving section boundaries, then parse each document once.
 fn structured_patch_sections(
@@ -2585,29 +2637,7 @@ fn structured_patch_sections(
                 });
             let (rows, mut hunks, lines) = parse_diff(section);
             if status == "R" {
-                let target = section
-                    .lines()
-                    .take_while(|line| !line.starts_with("@@"))
-                    .find(|line| line.starts_with("+++ b/") || line.starts_with("+++ \"b/"));
-                if let Some(target) = target {
-                    let old = target
-                        .strip_prefix("+++ b/")
-                        .map(|path| format!("--- a/{path}"))
-                        .or_else(|| {
-                            target
-                                .strip_prefix("+++ \"b/")
-                                .map(|path| format!("--- \"a/{path}"))
-                        });
-                    if let Some(old) = old {
-                        for hunk in &mut hunks {
-                            let marker = format!("\n{}", hunk.header);
-                            if let Some(offset) = hunk.patch.find(&marker) {
-                                hunk.content_patch =
-                                    Some(format!("{old}\n{target}\n{}", &hunk.patch[offset + 1..]));
-                            }
-                        }
-                    }
-                }
+                attach_rename_content_patches(section, &mut hunks);
             }
             files.push(GitDiffFileResponse {
                 path: identity.path,
@@ -2723,18 +2753,24 @@ pub fn apply(request: GitApplyRequest) -> Result<GitCommandResponse, CoreError> 
             "--whitespace=nowarn".to_string(),
         ],
         "discard" => {
-            let mut args = vec![
+            // A hunk rollback rewrites worktree bytes; a clean/smudge filter or
+            // working-tree encoding could change bytes the patch never saw.
+            let mut paths = Vec::new();
+            for file in patch_exchange::ordered_patch_files(&root, &request.patch)? {
+                paths.extend(file.original_path);
+                paths.push(file.path);
+            }
+            if !diff_blocks::worktree_attributes_safe(&root, &paths)? {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    diff_blocks::HUNK_ROLLBACK_UNSAFE,
+                ));
+            }
+            vec![
                 "apply".to_string(),
                 "--reverse".to_string(),
                 "--whitespace=nowarn".to_string(),
-            ];
-            // Only the byte-faithful channel produces zero-context hunks;
-            // applying the flag universally would weaken the context safety
-            // check for every well-formed discard patch too.
-            if request.unidiff_zero {
-                args.push("--unidiff-zero".to_string());
-            }
-            args
+            ]
         }
         // Reconstruct a saved index snapshot and its worktree in one step.
         // `--cached` alone would leave the worktree at HEAD, which makes a
@@ -3649,6 +3685,7 @@ pub fn pull_preflight(
             behind: 0,
             diverged: false,
             has_local_changes: false,
+            configured_strategy: None,
         });
     }
     let upstream = upstream.output.trim().to_string();
@@ -3675,7 +3712,7 @@ pub fn pull_preflight(
     let ahead = fields.next().and_then(|v| v.parse().ok()).unwrap_or(0);
 
     let dirty = readonly_command(GitCommandRequest {
-        root,
+        root: root.clone(),
         arguments: vec![
             "status".to_string(),
             "--porcelain".to_string(),
@@ -3696,7 +3733,37 @@ pub fn pull_preflight(
         behind,
         diverged: ahead > 0 && behind > 0,
         has_local_changes: !dirty.output.trim().is_empty(),
+        configured_strategy: configured_pull_strategy(&root)?,
     })
+}
+
+/// The pull strategy Git is explicitly configured for, or `None` when neither
+/// `pull.rebase` nor `pull.ff` says anything. `git.updatePlan` falls back to
+/// fast-forward only in that case.
+fn configured_pull_strategy(root: &str) -> Result<Option<&'static str>, CoreError> {
+    let rebase = read_git_config_value(root, "pull.rebase")?;
+    let fast_forward = read_git_config_value(root, "pull.ff")?;
+    let enabled = |value: &Option<String>, accepted: &[&str]| {
+        value
+            .as_deref()
+            .is_some_and(|value| accepted.contains(&value.to_ascii_lowercase().as_str()))
+    };
+    Ok(
+        if enabled(
+            &rebase,
+            &["true", "yes", "on", "1", "interactive", "merges"],
+        ) {
+            Some("rebase")
+        } else if enabled(&fast_forward, &["only"]) {
+            Some("ffOnly")
+        } else if enabled(&fast_forward, &["false", "no", "off", "0"])
+            || enabled(&rebase, &["false", "no", "off", "0"])
+        {
+            Some("merge")
+        } else {
+            None
+        },
+    )
 }
 
 /// Resolves the Git directory once, honoring worktrees and submodules where
@@ -8040,140 +8107,6 @@ struct DiffHunkRecord {
 /// `git stash pop` consumed its entry or kept it after a conflict.
 const AUTO_STASH_MESSAGE: &str = "lithe: auto-stash before checkout";
 
-/// Largest `removed.len() * added.len()` product we will align. Beyond this the
-/// quadratic table costs more than the pairing is worth, so we fall back to
-/// positional pairing.
-const MAX_ALIGNMENT_CELLS: usize = 4096;
-
-/// Minimum Dice coefficient for two lines to be considered a modification of
-/// each other rather than an unrelated delete plus insert.
-const MIN_PAIR_SIMILARITY: f32 = 0.5;
-
-/// Character-bigram Dice coefficient over the trimmed lines, in [0, 1].
-///
-/// Bigrams tolerate the reindentation and small edits that dominate real diffs,
-/// where a prefix/suffix comparison would score a mid-line change at zero.
-fn line_similarity(left: &str, right: &str) -> f32 {
-    let left = left.trim();
-    let right = right.trim();
-    if left == right {
-        return 1.0;
-    }
-    if left.is_empty() || right.is_empty() {
-        return 0.0;
-    }
-
-    let bigrams = |text: &str| -> Vec<[char; 2]> {
-        let chars: Vec<char> = text.chars().collect();
-        if chars.len() < 2 {
-            // Treat a single character as one bigram against itself so short
-            // lines can still match rather than always scoring zero.
-            return vec![[chars[0], chars[0]]];
-        }
-        chars.windows(2).map(|pair| [pair[0], pair[1]]).collect()
-    };
-
-    let left_bigrams = bigrams(left);
-    let mut right_bigrams = bigrams(right);
-    let total = left_bigrams.len() + right_bigrams.len();
-
-    // Multiset intersection: each right bigram is consumed by at most one match.
-    let mut shared = 0usize;
-    for bigram in &left_bigrams {
-        if let Some(position) = right_bigrams.iter().position(|other| other == bigram) {
-            right_bigrams.swap_remove(position);
-            shared += 1;
-        }
-    }
-
-    (2 * shared) as f32 / total as f32
-}
-
-/// Pairs removals with additions, then emits one row per pair.
-///
-/// Positional pairing forced `removed[i]` onto `added[i]` regardless of content,
-/// so deleting 3 lines and adding 5 unrelated ones produced three bogus
-/// "changed" rows. This aligns the two blocks by similarity instead, keeping the
-/// matching non-crossing so line numbers stay monotonic in the rendered list.
-fn pair_diff_entries(
-    removed: &[DiffEntry],
-    added: &[DiffEntry],
-) -> Vec<(Option<usize>, Option<usize>)> {
-    let rows = removed.len();
-    let columns = added.len();
-
-    // A lone removal against a lone addition has no competing alignment, so it
-    // reads as a modification however dissimilar the two lines are. Applying the
-    // similarity floor here would split every single-line edit into a delete
-    // plus an insert.
-    if rows == 1 && columns == 1 {
-        return vec![(Some(0), Some(0))];
-    }
-
-    if rows == 0 || columns == 0 || rows * columns > MAX_ALIGNMENT_CELLS {
-        return (0..rows.max(columns))
-            .map(|index| {
-                (
-                    if index < rows { Some(index) } else { None },
-                    if index < columns { Some(index) } else { None },
-                )
-            })
-            .collect();
-    }
-
-    // score[i][j] = best total similarity aligning removed[i..] with added[j..].
-    let mut score = vec![vec![0f32; columns + 1]; rows + 1];
-    for i in (0..rows).rev() {
-        for j in (0..columns).rev() {
-            let skip_removal = score[i + 1][j];
-            let skip_addition = score[i][j + 1];
-            let best_skip = skip_removal.max(skip_addition);
-
-            let similarity = line_similarity(&removed[i].text, &added[j].text);
-            let paired = if similarity >= MIN_PAIR_SIMILARITY {
-                similarity + score[i + 1][j + 1]
-            } else {
-                f32::NEG_INFINITY
-            };
-
-            score[i][j] = paired.max(best_skip);
-        }
-    }
-
-    let mut pairs = Vec::with_capacity(rows.max(columns));
-    let (mut i, mut j) = (0usize, 0usize);
-    while i < rows && j < columns {
-        let similarity = line_similarity(&removed[i].text, &added[j].text);
-        let paired = if similarity >= MIN_PAIR_SIMILARITY {
-            similarity + score[i + 1][j + 1]
-        } else {
-            f32::NEG_INFINITY
-        };
-
-        if paired >= score[i + 1][j] && paired >= score[i][j + 1] {
-            pairs.push((Some(i), Some(j)));
-            i += 1;
-            j += 1;
-        } else if score[i + 1][j] >= score[i][j + 1] {
-            pairs.push((Some(i), None));
-            i += 1;
-        } else {
-            pairs.push((None, Some(j)));
-            j += 1;
-        }
-    }
-    while i < rows {
-        pairs.push((Some(i), None));
-        i += 1;
-    }
-    while j < columns {
-        pairs.push((None, Some(j)));
-        j += 1;
-    }
-
-    pairs
-}
-
 fn without_one_trailing_cr(value: &str) -> &str {
     value.strip_suffix('\r').unwrap_or(value)
 }
@@ -8184,7 +8117,9 @@ fn flush_diff_changes(
     added: &mut Vec<DiffEntry>,
     hunk_id: Option<&str>,
 ) {
-    for (left_index, right_index) in pair_diff_entries(removed, added) {
+    let removed_text: Vec<&str> = removed.iter().map(|entry| entry.text.as_str()).collect();
+    let added_text: Vec<&str> = added.iter().map(|entry| entry.text.as_str()).collect();
+    for (left_index, right_index) in crate::diff::pair_lines(&removed_text, &added_text) {
         let left = left_index.map(|index| &removed[index]);
         let right = right_index.map(|index| &added[index]);
         let kind = match (left.is_some(), right.is_some()) {
@@ -8364,6 +8299,8 @@ fn parse_diff(
                 header: record.header,
                 patch,
                 content_patch: None,
+                line_start: None,
+                line_end: None,
             }
         })
         .collect();
@@ -8676,39 +8613,6 @@ pub(crate) fn ignored_paths(
 /// below it keeps large reactors from failing to start the query.
 const LS_FILES_PATHSPEC_BUDGET: usize = 16 * 1024;
 
-/// Returns the entries of `candidates` that the Git repository enclosing
-/// `directory` does not track.
-///
-/// Candidates are paths relative to `directory` with `/` separators. `None`
-/// means Git could not answer — `directory` is outside any work tree, the
-/// repository is unreadable, or Git is unavailable — and callers must treat
-/// every candidate as possibly owned by the user.
-pub(crate) fn untracked_candidates(directory: &Path, candidates: &[String]) -> Option<Vec<String>> {
-    let mut tracked = HashSet::new();
-    for batch in pathspec_batches(candidates, LS_FILES_PATHSPEC_BUDGET) {
-        let mut arguments = vec!["--literal-pathspecs", "ls-files", "-z", "--"];
-        arguments.extend(batch.iter().map(String::as_str));
-        let output = run_git(directory, &arguments).ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        tracked.extend(
-            output
-                .stdout
-                .split(|byte| *byte == 0)
-                .filter(|record| !record.is_empty())
-                .map(|record| String::from_utf8_lossy(record).into_owned()),
-        );
-    }
-    Some(
-        candidates
-            .iter()
-            .filter(|candidate| !tracked.contains(candidate.as_str()))
-            .cloned()
-            .collect(),
-    )
-}
-
 /// Splits `paths` into consecutive non-empty batches whose summed byte length
 /// stays within `budget`; a single longer path forms its own batch.
 fn pathspec_batches(paths: &[String], budget: usize) -> Vec<&[String]> {
@@ -8870,10 +8774,9 @@ fn relative_or_absolute(path: &Path, root: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        annotation_message_from_tag_object, line_similarity, pair_diff_entries, parse_commit,
-        parse_commit_lookup, parse_diff, pathspec_batches, simplified_canonical_path,
-        structured_diff_from_output, DiffEntry, GitCommandInvocation, GitCommandResponse,
-        GitProcessOutput, MAX_ALIGNMENT_CELLS,
+        annotation_message_from_tag_object, parse_commit, parse_commit_lookup, parse_diff,
+        pathspec_batches, simplified_canonical_path, structured_diff_from_output,
+        GitCommandInvocation, GitCommandResponse, GitProcessOutput,
     };
     use crate::protocol::{
         CoreError, ErrorCode, GitCommitLookupResponse, GitCommitResponse, GitHistoryPageResponse,
@@ -9366,81 +9269,6 @@ mod tests {
         assert_eq!(response.stdout, " M README.md\n");
         assert_eq!(response.stderr, "");
         assert_eq!(response.exit_code, 0);
-    }
-
-    fn entries(texts: &[&str]) -> Vec<DiffEntry> {
-        texts
-            .iter()
-            .enumerate()
-            .map(|(index, text)| DiffEntry {
-                number: index + 1,
-                text: (*text).to_string(),
-            })
-            .collect()
-    }
-
-    #[test]
-    fn similar_lines_pair_even_when_positions_differ() {
-        let removed = entries(&["let total = compute(a, b);"]);
-        let added = entries(&["// recompute the total", "let total = compute(a, b, c);"]);
-
-        // Positional pairing would have matched the comment to the statement.
-        assert_eq!(
-            pair_diff_entries(&removed, &added),
-            vec![(None, Some(0)), (Some(0), Some(1))]
-        );
-    }
-
-    #[test]
-    fn unrelated_lines_stay_separate_deletions_and_insertions() {
-        let removed = entries(&["import Foundation", "import AppKit"]);
-        let added = entries(&["let x = 1", "let y = 2", "let z = 3"]);
-
-        // Nothing clears the similarity floor, so no row is labelled "changed".
-        let pairs = pair_diff_entries(&removed, &added);
-        assert!(pairs
-            .iter()
-            .all(|(left, right)| left.is_none() || right.is_none()));
-        assert_eq!(pairs.len(), 5);
-    }
-
-    #[test]
-    fn pairing_keeps_line_numbers_monotonic() {
-        let removed = entries(&["alpha one", "beta two", "gamma three"]);
-        let added = entries(&["gamma three!", "alpha one!", "beta two!"]);
-
-        // A crossing match would scramble line numbers in the rendered list.
-        let pairs = pair_diff_entries(&removed, &added);
-        let matched: Vec<(usize, usize)> = pairs
-            .iter()
-            .filter_map(|(left, right)| left.zip(*right))
-            .collect();
-        assert!(matched
-            .windows(2)
-            .all(|pair| pair[0].0 < pair[1].0 && pair[0].1 < pair[1].1));
-    }
-
-    #[test]
-    fn oversized_blocks_fall_back_to_positional_pairing() {
-        let text: Vec<String> = (0..(MAX_ALIGNMENT_CELLS + 1))
-            .map(|index| format!("line {index}"))
-            .collect();
-        let refs: Vec<&str> = text.iter().map(String::as_str).collect();
-        let removed = entries(&refs);
-        let added = entries(&refs[..2]);
-
-        let pairs = pair_diff_entries(&removed, &added);
-        assert_eq!(pairs.len(), removed.len());
-        assert_eq!(pairs[0], (Some(0), Some(0)));
-        assert_eq!(pairs[1], (Some(1), Some(1)));
-        assert_eq!(pairs[2], (Some(2), None));
-    }
-
-    #[test]
-    fn similarity_scores_reindentation_as_a_near_match() {
-        let score = line_similarity("    return value", "\t\treturn value");
-        assert_eq!(score, 1.0);
-        assert_eq!(line_similarity("abc", ""), 0.0);
     }
 
     #[test]

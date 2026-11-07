@@ -3,6 +3,10 @@ import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-works
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { frontendTrace } from "@/utils/frontend-trace";
+import { createTranslator } from "@/i18n/locale";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { mergeTestOutcomes } from "@/features/run/api/test-outcome-merge-api";
+import { resolveTestRunOutcome } from "@/features/run/api/test-run-outcome-api";
 import {
   createMavenDependencyPlan,
   createMavenLaunchPlan,
@@ -75,6 +79,8 @@ export interface MavenStoreDependencies {
   parseMavenDiagnostics: typeof parseMavenDiagnostics;
   readMavenDependencies: typeof readMavenDependencies;
   parseMavenTestResults: typeof parseMavenTestResults;
+  mergeTestOutcomes: typeof mergeTestOutcomes;
+  resolveTestRunOutcome: typeof resolveTestRunOutcome;
   removeMavenDependencyOutput: typeof removeMavenDependencyOutput;
   resolveEffectiveMavenExecutable: typeof resolveEffectiveMavenExecutable;
   resolveMavenLaunch: typeof resolveMavenLaunch;
@@ -98,6 +104,8 @@ const defaultMavenStoreDependencies: MavenStoreDependencies = {
   parseMavenDiagnostics,
   readMavenDependencies,
   parseMavenTestResults,
+  mergeTestOutcomes,
+  resolveTestRunOutcome,
   removeMavenDependencyOutput,
   resolveEffectiveMavenExecutable,
   resolveMavenLaunch,
@@ -381,24 +389,31 @@ export function mavenTestReportsRequest(
   };
 }
 
-/** A method run replaces only that method; class runs replace the class and nested classes. */
-export function mergeMavenTestOutcomes(
+const mavenTestOutcomeId = (testCase: MavenTestCase) => `${testCase.className}#${testCase.method}`;
+
+/**
+ * Merges a Maven run into the stored outcomes through Core. This adapter owns
+ * the Java naming: a method run covers exactly that method of the ran classes;
+ * a class run covers the class and its binary-named nested classes
+ * (`Outer$Inner`), which Core only sees as the prefixes `Outer#` and `Outer$`.
+ */
+export async function mergeMavenTestOutcomes(
+  merge: MavenStoreDependencies["mergeTestOutcomes"],
   previous: readonly MavenTestCase[],
   ranClasses: readonly string[],
   cases: readonly MavenTestCase[],
   requestedMethod?: string,
-): MavenTestCase[] {
-  const ran = (className: string) =>
-    ranClasses.some(
-      (selected) => className === selected || className.startsWith(`${selected}$`),
-    );
-  return [
-    ...previous.filter((testCase) => requestedMethod
-      ? !ranClasses.includes(testCase.className) || testCase.method !== requestedMethod
-      : !ran(testCase.className)),
-    ...cases.filter((testCase) => !requestedMethod ||
-      (ranClasses.includes(testCase.className) && testCase.method === requestedMethod)),
-  ];
+): Promise<MavenTestCase[]> {
+  const { entries } = await merge({
+    previous: previous.map(mavenTestOutcomeId),
+    incoming: cases.map(mavenTestOutcomeId),
+    scope: requestedMethod
+      ? { ids: ranClasses.map((className) => `${className}#${requestedMethod}`) }
+      : { prefixes: ranClasses.flatMap((className) => [`${className}#`, `${className}$`]) },
+  });
+  return entries.map((entry) =>
+    entry.source === "previous" ? previous[entry.index] : cases[entry.index],
+  );
 }
 
 function mavenTestGoals(selector: string): string[] {
@@ -1410,31 +1425,52 @@ export const createMavenStore = (
             void (reports
               ? dependencies.parseMavenTestResults(root, output, reports)
               : dependencies.parseMavenTestResults(root, output))
-              .then((testResults) => {
+              .then(async (testResults) => {
                 if (diagnosticsRevision === revision && get().root === root && reports) {
-                  set({
-                    testOutcomes: mergeMavenTestOutcomes(
-                      get().testOutcomes,
-                      reports.classes,
-                      testResults.testCases ?? [],
-                      testRun.selector.split("#")[1],
-                    ),
-                  });
+                  const testOutcomes = await mergeMavenTestOutcomes(
+                    dependencies.mergeTestOutcomes,
+                    get().testOutcomes,
+                    reports.classes,
+                    testResults.testCases ?? [],
+                    testRun.selector.split("#")[1],
+                  );
+                  if (diagnosticsRevision === revision && get().root === root) set({ testOutcomes });
                 }
-                if (diagnosticsRevision === revision && get().root === root) {
-                  const noTestsMatched = exitCode === 0 && testResults.testsRun === 0;
-                  if (noTestsMatched && testRun) {
-                    const message = `No tests matched selector "${testRun.selector}".`;
+                if (diagnosticsRevision !== revision || get().root !== root) return;
+                set({ testResults });
+                // Core owns the verdict; a run that executed no selected test fails on
+                // both platforms instead of passing on exit code 0.
+                return dependencies
+                  .resolveTestRunOutcome({
+                    termination: { kind: "exited", exitCode },
+                    scope: testRun.selector.includes("#") ? "case" : "suite",
+                    summary: {
+                      total: testResults.testsRun,
+                      passed: testResults.passed,
+                      failed: testResults.failures,
+                      errors: testResults.errors,
+                      skipped: testResults.skipped,
+                    },
+                  })
+                  .then((verdict) => {
+                    if (diagnosticsRevision !== revision || get().root !== root) return;
+                    if (verdict.outcome !== "noTestsMatched" && verdict.outcome !== "noTestsFound") {
+                      if (!verdict.success) set({ taskStatus: "failed" });
+                      return;
+                    }
+                    const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+                    const message = t(
+                      verdict.outcome === "noTestsMatched"
+                        ? "tests.outcome.noTestsMatched"
+                        : "tests.outcome.noTestsFound",
+                    );
                     set({
                       testResults: { ...testResults, success: false },
                       taskStatus: "failed",
                       taskError: message,
                       output: trimOutput(`${get().output}${get().output.endsWith("\n") ? "" : "\n"}${message}\n`),
                     });
-                  } else {
-                    set({ testResults });
-                  }
-                }
+                  });
               })
               .catch((error) => {
                 if (diagnosticsRevision !== revision || get().root !== root) return;

@@ -23,7 +23,7 @@ struct ExternalDebugAdapterView: View {
         VStack(alignment: .leading, spacing: 14) {
             LitheSettingsLabel(
                 Text("Connect to Debug Adapter"),
-                info: L10n.string("Connect to an already running DAP server using the active file's installed debugger. This is not a JVM JDWP or gdbserver port. No proxy or tunnel is created.")
+                info: L10n.string("Connect to an already running DAP server using the active file's installed debugger. This is not a gdbserver port. No proxy or tunnel is created.")
             )
             .font(LitheTheme.uiFont(size: 14, weight: .semibold))
             HStack(alignment: .top, spacing: 10) {

@@ -1,4 +1,6 @@
 import { useFileClipboardStore } from "@/features/file-explorer/stores/file-explorer-clipboard.store";
+import { migrateWorkspaceDirectoryMarks } from "@/features/file-explorer/stores/directory-marks";
+import { relocateLocalHistory } from "@/features/local-history/api/local-history-api";
 import {
   tryPasteJavaClassFromSystemClipboard,
   type CreateFileInDirectory,
@@ -11,6 +13,8 @@ import {
 export async function pasteIntoExplorerDirectory(options: {
   targetDirectory: string;
   createFileInDirectory?: CreateFileInDirectory;
+  /** Workspace roots whose directory rules follow moved directories (cut and paste). */
+  workspaceRoots?: readonly string[];
   refreshDirectory?: (path: string, options?: { force?: boolean }) => void;
   onJavaClassCreated?: (fileName: string) => void;
   onJavaClassFailed?: (error: unknown) => void;
@@ -21,7 +25,22 @@ export async function pasteIntoExplorerDirectory(options: {
   const clipboardActions = useFileClipboardStore.getState().actions;
 
   if (clipboard) {
-    await clipboardActions.paste(targetDirectory);
+    const pasted = await clipboardActions.paste(targetDirectory);
+    if (clipboard.operation === "cut") {
+      // A cut moves the files, so their retained history and directory rules move with them.
+      for (const entry of pasted) {
+        try {
+          await relocateLocalHistory(entry.source_path, entry.destination_path);
+          await migrateWorkspaceDirectoryMarks(
+            options.workspaceRoots ?? [],
+            entry.source_path,
+            entry.destination_path,
+          );
+        } catch (error) {
+          console.warn("Failed to carry history and directory rules to the pasted path:", error);
+        }
+      }
+    }
     refreshDirectory?.(targetDirectory, { force: true });
     return "files";
   }

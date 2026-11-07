@@ -510,7 +510,8 @@ struct AgentActivityPresentationTests {
 
     private func editedFile(path: String = "a.txt") -> AgentConversationMessage {
         var result = AgentConversationMessage(id: "edit-\(path)", role: .tool, text: "Edit \(path)", toolStatus: .completed)
-        result.toolDetails.merge(["kind": "edit", "content": [["type": "diff", "path": path, "oldText": "before", "newText": "after"]]])
+        result.toolDetails.merge((["kind": "edit"] as [String: Any])
+            .merging(AgentEditEvidenceTestSupport.diffContent(path: path, old: "before", new: "after")) { $1 })
         return result
     }
 

@@ -197,45 +197,6 @@ fn remote_build_detects_a_root_opened_through_a_host_symbolic_link() {
     );
 }
 
-#[test]
-fn remote_maven_build_reads_reactor_and_current_host_test_reports() {
-    let host = HostFixture::new();
-    let root = host.root.join("host");
-    let placeholder = host.root.join("placeholder");
-    std::fs::create_dir_all(root.join("child/target/surefire-reports")).unwrap();
-    std::fs::write(root.join("pom.xml"), "<project><modelVersion>4.0.0</modelVersion><groupId>fixture</groupId><artifactId>parent</artifactId><version>1</version><packaging>pom</packaging><modules><module>child</module></modules></project>").unwrap();
-    std::fs::write(root.join("child/pom.xml"), "<project><modelVersion>4.0.0</modelVersion><parent><groupId>fixture</groupId><artifactId>parent</artifactId><version>1</version></parent><artifactId>child</artifactId></project>").unwrap();
-    std::fs::write(root.join("child/target/surefire-reports/TEST-Fixture.xml"), "<testsuite name=\"Fixture\" tests=\"1\"><testcase classname=\"Fixture\" name=\"hostTest\" time=\"0.25\"/></testsuite>").unwrap();
-    let manifest: Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../shared/contracts/plugins/v1/fixtures/build-systems/build-host-integration.plugin.json"
-    )))
-    .unwrap();
-    let detected = host.request(
-        "build.detect",
-        json!({"workspaceRoot": placeholder,
-        "plugins": [{"manifest": manifest}], "options": {}}),
-    );
-    assert_eq!(detected["status"], "ok", "{detected}");
-    let projects = detected["detection"]["instances"][0]["model"]["projects"]
-        .as_array()
-        .unwrap();
-    assert!(
-        projects.iter().any(|project| project["path"] == "child"),
-        "{detected}"
-    );
-    let call = |not_before| {
-        host.request("build.decodeTestResults", json!({"manifest": manifest,
-        "buildSystemID": "maven", "workspaceRoot": placeholder, "request": {"workspaceRoot": placeholder,
-            "root": ".", "projects": [".", "child"], "output": "", "notBeforeMillis": not_before}}))
-    };
-    let current = call(0);
-    assert_eq!(current["status"], "ok", "{current}");
-    assert!(current.to_string().contains("hostTest"), "{current}");
-    let stale = call(u64::MAX / 2);
-    assert!(!stale.to_string().contains("hostTest"), "{stale}");
-}
-
 impl Drop for HostFixture {
     fn drop(&mut self) {
         let _ = crate::execute_json(&json!({
@@ -329,8 +290,8 @@ fn remote_search_reads_host_content_and_applies_incremental_updates_without_loca
     let host = HostFixture::new();
     std::fs::create_dir(host.root.join("host/src")).unwrap();
     std::fs::write(
-        host.root.join("host/src/RemoteName.java"),
-        "class RemoteName { void remoteMethod() {} }\n",
+        host.root.join("host/src/RemoteName.txt"),
+        "RemoteName remoteMethod\n",
     )
     .unwrap();
     // Warm the same URL locally first: host identity must separate its empty index.
@@ -345,24 +306,20 @@ fn remote_search_reads_host_content_and_applies_incremental_updates_without_loca
     assert_eq!(local["ok"], true, "{local}");
     assert_eq!(local["data"]["matches"], json!([]));
     let found = host.call("workspace.searchEverywhere", json!({"query": "RemoteName"}));
-    for kind in ["file", "type", "content"] {
+    for kind in ["file", "content"] {
         assert!(
             found["matches"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|item| item["kind"] == kind && item["path"] == "src/RemoteName.java"),
+                .any(|item| item["kind"] == kind && item["path"] == "src/RemoteName.txt"),
             "{kind}: {found}"
         );
     }
-    std::fs::write(
-        host.root.join("host/src/RemoteName.java"),
-        "class ChangedName {}\n",
-    )
-    .unwrap();
+    std::fs::write(host.root.join("host/src/RemoteName.txt"), "ChangedName\n").unwrap();
     host.call(
         "workspace.searchIndex.update",
-        json!({"paths": ["src/RemoteName.java"]}),
+        json!({"paths": ["src/RemoteName.txt"]}),
     );
     let changed = host.call("workspace.search", json!({"query": "ChangedName"}));
     assert!(
@@ -370,13 +327,13 @@ fn remote_search_reads_host_content_and_applies_incremental_updates_without_loca
             .as_array()
             .unwrap()
             .iter()
-            .any(|item| item["path"] == "src/RemoteName.java"),
+            .any(|item| item["path"] == "src/RemoteName.txt"),
         "{changed}"
     );
     let missing = host.call("workspace.search", json!({"query": "remoteMethod"}));
     assert_eq!(missing["matches"], json!([]));
-    let read = host.call("file.read", json!({"path": "src/RemoteName.java"}));
-    assert_eq!(read["text"], "class ChangedName {}\n");
+    let read = host.call("file.read", json!({"path": "src/RemoteName.txt"}));
+    assert_eq!(read["text"], "ChangedName\n");
     host.call(
         "file.write",
         json!({"path": "written.txt", "text": "remote write\n"}),
@@ -793,7 +750,7 @@ fn shared_run_scan_reads_the_host_tree_and_stops_when_the_link_drops() {
     let remote = host.root.join("host");
     std::fs::create_dir_all(remote.join("service/api")).unwrap();
     std::fs::write(remote.join("package.json"), "{}").unwrap();
-    std::fs::write(remote.join("service/pom.xml"), "<project/>").unwrap();
+    std::fs::write(remote.join("service/tool-a.toml"), "").unwrap();
     let workspace = serde_json::from_value(
         json!({"sessionId": host.id, "localRoot": local, "remoteRoot": remote}),
     )
@@ -816,7 +773,7 @@ fn shared_run_scan_reads_the_host_tree_and_stops_when_the_link_drops() {
         files,
         [
             (std::path::PathBuf::new(), vec!["package.json".to_owned()]),
-            ("service".into(), vec!["pom.xml".to_owned()]),
+            ("service".into(), vec!["tool-a.toml".to_owned()]),
             ("service/api".into(), Vec::new()),
         ]
     );
@@ -1041,13 +998,13 @@ fn plugin_protocol_maps_owned_uris_without_rewriting_source_text() {
     .unwrap();
     let _scope = super::super::workspace::Scope::begin(Some(workspace), "lsp.startServer").unwrap();
     let owner = super::super::workspace::current().unwrap();
-    let local = url::Url::from_file_path(host.root.join("placeholder/a space.java"))
+    let local = url::Url::from_file_path(host.root.join("placeholder/a space.txt"))
         .unwrap()
         .to_string();
-    let remote = url::Url::from_file_path(host.root.join("host/a space.java"))
+    let remote = url::Url::from_file_path(host.root.join("host/a space.txt"))
         .unwrap()
         .to_string();
-    let external_path = host.root.join("outside/a space.java");
+    let external_path = host.root.join("outside/a space.txt");
     let external_uri = url::Url::from_file_path(&external_path)
         .unwrap()
         .to_string();
@@ -1063,7 +1020,7 @@ fn plugin_protocol_maps_owned_uris_without_rewriting_source_text() {
     );
     assert_eq!(owner.map_uri(&external_local, true), Some(external_uri));
     let value = json!({"method": "textDocument/didOpen", "params": {"textDocument": {"uri": local,
-        "text": format!("// {local}"), "languageId": "java", "version": 1}}});
+        "text": format!("// {local}"), "languageId": "plaintext", "version": 1}}});
     let mapped: Value = serde_json::from_str(
         &crate::lsp::interface::remote_process::map_message(&owner, &value.to_string(), true, None)
             .unwrap(),

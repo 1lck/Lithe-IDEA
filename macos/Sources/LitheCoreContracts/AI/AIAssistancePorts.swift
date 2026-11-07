@@ -32,6 +32,8 @@ public struct AICommitRequestPlan: Sendable {
 public protocol AICommitPlanning: Sendable {
     func planCommit(input: CommitMessageInput, settings: CommitMessageAISettings, provider: AIProviderProfile) throws -> AICommitRequestPlan
     func decodeCommitResponse(protocolName: CommitMessageAPIProtocol, response: Data, includeBody: Bool) throws -> String
+    func planPullRequest(input: PullRequestDescriptionInput, settings: CommitMessageAISettings, provider: AIProviderProfile) throws -> AICommitRequestPlan
+    func decodePullRequestResponse(protocolName: CommitMessageAPIProtocol, response: Data) throws -> PullRequestDescriptionOutput
 }
 
 public protocol AIProviderCredentialResolver: Sendable {

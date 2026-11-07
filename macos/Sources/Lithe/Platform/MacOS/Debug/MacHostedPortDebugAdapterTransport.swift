@@ -3,9 +3,9 @@ import Foundation
 import LitheCoreContracts
 
 /// Connects the macOS product to a debug adapter hosted inside a language
-/// server, such as the Java Debug Server inside JDT LS. Language server
-/// activation stays in the language module and DAP state stays in Core; this
-/// transport owns only asynchronous port discovery and the native TCP socket.
+/// server process. Language server activation stays in the language module and
+/// DAP state stays in Core; this transport owns only asynchronous port
+/// discovery and the native TCP socket.
 @MainActor
 final class MacHostedPortDebugAdapterTransport: DebugAdapterDrainingTransport {
     enum TransportError: LocalizedError {
@@ -61,7 +61,7 @@ final class MacHostedPortDebugAdapterTransport: DebugAdapterDrainingTransport {
             },
             core: core, logSink: logSink,
             deadlineScheduler: deadlineScheduler,
-            // A cold JDT/project import is endpoint discovery, not a TCP
+            // A cold project import in the hosting language server is endpoint discovery, not a TCP
             // connect. Keep it bounded without applying the direct-host budget;
             // the connect to the discovered port keeps the default short budget.
             limits: .init(discoveryMilliseconds: 120_000),

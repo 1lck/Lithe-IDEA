@@ -621,6 +621,18 @@ private final class RetainedRollbackStore: McpConfigurationStore {
         throw McpConfigurationError.unavailable
     }
 
+    func librarySnapshot(_ files: [McpLibraryFileInput]) throws -> McpLibrarySnapshot {
+        throw McpConfigurationError.unavailable
+    }
+
+    func validateDraft(_ draft: McpDraftPayload) throws -> McpDraftValidation {
+        throw McpConfigurationError.unavailable
+    }
+
+    func batchPlan(files: [McpLibraryFileInput], intent: McpBatchIntent) throws -> McpBatchOutcome {
+        throw McpConfigurationError.unavailable
+    }
+
     func excludeFromVersionControl(_ relativePath: String, workspace: URL) throws {
         throw McpConfigurationError.unavailable
     }

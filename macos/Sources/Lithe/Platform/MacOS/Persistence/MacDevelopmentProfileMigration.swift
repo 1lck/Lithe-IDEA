@@ -65,7 +65,7 @@ struct MacDevelopmentProfileMigration {
         let preferences = source.filter { isUserPreference($0.key) && shouldImport($0.key) }
         // Explicit durable-data allowlist: caches, indexes, plugins, recovery
         // databases, logs and process connection/lock files are rebuilt by Dev.
-        let paths = ["Lithe/ai-secrets.json", "Lithe/Maven", "Lithe/PluginMarketplace/sources.json"]
+        let paths = ["Lithe/ai-secrets.json", "Lithe/PluginMarketplace/sources.json"]
         let existingPaths = paths.filter { fileManager.fileExists(atPath: base.appendingPathComponent($0).path) }
         guard !preferences.isEmpty || !existingPaths.isEmpty else {
             try commit([:], defaults: defaults, domain: destinationDomain, marker: "fresh")

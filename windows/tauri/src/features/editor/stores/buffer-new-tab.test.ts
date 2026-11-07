@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { loadCoreRulesForTests } from "@/test-utils/core-rules";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { getBufferById } from "../utils/buffer-index";
 import type { EditorContent } from "@/features/panes/types/pane-content.types";
@@ -22,6 +23,9 @@ function setMaxOpenTabs(maxOpenTabs: number) {
     state.settings.maxOpenTabs = maxOpenTabs;
   });
 }
+
+// Pane membership rules run in the real lithe-core-rules wasm build.
+beforeAll(loadCoreRulesForTests);
 
 beforeEach(() => {
   workspaceRuntimeRegistry.resetForTests();
@@ -60,9 +64,7 @@ describe("showNewTabView", () => {
     store.getState().actions.showNewTabView();
     store.getState().actions.showNewTabView();
 
-    const opened = store
-      .getState()
-      .buffers.filter((buffer) => buffer.path.startsWith("untitled:"));
+    const opened = store.getState().buffers.filter((buffer) => buffer.path.startsWith("untitled:"));
     expect(opened).toHaveLength(2);
 
     // Closing the first tab leaves a single untitled tab behind. Counting the remaining

@@ -48,9 +48,9 @@ enum WorkspaceProjectionComposition {
             },
             openFile: { [weak model] url in model?.openFile(url) },
             notify: { [weak notification] message in notification?.show(message) },
-            recordHistory: { [weak model] url, reason in
+            recordHistory: { [weak model] url, event in
                 guard let feature = await model?.activateHistoryModule() else { return }
-                await feature.recordHistory(containedIn: url, reason: reason)
+                await feature.recordHistory(containedIn: url, event: event)
             },
             relocateHistory: { [weak model] source, destination in
                 guard let feature = await model?.activateHistoryModule() else { return }
@@ -88,7 +88,6 @@ enum WorkspaceProjectionComposition {
             },
             onSnapshotLoaded: { [weak model] snapshot, isInitialLoad in
                 guard let model else { return }
-                model.suggestJavaPluginIfNeeded(files: snapshot.files)
                 if !isInitialLoad {
                     // Core may have withdrawn working copies after an exclusion change.
                     // Reconcile open buffers so cancelling exclusion restores language features.

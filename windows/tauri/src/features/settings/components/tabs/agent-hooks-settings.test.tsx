@@ -85,6 +85,13 @@ test("Hook editor retains a failed draft, retries with its guard and updates nat
     if (action === "remove") return { ...library, revision: "removed", hooks: [] };
     return library;
   });
+  // Core owns the rules (see shared/fixtures/agent/hook-draft-validation-v1.json); this
+  // double only reports the one issue this UI flow exercises.
+  const validated = spyOn(service, "validateHookDraft").mockImplementation(async (hook, timeoutText) => ({
+    valid: hook.agents.length > 0,
+    issues: hook.agents.length > 0 ? [] : [{ field: "agents", code: "required" }],
+    timeoutSeconds: timeoutText === "" ? null : Number(timeoutText),
+  }));
   const frame = spyOn(dialog, "default").mockImplementation(({ children, footer, title }) => <div role="dialog"><h2>{title}</h2>{children}{footer}</div>);
   const confirms = spyOn(dialog, "showConfirmDialog").mockResolvedValue(true);
   const toggle = spyOn(switchControl, "default").mockImplementation(({ checked, onChange, disabled, "aria-label": label }) => (
@@ -107,6 +114,7 @@ test("Hook editor retains a failed draft, retries with its guard and updates nat
     await act(async () => button("Codex").click());
     await act(async () => button("Claude Code").click());
     expect(button("Save Hook").disabled).toBe(true);
+    expect(container.textContent).toContain("Select at least one Agent.");
     expect(writes).toHaveLength(0);
     await act(async () => button("All").click());
     expect(button("Codex").getAttribute("aria-pressed")).toBe("true");
@@ -134,7 +142,7 @@ test("Hook editor retains a failed draft, retries with its guard and updates nat
   } finally {
     try { await act(async () => root.unmount()); }
     finally {
-      toggle.mockRestore(); confirms.mockRestore(); frame.mockRestore(); managed.mockRestore();
+      toggle.mockRestore(); confirms.mockRestore(); frame.mockRestore(); validated.mockRestore(); managed.mockRestore();
       container.remove();
       if (previousAct === undefined) delete environment.IS_REACT_ACT_ENVIRONMENT;
       else environment.IS_REACT_ACT_ENVIRONMENT = previousAct;

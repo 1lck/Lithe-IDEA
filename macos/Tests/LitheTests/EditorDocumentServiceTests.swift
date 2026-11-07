@@ -117,10 +117,14 @@ struct EditorDocumentServiceTests {
                                 EditorSelection(anchor: at(1, 1), active: at(1, 4))]
         let selections = try await f.service.selections(scope: f.scope, documentID: f.document.id)
         let snapshot = try f.service.snapshot(scope: f.scope, documentID: f.document.id)
-        let index = EditorTextLineIndex(snapshot.text)
-        let replacements = selections.selections.map { selection -> String in
-            let start = index.offset(of: selection.range.start)!, end = index.offset(of: selection.range.end)!
-            return String(utf16CodeUnits: Array(index.units[start..<end]), count: end - start).uppercased() + "\n!"
+        // The plugin computes replacements from the snapshot it read.
+        let units = Array(snapshot.text.utf16)
+        let ranges = try EditorTextEditPlanner.plan(
+            selections.selections.map { EditorTextEdit(range: $0.range, text: "") }, in: snapshot.text).edits
+            .sorted { $0.index < $1.index }
+        let replacements = ranges.map { range -> String in
+            String(utf16CodeUnits: Array(units[range.utf16Offset..<range.utf16Offset + range.utf16Length]),
+                   count: range.utf16Length).uppercased() + "\n!"
         }
         let result = try await f.service.replaceSelections(scope: f.scope, selections: selections, replacements: replacements)
         #expect(result.applied)

@@ -29,6 +29,8 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
     private let runtime: any LanguageToolRuntimePort
     private let core: any LanguageServerRuntimeCore
     private let remoteLaunches: MacRemotePluginLaunchPreparer?
+    /// Resolves a provider launch that names a tool definition.
+    private let definedTools: MacDefinedToolchainResolver?
     private weak var processRegistry: (any LanguageServerProcessRegistry)?
     /// Ends the processes carrying a backend's token; `immediately` skips the
     /// graceful stop. See `MacPluginBackendProcesses`.
@@ -64,6 +66,7 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
         core: any LanguageServerRuntimeCore,
         processRegistry: (any LanguageServerProcessRegistry)?,
         remoteLaunches: MacRemotePluginLaunchPreparer? = nil,
+        definedTools: MacDefinedToolchainResolver? = nil,
         endBackendProcesses: @escaping @MainActor (_ token: String, _ immediately: Bool) -> Void = { token, immediately in
             MacPluginBackendProcesses.end(
                 token: token,
@@ -77,6 +80,7 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
         self.runtime = runtime
         self.core = core
         self.remoteLaunches = remoteLaunches
+        self.definedTools = definedTools
         self.processRegistry = processRegistry
         self.endBackendProcesses = endBackendProcesses
     }
@@ -209,10 +213,11 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
             workspaceRootURL: target.workspaceURL
         )
         let executableURL: URL
+        let arguments: [String]
         var environment: [String: String]
         let toolPath: String?
         do {
-            (executableURL, environment) = try await resolveExecutable(provider.process, workspaceURL: target.workspaceURL)
+            (executableURL, arguments, environment) = try await resolveExecutable(provider.process, workspaceURL: target.workspaceURL)
             toolPath = try await resolveTool(provider, workspaceURL: target.workspaceURL)
             try Task.checkCancellation()
             guard running[target] === entry, prepared?.owner.isCurrent() != false else { throw CancellationError() }
@@ -224,7 +229,7 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
         let session = LanguageServerRuntimeSession(
             providerID: "vcsProvider:\(target.pluginID):\(target.vcs)",
             executableURL: executableURL,
-            arguments: provider.process.arguments,
+            arguments: arguments,
             environment: environment,
             initializationOptions: provider.process.initializationOptions,
             initializeTimeout: 60,
@@ -283,7 +288,7 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
                 }
             }
             do {
-                try session.start(rootURL: rootURL, workspaceFingerprint: nil)
+                try session.start(rootURL: rootURL)
             } catch {
                 finish(.failure(error))
             }
@@ -292,20 +297,35 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
 
     /// The provider's own executable: a packaged file as it is, commands and
     /// runtimes through the build tool discovery, so the provider sees the
-    /// same runtime settings and `PATH` as other plugin processes.
+    /// same runtime settings and `PATH` as other plugin processes. A tool
+    /// launch resolves its definitions and takes the command line their
+    /// template expands to; every other launch keeps the plan's arguments.
     private func resolveExecutable(
         _ process: MacPluginLanguageServerLaunchResolver.BuildProviderProcess,
         workspaceURL: URL
-    ) async throws -> (URL, [String: String]) {
+    ) async throws -> (URL, [String], [String: String]) {
         let runtimes = process.runtimeTools.map {
             BuildInvocation.RuntimeDependency(id: $0, hostManaged: true)
         }
         let invocation: BuildInvocation
         var requirement: LanguageServerExecutableVersionRequirement?
         switch process.executable {
+        case .tool(let launch):
+            guard remoteLaunches?.identity(workspaceURL) == nil, let definedTools else {
+                throw DeclarativePluginRejection(
+                    code: "plugin.launch.unavailable",
+                    message: "A version control provider that names a tool definition cannot start in this workspace."
+                )
+            }
+            let command = try await definedTools.command(
+                for: launch, arguments: process.arguments, workspace: workspaceURL,
+                environment: runtime.languageToolProcessEnvironment(runtimeTools: process.runtimeTools),
+                projectCodeAllowed: false
+            )
+            return (command.executableURL, command.arguments, command.environment)
         case .file(let url):
             if remoteLaunches?.identity(workspaceURL) == nil {
-                return (url, runtime.languageToolProcessEnvironment(runtimeTools: process.runtimeTools))
+                return (url, process.arguments, runtime.languageToolProcessEnvironment(runtimeTools: process.runtimeTools))
             }
             invocation = BuildInvocation(executables: [.setting(id: "pluginPackage", path: url.path)], runtimeDependencies: runtimes)
         case .commands(let commands):
@@ -333,7 +353,7 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
                 return BuildVersionCheck(satisfied: check.satisfied, version: check.version)
             }
         )
-        return (resolved.executableURL, resolved.environment)
+        return (resolved.executableURL, process.arguments, resolved.environment)
     }
 
     /// The VCS client the provider runs, such as `svn`, found like any other

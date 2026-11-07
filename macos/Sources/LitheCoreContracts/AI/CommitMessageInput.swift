@@ -2,17 +2,6 @@ import Foundation
 
 public enum CommitMessageChangeKind: String, Sendable {
     case added, modified, deleted, renamed, copied, unmerged, untracked
-    public var title: String {
-        switch self {
-        case .added: "Added"
-        case .modified: "Modified"
-        case .deleted: "Deleted"
-        case .renamed: "Renamed"
-        case .copied: "Copied"
-        case .unmerged: "Unmerged"
-        case .untracked: "Untracked"
-        }
-    }
 }
 
 public struct CommitMessageFileInput: Sendable {

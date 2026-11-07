@@ -5,7 +5,7 @@
   "capability": "Maven 设置页在没有打开项目时也能编辑用户级 ~/.m2/settings.xml 的本地仓库：读取并回显真实值或标注的 Maven 默认值，确认后只改写该元素，读取后被修改时拒绝覆盖并保留草稿",
   "macos": {
     "evidence": [
-      "macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift"
+      "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift"
     ],
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"
@@ -18,7 +18,7 @@
       "windows/tauri/src/features/settings/components/tabs/maven-user-settings-group.tsx",
       "windows/tauri/src/features/settings/components/tabs/maven-settings-panel.tsx",
       "windows/tauri/src/features/maven/api/maven-host-api.ts",
-      "rust/lithe-core/src/project/maven.rs",
+      "windows/tauri/crates/lithe-legacy-tooling/src/maven/mod.rs",
       "windows/tauri/src/features/settings/components/tabs/maven-user-settings-group.test.tsx"
     ],
     "implementationStatus": "implemented",

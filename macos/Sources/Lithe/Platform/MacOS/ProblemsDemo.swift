@@ -44,8 +44,7 @@ final class ProblemsDemo: NSObject, NSApplicationDelegate {
             self.model = model
             // Seed only the fixture root; do not start normal workspace scanners or language servers.
             model.workspaceSessionCoordinator.beginWorkspace(at: workspace)
-            let root = ProblemsView(initialScope: .file, previewEnabled: true,
-                                    runnableFileURLs: [workspace.appendingPathComponent("Main.java")])
+            let root = ProblemsView(initialScope: .file, previewEnabled: true)
                 .environmentObject(model).environmentObject(settings)
                 .environmentObject(model.editorDiagnosticsStore)
                 .environment(\.locale, settings.language.locale)
@@ -71,7 +70,7 @@ final class ProblemsDemo: NSObject, NSApplicationDelegate {
             NSApp.activate(ignoringOtherApps: true)
             loadTask = Task { [weak self] in
                 guard let self else { return }
-                await model.documentFeature.openFileAsync(workspace.appendingPathComponent("Main.java"),
+                await model.documentFeature.openFileAsync(workspace.appendingPathComponent("Main.txt"),
                     isReadOnly: true, displayPath: nil, activateWhenReady: true)
                 guard !Task.isCancelled else { return }
                 model.editorDiagnosticsStore.replace(ProblemsDemoData.diagnostics(at: workspace))
@@ -117,34 +116,32 @@ final class ProblemsDemo: NSObject, NSApplicationDelegate {
 /// Synthetic data never enters the normal workspace or language-server pipeline.
 enum ProblemsDemoData {
     static let files: [String: String] = [
-        "Main.java": """
-        package demo;
-        public class Main {
-            public static void main(String[] args) {
-                int count = "not a number";
-                String token = null;
-                int unused = 0;
-                oldApi();
-                System.out.println("Information: a newer API is available");
-                unknownProvider();
-                String longMessage = "Demonstrates truncation and a complete tooltip";
-                System.out.println("中文 · Unicode · emoji 🔎");
-            }
-            @Deprecated static void oldApi() {}
-        }
+        "Main.txt": """
+        # Demo document
+        section demo
+        begin
+        count = "not a number"
+        token = null
+        unused = 0
+        oldApi()
+        print("Information: a newer API is available")
+        unknownProvider()
+        longMessage = "Demonstrates truncation and a complete tooltip"
+        print("中文 · Unicode · emoji 🔎")
+        end
         """,
-        "config/application.yml": """
+        "config/settings.yml": """
         server:
           port: invalid
         demo:
           missing-property: true
         """,
-        "Clean.java": "class Clean {}\n"
+        "Clean.txt": "clean\n"
     ]
 
     static func diagnostics(at root: URL) -> [URL: [EditorDiagnostic]] {
-        let main = root.appendingPathComponent("Main.java")
-        let config = root.appendingPathComponent("config/application.yml")
+        let main = root.appendingPathComponent("Main.txt")
+        let config = root.appendingPathComponent("config/settings.yml")
         func problem(_ id: String, file: URL, line: Int, severity: DiagnosticSeverity, message: String,
                      tags: Set<DiagnosticTag> = [], related: [DiagnosticRelatedInformation] = []) -> EditorDiagnostic {
             EditorDiagnostic(id: id, fileURL: file, line: line, utf16Column: 4,

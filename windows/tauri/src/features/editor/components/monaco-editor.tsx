@@ -93,7 +93,6 @@ import { EDITOR_CONSTANTS } from "../config/constants";
 import { JavaRunMarkerMenu } from "../context-menu/java-run-marker-menu";
 import { useBufferStore } from "../stores/buffer.store";
 import { editorBufferSurfacesEqual, selectEditorBufferSurface } from "../stores/buffer-metadata";
-import { useJumpListStore } from "../stores/jump-list.store";
 import { useEditorStateStore } from "../stores/state.store";
 import type {
   EditorContentChangeOptions,
@@ -107,10 +106,7 @@ import { lspDocumentTargetForEditor } from "../lsp/lsp-document-target";
 import { fileOpenBenchmark } from "../utils/file-open-benchmark";
 import { isEditorGoToDefinitionModifierClick } from "../utils/go-to-definition-gesture";
 import { getLanguageIdFromPath } from "../utils/language-id";
-import {
-  cursorEntryToRecordAfterMouseGesture,
-  type CursorHistoryEntry,
-} from "../utils/mouse-cursor-history";
+import { type CursorHistoryEntry, recordMouseGesture } from "../utils/mouse-cursor-history";
 import { toggleCaseText } from "../utils/text-operations";
 import { editorAPI } from "../extensions/api";
 import {
@@ -217,10 +213,10 @@ function gitGutterControllerOptions(
     }),
     markerTooltip: (kind) => translate(`git.gutter.${kind}`),
     canStage: () => !!context()?.base && !!context()?.canStage,
-    stage: async (change, baseLines) => {
+    stage: async (change) => {
       const base = context()?.base;
       if (!base) return false;
-      const staged = await stageGitGutterChange(base, baseLines, change);
+      const staged = await stageGitGutterChange(base, change);
       if (!staged) toast.error(translate("git.operationFailed"));
       return staged;
     },
@@ -1620,11 +1616,7 @@ export function MonacoEditor({
           mouseGestureStartRef.current = null;
           return;
         }
-        const entry = cursorEntryToRecordAfterMouseGesture(
-          mouseGestureStartRef.current,
-          cursorEntryFromEditor(),
-        );
-        if (entry) useJumpListStore.getState().actions.recordCursorEntry(entry);
+        recordMouseGesture(mouseGestureStartRef.current, cursorEntryFromEditor());
         mouseGestureStartRef.current = null;
       }),
       editor.onDidChangeCursorSelection(() => {
@@ -1666,11 +1658,7 @@ export function MonacoEditor({
         mouseGestureStartRef.current = null;
         return;
       }
-      const entry = cursorEntryToRecordAfterMouseGesture(
-        mouseGestureStartRef.current,
-        cursorEntryFromEditor(),
-      );
-      if (entry) useJumpListStore.getState().actions.recordCursorEntry(entry);
+      recordMouseGesture(mouseGestureStartRef.current, cursorEntryFromEditor());
       mouseGestureStartRef.current = null;
     };
     window.addEventListener("mouseup", handleWindowMouseUp);

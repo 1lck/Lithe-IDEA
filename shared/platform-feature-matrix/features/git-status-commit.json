@@ -47,7 +47,7 @@
       "windows/tauri/src/features/git/hooks/use-commit-diff-review.ts",
       "windows/tauri/src/features/git/services/commit-diff-review.ts",
       "windows/tauri/src/features/git/utils/commit-diff-blocks.ts",
-      "windows/tauri/src/features/git/utils/commit-diff-blocks.integration.test.ts",
+      "rust/lithe-core/src/tests/git_diff_blocks.rs",
       "windows/tauri/src/features/git/hooks/use-git-commit-area-resize.test.tsx",
       "windows/tauri/src/features/git/components/status/git-workspace-status-panel.test.tsx",
       "windows/tauri/src/features/git/components/stash/git-saved-changes.tsx",

@@ -59,6 +59,12 @@
 测试启动的独立产品进程不加载此测试模块，真实产品端到端测试仍需隔离系统环境。
 可见模式的窗口和测试子进程仍由原测试的清理路径关闭。
 
+原生 `NSApplication.runModal` 测试必须在有界的独立测试进程中执行，并由父进程
+核验子进程真实完成目标用例。模态循环与 Swift Testing 共用主运行循环时，调用
+`stopModal` 后进程可能在后续首个 WebKit 测试中提前返回成功，导致整套测试只跑到
+一半；仅检查进程退出码无法发现这种情况。回归测试还要在父进程随后创建并加载
+WebKit 预览，证明原生模态验证没有污染后续用例。
+
 ## 验证
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`。

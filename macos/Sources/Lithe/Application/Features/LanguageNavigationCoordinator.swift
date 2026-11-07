@@ -212,13 +212,10 @@ final class LanguageNavigationCoordinator: ObservableObject {
         }
     }
 
-    /// Classifies a jump target by both the path it is opened under and its
-    /// real location. Only a target whose path and resolved path are both
-    /// inside the workspace is a workspace file: an in-workspace symlink to
-    /// the outside must not skip the source-file check or the read-only rule,
-    /// and an outside symlink to a workspace file is opened under its outside
-    /// path, which the document layer only accepts as an external read-only
-    /// document.
+    /// Classifies a jump target through Core (`lsp.classifyNavigationTarget`).
+    /// This function only gathers the facts Core cannot know: the real paths
+    /// after symlink resolution and the language the catalog assigns to each
+    /// path. The decision is fail-closed: a Core failure rejects the jump.
     nonisolated static func externalNavigationDecision(
         for url: URL,
         workspaceURL: URL?,
@@ -226,31 +223,35 @@ final class LanguageNavigationCoordinator: ObservableObject {
         languageOf: (URL) -> String?
     ) -> ExternalNavigationDecision {
         guard url.isFileURL, let workspaceURL else { return .workspace }
-        let roots = [workspaceURL.standardizedFileURL, workspaceURL.resolvingSymlinksInPath()]
-            .map(\.path)
-        let opensInside = roots.contains { url.standardizedFileURL.path.hasPrefix($0 + "/") }
-        let resolvesInside = url.resolvingSymlinksInPath().path
-            .hasPrefix(workspaceURL.resolvingSymlinksInPath().path + "/")
-        if opensInside && resolvesInside {
-            return .workspace
+        struct Request: Encodable {
+            let platform = "posix"
+            let workspaceRoot: String
+            let resolvedWorkspaceRoot: String
+            let path: String
+            let resolvedPath: String
+            let sourceLanguageID: String?
+            let languageID: String?
+            let resolvedLanguageID: String?
         }
-        return allowsExternalSource(url, languageID: languageID, languageOf: languageOf)
-            ? .externalReadOnly
-            : .rejected
-    }
-
-    /// A jump may leave the workspace only into a source file of the language
-    /// that produced it: a Go definition opens `.go` files, a PHP definition
-    /// `.php` files. Configuration, credentials, and other files a server
-    /// might point to stay closed, and a symlink must resolve to a file that
-    /// passes the same check. Such files are always opened read-only.
-    nonisolated static func allowsExternalSource(
-        _ url: URL,
-        languageID: String?,
-        languageOf: (URL) -> String?
-    ) -> Bool {
-        guard let languageID, url.isFileURL else { return false }
-        return [url, url.resolvingSymlinksInPath()].allSatisfy { languageOf($0) == languageID }
+        struct Response: Decodable { let classification: String }
+        let resolved = url.resolvingSymlinksInPath()
+        let request = Request(
+            workspaceRoot: workspaceURL.standardizedFileURL.path,
+            resolvedWorkspaceRoot: workspaceURL.resolvingSymlinksInPath().path,
+            path: url.standardizedFileURL.path,
+            resolvedPath: resolved.path,
+            sourceLanguageID: languageID,
+            languageID: languageOf(url),
+            resolvedLanguageID: languageOf(resolved)
+        )
+        let result: Result<Response, RustCoreBridge.CoreCallError> = RustCoreBridge().executeResult(
+            command: "lsp.classifyNavigationTarget", payload: request)
+        guard case .success(let response) = result else { return .rejected }
+        switch response.classification {
+        case "workspace": return .workspace
+        case "externalReadOnly": return .externalReadOnly
+        default: return .rejected
+        }
     }
 
     func editorLocation(

@@ -38,6 +38,168 @@ pub struct CreateSessionRequest {
     /// The session whose adapter asked for this one through `startDebugging`.
     #[serde(default)]
     pub parent_session_id: Option<String>,
+    /// What the plugin declared for its adapter, passed through by the host.
+    #[serde(flatten)]
+    pub declared: DeclaredAdapterBehavior,
+}
+
+/// The `features` and `defaults` of a `debugAdapters` 3 declaration. The
+/// engine follows them instead of recognizing an adapter by its ID.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeclaredAdapterBehavior {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub features: Option<DebugAdapterFeatures>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub defaults: Option<DebugAdapterDefaults>,
+}
+
+/// Adapter-specific DAP extensions the adapter declares it implements.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DebugAdapterFeatures {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hot_code_replace: Option<HotCodeReplaceFeature>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step_filters: Option<StepFiltersFeature>,
+}
+
+/// A custom request that applies changed code to the running debuggee.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HotCodeReplaceFeature {
+    /// DAP command the engine sends for a `redefineClasses` inspection.
+    pub request: String,
+    /// DAP event whose `message` the Debug Console shows as progress.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event: Option<String>,
+    /// Response body field listing the replaced units; none are reported
+    /// when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changed_field: Option<String>,
+    /// Response body field with a failure message the adapter reports in a
+    /// successful response.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_field: Option<String>,
+}
+
+/// The launch argument through which the adapter receives stepping filters,
+/// shaped `{skipClasses, skipSynthetics, skipStaticInitializers, skipConstructors}`.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StepFiltersFeature {
+    pub argument: String,
+}
+
+/// Values the adapter starts with when the user configured none.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DebugAdapterDefaults {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step_filters: Option<DeclaredStepFilters>,
+}
+
+/// Declared default stepping filters; the same fields as
+/// `DebugSteppingFilters`, closed to unknown keys.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DeclaredStepFilters {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub class_name_filters: Vec<String>,
+    #[serde(default)]
+    pub skip_synthetics: bool,
+    #[serde(default)]
+    pub skip_static_initializers: bool,
+    #[serde(default)]
+    pub skip_constructors: bool,
+    #[serde(default)]
+    pub hide_filtered_stack_frames: bool,
+}
+
+/// Longest DAP command, event, field, or argument name an adapter declares.
+const MAX_DECLARED_NAME: usize = 64;
+/// Most class-name patterns declared default filters carry.
+const MAX_DECLARED_FILTERS: usize = 256;
+/// Longest declared class-name pattern, in characters.
+const MAX_DECLARED_FILTER: usize = 256;
+
+fn is_declared_name(value: &str) -> bool {
+    let mut chars = value.chars();
+    value.len() <= MAX_DECLARED_NAME
+        && chars
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic())
+        && chars.all(|next| next.is_ascii_alphanumeric() || matches!(next, '_' | '.' | '-'))
+}
+
+impl DeclaredAdapterBehavior {
+    /// Checks names and filters; an error names the declaration field and
+    /// what is wrong with it.
+    pub(crate) fn check(&self) -> Result<(), (&'static str, &'static str)> {
+        const NAME: &str =
+            "A DAP name is a letter followed by up to 63 letters, digits, dots, underscores, or hyphens.";
+        let features = self.features.as_ref();
+        if let Some(feature) = features.and_then(|features| features.hot_code_replace.as_ref()) {
+            if !is_declared_name(&feature.request) {
+                return Err(("features.hotCodeReplace.request", NAME));
+            }
+            for (field, value) in [
+                ("features.hotCodeReplace.event", &feature.event),
+                (
+                    "features.hotCodeReplace.changedField",
+                    &feature.changed_field,
+                ),
+                ("features.hotCodeReplace.errorField", &feature.error_field),
+            ] {
+                if value
+                    .as_deref()
+                    .is_some_and(|value| !is_declared_name(value))
+                {
+                    return Err((field, NAME));
+                }
+            }
+        }
+        if let Some(feature) = features.and_then(|features| features.step_filters.as_ref()) {
+            if !is_declared_name(&feature.argument) {
+                return Err(("features.stepFilters.argument", NAME));
+            }
+        }
+        if let Some(filters) = self
+            .defaults
+            .as_ref()
+            .and_then(|defaults| defaults.step_filters.as_ref())
+        {
+            if filters.class_name_filters.len() > MAX_DECLARED_FILTERS {
+                return Err((
+                    "defaults.stepFilters.classNameFilters",
+                    "Default stepping filters list at most 256 class-name patterns.",
+                ));
+            }
+            if filters.class_name_filters.iter().any(|filter| {
+                filter.trim().is_empty()
+                    || filter.chars().count() > MAX_DECLARED_FILTER
+                    || filter.chars().any(char::is_control)
+            }) {
+                return Err((
+                    "defaults.stepFilters.classNameFilters",
+                    "A class-name pattern is one non-empty line of at most 256 characters.",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl From<&DeclaredStepFilters> for DebugSteppingFilters {
+    fn from(declared: &DeclaredStepFilters) -> Self {
+        Self {
+            class_name_filters: declared.class_name_filters.clone(),
+            skip_synthetics: declared.skip_synthetics,
+            skip_static_initializers: declared.skip_static_initializers,
+            skip_constructors: declared.skip_constructors,
+            hide_filtered_stack_frames: declared.hide_filtered_stack_frames,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -81,7 +243,7 @@ pub struct DebugLaunchConfiguration {
 #[serde(rename_all = "camelCase")]
 /// Portable class and method filters used for stepping and stack-frame presentation.
 pub struct DebugSteppingFilters {
-    /// Adapter-neutral class-name patterns; Java also accepts `$JDK` and `$Libraries`.
+    /// Adapter-neutral class-name patterns; `$Libraries` matches frames outside the workspace.
     #[serde(default)]
     pub class_name_filters: Vec<String>,
     /// Whether compiler-generated methods should be skipped.
@@ -99,14 +261,6 @@ pub struct DebugSteppingFilters {
 }
 
 impl DebugSteppingFilters {
-    pub(crate) fn defaults_for_adapter(adapter_id: &str) -> Self {
-        if adapter_id == "java" {
-            Self::default()
-        } else {
-            Self::unfiltered()
-        }
-    }
-
     pub(crate) fn unfiltered() -> Self {
         Self {
             class_name_filters: Vec::new(),
@@ -119,48 +273,17 @@ impl DebugSteppingFilters {
 }
 
 impl Default for DebugSteppingFilters {
+    /// The Core has no adapter-specific defaults; plugins declare theirs in `debugAdapters`.
     fn default() -> Self {
-        Self {
-            class_name_filters: default_java_class_name_filters(),
-            skip_synthetics: true,
-            skip_static_initializers: true,
-            // IDEA leaves constructor skipping off by default because application
-            // initialization is often meaningful user code.
-            skip_constructors: false,
-            hide_filtered_stack_frames: true,
-        }
+        Self::unfiltered()
     }
-}
-
-fn default_java_class_name_filters() -> Vec<String> {
-    [
-        "$JDK",
-        "$Libraries",
-        "com.ibm.ws.*",
-        "com.springsource.loaded.*",
-        "com.sun.proxy.*",
-        "javassist.*",
-        "jdk.proxy*.*",
-        "junit.*",
-        "net.bytebuddy.*",
-        "net.sf.cglib.*",
-        "org.apache.webbeans.*",
-        "org.junit.*",
-        "org.mockito.*",
-        "org.springframework.aop.framework.*",
-        "org.springframework.cglib.*",
-        "org.springsource.loaded.*",
-    ]
-    .into_iter()
-    .map(str::to_string)
-    .collect()
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Returns an adapter's defaults or normalizes a native client's stepping policy.
 pub struct DebugSteppingFiltersRequest {
-    /// Stable adapter identifier, such as `java`.
+    /// Stable adapter identifier, such as `lldb`.
     pub adapter_id: String,
     /// Optional client override; omission requests the adapter defaults.
     #[serde(default)]
@@ -426,7 +549,7 @@ pub enum DebugInspectKind {
     GotoTargets,
     /// Debug Console completion proposals for the text typed so far.
     Completions,
-    /// Java Debug Server hot replacement; mutates classes in the debuggee.
+    /// Hot code replacement declared by the adapter; mutates code in the debuggee.
     RedefineClasses,
     /// Machine instructions around a memory reference, for the disassembly view.
     Disassemble,
@@ -739,7 +862,7 @@ pub enum DebugOperationFailureCode {
 )]
 /// Typed terminal data for one caller-owned debug operation.
 pub enum DebugOperationResult {
-    /// Classes actually replaced by Java Debug Server (empty means no changes).
+    /// Classes the adapter actually replaced (empty means no changes).
     RedefineClasses {
         changed_classes: Vec<String>,
     },

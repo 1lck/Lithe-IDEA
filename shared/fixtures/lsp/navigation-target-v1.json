@@ -1,0 +1,305 @@
+{
+  "version": 1,
+  "command": "lsp.classifyNavigationTarget",
+  "cases": [
+    {
+      "name": "no workspace accepts any file",
+      "request": {
+        "platform": "posix",
+        "path": "/elsewhere/notes.txt"
+      },
+      "expected": {
+        "classification": "workspace",
+        "isReadOnly": false
+      }
+    },
+    {
+      "name": "workspace source file",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "sourceLanguageID": "go",
+        "path": "/work/project/main.go",
+        "languageID": "go"
+      },
+      "expected": {
+        "classification": "workspace",
+        "isReadOnly": false
+      }
+    },
+    {
+      "name": "workspace non-source file",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "sourceLanguageID": "go",
+        "path": "/work/project/config.json",
+        "languageID": "json"
+      },
+      "expected": {
+        "classification": "workspace",
+        "isReadOnly": false
+      }
+    },
+    {
+      "name": "in-workspace symlink to an outside secret is rejected",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "sourceLanguageID": "go",
+        "path": "/work/project/secret.go",
+        "resolvedPath": "/work/outside/id_rsa",
+        "languageID": "go"
+      },
+      "expected": {
+        "classification": "rejected",
+        "isReadOnly": false
+      }
+    },
+    {
+      "name": "in-workspace symlink to an outside source opens read-only",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "sourceLanguageID": "go",
+        "path": "/work/project/vendor.go",
+        "resolvedPath": "/work/outside/print.go",
+        "languageID": "go",
+        "resolvedLanguageID": "go"
+      },
+      "expected": {
+        "classification": "externalReadOnly",
+        "isReadOnly": true
+      }
+    },
+    {
+      "name": "outside source of the same language opens read-only",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "sourceLanguageID": "go",
+        "path": "/go/src/fmt/print.go",
+        "languageID": "go"
+      },
+      "expected": {
+        "classification": "externalReadOnly",
+        "isReadOnly": true
+      }
+    },
+    {
+      "name": "outside file of another language is rejected",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "sourceLanguageID": "go",
+        "path": "/home/user/.aws/credentials.json",
+        "languageID": "json"
+      },
+      "expected": {
+        "classification": "rejected",
+        "isReadOnly": false
+      }
+    },
+    {
+      "name": "outside file without a language is rejected",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "sourceLanguageID": "go",
+        "path": "/home/user/.ssh/id_rsa"
+      },
+      "expected": {
+        "classification": "rejected",
+        "isReadOnly": false
+      }
+    },
+    {
+      "name": "outside source without a source language is rejected",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "path": "/go/src/fmt/print.go",
+        "languageID": "go"
+      },
+      "expected": {
+        "classification": "rejected",
+        "isReadOnly": false
+      }
+    },
+    {
+      "name": "outside symlink to a workspace file is external",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "sourceLanguageID": "go",
+        "path": "/work/outside/link.go",
+        "resolvedPath": "/work/project/main.go",
+        "languageID": "go",
+        "resolvedLanguageID": "go"
+      },
+      "expected": {
+        "classification": "externalReadOnly",
+        "isReadOnly": true
+      }
+    },
+    {
+      "name": "outside symlink to a workspace file from another language is rejected",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "sourceLanguageID": "php",
+        "path": "/work/outside/link.go",
+        "resolvedPath": "/work/project/main.go",
+        "languageID": "go",
+        "resolvedLanguageID": "go"
+      },
+      "expected": {
+        "classification": "rejected",
+        "isReadOnly": false
+      }
+    },
+    {
+      "name": "source-named link to a non-source file is rejected",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "sourceLanguageID": "go",
+        "path": "/work/outside/notes.go",
+        "resolvedPath": "/work/project/notes.json",
+        "languageID": "go",
+        "resolvedLanguageID": "json"
+      },
+      "expected": {
+        "classification": "rejected",
+        "isReadOnly": false
+      }
+    },
+    {
+      "name": "symlinked workspace root accepts real paths",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/var/work/project",
+        "sourceLanguageID": "go",
+        "resolvedWorkspaceRoot": "/private/var/work/project",
+        "path": "/private/var/work/project/main.go",
+        "resolvedPath": "/private/var/work/project/main.go",
+        "languageID": "go",
+        "resolvedLanguageID": "go"
+      },
+      "expected": {
+        "classification": "workspace",
+        "isReadOnly": false
+      }
+    },
+    {
+      "name": "dot segments are resolved before containment",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "sourceLanguageID": "go",
+        "path": "/work/project/../outside/print.go",
+        "languageID": "go"
+      },
+      "expected": {
+        "classification": "externalReadOnly",
+        "isReadOnly": true
+      }
+    },
+    {
+      "name": "sibling directory sharing the root prefix is outside",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "sourceLanguageID": "go",
+        "path": "/work/project2/main.go",
+        "languageID": "go"
+      },
+      "expected": {
+        "classification": "externalReadOnly",
+        "isReadOnly": true
+      }
+    },
+    {
+      "name": "the workspace root itself is not a file inside it",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "sourceLanguageID": "go",
+        "path": "/work/project",
+        "languageID": "go"
+      },
+      "expected": {
+        "classification": "externalReadOnly",
+        "isReadOnly": true
+      }
+    },
+    {
+      "name": "server read-only flag is kept inside the workspace",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "sourceLanguageID": "go",
+        "path": "/work/project/generated.go",
+        "languageID": "go",
+        "isReadOnly": true
+      },
+      "expected": {
+        "classification": "workspace",
+        "isReadOnly": true
+      }
+    },
+    {
+      "name": "Windows paths compare without case and separator differences",
+      "request": {
+        "platform": "windows",
+        "workspaceRoot": "C:\\Work\\Project",
+        "sourceLanguageID": "java",
+        "path": "c:/work/project/src/Main.java",
+        "languageID": "java"
+      },
+      "expected": {
+        "classification": "workspace",
+        "isReadOnly": false
+      }
+    },
+    {
+      "name": "Windows sibling prefix is outside",
+      "request": {
+        "platform": "windows",
+        "workspaceRoot": "C:\\Work\\Project",
+        "sourceLanguageID": "java",
+        "path": "C:\\Work\\Project2\\Main.java",
+        "languageID": "java"
+      },
+      "expected": {
+        "classification": "externalReadOnly",
+        "isReadOnly": true
+      }
+    },
+    {
+      "name": "Windows UNC workspace",
+      "request": {
+        "platform": "auto",
+        "workspaceRoot": "\\\\server\\share\\project",
+        "sourceLanguageID": "java",
+        "path": "//SERVER/share/project/Main.java",
+        "languageID": "java"
+      },
+      "expected": {
+        "classification": "workspace",
+        "isReadOnly": false
+      }
+    },
+    {
+      "name": "relative target path is invalid",
+      "request": {
+        "platform": "posix",
+        "workspaceRoot": "/work/project",
+        "sourceLanguageID": "go",
+        "path": "main.go",
+        "languageID": "go"
+      },
+      "expectedError": "invalid_request"
+    }
+  ]
+}

@@ -433,6 +433,54 @@ pub fn entries(request: HistoryEntriesRequest) -> Result<HistoryEntriesResponse,
     })
 }
 
+/// Which snapshots an editing event records (`history.planEvent`).
+///
+/// Hosts name the event and Core decides what is recorded and under which reason, so macOS
+/// and Windows save, restore and snapshot at the same moments. `source` says whose text the
+/// host supplies for the snapshot:
+///
+/// - `beforeChange`: the file's text as it was before the event changed it.
+/// - `afterChange`: the file's text once the event has completed.
+/// - `editorBuffer`: unsaved editor text that the event is about to discard.
+///
+/// Returns `{ snapshots: [{ source, reason }] }` in recording order. A save records the
+/// text it replaces and the text it writes, so a history entry exists for the saved state
+/// immediately rather than only after the next edit.
+pub(crate) fn plan_event_command(
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, CoreError> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct Request {
+        event: String,
+    }
+    let request: Request = serde_json::from_value(payload).map_err(|error| {
+        CoreError::new(ErrorCode::InvalidRequest, "Invalid history event request")
+            .with_details(error.to_string())
+    })?;
+    let plan: &[(&str, &str)] = match request.event.as_str() {
+        "save" | "autoSave" => &[("beforeChange", "saved"), ("afterChange", "saved")],
+        "restore" => &[("beforeChange", "restored")],
+        "manual" => &[("afterChange", "saved")],
+        "unsavedDiscard" => &[("editorBuffer", "unsavedDiscard")],
+        "externalChange" => &[("afterChange", "externalChange")],
+        "beforeRename" => &[("beforeChange", "beforeRename")],
+        "beforeBatchReplace" => &[("beforeChange", "beforeBatchReplace")],
+        _ => {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Unknown history event",
+            ))
+        }
+    };
+    Ok(serde_json::json!({
+        "snapshots": plan
+            .iter()
+            .map(|(source, reason)| serde_json::json!({ "source": source, "reason": reason }))
+            .collect::<Vec<_>>()
+    }))
+}
+
 /// Reads one validated snapshot content file as UTF-8.
 pub fn content(request: HistoryContentRequest) -> Result<String, CoreError> {
     let storage = storage_root(&request.storage_root)?;
@@ -1118,7 +1166,7 @@ fn monotonic_nonce() -> u128 {
         .unwrap_or_default()
 }
 
-fn is_valid_reason(value: &str) -> bool {
+pub(crate) fn is_valid_reason(value: &str) -> bool {
     matches!(
         value,
         "projectBaseline"
@@ -1560,10 +1608,10 @@ mod tests {
     fn ignore_regexes_are_case_insensitive_and_invalid_ones_never_match() {
         let rules = ignore_rules(&[], &["(unclosed", "GENERATED"]);
         assert_eq!(
-            ignored_rule(&rules, "src/generated/Api.java"),
+            ignored_rule(&rules, "src/generated/api.txt"),
             Some(HistoryIgnoreMatch::Regex { index: 1 })
         );
-        assert_eq!(ignored_rule(&rules, "src/Main.java"), None);
+        assert_eq!(ignored_rule(&rules, "src/main.txt"), None);
         assert_eq!(
             ignored_rule(&ignore_rules(&["", "  "], &[""]), "a.txt"),
             None
@@ -1607,7 +1655,7 @@ mod tests {
             preview(".git/config").matched,
             Some(HistoryIgnoreMatch::Hidden)
         );
-        assert_eq!(preview("src/Main.java").matched, None);
+        assert_eq!(preview("src/main.txt").matched, None);
         assert!(ignore_preview(HistoryIgnorePreviewRequest {
             path: Some("../outside".into()),
             ignore_rules: HistoryIgnoreRules::default(),
@@ -1646,7 +1694,7 @@ mod tests {
         }
         write_file(&workspace, ".gitignore", "*.log\n");
         assert_eq!(preview("logs/run.log"), Some(true));
-        assert_eq!(preview("src/Main.java"), Some(false));
+        assert_eq!(preview("src/main.txt"), Some(false));
     }
 
     #[test]
@@ -1655,7 +1703,7 @@ mod tests {
         assert_eq!(preview_match(&rules, &[], "ios/Pods/Lib/a.h"), None);
         assert_eq!(preview_match(&rules, &[], "tools/.uv-cache/a.py"), None);
         assert_eq!(
-            preview_match(&rules, &[], "src/generated/A.java"),
+            preview_match(&rules, &[], "src/generated/a.txt"),
             Some(HistoryIgnoreMatch::Pattern {
                 pattern: "**/generated/".into()
             })
@@ -1693,7 +1741,7 @@ mod tests {
         let storage = root.join("storage");
         fs::create_dir_all(&workspace).unwrap();
         for (path, disabled) in [
-            ("build/src/Main.java", "**/build/"),
+            ("build/src/main.txt", "**/build/"),
             ("src/cached.pyc", "*.pyc"),
         ] {
             let hidden = vec![format!("!{disabled}")];
@@ -1707,7 +1755,7 @@ mod tests {
         let rules = ignore_rules(&["!**/build/", "*.log", "**/generated/"], &[]);
         for (path, pattern) in [
             ("build/run.log", "*.log"),
-            ("build/generated/Main.java", "**/generated/"),
+            ("build/generated/main.txt", "**/generated/"),
         ] {
             assert_eq!(
                 preview_match(&rules, &["!**/build/".into()], path),

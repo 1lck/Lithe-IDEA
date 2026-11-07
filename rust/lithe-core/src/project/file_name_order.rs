@@ -11,8 +11,21 @@
 //! and contributors). The macOS Swift port (`NaturalNameOrder`) and the Windows
 //! TypeScript port follow the same source and share
 //! `shared/fixtures/workspace/file-name-order-v1.json`.
+//!
+//! Hosts that enumerate a directory natively (Windows local, SSH and WSL trees, and
+//! macOS plugin listings) do not compare names themselves; they send the siblings to
+//! `workspace.orderEntries` and apply the returned permutation.
 
+use crate::protocol::{CoreError, ErrorCode};
+use serde::Deserialize;
+use serde_json::{json, Value};
 use std::cmp::Ordering;
+
+/// Upper bound for one `workspace.orderEntries` request, matching the plugin directory scan
+/// budget; hosts send one directory at a time.
+const MAX_ORDER_ENTRIES: usize = 100_000;
+/// Longest accepted sibling name, in UTF-8 bytes; longer names are rejected, never truncated.
+const MAX_ORDER_NAME_BYTES: usize = 4_096;
 
 const SPACE: u16 = 0x20;
 const ZERO: u16 = 0x30;
@@ -45,6 +58,71 @@ impl PartialOrd for FileNameKey {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Siblings of one natively enumerated directory, in enumeration order.
+struct OrderEntriesRequest {
+    entries: Vec<OrderEntry>,
+    /// Ranks directories before files, the Project view default; `false` orders by name only.
+    #[serde(default = "directories_first_default")]
+    directories_first: bool,
+}
+
+fn directories_first_default() -> bool {
+    true
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// One sibling name and its kind; the host keeps the full entry and only uses the index.
+struct OrderEntry {
+    name: String,
+    is_directory: bool,
+}
+
+/// Orders natively enumerated siblings for `workspace.orderEntries`.
+///
+/// Returns `{ order }`, the request indices in display order. The order is total and
+/// deterministic: names compare with IDEA's `FileNameComparator`, and identical names
+/// keep their request order. Oversized requests fail with `invalid_request`.
+pub(crate) fn order_entries_command(payload: Value) -> Result<Value, CoreError> {
+    let request: OrderEntriesRequest = serde_json::from_value(payload).map_err(|error| {
+        CoreError::new(ErrorCode::InvalidRequest, "Invalid entry order request")
+            .with_details(error.to_string())
+    })?;
+    if request.entries.len() > MAX_ORDER_ENTRIES {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Too many entries to order",
+        ));
+    }
+    if request
+        .entries
+        .iter()
+        .any(|entry| entry.name.len() > MAX_ORDER_NAME_BYTES)
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Entry name is too long to order",
+        ));
+    }
+    let directories_first = request.directories_first;
+    let mut keyed = request
+        .entries
+        .into_iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            (
+                directories_first && !entry.is_directory,
+                FileNameKey::new(&entry.name),
+                index,
+            )
+        })
+        .collect::<Vec<_>>();
+    keyed.sort();
+    Ok(json!({ "order": keyed.into_iter().map(|(_, _, index)| index).collect::<Vec<_>>() }))
+}
+
 /// Compares two file names in IDEA's Project view order.
 #[cfg(test)]
 pub(crate) fn compare_file_names(left: &str, right: &str) -> Ordering {
@@ -52,10 +130,21 @@ pub(crate) fn compare_file_names(left: &str, right: &str) -> Ordering {
 }
 
 fn compare_utf16(left: &[u16], right: &[u16]) -> Ordering {
-    natural_compare(left, right, true)
+    natural_compare(left, right, true, true)
 }
 
-fn natural_compare(left: &[u16], right: &[u16], ignore_case: bool) -> Ordering {
+/// Compares two Git reference names with IDEA's `NaturalComparator` (`ignoreCase`, not
+/// `likeFileNames`), so `-` keeps its own code unit rank. Inputs are UTF-16 code units.
+pub(crate) fn compare_reference_names(left: &[u16], right: &[u16]) -> Ordering {
+    natural_compare(left, right, true, false)
+}
+
+fn natural_compare(
+    left: &[u16],
+    right: &[u16],
+    ignore_case: bool,
+    like_file_names: bool,
+) -> Ordering {
     let (mut i, mut j) = (0, 0);
     while i < left.len() && j < right.len() {
         let (first, second) = (left[i], right[j]);
@@ -88,7 +177,7 @@ fn natural_compare(left: &[u16], right: &[u16], ignore_case: bool) -> Ordering {
             i = end_left - 1;
             j = end_right - 1;
         } else if first != second {
-            let order = compare_name_units(first, second, ignore_case);
+            let order = compare_name_units(first, second, ignore_case, like_file_names);
             if order != Ordering::Equal {
                 return order;
             }
@@ -108,7 +197,7 @@ fn natural_compare(left: &[u16], right: &[u16], ignore_case: bool) -> Ordering {
     }
     // Names that tie while ignoring case are ordered by one case-sensitive pass.
     if ignore_case {
-        natural_compare(left, right, false)
+        natural_compare(left, right, false, like_file_names)
     } else {
         Ordering::Equal
     }
@@ -116,8 +205,15 @@ fn natural_compare(left: &[u16], right: &[u16], ignore_case: bool) -> Ordering {
 
 /// The "likeFileNames" character comparison: a `-` ranks like `_` unless the other
 /// character already is `_`, so `foo-bar` and `foo_bar` stay together (IDEA-80435).
-fn compare_name_units(first: u16, second: u16, ignore_case: bool) -> Ordering {
-    if first == DASH && second != UNDERSCORE {
+fn compare_name_units(
+    first: u16,
+    second: u16,
+    ignore_case: bool,
+    like_file_names: bool,
+) -> Ordering {
+    if !like_file_names {
+        compare_units(first, second, ignore_case)
+    } else if first == DASH && second != UNDERSCORE {
         compare_units(UNDERSCORE, second, ignore_case)
     } else if second == DASH && first != UNDERSCORE {
         compare_units(first, UNDERSCORE, ignore_case)

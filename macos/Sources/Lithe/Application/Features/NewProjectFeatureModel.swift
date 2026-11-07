@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
@@ -10,14 +11,20 @@ struct NewProjectEnvironment {
     /// a plugin enabled from the window takes effect at once.
     let sources: @MainActor () -> [ProjectGeneratorPluginSource]
     let iconResources: [String: PluginUIIconResources]
-    /// Discovered JDKs, best first; the window may run without a project.
-    let javaRuntimes: @MainActor () async -> [JavaRuntimeCandidate]
     let service: ProjectGenerationService
     let setPluginEnabled: @MainActor (PluginID) async throws -> Void
     /// Opens plugin management on the marketplace with a search.
     let openMarketplace: @MainActor (String) -> Void
     let openProject: @MainActor (CreatedProject) -> Void
     let store: any KeyValueStore
+    /// Installations of the tools `tool` and `runtime` fields pick, by tool
+    /// definition ID and best first. A new project has no workspace yet, so this is the
+    /// machine-wide discovery; a tool nothing defines is simply absent. Throws
+    /// when discovery could not run, which is not the same as nothing found.
+    var toolInstallations: @MainActor ([String]) async throws -> [String: [ProjectToolInstallation]] = { _ in [:] }
+    /// Fires after the installed plugins or their enablement changed, so the
+    /// entry list follows an install, update, or removal without reopening.
+    var pluginChanges: AnyPublisher<Void, Never> = Empty<Void, Never>().eraseToAnyPublisher()
 }
 
 /// State of the New Project window: the entry list, the host-owned name,
@@ -56,9 +63,6 @@ final class NewProjectFeatureModel: ObservableObject {
     static let defaultLocation = "~/LitheProjects"
 
     @Published private(set) var entries: [ProjectGeneratorEntry] = []
-    var isJavaSupportMissing: Bool {
-        !sources.contains { $0.pluginID == OfficialPluginCatalog.javaPluginID }
-    }
     @Published private(set) var catalogError: String?
     @Published var selection: Selection = .empty {
         didSet { if oldValue != selection { selectionChanged() } }
@@ -77,16 +81,24 @@ final class NewProjectFeatureModel: ObservableObject {
     @Published private(set) var formState: ProjectGeneratorFormState?
     @Published private(set) var nameProblem: ProjectFieldProblem?
     @Published private(set) var formError: String?
-    @Published private(set) var javaRuntimes: [JavaRuntimeCandidate] = []
-    /// Set once JDK discovery finished, so an empty list reads as "none
-    /// installed" rather than "still looking".
-    @Published private(set) var hasLoadedJavaRuntimes = false
     @Published private(set) var isCreating = false
     @Published private(set) var progressOutput = ""
     @Published private(set) var errorMessage: String?
     @Published private(set) var enablingPluginID: PluginID?
+    /// True from the moment tool installations are requested until they arrive,
+    /// so an empty list reads as "none installed" rather than "still looking".
+    @Published private(set) var isListingTools = false
+    /// Why the installations of a tool could not be looked up, by tool
+    /// definition ID. Such a tool has no listing, so Create stays disabled.
+    @Published private(set) var toolListingFailures: [String: String] = [:]
 
     private let environment: NewProjectEnvironment
+    /// Installations found per tool definition ID. A listing replaces the
+    /// entries it asked for; the others keep their last answer until a plugin
+    /// change drops them all. A tool with no entry has not been listed yet.
+    private var listedTools: [String: [ProjectToolInstallation]] = [:]
+    private var toolListing: Task<Void, Never>?
+    private var pluginChangeObservation: AnyCancellable?
     /// Inputs per generator, so switching entries keeps what the user typed.
     private var inputs: [String: ProjectGeneratorFormInput] = [:]
     private var creation: Task<Void, Never>?
@@ -99,18 +111,25 @@ final class NewProjectFeatureModel: ObservableObject {
         self.environment = environment
         location = environment.store.string(forKey: Self.locationKey) ?? Self.defaultLocation
         createGitRepository = environment.store.object(forKey: Self.createGitKey) as? Bool ?? false
+        pluginChangeObservation = environment.pluginChanges
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                MainActor.assumeIsolated { self?.reloadCatalog() }
+            }
     }
 
     // MARK: Catalog
 
-    /// Loads the entries and JDKs; called when the window appears.
+    /// Loads the entries and the installations the first selected entry's
+    /// fields pick; called when the window appears.
     func load() async {
         reloadCatalog()
         if selection == .empty, let first = entries.first(where: { $0.generator.section == .project }) {
             selection = .generator(first.id)
         }
-        javaRuntimes = await environment.javaRuntimes()
-        hasLoadedJavaRuntimes = true
+        // Selecting the entry started the lookup; waiting for it lets the
+        // window open on runtime fields that already hold an installation.
+        await toolListing?.value
         evaluate()
     }
 
@@ -130,7 +149,14 @@ final class NewProjectFeatureModel: ObservableObject {
         if case .generator(let id) = selection, !entries.contains(where: { $0.id == id }) {
             selection = .empty
         }
+        // A plugin change may add or remove the definition of any tool, not
+        // only the selected entry's, so every listing is dropped: an entry
+        // selected later is looked up again instead of offering a home the
+        // removed definition found.
+        listedTools = [:]
+        toolListingFailures = [:]
         evaluate()
+        listToolInstallations()
     }
 
     var selectedEntry: ProjectGeneratorEntry? {
@@ -182,7 +208,13 @@ final class NewProjectFeatureModel: ObservableObject {
         evaluate()
     }
 
-    /// The JDK chosen for a runtime field, by home path.
+    /// The installations a runtime field offers, best first: those found for
+    /// the tool definition its `runtime` names, like a `tool` field's.
+    func runtimeInstallations(for field: ProjectGeneratorField) -> [ProjectToolInstallation] {
+        field.runtime.flatMap { listedTools[$0] } ?? []
+    }
+
+    /// The installation chosen for a runtime field, by home path.
     func selectedRuntimeHome(for field: ProjectGeneratorField) -> String {
         guard let entry = selectedEntry else { return "" }
         return input(for: entry).runtimes[field.id]?.home ?? ""
@@ -190,9 +222,9 @@ final class NewProjectFeatureModel: ObservableObject {
 
     func selectRuntime(home: String, for field: ProjectGeneratorField) {
         guard let entry = selectedEntry,
-              let runtime = javaRuntimes.first(where: { $0.homePath == home }) else { return }
+              let runtime = runtimeInstallations(for: field).first(where: { $0.home == home }) else { return }
         var input = input(for: entry)
-        input.runtimes[field.id] = ProjectRuntimeSelection(home: runtime.homePath, version: runtime.version)
+        input.runtimes[field.id] = ProjectRuntimeSelection(home: runtime.home, version: runtime.version)
         inputs[entry.id] = input
         evaluate()
     }
@@ -225,7 +257,10 @@ final class NewProjectFeatureModel: ObservableObject {
         guard !isCreating, nameProblem == nil, formError == nil,
               !location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         guard let entry = selectedEntry else { return selection == .empty }
+        // Until its tools are listed the form has judged an empty list, so an
+        // optional tool would read as "none" and be left out of the project.
         return entry.pluginEnabled && formState?.valid == true
+            && toolIDs(of: entry).allSatisfy { listedTools[$0] != nil }
     }
 
     private var parentURL: URL {
@@ -236,27 +271,48 @@ final class NewProjectFeatureModel: ObservableObject {
     private func input(for entry: ProjectGeneratorEntry) -> ProjectGeneratorFormInput {
         var input = inputs[entry.id] ?? ProjectGeneratorFormInput(projectName: projectName)
         input.projectName = projectName
-        // Every runtime field starts on the best JDK the generator accepts.
-        for field in entry.generator.fields where field.kind == .runtime && input.runtimes[field.id] == nil {
-            if let runtime = Self.preferredRuntime(javaRuntimes, minimum: field.minimumVersion) {
-                input.runtimes[field.id] = ProjectRuntimeSelection(home: runtime.homePath, version: runtime.version)
-            }
+        // Core accepts only installations the host listed, so each tool field
+        // is sent what was found for its tool.
+        for field in entry.generator.fields where field.kind == .tool {
+            input.tools[field.id] = field.tool.flatMap { listedTools[$0] } ?? []
+        }
+        // Every runtime field starts on the best installation the generator
+        // accepts, and moves to it again when the chosen one is no longer
+        // listed. Until its tool is listed the field keeps what it holds.
+        for field in entry.generator.fields where field.kind == .runtime {
+            guard let found = field.runtime.flatMap({ listedTools[$0] }) else { continue }
+            if let chosen = input.runtimes[field.id], found.contains(where: { $0.home == chosen.home }) { continue }
+            input.runtimes[field.id] = Self.preferredRuntime(found, minimum: field.minimumVersion)
+                .map { ProjectRuntimeSelection(home: $0.home, version: $0.version) }
         }
         return input
     }
 
-    static func preferredRuntime(_ runtimes: [JavaRuntimeCandidate], minimum: String?) -> JavaRuntimeCandidate? {
-        let minimumMajor = minimum.flatMap { Int($0.split(separator: ".").first ?? "") } ?? 0
-        return runtimes
-            .filter { ($0.majorVersion ?? 0) >= minimumMajor }
-            .max { ($0.majorVersion ?? 0) < ($1.majorVersion ?? 0) }
-            ?? runtimes.first
+    /// The first installation, in the host's best-first order, whose version is
+    /// at least `minimum`, or else the first one. Versions compare by their
+    /// numeric dot-separated parts with trailing zeros ignored, as Rust Core
+    /// compares them, so the pick is one Core does not report as too old.
+    static func preferredRuntime(_ installations: [ProjectToolInstallation], minimum: String?) -> ProjectToolInstallation? {
+        guard let minimum else { return installations.first }
+        let floor = releaseComponents(minimum)
+        return installations.first { !releaseComponents($0.version).lexicographicallyPrecedes(floor) }
+            ?? installations.first
+    }
+
+    private static func releaseComponents(_ version: String) -> [Int] {
+        var numbers = version.split(separator: ".").compactMap { Int($0) }
+        while numbers.last == 0 { numbers.removeLast() }
+        return numbers
     }
 
     private func selectionChanged() {
         errorMessage = nil
         showsAdvancedFields = false
         evaluate()
+        // Tools another generator already needed are not looked up again.
+        if toolIDs(of: selectedEntry).contains(where: { listedTools[$0] == nil }) {
+            listToolInstallations()
+        }
     }
 
     /// Asks Rust Core for the form after every change.
@@ -303,6 +359,111 @@ final class NewProjectFeatureModel: ObservableObject {
             manifest: source.manifest,
             packageURL: source.packageURL
         )
+    }
+
+    // MARK: Tool fields
+
+    /// The installations a tool field offers, with Core's verdict on each.
+    func toolChoices(for field: ProjectGeneratorField) -> [ProjectGeneratorFormState.ToolChoice] {
+        formState?.field(field.id)?.installations ?? []
+    }
+
+    /// The homes a tool field's picker lists. Core leaves an optional field
+    /// empty when every installation is too old, so "" comes first then and
+    /// the picker shows that rather than a blank control.
+    func toolOptions(for field: ProjectGeneratorField) -> [String] {
+        let homes = toolChoices(for: field).map(\.home)
+        guard case .string(let chosen) = value(of: field), !chosen.isEmpty else { return [""] + homes }
+        return homes
+    }
+
+    /// Whether the picker lets the user choose `home`: "no tool" and the
+    /// installations Core says are new enough. An older one stays listed so the
+    /// user sees why it is not used.
+    func isToolChoosable(_ home: String, for field: ProjectGeneratorField) -> Bool {
+        home.isEmpty || toolChoices(for: field).first { $0.home == home }?.meetsMinimum == true
+    }
+
+    /// What to offer when a tool field found no installation because no enabled
+    /// plugin defines its tool: enable the plugin that does, or look for one.
+    /// Nil while listing, when installations exist, and when the defining
+    /// plugin is already enabled (the tool is then just not installed).
+    func toolNoticeAction(for field: ProjectGeneratorField) -> RequirementNotice.Action? {
+        guard !isListingTools, toolListingError(for: field) == nil, toolChoices(for: field).isEmpty,
+              let tool = selectedEntry?.tools.first(where: { $0.fieldID == field.id }),
+              !tool.providers.contains(where: \.enabled) else { return nil }
+        if let provider = tool.providers.first {
+            return .enable(PluginID(provider.pluginID), name: provider.pluginName)
+        }
+        // A third-party definition is `<pluginID>:<id>`; the plugin is what the
+        // marketplace lists.
+        let query = tool.tool.split(separator: ":").first.map(String.init) ?? tool.tool
+        return .findInMarketplace(query)
+    }
+
+    /// The distinct tools the entry's tool and runtime fields pick, in
+    /// declaration order.
+    private func toolIDs(of entry: ProjectGeneratorEntry?) -> [String] {
+        var seen = Set<String>()
+        return (entry?.generator.fields ?? [])
+            .compactMap(Self.listedToolID(of:))
+            .filter { seen.insert($0).inserted }
+    }
+
+    /// The tool definition whose installations a field picks from: a `tool`
+    /// field's `tool`, or a `runtime` field's `runtime`; nil for other fields.
+    private static func listedToolID(of field: ProjectGeneratorField) -> String? {
+        switch field.kind {
+        case .tool: field.tool
+        case .runtime: field.runtime
+        case .text, .enum, .boolean, .multiSelect: nil
+        }
+    }
+
+    /// Why the installations of the field's tool could not be looked up, or
+    /// nil when they were (or are still being) looked up.
+    func toolListingError(for field: ProjectGeneratorField) -> String? {
+        guard !isListingTools else { return nil }
+        return Self.listedToolID(of: field).flatMap { toolListingFailures[$0] }
+    }
+
+    /// Looks the selected generator's tools up again after a failure.
+    func retryToolListing() {
+        listToolInstallations()
+    }
+
+    /// Looks up the installations of the selected generator's tools and
+    /// re-evaluates the form with them. A newer request replaces an older one.
+    private func listToolInstallations() {
+        toolListing?.cancel()
+        let tools = toolIDs(of: selectedEntry)
+        guard !tools.isEmpty else {
+            isListingTools = false
+            return
+        }
+        isListingTools = true
+        toolListing = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let found = try await environment.toolInstallations(tools)
+                guard !Task.isCancelled else { return }
+                for tool in tools {
+                    listedTools[tool] = found[tool] ?? []
+                    toolListingFailures[tool] = nil
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                // The tools stay unlisted, so the field says the lookup failed
+                // instead of "not installed", and Create waits for a retry.
+                // A tool listed before keeps that listing.
+                let message = String(
+                    format: L10n.string("Could not look for installed tools: %@"), error.localizedDescription
+                )
+                for tool in tools where listedTools[tool] == nil { toolListingFailures[tool] = message }
+            }
+            isListingTools = false
+            evaluate()
+        }
     }
 
     // MARK: Actions

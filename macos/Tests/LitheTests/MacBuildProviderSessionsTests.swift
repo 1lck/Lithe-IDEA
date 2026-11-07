@@ -20,10 +20,10 @@ struct MacBuildProviderSessionsTests {
             if issues.count == 3 { observed.open() }
         }
         defer { session.stop() }
-        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"))
         core.enqueueLogIssues()
         #expect(await observed.waitUntilOpen())
-        #expect(issues.map { $0.2 } == ["mavenSettingsUnchanged", "configurationCleanupFailed", "initializeTimeout"])
+        #expect(issues.map { $0.2 } == ["settingsUnchanged", "configurationCleanupFailed", "initializeTimeout"])
         #expect(issues.first?.0 == true)
         #expect(issues.last?.0 == false)
         #expect(issues.last?.1 == "initialize")
@@ -41,7 +41,7 @@ struct MacBuildProviderSessionsTests {
             releasing.open()
             #expect(await release.waitUntilOpen(), "Resource release was not permitted")
         }
-        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"))
         let closing = Task { @MainActor in
             let result = await session.stopAndWait()
             finished.open()
@@ -63,13 +63,13 @@ struct MacBuildProviderSessionsTests {
     func documentSavesReachCoreAndPropagateTransportFailure(fails: Bool) async throws {
         let core = ScriptedProviderCore()
         let session = LanguageServerRuntimeSession(
-            providerID: "java", executableURL: URL(fileURLWithPath: "/tools/jdtls"),
+            providerID: "example", executableURL: URL(fileURLWithPath: "/tools/server"),
             arguments: [], environment: [:], core: core)
-        let file = URL(fileURLWithPath: "/workspace/Main.java")
+        let file = URL(fileURLWithPath: "/workspace/example.txt")
         defer { session.stop() }
         try session.notifyDocumentSaved(file, text: "before startup")
         #expect(core.savedTexts.isEmpty)
-        try session.start(rootURL: file.deletingLastPathComponent(), workspaceFingerprint: nil)
+        try session.start(rootURL: file.deletingLastPathComponent())
         core.saveFails = fails
         if fails {
             #expect(throws: (any Error).self) { try session.notifyDocumentSaved(file, text: "saved") }
@@ -80,82 +80,6 @@ struct MacBuildProviderSessionsTests {
         #expect(core.syncedTexts.isEmpty)
         session.stop()
         try #require(await core.destroyed.waitUntilOpen())
-    }
-
-    @Test(arguments: [false, true], [false, true])
-    func javaLaunchPreparationDecodesSharedTargetsAndCancelsItsOwnedOperation(cancel: Bool, buildFailed: Bool) async throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-        struct Fixture: Decodable {
-            struct Case: Decodable { let target: JavaDebugLaunchTarget }
-            let cases: [Case]
-        }
-        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf:
-            root.appendingPathComponent("shared/fixtures/lsp/java-launch-preparation-v1.json")))
-        for item in fixture.cases {
-            let core = ScriptedProviderCore()
-            let session = LanguageServerRuntimeSession(
-                providerID: "java", executableURL: URL(fileURLWithPath: "/tools/jdtls"),
-                arguments: [], environment: [:], core: core
-            )
-            let workspace = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
-            try session.start(rootURL: workspace, workspaceFingerprint: nil)
-            let finished = TestGate()
-            let request = Task { @MainActor () -> Result<JavaLaunchPreparation, Error> in
-                defer { finished.open() }
-                do { return .success(try await session.prepareJavaLaunch(
-                    fileURL: workspace.appendingPathComponent("Main.java"), mainClass: "demo.Main"
-                )) } catch { return .failure(error) }
-            }
-            defer { request.cancel(); session.stop() }
-            try #require(await core.commandStarted.waitUntilOpen())
-            if cancel {
-                request.cancel()
-                try #require(await core.functionCancelled.waitUntilOpen())
-            } else {
-                let target = try JSONDecoder().decode(ToolingJSONValue.self, from: JSONEncoder().encode(item.target))
-                var result: [String: ToolingJSONValue] = [
-                    "kind": .string(buildFailed ? "buildFailed" : "ready"), "target": target
-                ]
-                if buildFailed {
-                    result["failure"] = .object([
-                        "code": .string("javaBuildCompilationErrors"),
-                        "message": .string("The Java project build reported compilation errors."),
-                        "report": .object(["markerScope": .string("launchTarget"),
-                            "builderFailedEarlier": .bool(false), "elapsedMilliseconds": .integer(25),
-                            "recovery": .string("rebuildJavaIndex")])
-                    ])
-                }
-                core.finishJavaLaunch(.object(result))
-            }
-            try #require(await finished.waitUntilOpen(), "Java launch did not finish before its local deadline")
-            switch await request.value {
-            case .success(let preparation):
-                #expect(!cancel)
-                if buildFailed {
-                    guard case .buildFailed(let target, let failure) = preparation else {
-                        Issue.record("A terminal build failure must retain its evidence and launch target")
-                        return
-                    }
-                    #expect(target == item.target)
-                    #expect(failure.code == "javaBuildCompilationErrors")
-                    #expect(failure.message == L10n.string("The Java project build reported compilation errors."))
-                    #expect(failure.report?.elapsedMilliseconds == 25)
-                    #expect(failure.report?.recovery == .rebuildJavaIndex)
-                } else {
-                    #expect(preparation == .ready(item.target))
-                }
-            case .failure(let error):
-                #expect(cancel)
-                #expect(error is CancellationError)
-                #expect(core.cancelledOperations == ["java-launch"])
-            }
-            #expect(session.isRunning)
-            #expect(core.stopCalls.isEmpty)
-            session.stop()
-            try #require(await core.destroyed.waitUntilOpen())
-        }
     }
 
     @Test
@@ -177,7 +101,7 @@ struct MacBuildProviderSessionsTests {
             }, core: core, pluginID: "dev.example.fixture"
         )
         defer { resume.open(); session.stop() }
-        try session.start(rootURL: root, workspaceFingerprint: nil)
+        try session.start(rootURL: root)
         try #require(await preparing.waitUntilOpen())
         let changes = [LanguageServerWorkspaceFileChange(fileURL: root.appendingPathComponent("new.swift"), kind: .created)]
         try session.notifyWorkspaceFilesChanged(changes)
@@ -210,7 +134,7 @@ struct MacBuildProviderSessionsTests {
             }, core: core
         )
         defer { resume.open(); lateReply.cancel(); session.stop() }
-        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"))
         try #require(await preparing.waitUntilOpen())
         session.stop()
         resume.open()
@@ -234,7 +158,7 @@ struct MacBuildProviderSessionsTests {
         var issues: [(String, String)] = []
         session.onLogIssue = { _, stage, code, _, _ in issues.append((stage, code)) }
         defer { session.stop() }
-        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"))
         #expect(await released.waitUntilOpen())
         #expect(!session.isRunning)
         #expect(issues.contains { $0.0 == "processStart" && $0.1 == "processFailed" })
@@ -267,7 +191,7 @@ struct MacBuildProviderSessionsTests {
             pluginID: "dev.example.fixture", operation: .languageServerStart, at: .resolve, operationID: "lsp-start"
         ))
 
-        try? session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try? session.start(rootURL: URL(fileURLWithPath: "/workspace"))
         try #require(await settled.waitUntilOpen())
 
         #expect(core.startupHandoffs.map(\.pluginId) == ["dev.example.fixture"])
@@ -297,7 +221,7 @@ struct MacBuildProviderSessionsTests {
             pluginID: "dev.example.fixture", operation: .languageServerStart, at: .resolve, operationID: "lsp-start"
         ))
 
-        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"))
         try #require(await prepared.started.waitUntilOpen())
 
         #expect(prepared.startupHandoffs.map(\.operationId) == ["lsp-start"])
@@ -323,7 +247,7 @@ struct MacBuildProviderSessionsTests {
             pluginID: "dev.example.fixture", operation: .languageServerStart, at: .resolve, operationID: "lsp-start"
         ))
 
-        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"))
         try #require(await failed.waitUntilOpen())
 
         #expect(operations.observations == [RecordedPluginOperations.languageServerStart(
@@ -357,7 +281,7 @@ struct MacBuildProviderSessionsTests {
             pluginID: "dev.example.fixture", operation: .languageServerStart, at: .resolve, operationID: "lsp-start"
         ))
 
-        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"))
         try #require(await preparing.waitUntilOpen())
         session.stop()
         resume.open()
@@ -379,7 +303,7 @@ struct MacBuildProviderSessionsTests {
         let root = URL(fileURLWithPath: "/workspace")
         let file = root.appendingPathComponent("one.swift")
         let closedFile = root.appendingPathComponent("closed.swift")
-        try session.start(rootURL: root, workspaceFingerprint: nil)
+        try session.start(rootURL: root)
         try #require(await core.started.waitUntilOpen())
         #expect(session.isRunning)
         try session.synchronize(fileURL: file, text: "old", languageID: "swift")
@@ -412,7 +336,7 @@ struct MacBuildProviderSessionsTests {
             #expect(core.destroyed.isOpen, "Package bytes must outlive the late process")
             resourcesReleased.open()
         }
-        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"))
         try #require(await core.started.waitUntilOpen())
         session.stop()
         #expect(!session.isRunning)
@@ -439,7 +363,7 @@ struct MacBuildProviderSessionsTests {
             resourcesReleased.open()
         }
         weak var owner = session
-        try session?.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try session?.start(rootURL: URL(fileURLWithPath: "/workspace"))
         try #require(await core.started.waitUntilOpen())
         session = nil
         #expect(owner == nil)
@@ -491,7 +415,7 @@ struct MacBuildProviderSessionsTests {
         let result = try await fixture.sessions.prepareRun(BuildProviderRequest(
             method: "lithe/build/prepareRun", params: .object([:]), optionFingerprint: "",
             executesProjectCode: true, mayUseNetwork: true), on: fixture.target, timeout: .seconds(5)) { progress.values.append($0) }
-        #expect(result == .object(["executable": .object(["kind": .string("command"), "value": .string("java")]),
+        #expect(result == .object(["executable": .object(["kind": .string("command"), "value": .string("example-tool")]),
                                    "arguments": .array([]), "workingDirectory": .string("."), "environment": .object([:])]))
         #expect(progress.values == [BuildProviderProgress(percentage: 50, output: "building")])
         #expect(fixture.core.startCalls.count == 1)
@@ -509,7 +433,7 @@ struct MacBuildProviderSessionsTests {
             arguments: [], environment: [:], core: core
         )
         let root = URL(fileURLWithPath: "/workspace/hosted-debug", isDirectory: true)
-        try session.start(rootURL: root, workspaceFingerprint: nil)
+        try session.start(rootURL: root)
         let finished = TestGate()
         let request = Task { @MainActor () -> Result<ToolingJSONValue, Error> in
             defer { finished.open() }
@@ -544,31 +468,6 @@ struct MacBuildProviderSessionsTests {
         try #require(await core.destroyed.waitUntilOpen(), "The language session did not release its resources")
     }
 
-    @Test
-    func cancellingAwaitedJavaEntrypointsRevokesTheExactCoreOperationWithoutStoppingTheSession() async throws {
-        let core = ScriptedProviderCore()
-        let session = LanguageServerRuntimeSession(providerID: "java", executableURL: URL(fileURLWithPath: "/tools/jdtls"),
-            arguments: [], environment: [:], core: core)
-        try session.start(rootURL: URL(fileURLWithPath: "/workspace/java-profile"), workspaceFingerprint: nil)
-        let finished = TestGate()
-        let task = Task { @MainActor () -> Result<JavaEntrypoints, Error> in
-            defer { finished.open() }
-            do { return .success(try await session.javaEntrypoints()) }
-            catch { return .failure(error) }
-        }
-        defer { task.cancel(); session.stop() }
-        try #require(await core.commandStarted.waitUntilOpen())
-        task.cancel()
-        try #require(await core.functionCancelled.waitUntilOpen())
-        try #require(await finished.waitUntilOpen())
-        if case .failure(let error) = await task.value { #expect(error is CancellationError) }
-        else { Issue.record("Cancelled launch discovery must not succeed") }
-        #expect(session.isRunning)
-        #expect(core.stopCalls.isEmpty)
-        session.stop()
-        try #require(await core.destroyed.waitUntilOpen())
-    }
-
     /// A second request reuses the process; stopping the plugin's providers,
     /// which the plugin manager does before replacing its package, ends it
     /// and the next request starts a new one.
@@ -598,10 +497,10 @@ struct MacBuildProviderSessionsTests {
         let fixture = try ProviderFixture()
         defer { fixture.remove() }
         let params: ToolingJSONValue = .object([
-            "buildSystemID": .string("gradle"),
+            "buildSystemID": .string("tool-a"),
             "root": .string("."),
             "refresh": .bool(true),
-            "tool": .object(["executable": .string("/opt/tools/gradle/bin/gradle")]),
+            "tool": .object(["executable": .string("/opt/tools/tool-a/bin/tool-a")]),
         ])
 
         _ = try await fixture.load(params: params)
@@ -909,7 +808,7 @@ private final class ProgressReports {
     var items: [PluginFunctionProgress] = []
 }
 
-/// A Gradle-like plugin whose provider is a packaged executable with a
+/// A plugin whose provider is a packaged executable with a
 /// setting in its arguments.
 @MainActor
 private struct ProviderFixture {
@@ -1124,28 +1023,9 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     var functionRequests: [FunctionCall] { lock.withLock { _functionRequests } }
 
     func startLanguageServer(
-        providerID: String, executableURL: URL, arguments: [String], environment: [String: String],
-        rootURL: URL, workingDirectoryURL: URL, initializationOptions: ToolingJSONValue?,
-        runtimeExecutableURL: URL?, jdtlsLaunchResources: JDTLSLaunchResources?, cacheDirectoryURL: URL?,
-        workspaceFingerprint: String?, initializeTimeout: TimeInterval, requestTimeout: TimeInterval,
-        shutdownTimeout: TimeInterval
-    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
-        startLanguageServer(
-            providerID: providerID, executableURL: executableURL, arguments: arguments,
-            environment: environment, rootURL: rootURL, workingDirectoryURL: workingDirectoryURL,
-            initializationOptions: initializationOptions, runtimeExecutableURL: runtimeExecutableURL,
-            jdtlsLaunchResources: jdtlsLaunchResources, cacheDirectoryURL: cacheDirectoryURL,
-            workspaceFingerprint: workspaceFingerprint, mavenContext: nil, initializeTimeout: initializeTimeout,
-            requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
-        )
-    }
-
-    func startLanguageServer(
         providerID _: String, executableURL _: URL, arguments: [String], environment _: [String: String],
         rootURL _: URL, workingDirectoryURL _: URL, initializationOptions _: ToolingJSONValue?,
-        runtimeExecutableURL _: URL?, jdtlsLaunchResources _: JDTLSLaunchResources?, cacheDirectoryURL _: URL?,
-        workspaceFingerprint _: String?, mavenContext _: MavenLaunchContext?, initializeTimeout _: TimeInterval,
-        requestTimeout _: TimeInterval, shutdownTimeout _: TimeInterval
+        initializeTimeout _: TimeInterval, requestTimeout _: TimeInterval, shutdownTimeout _: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
         if failStart { return .failure(.init(code: "processFailed", message: "fixture startup failed")) }
         if backgroundStart {
@@ -1172,10 +1052,7 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
         pluginID: String, providerID: String, executableURL: URL, arguments: [String],
         environment: [String: String], rootURL: URL, initializationOptions: ToolingJSONValue?,
         workspaceConfiguration: ToolingJSONValue?, hostServices: [String],
-        hostIntegrationLaunch _: LanguageServerHostIntegrationLaunch?, cacheDirectoryURL _: URL?,
-        workspaceFingerprint _: String?, mavenContext _: MavenLaunchContext?,
-        javaGradle _: JavaGradleImportConfiguration?, initializeTimeout: TimeInterval,
-        requestTimeout: TimeInterval, shutdownTimeout: TimeInterval
+        initializeTimeout: TimeInterval, requestTimeout: TimeInterval, shutdownTimeout: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
         lock.withLock { _workspaceConfigurations.append(workspaceConfiguration) }
         // The host-services overload keeps the protocol's default refusal of services.
@@ -1213,10 +1090,10 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     func enqueueLogIssues() {
         lock.withLock {
             events["provider-\(nextSession)", default: []] += [
-                LanguageServerRuntimeEvent(type: "log", error: LanguageServerRuntimeError(code: "mavenSettingsUnchanged", stage: "mavenSettings", message: "settings warning", underlyingMessage: nil, processExitCode: nil), level: "warn",
-                    message: "Maven settings were passed to the Java language service unchanged", detail: "private upstream detail"),
+                LanguageServerRuntimeEvent(type: "log", error: LanguageServerRuntimeError(code: "settingsUnchanged", stage: "settings", message: "settings warning", underlyingMessage: nil, processExitCode: nil), level: "warn",
+                    message: "Settings were passed to the language service unchanged", detail: "private upstream detail"),
                 LanguageServerRuntimeEvent(type: "log", error: LanguageServerRuntimeError(code: "configurationCleanupFailed", stage: "configurationCleanup", message: "cleanup warning", underlyingMessage: nil, processExitCode: nil), level: "warn",
-                    message: "Unused Java language-server configuration areas could not be removed", detail: "private command output"),
+                    message: "Unused language-server configuration areas could not be removed", detail: "private command output"),
                 LanguageServerRuntimeEvent(type: "stateChanged", state: "failed", error:
                     LanguageServerRuntimeError(code: "initializeTimeout", stage: "initialize", message: "private URL",
                         underlyingMessage: nil, processExitCode: 17))
@@ -1329,7 +1206,7 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
                     result: .object(["percentage": .integer(50), "output": .string("building")])
                 ))
             }
-            let launch: ToolingJSONValue = .object(["executable": .object(["kind": .string("command"), "value": .string("java")]),
+            let launch: ToolingJSONValue = .object(["executable": .object(["kind": .string("command"), "value": .string("example-tool")]),
                                                    "arguments": .array([]), "workingDirectory": .string("."), "environment": .object([:])])
             let value: ToolingJSONValue = method == "lithe/build/prepareRun" ? launch : ["lithe/build/execute", "lithe/build/test"].contains(method)
                 ? .object(["exitCode": .integer(0), "output": .string("built")])
@@ -1381,10 +1258,6 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
         diagnostics _: [LanguageServerDiagnostic], completionContext: LanguageServerCompletionContext?, completionItem _: LanguageServerCompletionItem?,
         codeAction _: LanguageServerCodeAction?, command: LanguageServerCommand?
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
-        if operation == .javaEntrypoints {
-            commandStarted.open()
-            return .success(LanguageServerRuntimeOperation(operationID: "java-entrypoints"))
-        }
         if operation == .executeCommand, command?.command == "example.startDebugSession" {
             commandStarted.open()
             return .success(LanguageServerRuntimeOperation(operationID: "debug-start"))
@@ -1397,21 +1270,6 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
             events["provider-\(nextSession)", default: []].append(LanguageServerRuntimeEvent(
                 type: "requestCompleted", operationID: "debug-start",
                 result: .object(["value": .integer(4711)])
-            ))
-        }
-    }
-
-    func prepareJavaLaunch(
-        sessionID _: String, fileURL _: URL, mainClass _: String?
-    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
-        commandStarted.open()
-        return .success(LanguageServerRuntimeOperation(operationID: "java-launch"))
-    }
-
-    func finishJavaLaunch(_ result: ToolingJSONValue) {
-        lock.withLock {
-            events["provider-\(nextSession)", default: []].append(LanguageServerRuntimeEvent(
-                type: "requestCompleted", operationID: "java-launch", result: result
             ))
         }
     }

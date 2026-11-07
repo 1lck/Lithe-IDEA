@@ -239,13 +239,16 @@ fn paste_clipboard(app: &AppHandle, target_directory: PathBuf) -> Result<Vec<Pas
             .path
             .file_name()
             .ok_or_else(|| "Clipboard source requires a file name".to_string())?;
-        let destination = unique_destination(target_directory.join(name));
-        match clipboard.operation {
-            ClipboardOperation::Copy => copy_path(&entry.path, &destination)?,
-            ClipboardOperation::Cut => {
-                fs::rename(&entry.path, &destination).map_err(|error| error.to_string())?
-            }
-        }
+        let destination = create_without_replacing(
+            &target_directory,
+            name,
+            entry.is_dir,
+            false,
+            |destination| match clipboard.operation {
+                ClipboardOperation::Copy => copy_path(&entry.path, destination),
+                ClipboardOperation::Cut => move_exclusive(&entry.path, destination),
+            },
+        )?;
         pasted.push(PastedEntry {
             source_path: entry.path.clone(),
             destination_path: destination,
@@ -281,46 +284,136 @@ fn clear_pasted_clipboard(
     }
 }
 
-fn unique_destination(path: PathBuf) -> PathBuf {
-    if !path.exists() {
-        return path;
+/// Most create attempts for one destination; each failed attempt adds a name that exists.
+const MAX_NAME_ATTEMPTS: usize = 512;
+
+/// Asks Core for a free copy name given the names already known to exist.
+fn plan_copy_name(
+    name: &str,
+    is_directory: bool,
+    existing: &[String],
+    duplicate: bool,
+) -> Result<String, String> {
+    let (command, payload) = if duplicate {
+        (
+            "workspace.planDuplicate",
+            serde_json::json!({"name": name, "isDirectory": is_directory, "existing": existing, "caseInsensitive": true}),
+        )
+    } else {
+        (
+            "workspace.planPaste",
+            serde_json::json!({"items": [{"name": name, "isDirectory": is_directory}], "existing": existing, "caseInsensitive": true}),
+        )
+    };
+    let response = lithe_core::execute_json(
+        &serde_json::json!({"command": command, "payload": payload}).to_string(),
+    );
+    let value: Value = serde_json::from_str(&response).map_err(|error| error.to_string())?;
+    if value["ok"] != true {
+        return Err(value["error"]["message"]
+            .as_str()
+            .unwrap_or("Core rejected the copy name request")
+            .to_owned());
     }
-    let parent = path.parent().unwrap_or_else(|| std::path::Path::new(""));
-    let stem = path
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or("copy");
-    let extension = path.extension().and_then(|value| value.to_str());
-    for index in 1.. {
-        let suffix = if index == 1 {
-            " copy".into()
-        } else {
-            format!(" copy {index}")
-        };
-        let mut name = format!("{stem}{suffix}");
-        if let Some(extension) = extension {
-            name.push('.');
-            name.push_str(extension);
-        }
-        let candidate = parent.join(name);
-        if !candidate.exists() {
-            return candidate;
-        }
-    }
-    unreachable!()
+    let planned = if duplicate {
+        value["data"]["name"].as_str()
+    } else {
+        value["data"]["names"][0].as_str()
+    };
+    planned
+        .map(str::to_owned)
+        .ok_or_else(|| "Core returned no copy name".to_owned())
 }
 
-fn copy_path(source: &std::path::Path, destination: &std::path::Path) -> Result<(), String> {
+/// Creates `name` inside `directory` without ever replacing an existing entry.
+///
+/// Core picks the name from the names this loop has seen to exist; `create` must fail with
+/// `AlreadyExists` instead of overwriting. A concurrent writer that takes the planned name
+/// first only adds that name to the facts and the plan is made again, so the outcome is
+/// either a fresh name or the stable `destination_exists` error.
+fn create_without_replacing(
+    directory: &Path,
+    name: &std::ffi::OsStr,
+    is_directory: bool,
+    duplicate: bool,
+    mut create: impl FnMut(&Path) -> io::Result<()>,
+) -> Result<PathBuf, String> {
+    let name = name
+        .to_str()
+        .ok_or_else(|| "Clipboard source name is not valid Unicode".to_owned())?;
+    let mut existing: Vec<String> = Vec::new();
+    for _ in 0..MAX_NAME_ATTEMPTS {
+        let planned = plan_copy_name(name, is_directory, &existing, duplicate)?;
+        let destination = directory.join(&planned);
+        match create(&destination) {
+            Ok(()) => return Ok(destination),
+            Err(error)
+                if (error.kind() == io::ErrorKind::AlreadyExists || destination.exists())
+                    && !existing.contains(&planned) =>
+            {
+                existing.push(planned);
+            }
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    Err(format!(
+        "destination_exists: no free name for {name} in {}",
+        directory.display()
+    ))
+}
+
+/// Moves `source` to `destination`, failing with `AlreadyExists` instead of replacing it.
+/// Windows moves atomically without replacement; elsewhere the check precedes the rename.
+#[cfg(windows)]
+fn move_exclusive(source: &Path, destination: &Path) -> io::Result<()> {
+    crate::file_publication::publish_new_record(source, destination)
+}
+
+#[cfg(not(windows))]
+fn move_exclusive(source: &Path, destination: &Path) -> io::Result<()> {
+    if destination.symlink_metadata().is_ok() {
+        return Err(io::ErrorKind::AlreadyExists.into());
+    }
+    fs::rename(source, destination)
+}
+
+/// Copies a file or directory tree to a destination that must not exist yet.
+fn copy_path(source: &Path, destination: &Path) -> io::Result<()> {
     if source.is_dir() {
-        fs::create_dir(destination).map_err(|error| error.to_string())?;
-        for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
-            let entry = entry.map_err(|error| error.to_string())?;
+        fs::create_dir(destination)?;
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
             copy_path(&entry.path(), &destination.join(entry.file_name()))?;
         }
-    } else {
-        fs::copy(source, destination).map_err(|error| error.to_string())?;
+        return Ok(());
     }
-    Ok(())
+    // Reserve the name exclusively, then fill the reservation we own.
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination)?;
+    fs::copy(source, destination).map(|_| ()).inspect_err(|_| {
+        let _ = fs::remove_file(destination);
+    })
+}
+
+/// Duplicates a file or directory next to itself and returns the new path.
+#[tauri::command]
+pub async fn duplicate_path(path: PathBuf) -> Result<PathBuf, String> {
+    run_blocking(move || {
+        let directory = path
+            .parent()
+            .ok_or_else(|| "Duplicate source requires a parent directory".to_owned())?
+            .to_path_buf();
+        let name = path
+            .file_name()
+            .ok_or_else(|| "Duplicate source requires a file name".to_owned())?;
+        let is_directory = path.is_dir();
+        create_without_replacing(&directory, name, is_directory, true, |destination| {
+            copy_path(&path, destination)
+        })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -426,8 +519,9 @@ pub async fn create_app_window(app: AppHandle, request: Option<Value>) -> Result
 #[cfg(test)]
 mod tests {
     use super::{
-        cli_payloads, copy_path, create_app_window, parse_wsl_automount_root, read_bounded,
-        read_local_file_bounded_from_path, unique_destination, WINDOW_TASKBAR_ICON,
+        cli_payloads, copy_path, create_app_window, create_without_replacing,
+        parse_wsl_automount_root, read_bounded, read_local_file_bounded_from_path,
+        WINDOW_TASKBAR_ICON,
         WSL_DEFAULT_AUTOMOUNT_ROOT,
     };
     #[test]
@@ -540,7 +634,25 @@ mod tests {
             fs::read_to_string(destination.join("nested/file.txt")).unwrap(),
             "content"
         );
-        assert_eq!(unique_destination(destination), target.join("source copy"));
+        let again = create_without_replacing(
+            &target,
+            std::ffi::OsStr::new("source"),
+            true,
+            false,
+            |path| copy_path(&source, path),
+        )
+        .unwrap();
+        assert_eq!(again, target.join("source copy"));
+        let duplicate = create_without_replacing(
+            &target,
+            std::ffi::OsStr::new("source"),
+            true,
+            true,
+            |path| copy_path(&source, path),
+        )
+        .unwrap();
+        assert_eq!(duplicate, target.join("source copy 2"));
+        assert!(copy_path(&source, &destination).is_err());
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -845,18 +957,7 @@ pub async fn move_file(source_path: PathBuf, target_path: PathBuf) -> Result<(),
 }
 
 fn move_without_replacing(source_path: &Path, target_path: &Path) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        crate::file_publication::publish_new_record(source_path, target_path)
-            .map_err(|error| error.to_string())
-    }
-    #[cfg(not(windows))]
-    {
-        if target_path.exists() {
-            return Err("Destination already exists".into());
-        }
-        fs::rename(source_path, target_path).map_err(|error| error.to_string())
-    }
+    move_exclusive(source_path, target_path).map_err(|error| error.to_string())
 }
 
 #[tauri::command]

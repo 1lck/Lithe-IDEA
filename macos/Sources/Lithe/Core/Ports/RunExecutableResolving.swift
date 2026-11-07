@@ -20,5 +20,5 @@ protocol RunToolchainMetadataResolving: Sendable {
 
 /// Application boundary for resolving a launch plan. Toolchain ids are an
 /// open registry, but every id must have an explicit resolver; an unknown id
-/// must never silently acquire Maven semantics.
+/// must never silently acquire another toolchain's semantics.
 typealias RunExecutableResolving = LitheCoreContracts.RunExecutableResolving

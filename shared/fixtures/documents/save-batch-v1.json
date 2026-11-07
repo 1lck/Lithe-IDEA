@@ -1,0 +1,410 @@
+{
+  "version": 1,
+  "maxDocuments": 10000,
+  "plan": [
+    {
+      "name": "writable-dirty-documents-in-open-order",
+      "request": {
+        "documents": [
+          {
+            "id": "b",
+            "dirty": true,
+            "readOnly": false,
+            "contentSynchronized": true
+          },
+          {
+            "id": "a",
+            "dirty": false,
+            "readOnly": false,
+            "contentSynchronized": true
+          },
+          {
+            "id": "c",
+            "dirty": true,
+            "readOnly": false,
+            "contentSynchronized": true
+          }
+        ]
+      },
+      "expected": {
+        "members": [
+          "b",
+          "c"
+        ]
+      }
+    },
+    {
+      "name": "read-only-documents-never-take-part",
+      "request": {
+        "documents": [
+          {
+            "id": "a",
+            "dirty": true,
+            "readOnly": true,
+            "contentSynchronized": true
+          },
+          {
+            "id": "b",
+            "dirty": false,
+            "readOnly": true,
+            "contentSynchronized": false
+          }
+        ]
+      },
+      "expected": {
+        "members": []
+      }
+    },
+    {
+      "name": "clean-model-with-unsynchronized-editor-input-takes-part",
+      "request": {
+        "documents": [
+          {
+            "id": "a",
+            "dirty": false,
+            "readOnly": false,
+            "contentSynchronized": false
+          },
+          {
+            "id": "b",
+            "dirty": false,
+            "readOnly": false,
+            "contentSynchronized": true
+          }
+        ]
+      },
+      "expected": {
+        "members": [
+          "a"
+        ]
+      }
+    },
+    {
+      "name": "duplicate-identity-is-rejected",
+      "request": {
+        "documents": [
+          {
+            "id": "a",
+            "dirty": true,
+            "readOnly": false,
+            "contentSynchronized": true
+          },
+          {
+            "id": "a",
+            "dirty": false,
+            "readOnly": false,
+            "contentSynchronized": true
+          }
+        ]
+      },
+      "expectedError": "invalid_request"
+    },
+    {
+      "name": "empty-identity-is-rejected",
+      "request": {
+        "documents": [
+          {
+            "id": "",
+            "dirty": true,
+            "readOnly": false,
+            "contentSynchronized": true
+          }
+        ]
+      },
+      "expectedError": "invalid_request"
+    }
+  ],
+  "reduce": [
+    {
+      "name": "every-member-saved",
+      "request": {
+        "members": [
+          "a",
+          "b"
+        ],
+        "results": [
+          {
+            "id": "b",
+            "outcome": "saved"
+          },
+          {
+            "id": "a",
+            "outcome": "saved"
+          }
+        ],
+        "documents": [
+          {
+            "id": "a",
+            "dirty": false,
+            "readOnly": false,
+            "contentSynchronized": true
+          },
+          {
+            "id": "b",
+            "dirty": false,
+            "readOnly": false,
+            "contentSynchronized": true
+          }
+        ]
+      },
+      "expected": {
+        "status": "saved",
+        "savedCount": 2,
+        "failed": [],
+        "cancelled": [],
+        "remainingDirty": []
+      }
+    },
+    {
+      "name": "a-failure-does-not-hide-later-successes",
+      "request": {
+        "members": [
+          "a",
+          "b",
+          "c"
+        ],
+        "results": [
+          {
+            "id": "a",
+            "outcome": "saved"
+          },
+          {
+            "id": "b",
+            "outcome": "failed"
+          },
+          {
+            "id": "c",
+            "outcome": "saved"
+          }
+        ],
+        "documents": [
+          {
+            "id": "a",
+            "dirty": false,
+            "readOnly": false,
+            "contentSynchronized": true
+          },
+          {
+            "id": "b",
+            "dirty": true,
+            "readOnly": false,
+            "contentSynchronized": true
+          },
+          {
+            "id": "c",
+            "dirty": false,
+            "readOnly": false,
+            "contentSynchronized": true
+          }
+        ]
+      },
+      "expected": {
+        "status": "failed",
+        "savedCount": 2,
+        "failed": [
+          "b"
+        ],
+        "cancelled": [],
+        "remainingDirty": [
+          "b"
+        ]
+      }
+    },
+    {
+      "name": "member-edited-while-saving-stays-incomplete",
+      "request": {
+        "members": [
+          "a"
+        ],
+        "results": [
+          {
+            "id": "a",
+            "outcome": "saved"
+          }
+        ],
+        "documents": [
+          {
+            "id": "a",
+            "dirty": true,
+            "readOnly": false,
+            "contentSynchronized": true
+          }
+        ]
+      },
+      "expected": {
+        "status": "incomplete",
+        "savedCount": 0,
+        "failed": [],
+        "cancelled": [],
+        "remainingDirty": [
+          "a"
+        ]
+      }
+    },
+    {
+      "name": "document-dirtied-during-the-batch-stays-incomplete",
+      "request": {
+        "members": [
+          "a"
+        ],
+        "results": [
+          {
+            "id": "a",
+            "outcome": "saved"
+          }
+        ],
+        "documents": [
+          {
+            "id": "a",
+            "dirty": false,
+            "readOnly": false,
+            "contentSynchronized": true
+          },
+          {
+            "id": "new",
+            "dirty": true,
+            "readOnly": false,
+            "contentSynchronized": true
+          }
+        ]
+      },
+      "expected": {
+        "status": "incomplete",
+        "savedCount": 1,
+        "failed": [],
+        "cancelled": [],
+        "remainingDirty": [
+          "new"
+        ]
+      }
+    },
+    {
+      "name": "dirty-read-only-document-keeps-the-batch-incomplete",
+      "request": {
+        "members": [],
+        "results": [],
+        "documents": [
+          {
+            "id": "a",
+            "dirty": true,
+            "readOnly": true,
+            "contentSynchronized": true
+          }
+        ]
+      },
+      "expected": {
+        "status": "incomplete",
+        "savedCount": 0,
+        "failed": [],
+        "cancelled": [],
+        "remainingDirty": [
+          "a"
+        ]
+      }
+    },
+    {
+      "name": "cancellation-takes-precedence-over-failure",
+      "request": {
+        "members": [
+          "a",
+          "b"
+        ],
+        "results": [
+          {
+            "id": "a",
+            "outcome": "failed"
+          },
+          {
+            "id": "b",
+            "outcome": "cancelled"
+          }
+        ],
+        "documents": [
+          {
+            "id": "a",
+            "dirty": true,
+            "readOnly": false,
+            "contentSynchronized": true
+          },
+          {
+            "id": "b",
+            "dirty": true,
+            "readOnly": false,
+            "contentSynchronized": true
+          }
+        ]
+      },
+      "expected": {
+        "status": "cancelled",
+        "savedCount": 0,
+        "failed": [
+          "a"
+        ],
+        "cancelled": [
+          "b"
+        ],
+        "remainingDirty": [
+          "a",
+          "b"
+        ]
+      }
+    },
+    {
+      "name": "missing-member-result-is-rejected",
+      "request": {
+        "members": [
+          "a",
+          "b"
+        ],
+        "results": [
+          {
+            "id": "a",
+            "outcome": "saved"
+          }
+        ],
+        "documents": []
+      },
+      "expectedError": "invalid_request"
+    },
+    {
+      "name": "result-for-a-non-member-is-rejected",
+      "request": {
+        "members": [
+          "a"
+        ],
+        "results": [
+          {
+            "id": "a",
+            "outcome": "saved"
+          },
+          {
+            "id": "x",
+            "outcome": "saved"
+          }
+        ],
+        "documents": []
+      },
+      "expectedError": "invalid_request"
+    },
+    {
+      "name": "repeated-member-result-is-rejected",
+      "request": {
+        "members": [
+          "a"
+        ],
+        "results": [
+          {
+            "id": "a",
+            "outcome": "saved"
+          },
+          {
+            "id": "a",
+            "outcome": "failed"
+          }
+        ],
+        "documents": []
+      },
+      "expectedError": "invalid_request"
+    }
+  ]
+}

@@ -26,9 +26,16 @@ pub(crate) const CAPABILITIES_API_VERSION: u32 = 3;
 /// declarative `grammar` and an editing `configuration`; see `super::grammar`.
 pub(crate) const LANGUAGES: &str = "languages";
 /// `languageServers[]` apart from their launch fields. Version 2 adds
-/// `workspaceConfiguration`.
+/// `workspaceConfiguration`. Version 3 adds the session fields a plugin
+/// backend uses to talk to its own server: `requestMethods`, `commands`,
+/// `serializedCommands`, `forwardNotifications`, `state`, and `remote`.
 pub(crate) const LANGUAGE_SERVERS: &str = "languageServers";
 /// The launch fields language servers and own build providers share.
+/// Version 2 adds `runSelectedRuntime` for debug adapters; version 3 adds
+/// `launch.kind: "backend"`, a language server whose command line the
+/// plugin backend resolves.
+/// Version 4 names runtimes by tool-definition ID (`requiresTools`) instead
+/// of the host's closed runtime list.
 pub(crate) const SERVER_PROCESS: &str = "serverProcess";
 /// `vendor.bundledSignatureRequirement`: origin-scoped host-seal trust for a
 /// package whose independently installed versions require a publisher signature.
@@ -57,11 +64,14 @@ pub(crate) const VCS_PROVIDERS: &str = "vcsProviders";
 /// `workspace` host service; it needs plugin-function protocol 3 for that.
 pub(crate) const BACKEND: &str = "backend";
 
-/// `projectGenerators[]`: entries of the New Project window.
+/// `projectGenerators[]`: entries of the New Project window. Version 1 lets a
+/// field select a host-managed runtime; version 2 selects installations of
+/// any plugin-defined tool with a `tool` field instead.
 pub(crate) const PROJECT_GENERATORS: &str = "projectGenerators";
 
 /// `debugAdapters[]`: debug adapters implemented by a plugin process; see
-/// `crate::debug::adapters`. Plugin API level 4.
+/// `crate::debug::adapters`. Plugin API level 4. Version 3 adds declared
+/// adapter `features` and `defaults`.
 pub(crate) const DEBUG_ADAPTERS: &str = "debugAdapters";
 
 /// First plugin API level that may require `debugAdapters` or `serverProcess` 2.
@@ -71,10 +81,16 @@ pub(crate) const DEBUG_ADAPTERS_API_VERSION: u32 = 4;
 pub(crate) const EXECUTABLE_RESOLUTION: &str = "executableResolution";
 /// Independent providers that translate external shortcut settings.
 pub(crate) const KEYMAP_IMPORT_PROVIDERS: &str = "keymapImportProviders";
+/// `pluginFunctions`: functions exported to, and called from, other plugins;
+/// see `super::plugin_functions`.
+pub(crate) const PLUGIN_FUNCTIONS: &str = "pluginFunctions";
 /// Plugin-owned tool identities, discovery policy and executable candidates.
 pub(crate) const TOOL_DEFINITIONS: &str = "toolDefinitions";
 /// Backend facts that can influence the executable selected for a defined tool.
 pub(crate) const TOOLCHAIN_PROVIDERS: &str = "toolchainProviders";
+/// `outputLinkMatchers[]`: patterns that turn console output into links; see
+/// `crate::plugins::output_links`.
+pub(crate) const OUTPUT_LINK_MATCHERS: &str = "outputLinkMatchers";
 
 /// Capability versions this Core build validates and plans. Version 1 of a
 /// capability keeps the meaning its section had at API level 2.
@@ -83,15 +99,17 @@ pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (BUILD_MODEL_INPUTS, &[1]),
     (BUILD_PROVIDERS, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]),
     (BUILD_SYSTEMS, &[1, 2, 3, 4]),
-    (DEBUG_ADAPTERS, &[1, 2]),
+    (DEBUG_ADAPTERS, &[1, 2, 3]),
     (EXECUTION_PROVIDERS, &[1]),
     (EXECUTABLE_RESOLUTION, &[1, 2]),
     (KEYMAP_IMPORT_PROVIDERS, &[1]),
-    (LANGUAGE_SERVERS, &[1, 2]),
+    (LANGUAGE_SERVERS, &[1, 2, 3]),
     (LANGUAGES, &[1, 2]),
+    (OUTPUT_LINK_MATCHERS, &[1]),
     (PACKAGE_TRUST, &[1]),
-    (PROJECT_GENERATORS, &[1]),
-    (SERVER_PROCESS, &[1, 2]),
+    (PLUGIN_FUNCTIONS, &[1]),
+    (PROJECT_GENERATORS, &[1, 2]),
+    (SERVER_PROCESS, &[1, 2, 3, 4]),
     (SETTINGS, &[1, 2]),
     (TOOL_DEFINITIONS, &[1]),
     (TOOLCHAIN_PROVIDERS, &[1]),

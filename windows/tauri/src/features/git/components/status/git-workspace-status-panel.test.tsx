@@ -70,6 +70,25 @@ beforeEach(() => {
   staging = spyOn(statusApi, "setFilesStaged").mockResolvedValue(true);
   const originalInvoke = core.invoke;
   colorInvoke = spyOn(core, "invoke").mockImplementation(((command, args, options) => {
+    if (command === "git.normalizeChangeTargets") {
+      // Stands in for Core, whose own tests and shared fixture define the rule:
+      // drop rows listed below a selected untracked directory summary of the same repository.
+      const { targets } = args as {
+        targets: Array<{ root: string; path: string; untrackedDirectory?: boolean }>;
+      };
+      const indices = targets.flatMap((target, index) =>
+        targets.some(
+          (summary) =>
+            summary.untrackedDirectory &&
+            summary.root === target.root &&
+            summary.path !== target.path &&
+            target.path.startsWith(summary.path),
+        )
+          ? []
+          : [index],
+      );
+      return Promise.resolve({ indices });
+    }
     if (command !== "git.repositoryColorAssignments") return originalInvoke(command, args, options);
     const page = args as { offset: number; totalCount: number; repositoryIds: string[] };
     return Promise.resolve({ assignments: page.repositoryIds.map((id, index) => ({ id, slot: (page.offset + index) % 8 })), fallbackSlot: 0, showColors: page.totalCount > 1 });

@@ -63,6 +63,10 @@ struct DebugSession {
     capability_states: BTreeMap<String, CapabilityState>,
     capability_revision: u64,
     stepping_filters: DebugSteppingFilters,
+    /// DAP extensions the adapter declared; empty for an undeclared adapter.
+    features: DebugAdapterFeatures,
+    /// Declared filters used when a launch names none.
+    default_stepping_filters: Option<DebugSteppingFilters>,
     debug_request_kind: Option<DebugRequestKind>,
     pending_launch: Option<(String, DebugLaunchConfiguration)>,
     outbound_frames: Vec<Vec<u8>>,
@@ -122,6 +126,11 @@ pub(crate) fn create_session(
     validate_identifier(&request.adapter_id, "adapterId")?;
     validate_path(&request.root_path, "rootPath")?;
     let disabled_capabilities = validate_disabled(&request.disabled_capabilities)?;
+    request
+        .declared
+        .check()
+        .map_err(|(field, message)| invalid_request(message).with_details(field.to_string()))?;
+    let DeclaredAdapterBehavior { features, defaults } = request.declared;
     let mut sessions = sessions_lock()?;
     if sessions.contains_key(&request.session_id) {
         return Err(invalid_request(
@@ -179,6 +188,10 @@ pub(crate) fn create_session(
         capability_states: BTreeMap::new(),
         capability_revision: 0,
         stepping_filters: DebugSteppingFilters::unfiltered(),
+        features: features.unwrap_or_default(),
+        default_stepping_filters: defaults
+            .and_then(|defaults| defaults.step_filters)
+            .map(|filters| DebugSteppingFilters::from(&filters)),
         debug_request_kind: None,
         pending_launch: None,
         outbound_frames: Vec::new(),
@@ -252,7 +265,7 @@ pub(crate) fn stepping_filters(
     normalize_stepping_filters(
         request
             .filters
-            .unwrap_or_else(|| DebugSteppingFilters::defaults_for_adapter(&request.adapter_id)),
+            .unwrap_or_else(DebugSteppingFilters::unfiltered),
     )
 }
 
@@ -776,9 +789,11 @@ pub(crate) fn inspect(request: InspectRequest) -> Result<DebugSessionUpdate, Cor
                 "Debugger inspection requires a running or paused session.",
             ));
         }
-        if request.kind == DebugInspectKind::RedefineClasses && session.adapter_id != "java" {
+        if request.kind == DebugInspectKind::RedefineClasses
+            && session.features.hot_code_replace.is_none()
+        {
             return Err(invalid_request(
-                "Hot code replacement requires a Java debug session.",
+                "The debug adapter does not declare hot code replacement.",
             ));
         }
         if request.kind == DebugInspectKind::StepInTargets
@@ -838,8 +853,12 @@ pub(crate) fn inspect(request: InspectRequest) -> Result<DebugSessionUpdate, Cor
                 ));
             }
         }
+        let command = match (request.kind, &session.features.hot_code_replace) {
+            (DebugInspectKind::RedefineClasses, Some(feature)) => feature.request.clone(),
+            (kind, _) => kind.command().to_string(),
+        };
         session.send_request(
-            request.kind.command(),
+            &command,
             Value::Object(arguments),
             PendingRequest::Inspect {
                 operation_id: request.operation_id,
@@ -1024,21 +1043,14 @@ impl DebugSession {
         let filters = normalize_stepping_filters(
             configuration
                 .stepping_filters
-                .unwrap_or_else(|| DebugSteppingFilters::defaults_for_adapter(&self.adapter_id)),
+                .or_else(|| self.default_stepping_filters.clone())
+                .unwrap_or_else(DebugSteppingFilters::unfiltered),
         )?;
-        if self.adapter_id == "java" && !arguments.contains_key("stepFilters") {
-            arguments.insert("stepFilters".to_string(), java_step_filters(&filters));
-        }
-        if self.adapter_id == "java" && request_kind == DebugRequestKind::Launch {
-            // A DevTools classloader restart would discard the debugger's hot-replacement target.
-            let option = super::JAVA_DEBUG_DISABLE_DEVTOOLS_RESTART;
-            let vm_args = arguments.entry("vmArgs").or_insert_with(|| json!(""));
-            match vm_args {
-                Value::String(value) => {
-                    *value = format!("{} {}", value, option).trim().to_owned();
-                }
-                Value::Array(values) => values.push(json!(option)),
-                _ => return Err(invalid_request("Java vmArgs must be a string or an array.")),
+        // Only an adapter that declared the argument receives the filters; the
+        // engine never invents launch arguments for an undeclared adapter.
+        if let Some(feature) = &self.features.step_filters {
+            if !arguments.contains_key(&feature.argument) {
+                arguments.insert(feature.argument.clone(), step_filter_argument(&filters));
             }
         }
         self.stepping_filters = filters;
@@ -1461,8 +1473,12 @@ impl DebugSession {
                 frame_id,
             } => {
                 self.emit_inspection_projection(kind, thread_id, frame_id, &body);
-                let result =
-                    normalize_inspection(kind, &body, &self.stepping_filters, &self.root_path);
+                let result = match (kind, &self.features.hot_code_replace) {
+                    (DebugInspectKind::RedefineClasses, Some(feature)) => {
+                        declared_replacement(feature, &body)
+                    }
+                    _ => normalize_inspection(kind, &body, &self.stepping_filters, &self.root_path),
+                };
                 // HCR rejection and unreadable memory are operation failures, not a broken
                 // transport/session.
                 if matches!(
@@ -1600,6 +1616,26 @@ impl DebugSession {
                             .insert(breakpoint.id, breakpoint.clone());
                     }
                     self.emit(DebugEventBody::Breakpoint { breakpoint });
+                }
+            }
+            declared
+                if self
+                    .features
+                    .hot_code_replace
+                    .as_ref()
+                    .and_then(|feature| feature.event.as_deref())
+                    == Some(declared) =>
+            {
+                // The declared progress event shows its message in the Debug Console.
+                if let Some(message) = body
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .filter(|message| !message.is_empty())
+                {
+                    self.emit(DebugEventBody::Output {
+                        category: Some("console".to_string()),
+                        output: format!("{message}\n"),
+                    });
                 }
             }
             _ => {}
@@ -2241,7 +2277,7 @@ fn normalize_inspection(
             },
         }),
         DebugInspectKind::RedefineClasses => {
-            // Java Debug Server can return DAP success with an application-level error.
+            // An adapter may return DAP success with an application-level error.
             if let Some(message) = body
                 .get("errorMessage")
                 .and_then(Value::as_str)
@@ -2485,7 +2521,46 @@ fn normalize_stepping_filters(
     Ok(filters)
 }
 
-fn java_step_filters(filters: &DebugSteppingFilters) -> Value {
+/// Reads a declared hot code replacement reply through the fields the
+/// adapter named for its failure message and its replaced units.
+fn declared_replacement(
+    feature: &HotCodeReplaceFeature,
+    body: &Value,
+) -> Result<DebugOperationResult, CoreError> {
+    if let Some(message) = feature
+        .error_field
+        .as_deref()
+        .and_then(|field| body.get(field))
+        .and_then(Value::as_str)
+        .filter(|message| !message.is_empty())
+    {
+        return Err(invalid_request(message));
+    }
+    let mut changed = match feature.changed_field.as_deref() {
+        None => Vec::new(),
+        Some(field) => body
+            .get(field)
+            .and_then(Value::as_array)
+            .ok_or_else(|| invalid_request("The hot code replacement reply has no change list."))?
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| invalid_request("Invalid replaced unit name."))
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+    };
+    changed.sort();
+    changed.dedup();
+    Ok(DebugOperationResult::RedefineClasses {
+        changed_classes: changed,
+    })
+}
+
+/// The stepping filters in the launch-argument shape adapters that take
+/// them as one argument read.
+fn step_filter_argument(filters: &DebugSteppingFilters) -> Value {
     json!({
         "skipClasses": filters.class_name_filters,
         "skipSynthetics": filters.skip_synthetics,
@@ -2505,7 +2580,6 @@ fn stack_frame_matches_filters(
         .class_name_filters
         .iter()
         .any(|filter| match filter.as_str() {
-            "$JDK" => is_jdk_frame(name, source_path, presentation_hint),
             "$Libraries" => is_library_frame(source_path, presentation_hint, root_path),
             pattern => class_pattern_matches_frame(pattern, name, source_path),
         })
@@ -2536,61 +2610,6 @@ fn source_path_matches_pattern(source_path: &str, pattern: &str) -> bool {
     let slash_pattern = format!("*{}*", pattern.replace('.', "/"));
     let dotted_pattern = format!("*{pattern}*");
     wildcard_match(&slash_pattern, &source_path) || wildcard_match(&dotted_pattern, &source_path)
-}
-
-fn is_jdk_frame(name: &str, source_path: Option<&str>, presentation_hint: Option<&str>) -> bool {
-    if ["com.sun.", "java.", "javax.", "jdk.", "org.omg.", "sun."]
-        .iter()
-        .any(|prefix| name.starts_with(prefix))
-    {
-        return true;
-    }
-    if presentation_hint == Some("subtle") && source_path.is_none() {
-        return true;
-    }
-    let Some(source_path) = source_path else {
-        return false;
-    };
-    let source_path = source_path.replace('\\', "/");
-    if source_path.contains("/java.base/")
-        || source_path.contains("/java.desktop/")
-        || source_path.contains("/java.logging/")
-        || source_path.contains("/java.management/")
-        || source_path.contains("/java.naming/")
-        || source_path.contains("/java.net.http/")
-        || source_path.contains("/java.sql/")
-        || source_path.contains("/java.xml/")
-        || source_path.contains("/jdk.")
-    {
-        return true;
-    }
-    [
-        "java/applet",
-        "java/awt",
-        "java/beans",
-        "java/io",
-        "java/lang",
-        "java/math",
-        "java/net",
-        "java/nio",
-        "java/rmi",
-        "java/security",
-        "java/sql",
-        "java/text",
-        "java/time",
-        "java/util",
-        "javax",
-        "jdk",
-        "sun",
-        "com/sun",
-        "org/omg",
-    ]
-    .iter()
-    .any(|prefix| source_has_path_prefix(&source_path, prefix))
-}
-
-fn source_has_path_prefix(source_path: &str, prefix: &str) -> bool {
-    source_path.contains(&format!("/{prefix}/")) || source_path.contains(&format!("/{prefix}."))
 }
 
 fn is_library_frame(
@@ -3197,7 +3216,7 @@ mod tests {
 
     #[test]
     fn stack_frame_reports_adapter_served_source_references() {
-        let filters = DebugSteppingFilters::defaults_for_adapter("lldb");
+        let filters = DebugSteppingFilters::unfiltered();
         let body = json!({"stackFrames": [
             {"id": 1, "name": "main", "line": 9, "column": 1,
              "source": {"name": "main.c", "path": "/workspace/main.c"}},
@@ -3229,7 +3248,7 @@ mod tests {
             let result = normalize_inspection(
                 DebugInspectKind::RedefineClasses,
                 &case["body"],
-                &DebugSteppingFilters::defaults_for_adapter("java"),
+                &DebugSteppingFilters::unfiltered(),
                 "/workspace",
             );
             if case["failure"].as_bool() == Some(true) {
@@ -3242,8 +3261,25 @@ mod tests {
     }
 
     #[test]
-    fn hot_replace_requires_java_and_preserves_paused_state() {
-        for (id, adapter) in [("hcr-java", "java"), ("hcr-other", "python")] {
+    fn hot_replace_requires_the_declaration_and_preserves_paused_state() {
+        let hot_swapping: DeclaredAdapterBehavior = serde_json::from_value(json!({
+            "features": {
+                "hotCodeReplace": {
+                    "request": "redefineClasses",
+                    "changedField": "changedClasses",
+                    "errorField": "errorMessage"
+                }
+            }
+        }))
+        .unwrap();
+        for (id, adapter, declared) in [
+            ("hcr-declared", "hotswap", hot_swapping),
+            ("hcr-other", "python", DeclaredAdapterBehavior::default()),
+        ] {
+            let declares_hot_replace = declared
+                .features
+                .as_ref()
+                .is_some_and(|features| features.hot_code_replace.is_some());
             create_session(CreateSessionRequest {
                 session_id: id.into(),
                 adapter_id: adapter.into(),
@@ -3252,6 +3288,7 @@ mod tests {
                 supports_start_debugging_request: false,
                 disabled_capabilities: Vec::new(),
                 parent_session_id: None,
+                declared,
             })
             .unwrap();
             // The guard always removes the process-free session, including on assertion failure.
@@ -3277,12 +3314,8 @@ mod tests {
             })
             .unwrap();
             let launch_frame = decode_frame(&launched.outbound_frames[0]);
-            if adapter == "java" {
-                assert_eq!(
-                    launch_frame["arguments"]["vmArgs"],
-                    "-Xmx256m -Dspring.devtools.restart.enabled=false"
-                );
-            }
+            // Launch arguments pass through untouched for every adapter.
+            assert_eq!(launch_frame["arguments"]["vmArgs"], "-Xmx256m");
             receive_messages(
                 id,
                 vec![response_message(
@@ -3302,7 +3335,7 @@ mod tests {
             }))
             .unwrap();
             let update = inspect(request);
-            if adapter != "java" {
+            if !declares_hot_replace {
                 assert!(update.is_err());
                 continue;
             }
@@ -3370,7 +3403,7 @@ mod tests {
                             stack_frames: vec![DebugStackFrame {
                                 id: 7,
                                 name: "example.Main.run".to_string(),
-                                source_path: Some("/workspace/Main.java".to_string()),
+                                source_path: Some("/workspace/Main.c".to_string()),
                                 source_reference: None,
                                 line: 12,
                                 column: 1,
@@ -3410,12 +3443,13 @@ mod tests {
             let session_id = format!("debug-disconnect-{request_name}");
             create_session(CreateSessionRequest {
                 session_id: session_id.clone(),
-                adapter_id: "java".to_string(),
+                adapter_id: "lldb".to_string(),
                 root_path: "/workspace".to_string(),
                 supports_run_in_terminal_request: false,
                 supports_start_debugging_request: false,
                 disabled_capabilities: Vec::new(),
                 parent_session_id: None,
+                declared: Default::default(),
             })
             .unwrap();
 
@@ -3535,26 +3569,22 @@ mod tests {
     }
 
     #[test]
-    fn java_stepping_filters_are_normalized_projected_and_mark_stack_frames() {
+    fn stepping_filters_are_normalized_projected_and_mark_stack_frames() {
+        // Without a declaration there are no built-in defaults for any adapter.
         let defaults = stepping_filters(DebugSteppingFiltersRequest {
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             filters: None,
         })
         .unwrap();
-        assert!(defaults.class_name_filters.contains(&"$JDK".to_string()));
-        assert!(defaults
-            .class_name_filters
-            .contains(&"$Libraries".to_string()));
-        assert!(defaults.skip_synthetics);
-        assert!(!defaults.skip_constructors);
+        assert_eq!(defaults, DebugSteppingFilters::unfiltered());
 
         let filters = stepping_filters(DebugSteppingFiltersRequest {
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             filters: Some(DebugSteppingFilters {
                 class_name_filters: vec![
-                    " org.mockito.* ".to_string(),
-                    "$JDK".to_string(),
-                    "org.mockito.*".to_string(),
+                    " org.mocking.* ".to_string(),
+                    "lib.core.*".to_string(),
+                    "org.mocking.*".to_string(),
                     String::new(),
                 ],
                 skip_synthetics: true,
@@ -3564,10 +3594,10 @@ mod tests {
             }),
         })
         .unwrap();
-        assert_eq!(filters.class_name_filters, ["$JDK", "org.mockito.*"]);
+        assert_eq!(filters.class_name_filters, ["lib.core.*", "org.mocking.*"]);
 
         let multiline_error = stepping_filters(DebugSteppingFiltersRequest {
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             filters: Some(DebugSteppingFilters {
                 class_name_filters: vec!["example.Valid\nexample.Invalid".to_string()],
                 skip_synthetics: false,
@@ -3580,7 +3610,7 @@ mod tests {
         assert!(matches!(multiline_error.code, ErrorCode::InvalidRequest));
 
         let excessive_filter_error = stepping_filters(DebugSteppingFiltersRequest {
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             filters: Some(DebugSteppingFilters {
                 class_name_filters: (0..257)
                     .map(|index| format!("example.Type{index}"))
@@ -3597,15 +3627,19 @@ mod tests {
             ErrorCode::InvalidRequest
         ));
 
-        let session_id = "debug-java-stepping-filters";
+        let session_id = "debug-stepping-filters";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: serde_json::from_value(json!({
+                "features": {"stepFilters": {"argument": "stepFilters"}}
+            }))
+            .unwrap(),
         })
         .unwrap();
         launch(LaunchRequest {
@@ -3627,7 +3661,7 @@ mod tests {
         assert_eq!(launch_request["command"], "launch");
         assert_eq!(
             launch_request["arguments"]["stepFilters"]["skipClasses"],
-            json!(["$JDK", "org.mockito.*"])
+            json!(["lib.core.*", "org.mocking.*"])
         );
         assert_eq!(
             launch_request["arguments"]["stepFilters"]["skipConstructors"],
@@ -3675,9 +3709,9 @@ mod tests {
                 json!({"stackFrames": [
                     {
                         "id": 7,
-                        "name": "Method.invoke(Object,Object[])",
+                        "name": "lib.core.reflect.Method.invoke(Object,Object[])",
                         "source": {
-                            "path": "jdt://contents/java.base/java/lang/reflect/Method.class"
+                            "path": "/deps/lib/core/reflect/Method.class"
                         },
                         "line": 1,
                         "column": 1
@@ -3686,7 +3720,7 @@ mod tests {
                         "id": 8,
                         "name": "MockMethodInterceptor.intercept(Object,Method,Object[],Invoker)",
                         "source": {
-                            "path": "jdt://contents/mockito-core/org/mockito/internal/creation/bytebuddy/MockMethodInterceptor.class"
+                            "path": "/deps/mocking-core/org/mocking/internal/MockMethodInterceptor.class"
                         },
                         "line": 1,
                         "column": 1
@@ -3694,7 +3728,7 @@ mod tests {
                     {
                         "id": 9,
                         "name": "example.LoginService.authenticate",
-                        "source": {"path": "/workspace/LoginService.java"},
+                        "source": {"path": "/workspace/LoginService.c"},
                         "line": 24,
                         "column": 5
                     }
@@ -3721,14 +3755,14 @@ mod tests {
         };
         assert!(stack_frame_matches_filters(
             "Dependency.call()",
-            Some("/dependencies/example/Dependency.java"),
+            Some("/dependencies/example/Dependency.c"),
             None,
             &library_filters,
             "/workspace"
         ));
         assert!(!stack_frame_matches_filters(
             "LoginService.authenticate()",
-            Some("/workspace/LoginService.java"),
+            Some("/workspace/LoginService.c"),
             None,
             &library_filters,
             "/workspace"
@@ -3744,12 +3778,13 @@ mod tests {
         let session_id = "debug-engine-flow";
         let created = create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
         assert_eq!(created.state, DebugSessionState::Initializing);
@@ -3772,7 +3807,7 @@ mod tests {
         assert!(queued.outbound_frames.is_empty());
         set_breakpoints(SetBreakpointsRequest {
             session_id: session_id.to_string(),
-            source_path: "/workspace/src/Main.java".to_string(),
+            source_path: "/workspace/src/Main.c".to_string(),
             breakpoints: vec![
                 SourceBreakpoint {
                     line: 12,
@@ -4035,12 +4070,13 @@ mod tests {
         let source = fixture["sourcePath"].as_str().unwrap();
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
         // This reducer owns no processes; always destroy its registry entry below.
@@ -4134,6 +4170,7 @@ mod tests {
             supports_start_debugging_request: true,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
         // This reducer owns no processes; always destroy its registry entry below.
@@ -4204,6 +4241,7 @@ mod tests {
                 supports_start_debugging_request: supported,
                 disabled_capabilities: Vec::new(),
                 parent_session_id: None,
+                declared: Default::default(),
             })
             .unwrap();
             let update = receive_messages(session_id, vec![fixture["adapterRequest"].clone()]);
@@ -4256,6 +4294,7 @@ mod tests {
             supports_start_debugging_request: true,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
         receive_messages(session_id, vec![fixture["adapterRequest"].clone()]);
@@ -4289,6 +4328,7 @@ mod tests {
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
         // This reducer owns no processes; always destroy its registry entry below.
@@ -4399,12 +4439,13 @@ mod tests {
         let session_id = "debug-data-breakpoint";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
         set_data_breakpoints(SetDataBreakpointsRequest {
@@ -4523,12 +4564,13 @@ mod tests {
         let session_id = "debug-set-variable";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
         launch(LaunchRequest {
@@ -4654,12 +4696,13 @@ mod tests {
         let session_id = "debug-launch-rejected-detail";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
         launch(LaunchRequest {
@@ -4715,12 +4758,13 @@ mod tests {
         let session_id = "debug-cancel-operation";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
         launch(LaunchRequest {
@@ -4846,12 +4890,13 @@ mod tests {
         let session_id = "debug-advanced-control";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
         launch(LaunchRequest {
@@ -4949,12 +4994,13 @@ mod tests {
         let session_id = "debug-targeted-control";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
         launch(LaunchRequest {
@@ -5075,7 +5121,7 @@ mod tests {
             count: None,
             expression: None,
             context: None,
-            source_path: Some("/workspace/src/Main.java".to_string()),
+            source_path: Some("/workspace/src/Main.c".to_string()),
             line: Some(20),
             column: Some(5),
             memory_reference: None,
@@ -5089,7 +5135,7 @@ mod tests {
         assert_eq!(request["command"], "gotoTargets");
         assert_eq!(
             request["arguments"]["source"]["path"],
-            "/workspace/src/Main.java"
+            "/workspace/src/Main.c"
         );
         assert_eq!(request["arguments"]["line"], 20);
         let goto_targets = receive_messages(
@@ -5097,7 +5143,7 @@ mod tests {
             vec![response_message(
                 5,
                 "gotoTargets",
-                json!({"targets": [{"id": 31, "label": "Main.java:20", "line": 20}]}),
+                json!({"targets": [{"id": 31, "label": "main.c:20", "line": 20}]}),
             )],
         );
         assert!(goto_targets.events.iter().any(|event| matches!(
@@ -5224,12 +5270,13 @@ mod tests {
         let session_id = "debug-exception-info";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
         launch(LaunchRequest {
@@ -5336,12 +5383,13 @@ mod tests {
         let session_id = "debug-variable-paging";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
         launch(LaunchRequest {
@@ -5435,12 +5483,13 @@ mod tests {
         let session_id = "debug-exception-info-unsupported";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
         launch(LaunchRequest {
@@ -5508,12 +5557,13 @@ mod tests {
         let session_id = "debug-run-in-terminal";
         let created = create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: true,
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
         assert_eq!(
@@ -5591,12 +5641,13 @@ mod tests {
         let session_id = "debug-run-in-terminal-invalid";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: true,
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
 
@@ -5627,12 +5678,13 @@ mod tests {
         let session_id = "debug-server-request";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
 
@@ -5670,12 +5722,13 @@ mod tests {
         let session_id = "debug-capability-snapshot";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
             disabled_capabilities: vec!["supportsRestartRequest".to_string()],
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
         launch(LaunchRequest {
@@ -5728,12 +5781,13 @@ mod tests {
     fn child_request(session_id: &str, parent: Option<&str>) -> CreateSessionRequest {
         CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: parent.map(str::to_string),
+            declared: Default::default(),
         }
     }
 
@@ -5828,7 +5882,7 @@ mod tests {
                 "stackTrace",
                 json!({"totalFrames": 3, "stackFrames": [
                     {"id": 1, "name": "main", "line": 4, "column": 2,
-                     "source": {"path": "/workspace/src/Main.java"}},
+                     "source": {"path": "/workspace/src/Main.c"}},
                     {"id": 2, "name": "decompiled", "line": 9,
                      "source": {"name": "Lib.class", "sourceReference": 77}},
                     {"id": 3, "name": "jit", "line": 5,
@@ -5852,7 +5906,7 @@ mod tests {
         assert_eq!(payload.thread_id, 11);
         assert!(matches!(
             &payload.frames[0].source,
-            Some(Source::Workspace(source)) if source.path == "src/Main.java"
+            Some(Source::Workspace(source)) if source.path == "src/Main.c"
         ));
         assert!(matches!(
             &payload.frames[1].source,
@@ -5870,7 +5924,7 @@ mod tests {
         .unwrap();
     }
 
-    /// Creates a paused Java-style session so reference-bound inspections can be issued.
+    /// Creates a paused session so reference-bound inspections can be issued.
     fn paused_session(session_id: &str) {
         paused_session_with_capabilities(session_id, json!({}));
     }
@@ -5879,12 +5933,13 @@ mod tests {
     fn paused_session_with_capabilities(session_id: &str, capabilities: Value) {
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
         launch(LaunchRequest {
@@ -6306,7 +6361,7 @@ mod tests {
 
     #[test]
     fn sourceless_frames_keep_the_instruction_pointer_without_a_fake_line() {
-        let filters = DebugSteppingFilters::defaults_for_adapter("lldb");
+        let filters = DebugSteppingFilters::unfiltered();
         let body = json!({"stackFrames": [
             {"id": 1, "name": "main", "line": 9, "column": 1,
              "instructionPointerReference": "0x100003f50",
@@ -6340,7 +6395,7 @@ mod tests {
 
     #[test]
     fn registers_scope_keeps_its_presentation_hint() {
-        let filters = DebugSteppingFilters::defaults_for_adapter("lldb");
+        let filters = DebugSteppingFilters::unfiltered();
         let body = json!({"scopes": [
             {"name": "Locals", "variablesReference": 3},
             {"name": "Registers", "variablesReference": 4,
@@ -6414,6 +6469,7 @@ mod tests {
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
+            declared: Default::default(),
         })
         .unwrap();
         launch(LaunchRequest {
@@ -6742,5 +6798,220 @@ mod tests {
             }
         )));
         assert_eq!(session_state(session_id), DebugSessionState::Paused);
+    }
+
+    /// A scripting-language adapter that declares the DAP extensions it implements.
+    fn scripting_adapter() -> DeclaredAdapterBehavior {
+        serde_json::from_value(json!({
+            "features": {
+                "hotCodeReplace": {
+                    "request": "script.reload",
+                    "event": "script.reloaded",
+                    "changedField": "modules",
+                    "errorField": "error"
+                },
+                "stepFilters": {"argument": "skipFilters"}
+            },
+            "defaults": {
+                "stepFilters": {
+                    "classNameFilters": ["site-packages/*"],
+                    "skipSynthetics": true
+                }
+            }
+        }))
+        .unwrap()
+    }
+
+    /// Creates a session, answers `initialize`, and launches with `arguments`.
+    /// Returns the launch request the adapter received.
+    fn launch_session(
+        session_id: &str,
+        adapter_id: &str,
+        declared: DeclaredAdapterBehavior,
+        arguments: Value,
+    ) -> Value {
+        create_session(CreateSessionRequest {
+            session_id: session_id.into(),
+            adapter_id: adapter_id.into(),
+            root_path: "/workspace".into(),
+            supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
+            declared,
+        })
+        .unwrap();
+        receive_messages(
+            session_id,
+            vec![response_message(1, "initialize", json!({}))],
+        );
+        let launched = launch(LaunchRequest {
+            session_id: session_id.into(),
+            operation_id: "launch".into(),
+            configuration: DebugLaunchConfiguration {
+                name: "script".into(),
+                request: DebugRequestKind::Launch,
+                arguments: serde_json::from_value(arguments).unwrap(),
+                stepping_filters: None,
+            },
+        })
+        .unwrap();
+        decode_frame(&launched.outbound_frames[0])
+    }
+
+    /// Answers the launch request and stops the debuggee at a breakpoint.
+    fn pause_session(session_id: &str, launch_frame: &Value) {
+        receive_messages(
+            session_id,
+            vec![
+                response_message(launch_frame["seq"].as_i64().unwrap(), "launch", json!({})),
+                json!({"type": "event", "event": "stopped",
+                       "body": {"reason": "breakpoint", "threadId": 1}}),
+            ],
+        );
+    }
+
+    fn redefine_request(session_id: &str, operation_id: &str) -> InspectRequest {
+        serde_json::from_value(json!({
+            "sessionId": session_id, "operationId": operation_id, "kind": "redefineClasses"
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn declared_hot_code_replace_sends_the_declared_request_and_reads_its_fields() {
+        let session_id = "debug-declared-hot-replace";
+        let _guard = SessionGuard(session_id);
+        let launched = launch_session(session_id, "debugpy", scripting_adapter(), json!({}));
+        pause_session(session_id, &launched);
+
+        let update = inspect(redefine_request(session_id, "apply")).unwrap();
+        let frame = decode_frame(&update.outbound_frames[0]);
+        assert_eq!(frame["command"], "script.reload");
+        let replaced = receive_messages(
+            session_id,
+            vec![response_message(
+                frame["seq"].as_i64().unwrap(),
+                "script.reload",
+                json!({"modules": ["pkg.util", "pkg.app", "pkg.util"]}),
+            )],
+        );
+        assert_eq!(replaced.state, DebugSessionState::Paused);
+        assert!(replaced.events.iter().any(|event| matches!(
+            &event.body,
+            DebugEventBody::OperationCompleted {
+                operation_id,
+                result: DebugOperationResult::RedefineClasses { changed_classes },
+            } if operation_id == "apply"
+                && changed_classes == &["pkg.app".to_string(), "pkg.util".to_string()]
+        )));
+
+        // A failure the adapter reports inside a successful response fails the
+        // operation without breaking the session.
+        let update = inspect(redefine_request(session_id, "rejected")).unwrap();
+        let rejected = receive_messages(
+            session_id,
+            vec![response_message(
+                request_sequence(&update),
+                "script.reload",
+                json!({"modules": [], "error": "Syntax error in pkg.app"}),
+            )],
+        );
+        assert_eq!(rejected.state, DebugSessionState::Paused);
+        assert!(rejected.events.iter().any(|event| matches!(
+            &event.body,
+            DebugEventBody::OperationFailed { operation_id, message, .. }
+                if operation_id == "rejected" && message == "Syntax error in pkg.app"
+        )));
+    }
+
+    #[test]
+    fn declared_hot_code_replace_event_message_reaches_the_debug_console() {
+        let session_id = "debug-declared-hot-replace-event";
+        let _guard = SessionGuard(session_id);
+        let launched = launch_session(session_id, "debugpy", scripting_adapter(), json!({}));
+        pause_session(session_id, &launched);
+
+        let update = receive_messages(
+            session_id,
+            vec![json!({"type": "event", "event": "script.reloaded",
+                        "body": {"message": "Reloaded 2 modules"}})],
+        );
+        assert!(update.events.iter().any(|event| matches!(
+            &event.body,
+            DebugEventBody::Output { category: Some(category), output }
+                if category == "console" && output == "Reloaded 2 modules\n"
+        )));
+    }
+
+    #[test]
+    fn an_adapter_without_the_declaration_has_no_hot_code_replace() {
+        let session_id = "debug-undeclared-hot-replace";
+        let _guard = SessionGuard(session_id);
+        let launched = launch_session(
+            session_id,
+            "debugpy",
+            DeclaredAdapterBehavior::default(),
+            json!({}),
+        );
+        pause_session(session_id, &launched);
+
+        assert!(inspect(redefine_request(session_id, "apply")).is_err());
+    }
+
+    #[test]
+    fn declared_step_filters_use_the_declared_argument_and_defaults() {
+        let session_id = "debug-declared-step-filters";
+        let _guard = SessionGuard(session_id);
+        let launched = launch_session(session_id, "debugpy", scripting_adapter(), json!({}));
+
+        let filters = &launched["arguments"]["skipFilters"];
+        assert_eq!(filters["skipClasses"], json!(["site-packages/*"]));
+        assert_eq!(filters["skipSynthetics"], true);
+        assert_eq!(filters["skipConstructors"], false);
+        // The declaration names the argument; no other argument is invented.
+        assert!(launched["arguments"].get("stepFilters").is_none());
+        assert!(launched["arguments"].get("vmArgs").is_none());
+    }
+
+    #[test]
+    fn declared_step_filters_keep_what_the_launch_configuration_sets() {
+        let session_id = "debug-declared-step-filters-explicit";
+        let _guard = SessionGuard(session_id);
+        let launched = launch_session(
+            session_id,
+            "debugpy",
+            scripting_adapter(),
+            json!({"skipFilters": {"skipClasses": ["mine/*"]}}),
+        );
+
+        assert_eq!(
+            launched["arguments"]["skipFilters"],
+            json!({"skipClasses": ["mine/*"]})
+        );
+    }
+
+    #[test]
+    fn invalid_declarations_are_refused_when_the_session_is_created() {
+        let declared = serde_json::from_value(json!({
+            "features": {"hotCodeReplace": {"request": "not a command"}}
+        }))
+        .unwrap();
+        let error = create_session(CreateSessionRequest {
+            session_id: "debug-invalid-declaration".into(),
+            adapter_id: "debugpy".into(),
+            root_path: "/workspace".into(),
+            supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
+            declared,
+        })
+        .unwrap_err();
+        assert!(matches!(error.code, ErrorCode::InvalidRequest));
+        assert_eq!(
+            error.details.as_deref(),
+            Some("features.hotCodeReplace.request")
+        );
     }
 }

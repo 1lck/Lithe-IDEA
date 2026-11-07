@@ -30,9 +30,10 @@ macro_rules! contract_file {
 
 const CARGO_FIXTURE: &str = contract_file!("fixtures/build-systems/build-static-file.plugin.json");
 const GO_FIXTURE: &str = contract_file!("fixtures/build-systems/build-command-stdout.plugin.json");
-const GRADLE_FIXTURE: &str = contract_file!("fixtures/build-systems/build-command-output-file.plugin.json");
-const MAVEN_FIXTURE: &str = contract_file!("fixtures/build-systems/build-host-integration.plugin.json");
-const GRADLE_PROVIDER_FIXTURE: &str = contract_file!("fixtures/build-providers/build-provider.plugin.json");
+const GRADLE_FIXTURE: &str =
+    contract_file!("fixtures/build-systems/build-command-output-file.plugin.json");
+const GRADLE_PROVIDER_FIXTURE: &str =
+    contract_file!("fixtures/build-providers/build-provider.plugin.json");
 const MIX_PROVIDER_FIXTURE: &str =
     contract_file!("fixtures/build-providers/build-provider-language-server.plugin.json");
 const BUILD_PLANS: &str = contract_file!("fixtures/build-systems/build-plans.json");
@@ -49,10 +50,11 @@ fn fixture(name: &str) -> Value {
         "build-provider-reports.plugin.json" => {
             contract_file!("fixtures/build-providers/build-provider-reports.plugin.json")
         }
-        "build-toolchains.plugin.json" => contract_file!("fixtures/build-systems/build-toolchains.plugin.json"),
+        "build-toolchains.plugin.json" => {
+            contract_file!("fixtures/build-systems/build-toolchains.plugin.json")
+        }
         "build-command-stdout.plugin.json" => GO_FIXTURE,
         "build-command-output-file.plugin.json" => GRADLE_FIXTURE,
-        "build-host-integration.plugin.json" => MAVEN_FIXTURE,
         "build-provider.plugin.json" => GRADLE_PROVIDER_FIXTURE,
         "build-provider-language-server.plugin.json" => MIX_PROVIDER_FIXTURE,
         other => panic!("unknown fixture {other}"),
@@ -142,7 +144,6 @@ fn build_fixtures_validate() {
         "build-static-file.plugin.json",
         "build-command-stdout.plugin.json",
         "build-command-output-file.plugin.json",
-        "build-host-integration.plugin.json",
         "build-provider.plugin.json",
         "build-provider-language-server.plugin.json",
     ] {
@@ -478,8 +479,10 @@ fn provider_test_coverage_is_bounded_canonical_and_does_not_change_legacy_result
 fn canonical_repeated_cases_sum_only_complete_safe_durations() {
     let workspace = TemporaryWorkspace::new("canonical-case-duration");
     let manifest = fixture("build-provider-reports.plugin.json");
-    let fixture: Value =
-        serde_json::from_str(contract_file!("fixtures/build-providers/build-test-durations.json")).unwrap();
+    let fixture: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-providers/build-test-durations.json"
+    ))
+    .unwrap();
     for case in fixture["cases"].as_array().unwrap() {
         let left = &case["values"][0];
         let right = &case["values"][1];
@@ -790,130 +793,6 @@ fn detection_returns_empty_for_non_directory_and_missing_workspace_roots() {
             root.display(),
         );
     }
-}
-
-/// Maven's model comes from the host integration during detection, with the
-/// reactor's modules as projects and its profiles as option values.
-#[test]
-fn maven_method_durations_survive_report_aggregation_and_build_decoding() {
-    let timing: Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../shared/fixtures/maven/testcase-durations-v1.json"
-    )))
-    .unwrap();
-    let workspace = TemporaryWorkspace::new("maven-method-durations");
-    workspace.write("pom.xml", "<project><modelVersion>4.0.0</modelVersion><groupId>demo</groupId><artifactId>timing</artifactId><version>1</version></project>")
-        .write("target/surefire-reports/TEST-demo.DurationTest.xml", timing["xml"].as_str().unwrap());
-    let results = crate::project::test_results(
-        serde_json::from_value(json!({
-            "root": workspace.root(), "output": "", "reports": {"notBeforeMillis": 0}
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(
-        serde_json::to_value(&results.test_cases).unwrap(),
-        timing["expected"]
-    );
-    let decoded = call(
-        "decodeTestResults",
-        fixture("build-host-integration.plugin.json"),
-        "maven",
-        json!({
-            "workspaceRoot": workspace.root(), "root": ".", "project": ".", "output": "", "notBeforeMillis": 0
-        }),
-    );
-    assert_eq!(decoded["status"], "ok", "{decoded}");
-    let methods = decoded["results"]["tests"].as_array().unwrap();
-    assert_eq!(methods.len(), timing["expected"].as_array().unwrap().len());
-    for expected in timing["expected"].as_array().unwrap() {
-        let actual = methods
-            .iter()
-            .find(|case| case["case"] == expected["method"])
-            .unwrap();
-        assert_eq!(
-            actual["durationMillis"], expected["durationMillis"],
-            "{actual}"
-        );
-        assert_eq!(actual["invocations"], expected["invocations"]);
-    }
-}
-
-#[test]
-fn maven_reactor_detects_through_the_host_integration() {
-    let workspace = TemporaryWorkspace::new("build-maven-detect");
-    workspace
-        .write(
-            "backend/pom.xml",
-            "<project><modelVersion>4.0.0</modelVersion><groupId>com.example</groupId><artifactId>shop</artifactId><version>1.0.0</version><packaging>pom</packaging><modules><module>api</module></modules><profiles><profile><id>dev</id></profile><profile><id>prod</id></profile></profiles></project>",
-        )
-        .write(
-            "backend/api/pom.xml",
-            "<project><modelVersion>4.0.0</modelVersion><parent><groupId>com.example</groupId><artifactId>shop</artifactId><version>1.0.0</version></parent><artifactId>api</artifactId></project>",
-        )
-        .write("backend/api/src/main/java/demo/App.java", "class App {}\n");
-    let detection = detect(
-        &workspace,
-        vec![fixture("build-host-integration.plugin.json")],
-        json!({ "maven": { "profiles": ["dev", "removed"] } }),
-    );
-    assert_eq!(instance_ids(&detection), ["maven:backend"]);
-    let model = &instance(&detection, "maven:backend")["model"];
-    let projects: Vec<(&str, &str)> = model["projects"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|project| {
-            (
-                project["path"].as_str().unwrap(),
-                project["name"].as_str().unwrap(),
-            )
-        })
-        .collect();
-    assert_eq!(projects, [("backend", "shop"), ("backend/api", "api")]);
-    assert_eq!(model["optionValues"]["profiles"], json!(["dev", "prod"]));
-    assert!(
-        model["contentRoots"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|root| root["path"] == "backend/api/src/main/java" && root["kind"] == "source"),
-        "{model}"
-    );
-}
-
-/// The Maven plugin's task plans keep the argument order the built-in Maven
-/// tool window produces for the same context.
-#[test]
-fn maven_task_plans_match_the_builtin_arguments() {
-    let settings = "/opt/maven/settings.xml";
-    let outcome = call(
-        "taskPlan",
-        fixture("build-host-integration.plugin.json"),
-        "maven",
-        json!({
-            "root": ".",
-            "task": "install",
-            "project": { "path": "services/api", "name": "api" },
-            "options": {
-                "profiles": ["prod", "dev"],
-                "settingsFile": settings,
-                "localRepository": "/opt/m2",
-                "skipTests": true,
-            },
-        }),
-    );
-    let profiles = ["dev".to_string(), "prod".to_string()];
-    let expected = crate::project::maven_arguments(
-        &profiles,
-        Some(settings),
-        Some("/opt/m2"),
-        Some("services/api"),
-        false,
-        true,
-        &["install".to_string()],
-    );
-    assert_eq!(outcome["plan"]["arguments"], json!(expected), "{outcome}");
 }
 
 /// A model command that writes the canonical format to the host's output
@@ -1653,42 +1532,6 @@ fn static_models_and_sync_fingerprints_reject_escaping_symlinks() {
     assert_eq!(local["model"]["projects"][0]["name"], "local");
 }
 
-/// The reused Maven reader must not expose linked POM contents either.
-#[cfg(unix)]
-#[test]
-fn maven_models_do_not_read_poms_outside_the_workspace() {
-    use std::os::unix::fs::symlink;
-    let workspace = TemporaryWorkspace::new("build-confined-maven");
-    let outside = TemporaryWorkspace::new("build-external-maven");
-    outside.write("pom.xml", "<project><modelVersion>4.0.0</modelVersion><artifactId>private-artifact</artifactId><version>9.9</version></project>");
-    symlink(outside.0.join("pom.xml"), workspace.0.join("pom.xml")).unwrap();
-    let manifest = fixture("build-host-integration.plugin.json");
-    let decoded = call(
-        "decodeModel",
-        manifest.clone(),
-        "maven",
-        json!({
-            "workspaceRoot": workspace.root(), "root": ".",
-        }),
-    );
-    assert_eq!(decoded["status"], "rejected", "{decoded}");
-    workspace.write("reactor/pom.xml", "<project><modelVersion>4.0.0</modelVersion><artifactId>root</artifactId><packaging>pom</packaging><modules><module>linked</module></modules></project>");
-    symlink(&outside.0, workspace.0.join("reactor/linked")).unwrap();
-    let modules = call(
-        "decodeModel",
-        manifest,
-        "maven",
-        json!({
-            "workspaceRoot": workspace.root(), "root": "reactor",
-        }),
-    );
-    assert_eq!(modules["status"], "ok", "{modules}");
-    assert!(
-        !modules.to_string().contains("private-artifact"),
-        "{modules}"
-    );
-}
-
 /// A selected report directory can itself be an alias outside the workspace.
 #[cfg(unix)]
 #[test]
@@ -1959,8 +1802,10 @@ fn task_categories_and_option_placements_are_display_only() {
 /// launch settings. No filesystem access or per-tool branch belongs in Core.
 #[test]
 fn explicit_build_tool_path_requires_supported_global_file_setting() {
-    let manifest: Value =
-        serde_json::from_str(contract_file!("fixtures/build-systems/build-tool-path.plugin.json")).unwrap();
+    let manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-systems/build-tool-path.plugin.json"
+    ))
+    .unwrap();
     let validated = validate(manifest.clone());
     assert_eq!(validated["status"], "ok", "{validated}");
     let invoke = |settings: Value| {
@@ -2027,8 +1872,10 @@ fn explicit_build_tool_path_requires_supported_global_file_setting() {
 
 #[test]
 fn executable_candidates_order_and_constraints_are_shared_and_deterministic() {
-    let base: Value =
-        serde_json::from_str(contract_file!("fixtures/build-systems/build-tool-path.plugin.json")).unwrap();
+    let base: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-systems/build-tool-path.plugin.json"
+    ))
+    .unwrap();
     let invoke = |candidates: Value| {
         let mut manifest = base.clone();
         manifest["buildSystems"][0]["invocation"]["executables"] = candidates;
@@ -2080,8 +1927,10 @@ fn executable_candidates_order_and_constraints_are_shared_and_deterministic() {
 
 #[test]
 fn published_build_v2_paths_adapt_to_candidates_and_preserve_invalid_values() {
-    let mut manifest: Value =
-        serde_json::from_str(contract_file!("fixtures/build-systems/build-tool-path.plugin.json")).unwrap();
+    let mut manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-systems/build-tool-path.plugin.json"
+    ))
+    .unwrap();
     manifest["requires"]
         .as_object_mut()
         .unwrap()
@@ -2116,8 +1965,10 @@ fn published_build_v2_paths_adapt_to_candidates_and_preserve_invalid_values() {
 
 #[test]
 fn executable_resolution_is_opt_in_and_custom_runtimes_share_the_same_plan() {
-    let mut manifest: Value =
-        serde_json::from_str(contract_file!("fixtures/build-systems/build-tool-path.plugin.json")).unwrap();
+    let mut manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-systems/build-tool-path.plugin.json"
+    ))
+    .unwrap();
     let old_host = validate_command(
         json!({"manifest":manifest,"hostCapabilities":{"buildSystems":[1,2],"settings":[1,2]}}),
     )
@@ -2283,10 +2134,14 @@ fn preparation_tasks_are_declared_versioned_and_unambiguous() {
 /// no test selector is interpolated into a host command.
 #[test]
 fn provider_tests_preserve_filters_and_report_ownership() {
-    let manifest: Value =
-        serde_json::from_str(contract_file!("fixtures/build-providers/build-provider-tests.plugin.json")).unwrap();
-    let fixture: Value =
-        serde_json::from_str(contract_file!("fixtures/build-providers/build-test-protocol.json")).unwrap();
+    let manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-providers/build-provider-tests.plugin.json"
+    ))
+    .unwrap();
+    let fixture: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-providers/build-test-protocol.json"
+    ))
+    .unwrap();
     assert_eq!(validate(manifest.clone())["status"], "ok");
     let plan = build_test_plan_command(
         json!({"manifest": manifest, "buildSystemID":"gradle", "request":fixture["request"]}),
@@ -2339,8 +2194,10 @@ fn provider_tests_preserve_filters_and_report_ownership() {
 /// every test or fall back to host-owned business logic.
 #[test]
 fn provider_tests_require_version_three_and_an_owned_process() {
-    let manifest: Value =
-        serde_json::from_str(contract_file!("fixtures/build-providers/build-provider-tests.plugin.json")).unwrap();
+    let manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-providers/build-provider-tests.plugin.json"
+    ))
+    .unwrap();
     for version in [1, 2] {
         let mut old = manifest.clone();
         old["requires"]["buildProviders"] = json!(version);
@@ -2383,10 +2240,14 @@ fn provider_tests_require_version_three_and_an_owned_process() {
 /// identity and rejecting malformed lists instead of silently hiding tests.
 #[test]
 fn provider_test_discovery_is_bounded_deterministic_and_runnable() {
-    let manifest: Value =
-        serde_json::from_str(contract_file!("fixtures/build-providers/build-provider-tests.plugin.json")).unwrap();
-    let fixture: Value =
-        serde_json::from_str(contract_file!("fixtures/build-providers/build-test-discovery.json")).unwrap();
+    let manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-providers/build-provider-tests.plugin.json"
+    ))
+    .unwrap();
+    let fixture: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-providers/build-test-discovery.json"
+    ))
+    .unwrap();
     let plan =
         build_test_discovery_plan_command(json!({"manifest":manifest,"buildSystemID":"gradle",
         "request":{"root":".","refresh":true}}))
@@ -2449,8 +2310,10 @@ fn provider_run_preparation_selects_targets_and_validates_launch_data() {
         "fixtures/build-providers/build-provider-run-preparation.plugin.json"
     ))
     .unwrap();
-    let fixture: Value =
-        serde_json::from_str(contract_file!("fixtures/build-providers/build-run-preparation.json")).unwrap();
+    let fixture: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-providers/build-run-preparation.json"
+    ))
+    .unwrap();
     assert_eq!(validate(manifest.clone())["status"], "ok");
     let plan = |request: Value| {
         build_prepare_run_plan_command(
@@ -2557,10 +2420,14 @@ fn provider_debug_preparation_validates_native_target_and_same_plugin_adapter() 
         "fixtures/build-providers/build-provider-debug-preparation.plugin.json"
     ))
     .unwrap();
-    let fixture: Value =
-        serde_json::from_str(contract_file!("fixtures/build-providers/build-debug-preparation.json")).unwrap();
-    let run: Value =
-        serde_json::from_str(contract_file!("fixtures/build-providers/build-run-preparation.json")).unwrap();
+    let fixture: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-providers/build-debug-preparation.json"
+    ))
+    .unwrap();
+    let run: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-providers/build-run-preparation.json"
+    ))
+    .unwrap();
     assert_eq!(validate(manifest.clone())["status"], "ok");
     let planned = build_prepare_debug_plan_command(
         json!({"manifest":manifest,"buildSystemID":"gradle","request":run["request"]}),
@@ -2669,10 +2536,14 @@ fn provider_debug_target_bindings_keep_exact_arguments_and_require_bounded_facts
 #[test]
 fn model_inputs_project_public_facts_and_preserve_configuration_identity() {
     use crate::build::build_resolve_model_inputs_command;
-    let producer: Value =
-        serde_json::from_str(contract_file!("fixtures/build-systems/build-model-producer.plugin.json")).unwrap();
-    let consumer: Value =
-        serde_json::from_str(contract_file!("fixtures/build-systems/build-model-consumer.plugin.json")).unwrap();
+    let producer: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-systems/build-model-producer.plugin.json"
+    ))
+    .unwrap();
+    let consumer: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-systems/build-model-consumer.plugin.json"
+    ))
+    .unwrap();
     assert_eq!(
         validate(producer.clone())["status"],
         "ok",
@@ -2746,10 +2617,14 @@ fn model_inputs_project_public_facts_and_preserve_configuration_identity() {
 #[test]
 fn model_inputs_reject_invalid_manifests_models_and_snapshot_smuggling() {
     use crate::build::build_resolve_model_inputs_command;
-    let producer: Value =
-        serde_json::from_str(contract_file!("fixtures/build-systems/build-model-producer.plugin.json")).unwrap();
-    let consumer: Value =
-        serde_json::from_str(contract_file!("fixtures/build-systems/build-model-consumer.plugin.json")).unwrap();
+    let producer: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-systems/build-model-producer.plugin.json"
+    ))
+    .unwrap();
+    let consumer: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-systems/build-model-consumer.plugin.json"
+    ))
+    .unwrap();
     for change in ["oldWire", "noCapability", "reexport", "unknownOption"] {
         let mut manifest = consumer.clone();
         match change {
@@ -2843,15 +2718,18 @@ fn provider_run_options_preserve_argv_and_validate_declared_execution_and_cwd() 
         "fixtures/build-providers/build-provider-run-options.plugin.json"
     ))
     .unwrap();
-    let fixture: Value =
-        serde_json::from_str(contract_file!("fixtures/build-providers/build-run-options.json")).unwrap();
+    let fixture: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-providers/build-run-options.json"
+    ))
+    .unwrap();
     let workspace = TemporaryWorkspace::new("provider-run-options");
     workspace.write("app/Main.java", "class Main {}");
     workspace.write("tools/readme.txt", "working directory");
-    let mut request: Value =
-        serde_json::from_str::<Value>(contract_file!("fixtures/build-providers/build-run-preparation.json"))
-            .unwrap()["request"]
-            .clone();
+    let mut request: Value = serde_json::from_str::<Value>(contract_file!(
+        "fixtures/build-providers/build-run-preparation.json"
+    ))
+    .unwrap()["request"]
+        .clone();
     request["root"] = json!("app");
     request["run"] = json!("service");
     request["workspaceRoot"] = json!(workspace.root());
@@ -2938,10 +2816,11 @@ fn provider_connection_debug_options_require_version_eleven_and_a_declared_regis
     let workspace = TemporaryWorkspace::new("provider-connection-debug");
     workspace.write("app/Main.java", "class Main {}");
     workspace.write("tools/readme.txt", "cwd");
-    let mut request: Value =
-        serde_json::from_str::<Value>(contract_file!("fixtures/build-providers/build-run-preparation.json"))
-            .unwrap()["request"]
-            .clone();
+    let mut request: Value = serde_json::from_str::<Value>(contract_file!(
+        "fixtures/build-providers/build-run-preparation.json"
+    ))
+    .unwrap()["request"]
+        .clone();
     request["root"] = json!("app");
     request["run"] = json!("service");
     request["workspaceRoot"] = json!(workspace.root());
@@ -3007,8 +2886,10 @@ fn provider_run_options_refuse_explicit_cwd_symlinks_outside_workspace() {
         "fixtures/build-providers/build-provider-run-options.plugin.json"
     ))
     .unwrap();
-    let mut fixture: Value =
-        serde_json::from_str(contract_file!("fixtures/build-providers/build-run-options.json")).unwrap();
+    let mut fixture: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-providers/build-run-options.json"
+    ))
+    .unwrap();
     fixture["launchOptions"]["workingDirectory"] = json!("escape");
     fixture["result"]["workingDirectory"] = json!("escape");
     let result = build_decode_run_preparation_command(json!({"manifest":manifest,"buildSystemID":"gradle",

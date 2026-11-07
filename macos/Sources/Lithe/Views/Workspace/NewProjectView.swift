@@ -60,20 +60,6 @@ struct NewProjectView: View {
                 get: { if case .generator(let id) = feature.selection { return "generator:" + id }; return "empty" },
                 set: { _ in }))
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            if feature.isJavaSupportMissing {
-                Button {
-                    feature.openMarketplace(searching: "Java Support")
-                } label: {
-                    Text("Install Java Support for Java, Maven and Spring templates…")
-                        .font(LitheTheme.uiFont(size: 12))
-                        .foregroundStyle(LitheTheme.link)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.litheNoPress)
-                .lithePointer()
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-            }
             Button {
                 feature.openMarketplace(searching: "")
             } label: {
@@ -347,38 +333,130 @@ struct NewProjectView: View {
             ) { feature.setValue(.array($0.map(ToolingJSONValue.string)), for: field) }
         case .runtime:
             runtimeControl(field)
+        case .tool:
+            toolControl(field)
         case .boolean:
             EmptyView()
         }
     }
 
+    /// Picks one installation of the tool definition the field's `runtime`
+    /// names, from the same lookup tool fields use. When none is found the
+    /// field says why, as a tool field does.
     @ViewBuilder private func runtimeControl(_ field: ProjectGeneratorField) -> some View {
-        if feature.javaRuntimes.isEmpty, feature.hasLoadedJavaRuntimes {
-            Text(LocalizedStringKey("No JDK was found. Install a JDK, then reopen this window."))
-                .foregroundStyle(LitheTheme.secondaryText)
-        } else if feature.javaRuntimes.isEmpty {
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text(LocalizedStringKey("Looking for installed JDKs…"))
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-        } else {
+        let installations = feature.runtimeInstallations(for: field)
+        if let error = feature.toolListingError(for: field) {
+            toolListingFailure(error)
+        } else if !installations.isEmpty {
             LitheSettingsSelect(
                 selection: Binding(
                     get: { feature.selectedRuntimeHome(for: field) },
                     set: { feature.selectRuntime(home: $0, for: field) }
                 ),
-                options: feature.javaRuntimes.map(\.homePath),
+                options: installations.map(\.home),
                 width: 420,
                 accessibilityLabel: field.title,
                 title: { home in
-                    guard let runtime = feature.javaRuntimes.first(where: { $0.homePath == home }) else { return home }
-                    return "\(runtime.displayName) — \((home as NSString).abbreviatingWithTildeInPath)"
+                    guard let installation = installations.first(where: { $0.home == home }) else { return home }
+                    return "\(installation.version) — \((home as NSString).abbreviatingWithTildeInPath)"
                 },
                 localizesTitles: false,
-                searchPrompt: feature.javaRuntimes.count > 8 ? "Search JDKs" : nil
+                searchPrompt: installations.count > 8 ? "Search" : nil
             )
+        } else if feature.isListingTools {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(LocalizedStringKey("Looking for installed tools…"))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+        } else {
+            Text(LocalizedStringKey("No installation of this tool was found."))
+                .foregroundStyle(LitheTheme.secondaryText)
         }
+    }
+
+    /// Picks one installation of the tool the field names. Core marks the one
+    /// the form uses and which are new enough; an older one is listed but
+    /// cannot be chosen. When none is found the field says why and what to do.
+    @ViewBuilder private func toolControl(_ field: ProjectGeneratorField) -> some View {
+        let choices = feature.toolChoices(for: field)
+        if let error = feature.toolListingError(for: field) {
+            toolListingFailure(error)
+        } else if !choices.isEmpty {
+            LitheSettingsSelect(
+                selection: Binding(
+                    get: { feature.value(of: field).stringValue },
+                    set: { feature.setValue(.string($0), for: field) }
+                ),
+                options: feature.toolOptions(for: field),
+                width: 420,
+                accessibilityLabel: field.title,
+                title: { home in
+                    if home.isEmpty { return L10n.string("None") }
+                    return choices.first(where: { $0.home == home }).map(Self.toolChoiceTitle) ?? home
+                },
+                localizesTitles: false,
+                isAvailable: { feature.isToolChoosable($0, for: field) },
+                unavailableHelp: "This installation is older than the generator requires."
+            )
+        } else if feature.isListingTools {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(LocalizedStringKey("Looking for installed tools…"))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+        } else {
+            toolMissing(field)
+        }
+    }
+
+    /// No installation was found. Without a plugin that defines the tool, the
+    /// notice offers to enable or find one; otherwise the tool is just absent.
+    @ViewBuilder private func toolMissing(_ field: ProjectGeneratorField) -> some View {
+        switch feature.toolNoticeAction(for: field) {
+        case .enable(let pluginID, let name):
+            pluginNotice(
+                Text(String(format: L10n.string("%@ is needed for this project but %@ is disabled."), field.title, name)),
+                actionTitle: "Enable",
+                pluginID: pluginID
+            )
+        case .findInMarketplace(let query):
+            HStack(spacing: 8) {
+                Image(systemName: "info.circle")
+                    .foregroundStyle(LitheTheme.secondaryText)
+                Text(String(format: L10n.string("No installed plugin supports %@ yet."), field.title))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button(LocalizedStringKey("Find in Marketplace")) { feature.openMarketplace(searching: query) }
+                    .buttonStyle(LitheActionButtonStyle())
+                    .fixedSize()
+            }
+            .modifier(NoticeChrome())
+        case nil:
+            Text(LocalizedStringKey("No installation of this tool was found."))
+                .foregroundStyle(LitheTheme.secondaryText)
+        }
+    }
+
+    /// Discovery could not run, which is not the same as nothing installed.
+    private func toolListingFailure(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(LitheTheme.error)
+            Text(verbatim: message)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            Spacer(minLength: 8)
+            Button(LocalizedStringKey("Try Again")) { feature.retryToolListing() }
+                .buttonStyle(LitheActionButtonStyle())
+                .fixedSize()
+        }
+        .modifier(NoticeChrome())
+    }
+
+    private static func toolChoiceTitle(_ choice: ProjectGeneratorFormState.ToolChoice) -> String {
+        let title = "\(choice.version) — \((choice.home as NSString).abbreviatingWithTildeInPath)"
+        return choice.meetsMinimum ? title : String(format: L10n.string("%@ (older than required)"), title)
     }
 
     @ViewBuilder private var progress: some View {

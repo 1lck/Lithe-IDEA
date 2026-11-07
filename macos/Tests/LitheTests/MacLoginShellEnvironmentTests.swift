@@ -62,10 +62,10 @@ struct MacLoginShellEnvironmentTests {
 
     @Test
     func theProcessEnvironmentWinsOverTheLoginShell() {
-        let shell = MacLoginShellEnvironment(overlay: ["JAVA_HOME": "/login/jdk", "MAVEN_HOME": "/login/maven"])
-        let merged = shell.merged(["JAVA_HOME": "/explicit/jdk"])
-        #expect(merged["JAVA_HOME"] == "/explicit/jdk")
-        #expect(merged["MAVEN_HOME"] == "/login/maven")
+        let shell = MacLoginShellEnvironment(overlay: ["TOOL_A_HOME": "/login/tool-a", "TOOL_B_HOME": "/login/tool-b"])
+        let merged = shell.merged(["TOOL_A_HOME": "/explicit/tool-a"])
+        #expect(merged["TOOL_A_HOME"] == "/explicit/tool-a")
+        #expect(merged["TOOL_B_HOME"] == "/login/tool-b")
     }
 
     @Test
@@ -74,7 +74,7 @@ struct MacLoginShellEnvironmentTests {
         defer { fixture.remove() }
         try fixture.writeRC("""
         export PATH=/fixture/first:$PATH
-        export JAVA_HOME=/fixture/jdk
+        export TOOL_A_HOME=/fixture/tool-a
         """)
         let cache = fixture.root.appendingPathComponent("cache/login-path")
         let shared = MacLoginShellEnvironment()
@@ -88,7 +88,7 @@ struct MacLoginShellEnvironmentTests {
         #expect(coldRefresh == nil)
         #expect(applied.last?.hasPrefix("/fixture/first:") == true)
         #expect(try String(contentsOf: cache, encoding: .utf8).hasPrefix("/fixture/first:"))
-        #expect(shared.merged([:])["JAVA_HOME"] == "/fixture/jdk")
+        #expect(shared.merged([:])["TOOL_A_HOME"] == "/fixture/tool-a")
 
         try fixture.writeRC("export PATH=/fixture/second:$PATH")
         let warmShared = MacLoginShellEnvironment()
@@ -101,7 +101,7 @@ struct MacLoginShellEnvironmentTests {
         warmRefresh()
         #expect(try String(contentsOf: cache, encoding: .utf8).hasPrefix("/fixture/second:"))
         // The refreshed overlay reflects the edited rc file, not the earlier read.
-        #expect(warmShared.merged([:])["JAVA_HOME"] != "/fixture/jdk")
+        #expect(warmShared.merged([:])["TOOL_A_HOME"] != "/fixture/tool-a")
     }
 
     @Test

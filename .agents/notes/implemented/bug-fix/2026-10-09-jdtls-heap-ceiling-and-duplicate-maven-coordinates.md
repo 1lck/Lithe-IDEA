@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 Lithe 在两条启动路径上都用 `-Xmx1024m` 启动内置 Java 语言服务 JDT LS。JDT LS 发现
@@ -119,6 +121,6 @@ Lithe 在两条启动路径上都用 `-Xmx1024m` 启动内置 Java 语言服务 
 
 ## 适用范围
 
-- `rust/lithe-core/src/lsp/languages/jdt.rs`
+- 已迁出：原 `rust/lithe-core/src/lsp/languages/jdt.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
 - `rust/lithe-core/src/lsp/interface/engine.rs`
 - `third_party/jdtls/manifest.json`

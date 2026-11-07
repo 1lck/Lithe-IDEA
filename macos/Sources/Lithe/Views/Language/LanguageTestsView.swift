@@ -14,7 +14,7 @@ struct LanguageTestsView: View {
     @AppStorage("lithe.tests.itemListWidth") private var itemListWidth = 250.0
     @AppStorage("lithe.tests.itemListCollapsed") private var isItemListCollapsed = false
     @Environment(\.colorScheme) private var colorScheme
-    @State private var inspectorTab = "Performance"
+    @State private var inspectorTab = "Details"
     @State private var detailsExpanded = false
     @AppStorage("lithe.tests.detailsWidth") private var detailsWidth = 300.0
     @State private var wrapsLines = false
@@ -81,7 +81,6 @@ struct LanguageTestsView: View {
         .background(LitheToolWindowActivityTracker(isActive: $testToolActive))
         .onAppear {
             selectDefaultItemIfNeeded()
-            syncPerformance()
             updateResultsAndDurations()
         }
         .onChange(of: service.results) { _ in
@@ -135,7 +134,7 @@ struct LanguageTestsView: View {
     private func testRunTab(_ title: String) -> some View {
         HStack(spacing: 0) {
             HStack(spacing: 6) {
-                LitheIDEAIcon(resourcePath: "expui/runConfigurations/junit.svg", size: 16,
+                LitheIDEAIcon(resourcePath: "expui/run/run.svg", size: 16,
                               fallbackSystemImage: "play", preservesOriginalColors: true)
                 Text(title)
                     .font(LitheTheme.uiFont(size: 13))
@@ -172,18 +171,6 @@ struct LanguageTestsView: View {
             .litheToolbarIconButton()
             .help("Stop test run")
             .disabled(!service.isRunning)
-
-            if let item = selectedItem, item.providerID == "java", item.kind != .workspace {
-                Button(action: UserActionTrace.action("tests.debug", surface: .toolbar) {
-                    model.debugTest(providerID: item.providerID, scope: scope(for: item))
-                }) {
-                    LitheIDEAIcon(resourcePath: "expui/run/debug.svg", size: 16,
-                                  fallbackSystemImage: "ladybug", preservesOriginalColors: true, usesIDEADisabledAppearance: true)
-                }
-                .litheToolbarIconButton()
-                .help("Debug selected test")
-                .disabled(service.isRunning || item.fileURL == nil)
-            }
 
             Button(action: UserActionTrace.action("tests.refresh", surface: .toolbar, model.refreshTests)) {
                 LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: 16,
@@ -494,10 +481,6 @@ struct LanguageTestsView: View {
                 }
             }
         }
-        .onAppear { updatePerformanceVisibility() }
-        .onChange(of: detailsExpanded) { _ in updatePerformanceVisibility() }
-        .onChange(of: inspectorTab) { _ in updatePerformanceVisibility() }
-        .onDisappear { model.testPerformanceFeature.setVisible(false) }
     }
 
     private func updateResultsAndDurations() {
@@ -506,18 +489,10 @@ struct LanguageTestsView: View {
         testDurations = Self.reportDurations(outcomes)
     }
 
-    private func syncPerformance() {
-        model.testPerformanceFeature.bind(to: service)
-    }
-
-    private func updatePerformanceVisibility() {
-        model.testPerformanceFeature.setVisible(detailsExpanded && inspectorTab == "Performance")
-    }
-
     private var testInspector: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                ForEach(["Performance", "Details"], id: \.self) { tab in
+                ForEach(["Details"], id: \.self) { tab in
                     Button { inspectorTab = tab } label: {
                         Text(LocalizedStringKey(tab))
                             .font(LitheTheme.ActionStripe.titleFont)
@@ -547,11 +522,7 @@ struct LanguageTestsView: View {
             .padding(.horizontal, 6)
             .frame(height: LitheTheme.Metrics.toolbarHeight)
             LitheToolWindowHeaderDivider()
-            if inspectorTab == "Performance" {
-                TestJVMPerformanceView(feature: model.testPerformanceFeature)
-            } else {
-                ScrollView { if let item = selectedItem { testDetail(item) } }.litheScrollViewChrome()
-            }
+            ScrollView { if let item = selectedItem { testDetail(item) } }.litheScrollViewChrome()
         }
         .litheWorkbenchSurface(LitheTheme.editor)
     }
@@ -575,6 +546,7 @@ struct LanguageTestsView: View {
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
+                .pluginLinks(in: model, scope: .test, searchRoots: [workspaceURL])
             }
         }
     }
@@ -810,7 +782,6 @@ struct LanguageTestsView: View {
 
     private static func iconKind(for providerID: String) -> LitheIconKind? {
         switch providerID {
-        case "java": .javaGeneric
         case "go": .goSource
         case "python": .pythonSource
         case "node": .javaScript

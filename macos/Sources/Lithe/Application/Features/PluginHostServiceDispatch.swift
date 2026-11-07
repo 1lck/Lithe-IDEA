@@ -14,6 +14,15 @@ protocol PluginBackendActivating: AnyObject {
     /// starts when it declares `onCommand:<id>`, and the running backend
     /// receives `lithe/host/commands/didRun` with the window's context.
     func runCommand(_ commandID: String, owner: ModuleID, context: PluginWorkspaceContextReference?)
+    /// Tells the plugin's running backend about a language server the plugin
+    /// owns: `lithe/host/languageServer/didChangeState` or
+    /// `didReceiveNotification`. A backend that holds no `languageServer`
+    /// host method grant does not receive it.
+    func notifyLanguageServer(pluginID: String, method: String, params: ToolingJSONValue)
+}
+
+extension PluginBackendActivating {
+    func notifyLanguageServer(pluginID _: String, method _: String, params _: ToolingJSONValue) {}
 }
 
 /// How a host service failed, as a function protocol 3 backend sees it.
@@ -49,14 +58,29 @@ enum PluginHostErrorCode: String, Sendable, CaseIterable {
     case rateLimited = "plugin.host.rateLimited"
     case cancelled = "plugin.host.cancelled"
     case timeout = "plugin.host.timeout"
+    /// The tool a run names (`{tool, reason}` in the details) has no usable
+    /// installation: `reason` is `notFound` when none is installed and
+    /// `unusable` when the chosen one cannot run.
+    case toolUnresolved = "plugin.host.toolUnresolved"
     /// The backend went away while the host worked on its request.
     case backendExited = "plugin.backend.exited"
     case failed = "plugin.host.failed"
+    /// The plugin's language server is not running (stopped, still starting,
+    /// or never started with a session policy).
+    case languageServerUnavailable = "plugin.host.languageServerUnavailable"
+    /// The language server answered the request with a JSON-RPC error; the
+    /// server's own `{ code, message }` is in the details.
+    case languageServerError = "plugin.host.languageServerError"
+    /// The method, or the `workspace/executeCommand` command, is not one the
+    /// plugin's manifest declares for the server.
+    case methodNotDeclared = "plugin.host.methodNotDeclared"
+    /// The server or document scheme belongs to another plugin.
+    case foreignContribution = "plugin.host.foreignContribution"
 }
 
 /// A failed host service request. The message reaches the backend, so it
 /// never carries a secret or a path the plugin may not see.
-struct PluginHostServiceError: Error, Equatable, Sendable {
+struct PluginHostServiceError: LocalizedError, Equatable, Sendable {
     let code: PluginHostErrorCode
     let message: String
     /// Facts the backend may act on, such as `{ currentVersion }` of a
@@ -74,8 +98,25 @@ struct PluginHostServiceError: Error, Equatable, Sendable {
         lhs.code == rhs.code && lhs.message == rhs.message && lhs.details == rhs.details
     }
 
+    /// The host's own wording of the refusal, so a log line names which
+    /// check failed instead of the bridged NSError's generic text.
+    var errorDescription: String? { message }
+
     var failure: PluginHostRequestFailure {
         PluginHostRequestFailure(message: message, code: code.rawValue, details: details.map { .object($0) })
+    }
+
+    /// An answer Rust Core or a session already put into the backend's
+    /// shape. A code this host does not know reaches the backend as `failed`,
+    /// as it would from Core.
+    init(_ failure: PluginHostRequestFailure) {
+        var details: [String: ToolingJSONValue]?
+        if case .object(let members)? = failure.details { details = members }
+        self.init(
+            failure.code.flatMap(PluginHostErrorCode.init(rawValue:)) ?? .failed,
+            failure.message,
+            details: details
+        )
     }
 }
 
@@ -203,10 +244,17 @@ final class PluginHostSubscriptions {
 /// granted; Core checked the same, and this is the host's own check.
 @MainActor
 final class PluginHostServiceDispatcher {
-    /// Services every plugin-owned session may call without a grant.
-    /// `commands` has no methods: its notification brings the plugin's own
-    /// commands to its backend.
-    static let implicitServices: Set<String> = ["host", "subscriptions", "commands"]
+    private struct HostMethod: Decodable {
+        let method: String
+        let requiredGrant: String?
+        let coreServed: Bool
+        enum CodingKeys: String, CodingKey { case method, coreServed; case requiredGrant = "grant" }
+    }
+    private struct HostCatalog: Decodable { let methods: [HostMethod] }
+    private struct EmptyPayload: Encodable {}
+    private static let catalog: Result<HostCatalog, RustCoreBridge.CoreCallError> = RustCoreBridge().executeResult(
+        command: "plugins.hostApi.describe", payload: EmptyPayload()
+    )
 
     let contexts: PluginWorkspaceContexts
     let subscriptions = PluginHostSubscriptions()
@@ -261,15 +309,17 @@ final class PluginHostServiceDispatcher {
     }
 
     func supportedGrants(_ requested: [String]) -> [String] {
-        requested.filter { grant in
-            if handlers[grant] != nil { return true }
-            let legacy: [String]
-            switch grant {
-            case "workspace": legacy = ["listContexts", "getContext", "getFolders"]
-            case "credentials": legacy = ["get", "set", "delete"]
-            default: return false
-            }
-            return legacy.allSatisfy { handlers["lithe/host/\(grant)/\($0)"] != nil }
+        let catalog: HostCatalog
+        switch Self.catalog {
+        case .success(let value): catalog = value
+        case .failure(let error):
+            logSink?.emit(AppCoreFallbackSelected(error: LogFailure(domain: "RustCore", code: error.code),
+                stage: "plugins.hostApi.describe"))
+            return []
+        }
+        return requested.filter { grant in
+            let methods = catalog.methods.filter { $0.requiredGrant == grant }
+            return !methods.isEmpty && methods.allSatisfy { $0.coreServed || handlers[$0.method] != nil }
         }
     }
 
@@ -319,10 +369,15 @@ final class PluginHostServiceDispatcher {
             contextID = Self.contextReference(value)?.contextID
         } else { contextID = nil }
         // User-choice messages have no clock deadline; their session, context
-        // and cancellation own dismissal. Machine operations are locally bounded.
-        let waitsForUser = request.method.hasPrefix("lithe/host/window/show")
-            || ["lithe/host/terminal/create", "lithe/host/terminal/reopen"].contains(request.method)
-        let deadline: Task<Void, Never>? = waitsForUser ? nil : Task { @MainActor [weak self] in
+        // and cancellation own dismissal. A language server request ends by the
+        // timeout Core enforces (default 60 s, at most 300 s), which the 30 s
+        // host deadline would cut short. Other machine operations are locally bounded.
+        let hasOwnDeadline = request.method.hasPrefix("lithe/host/window/show")
+            || [
+                "lithe/host/terminal/create", "lithe/host/terminal/reopen",
+                "lithe/host/languageServer/request",
+            ].contains(request.method)
+        let deadline: Task<Void, Never>? = hasOwnDeadline ? nil : Task { @MainActor [weak self] in
             // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
             do { try await Task.sleep(for: .seconds(30)) } catch { return }
             guard let self, self.sessionIDs[pluginID] == currentSession,
@@ -349,12 +404,34 @@ final class PluginHostServiceDispatcher {
                 .backendExited, L10n.string("The plugin backend is no longer running.")
             ).failure)
         }
-        let legacyMethod = request.method.hasPrefix("lithe/host/credentials/")
-            || ["listContexts", "getContext", "getFolders"].map { "lithe/host/workspace/" + $0 }.contains(request.method)
-        guard Self.implicitServices.contains(request.service) || granted.contains(request.method)
-                || (legacyMethod && granted.contains(request.service)) else {
+        struct Authorization: Encodable {
+            let method: String
+            let service: String
+            let grants: [String]
+        }
+        struct Decision: Decodable { let allowed: Bool; let code: String? }
+        let outcome: Result<Decision, RustCoreBridge.CoreCallError> = RustCoreBridge().executeResult(
+            command: "plugins.hostApi.authorize",
+            payload: Authorization(method: request.method, service: request.service, grants: granted.sorted())
+        )
+        let decision: Decision
+        switch outcome {
+        case .success(let value): decision = value
+        case .failure(let error):
+            if let plugin = LogSegment(pluginID) {
+                logSink?.emit(PluginsHostRequestFailed(
+                    code: PluginHostErrorCode.unavailable.rawValue, error: LogFailure(domain: "RustCore", code: error.code),
+                    method: request.method, plugin: plugin, operationID: request.id
+                ))
+            }
+            return .failure(PluginHostServiceError(.unavailable,
+                L10n.string("The plugin is not allowed to use the host service \(request.service).")
+            ).failure)
+        }
+        guard decision.allowed else {
+            let code = decision.code.flatMap(PluginHostErrorCode.init(rawValue:)) ?? .unavailable
             return .failure(PluginHostServiceError(
-                .permissionDenied, L10n.string("The plugin is not allowed to use the host service \(request.service).")
+                code, L10n.string("The plugin is not allowed to use the host service \(request.service).")
             ).failure)
         }
         let params: [String: ToolingJSONValue]
@@ -397,7 +474,10 @@ final class PluginHostServiceDispatcher {
         )
         let result = await handler.answer(call)
         if case .failure(let failure) = result, failure.code != .cancelled, let plugin = LogSegment(pluginID) {
-            logSink?.emit(PluginsHostRequestFailed(error: failure.logError ?? LogFailure(domain: "PluginHost", code: failure.code.rawValue), plugin: plugin, operationID: request.id))
+            logSink?.emit(PluginsHostRequestFailed(
+                code: failure.code.rawValue, error: failure.logError ?? LogFailure(domain: "PluginHost", code: failure.code.rawValue),
+                method: request.method, plugin: plugin, operationID: request.id
+            ))
         }
         return result.mapError(\.failure)
     }

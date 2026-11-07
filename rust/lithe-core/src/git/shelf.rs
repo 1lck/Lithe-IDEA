@@ -215,7 +215,6 @@ fn execute(request: Request) -> Result<Value, CoreError> {
                             Layer::Working => "worktreeCheck",
                         }
                         .into(),
-                        unidiff_zero: false,
                     })?;
                     if check.exit_code != 0 || check.operation_error.is_some() {
                         return Err(original);

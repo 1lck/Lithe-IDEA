@@ -99,7 +99,6 @@ struct RealPhpIntegrationTests {
             arguments: launch.arguments,
             environment: environment,
             initializationOptions: .object(["storagePath": .string(cacheURL.path)]),
-            cacheDirectoryURL: cacheURL,
             initializeTimeout: 60,
             requestTimeout: 60,
             shutdownTimeout: 5,

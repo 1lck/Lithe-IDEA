@@ -1,13 +1,14 @@
 //! Exercises shared tool selection through production commands and inert native facts.
 
+use super::toolchain_vectors::{
+    local_pins, query_request, query_response, HOME, MANUAL_HOME, WORKSPACE,
+};
 use crate::toolchain::{
     candidates_command, check_version_command, discovery_plan_command, failure_reply_command,
     resolve_command,
 };
 use serde_json::{json, Value};
 
-const WORKSPACE: &str = "/opt/lithe-fixtures/workspace";
-const HOME: &str = "/opt/lithe-fixtures/installs/java/21.0.4";
 const OLD: &str = "/opt/lithe-fixtures/installs/java/17.0.12";
 
 /// Reads review data as test inputs, never as an installed plugin or live path.
@@ -20,14 +21,6 @@ fn contract(name: &str) -> Value {
         "mise" => include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../shared/contracts/plugins/v1/fixtures/toolchains/toolchain-provider.plugin.json"
-        )),
-        "query" => include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../shared/contracts/plugins/v1/fixtures/toolchains/proposal/query-cases.json"
-        )),
-        "local" => include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../shared/contracts/plugins/v1/fixtures/toolchains/proposal/local.json"
         )),
         _ => panic!("unknown fixture"),
     };
@@ -44,9 +37,9 @@ fn fact(path: &str, kind: &str, executable: bool) -> Value {
     json!({"path":path,"canonicalPath":path,"kind":kind,"executable":executable})
 }
 
-/// Starts with a verified definition and provider but no selected installation.
+/// Starts with an enabled definition and provider but no selected installation.
 fn input() -> Value {
-    json!({"registry":{"plugins":[{"manifest":manifest(&contract("java")),"verifiedOfficial":true},{"manifest":manifest(&contract("mise")),"verifiedOfficial":false}]},
+    json!({"registry":{"plugins":[{"manifest":manifest(&contract("java"))},{"manifest":manifest(&contract("mise"))}]},
         "operationID":"resolve-1","generation":1,"context":{"contextID":"context-1","generation":1},"tool":"java","directory":".","platform":"macos","workspaceRoot":WORKSPACE,
         "filesystem":[fact(WORKSPACE,"directory",false)],"probes":[],"queries":[],"systemInstallations":[],"environment":{},"commandHomes":{}})
 }
@@ -71,8 +64,7 @@ fn resolve(input: &Value) -> Value {
 
 /// Captures a fake backend exchange that the resolver must decode itself.
 fn query(input: &Value) -> Value {
-    let case = &contract("query")["cases"][0];
-    json!({"registry":input["registry"],"pluginID":"dev.lithe.fixture.mise","request":case["request"],"response":case["response"],
+    json!({"registry":input["registry"],"pluginID":"dev.lithe.fixture.mise","request":query_request(),"response":query_response(),
         "currentGeneration":1,"platform":"macos","filesystem":input["filesystem"]})
 }
 
@@ -212,10 +204,10 @@ fn consumer_fixed_choices_reject_ambiguous_relative_and_authority_smuggling_fiel
 #[test]
 fn toolchain_resolution_pins_inherit_nearest_ancestor_without_sibling_prefixes() {
     let mut value = input();
-    let manual = "/opt/lithe-fixtures/manual/java/17.0.12";
+    let manual = MANUAL_HOME;
     installation(&mut value, HOME, "21.0.4");
     installation(&mut value, manual, "17.0.12");
-    value["local"] = contract("local");
+    value["local"] = local_pins();
     value["directory"] = json!("apps/web/src");
     let result = resolve(&value);
     assert_eq!(result["outcome"]["selection"]["home"], manual);
@@ -396,7 +388,7 @@ fn toolchain_resolution_conflicting_global_providers_follow_shell_not_plugin_id(
     value["registry"]["plugins"]
         .as_array_mut()
         .unwrap()
-        .push(json!({"manifest":second,"verifiedOfficial":false}));
+        .push(json!({"manifest":second}));
     for source in [
         "/opt/lithe-fixtures/global/mise.toml",
         "/opt/lithe-fixtures/alternative/mise.toml",
@@ -438,7 +430,7 @@ fn toolchain_commands_cross_the_json_dispatch_boundary() {
         ),
         (
             "toolchains.resolvePins",
-            json!({"document":contract("local"),"directory":"apps/web/src","tool":"java"}),
+            json!({"document":local_pins(),"directory":"apps/web/src","tool":"java"}),
             "resolution",
         ),
         (
@@ -884,7 +876,7 @@ fn toolchain_resolution_environment_candidate_uses_its_declared_layout() {
 fn toolchain_resolution_disabled_definition_cannot_reactivate_a_saved_pin() {
     let mut value = input();
     installation(&mut value, HOME, "21.0.4");
-    value["local"] = contract("local");
+    value["local"] = local_pins();
     value["registry"]["plugins"]
         .as_array_mut()
         .unwrap()
@@ -896,6 +888,33 @@ fn toolchain_resolution_disabled_definition_cannot_reactivate_a_saved_pin() {
     assert_eq!(result["outcome"]["reason"]["code"], "definitionUnavailable");
     assert!(result["outcome"].get("selection").is_none());
     assert_eq!(value["local"], before);
+}
+
+/// A short ID claimed by two enabled plugins has no owner, so every consumer sees no definition.
+#[test]
+fn toolchain_resolution_contested_tool_id_is_unowned_for_every_consumer() {
+    let mut value = input();
+    let tool = value["tool"].as_str().unwrap().to_owned();
+    installation(&mut value, HOME, "21.0.4");
+    value["local"] = local_pins();
+    value["commandHomes"][tool.as_str()] = json!(HOME);
+    // The rival is a copy of the defining plugin under another ID.
+    let mut rival = value["registry"]["plugins"][0]["manifest"].clone();
+    rival["id"] = json!("io.example.rival");
+    value["registry"]["plugins"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"manifest":rival}));
+    let plan =
+        discovery_plan_command(json!({"registry":value["registry"],"platform":"macos"})).unwrap();
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(plan["plan"]["tools"], json!([]));
+    let request = json!({"registry":value["registry"],"tool":tool,"output":"21.0.4"});
+    let checked = check_version_command(request).unwrap();
+    assert_eq!(checked["status"], "rejected", "{checked}");
+    let result = resolve(&value);
+    assert_eq!(result["outcome"]["kind"], "skip");
+    assert_eq!(result["outcome"]["reason"]["code"], "definitionUnavailable");
 }
 
 #[test]

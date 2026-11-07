@@ -85,18 +85,26 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
     private let endBackendProcesses: @MainActor (_ token: String, _ immediately: Bool) -> Void
     private let canStart: @MainActor (String) -> Bool
     private let stuckSendGrace: Duration
+    /// Resolves a backend launch that names a tool definition.
+    private let definedTools: MacDefinedToolchainResolver?
     /// Serves the host requests of every backend.
     let hostDispatcher: PluginHostServiceDispatcher
     private let keymapImportHost = MacKeymapImportHostService()
     /// Reports a backend that an activation event failed to start; the
     /// workspace or command goes on without it.
     var editorActions: PluginEditorActionHostService?
+    var contentProviders: PluginContentProviderHostService?
+    var editorProviders: PluginEditorProviderHostService?
     var onActivationFailure: (@MainActor (_ pluginID: String, _ error: Error) -> Void)?
     private static let maximumBackgroundStarts = 2
     private static let maximumPendingNotifications = 128
     private var backgroundQueue: [String] = []
     private var backgroundStarts: [String: Task<Void, Never>] = [:]
     private var commandStarts: [String: Task<Void, Never>] = [:]
+    /// Starts a call between plugins waits for, one per plugin.
+    private var providerStarts: [String: Task<Void, Never>] = [:]
+    /// The last snapshot Core's relay accepted; an unchanged one is not sent again.
+    private var publishedRelaySnapshot: PluginFunctionRelaySnapshot?
     private var pendingCommands: [String: [ToolingJSONValue]] = [:]
     private var packages: [String: Package] = [:]
     /// Disabled plugins start again once enabled.
@@ -138,6 +146,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         stuckSendGrace: Duration = .seconds(2),
         canStart: @escaping @MainActor (String) -> Bool = { _ in true },
         hostDispatcher: PluginHostServiceDispatcher? = nil,
+        definedTools: MacDefinedToolchainResolver? = nil,
         endBackendProcesses: @escaping @MainActor (_ token: String, _ immediately: Bool) -> Void = { token, immediately in
             MacPluginBackendProcesses.end(
                 token: token,
@@ -156,6 +165,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         self.stuckSendGrace = stuckSendGrace
         self.canStart = canStart
         self.endBackendProcesses = endBackendProcesses
+        self.definedTools = definedTools
         if let hostDispatcher {
             self.hostDispatcher = hostDispatcher
         } else {
@@ -192,6 +202,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
             )
             added.insert(id)
         }
+        publishFunctionRelay()
         activateForOpenWorkspaces(added)
     }
 
@@ -267,7 +278,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
               object["ui"] == nil || object["ui"] is NSNull else { return false }
         for key in ["activationEvents", "languageServers", "buildSystems", "debugAdapters", "projectGenerators",
                     "toolchainProviders", "toolDefinitions", "settings", "settingActions", "vcsProviders",
-                    "executionProviders", "languages"] {
+                    "executionProviders", "languages", "outputLinkMatchers"] {
             if let values = object[key] as? [Any], !values.isEmpty { return false }
         }
         return true
@@ -474,10 +485,21 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
     /// Tells every running backend granted `workspace` that the contexts
     /// changed; it asks `listContexts` for them.
     private func contextsDidChange(revision: Int) {
+        publishFunctionRelay()
         for (pluginID, entry) in running where entry.hostServices.contains("workspace") {
             notify(pluginID: pluginID, method: "lithe/host/workspace/didChangeContexts",
                    params: .object(["revision": .integer(revision)]))
         }
+    }
+
+    /// Tells a running backend about a language server its plugin owns.
+    /// Core refuses these notifications to a session without a
+    /// `languageServer` method grant, and a refused notification stops the
+    /// backend, so they are only sent to one that holds one.
+    func notifyLanguageServer(pluginID: String, method: String, params: ToolingJSONValue) {
+        guard let entry = running[pluginID],
+              entry.hostServices.contains(where: { $0.hasPrefix("lithe/host/languageServer/") }) else { return }
+        notify(pluginID: pluginID, method: method, params: params)
     }
 
     /// Sends a host notification to the plugin's running backend, after the
@@ -527,16 +549,84 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         ))
     }
 
+    // MARK: Calls between plugins
+
+    /// Reports to Core's relay which plugins are enabled and which workspace
+    /// contexts are live. Core decides from these what a call may do; this
+    /// side only states the facts, and states them again whenever one of
+    /// them changes, so calls in flight see the change.
+    private func publishFunctionRelay() {
+        let snapshot = functionRelaySnapshot()
+        guard snapshot != publishedRelaySnapshot else { return }
+        // A snapshot Core did not accept stays unpublished, so the next
+        // change sends it again.
+        guard case .success = core.configurePluginFunctionRelay(snapshot) else { return }
+        publishedRelaySnapshot = snapshot
+    }
+
+    private func functionRelaySnapshot() -> PluginFunctionRelaySnapshot {
+        let plugins = packages.compactMap { pluginID, package -> PluginFunctionRelaySnapshot.Plugin? in
+            guard !disabledPluginIDs.contains(pluginID), !replacedPluginIDs.contains(pluginID), canStart(pluginID),
+                  let declaration = Self.pluginFunctionDeclaration(ofManifest: package.manifest) else { return nil }
+            return .init(pluginID: pluginID, exports: declaration.exports ?? [], calls: declaration.calls ?? [])
+        }
+        let contexts = hostDispatcher.contexts.contexts.map { context -> PluginFunctionRelaySnapshot.Context in
+            let isRemote: Bool
+            if case .remote = context.authority { isRemote = true } else { isRemote = false }
+            return .init(contextID: context.contextID, generation: context.generation, isRemote: isRemote)
+        }
+        return PluginFunctionRelaySnapshot(
+            plugins: plugins.sorted { $0.pluginID < $1.pluginID },
+            contexts: contexts.sorted { $0.contextID < $1.contextID }
+        )
+    }
+
+    /// The `pluginFunctions` section of a normalized manifest, left as Core
+    /// wrote it: Core validated it once and reads it again in the relay.
+    private struct PluginFunctionDeclaration: Decodable {
+        let exports: [ToolingJSONValue]?
+        let calls: [ToolingJSONValue]?
+    }
+
+    private struct PluginFunctionsManifest: Decodable {
+        let pluginFunctions: PluginFunctionDeclaration?
+    }
+
+    private static func pluginFunctionDeclaration(ofManifest manifest: Data) -> PluginFunctionDeclaration? {
+        // log-exempt: Core 已校验过清单；解码失败只会让该插件不进中转快照
+        try? JSONDecoder().decode(PluginFunctionsManifest.self, from: manifest).pluginFunctions
+    }
+
+    /// Starts the backend a call between plugins waits for. This is the
+    /// host's whole part in the call: Core checks and relays it. The start
+    /// is bounded like every other one, by the `initialize` time limit, and
+    /// a failure is reported here while Core ends the waiting call with its
+    /// own error once its wait runs out.
+    private func startProviderBackend(_ pluginID: String) {
+        guard providerStarts[pluginID] == nil else { return }
+        providerStarts[pluginID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { if !Task.isCancelled { self.providerStarts[pluginID] = nil } }
+            do {
+                _ = try await self.session(for: pluginID)
+            } catch {
+                if !Task.isCancelled, !(error is CancellationError) { self.onActivationFailure?(pluginID, error) }
+            }
+        }
+    }
+
     /// Stops the backend until `enable` is called.
     func disable(_ pluginID: String) {
         disabledPluginIDs.insert(pluginID)
         stop(pluginID)
+        publishFunctionRelay()
     }
 
     /// The backend may start again; with a workspace open, one that starts
     /// on `onWorkspaceOpen` starts now instead of with the next workspace.
     func enable(_ pluginID: String) {
         disabledPluginIDs.remove(pluginID)
+        publishFunctionRelay()
         activateForOpenWorkspaces([pluginID])
     }
 
@@ -546,12 +636,14 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         replacedPluginIDs.insert(pluginID)
         packages[pluginID] = nil
         stop(pluginID)
+        publishFunctionRelay()
     }
 
     private func stop(_ pluginID: String) {
         backgroundQueue.removeAll { $0 == pluginID }
         backgroundStarts.removeValue(forKey: pluginID)?.cancel()
         commandStarts.removeValue(forKey: pluginID)?.cancel()
+        providerStarts.removeValue(forKey: pluginID)?.cancel()
         pendingCommands[pluginID] = nil
         hostDispatcher.endSession(pluginID: pluginID)
         guard let entry = running.removeValue(forKey: pluginID) else { return }
@@ -626,7 +718,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         await Task.detached(priority: .userInitiated) { prepareState(installation, stateDirectory) }.value
         try Task.checkCancellation()
         guard running[pluginID] === entry else { throw CancellationError() }
-        var (executableURL, environment) = try await resolveExecutable(backend.process, directory: backend.stateDirectory)
+        var (executableURL, arguments, environment) = try await resolveExecutable(backend.process, directory: backend.stateDirectory)
         try Task.checkCancellation()
         guard running[pluginID] === entry else { throw CancellationError() }
         // Every process the backend starts inherits this token, so what it
@@ -640,7 +732,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         let session = LanguageServerRuntimeSession(
             providerID: "pluginBackend:\(pluginID)",
             executableURL: executableURL,
-            arguments: backend.process.arguments,
+            arguments: arguments,
             environment: environment,
             initializationOptions: backend.process.initializationOptions,
             initializeTimeout: 60,
@@ -674,6 +766,8 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         entry.hostServices = Set(hostServices)
         session.onFunctionsChange = { [weak self] ids in
             self?.editorActions?.updateFunctions(pluginID: pluginID, sessionID: sessionToken, ids: ids)
+            self?.contentProviders?.updateFunctions(pluginID: pluginID, sessionID: sessionToken, ids: ids)
+            self?.editorProviders?.updateFunctions(pluginID: pluginID, sessionID: sessionToken, ids: ids)
         }
         session.onHostRequest = { [weak session] request in
             hostDispatcher.handle(request, pluginID: pluginID, sessionID: sessionToken) { outcome in
@@ -682,6 +776,9 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
         }
         session.onHostRequestCancelled = { hostRequestID in
             hostDispatcher.cancel(hostRequestID: hostRequestID, pluginID: pluginID, sessionID: sessionToken)
+        }
+        session.onFunctionProviderStartRequired = { [weak self] providerID in
+            self?.startProviderBackend(providerID)
         }
         entry.session = session
         try await waitUntilReady(session, rootURL: backend.stateDirectory)
@@ -719,7 +816,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
                 }
             }
             do {
-                try session.start(rootURL: rootURL, workspaceFingerprint: nil)
+                try session.start(rootURL: rootURL)
             } catch {
                 finish(.failure(error))
             }
@@ -728,19 +825,34 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
 
     /// A packaged file starts as it is. Commands and runtimes resolve through
     /// the build tool discovery, with the backend's state directory as the
-    /// place a project-local tool would be looked up.
+    /// place a project-local tool would be looked up. A tool launch resolves
+    /// its definitions the same way and takes the command line their
+    /// template expands to; every other launch keeps the plan's arguments.
     private func resolveExecutable(
         _ process: MacPluginLanguageServerLaunchResolver.BuildProviderProcess,
         directory: URL
-    ) async throws -> (URL, [String: String]) {
+    ) async throws -> (URL, [String], [String: String]) {
         let runtimes = process.runtimeTools.map {
             BuildInvocation.RuntimeDependency(id: $0, hostManaged: true)
         }
         let invocation: BuildInvocation
         var requirement: LanguageServerExecutableVersionRequirement?
         switch process.executable {
+        case .tool(let launch):
+            guard let definedTools else {
+                throw DeclarativePluginRejection(
+                    code: "plugin.launch.unavailable",
+                    message: "A plugin backend that names a tool definition cannot start in this host."
+                )
+            }
+            let command = try await definedTools.command(
+                for: launch, arguments: process.arguments, workspace: directory,
+                environment: runtime.languageToolProcessEnvironment(runtimeTools: process.runtimeTools),
+                projectCodeAllowed: false
+            )
+            return (command.executableURL, command.arguments, command.environment)
         case .file(let url):
-            return (url, runtime.languageToolProcessEnvironment(runtimeTools: process.runtimeTools))
+            return (url, process.arguments, runtime.languageToolProcessEnvironment(runtimeTools: process.runtimeTools))
         case .commands(let commands):
             invocation = BuildInvocation(executables: commands.map { .command($0) }, runtimeDependencies: runtimes)
         case .runtime(let tool, let versionRequirement):
@@ -766,7 +878,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
                 return BuildVersionCheck(satisfied: check.satisfied, version: check.version)
             }
         )
-        return (resolved.executableURL, resolved.environment)
+        return (resolved.executableURL, process.arguments, resolved.environment)
     }
 
     /// Waits for a shared start. A cancelled caller stops waiting at once,
@@ -801,5 +913,25 @@ final class MacPluginBackendSessions: PluginBackendRequesting, PluginBackendActi
             continuation?.resume(with: result)
             continuation = nil
         }
+    }
+}
+
+/// What the plugin run service needs from the backends: the installed package a run belongs
+/// to, and the one-way notice that a run ended.
+extension MacPluginBackendSessions: PluginRunBackendLink {
+    func manifest(ofPlugin pluginID: String) -> Data? {
+        packages[pluginID]?.manifest
+    }
+
+    func packageURL(ofPlugin pluginID: String) -> URL? {
+        packages[pluginID]?.packageURL
+    }
+
+    /// Only the session that saw the run begin hears that it ended: a backend that started
+    /// again since knows nothing of the run, and one without the `run.start` grant never asked.
+    func notifyRunDidExit(pluginID: String, sessionID: String, params: ToolingJSONValue) {
+        guard let entry = running[pluginID], entry.hostSessionID == sessionID,
+              entry.hostServices.contains("lithe/host/run/start") else { return }
+        notify(pluginID: pluginID, method: "lithe/host/run/didExit", params: params)
     }
 }

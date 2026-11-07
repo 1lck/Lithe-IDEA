@@ -12,6 +12,7 @@
 //! The rules live in the plugin contract
 //! (`shared/contracts/plugins/v1/README.md`, "Plugin functions").
 
+use crate::plugins::language_server_sessions::{self, is_protocol_name};
 use crate::protocol::{CoreError, ErrorCode};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -25,12 +26,17 @@ const EXPERIMENTAL_KEY: &str = "litheFunctions";
 /// Version 3 keeps version 2 and adds `lithe/host/getCapabilities`,
 /// subscription disposal, workspace contexts, a workspace context on
 /// invocations, and typed host failure codes.
-const SUPPORTED_VERSIONS: [u64; 3] = [1, 2, 3];
+/// Version 4 keeps version 3 and adds the cross-plugin function relay
+/// (`lithe/host/functions/*`) and the Core-written `caller` of an invocation.
+const SUPPORTED_VERSIONS: [u64; 4] = [1, 2, 3, 4];
 /// First protocol version that offers host services.
 const HOST_SERVICES_VERSION: u64 = 2;
 /// First protocol version whose invocations may carry a workspace context
 /// and whose host offers capability discovery and workspace contexts.
 pub(crate) const CONTEXT_VERSION: u64 = 3;
+/// First protocol version whose backend may call the functions other plugins
+/// export, and whose invocations carry the Core-written `caller`.
+pub(crate) const RELAY_VERSION: u64 = 4;
 
 /// Feature name recorded in the session's server capabilities once a backend
 /// answered a supported version with a valid function list.
@@ -70,10 +76,18 @@ const HOST_SERVICE_HOST: &str = "host";
 /// of version 3 has it, because only the session that holds a subscription
 /// can name it.
 const HOST_SERVICE_SUBSCRIPTIONS: &str = "subscriptions";
+/// Calls into the functions other plugins export. The grant comes from the
+/// manifest's `requires.pluginFunctions.calls`, not from a permission: the
+/// caller's declaration plus the provider's `exports` is the consent, and
+/// Core's relay checks both on every call.
+pub(crate) const HOST_SERVICE_FUNCTIONS: &str = "functions";
 /// Legacy aggregate grants. New methods are granted individually so adding a
 /// method to `workspace` or `editor` never widens an existing permission.
-pub(crate) const GRANTABLE_HOST_SERVICES: &[&str] =
-    &[HOST_SERVICE_CREDENTIALS, HOST_SERVICE_WORKSPACE];
+pub(crate) const GRANTABLE_HOST_SERVICES: &[&str] = &[
+    HOST_SERVICE_CREDENTIALS,
+    HOST_SERVICE_WORKSPACE,
+    HOST_SERVICE_FUNCTIONS,
+];
 
 /// Whether a launch grant names an implemented legacy service or host method.
 pub(crate) fn is_host_grant(grant: &str) -> bool {
@@ -101,22 +115,39 @@ pub(crate) const HOST_PERMISSIONS: &[&str] = &[
     "documents.read",
     "editor.edit",
     "editor.actions",
+    "editor.providers",
     "editor.open",
     "preview.open",
     "browser.open",
     "window.messages",
     "terminal.create",
     "keymaps.readSelectedSources",
+    "run.start",
+    "debug.start",
+    PERMISSION_LANGUAGE_SERVER_REQUEST,
+    PERMISSION_DOCUMENTS_CONTENT_PROVIDER,
 ];
+
+/// Permission of the `languageServer` host service (plan API-25): a backend
+/// may send requests and notifications to, and report the status of, the
+/// language servers its own plugin declares.
+pub(crate) const PERMISSION_LANGUAGE_SERVER_REQUEST: &str = "languageServer.request";
+/// Permission of `documents/registerContentProvider` (plan API-12): the
+/// backend supplies the read-only text of URIs of a scheme it registers.
+pub(crate) const PERMISSION_DOCUMENTS_CONTENT_PROVIDER: &str = "documents.contentProvider";
 
 const CREDENTIALS_GET: &str = "lithe/host/credentials/get";
 const CREDENTIALS_SET: &str = "lithe/host/credentials/set";
 const CREDENTIALS_DELETE: &str = "lithe/host/credentials/delete";
-const GET_CAPABILITIES: &str = "lithe/host/getCapabilities";
+pub(crate) const GET_CAPABILITIES: &str = "lithe/host/getCapabilities";
 const SUBSCRIPTIONS_DISPOSE: &str = "lithe/host/subscriptions/dispose";
 const WORKSPACE_LIST_CONTEXTS: &str = "lithe/host/workspace/listContexts";
 const WORKSPACE_GET_CONTEXT: &str = "lithe/host/workspace/getContext";
 const WORKSPACE_GET_FOLDERS: &str = "lithe/host/workspace/getFolders";
+/// Backend request listing the plugins that export a function it may call.
+pub(crate) const FUNCTIONS_PROVIDERS: &str = "lithe/host/functions/providers";
+/// Backend request calling a function another plugin exports.
+pub(crate) const FUNCTIONS_INVOKE: &str = "lithe/host/functions/invoke";
 const MAX_CREDENTIAL_KEY_BYTES: usize = 128;
 /// Bound of one stored secret, in UTF-8 bytes; enough for a password, a
 /// token, or a private key, not for documents.
@@ -201,9 +232,52 @@ pub(crate) mod codes {
     /// The plugin made too many requests of this kind recently; the same
     /// request may succeed after a while.
     pub const HOST_RATE_LIMITED: &str = "plugin.host.rateLimited";
+    /// A tool definition the request references resolves to no executable
+    /// for this workspace; `details` carries `{tool, reason}`.
+    pub const HOST_TOOL_UNRESOLVED: &str = "plugin.host.toolUnresolved";
+    /// The language server a `languageServer` request names is not running
+    /// in the context: it is starting, stopped, crashed, or not started.
+    pub const HOST_LANGUAGE_SERVER_UNAVAILABLE: &str = "plugin.host.languageServerUnavailable";
+    /// The language server answered a forwarded request with an error; the
+    /// failure's `details` carry the server's `code` and `message`.
+    pub const HOST_LANGUAGE_SERVER_ERROR: &str = "plugin.host.languageServerError";
+    /// The method or command is not in the language server's declared
+    /// `requestMethods`, `commands`, or allowed notifications.
+    pub const HOST_METHOD_NOT_DECLARED: &str = "plugin.host.methodNotDeclared";
+    /// The request names a contribution, such as a language server, that
+    /// another plugin owns.
+    pub const HOST_FOREIGN_CONTRIBUTION: &str = "plugin.host.foreignContribution";
     /// A page's call or a host operation ended because the backend process
     /// exited. Reported by hosts to pages, never sent to a backend.
     pub const BACKEND_EXITED: &str = "plugin.backend.exited";
+
+    // Cross-plugin relay (`lithe/host/functions/*`, protocol version 4). Each
+    // refusal has its own code and number, so a caller can branch on either.
+
+    /// The caller's manifest does not declare a call to this function.
+    pub const NOT_DECLARED: &str = "plugin.function.notDeclared";
+    /// The plugin that should provide the function does not export it, or
+    /// has not registered it with its running backend.
+    pub const NOT_EXPORTED: &str = "plugin.function.notExported";
+    /// The providing plugin is not installed or not enabled, or was disabled
+    /// or removed while the call was running.
+    pub const PROVIDER_DISABLED: &str = "plugin.function.providerDisabled";
+    /// The caller declared another contract version than the provider exports.
+    pub const VERSION_MISMATCH: &str = "plugin.function.versionMismatch";
+    /// The provider is already on the call chain, so the call would come
+    /// back to a plugin that is waiting for it (including a plugin calling
+    /// itself).
+    pub const CALL_CYCLE: &str = "plugin.function.callCycle";
+    /// The call chain is longer than the depth limit.
+    pub const DEPTH_EXCEEDED: &str = "plugin.function.depthExceeded";
+    /// The calling plugin already has the most relayed calls it may have
+    /// running at once.
+    pub const TOO_MANY_CALLS: &str = "plugin.function.tooManyCalls";
+    /// The relayed params or result exceed the relay's byte limit.
+    pub const PAYLOAD_TOO_LARGE: &str = "plugin.function.payloadTooLarge";
+    /// The provider's backend could not serve the call: it did not start in
+    /// time, exited, or withdrew the function while the call ran.
+    pub const PROVIDER_UNAVAILABLE: &str = "plugin.function.providerUnavailable";
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -463,6 +537,10 @@ pub(crate) enum HostRoute {
     Forward(&'static str),
     /// Answered by Core with this result; the host never sees the request.
     Answer(Value),
+    /// Another plugin's function: Core's relay checks, dispatches, and
+    /// answers it. The host sees only the start request for a provider whose
+    /// backend is not running.
+    Relay,
 }
 
 /// How Core checks the params of one host method before the host sees them.
@@ -478,6 +556,21 @@ pub(crate) enum HostParams {
     Context,
     /// Snapshot source listing or one bounded chunk from a selected source.
     KeymapSnapshot { chunk: bool },
+    /// `{ context, serverID, method, params?, timeoutMilliseconds? }`: one
+    /// request to the plugin's own language server (plan API-25).
+    LanguageServerRequest,
+    /// `{ context, serverID, method, params? }`: one notification to it.
+    LanguageServerNotify,
+    /// `{ context, serverID, state, message?, percentage? }`: the plugin's
+    /// preparation status of the server.
+    LanguageServerStatus,
+    /// `{ context, scheme, function }`: the function that supplies the text
+    /// of a URI scheme (plan API-12).
+    ContentProvider,
+    /// Exactly `{ functionID }`, a well-formed function ID.
+    FunctionProviders,
+    /// `{ pluginID, functionID, context, params?, timeoutMilliseconds? }`.
+    FunctionInvoke,
     /// Any object whose `context`, when present, is a well-formed
     /// reference. The service checks the rest and answers
     /// `plugin.host.invalidParams` or, for a field it does not know,
@@ -506,6 +599,41 @@ pub(crate) struct HostMethod {
 /// service adds its rows here, its grant to `GRANTABLE_HOST_SERVICES` and
 /// the manifest permission, and its handler to the host's dispatcher.
 pub(crate) const HOST_METHODS: &[HostMethod] = &[
+    HostMethod {
+        method: RUN_START,
+        service: HOST_SERVICE_RUN,
+        permission: Some("run.start"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/run/stop",
+        service: HOST_SERVICE_RUN,
+        permission: Some("run.start"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: "lithe/host/debug/start",
+        service: "debug",
+        permission: Some("debug.start"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
+        method: FUNCTIONS_PROVIDERS,
+        service: HOST_SERVICE_FUNCTIONS,
+        permission: None,
+        since: RELAY_VERSION,
+        params: HostParams::FunctionProviders,
+    },
+    HostMethod {
+        method: FUNCTIONS_INVOKE,
+        service: HOST_SERVICE_FUNCTIONS,
+        permission: None,
+        since: RELAY_VERSION,
+        params: HostParams::FunctionInvoke,
+    },
     HostMethod {
         method: "lithe/host/keymapImport/listInputs",
         service: "keymapImport",
@@ -682,6 +810,13 @@ pub(crate) const HOST_METHODS: &[HostMethod] = &[
         params: HostParams::Object,
     },
     HostMethod {
+        method: "lithe/host/editor/registerProviders",
+        service: "editor",
+        permission: Some("editor.providers"),
+        since: CONTEXT_VERSION,
+        params: HostParams::Object,
+    },
+    HostMethod {
         method: "lithe/host/editor/getActive",
         service: "editor",
         permission: Some("documents.read"),
@@ -765,7 +900,56 @@ pub(crate) const HOST_METHODS: &[HostMethod] = &[
         since: CONTEXT_VERSION,
         params: HostParams::Object,
     },
+    // Plan API-25: the plugin's own language servers. The host resolves
+    // `{ context, serverID }` to the session and Core's
+    // `lsp.pluginServerRequest` enforces the declared session policy.
+    HostMethod {
+        method: LANGUAGE_SERVER_REQUEST,
+        service: HOST_SERVICE_LANGUAGE_SERVER,
+        permission: Some(PERMISSION_LANGUAGE_SERVER_REQUEST),
+        since: CONTEXT_VERSION,
+        params: HostParams::LanguageServerRequest,
+    },
+    HostMethod {
+        method: LANGUAGE_SERVER_NOTIFY,
+        service: HOST_SERVICE_LANGUAGE_SERVER,
+        permission: Some(PERMISSION_LANGUAGE_SERVER_REQUEST),
+        since: CONTEXT_VERSION,
+        params: HostParams::LanguageServerNotify,
+    },
+    HostMethod {
+        method: LANGUAGE_SERVER_SET_STATUS,
+        service: HOST_SERVICE_LANGUAGE_SERVER,
+        permission: Some(PERMISSION_LANGUAGE_SERVER_REQUEST),
+        since: CONTEXT_VERSION,
+        params: HostParams::LanguageServerStatus,
+    },
+    // Plan API-12: read-only text of a URI scheme the backend serves.
+    HostMethod {
+        method: DOCUMENTS_REGISTER_CONTENT_PROVIDER,
+        service: "documents",
+        permission: Some(PERMISSION_DOCUMENTS_CONTENT_PROVIDER),
+        since: CONTEXT_VERSION,
+        params: HostParams::ContentProvider,
+    },
 ];
+
+/// Host service of the plugin's own language servers (plan API-25).
+pub(crate) const HOST_SERVICE_LANGUAGE_SERVER: &str = "languageServer";
+/// Forwards one declared request to the plugin's language server.
+pub(crate) const LANGUAGE_SERVER_REQUEST: &str = "lithe/host/languageServer/request";
+/// Forwards one notification to the plugin's language server.
+pub(crate) const LANGUAGE_SERVER_NOTIFY: &str = "lithe/host/languageServer/notify";
+/// Reports the plugin's preparation state of a language server to the user.
+pub(crate) const LANGUAGE_SERVER_SET_STATUS: &str = "lithe/host/languageServer/setStatus";
+/// Registers a backend function as the content provider of a URI scheme.
+pub(crate) const DOCUMENTS_REGISTER_CONTENT_PROVIDER: &str =
+    "lithe/host/documents/registerContentProvider";
+/// Lifecycle of a language server the plugin declares.
+const LANGUAGE_SERVER_DID_CHANGE_STATE: &str = "lithe/host/languageServer/didChangeState";
+/// A server notification the language server's `forwardNotifications` lists.
+const LANGUAGE_SERVER_DID_RECEIVE_NOTIFICATION: &str =
+    "lithe/host/languageServer/didReceiveNotification";
 
 /// Services every plugin-owned session of their version has without a
 /// permission: they reveal nothing beyond the session's own grants.
@@ -833,7 +1017,25 @@ pub(crate) fn host_request(
     if entry.method == GET_CAPABILITIES {
         return Ok(HostRoute::Answer(capabilities_answer(version, granted)));
     }
+    if entry.service == HOST_SERVICE_FUNCTIONS {
+        return Ok(HostRoute::Relay);
+    }
     Ok(HostRoute::Forward(entry.service))
+}
+
+/// The params the host receives for an accepted request: the backend's own,
+/// except that a status message is cut to the bound a progress message has,
+/// so a hostile backend cannot inflate every event that carries it.
+pub(crate) fn forwarded_host_params(method: &str, params: Option<&Value>) -> Value {
+    let mut forwarded = params.cloned().unwrap_or(Value::Null);
+    if method == LANGUAGE_SERVER_SET_STATUS {
+        if let Some(message) = forwarded.get_mut("message") {
+            if let Some(text) = message.as_str() {
+                *message = Value::String(bounded_message(text));
+            }
+        }
+    }
+    forwarded
 }
 
 /// The answer to `lithe/host/getCapabilities`: the negotiated version, the
@@ -866,7 +1068,7 @@ pub(crate) fn capabilities_answer(version: u64, granted: &BTreeSet<String>) -> V
     }
     for entry in HOST_NOTIFICATIONS
         .iter()
-        .filter(|entry| version >= entry.since && admitted(entry.service))
+        .filter(|entry| version >= entry.since && entry.admitted(granted))
     {
         add(entry.service, "notifications", entry.method);
     }
@@ -900,6 +1102,15 @@ pub(crate) enum NotificationParams {
     /// `{ commandID, context? }`: one of the plugin's own commands and the
     /// workspace context of the window it ran in.
     Command,
+    /// `{ runID, exitCode?, signal? }`: a Run session the backend started
+    /// ended with an exit status, a signal, or neither when the host lost it.
+    RunExit,
+    /// `{ context, serverID, state, generation }`: a lifecycle change of one
+    /// of the plugin's language servers.
+    LanguageServerState,
+    /// `{ context, serverID, generation, method, params? | truncated }`: a
+    /// forwarded server notification, without params when too large.
+    LanguageServerNotification,
 }
 
 /// One row of the host-notification table.
@@ -907,13 +1118,33 @@ pub(crate) struct HostNotification {
     pub method: &'static str,
     /// Service whose grant admits sending it; implicit services need none.
     pub service: &'static str,
+    /// Host method whose individual grant admits it instead of `service`,
+    /// for a notification that reports on a method granted per permission.
+    pub grant: Option<&'static str>,
     pub since: u64,
     pub params: NotificationParams,
+}
+
+impl HostNotification {
+    /// Whether the session's grants admit sending this notification.
+    fn admitted(&self, granted: &BTreeSet<String>) -> bool {
+        match self.grant {
+            Some(method) => granted.contains(method),
+            None => is_implicit_service(self.service) || holds_service(self.service, granted),
+        }
+    }
 }
 
 const WORKSPACE_DID_CHANGE_CONTEXTS: &str = "lithe/host/workspace/didChangeContexts";
 const SUBSCRIPTIONS_NOTIFY: &str = "lithe/host/subscriptions/notify";
 const COMMANDS_DID_RUN: &str = "lithe/host/commands/didRun";
+/// Starts a host-owned Run session; its grant also admits `RUN_DID_EXIT`.
+const RUN_START: &str = "lithe/host/run/start";
+const RUN_DID_EXIT: &str = "lithe/host/run/didExit";
+/// Host-owned Run sessions a backend starts and stops.
+const HOST_SERVICE_RUN: &str = "run";
+/// Longest opaque run ID a host may hand out.
+const MAX_RUN_ID_BYTES: usize = 128;
 /// The plugin's own UI commands reaching its backend. Every plugin-owned
 /// session of version 3 has it; a command names only the plugin's own IDs.
 const HOST_SERVICE_COMMANDS: &str = "commands";
@@ -926,22 +1157,60 @@ pub(crate) const HOST_NOTIFICATIONS: &[HostNotification] = &[
     HostNotification {
         method: WORKSPACE_DID_CHANGE_CONTEXTS,
         service: HOST_SERVICE_WORKSPACE,
+        grant: None,
         since: CONTEXT_VERSION,
         params: NotificationParams::Revision,
     },
     HostNotification {
         method: SUBSCRIPTIONS_NOTIFY,
         service: HOST_SERVICE_SUBSCRIPTIONS,
+        grant: None,
         since: CONTEXT_VERSION,
         params: NotificationParams::SubscriptionEvent,
     },
     HostNotification {
         method: COMMANDS_DID_RUN,
         service: HOST_SERVICE_COMMANDS,
+        grant: None,
         since: CONTEXT_VERSION,
         params: NotificationParams::Command,
     },
+    HostNotification {
+        method: RUN_DID_EXIT,
+        service: HOST_SERVICE_RUN,
+        grant: Some(RUN_START),
+        since: CONTEXT_VERSION,
+        params: NotificationParams::RunExit,
+    },
+    HostNotification {
+        method: LANGUAGE_SERVER_DID_CHANGE_STATE,
+        service: HOST_SERVICE_LANGUAGE_SERVER,
+        grant: None,
+        since: CONTEXT_VERSION,
+        params: NotificationParams::LanguageServerState,
+    },
+    HostNotification {
+        method: LANGUAGE_SERVER_DID_RECEIVE_NOTIFICATION,
+        service: HOST_SERVICE_LANGUAGE_SERVER,
+        grant: None,
+        since: CONTEXT_VERSION,
+        params: NotificationParams::LanguageServerNotification,
+    },
 ];
+
+/// Whether the session holds a service: its aggregate grant, or, for a
+/// service granted per method, any of its methods.
+fn holds_service(service: &str, granted: &BTreeSet<String>) -> bool {
+    granted.contains(service)
+        || HOST_METHODS.iter().any(|entry| {
+            entry.service == service && entry.permission.is_some() && granted.contains(entry.method)
+        })
+}
+
+/// A language server state a `didChangeState` notification may carry.
+fn is_language_server_state(value: &str) -> bool {
+    matches!(value, "starting" | "running" | "stopped" | "crashed")
+}
 
 /// Whether a host notification reaches this session. `Ok(false)` means the
 /// backend negotiated a version without it, so the host may skip it; a
@@ -970,7 +1239,7 @@ pub(crate) fn host_notification(
             codes::HOST_UNAVAILABLE,
         ));
     };
-    if !is_implicit_service(entry.service) && !granted.contains(entry.service) {
+    if !entry.admitted(granted) {
         return Err(refusal(
             ErrorCode::InvalidRequest,
             "The session was not granted the service of this notification.",
@@ -1010,6 +1279,61 @@ pub(crate) fn host_notification(
                     .and_then(Value::as_str)
                     .is_some_and(is_command_id)
                 && object.get("context").map_or(true, is_context_reference)
+        }
+        NotificationParams::RunExit => {
+            only(&["runID", "exitCode", "signal"])
+                && object
+                    .get("runID")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| id.len() <= MAX_RUN_ID_BYTES && is_credential_key(id))
+                && object.get("exitCode").map_or(true, |code| {
+                    code.as_i64()
+                        .is_some_and(|code| i32::try_from(code).is_ok())
+                })
+                && object.get("signal").map_or(true, |signal| {
+                    signal
+                        .as_u64()
+                        .is_some_and(|signal| (1..=127).contains(&signal))
+                })
+        }
+        NotificationParams::LanguageServerState => {
+            only(&["context", "serverID", "state", "generation"])
+                && object.get("context").is_some_and(is_context_reference)
+                && object
+                    .get("serverID")
+                    .and_then(Value::as_str)
+                    .is_some_and(is_protocol_name)
+                && object
+                    .get("state")
+                    .and_then(Value::as_str)
+                    .is_some_and(is_language_server_state)
+                && positive("generation")
+        }
+        NotificationParams::LanguageServerNotification => {
+            let truncated = object.get("truncated");
+            only(&[
+                "context",
+                "serverID",
+                "generation",
+                "method",
+                "params",
+                "truncated",
+            ]) && object.get("context").is_some_and(is_context_reference)
+                && object
+                    .get("serverID")
+                    .and_then(Value::as_str)
+                    .is_some_and(is_protocol_name)
+                && object
+                    .get("method")
+                    .and_then(Value::as_str)
+                    .is_some_and(is_protocol_name)
+                && positive("generation")
+                // A truncated notification drops its params entirely.
+                && match truncated {
+                    None => true,
+                    Some(Value::Bool(true)) => !object.contains_key("params"),
+                    Some(_) => false,
+                }
         }
     };
     if !well_formed {
@@ -1054,6 +1378,15 @@ fn check_host_params(
         HostParams::Credential { with_secret: false } => &["key"],
         HostParams::Subscription => &["subscriptionID"],
         HostParams::Context => &["context"],
+        HostParams::FunctionProviders => &["functionID"],
+        HostParams::FunctionInvoke => &[
+            "pluginID",
+            "functionID",
+            "context",
+            "params",
+            "timeoutMilliseconds",
+            "parentOperationID",
+        ],
         HostParams::KeymapSnapshot { chunk: false } => &["snapshotID", "providerID"],
         HostParams::KeymapSnapshot { chunk: true } => &[
             "snapshotID",
@@ -1062,6 +1395,18 @@ fn check_host_params(
             "offset",
             "maximumBytes",
         ],
+        HostParams::LanguageServerRequest => &[
+            "context",
+            "serverID",
+            "method",
+            "params",
+            "timeoutMilliseconds",
+        ],
+        HostParams::LanguageServerNotify => &["context", "serverID", "method", "params"],
+        HostParams::LanguageServerStatus => {
+            &["context", "serverID", "state", "message", "percentage"]
+        }
+        HostParams::ContentProvider => &["context", "scheme", "function"],
         HostParams::Object => {
             return match params.get("context") {
                 Some(context) if !is_context_reference(context) => {
@@ -1119,6 +1464,16 @@ fn check_host_params(
                 return Err(invalid(CONTEXT_REFERENCE_MESSAGE));
             }
         }
+        HostParams::FunctionProviders => {
+            if !params
+                .get("functionID")
+                .and_then(Value::as_str)
+                .is_some_and(is_function_id)
+            {
+                return Err(invalid(FUNCTION_ID_MESSAGE));
+            }
+        }
+        HostParams::FunctionInvoke => check_function_invoke_params(params)?,
         HostParams::KeymapSnapshot { chunk } => {
             let opaque_id = |key: &str| {
                 params.get(key).and_then(Value::as_str).is_some_and(|id| {
@@ -1155,9 +1510,196 @@ fn check_host_params(
                 ));
             }
         }
+        HostParams::LanguageServerRequest
+        | HostParams::LanguageServerNotify
+        | HostParams::LanguageServerStatus => {
+            check_language_server_params(rule, params, &invalid)?;
+        }
+        HostParams::ContentProvider => {
+            if !params.get("context").is_some_and(is_context_reference) {
+                return Err(invalid(CONTEXT_REFERENCE_MESSAGE));
+            }
+            let scheme = params.get("scheme").and_then(Value::as_str);
+            if !scheme.is_some_and(is_content_scheme) {
+                return Err(invalid(
+                    "A content scheme is 1-64 lowercase ASCII letters, digits, '+', '-' or '.', starts with a letter, and is not a scheme the host owns.",
+                ));
+            }
+            if !params
+                .get("function")
+                .and_then(Value::as_str)
+                .is_some_and(is_function_id)
+            {
+                return Err(invalid(
+                    "The content function must be a plugin function ID.",
+                ));
+            }
+        }
         HostParams::Empty | HostParams::Object => {}
     }
     Ok(())
+}
+
+/// Checks the params the `languageServer` host methods share: the context,
+/// the server, the method, and each method's own fields. Whether the server
+/// belongs to the plugin and the method is declared is the engine's answer,
+/// since only it holds the session policy.
+fn check_language_server_params(
+    rule: HostParams,
+    params: &serde_json::Map<String, Value>,
+    invalid: &dyn Fn(&'static str) -> HostRequestRefusal,
+) -> Result<(), HostRequestRefusal> {
+    if !params.get("context").is_some_and(is_context_reference) {
+        return Err(invalid(CONTEXT_REFERENCE_MESSAGE));
+    }
+    if !params
+        .get("serverID")
+        .and_then(Value::as_str)
+        .is_some_and(is_protocol_name)
+    {
+        return Err(invalid(
+            "serverID must name one of the plugin's language servers.",
+        ));
+    }
+    if rule == HostParams::LanguageServerStatus {
+        if !params
+            .get("state")
+            .and_then(Value::as_str)
+            .is_some_and(is_status_state)
+        {
+            return Err(invalid(
+                "state is one of preparing, ready, degraded, or failed.",
+            ));
+        }
+        if params
+            .get("message")
+            .is_some_and(|message| !message.is_string())
+        {
+            return Err(invalid("message must be a string."));
+        }
+        if params
+            .get("percentage")
+            .is_some_and(|value| !value.as_u64().is_some_and(|percentage| percentage <= 100))
+        {
+            return Err(invalid("percentage is a whole number from 0 to 100."));
+        }
+        return Ok(());
+    }
+    if !params
+        .get("method")
+        .and_then(Value::as_str)
+        .is_some_and(is_protocol_name)
+    {
+        return Err(invalid("method must be a non-empty LSP method name."));
+    }
+    if rule == HostParams::LanguageServerRequest
+        && params.get("timeoutMilliseconds").is_some_and(|value| {
+            !value.as_u64().is_some_and(|milliseconds| {
+                (1..=language_server_sessions::MAX_REQUEST_TIMEOUT_MILLISECONDS)
+                    .contains(&milliseconds)
+            })
+        })
+    {
+        return Err(invalid(
+            "timeoutMilliseconds is a whole number from 1 to 300000.",
+        ));
+    }
+    Ok(())
+}
+
+const FUNCTION_ID_MESSAGE: &str =
+    "A function ID is dot-separated lowerCamelCase segments of at most 128 bytes.";
+
+/// The shape of a `lithe/host/functions/invoke` request. Whether the caller
+/// declared the call and the provider exports it is the relay's check, which
+/// needs the plugin snapshot.
+fn check_function_invoke_params(
+    params: &serde_json::Map<String, Value>,
+) -> Result<(), HostRequestRefusal> {
+    let invalid = |message| HostRequestRefusal {
+        rpc_code: -32602,
+        code: codes::HOST_INVALID_PARAMS,
+        message,
+        details: None,
+    };
+    if !params
+        .get("pluginID")
+        .and_then(Value::as_str)
+        .is_some_and(is_plugin_id)
+    {
+        return Err(invalid(
+            "A plugin ID is lowercase letters, digits, '.' and '-'.",
+        ));
+    }
+    if !params
+        .get("functionID")
+        .and_then(Value::as_str)
+        .is_some_and(is_function_id)
+    {
+        return Err(invalid(FUNCTION_ID_MESSAGE));
+    }
+    if !params.get("context").is_some_and(is_context_reference) {
+        return Err(invalid(CONTEXT_REFERENCE_MESSAGE));
+    }
+    if params.get("params").is_some_and(|value| !value.is_object()) {
+        return Err(invalid("Function params must be a JSON object."));
+    }
+    if params
+        .get("timeoutMilliseconds")
+        .is_some_and(|value| !value.as_u64().is_some_and(|milliseconds| milliseconds >= 1))
+    {
+        return Err(invalid("A timeout is a positive number of milliseconds."));
+    }
+    // Only the shape is checked here. Whether the ID names a call this backend
+    // is serving needs the session's pending requests, so the relay decides.
+    if params.get("parentOperationID").is_some_and(|value| {
+        !value
+            .as_str()
+            .is_some_and(|id| (1..=128).contains(&id.len()))
+    }) {
+        return Err(invalid(
+            "A parent operation ID is the operationID of a call this backend is serving, 1-128 bytes.",
+        ));
+    }
+    Ok(())
+}
+
+/// A preparation state a plugin may report for its language server.
+fn is_status_state(value: &str) -> bool {
+    matches!(value, "preparing" | "ready" | "degraded" | "failed")
+}
+
+/// Schemes the host or the platform resolves itself. A plugin that served
+/// one would replace what the user expects the URI to open.
+const RESERVED_CONTENT_SCHEMES: &[&str] = &[
+    "about",
+    "blob",
+    "data",
+    "file",
+    "ftp",
+    "http",
+    "https",
+    "javascript",
+    "lithe",
+    "mailto",
+    "untitled",
+    "ws",
+    "wss",
+];
+
+/// A URI scheme a plugin may serve (RFC 3986, lowercase, bounded).
+fn is_content_scheme(value: &str) -> bool {
+    let mut characters = value.chars();
+    characters
+        .next()
+        .is_some_and(|first| first.is_ascii_lowercase())
+        && value.len() <= 64
+        && characters.all(|character| {
+            character.is_ascii_lowercase()
+                || character.is_ascii_digit()
+                || matches!(character, '+' | '-' | '.')
+        })
+        && !RESERVED_CONTENT_SCHEMES.contains(&value)
 }
 
 const CONTEXT_REFERENCE_MESSAGE: &str =
@@ -1208,6 +1750,26 @@ pub(crate) fn attach_context(
     Ok(())
 }
 
+/// Writes the calling plugin into the params of a relayed
+/// `lithe/function/invoke` as `caller: { "pluginID": ... }`, a sibling of
+/// `functionID`, `operationID`, `params` and `context`. Only Core writes it,
+/// from the identity of the session that made the request, so a callee can
+/// key state by caller without trusting anything in the params. A callee that
+/// negotiated a version before the relay never receives it, and a call the
+/// host itself starts (`caller` is `None`) never carries one: its absence
+/// means the host.
+pub(crate) fn attach_caller(invoke_params: &mut Value, version: u64, caller: Option<&str>) {
+    let Some(caller) = caller else {
+        return;
+    };
+    if version < RELAY_VERSION {
+        return;
+    }
+    if let Some(params) = invoke_params.as_object_mut() {
+        params.insert("caller".to_string(), json!({ "pluginID": caller }));
+    }
+}
+
 /// The JSON-RPC error code of a host-service code from version 3 on. Each
 /// code has its own number, so a backend can branch on the number alone:
 /// codes with a standard meaning keep the JSON-RPC or LSP number, and the
@@ -1231,6 +1793,24 @@ pub(crate) fn host_rpc_code(code: &str) -> i64 {
         codes::HOST_PRECONDITION_FAILED => -32019,
         codes::HOST_BUSY => -32020,
         codes::HOST_RATE_LIMITED => -32021,
+        codes::HOST_LANGUAGE_SERVER_UNAVAILABLE => -32022,
+        codes::HOST_LANGUAGE_SERVER_ERROR => -32023,
+        codes::HOST_METHOD_NOT_DECLARED => -32024,
+        codes::HOST_TOOL_UNRESOLVED => -32025,
+        codes::HOST_FOREIGN_CONTRIBUTION => -32026,
+        codes::NOT_DECLARED => -32027,
+        codes::NOT_EXPORTED => -32028,
+        codes::PROVIDER_DISABLED => -32029,
+        codes::VERSION_MISMATCH => -32030,
+        codes::CALL_CYCLE => -32065,
+        codes::DEPTH_EXCEEDED => -32066,
+        codes::TOO_MANY_CALLS => -32067,
+        codes::PAYLOAD_TOO_LARGE => -32068,
+        codes::PROVIDER_UNAVAILABLE => -32069,
+        // A relayed call's own failure is not a host failure: the caller
+        // must tell the provider's error from Core's by the number alone.
+        codes::FAILED => -32070,
+        codes::INVALID_RESULT => -32071,
         _ => -32603,
     }
 }
@@ -1270,6 +1850,11 @@ pub(crate) fn host_failure(code: Option<&str>) -> (&'static str, i64) {
         Some(codes::HOST_PRECONDITION_FAILED) => codes::HOST_PRECONDITION_FAILED,
         Some(codes::HOST_BUSY) => codes::HOST_BUSY,
         Some(codes::HOST_RATE_LIMITED) => codes::HOST_RATE_LIMITED,
+        Some(codes::HOST_LANGUAGE_SERVER_UNAVAILABLE) => codes::HOST_LANGUAGE_SERVER_UNAVAILABLE,
+        Some(codes::HOST_LANGUAGE_SERVER_ERROR) => codes::HOST_LANGUAGE_SERVER_ERROR,
+        Some(codes::HOST_METHOD_NOT_DECLARED) => codes::HOST_METHOD_NOT_DECLARED,
+        Some(codes::HOST_TOOL_UNRESOLVED) => codes::HOST_TOOL_UNRESOLVED,
+        Some(codes::HOST_FOREIGN_CONTRIBUTION) => codes::HOST_FOREIGN_CONTRIBUTION,
         // A backend exit is reported to pages, never to the backend itself.
         _ => codes::HOST_FAILED,
     };
@@ -1334,7 +1919,7 @@ pub(crate) fn is_function_id(value: &str) -> bool {
 }
 
 /// The manifest's plugin ID alphabet: lowercase letters, digits, `.` and `-`.
-fn is_plugin_id(value: &str) -> bool {
+pub(crate) fn is_plugin_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_PLUGIN_ID_BYTES
         && value.chars().all(|character| {
@@ -1574,6 +2159,10 @@ mod tests {
                 &granted,
             );
             let expected = &case["expected"];
+            if expected["relay"].as_bool() == Some(true) {
+                assert_eq!(outcome, Ok(HostRoute::Relay), "{}", name(&case));
+                continue;
+            }
             if let Some(service) = expected["forward"].as_str() {
                 assert_eq!(
                     outcome,
@@ -1636,6 +2225,63 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn invocation_callers_follow_the_fixture() {
+        for case in cases("invocationCallers") {
+            let mut params = case["params"].clone();
+            attach_caller(
+                &mut params,
+                case["version"].as_u64().unwrap(),
+                case["caller"].as_str(),
+            );
+            assert_eq!(params, case["expected"]["params"], "{}", name(&case));
+        }
+    }
+
+    #[test]
+    fn relay_errors_follow_the_fixture() {
+        for case in cases("relayErrors") {
+            let code = case["code"].as_str().unwrap();
+            assert_eq!(host_rpc_code(code), case["rpcCode"], "{}", name(&case));
+        }
+    }
+
+    /// Every failure a relayed call can end with has its own number, so a
+    /// caller can branch on either the string or the number.
+    #[test]
+    fn relay_refusals_have_distinct_numbers() {
+        let relay_codes = [
+            codes::FAILED,
+            codes::INVALID_RESULT,
+            codes::NOT_DECLARED,
+            codes::NOT_EXPORTED,
+            codes::PROVIDER_DISABLED,
+            codes::VERSION_MISMATCH,
+            codes::CALL_CYCLE,
+            codes::DEPTH_EXCEEDED,
+            codes::TOO_MANY_CALLS,
+            codes::PAYLOAD_TOO_LARGE,
+            codes::PROVIDER_UNAVAILABLE,
+        ];
+        let numbers: BTreeSet<i64> = relay_codes.iter().map(|code| host_rpc_code(code)).collect();
+        assert_eq!(numbers.len(), relay_codes.len());
+        assert!(!numbers.contains(&-32603));
+    }
+
+    /// The relay's discovery and invocation requests are not the old
+    /// recursive call: the backend still cannot send `lithe/function/invoke`.
+    #[test]
+    fn relay_methods_do_not_weaken_the_recursive_call_refusal() {
+        assert_eq!(
+            refused_backend_request(INVOKE_METHOD),
+            Some(codes::RECURSIVE_CALL)
+        );
+        assert_eq!(
+            refused_backend_request("lithe/build/model"),
+            Some(codes::RECURSIVE_CALL)
+        );
     }
 
     #[test]
@@ -1804,6 +2450,65 @@ mod tests {
         let failure = invocation_outcome(&json!({ "result": result }))
             .expect_err("a result over the bound is refused");
         assert_eq!(failure.code, codes::INVALID_RESULT);
+    }
+
+    /// A status message is cut at the progress bound before it reaches the
+    /// host, at a character boundary; other methods pass untouched.
+    #[test]
+    fn forwarded_status_messages_are_bounded() {
+        let message = format!("{}é", "a".repeat(MAX_MESSAGE_BYTES - 1));
+        let params = json!({ "serverID": "metals", "state": "preparing", "message": message });
+        let forwarded = forwarded_host_params(LANGUAGE_SERVER_SET_STATUS, Some(&params));
+        assert_eq!(forwarded["message"], "a".repeat(MAX_MESSAGE_BYTES - 1));
+        assert_eq!(forwarded["state"], "preparing");
+        let request = json!({ "method": "x", "message": "m".repeat(MAX_MESSAGE_BYTES + 1) });
+        assert_eq!(
+            forwarded_host_params(LANGUAGE_SERVER_REQUEST, Some(&request)),
+            request
+        );
+        assert_eq!(
+            forwarded_host_params(LANGUAGE_SERVER_REQUEST, None),
+            Value::Null
+        );
+    }
+
+    /// A content scheme is a lowercase RFC 3986 scheme the host does not own.
+    #[test]
+    fn content_schemes_exclude_host_owned_ones() {
+        for accepted in ["metals-library", "rust-std", "a", "x1+y.z"] {
+            assert!(is_content_scheme(accepted), "{accepted}");
+        }
+        for refused in [
+            "", "File", "1abc", "-abc", "a b", "a_b", "file", "https", "data", "lithe", "untitled",
+        ] {
+            assert!(!is_content_scheme(refused), "{refused}");
+        }
+        assert!(is_content_scheme(&"a".repeat(64)));
+        assert!(!is_content_scheme(&"a".repeat(65)));
+    }
+
+    /// Only a session granted the language server methods lists them, and a
+    /// session without the grant still lists nothing of the service.
+    #[test]
+    fn capabilities_list_language_server_methods_only_when_granted() {
+        let services = |granted: &[&str]| {
+            let granted = granted.iter().map(|method| method.to_string()).collect();
+            capabilities_answer(3, &granted)["services"].clone()
+        };
+        assert!(services(&[]).get(HOST_SERVICE_LANGUAGE_SERVER).is_none());
+        let granted = services(&[LANGUAGE_SERVER_REQUEST, LANGUAGE_SERVER_SET_STATUS]);
+        let entry = &granted[HOST_SERVICE_LANGUAGE_SERVER];
+        assert_eq!(
+            entry["methods"],
+            json!([LANGUAGE_SERVER_REQUEST, LANGUAGE_SERVER_SET_STATUS])
+        );
+        assert_eq!(
+            entry["notifications"],
+            json!([
+                LANGUAGE_SERVER_DID_CHANGE_STATE,
+                LANGUAGE_SERVER_DID_RECEIVE_NOTIFICATION
+            ])
+        );
     }
 
     #[test]

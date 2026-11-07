@@ -77,7 +77,7 @@ struct ToolchainPreferencesTests {
         let local = root.appendingPathComponent(".lithe/run/local.json")
         try FileManager.default.createDirectory(at: local.deletingLastPathComponent(), withIntermediateDirectories: true)
         let original: [String: Any] = ["version": 2, "configurations": [], "future": ["keep": true],
-            "toolchain": ["java": ["homePath": "/fixture/legacy-jdk"], "future": "keep"]]
+            "toolchain": ["legacy-tool": ["homePath": "/fixture/legacy-sdk"], "future": "keep"]]
         try JSONSerialization.data(withJSONObject: original).write(to: local)
         try FileManager.default.setAttributes([.posixPermissions: 0o640], ofItemAtPath: local.path)
         let store = store()
@@ -202,24 +202,6 @@ struct ToolchainPreferencesTests {
         #expect(model.error != nil && model.draft?.path == "/fixture/retained-draft")
     }
 
-    @Test
-    func preferencesOnlyDocumentDoesNotSuppressLegacyDefaultMigration() async throws {
-        let root = try workspace()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let store = store()
-        let initial = try await store.load(workspace: root)
-        let saved = try await store.save(.object(["home": .string("/fixture/generic-sdk")]), at: address, expecting: initial)
-        let preferences = PreferenceMigrationValues()
-        preferences.set(try JSONEncoder().encode(ProjectRuntimeSettings(javaHomePath: "/fixture/old-jdk")),
-                        forKey: MacProjectRuntimeSettingsStore.preferencesKey(root))
-        let runtime = MacProjectRuntimeSettingsStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: preferences)
-        let migrated = try runtime.load(at: root, migrateLegacy: true)
-        #expect(migrated.settings.javaHomePath == "/fixture/old-jdk")
-        let after = try await store.load(workspace: root)
-        #expect(after.document == saved.document)
-        #expect(try store.inspect(address, snapshot: after).fixed == .installation(home: "/fixture/generic-sdk"))
-    }
-
     @Test(arguments: ["immutable", "parent-alias", "file-alias", "invalid"])
     func invalidOrReadOnlyTargetsRemainUnchanged(kind: String) async throws {
         let root = try workspace(), outside = try workspace()
@@ -330,13 +312,4 @@ private final class PreferenceEditorStore: ToolchainPreferencesStoring {
 private struct PreferenceSettingsSnapshotLoader: ToolchainSettingsLoading {
     let snapshot: ToolchainSettingsSnapshot
     func load(workspace: URL?) async throws -> ToolchainSettingsSnapshot { snapshot }
-}
-
-private final class PreferenceMigrationValues: KeyValueStore {
-    private var values: [String: Any] = [:]
-    func data(forKey key: String) -> Data? { values[key] as? Data }
-    func object(forKey key: String) -> Any? { values[key] }
-    func string(forKey key: String) -> String? { values[key] as? String }
-    func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
-    func set(_ value: Any?, forKey key: String) { values[key] = value }
 }

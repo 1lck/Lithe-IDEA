@@ -496,6 +496,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bstr"
+version = "1.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6bb31b46c14244e20ee9984b11bf5c992b91fb6939fea616e3512c8baecdbe5f"
+dependencies = [
+ "memchr",
+ "serde_core",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2894,6 +2904,7 @@ dependencies = [
  "chrono",
  "comrak",
  "lithe-agent-host",
+ "lithe-core-rules",
  "lithe-git-host",
  "lithe-ide-host",
  "lithe-remote",
@@ -2908,6 +2919,7 @@ dependencies = [
  "sha1",
  "sha2",
  "shell-words",
+ "similar",
  "toml 1.1.4+spec-1.1.0",
  "toml_edit 0.25.13+spec-1.1.0",
  "tree-sitter",
@@ -2915,6 +2927,14 @@ dependencies = [
  "unicode-normalization",
  "url",
  "zip 2.4.2",
+]
+
+[[package]]
+name = "lithe-core-rules"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2939,6 +2959,21 @@ dependencies = [
  "sha2",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "lithe-legacy-tooling"
+version = "0.1.0"
+dependencies = [
+ "lithe-core",
+ "quick-xml 0.37.5",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tree-sitter",
+ "tree-sitter-java",
+ "zip 2.4.2",
 ]
 
 [[package]]
@@ -2995,6 +3030,7 @@ dependencies = [
  "lithe-agent-host",
  "lithe-core",
  "lithe-git-host",
+ "lithe-legacy-tooling",
  "lithe-project",
  "lithe-terminal",
  "quick-xml 0.37.5",
@@ -5190,6 +5226,15 @@ name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+
+[[package]]
+name = "similar"
+version = "3.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2f8bec09ae8fae0f4f265a4559a9334be3929d8504e9b536df0a41302bd1733"
+dependencies = [
+ "bstr",
+]
 
 [[package]]
 name = "siphasher"

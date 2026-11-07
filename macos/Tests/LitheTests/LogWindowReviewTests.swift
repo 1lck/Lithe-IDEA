@@ -12,7 +12,7 @@ struct LogWindowReviewTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let writer = MacLogStore(defaultDirectory: root)
         defer { try? FileManager.default.removeItem(at: root) }
-        writer.emit(LspMessageLogged(diagnostic: "Java initialization", server: LogSegment("java")!, severity: "info"))
+        writer.emit(LspMessageLogged(diagnostic: "Example initialization", server: LogSegment("example")!, severity: "info"))
         writer.emit(LspMessageLogged(diagnostic: "Go initialization", server: LogSegment("go")!, severity: "info"))
         writer.emit(AppSessionStarted())
         let feature = LanguageServerLogsModel(logging: writer)
@@ -21,27 +21,27 @@ struct LogWindowReviewTests {
         #expect(LanguageServerLogsModel.MinimumLevel.allCases == [.info, .warning, .error])
         #expect(feature.logs.query.levels == ["INFO", "WARN", "ERROR"])
 
-        let java = try await showServer("java", channel: "lsp/java", in: feature)
-        #expect(feature.logs.query.channelPrefixes == ["lsp/java"])
+        let example = try await showServer("example", channel: "lsp/example", in: feature)
+        #expect(feature.logs.query.channelPrefixes == ["lsp/example"])
         feature.clear()
         #expect(feature.logs.state.records.isEmpty && feature.logs.state.cleared)
 
-        // Clearing Java leaves Go untouched.
+        // Clearing Example leaves Go untouched.
         _ = try await showServer("go", channel: "lsp/go", in: feature)
         #expect(feature.logs.query.channelPrefixes == ["lsp/go"])
         #expect(!feature.logs.state.cleared)
 
-        // Back on Java the clear point still applies: only the newer row returns.
+        // Back on Example the clear point still applies: only the newer row returns.
         let returned = TestGate()
         let observation = feature.logs.$state.sink { state in
-            if !state.records.isEmpty, state.records.allSatisfy({ $0.channel == "lsp/java" }) { returned.open() }
+            if !state.records.isEmpty, state.records.allSatisfy({ $0.channel == "lsp/example" }) { returned.open() }
         }
         defer { observation.cancel() }
-        feature.select("java")
-        writer.emit(LspMessageLogged(diagnostic: "Java ready", server: LogSegment("java")!, severity: "info"))
+        feature.select("example")
+        writer.emit(LspMessageLogged(diagnostic: "Example ready", server: LogSegment("example")!, severity: "info"))
         try #require(await returned.waitUntilOpen(timeout: .logStoreQuery))
-        #expect(feature.logs.query.channelPrefixes == ["lsp/java"])
-        #expect(Set(feature.logs.state.records.map(LogWindowModel.recordID)).isDisjoint(with: java))
+        #expect(feature.logs.query.channelPrefixes == ["lsp/example"])
+        #expect(Set(feature.logs.state.records.map(LogWindowModel.recordID)).isDisjoint(with: example))
         await writer.finishSession()
     }
 
@@ -126,14 +126,16 @@ struct LogWindowReviewTests {
             try screenshot(try #require(panel.contentView), output: output, name: dark ? "final-settings-menu-dark.png" : "final-settings-menu-light.png")
             presenter.dismiss()
         }
+        // The reviewed session decides which language server channel is rendered.
+        let serverID = ProcessInfo.processInfo.environment["LITHE_REVIEW_LOG_SERVER"] ?? "example"
         let serverFeature = LanguageServerLogsModel(logging: writer)
         serverFeature.logs.changeQuery { $0.session = "all" }
         let serverLoaded = TestGate()
         let serverObservation = serverFeature.logs.$state.sink { state in
-            if !state.records.isEmpty, state.records.allSatisfy({ $0.channel == "lsp/java" }) { serverLoaded.open() }
+            if !state.records.isEmpty, state.records.allSatisfy({ $0.channel == "lsp/\(serverID)" }) { serverLoaded.open() }
         }
         defer { serverObservation.cancel(); serverFeature.stop() }
-        serverFeature.open(providerID: "java")
+        serverFeature.open(providerID: serverID)
         let host = NSHostingView(rootView: LanguageServerLogsView(feature: serverFeature).environmentObject(app)
             .environmentObject(settings).environment(\.locale, settings.language.locale).environment(\.colorScheme, .light))
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 1400, height: 900),
@@ -143,7 +145,7 @@ struct LogWindowReviewTests {
         try #require(await serverLoaded.waitUntilOpen(timeout: .logStoreQuery))
         host.layoutSubtreeIfNeeded()
         await Task.yield()
-        try screenshot(host, output: output, name: "final-jdtls-logs.png")
+        try screenshot(host, output: output, name: "final-server-logs.png")
         await app.shutdownProjectSession()
     }
 

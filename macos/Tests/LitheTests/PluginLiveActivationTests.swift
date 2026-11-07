@@ -47,7 +47,7 @@ struct PluginLiveActivationTests {
         manifest["activationEvents"] = ["onDebug:lldb", "onLanguage:rust"]
         manifest["languageServers"] = [[
             "languageID": "rust",
-            "launch": ["kind": "systemCommand", "commands": ["example-language-server"]]
+            "launch": ["kind": "systemCommand", "commands": ["exampleuage-server"]]
         ]]
         let descriptor = try DeclarativePluginTestSupport.descriptor(manifest)
         #expect(!descriptor.debugAdapters.isEmpty)
@@ -68,13 +68,32 @@ struct PluginLiveActivationTests {
 
     @Test(arguments: [
         "languages/language-packaged-server", "languages/language-system-command",
-        "build-providers/build-provider", "vcs/vcs-provider", "manifest/hello-lithe",
-        "project-generators/project-generator"
+        "build-providers/build-provider", "vcs/vcs-provider", "manifest/hello-lithe"
     ])
     func pluginsWithOtherContributionsStillNeedARestart(_ fixture: String) throws {
-        let url = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/\(fixture).plugin.json")
-        let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: Data(contentsOf: url))
+        let descriptor = try Self.fixtureDescriptor(fixture)
+        #expect(!descriptor.canActivateWithoutRestart)
+    }
+
+    /// Generators are listed when the New Project window loads, and tool
+    /// definitions are read each time a tool is resolved, so neither needs the
+    /// module graph built at launch.
+    @Test(arguments: [
+        "project-generators/project-generator", "project-generators/project-generator-tool-field",
+        "toolchains/tool-definition"
+    ])
+    func generatorsAndToolDefinitionsActivateWithoutARestart(_ fixture: String) throws {
+        let descriptor = try Self.fixtureDescriptor(fixture)
+        #expect(!descriptor.declaresBackend)
+        #expect(descriptor.canActivateWithoutRestart)
+    }
+
+    /// A toolchain provider is a backend process, which only starts with the
+    /// module graph.
+    @Test
+    func aToolchainProviderStillNeedsARestart() throws {
+        let descriptor = try Self.fixtureDescriptor("toolchains/toolchain-provider")
+        #expect(descriptor.declaresBackend)
         #expect(!descriptor.canActivateWithoutRestart)
     }
 
@@ -87,18 +106,18 @@ struct PluginLiveActivationTests {
         let first = try fixture.package(Self.debugManifest(id: "dev.example.first"))
         let second = try fixture.package(Self.debugManifest(id: "dev.example.second"))
         let attach = try fixture.package(Self.debugManifest(id: "dev.example.attach",
-            languageIDs: ["java"], requests: ["attach"], targetKinds: ["process"]))
+            languageIDs: ["example"], requests: ["attach"], targetKinds: ["process"]))
         let packages = [second, attach, first]
         let qualified = PluginDebugAdapterEntry.qualifiedIndex(of: packages)
         #expect(Set(qualified.keys) == ["dev.example.first/lldb", "dev.example.second/lldb", "dev.example.attach/lldb"])
         let automatic = PluginDebugAdapterEntry.index(of: packages)
         #expect(automatic["rust"]?.plugin.descriptor.id == first.descriptor.id)
-        #expect(automatic["java"] == nil)
-        let languages = [DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])]
+        #expect(automatic["example"] == nil)
+        let languages = [DebugProviderDescriptor(id: "example", displayName: "Example", fileExtensions: ["example"])]
         let descriptor = try #require(qualified["dev.example.attach/lldb"]?.provider(languages: languages))
         #expect(descriptor.requests == [.attach])
         #expect(!descriptor.selectsByFile)
-        #expect(descriptor.matches(URL(fileURLWithPath: "/workspace/Main.java")))
+        #expect(descriptor.matches(URL(fileURLWithPath: "/workspace/main.example")))
     }
 
     @Test
@@ -187,11 +206,11 @@ struct PluginLiveActivationTests {
     }
 
     @Test
-    func theFirstPluginInIDOrderDebugsALanguageAndJavaKeepsTheHostAdapter() throws {
+    func theFirstPluginInIDOrderDebugsALanguage() throws {
         let fixture = try LiveFixture()
         defer { fixture.cleanUp() }
         let later = try fixture.package(Self.debugManifest(
-            id: "dev.example.zeta", adapterID: "zeta", languageIDs: ["rust", "java"]
+            id: "dev.example.zeta", adapterID: "zeta", languageIDs: ["rust", "example"]
         ))
         let earlier = try fixture.package(Self.debugManifest(
             id: "dev.example.alpha", adapterID: "alpha", languageIDs: ["rust", "zig"]
@@ -202,7 +221,7 @@ struct PluginLiveActivationTests {
         let adapters = fixture.registry.snapshot.debugAdapters
         #expect(adapters["rust"]?.adapter.id == "alpha")
         #expect(adapters["zig"]?.adapter.id == "alpha")
-        #expect(adapters["java"] == nil)
+        #expect(adapters["example"]?.adapter.id == "zeta")
     }
 
     /// The Debug button launches the open file, so an adapter that only
@@ -398,6 +417,39 @@ struct PluginLiveActivationTests {
     }
 
     @Test
+    func installingAGeneratorPluginActivatesItAtOnce() async throws {
+        let fixture = try LiveFixture(acceptance: .startupLoader)
+        defer { fixture.cleanUp() }
+        let manager = fixture.makeManager()
+        let source = try fixture.writeSource(Self.generatorManifest(), name: "generator")
+
+        let arrived = try await fixture.awaitChange { try manager.installPackage(at: source) }
+
+        #expect(arrived)
+        // The New Project window lists it from this registry, with no restart.
+        let entry = try #require(fixture.registry.snapshot.entries[Self.generatorPluginID])
+        #expect(entry.isEnabled)
+        let snapshot = try #require(manager.snapshots.first { $0.id == Self.generatorPluginID })
+        #expect(snapshot.installationStatus == .installed)
+        #expect(!snapshot.requiresRestart)
+        #expect(!snapshot.hasChangesPendingRestart)
+    }
+
+    @Test
+    func uninstallingAGeneratorPluginRemovesItFromTheRegistryAtOnce() async throws {
+        let fixture = try LiveFixture(acceptance: .startupLoader)
+        defer { fixture.cleanUp() }
+        let manager = fixture.makeManager()
+        let source = try fixture.writeSource(Self.generatorManifest(), name: "generator")
+        _ = try await fixture.awaitChange { try manager.installPackage(at: source) }
+
+        let removed = try await fixture.awaitChange { try await manager.uninstall(Self.generatorPluginID) }
+
+        #expect(removed)
+        #expect(fixture.registry.snapshot.entries[Self.generatorPluginID] == nil)
+    }
+
+    @Test
     func installingAnyOtherPluginStillWaitsForARestart() throws {
         let fixture = try LiveFixture(acceptance: .startupLoader)
         defer { fixture.cleanUp() }
@@ -492,6 +544,47 @@ struct PluginLiveActivationTests {
     }
 
     // MARK: - Fixtures
+
+    private static let generatorPluginID = PluginID("dev.example.generator")
+
+    private static func fixtureDescriptor(_ name: String) throws -> DeclarativePluginDescriptor {
+        let url = DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/\(name).plugin.json")
+        return try DeclarativePluginTestSupport.operations.validate(manifest: Data(contentsOf: url))
+    }
+
+    /// A generator-only plugin: one command step, no templates to ship.
+    private static func generatorManifest() -> [String: Any] {
+        [
+            "schemaVersion": 2,
+            "id": generatorPluginID.rawValue,
+            "displayName": "Example Generator",
+            "version": "0.1.0",
+            "pluginAPIVersion": 3,
+            "requires": ["projectGenerators": 2],
+            "vendor": [
+                "id": "dev.example",
+                "displayName": "Example",
+                "signatureRequirement": PluginSignatureRequirement.publisherPackage.rawValue
+            ],
+            "permissions": ["project.generate"],
+            "activationEvents": [],
+            "projectGenerators": [[
+                "id": "app",
+                "displayName": "App",
+                "section": "generator",
+                "fields": [
+                    ["id": "sdk", "type": "tool", "title": "SDK", "tool": "dev.example.generator:sdk", "pinAs": "project"]
+                ],
+                "steps": [[
+                    "kind": "command",
+                    "command": "example-init",
+                    "arguments": ["--sdk", "${field.sdk.executable}"],
+                    "mayUseNetwork": false
+                ]]
+            ]]
+        ]
+    }
 
     private static func debugManifest(
         id: String = pluginID.rawValue,

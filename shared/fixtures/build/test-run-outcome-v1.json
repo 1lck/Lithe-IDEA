@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "description": "build.resolveTestRunOutcome: one tool-neutral verdict per test run. macOS used to pass a zero-match selection on exit code 0; Windows failed it.",
+  "cases": [
+    {
+      "name": "selected case that ran nothing did not match",
+      "request": {
+        "termination": { "kind": "exited", "exitCode": 0 },
+        "scope": "case",
+        "summary": { "total": 0, "passed": 0, "failed": 0, "errors": 0, "skipped": 0 }
+      },
+      "expected": { "outcome": "noTestsMatched", "success": false, "exitCode": 0 }
+    },
+    {
+      "name": "selected suite that ran nothing did not match",
+      "request": {
+        "termination": { "kind": "exited", "exitCode": 0 },
+        "scope": "suite",
+        "summary": { "total": 0 }
+      },
+      "expected": { "outcome": "noTestsMatched", "success": false, "exitCode": 0 }
+    },
+    {
+      "name": "project scope without tests found none",
+      "request": {
+        "termination": { "kind": "exited", "exitCode": 0 },
+        "scope": "project",
+        "summary": { "total": 0 }
+      },
+      "expected": { "outcome": "noTestsFound", "success": false, "exitCode": 0 }
+    },
+    {
+      "name": "passing tests pass",
+      "request": {
+        "termination": { "kind": "exited", "exitCode": 0 },
+        "scope": "suite",
+        "summary": { "total": 3, "passed": 3, "failed": 0, "errors": 0, "skipped": 0 }
+      },
+      "expected": { "outcome": "passed", "success": true, "exitCode": 0 }
+    },
+    {
+      "name": "skipped-only run is a pass",
+      "request": {
+        "termination": { "kind": "exited", "exitCode": 0 },
+        "scope": "case",
+        "summary": { "total": 1, "passed": 0, "failed": 0, "errors": 0, "skipped": 1 }
+      },
+      "expected": { "outcome": "passed", "success": true, "exitCode": 0 }
+    },
+    {
+      "name": "reported failure outranks a zero exit code",
+      "request": {
+        "termination": { "kind": "exited", "exitCode": 0 },
+        "scope": "workspace",
+        "summary": { "total": 2, "passed": 1, "failed": 1, "errors": 0, "skipped": 0 }
+      },
+      "expected": { "outcome": "testsFailed", "success": false, "exitCode": 0 }
+    },
+    {
+      "name": "reported error outranks a non-zero exit code",
+      "request": {
+        "termination": { "kind": "exited", "exitCode": 1 },
+        "scope": "suite",
+        "summary": { "total": 1, "passed": 0, "failed": 0, "errors": 1, "skipped": 0 }
+      },
+      "expected": { "outcome": "testsFailed", "success": false, "exitCode": 1 }
+    },
+    {
+      "name": "non-zero exit without results is a tool failure, not a zero match",
+      "request": {
+        "termination": { "kind": "exited", "exitCode": 1 },
+        "scope": "case",
+        "summary": { "total": 0 }
+      },
+      "expected": { "outcome": "exitedWithError", "success": false, "exitCode": 1 }
+    },
+    {
+      "name": "run without structured results relies on the exit code",
+      "request": {
+        "termination": { "kind": "exited", "exitCode": 0 },
+        "scope": "case",
+        "summary": null
+      },
+      "expected": { "outcome": "passed", "success": true, "exitCode": 0 }
+    },
+    {
+      "name": "run without structured results fails on a non-zero exit",
+      "request": {
+        "termination": { "kind": "exited", "exitCode": 2 },
+        "scope": "workspace"
+      },
+      "expected": { "outcome": "exitedWithError", "success": false, "exitCode": 2 }
+    },
+    {
+      "name": "timeout never claims a test outcome",
+      "request": {
+        "termination": { "kind": "timedOut" },
+        "scope": "suite",
+        "summary": { "total": 4, "passed": 4 }
+      },
+      "expected": { "outcome": "timedOut", "success": false, "exitCode": null }
+    },
+    {
+      "name": "cancellation never claims a test outcome",
+      "request": {
+        "termination": { "kind": "cancelled" },
+        "scope": "case",
+        "summary": { "total": 0 }
+      },
+      "expected": { "outcome": "cancelled", "success": false, "exitCode": null }
+    }
+  ],
+  "rejected": [
+    {
+      "name": "counts exceeding the total",
+      "request": {
+        "termination": { "kind": "exited", "exitCode": 0 },
+        "scope": "suite",
+        "summary": { "total": 1, "passed": 2 }
+      }
+    },
+    {
+      "name": "unknown termination kind",
+      "request": {
+        "termination": { "kind": "crashed" },
+        "scope": "suite"
+      }
+    },
+    {
+      "name": "tool-specific scope",
+      "request": {
+        "termination": { "kind": "exited", "exitCode": 0 },
+        "scope": "surefireMethod"
+      }
+    }
+  ]
+}

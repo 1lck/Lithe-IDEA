@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 PHP 支持由用户选择安装和启用，主程序不携带 PHP 插件包、Node/Bun 或 Intelephense。Intelephense 是通过语言服务器协议（LSP）与编辑器通信的第三方 PHP 分析服务；PHP 解释器只负责运行程序和 PHPUnit 测试。插件禁用后必须停止自己启动的任务和进程，不能影响其他语言或删除用户自行安装的工具。
@@ -72,7 +74,7 @@ Windows 休眠的 Run Actions 宿主不再扫描其他语言的 manifest 或自�
 
 - `node scripts/plugins/test-official-plugin-distribution.mjs`：默认分发名单不含 PHP，未知插件不会意外打入主程序。
 - `./scripts/macos/verify/verify-macos-package.sh`：实际组装产物不得含 PHP 插件。
-- `./scripts/plugins/verify-official-plugins.sh`：独立包兼容性与签名验证。
+- 官方插件包的组装与校验（原 verify-official-plugins 脚本：独立包兼容性与签名验证。）已随插件移出本仓库，由各插件仓库的 CI 负责（#1495）。
 - `MacPluginPackageDownloaderTests`：验证 stable/preview 发行资产 URL 按 App 发布版本和架构确定性生成。
 - `LanguageExtensionProcessLifecycleTests.packagedServersArePinnedToTheirOwnPackage`、`LanguageServerToolServiceTests.pinnedExecutableIsTheOnlyCandidate`：验证插件打包的 Intelephense 只从本插件已安装的版本目录启动，不按文件名在 PATH 或其他插件中查找。
 - `PluginPackageStoreTests/reinstallCanReplaceTheActiveVersionOnlyAfterValidation`：验证重装不会绕过签名校验，并在校验完成后替换当前版本。
@@ -86,7 +88,7 @@ Windows 休眠的 Run Actions 宿主不再扫描其他语言的 manifest 或自�
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeToolDiscovery.swift`
 - `Plugins/win/Official/PhpSupport/`
-- `scripts/plugins/build-official-plugins.sh`
+- 已迁出：原 `scripts/plugins/build-official-plugins.sh`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - `scripts/macos/package/package-app.sh`
 - `windows/tauri/src/extensions/`
 - `windows/tauri/src/features/run-actions/`

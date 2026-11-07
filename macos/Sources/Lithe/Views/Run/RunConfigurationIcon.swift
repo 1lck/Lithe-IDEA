@@ -3,7 +3,9 @@ import SwiftUI
 /// Presents the ecosystem behind a run configuration instead of using one
 /// generic process symbol for every language. The imported SVG catalog keeps
 /// these marks crisp in compact IDE rows and preserves their recognizable
-/// brand colors in both light and dark appearances.
+/// brand colors in both light and dark appearances. Providers the host does
+/// not know fall back to the kind's system symbol; plugin-owned marks arrive
+/// through the plugin's icon resources, not through host branches.
 struct RunConfigurationIcon: View {
     let kind: RunConfigurationKind
     var size: CGFloat = 16
@@ -11,12 +13,7 @@ struct RunConfigurationIcon: View {
 
     var body: some View {
         Group {
-            if case .javaMain = kind, !isGroup {
-                ZStack {
-                    LitheIDEAIcon(resourcePath: "expui/nodes/class.svg", size: size, preservesOriginalColors: true)
-                    LitheIDEAIcon(resourcePath: "expui/nodes/runnableMark.svg", size: size, preservesOriginalColors: true)
-                }
-            } else if let resourcePath {
+            if let resourcePath {
                 LitheIDEAIcon(resourcePath: resourcePath, size: size,
                               preservesOriginalColors: true)
             } else if let iconKind = Self.iconKind(for: kind) {
@@ -33,10 +30,6 @@ struct RunConfigurationIcon: View {
 
     private var resourcePath: String? {
         switch kind {
-        case .javaMain:
-            return "expui/fileTypes/java.svg"
-        case .mavenFramework, .mavenModule:
-            return "java/expui/maven.svg"
         case .process(let provider) where ["make", "just", "procfile"].contains(provider.split(separator: ".").first.map(String.init) ?? ""):
             return isGroup ? "expui/build/taskGroup.svg" : "expui/fileTypes/shell.svg"
         default:
@@ -48,10 +41,6 @@ struct RunConfigurationIcon: View {
         switch kind {
         case .currentFile:
             return .plainText
-        case .mavenFramework, .javaMain:
-            return .javaGeneric
-        case .mavenModule:
-            return .maven
         case .process(let provider):
             switch provider.split(separator: ".").first.map(String.init) {
             case "npm", "node", "bun", "deno":
@@ -64,12 +53,6 @@ struct RunConfigurationIcon: View {
                 return .goSource
             case "cargo", "rust":
                 return .rustSource
-            case "maven":
-                return .maven
-            case "gradle":
-                return .gradle
-            case "java":
-                return .javaGeneric
             case "kotlin":
                 return .kotlinSource
             case "swift":

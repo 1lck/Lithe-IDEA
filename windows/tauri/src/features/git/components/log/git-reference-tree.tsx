@@ -51,8 +51,9 @@ import {
   type GitReferenceAction,
 } from "../../utils/git-reference-actions";
 import {
-  buildGitReferenceTree,
   collectGitReferenceGroupIds,
+  useGitReferenceTrees,
+  type GitReferenceTreeSource,
   countGitReferencesByKind,
   filterGitLogReferences,
   filterSelectableGitReferences,
@@ -848,7 +849,7 @@ export function GitReferenceTree({
   // shifts the colors of the repositories that remain visible.
   const repositoryColors = useRepositoryColors(repositoryPaths);
 
-  const repositoryGroups = useMemo<GitReferenceRepositoryGroup[]>(() => {
+  const plannedGroups = useMemo<Omit<GitReferenceRepositoryGroup, "trees">[]>(() => {
     // Remote symbolic HEAD aliases are hidden so `origin/HEAD` does not appear
     // as a selectable branch next to the remote's real branches.
     const sources = isMultiRepository
@@ -889,24 +890,12 @@ export function GitReferenceTree({
         showMyBranchesOnly,
         selectedReference?.fullName,
       );
-      const trees = new Map(
-        SECTION_KEYS.map(({ kind }) => [
-          kind,
-          buildGitReferenceTree(
-            visibleReferences,
-            kind,
-            kind === "local" ? markedLocalReferenceFullNames : undefined,
-            isMultiRepository ? `${repositoryKey}:` : undefined,
-          ),
-        ]),
-      );
       return {
         repositoryPath,
         repositoryKey,
         references: repositoryReferences,
         markedLocalReferenceFullNames,
         visibleReferences,
-        trees,
         currentReference:
           repositoryReferences.find((reference) => reference.isCurrent) ?? null,
         remoteReferences: repositoryReferences.filter(
@@ -930,6 +919,34 @@ export function GitReferenceTree({
     selectedReference?.fullName,
     showMyBranchesOnly,
   ]);
+  // Core groups and orders every tree; the view keeps expansion and rows.
+  const treeSources = useMemo<GitReferenceTreeSource[]>(
+    () =>
+      plannedGroups.flatMap((group) =>
+        SECTION_KEYS.map(({ kind }) => ({
+          key: `${group.repositoryKey}\u0000${kind}`,
+          references: group.visibleReferences,
+          kind,
+          marked: kind === "local" ? group.markedLocalReferenceFullNames : undefined,
+          idPrefix: isMultiRepository ? `${group.repositoryKey}:` : undefined,
+        })),
+      ),
+    [isMultiRepository, plannedGroups],
+  );
+  const plannedTrees = useGitReferenceTrees(treeSources);
+  const repositoryGroups = useMemo<GitReferenceRepositoryGroup[]>(
+    () =>
+      plannedGroups.map((group) => ({
+        ...group,
+        trees: new Map(
+          SECTION_KEYS.map(({ kind }) => [
+            kind,
+            plannedTrees?.get(`${group.repositoryKey}\u0000${kind}`) ?? [],
+          ]),
+        ),
+      })),
+    [plannedGroups, plannedTrees],
+  );
   const activeGroup =
     repositoryGroups.find((group) => group.repositoryKey === activeRepositoryKey) ??
     repositoryGroups[0];

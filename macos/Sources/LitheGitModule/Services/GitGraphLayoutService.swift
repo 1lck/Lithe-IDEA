@@ -1,60 +1,86 @@
 import Foundation
 
+/// Turns a loaded history window into the native graph models. The layout itself —
+/// permanent layout, head ordering, colors, filtered topology, lanes, print elements —
+/// is Core's `git.graphProjection`; this service builds the request and maps the answer.
 package enum GitGraphLayoutService {
-    /// CurrentBranchHighlighter colors ancestry, including every merge parent.
-    /// ponytail: only the loaded graph can prove membership; a missing parent
-    /// ends this walk. A complete repository graph can extend it without I/O in drawing.
-    package static func currentBranchHashes(
-        commits: [GitCommit], repositoryCommits: [GitCommit], references: [GitReference]
-    ) -> Set<String> {
-        guard let branch = references.first(where: { $0.kind == .local && $0.isCurrent }) else { return [] }
-        let byHash = Dictionary((commits + repositoryCommits).map { ($0.hash, $0) },
-                                uniquingKeysWith: { first, _ in first })
-        guard let head = (commits + repositoryCommits).first(where: {
-            labels(from: $0.decorations, remoteNames: []).contains { $0.kind == .branch && $0.title == branch.shortName }
-        }) else { return [] }
-        var pending = [head.hash]
-        var result = Set<String>()
-        while let hash = pending.popLast() {
-            guard result.insert(hash).inserted else { continue }
-            pending.append(contentsOf: byHash[hash]?.parentHashes ?? [])
+    /// The Core request for one loaded window; the whole window is projected in one call.
+    package static func request(
+        commits: [GitCommit],
+        references: [GitReference] = [],
+        repositoryCommits: [GitCommit] = [],
+        visibleHashes: Set<String>? = nil,
+        options: GitGraphDisplayOptions = .compact,
+        currentBranch: String? = nil
+    ) -> GitGraphProjectionRequest {
+        func identities(_ values: [GitCommit]) -> [GitGraphProjectionRequest.Commit] {
+            values.map { .init(hash: $0.hash, parentHashes: $0.parentHashes, decorations: $0.decorations) }
         }
-        return result
+        return GitGraphProjectionRequest(
+            commits: identities(commits),
+            remoteNames: references.filter { $0.kind == .remote }.map(\.shortName),
+            repositoryCommits: identities(repositoryCommits),
+            visibleHashes: visibleHashes.map { Array($0) },
+            displayMode: options.mode,
+            currentBranch: currentBranch
+        )
     }
 
-    /// Uses IntelliJ's permanent-layout, visible-graph and print-element rules.
-    /// Input stays in Git's child-before-parent order; filtering never mutates it.
+    /// Projects one loaded window through Core. `nil` means Core rejected the request.
     package static func layout(
         commits: [GitCommit],
         references: [GitReference] = [],
         repositoryCommits: [GitCommit] = [],
         visibleHashes: Set<String>? = nil,
-        options: GitGraphDisplayOptions = .compact
-    ) -> GitGraphLayout {
-        guard !Task.isCancelled else { return GitGraphLayout(rows: [], laneCount: 0, hasMissingParents: false) }
-        let remoteNames = Set(references.filter { $0.kind == .remote }.map(\.shortName))
-        func commitLabels(_ values: [GitCommit]) -> [[GitGraphLabel]] {
-            values.map { labels(from: $0.decorations, remoteNames: remoteNames) }
+        options: GitGraphDisplayOptions = .compact,
+        currentBranch: String? = nil,
+        project: GitGraphProjector
+    ) async -> GitGraphLayout? {
+        guard !commits.isEmpty else { return GitGraphLayout(rows: [], laneCount: 0, hasMissingParents: false) }
+        let request = request(
+            commits: commits, references: references, repositoryCommits: repositoryCommits,
+            visibleHashes: visibleHashes, options: options, currentBranch: currentBranch
+        )
+        guard let response = await project(request), !Task.isCancelled else { return nil }
+        return layout(commits: commits, response: response)
+    }
+
+    /// Attaches the caller's commits to Core's rows; the first commit of a hash wins.
+    package static func layout(commits: [GitCommit], response: GitGraphProjectionResponse) -> GitGraphLayout? {
+        var byHash: [String: GitCommit] = [:]
+        for commit in commits where byHash[commit.hash] == nil { byHash[commit.hash] = commit }
+        var rows: [GitGraphRow] = []
+        rows.reserveCapacity(response.rows.count)
+        for row in response.rows {
+            guard let commit = byHash[row.commitHash] else { return nil }
+            rows.append(GitGraphRow(
+                commit: commit, lane: row.lane, laneCount: row.laneCount,
+                incomingLaneColors: row.incomingLaneColors.map { Optional($0) },
+                parentEdges: row.parentEdges.map {
+                    GitGraphEdge(id: $0.id, parentHash: $0.parentHash, targetLane: $0.targetLane,
+                                 colorIndex: $0.colorId, isMissing: $0.isMissing)
+                },
+                labels: row.labels.compactMap { label in
+                    GitGraphReferenceKind(rawValue: label.kind).map { GitGraphLabel(title: label.title, kind: $0) }
+                },
+                layoutIndex: row.layoutIndex, nodeColorIndex: row.colorId,
+                printElements: row.printElements.map { element in
+                    // `<edge id>:<direction>`; both halves of an edge share the edge ID.
+                    let edgeID = element.id.lastIndex(of: ":").map { String(element.id[..<$0]) } ?? element.id
+                    return GitGraphPrintElement(
+                        edgeID: edgeID, position: element.position, adjacentPosition: element.adjacentPosition,
+                        direction: element.direction == "down" ? .down : .up, colorIndex: element.colorId,
+                        isDotted: element.isDotted, hasArrow: element.hasArrow, isTerminal: element.isTerminal,
+                        targetHash: element.targetHash
+                    )
+                }
+            ))
         }
-        var orderedCommits = commits
-        var permanentGraph: GitGraphProjection?
-        let scopedHashes = Set(commits.map(\.hash))
-        let repositoryHashes = Set(repositoryCommits.map(\.hash))
-        // IDEA builds the permanent graph before applying the branch scope.
-        // Otherwise an older release ref can steal the main branch's layout
-        // when main's tip is outside the selected branch's first history page.
-        // Use only a complete, unique context; bounded-history misses fall back
-        // to the scoped graph instead of dropping commits or mixing indices.
-        if !repositoryCommits.isEmpty, repositoryHashes.count == repositoryCommits.count,
-           scopedHashes.isSubset(of: repositoryHashes) {
-            permanentGraph = GitGraphProjection(commits: repositoryCommits, labels: commitLabels(repositoryCommits), visibleHashes: nil)
-            let scopedByHash = Dictionary(commits.map { ($0.hash, $0) }, uniquingKeysWith: { first, _ in first })
-            orderedCommits = repositoryCommits.compactMap { scopedByHash[$0.hash] }
-        }
-        let graph = GitGraphProjection(commits: orderedCommits, labels: commitLabels(orderedCommits),
-                                       visibleHashes: visibleHashes, permanentGraph: permanentGraph)
-        guard !Task.isCancelled else { return GitGraphLayout(rows: [], laneCount: 0, hasMissingParents: false) }
-        return graph.layout(options: options)
+        return GitGraphLayout(
+            rows: rows, laneCount: response.laneCount, hasMissingParents: response.hasMissingParents,
+            recommendedLaneCount: response.recommendedLaneCount,
+            currentBranchHashes: Set(response.currentBranchHashes)
+        )
     }
 
     package static func routingSnapshot(for layout: GitGraphLayout) -> GitGraphRoutingSnapshot {
@@ -78,41 +104,12 @@ package enum GitGraphLayoutService {
             recommendedLaneCount: layout.recommendedLaneCount
         )
     }
+}
 
-    private static func labels(from decorations: String, remoteNames: Set<String>) -> [GitGraphLabel] {
-        decorations
-            .split(separator: ",")
-            .flatMap { rawValue -> [GitGraphLabel] in
-                let raw = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !raw.isEmpty else { return [] }
-
-                if raw == "HEAD" {
-                    return [GitGraphLabel(title: "HEAD", kind: .head)]
-                }
-                if raw.hasPrefix("HEAD -> ") {
-                    let branch = localName(String(raw.dropFirst("HEAD -> ".count)))
-                    return [
-                        GitGraphLabel(title: "HEAD", kind: .head),
-                        GitGraphLabel(title: branch, kind: .branch)
-                    ]
-                }
-                if raw.hasPrefix("tag: ") {
-                    return [GitGraphLabel(title: String(raw.dropFirst("tag: ".count)), kind: .tag)]
-                }
-                if raw.hasPrefix("refs/tags/") {
-                    return [GitGraphLabel(title: String(raw.dropFirst("refs/tags/".count)), kind: .tag)]
-                }
-                if remoteNames.contains(raw) || raw.hasPrefix("origin/") || raw.hasPrefix("refs/remotes/") {
-                    let title = raw.hasPrefix("refs/remotes/")
-                        ? String(raw.dropFirst("refs/remotes/".count))
-                        : raw
-                    return [GitGraphLabel(title: title, kind: .remote)]
-                }
-                return [GitGraphLabel(title: localName(raw), kind: .branch)]
-            }
-    }
-
-    private static func localName(_ name: String) -> String {
-        name.hasPrefix("refs/heads/") ? String(name.dropFirst("refs/heads/".count)) : name
+extension GitFeatureModel {
+    /// Projects the loaded history window through Core off the main actor.
+    package var graphProjector: GitGraphProjector {
+        let service = service
+        return { request in await service.corePlan(.graphProjection, request) }
     }
 }

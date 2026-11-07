@@ -5,7 +5,6 @@ struct DebugConsoleWithPerformance<Console: View>: View {
     @ObservedObject var feature: DebugPerformanceFeatureModel
     @Binding var isExpanded: Bool
     @Binding var width: CGFloat
-    var residentMemory = false
     @ViewBuilder let console: () -> Console
     @Environment(\.colorScheme) private var colorScheme
     @State private var hoveredTime: TimeInterval?
@@ -55,20 +54,13 @@ struct DebugConsoleWithPerformance<Console: View>: View {
             if let message = feature.errorMessage {
                 Text(LocalizedStringKey(message)).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-            } else if feature.samples.isEmpty {
-                Text(LocalizedStringKey(feature.isSampling
-                    ? (residentMemory ? "Waiting for process performance data…" : "Waiting for JVM performance data…")
-                    : (residentMemory ? "Run tests to view process performance." : "Start a local Java debug session to view performance.")))
+            } else if feature.samples.isEmpty, feature.isSampling {
+                Text("Waiting for process performance data…")
                     .font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(12)
             }
-            DebugPerformanceChart(samples: feature.samples, cpu: true, residentMemory: residentMemory, hoveredTime: $hoveredTime)
-            DebugPerformanceChart(samples: feature.samples, cpu: false, residentMemory: residentMemory, hoveredTime: $hoveredTime)
-            if residentMemory {
-                Text("Test process tree · Resident memory")
-                    .font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.secondaryText)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-            }
+            DebugPerformanceChart(samples: feature.samples, cpu: true, hoveredTime: $hoveredTime)
+            DebugPerformanceChart(samples: feature.samples, cpu: false, hoveredTime: $hoveredTime)
             Spacer(minLength: 0)
         }
         .litheWorkbenchSurface(LitheTheme.editor)
@@ -81,11 +73,10 @@ struct DebugPerformanceChart: View {
     static let visibleDuration: TimeInterval = 60
     let samples: [DebugPerformanceSample]
     let cpu: Bool
-    var residentMemory = false
     @Binding var hoveredTime: TimeInterval?
     @Environment(\.colorScheme) private var colorScheme
 
-    private var title: String { cpu ? "CPU" : (residentMemory ? "Resident Memory" : "Heap Memory") }
+    private var title: String { cpu ? "CPU" : "Resident Memory" }
     private var color: Color { cpu ? LitheTheme.success : LitheTheme.accent }
     private var selected: DebugPerformanceSample? {
         hoveredTime.flatMap { Self.nearestSample(in: visibleSamples, to: $0) } ?? samples.last

@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
+import { installGitGraphProjectionStub } from "@/test-utils/git-graph-projection-stub";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitCommit, GitReference } from "../../types/git.types";
 import { GitCommitTable } from "./git-commit-table";
@@ -36,8 +37,11 @@ const references: GitReference[] = [
   { fullName: "refs/heads/feature", shortName: "feature", kind: "local", peelsToCommit: true, isCurrent: false },
 ];
 
+let graphStub: ReturnType<typeof installGitGraphProjectionStub>;
+
 beforeEach(() => {
   restoreDom = installHappyDom();
+  graphStub = installGitGraphProjectionStub({ geometryFree: true });
   (globalThis as { ResizeObserver?: unknown }).ResizeObserver = StubResizeObserver;
   previousActEnvironment = environment.IS_REACT_ACT_ENVIRONMENT;
   environment.IS_REACT_ACT_ENVIRONMENT = true;
@@ -91,6 +95,7 @@ afterEach(async () => {
     if (descriptor) Object.defineProperty(globalThis, key, descriptor);
     else Reflect.deleteProperty(globalThis, key);
   }
+  graphStub.mockRestore();
   restoreDom();
 });
 

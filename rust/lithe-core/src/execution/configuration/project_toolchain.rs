@@ -1,7 +1,7 @@
-//! Read-only project tool paths for an authoritative workspace-relative owner.
-//! Platforms discover/probe executables; Core resolves only saved Run defaults
-//! the nearest path override, and explicit per-Run paths. It never inspects
-//! a POM or runs a tool.
+//! Read-only project tool selections for an authoritative workspace-relative
+//! owner. Platforms discover and probe executables; Core only returns the saved
+//! machine-local runtime paths, tool preferences and the per-Run defined tools.
+//! It never inspects a build file or runs a tool.
 
 use super::{existing_root, local_layer_document, read_local_toolchains, validate_version_value};
 use crate::protocol::{invalid_relative_path, CoreError, ErrorCode};
@@ -15,19 +15,18 @@ use std::collections::BTreeMap;
 pub(crate) struct ProjectToolchainRequest {
     /// Absolute native workspace root, owned by the platform.
     pub(crate) root: String,
-    /// Current Provider project/reactor root, relative to that workspace.
+    /// Current Provider project root, relative to that workspace.
     pub(crate) path: String,
     /// Optional host-owned replacement for the local Run document.
     #[serde(default)]
     pub(crate) local_document: Option<Value>,
-    /// Optional Run whose explicit path overrides take precedence over the
-    /// canonical project/reactor selection. Empty fields keep that selection.
+    /// Optional Run whose provider-declared tools are reported; it must belong
+    /// to the same provider instance as `path`.
     #[serde(default)]
     pub(crate) configuration_id: Option<String>,
 }
 
-/// Returns paths, never resolved executables. Empty override fields inherit the
-/// workspace defaults, rather than falling through a second ancestor override.
+/// Returns saved paths, never resolved executables.
 pub(crate) fn project_toolchain(request: ProjectToolchainRequest) -> Result<Value, CoreError> {
     if request.path.len() > 1024
         || invalid_relative_path(&request.path)
@@ -48,14 +47,9 @@ pub(crate) fn project_toolchain(request: ProjectToolchainRequest) -> Result<Valu
     let document = local_layer_document(&root, request.local_document)?;
     validate_version_value(&document)?;
     let toolchain = &document["toolchain"];
-    for group in [toolchain, &toolchain["java"], &toolchain["maven"]] {
-        if !group.is_null() && !group.is_object() {
-            return Err(invalid_paths());
-        }
+    if !toolchain.is_null() && !toolchain.is_object() {
+        return Err(invalid_paths());
     }
-    let java = saved_path(&toolchain["java"]["homePath"])?;
-    let maven = saved_path(&toolchain["maven"]["executablePath"])?;
-    let maven_java = saved_path(&toolchain["maven"]["javaHomePath"])?;
     let mut runtimes = BTreeMap::new();
     if let Some(document) = read_local_toolchains(&root)? {
         let entries = document["toolchains"]
@@ -74,29 +68,7 @@ pub(crate) fn project_toolchain(request: ProjectToolchainRequest) -> Result<Valu
             }
         }
     }
-    let selected = toolchain["pathOverrides"]
-        .as_object()
-        .and_then(|overrides| {
-            overrides
-                .iter()
-                .filter(|(path, _)| {
-                    request.path == **path || request.path.starts_with(&format!("{path}/"))
-                })
-                .max_by_key(|(path, _)| path.len())
-                .map(|(_, value)| value)
-        });
-    let path = |key: &str, default: &str| {
-        selected
-            .and_then(|value| value[key].as_str())
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or(default)
-            .trim()
-            .to_string()
-    };
     let mut result = json!({ "toolchain": {
-        "javaHomePath": path("javaHomePath", &java),
-        "mavenExecutablePath": path("mavenExecutablePath", &maven),
-        "mavenJavaHomePath": path("mavenJavaHomePath", &maven_java),
         "runtimeExecutablePaths": runtimes,
     }});
     if let Some(preferences) = toolchain.get("preferences") {
@@ -106,7 +78,7 @@ pub(crate) fn project_toolchain(request: ProjectToolchainRequest) -> Result<Valu
         let mut explicit = document.clone();
         // Reuse the existing layer merge, without materializing global
         // defaults as if they were per-configuration choices. The caller's
-        // canonical reactor defaults have already been selected above.
+        // workspace defaults have already been selected above.
         explicit
             .as_object_mut()
             .ok_or_else(invalid_paths)?
@@ -130,17 +102,14 @@ pub(crate) fn project_toolchain(request: ProjectToolchainRequest) -> Result<Valu
                     "Run configuration is unavailable",
                 )
             })?;
-        for owner in [
-            &config["extensions"]["build"]["root"],
-            &config["extensions"]["java"]["build"]["root"],
-            &config["extensions"]["maven"]["reactorPath"],
-        ] {
-            if owner.as_str().is_some_and(|owner| owner != request.path) {
-                return Err(CoreError::new(
-                    ErrorCode::InvalidRequest,
-                    "Run configuration belongs to a different provider instance",
-                ));
-            }
+        if config["extensions"]["build"]["root"]
+            .as_str()
+            .is_some_and(|owner| owner != request.path)
+        {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Run configuration belongs to a different provider instance",
+            ));
         }
         if config["provider"] == "build.provider" {
             let extensions = serde_json::from_value(config["extensions"].clone())
@@ -152,16 +121,6 @@ pub(crate) fn project_toolchain(request: ProjectToolchainRequest) -> Result<Valu
             let tools = choices.active_tools();
             if !tools.is_empty() {
                 result["definedTools"] = json!(tools);
-            }
-        }
-        for (key, field) in [
-            ("javaHomePath", "homePath"),
-            ("mavenExecutablePath", "mavenExecutablePath"),
-            ("mavenJavaHomePath", "mavenJavaHomePath"),
-        ] {
-            let value = saved_path(&config["extensions"]["java"][field])?;
-            if !value.is_empty() {
-                result["toolchain"][key] = json!(value);
             }
         }
     }

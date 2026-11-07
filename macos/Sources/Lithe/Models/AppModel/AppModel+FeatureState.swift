@@ -7,31 +7,11 @@ import LitheModuleAPI
 
 extension AppModel {
     var workspaceSnapshotID: UUID? { workspaceFeature.appliedSnapshot?.id }
-    var springEndpoints: [SpringEndpoint] { springFeature.endpoints }
-    var springBeans: [SpringBean] { springFeature.beans }
-    var isIndexingSpring: Bool { springFeature.isIndexing }
     var rootNode: FileNode? { workspaceFeature.rootNode }
     var projectFiles: [URL] { workspaceFeature.projectFiles }
     var projectDirectoryMarks: [String: WorkspaceDirectoryMark] {
         workspaceFeature.indexingStatus.excludedDirectories.keys.reduce(into: workspaceFeature.directoryMarks) { marks, path in marks[path] = .excluded }
     }
-    var javaEnvironmentReport: JavaEnvironmentReport? {
-        runtimeFeature.javaEnvironmentReport
-    }
-
-    var shouldShowJavaEnvironmentBanner: Bool {
-        guard javaEnvironmentReport?.status.requiresAttention == true else { return false }
-        return projectFiles.contains { $0.pathExtension.lowercased() == "java" }
-            || hasMavenProject
-            || activeDocument?.url.pathExtension.lowercased() == "java"
-    }
-
-    /// A Maven project counts as Java for the Java environment banner. Build
-    /// tool windows come from build-system plugins, not from this check.
-    var hasMavenProject: Bool {
-        projectFiles.contains { $0.lastPathComponent.lowercased() == "pom.xml" }
-    }
-
     var openDocuments: [EditorDocument] { documentFeature.openDocuments }
     var openMediaDocuments: [MediaDocument] { mediaFeature.openMediaDocuments }
     var activeMediaDocument: MediaDocument? { mediaFeature.activeMediaDocument }
@@ -372,8 +352,7 @@ extension AppModel {
         case "navigate-forward":
             canNavigateForward
         case "go-to-definition":
-            activeDocument.map { springFeature.handles($0.url) || mybatisFeature.handles($0.url) } == true
-                || supportsLanguageServerFeature(.definition)
+            supportsLanguageServerFeature(.definition)
         case "find-usages":
             supportsLanguageServerFeature(.references)
         case "go-to-implementation":
@@ -384,36 +363,10 @@ extension AppModel {
              "replace-in-project", "project-local-history", "run", "debug", "debug-start-or-continue",
              "stop-run", "stop-debug", "toggle-terminal", "toggle-problems",
              "toggle-git-log", "toggle-run", "toggle-tests",
-             "toggle-debug", "view-breakpoints", "spring-endpoints", "rebuild-java-index":
+             "toggle-debug", "view-breakpoints":
             workspaceURL != nil
         default:
             false
         }
-    }
-
-    func prepareProjectRuntimeSettings() async {
-        await runtimeFeature.refreshAvailableRuntimes()
-        runtimeFeature.prepare(
-            workspaceName: projectName,
-            workspaceURL: workspaceURL,
-            files: projectFiles,
-            buildSources: buildSystemsFeatureIfActive?.entries.map { entry in
-                ProjectRuntimeInventory.BuildSource(id: entry.id, root: entry.instance.root,
-                    displayName: entry.instance.displayName,
-                    usesJava: services.pluginCatalog.languageSupports.values.contains { ownership in
-                        let support = ownership.declaration
-                        return support.id == "java" && support.recognizesProject(
-                            fileNames: entry.instance.markers.map { URL(fileURLWithPath: $0).lastPathComponent })
-                    },
-                    model: entry.modelState == .loaded && !entry.isReloadRequired ? entry.model : nil)
-            } ?? [],
-            languageSupports: services.pluginCatalog.languageSupports.values.map(\.declaration)
-                .filter { !languageToolingFeature.isDisabled($0.id) }
-        )
-    }
-
-    func persistProjectRuntimeSettings() async {
-        guard currentWorkspaceIdentity != nil, runtimeFeature.saveSettings() else { return }
-        runtimeFeature.finishSaving()
     }
 }

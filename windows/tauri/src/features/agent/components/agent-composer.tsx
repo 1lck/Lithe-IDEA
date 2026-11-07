@@ -36,7 +36,7 @@ import {
   type AgentCommandKeyState,
 } from "../services/agent-command-completion";
 import { chooseAgentFiles } from "../services/agent-file-picker";
-import { savePastedImages } from "@/platform/agent-pasted-images";
+import { recordAcceptedPastedImages, savePastedImages } from "@/platform/agent-pasted-images";
 import { convertFileSrc } from "@/platform/tauri-core";
 import { readAgentClipboardFiles } from "@/platform/agent-local-files";
 import { agentConnection } from "../stores/agent-connection-service";
@@ -289,10 +289,9 @@ export function AgentComposer({
       return;
     }
     try {
-      agentConnection().send(
-        draft,
-        files.map((file) => file.uri),
-      );
+      const uris = files.map((file) => file.uri);
+      agentConnection().send(draft, uris);
+      recordAcceptedPastedImages(uris).catch((cleanup) => console.warn("Agent attachment ledger failed", cleanup));
       onDraftChange("");
       onFilesChange([]);
       setMention(null);

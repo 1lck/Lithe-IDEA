@@ -16,7 +16,7 @@ protocol RunToolchainProvider: AnyObject {
     var identifiers: Set<String> { get }
     var toolchainType: String { get }
     /// Owning language pack, when this provider is language-specific.  A nil
-    /// value is reserved for shared build tools such as Maven or Gradle.
+    /// value is reserved for shared build tools.
     var languageProviderID: String? { get }
     var discoverable: Bool { get }
     func resolve(
@@ -147,9 +147,6 @@ final class RunToolchainRegistry {
 
     static func standardProviders() -> [any RunToolchainProvider] {
         [
-            JavaRunToolchainProvider(),
-            MavenRunToolchainProvider(),
-            GradleRunToolchainProvider(),
             PathRunToolchainProvider(
                 identifiers: ["go", "project-go"], command: "go",
                 languageProviderID: "go"),
@@ -174,93 +171,6 @@ final class RunToolchainRegistry {
                 toolchainType: "rust",
                 languageProviderID: "rust")
         ]
-    }
-}
-
-@MainActor
-private final class GradleRunToolchainProvider: RunToolchainProvider {
-    let identifiers: Set<String> = ["gradle", "project-gradle"]
-    let toolchainType = "gradle"
-    let languageProviderID: String? = "java"
-
-    func resolve(
-        projectURL: URL,
-        options: RunOptions,
-        runtimeService: ProjectRuntimeService
-    ) throws -> ResolvedRunToolchain {
-        guard let executable = runtimeService.gradleExecutable(at: projectURL) else {
-            throw RunExecutableResolutionError(
-                message: L10n.string("No Gradle wrapper or Gradle executable was found.")
-            )
-        }
-        return ResolvedRunToolchain(
-            executableURL: executable,
-            environment: runtimeService.processEnvironment()
-        )
-    }
-}
-
-@MainActor
-private final class JavaRunToolchainProvider: RunToolchainProvider {
-    let identifiers: Set<String> = ["project-jdk"]
-    let toolchainType = "java"
-    let languageProviderID: String? = "java"
-
-    func resolve(
-        projectURL: URL,
-        options: RunOptions,
-        runtimeService: ProjectRuntimeService
-    ) throws -> ResolvedRunToolchain {
-        guard let executable = runtimeService.javaExecutableURL(overridePath: options.javaHomePath) else {
-            throw RunExecutableResolutionError(
-                message: L10n.string("No Java runtime was found. Set JAVA_HOME or install a JDK.")
-            )
-        }
-        return ResolvedRunToolchain(
-            executableURL: executable,
-            environment: runtimeService.environment(
-                for: .java,
-                javaHomeOverride: options.javaHomePath
-            )
-        )
-    }
-}
-
-@MainActor
-private final class MavenRunToolchainProvider: RunToolchainProvider {
-    let identifiers: Set<String> = ["project-maven"]
-    let toolchainType = "maven"
-    let languageProviderID: String? = "java"
-
-    func resolvePassive(projectURL: URL, options: RunOptions, runtimeService: ProjectRuntimeService) throws -> ResolvedRunToolchain? {
-        guard let executable = runtimeService.mavenExecutable(at: projectURL, overridePath: options.mavenExecutablePath) else {
-            throw RunExecutableResolutionError(message: L10n.string("No Maven executable was found. Edit this service configuration."))
-        }
-        return ResolvedRunToolchain(executableURL: executable, environment: [:])
-    }
-
-    func resolve(
-        projectURL: URL,
-        options: RunOptions,
-        runtimeService: ProjectRuntimeService
-    ) throws -> ResolvedRunToolchain {
-        guard let executable = runtimeService.mavenExecutable(
-            at: projectURL,
-            overridePath: options.mavenExecutablePath
-        ) else {
-            throw RunExecutableResolutionError(
-                message: L10n.string("No Maven executable was found. Edit this service configuration.")
-            )
-        }
-        return ResolvedRunToolchain(
-            executableURL: executable,
-            environment: runtimeService.environment(
-                for: .maven,
-                javaHomeOverride: options.mavenJavaHomePath.isEmpty
-                    ? options.javaHomePath
-                    : options.mavenJavaHomePath
-            )
-        )
     }
 }
 

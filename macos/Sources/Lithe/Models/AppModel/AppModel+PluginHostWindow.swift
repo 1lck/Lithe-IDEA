@@ -32,6 +32,8 @@ extension AppModel: PluginHostWindowPort {
 
     var hostMessages: PluginHostMessageFeatureModel { featureGraph.pluginMessages }
 
+    var hostLanguageServers: (any PluginLanguageServerRouting)? { languageToolingSessionsIfActive }
+
     func hostDocumentState(at url: URL, flushingEditor: Bool) async -> PluginHostDocumentState? {
         guard currentWorkspaceIdentity != nil else { return nil }
         let normalized = url.standardizedFileURL
@@ -64,7 +66,6 @@ extension AppModel: PluginHostWindowPort {
         guard MediaDocumentKind.from(url: normalized) == nil else { return nil }
         if activation == .select {
             // The same preparation as opening a file from the project tree.
-            suggestJavaPluginIfNeeded(files: [normalized])
             editorTabOrderFeature.repositoryDiffSelected = false
             editorNavigationTarget = nil
         }

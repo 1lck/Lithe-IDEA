@@ -100,7 +100,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     private func notifyOperationFailure(_ message: String) {
         if let notifyFailure { notifyFailure(message) } else { notify?(message) }
     }
-    private var recordHistory: (@MainActor (URL, LocalHistoryReason) async -> Void)?
+    private var recordHistory: (@MainActor (URL, LocalHistoryEvent) async -> Void)?
     private var relocateHistory: (@MainActor (URL, URL) async -> Void)?
     /// Moves an item through the version control that tracks it, so the
     /// move is recorded; false leaves the move to the file system.
@@ -149,7 +149,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         restoreSession: @escaping @MainActor (WorkspaceSession, [URL]) async -> Void,
         openFile: @escaping @MainActor (URL) -> Void,
         notify: @escaping @MainActor (String) -> Void,
-        recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void,
+        recordHistory: @escaping @MainActor (URL, LocalHistoryEvent) async -> Void,
         relocateHistory: @escaping @MainActor (URL, URL) async -> Void,
         moveTrackedItem: @escaping @MainActor (URL, URL) async -> Bool = { _, _ in false },
         relocateOpenDocuments: @escaping @MainActor (URL, URL) -> Void,
@@ -582,7 +582,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         scheduleSearchIndexWarm(at: workspaceURL, rules: rules)
 
         // The tree is usable as soon as the shared snapshot is ready. Service
-        // preparation below may involve Git, Java, and local history work.
+        // preparation below may involve Git, language tooling, and local history work.
         if isInitialLoad {
             isLoadingWorkspace = false
         } else {
@@ -659,24 +659,20 @@ package final class WorkspaceFeatureModel: ObservableObject {
               let relativePath = Self.relativePath(for: url, in: workspaceURL) else { return }
         let workspaceGeneration = self.workspaceGeneration
         let previousMarks = directoryMarks
-        var updatedMarks = directoryMarks
         let previousSettings = indexingSettings
-        switch action {
-        case .cancelExclusion:
-            guard !directoryMarks.contains(where: { $0.value == .excluded && $0.key != relativePath && (relativePath.hasPrefix($0.key + "/") || $0.key == ".") }) else { return }
-            let remembered = indexingSettings.previousRoles.removeValue(forKey: relativePath)
-            if updatedMarks[relativePath] == .excluded {
-                updatedMarks[relativePath] = remembered ?? .plain
-            }
-            if !indexingSettings.includedDirectories.contains(relativePath) { indexingSettings.includedDirectories.append(relativePath) }
-        case .exclude:
-            if let previous = updatedMarks[relativePath], previous != .excluded { indexingSettings.previousRoles[relativePath] = previous }
-            updatedMarks[relativePath] = .excluded
-            indexingSettings.includedDirectories.removeAll { $0 == relativePath }
-        case .setRole(let role):
-            guard role != .excluded else { return }
-            updatedMarks[relativePath] = role
-        }
+        if case .setRole(.excluded) = action { return }
+        // Core applies the action: it remembers the role an exclusion replaces, restores
+        // it when the exclusion is canceled, and refuses to override an excluded ancestor.
+        guard let reduction = operations.reduceDirectoryAction(
+            action, at: relativePath,
+            rules: WorkspaceDirectoryRules(
+                marks: directoryMarks, includedDirectories: indexingSettings.includedDirectories,
+                previousRoles: indexingSettings.previousRoles
+            )
+        ), reduction.changed else { return }
+        let updatedMarks = reduction.rules.marks
+        indexingSettings.includedDirectories = reduction.rules.includedDirectories
+        indexingSettings.previousRoles = reduction.rules.previousRoles
         guard updatedMarks != previousMarks || previousSettings != indexingSettings else { return }
 
         let previousMarkRevision = directoryMarkRevision
@@ -903,8 +899,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             } else {
                 marksToMigrate = operationDirectoryMarks
             }
-            migrateIndexingSettings(moving: request.targetURL, to: destination, in: operationWorkspaceURL)
-            let migratedMarks = Self.directoryMarks(
+            let migratedMarks = migrateDirectoryRules(
                 marksToMigrate,
                 moving: request.targetURL,
                 to: destination,
@@ -1000,9 +995,8 @@ package final class WorkspaceFeatureModel: ObservableObject {
             // Relocate open buffers immediately, before any further suspension.
             if isCurrent { relocateOpenDocuments?(source, destination) }
             let marks = isCurrent ? directoryMarks : previousMarks
-            migrateIndexingSettings(moving: source, to: destination, in: workspace)
             await persistDirectoryMarksAfterFileOperation(
-                Self.directoryMarks(marks, moving: source, to: destination, in: workspace),
+                migrateDirectoryRules(marks, moving: source, to: destination, in: workspace),
                 previousMarks: marks, workspaceURL: workspace, workspaceGeneration: generation
             )
             guard workspaceGeneration == generation, workspaceURL == workspace else { return }
@@ -1060,9 +1054,11 @@ package final class WorkspaceFeatureModel: ObservableObject {
               let operationWorkspaceURL = workspaceURL else { return false }
         let generation = workspaceGeneration
         guard let sources = validatedCopySources(urls, in: directory, workspace: operationWorkspaceURL) else { return false }
-        let fileOperations = self.fileOperations, logSink = self.logSink
+        let fileOperations = self.fileOperations, logSink = self.logSink, operations = self.operations
         let result = await UserActionContext.detached(priority: .userInitiated) {
-            Self.copyProjectItems(sources, in: directory, fileOperations: fileOperations, logSink: logSink)
+            Self.copyProjectItems(
+                sources, in: directory, fileOperations: fileOperations, operations: operations, logSink: logSink
+            )
         }.value
         guard workspaceURL == operationWorkspaceURL, workspaceGeneration == generation else { return false }
         if let error = result.1 { notifyOperationFailure(error) } else { notify?("Pasted files") }
@@ -1094,21 +1090,16 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     private nonisolated static func copyProjectItems(
-        _ sources: [URL], in directory: URL, fileOperations: any WorkspaceFileOperations, logSink: (any LogSink)?
+        _ sources: [URL], in directory: URL, fileOperations: any WorkspaceFileOperations,
+        operations: any WorkspaceOperations, logSink: (any LogSink)?
     ) -> (Int, String?) {
         var copied = 0
         do {
             for source in sources {
-                var destination = directory.appendingPathComponent(source.lastPathComponent)
-                var index = 1
-                while fileOperations.fileExists(at: destination) {
-                    let ext = source.pathExtension
-                    let base = ext.isEmpty ? source.lastPathComponent : source.deletingPathExtension().lastPathComponent
-                    let suffix = index == 1 ? " copy" : " copy \(index)"
-                    destination = directory.appendingPathComponent(base + suffix + (ext.isEmpty ? "" : "." + ext))
-                    index += 1
-                }
-                try fileOperations.copyItem(at: source, to: destination)
+                _ = try copyWithoutReplacing(
+                    source, in: directory, duplicate: false,
+                    fileOperations: fileOperations, operations: operations
+                )
                 copied += 1
             }
             return (copied, nil)
@@ -1118,16 +1109,50 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
     }
 
+    /// Most attempts for one destination; each failed attempt adds a name that exists.
+    private nonisolated static let maxCopyNameAttempts = 512
+
+    /// Copies `source` into `directory` under a name Core plans from the names that exist,
+    /// never replacing an existing item. A name taken between the existence probe and the
+    /// copy makes the copy fail, which only adds the name to the facts and plans again.
+    private nonisolated static func copyWithoutReplacing(
+        _ source: URL, in directory: URL, duplicate: Bool,
+        fileOperations: any WorkspaceFileOperations, operations: any WorkspaceOperations
+    ) throws -> URL {
+        let name = source.lastPathComponent
+        let isDirectory = fileOperations.isDirectory(at: source)
+        var existing: [String] = []
+        for _ in 0..<maxCopyNameAttempts {
+            guard let planned = operations.copyName(
+                for: name, isDirectory: isDirectory, existing: existing, duplicate: duplicate
+            ), !existing.contains(planned) else { throw CocoaError(.fileWriteUnknown) }
+            let destination = directory.appendingPathComponent(planned)
+            if fileOperations.fileExists(at: destination) {
+                existing.append(planned)
+                continue
+            }
+            do {
+                try fileOperations.copyItem(at: source, to: destination)
+                return destination
+            } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                existing.append(planned)
+            }
+        }
+        throw CocoaError(.fileWriteFileExists)
+    }
+
     package func duplicateProjectItem(at sourceURL: URL) async {
         guard !isPerformingProjectItemOperation,
               isWorkspaceURL(sourceURL),
               sourceURL.standardizedFileURL != workspaceURL?.standardizedFileURL else { return }
         isPerformingProjectItemOperation = true
-        let destination = availableDuplicateURL(for: sourceURL)
-        let fileOperations = self.fileOperations, logSink = self.logSink
+        let fileOperations = self.fileOperations, logSink = self.logSink, operations = self.operations
         let errorMessage = await UserActionContext.detached(priority: .userInitiated) { () -> String? in
             do {
-                try fileOperations.copyItem(at: sourceURL, to: destination)
+                _ = try Self.copyWithoutReplacing(
+                    sourceURL, in: sourceURL.deletingLastPathComponent(), duplicate: true,
+                    fileOperations: fileOperations, operations: operations
+                )
                 return nil
             } catch {
                 logSink?.emit(AppWorkspaceFileOperationFailed(error: error, stage: "file-operation"))
@@ -1270,10 +1295,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
             } else {
                 marksToRemoveFrom = operationDirectoryMarks
             }
-            migrateIndexingSettings(moving: request.url, to: nil, in: operationWorkspaceURL)
-            let remainingMarks = Self.directoryMarks(
+            let remainingMarks = migrateDirectoryRules(
                 marksToRemoveFrom,
-                removing: request.url,
+                moving: request.url,
+                to: nil,
                 in: operationWorkspaceURL
             )
             await persistDirectoryMarksAfterFileOperation(
@@ -1306,22 +1331,36 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }.value
     }
 
-    private func migrateIndexingSettings(moving source: URL, to destination: URL?, in root: URL) {
+    /// Carries the directory rules of a moved (or, without a destination, deleted) directory
+    /// to their new keys. Core owns the migration; this loads and saves the root's
+    /// indexing settings and returns the migrated marks for the caller to persist.
+    private func migrateDirectoryRules(
+        _ marks: [String: WorkspaceDirectoryMark],
+        moving source: URL,
+        to destination: URL?,
+        in root: URL
+    ) -> [String: WorkspaceDirectoryMark] {
+        guard let sourcePath = Self.relativePath(for: source, in: root) else { return marks }
+        let destinationPath = destination.flatMap { Self.relativePath(for: $0, in: root) }
         do {
-            var settings = try directoryMarkStore.loadIndexingSettings(for: root)
-            let includes = Dictionary(settings.includedDirectories.map { ($0, WorkspaceDirectoryMark.plain) }, uniquingKeysWith: { first, _ in first })
-            if let destination {
-                settings.includedDirectories = Self.directoryMarks(includes, moving: source, to: destination, in: root).keys.sorted()
-                settings.previousRoles = Self.directoryMarks(settings.previousRoles, moving: source, to: destination, in: root)
-            } else {
-                settings.includedDirectories = Self.directoryMarks(includes, removing: source, in: root).keys.sorted()
-                settings.previousRoles = Self.directoryMarks(settings.previousRoles, removing: source, in: root)
+            let settings = try directoryMarkStore.loadIndexingSettings(for: root)
+            let rules = WorkspaceDirectoryRules(
+                marks: marks, includedDirectories: settings.includedDirectories,
+                previousRoles: settings.previousRoles
+            )
+            guard let migrated = operations.relocateDirectoryRules(rules, moving: sourcePath, to: destinationPath) else {
+                throw WorkspaceIndexingFailure.writeFailed
             }
-            try directoryMarkStore.saveIndexingSettings(settings, for: root)
-            if workspaceURL == root { indexingSettingsRevision &+= 1; indexingSettings = settings }
+            var updated = settings
+            updated.includedDirectories = migrated.includedDirectories
+            updated.previousRoles = migrated.previousRoles
+            try directoryMarkStore.saveIndexingSettings(updated, for: root)
+            if workspaceURL == root { indexingSettingsRevision &+= 1; indexingSettings = updated }
+            return migrated.marks
         } catch {
             recordIndexingFailure(error, fallback: .writeFailed)
             notifyOperationFailure(indexingError ?? "")
+            return marks
         }
     }
 
@@ -1347,39 +1386,6 @@ package final class WorkspaceFeatureModel: ObservableObject {
         // would restore paths that no longer exist. Keep the in-memory state and
         // surface that only preference persistence failed.
         notifyOperationFailure("Could not update directory marks after the file operation: \(saveError)")
-    }
-
-    private static func directoryMarks(
-        _ marks: [String: WorkspaceDirectoryMark],
-        moving sourceURL: URL,
-        to destinationURL: URL,
-        in workspaceURL: URL
-    ) -> [String: WorkspaceDirectoryMark] {
-        guard let sourcePath = relativePath(for: sourceURL, in: workspaceURL),
-              let destinationPath = relativePath(for: destinationURL, in: workspaceURL) else {
-            return marks
-        }
-        let sourcePrefix = sourcePath + "/"
-        var updatedMarks = marks.filter { key, _ in
-            key != sourcePath && !key.hasPrefix(sourcePrefix)
-        }
-        for (key, mark) in marks where key == sourcePath || key.hasPrefix(sourcePrefix) {
-            let suffix = String(key.dropFirst(sourcePath.count))
-            updatedMarks[destinationPath + suffix] = mark
-        }
-        return updatedMarks
-    }
-
-    private static func directoryMarks(
-        _ marks: [String: WorkspaceDirectoryMark],
-        removing targetURL: URL,
-        in workspaceURL: URL
-    ) -> [String: WorkspaceDirectoryMark] {
-        guard let targetPath = relativePath(for: targetURL, in: workspaceURL) else { return marks }
-        let targetPrefix = targetPath + "/"
-        return marks.filter { key, _ in
-            key != targetPath && !key.hasPrefix(targetPrefix)
-        }
     }
 
     private func startWatching(
@@ -1667,7 +1673,6 @@ package final class WorkspaceFeatureModel: ObservableObject {
         )
         guard !Task.isCancelled, self.workspaceURL == workspaceURL, workspaceGeneration == generation else { return }
         let requiresProjectServiceReload = changedURLs.contains { url in
-            let name = url.lastPathComponent.lowercased()
             let dependencyIndex = workspaceURL.standardizedFileURL
                 .appendingPathComponent(".lithe", isDirectory: true)
                 .appendingPathComponent("dependencies", isDirectory: true)
@@ -1676,10 +1681,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
             let isLitheConfiguration = url.pathExtension.lowercased() == "json"
                 && url.path.hasPrefix(workspaceURL.appendingPathComponent(".lithe").path + "/")
                 && url.standardizedFileURL != dependencyIndex
-            let isBuildManagementFile = name == "pom.xml"
-                || name == "build.gradle"
-                || name == "build.gradle.kts"
-            return isLitheConfiguration || isBuildManagementFile
+            return isLitheConfiguration
         }
         if requiresProjectServiceReload, !reloadedProjectServices { await reloadProjectServices?() }
     }
@@ -1793,7 +1795,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
                       !visibilityRules.isHidden(url, relativeTo: workspaceURL, isDirectory: false)
                 else { continue }
                 files.append(url)
-                apply(root.inserting(file: url))
+                apply(root.inserting(file: url, order: operations.orderedTreeSiblings))
                 didChange = true
             } else if isKnownProjectFile(url) {
                 files.removeAll { $0 == url }
@@ -2091,24 +2093,6 @@ package final class WorkspaceFeatureModel: ObservableObject {
             collapsedAncestorPaths: node.collapsedAncestorPaths,
             isInsideSourceRoot: node.isInsideSourceRoot
         )
-    }
-
-    private func availableDuplicateURL(for sourceURL: URL) -> URL {
-        let parent = sourceURL.deletingLastPathComponent()
-        let fileExtension = sourceURL.pathExtension
-        let baseName = fileExtension.isEmpty
-            ? sourceURL.lastPathComponent
-            : sourceURL.deletingPathExtension().lastPathComponent
-        var index = 1
-        while true {
-            let suffix = index == 1 ? " copy" : " copy \(index)"
-            let name = fileExtension.isEmpty
-                ? "\(baseName)\(suffix)"
-                : "\(baseName)\(suffix).\(fileExtension)"
-            let candidate = parent.appendingPathComponent(name)
-            if !fileOperations.fileExists(at: candidate) { return candidate }
-            index += 1
-        }
     }
 
     private func isValidProjectItemName(_ name: String) -> Bool {

@@ -1,18 +1,24 @@
 import { expect, test } from "bun:test";
 import { fullDiff } from "@/test-utils/commit-diff-fixtures";
+import type { CommitDiffBlock } from "../api/git-diff-block-api";
 import { createCommitDiffReview, type CommitDiffSnapshot, type CommitDiffReviewState } from "./commit-diff-review";
 
-function snapshot(index = ["a", "b", "c", "d"]) : CommitDiffSnapshot {
+const block = (id: string, checked: boolean): CommitDiffBlock => ({
+  id, checked, indeterminate: false, canToggle: true, canRollback: !checked, leftStart: 0, rightStart: 0,
+});
+/** Core owns the blocks; the token names the read each block was planned from. */
+function snapshot(included = false, token = "t0"): CommitDiffSnapshot {
   return { diff: fullDiff(["a", "b", "c", "d"], ["a", "B", "c", "D"]),
-    staged: fullDiff(["a", "b", "c", "d"], index),
-    file: { path: "file.txt", status: "modified", staged: index[1] === "B", worktree: true } };
+    staged: fullDiff(["a", "b", "c", "d"], ["a", "b", "c", "d"]),
+    file: { path: "file.txt", status: "modified", staged: included, worktree: true },
+    blocks: [block("line-1", included), block("line-3", false)], token };
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>(settle => { resolve = settle; });
   return { promise, resolve };
 }
-function fixture() {
+function fixture(outcome: "applied" | "stale" | "unsafe" | "failed" = "applied") {
   let current = snapshot();
   let state!: CommitDiffReviewState;
   const writes: string[] = [];
@@ -20,10 +26,11 @@ function fixture() {
   let released = 0;
   const owner = createCommitDiffReview({
     read: () => read(),
-    stage: async () => { writes.push("stage"); current = snapshot(["a", "B", "c", "d"]); return true; },
-    unstage: async () => { writes.push("unstage"); current = snapshot(); return true; },
-    rollback: async () => { writes.push("rollback"); return true; },
-    includeFile: async () => { writes.push("file"); return true; },
+    writeBlock: async (taken, id, action) => {
+      writes.push(`${action}:${id}:${taken.token}`);
+      if (outcome === "applied") current = snapshot(action === "include", "t1");
+      return outcome;
+    },
     changed: next => { state = next; }, beginWrite: () => () => { released++; },
   });
   return { owner, writes, setSnapshot: (value: CommitDiffSnapshot) => { current = value; },
@@ -31,50 +38,85 @@ function fixture() {
     get state() { return state; }, get released() { return released; } };
 }
 
-test("inclusion writes one block and republishes its actual index state", async () => {
+test("a block write names the planned block and snapshot token, then republishes Core's state", async () => {
   const f = fixture();
   try {
     await f.owner.refresh();
-    const id = f.state.blocks[0].id;
-    expect(await f.owner.apply(id, "include")).toBe("applied");
-    expect(f.writes).toEqual(["stage"]);
-    expect(f.state.blocks.map(block => block.checked)).toEqual([true, false]);
-    expect(await f.owner.apply(id, "exclude")).toBe("applied");
-    expect(f.state.blocks.map(block => block.checked)).toEqual([false, false]);
+    expect(await f.owner.apply("line-1", "include")).toBe("applied");
+    expect(f.writes).toEqual(["include:line-1:t0"]);
+    expect(f.state.blocks.map(item => item.checked)).toEqual([true, false]);
+    expect(await f.owner.apply("line-1", "exclude")).toBe("applied");
+    expect(f.writes[1]).toBe("exclude:line-1:t1");
+    expect(f.state.blocks.map(item => item.checked)).toEqual([false, false]);
     expect(f.released).toBe(2);
   } finally { f.owner.dispose(); }
 });
 
-test("a changed snapshot during rollback validation refreshes without applying an old patch", async () => {
-  const f = fixture(), gate = deferred<CommitDiffSnapshot | null>();
-  let action: Promise<unknown> | undefined;
+test("a write Core refuses as stale surfaces the stale notice and refreshes", async () => {
+  const f = fixture("stale");
   try {
     await f.owner.refresh();
-    f.setRead(() => gate.promise);
-    action = f.owner.apply(f.state.blocks[0].id, "rollback");
-    const updated = snapshot(["a", "B", "c", "d"]);
-    f.setSnapshot(updated);
-    gate.resolve(updated);
-    expect(await action).toBe("stale");
-    expect(f.writes).toEqual([]);
-    expect(f.state.blocks[0].checked).toBe(true);
-  } finally { gate.resolve(null); await action; f.owner.dispose(); }
+    expect(await f.owner.apply("line-1", "rollback")).toBe("stale");
+    expect(f.state.error).toBe("stale");
+    expect(f.state.busy).toBe(false);
+    expect(f.released).toBe(1);
+  } finally { f.owner.dispose(); }
 });
 
-test("disposal during rollback validation suppresses writes and still releases the commit guard", async () => {
-  const f = fixture(), gate = deferred<CommitDiffSnapshot | null>();
-  let action: Promise<unknown> | undefined;
+test("an unsafe rollback keeps its specific reason and a failed write is generic", async () => {
+  for (const [outcome, error] of [["unsafe", "unsafe"], ["failed", "write"]] as const) {
+    const f = fixture(outcome);
+    try {
+      await f.owner.refresh();
+      expect(await f.owner.apply("line-1", "rollback")).toBe("failed");
+      expect(f.state.error).toBe(error);
+    } finally { f.owner.dispose(); }
+  }
+});
+
+test("whole-file inclusion carries the snapshot token and a stale refusal is surfaced", async () => {
+  const f = fixture();
   try {
     await f.owner.refresh();
-    f.setRead(() => gate.promise);
-    action = f.owner.apply(f.state.blocks[0].id, "rollback");
-    expect(await f.owner.apply(f.state.blocks[1].id, "include")).toBe("ignored");
-    f.owner.dispose();
-    gate.resolve(snapshot());
-    expect(await action).toBe("ignored");
+    expect(await f.owner.apply(null, "include")).toBe("applied");
+    expect(f.writes).toEqual(["includeFile:null:t0"]);
+  } finally { f.owner.dispose(); }
+  const stale = fixture("stale");
+  try {
+    await stale.owner.refresh();
+    expect(await stale.owner.apply(null, "exclude")).toBe("stale");
+    expect(stale.writes).toEqual(["excludeFile:null:t0"]);
+    expect(stale.state.error).toBe("stale");
+  } finally { stale.owner.dispose(); }
+});
+
+test("blocks Core cannot toggle are never sent", async () => {
+  const f = fixture();
+  try {
+    f.setSnapshot({ ...snapshot(), blocks: [{ ...block("line-1", false), canToggle: false, canRollback: false }] });
+    await f.owner.refresh();
+    expect(await f.owner.apply("line-1", "include")).toBe("ignored");
+    expect(await f.owner.apply("line-1", "rollback")).toBe("ignored");
+    expect(await f.owner.apply("line-9", "include")).toBe("ignored");
     expect(f.writes).toEqual([]);
-    expect(f.released).toBe(1);
-  } finally { gate.resolve(null); await action; f.owner.dispose(); }
+  } finally { f.owner.dispose(); }
+});
+
+test("disposal during a write still releases the commit guard", async () => {
+  const gate = deferred<"applied">();
+  let released = 0, state!: CommitDiffReviewState;
+  const owner = createCommitDiffReview({
+    read: async () => snapshot(), writeBlock: () => gate.promise,
+    beginWrite: () => () => { released++; }, changed: next => { state = next; },
+  });
+  await owner.refresh();
+  const action = owner.apply("line-1", "include");
+  expect(await owner.apply("line-3", "include")).toBe("ignored");
+  owner.dispose();
+  gate.resolve("applied");
+  await action;
+  expect(released).toBe(1);
+  expect(state.snapshot).not.toBeNull();
 });
 
 test("a Git event arriving during a refresh triggers a new read instead of publishing a stale result", async () => {
@@ -82,7 +124,7 @@ test("a Git event arriving during a refresh triggers a new read instead of publi
   let pending: Promise<void> | undefined;
   let reads = 0;
   try {
-    f.setRead(() => ++reads === 1 ? gate.promise : Promise.resolve(snapshot(["a", "B", "c", "d"])));
+    f.setRead(() => ++reads === 1 ? gate.promise : Promise.resolve(snapshot(true, "t1")));
     pending = f.owner.refresh();
     const joined = f.owner.refresh();
     gate.resolve(snapshot());
@@ -104,23 +146,15 @@ test("read failures retain the existing diff and surface a refresh error", async
   } finally { f.owner.dispose(); }
 });
 
-test("entering commit review during a pending validation read prevents the block write", async () => {
-  const gate = deferred<CommitDiffSnapshot | null>();
-  const current = snapshot();
-  let writable = true, reads = 0, writes = 0, state!: CommitDiffReviewState;
+test("leaving commit review mid-write prevents the block write", async () => {
+  let writable = true, writes = 0, state!: CommitDiffReviewState;
   const owner = createCommitDiffReview({
-    read: () => ++reads === 2 ? gate.promise : Promise.resolve(current),
-    stage: async () => { writes++; return true; }, unstage: async () => false,
-    rollback: async () => false, includeFile: async () => false,
+    read: async () => snapshot(), writeBlock: async () => { writes++; return "applied"; },
     canWrite: () => writable, changed: next => { state = next; },
   });
-  let action: Promise<unknown> | undefined;
-  try {
-    await owner.refresh();
-    action = owner.apply(state.blocks[0].id, "include");
-    writable = false;
-    gate.resolve(current);
-    expect(await action).toBe("ignored");
-    expect(writes).toBe(0);
-  } finally { gate.resolve(current); await action; owner.dispose(); }
+  await owner.refresh();
+  writable = false;
+  expect(await owner.apply(state.blocks[0].id, "include")).toBe("ignored");
+  expect(writes).toBe(0);
+  owner.dispose();
 });

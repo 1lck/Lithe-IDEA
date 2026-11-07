@@ -5,7 +5,7 @@ import LitheDebugModule
 /// Coordinates presentation and resource cleanup as a debug adapter session
 /// changes state.
 ///
-/// A Java launch may request an integrated terminal before the adapter reaches
+/// A launch may request an integrated terminal before the adapter reaches
 /// `running`, so terminal teardown is keyed on the session that owned it rather
 /// than stopping every debug terminal.
 @MainActor
@@ -29,7 +29,6 @@ final class DebugSessionCleanupCoordinator {
             actions.showDebugToolWindow()
             actions.activateApplication()
         case .terminated, .failed:
-            actions.stopJavaTestResultServer()
             actions.stopDebugTerminalProcesses(for: activeSessionID)
         default:
             break

@@ -22,14 +22,6 @@ struct LanguageTestLocalization {
     }
 
     func error(_ message: String) -> String {
-        for framework in ["Maven", "JUnit"] {
-            let prefix = framework + " test run timed out after "
-            let suffix = " seconds."
-            guard message.hasPrefix(prefix), message.hasSuffix(suffix) else { continue }
-            let seconds = String(message.dropFirst(prefix.count).dropLast(suffix.count))
-            guard Int(seconds) != nil else { return message }
-            return String(format: text("%@ test run timed out after %@ seconds."), framework, seconds)
-        }
-        return text(message)
+        text(message)
     }
 }

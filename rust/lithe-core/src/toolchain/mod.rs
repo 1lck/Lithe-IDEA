@@ -33,7 +33,8 @@ fn command(
     })
 }
 
-/// Registers definitions using independently verified host package identities.
+/// Registers the definitions of enabled plugins; a tool ID declared by several plugins
+/// belongs to none of them and is reported in `conflicts` instead.
 pub fn registry_command(input: Value) -> Result<Value, CoreError> {
     command(input, definitions::registry, "registry")
 }
@@ -71,6 +72,11 @@ pub fn resolve_command(input: Value) -> Result<Value, CoreError> {
 /// Extracts and compares a version using only its enabled plugin definition.
 pub fn check_version_command(input: Value) -> Result<Value, CoreError> {
     command(input, resolution::check_version, "version")
+}
+
+/// Expands a tool definition's launch template for a selected executable.
+pub fn instantiate_launch_command(input: Value) -> Result<Value, CoreError> {
+    command(input, resolution::instantiate_launch, "launch")
 }
 
 /// Produces bounded scan declarations, not a native scan or tool-name table.

@@ -10,7 +10,6 @@ extension LitheExecutionModule.RunService {
         processFactory: @escaping () -> any StreamingProcess,
         fileStorage: any FileStorage,
         preferences: any KeyValueStore,
-        javaMavenOperations: any JavaMavenOperations,
         runConfigurationOperations: any RunConfigurationOperations,
         executableResolver: (any RunExecutableResolving)? = nil,
         languageProviderCatalog: LanguageProviderCatalog = .standard,
@@ -19,12 +18,10 @@ extension LitheExecutionModule.RunService {
     ) {
         let catalog = languagePackRegistry?.catalog ?? languageProviderCatalog
         self.init(
-            runtime: runtimeService,
             process: process,
             processFactory: processFactory,
             fileAccess: MacRunFileAccess(storage: fileStorage),
             preferences: MacRunPreferenceStore(store: preferences),
-            serverPortParser: javaMavenOperations,
             runConfigurationOperations: runConfigurationOperations,
             executableResolver: executableResolver ?? RunExecutableResolver(runtimeService: runtimeService),
             languageProviderCatalog: catalog,

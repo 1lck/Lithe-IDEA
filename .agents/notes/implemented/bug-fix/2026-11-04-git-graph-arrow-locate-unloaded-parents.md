@@ -11,10 +11,16 @@ Windows Git Log 图谱里“指向未加载父提交”的箭头（分页或过�
 目标被筛选隐藏时给出提示，永不静默失败。同时新增自动补齐：每一批新出现
 的缺失父提交自动预加载（同样 5 页预算），让绝大多数箭头出现即可跳。
 
+preview 把图布局下沉到 Rust Core 之后，本修复不再持有布局实现：Core 的
+`git.graphProjection` 契约保持 missing 边 `targetHash` 为 `null`，Windows
+在 `attachGitGraphCommits` 里从 `parentEdges` 解析出定位目标。共享契约、
+共享 fixture 和 macOS 图谱都不需要改动。
+
 ## 问题
 
-`layoutGitGraph`（`git-graph-layout.ts`）把父提交不在已加载列表的边标为
-missing：箭头照画（`hasArrow`），但 `targetHash` 为 `null`，而
+Core 的 `git.graphProjection` 把父提交不在已加载窗口的边标为 missing：
+箭头照画（`hasArrow`），但契约规定 `targetHash` 为 `null`（不虚构已加载
+端点）；真实父 hash 只在源行的 `parentEdges[].parentHash` 里。而
 `GitGraphArrowTargets`（`git-graph-row.tsx`）只为 `targetHash !== null`
 渲染透明按钮——missing 箭头因此零交互。这正是“太长的 graph”的高发场景：
 Git Log 按日期序分页（`git.historyPage`），跨分支 merge 的父提交往往在
@@ -28,8 +34,13 @@ IntelliJ 不存在“分页未加载”问题，因为它是全量 permanent gra
 
 ## 决策
 
-- **layout**：missing 边的 print element 携带 `targetHash = edge.parentHash`
-  （`isMissing` 保持 true 区分语义）。设计依据是 IntelliJ 的
+- **目标解析**：`attachGitGraphCommits`（`git-graph-projection-api.ts`）
+  汇总整个窗口的 `parentEdges`，按 print element id
+  （`<edge id>:<direction>`）把 missing 边的 `targetHash` 补成对应的
+  `parentHash`（`isMissing` 保持 true 区分语义）。必须跨行汇总：Core 把
+  未加载父提交的箭头画在源行的下一行，那一行没有自己的 `parentEdges`。
+  不改 `git.graphProjection` 契约，因为 macOS 也消费 `targetHash`，
+  改契约要同步两端布局与共享 fixture。设计依据是 IntelliJ 的
   `NOT_LOAD_COMMIT` 边保留 `targetId`。
 - **按钮**：missing 箭头渲染与长边箭头相同的命中按钮，标题为
   `git.log.locateParent`（“定位父提交 {hash}”）。
@@ -47,12 +58,19 @@ IntelliJ 不存在“分页未加载”问题，因为它是全量 permanent gra
   某页，定位总能成功；但大 merge 的旁支父提交可能数千提交之远，浅克隆
   边界的父对象根本不在本地，因此自动与点击定位都必须有界，
   `hasMore=false` 后的缺失箭头视为不可达并说明原因。
+- **测试替身**：`git-graph-projection-stub.ts` 的 `missingParents` 选项
+  只在分页交互测试中生成 Core 形状的 missing 边，不承担布局规则；
+  真实规则仍以共享 fixture 和 Core 为准。
 
 ## 考虑过的备选方案
 
 - **对齐 IntelliJ 的全量 permanent graph**：一次性消除所有 missing 边，
   但要放弃现有游标分页并常驻全图内存，是独立的架构工作，不作为本修复
   的前置。
+- **在 Core 里直接给 missing 边填 `targetHash = parentHash`**：语义最集中，
+  但要改 `rust-core-api.md`、共享 fixture 中十几处规则和 macOS 的 Swift
+  消费者，超出本次 Windows 缺陷修复的范围；由宿主解析可得到相同交互且
+  不动跨平台契约。
 - **Core 按 hash 直达**（`git.historyPage` 的 reference 传父 hash，Core 的
   `validate_reference` 已接受）：一次请求拿到目标祖先链，但与现有游标
   序的合并、去重与排序稳定是新的数据层工作，留作后续优化替换翻页循环。
@@ -63,23 +81,30 @@ IntelliJ 不存在“分页未加载”问题，因为它是全量 permanent gra
 
 - 绝大多数 missing 箭头在自动补齐后变为普通可跳箭头；远的箭头点击即定位。
 - 自动补齐在最坏情况下每批多加载 5 页（每页 50 条）；`MAX_COMMITS` 5000
-  上限仍然生效。列表增长后 `layoutGitGraph` 全量重算的耗时若在真实仓库
-  中可感知，增量布局是独立的性能立项。
+  上限仍然生效。列表增长后 Core 的 `git.graphProjection` 对整个窗口重算，
+  耗时若在真实仓库中可感知，增量布局是独立的性能立项。
 - 文本筛选激活时不自动补齐（目标被隐藏，加载无意义），点击提示被隐藏；
   这是 IntelliJ 的同款语义，不强制清除用户的筛选。
+- Windows 前端把 Core 的两个字段关联成 UI 目标，属于呈现层职责；若以后
+  macOS 也要同样的箭头定位，应优先在共享契约里统一 `targetHash` 语义，
+  而不是让两端各写一份解析。
 - macOS 图谱是独立实现（Swift 侧），同样的分页缺口需另行确认；本笔记
   只覆盖 Windows。
 
 ## 验证
 
-- `windows/tauri`：`bun test src/features/git/utils/git-graph-layout.test.ts src/features/git/components/log`
-- 平台矩阵门禁：`./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
+- `windows/tauri`：`bun test src/features/git/api/git-graph-projection-api.test.ts src/test-utils/git-graph-projection-stub.test.ts src/features/git/components/log`
+- `windows/tauri`：`bun run typecheck`
+- 仓库根目录：`node scripts/i18n/generate-i18n.mjs --check`、
+  `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、
+  `./scripts/agent-notes/verify-agent-notes.sh`
 - 手动：分页边界 merge 的旁支箭头悬停/点击定位；筛选激活时点击提示；
   浅克隆仓库 `hasMore=false` 后点击提示不可达；普通长边箭头跳转无回归。
 
 ## 适用范围
 
-- `windows/tauri/src/features/git/utils/git-graph-layout.ts`
+- `windows/tauri/src/features/git/api/git-graph-projection-api.ts`
+- `windows/tauri/src/test-utils/git-graph-projection-stub.ts`
 - `windows/tauri/src/features/git/components/log/git-graph-row.tsx`
 - `windows/tauri/src/features/git/components/log/git-commit-table.tsx`
 - `windows/tauri/src/features/git/components/log/git-log-tool-window.tsx`

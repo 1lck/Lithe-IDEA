@@ -92,6 +92,24 @@ package protocol WorkspaceOperations: Sendable {
     ) -> [String: [FileNode]]?
     /// Loads the workspace root's immediate tree rows.
     func rootRows(at rootURL: URL, visibilityRules: FileVisibilityRules) -> [FileNode]?
+    /// One directory's loaded rows in Core's Project-view order (directories
+    /// first, then `workspace.orderEntries` name order); nil when Core cannot
+    /// order them. Swift never compares file names itself.
+    func orderedTreeSiblings(_ rows: [FileNode]) -> [FileNode]?
+    /// Core's name for a copy (`workspace.planPaste`, or `workspace.planDuplicate` when
+    /// `duplicate`) given the sibling names already known to exist; nil when Core cannot
+    /// plan. Swift never builds copy names itself.
+    func copyName(for name: String, isDirectory: Bool, existing: [String], duplicate: Bool) -> String?
+    /// Core's result of applying `action` to `path` (workspace-relative) in `rules`
+    /// (`workspace.reduceDirectoryAction`); nil when Core rejects the request.
+    func reduceDirectoryAction(
+        _ action: WorkspaceDirectoryAction, at path: String, rules: WorkspaceDirectoryRules
+    ) -> WorkspaceDirectoryReduction?
+    /// Core's migration of `rules` after `source` moved to `destination`, or was deleted
+    /// when `destination` is nil (`workspace.relocateDirectoryRules`); nil when rejected.
+    func relocateDirectoryRules(
+        _ rules: WorkspaceDirectoryRules, moving source: String, to destination: String?
+    ) -> WorkspaceDirectoryRules?
 }
 
 extension WorkspaceOperations {
@@ -161,6 +179,17 @@ package extension WorkspaceOperations {
     func warmSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules) {}
     func updateSearchIndex(at rootURL: URL, changedPaths: [String], visibilityRules: FileVisibilityRules) {}
     func invalidateSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules) {}
+    /// Operations without Core (test doubles) cannot order rows, so an inserted
+    /// file reloads its directory listing instead.
+    func orderedTreeSiblings(_ rows: [FileNode]) -> [FileNode]? { nil }
+    /// Operations without Core (test doubles) cannot plan, so the file operation is refused.
+    func copyName(for name: String, isDirectory: Bool, existing: [String], duplicate: Bool) -> String? { nil }
+    func reduceDirectoryAction(
+        _ action: WorkspaceDirectoryAction, at path: String, rules: WorkspaceDirectoryRules
+    ) -> WorkspaceDirectoryReduction? { nil }
+    func relocateDirectoryRules(
+        _ rules: WorkspaceDirectoryRules, moving source: String, to destination: String?
+    ) -> WorkspaceDirectoryRules? { nil }
 }
 
 package protocol DirectoryWatcherFactory {
@@ -239,6 +268,33 @@ public enum LocalHistoryReason: String, Codable, Sendable {
         case .unsavedDiscard: "Discarded editor changes"
         case .restored: "Before restore"
         }
+    }
+}
+
+/// An editing event that may record local-history snapshots. Rust Core decides which
+/// snapshots each event records (`history.planEvent`), so every platform records at the
+/// same moments.
+public enum LocalHistoryEvent: String, Sendable {
+    case save, autoSave, restore, manual, unsavedDiscard, externalChange
+    case beforeRename, beforeBatchReplace
+}
+
+/// One snapshot Core plans for an event.
+public struct LocalHistorySnapshotPlan: Equatable, Sendable {
+    /// Whose text the snapshot holds.
+    public enum Source: String, Sendable {
+        /// The file's text before the event changed it.
+        case beforeChange
+        /// The file's text after the event completed.
+        case afterChange
+        /// Unsaved editor text the event discards.
+        case editorBuffer
+    }
+    public let source: Source
+    public let reason: LocalHistoryReason
+    public init(source: Source, reason: LocalHistoryReason) {
+        self.source = source
+        self.reason = reason
     }
 }
 

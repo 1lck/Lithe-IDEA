@@ -1,3 +1,4 @@
+import type { GitUpdateBlocker, GitUpdatePlan } from "../api/git-update-plan-api";
 import type {
   GitOperationState,
   GitPullPreflight,
@@ -22,19 +23,26 @@ export interface GitPullWorkflowDependencies {
     expectedBranch?: string,
   ) => Promise<RemoteActionResult>;
   operationState: (repoPath: string) => Promise<GitOperationState | null>;
+  /** Core's `git.updatePlan` inspection of the preflight (the only pull gate). */
+  plan: (input: {
+    preflight: GitPullPreflight;
+    interactive: boolean;
+    explicitSource: boolean;
+    strategy?: PullStrategy;
+  }) => Promise<GitUpdatePlan>;
 }
 
 export interface GitPullWorkflowOptions {
   refresh: () => Promise<void>;
-  /**
-   * Strategy confirmed in Pull or selected by a background update. Merge/rebase
-   * skips the divergent-history prompt; ffOnly may prompt unless explicitly disabled.
-   */
+  /** Strategy the user confirmed in the Pull dialog; Core resolves it otherwise. */
   strategy?: PullStrategy;
   /** Remote branch to pull into the current branch instead of the configured upstream. */
   reference?: GitReference;
-  /** Background fast-forward updates must fail rather than wait for a dialog host. */
-  allowStrategyPrompt?: boolean;
+  /**
+   * The user can be asked to choose a strategy for a diverged history. A
+   * non-interactive run (another worktree) refuses it instead.
+   */
+  interactive?: boolean;
   /** Complete local ref selected by a background update, not a new Pull source. */
   expectedBranch?: string;
   /** Revalidate that the worktree still has the selected branch checked out. */
@@ -44,19 +52,35 @@ export interface GitPullWorkflowOptions {
 export interface GitPullWorkflowSnapshot {
   isPulling: boolean;
   isPullLocked: boolean;
-  pendingPreflight: GitPullPreflight | null;
 }
 
 const IDLE_SNAPSHOT: GitPullWorkflowSnapshot = {
   isPulling: false,
   isPullLocked: false,
-  pendingPreflight: null,
 };
 
 const REFRESHING_SNAPSHOT: GitPullWorkflowSnapshot = {
   isPulling: false,
   isPullLocked: true,
-  pendingPreflight: null,
+};
+
+const blockedResult = (blocker: GitUpdateBlocker): GitPullResult => {
+  switch (blocker) {
+    case "noUpstream":
+      return { status: "blocked", reason: "no-upstream" };
+    case "localChanges":
+      return { status: "blocked", reason: "dirty" };
+    case "upToDate":
+      return { status: "blocked", reason: "up-to-date" };
+    case "stateChanged":
+      return { status: "blocked", reason: "state-changed" };
+    case "notFastForward":
+      return {
+        status: "failed",
+        stage: "pull",
+        error: "The selected branch cannot be fast-forwarded",
+      };
+  }
 };
 
 const errorText = (error: unknown): string | undefined => {
@@ -64,11 +88,10 @@ const errorText = (error: unknown): string | undefined => {
   return message.trim() || undefined;
 };
 
-/** Coordinates one safe pull path, including an explicit divergent-history choice. */
+/** Runs one pull: hosts fetch and inspect, Core decides, and this executes the returned step. */
 export class GitPullWorkflow {
   private snapshot: GitPullWorkflowSnapshot = IDLE_SNAPSHOT;
   private readonly listeners = new Set<() => void>();
-  private resolveStrategy: ((strategy: PullStrategy | null) => void) | null = null;
 
   constructor(private readonly dependencies: GitPullWorkflowDependencies) {}
 
@@ -79,16 +102,12 @@ export class GitPullWorkflow {
 
   readonly getSnapshot = () => this.snapshot;
 
-  chooseStrategy(strategy: Exclude<PullStrategy, "ffOnly"> | null) {
-    this.resolveStrategy?.(strategy);
-  }
-
   async run(repoPath: string, options: GitPullWorkflowOptions): Promise<GitPullResult> {
     if (this.snapshot.isPullLocked) {
       return { status: "duplicate" };
     }
 
-    this.update({ isPulling: true, isPullLocked: true, pendingPreflight: null });
+    this.update({ isPulling: true, isPullLocked: true });
     try {
       const fetched = await this.dependencies.fetch(repoPath);
       if (!fetched.success) {
@@ -114,78 +133,26 @@ export class GitPullWorkflow {
         };
       }
 
-      // A dialog-selected branch is pulled explicitly, so the current branch's
-      // upstream must not gate it; Git rejects an incompatible target itself.
-      if (!options.reference && !preflight.upstream) {
-        return {
-          status: "blocked",
-          reason: "no-upstream",
-        };
+      // Core owns every gate: upstream, local changes, "up to date", and the
+      // strategy default. A dialog-selected branch is pulled explicitly, so the
+      // current branch's upstream does not gate it.
+      let decision: GitUpdatePlan;
+      try {
+        decision = await this.dependencies.plan({
+          preflight,
+          interactive: options.interactive ?? true,
+          explicitSource: !!options.reference,
+          strategy: options.strategy,
+        });
+      } catch (error) {
+        return { status: "failed", stage: "preflight", error: errorText(error) };
       }
-
-      if (preflight.hasLocalChanges) {
-        return {
-          status: "blocked",
-          reason: "dirty",
-        };
+      if (decision.step === "blocked") return blockedResult(decision.blocker);
+      if (decision.step === "chooseStrategy") return { status: "needs-strategy" };
+      if (decision.step !== "pull") {
+        return { status: "failed", stage: "preflight", error: "Invalid Git update plan" };
       }
-
-      // "Up to date" is a property of the configured upstream, not of an
-      // arbitrary branch the user chose to pull from.
-      if (!options.reference && preflight.behind === 0 && !preflight.diverged) {
-        return {
-          status: "blocked",
-          reason: "up-to-date",
-        };
-      }
-
-      let strategy: PullStrategy = options.strategy ?? "ffOnly";
-      // Merge/rebase has a selected policy. Background fast-forward updates fail
-      // on divergence; interactive Pull can still ask the user to choose.
-      if (preflight.diverged && (!options.strategy || options.strategy === "ffOnly")) {
-        if (options.allowStrategyPrompt === false) {
-          return {
-            status: "failed",
-            stage: "pull",
-            error: "The selected branch cannot be fast-forwarded",
-          };
-        }
-        const selectedStrategy = await this.waitForStrategy(preflight);
-        if (!selectedStrategy) {
-          return { status: "cancelled" };
-        }
-
-        let currentPreflight: GitPullPreflight;
-        try {
-          currentPreflight = await this.dependencies.preflight(repoPath);
-        } catch (error) {
-          return {
-            status: "failed",
-            stage: "preflight",
-            error: errorText(error),
-          };
-        }
-
-        if (currentPreflight.hasLocalChanges) {
-          return {
-            status: "blocked",
-            reason: "dirty",
-          };
-        }
-
-        if (
-          currentPreflight.upstream !== preflight.upstream ||
-          currentPreflight.ahead !== preflight.ahead ||
-          currentPreflight.behind !== preflight.behind ||
-          currentPreflight.diverged !== preflight.diverged
-        ) {
-          return {
-            status: "blocked",
-            reason: "state-changed",
-          };
-        }
-        strategy = selectedStrategy;
-      }
+      const strategy = decision.strategy;
 
       if (options.validateBranch && !(await options.validateBranch())) {
         return { status: "blocked", reason: "state-changed" };
@@ -213,8 +180,6 @@ export class GitPullWorkflow {
         error: pulled.error,
       };
     } finally {
-      this.resolveStrategy = null;
-
       // Keep duplicate Pull attempts blocked while allowing unrelated Git
       // actions after the command and conflict inspection have completed.
       this.update(REFRESHING_SNAPSHOT);
@@ -226,17 +191,6 @@ export class GitPullWorkflow {
         this.update(IDLE_SNAPSHOT);
       }
     }
-  }
-
-  private waitForStrategy(preflight: GitPullPreflight): Promise<"merge" | "rebase" | null> {
-    return new Promise((resolve) => {
-      this.resolveStrategy = (strategy) => {
-        this.resolveStrategy = null;
-        this.update({ isPulling: true, isPullLocked: true, pendingPreflight: null });
-        resolve(strategy === "merge" || strategy === "rebase" ? strategy : null);
-      };
-      this.update({ isPulling: true, isPullLocked: true, pendingPreflight: preflight });
-    });
   }
 
   private update(snapshot: GitPullWorkflowSnapshot) {

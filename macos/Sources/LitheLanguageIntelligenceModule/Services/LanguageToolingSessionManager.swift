@@ -9,7 +9,6 @@ package enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
     case providerDisabled(String)
     case toolingUnavailable(String)
     case capabilityUnavailable(provider: String, capability: String)
-    case invalidJavaDebugServerPort
     case invalidDebugAdapterPort(provider: String)
     case languageServerNotOwnedByPlugin(languageID: String)
 
@@ -25,8 +24,6 @@ package enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
             return message
         case .capabilityUnavailable(let provider, let capability):
             return L10n.string("The \(provider) provider does not support \(capability).")
-        case .invalidJavaDebugServerPort:
-            return L10n.string("The Java Debug Server returned an invalid TCP port.")
         case .invalidDebugAdapterPort(let provider):
             return L10n.string("The \(provider) language server returned an invalid TCP port for its debug adapter.")
         case .languageServerNotOwnedByPlugin(let languageID):
@@ -38,26 +35,25 @@ package enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
 /// UI-facing façade that routes language features across active LSP sessions
 /// and lightweight local providers without exposing either implementation.
 @MainActor
-package final class LanguageToolingSessionManager: ObservableObject,
-    JavaTestDebugLaunchTargetResolving
-{
+package final class LanguageToolingSessionManager: ObservableObject {
     @Published package private(set) var diagnostics: [URL: [LanguageServerDiagnostic]] = [:]
     @Published package private(set) var semanticTokensGeneration: UInt64 = 0
     @Published package private(set) var languageServerFeatures: [String: LanguageServerFeatureSet] = [:]
     /// Application composition persists lifecycle facts without raw protocol payloads.
     package var onLogEvent: ((CoreLogRecord) -> Void)?
     package var onLogIssue: ((String, String?, Bool, String, String, Int?) -> Void)?
-    @Published package private(set) var projectPreparation: ProjectPreparationSnapshot?
-    package var onJavaDependencySnapshotChange: (@MainActor () -> Void)?
-    private var javaDependencyWorkspaceURL: URL?
-    private var javaDependencySnapshot: LanguageDependencySnapshot?
-    private var javaDependencyRefreshTask: Task<Void, Never>?
-    private var javaDependencyChangeTask: Task<Void, Never>?
-    @Published package private(set) var mavenProfileProjectResults: [URL: MavenProfileProjectResult] = [:]
-    @Published package private(set) var languageServerStates: [String: LanguageServerSessionState] = [:]
+    @Published package private(set) var languageServerStates: [String: LanguageServerSessionState] = [:] {
+        // Every start, crash, stop and restart passes through this one
+        // property, so the plugin relay cannot miss a transition.
+        didSet { relayPluginServerStates(from: oldValue) }
+    }
     @Published package private(set) var languageServerInfos: [String: LanguageServerInfo] = [:]
     @Published package private(set) var languageServerOperationIDs: [String: UUID] = [:]
     package var onLanguageServerStateChange: ((String, LanguageServerSessionState, UUID?) -> Void)?
+    /// What plugin backends learn about the servers their plugins own (API-25).
+    package let pluginServers = PluginLanguageServerRelay()
+    /// The preparation status each plugin reported for its running server.
+    @Published package private(set) var pluginServerStatuses: [String: PluginServerStatus] = [:]
     private let logSink: (any LogSink)?
     private let resolveLogSubject: (String) throws -> LogSegment?
     // Cache both success and failure; diagnostics must not change startup behavior.
@@ -79,26 +75,18 @@ package final class LanguageToolingSessionManager: ObservableObject,
     /// resource release. A timed-out close must not admit an overlapping start.
     private var stoppingServers: [String: (id: UUID, session: any LanguageServerSession, task: Task<Bool, Never>)] = [:]
     private var languageServerRoots: [String: URL] = [:]
-    private static let maximumStartupAttempts = 3
-    private var languageServerStartupAttempts: [String: (root: URL, count: Int)] = [:]
-    /// Core can clear Maven settings only for a session launched with Maven
-    /// inputs. Keep this with the session so a pure Gradle start stays nil.
-    private var languageServerMavenContexts: [String: MavenLaunchContext] = [:]
-    /// Ephemeral import changes also revoke in-flight launch metadata (including ABA).
-    private var javaPreparationCancellations: [UUID: @MainActor () -> Void] = [:]
-    package private(set) var javaImportRevision: UInt64 = 0 {
-        didSet { for cancel in javaPreparationCancellations.values { cancel() } }
-    }
-    private var languageServerWorkspaceFingerprints: [String: String] = [:]
+    /// Core-owned startup failure history (`lsp.activationPolicy`) per provider
+    /// and workspace root; a different root starts without history.
+    private var languageServerActivation: [String: (root: URL, state: LanguageServerActivationState)] = [:]
+    private let policyCore: (any LanguageToolingPolicyCore)?
+    /// Monotonic milliseconds for the activation policy; tests inject a clock.
+    package var monotonicNowMs: () -> UInt64 = { DispatchTime.now().uptimeNanoseconds / 1_000_000 }
     private var languageServerSessionIdentities: [String: ObjectIdentifier] = [:]
     private var diagnosticsByProviderID: [String: [URL: [LanguageServerDiagnostic]]] = [:]
     private var languageFeatureProviders: [any LanguageFeatureProvider]
     private var languageServerFeatureProviders: [String: LanguageServerFeatureProvider] = [:]
     private var languageServerReadyWaiters: [UUID: LanguageServerReadyWaiter] = [:]
-    private let workspaceFingerprintProvider: (LanguageProviderDescriptor, URL) throws -> String?
-    private let workspaceStateResetter: ((LanguageProviderDescriptor, URL, String?) throws -> Void)?
-    private let workspaceStateCleaner: ((LanguageProviderDescriptor, URL, String?) throws -> Int)?
-    private var javaLanguageImportProvider: ((LanguageProviderDescriptor, URL) throws -> JavaLanguageImportConfiguration)?
+    private let workspaceStateResetter: ((LanguageProviderDescriptor, URL) throws -> Void)?
 
     private let pluginOperations: PluginOperationReporter
 
@@ -110,27 +98,26 @@ package final class LanguageToolingSessionManager: ObservableObject,
         runtimes: [any LanguageProviderRuntime] = [],
         runtimeFactory: (any LanguageProviderRuntimeFactory)? = nil,
         builtinCore: (any BuiltinLanguageFeatureCore)? = nil,
+        policyCore: (any LanguageToolingPolicyCore)? = nil,
         languageFeatureProviders: [any LanguageFeatureProvider] = [],
         extensionRequiredProviderIDs: Set<String> = [],
         isLanguageServerEnabled: @escaping (String, URL) -> Bool = { _, _ in true },
-        workspaceFingerprintProvider: @escaping (LanguageProviderDescriptor, URL) throws -> String? = { _, _ in nil },
-        workspaceStateResetter: ((LanguageProviderDescriptor, URL, String?) throws -> Void)? = nil,
-        workspaceStateCleaner: ((LanguageProviderDescriptor, URL, String?) throws -> Int)? = nil
+        workspaceStateResetter: ((LanguageProviderDescriptor, URL) throws -> Void)? = nil
     ) {
         self.pluginOperations = pluginOperations
+        self.policyCore = policyCore
         self.logSink = logSink
         self.resolveLogSubject = resolveLogSubject
         self.catalog = catalog
         self.runtimeFactory = runtimeFactory
         self.extensionRequiredProviderIDs = extensionRequiredProviderIDs
         self.isLanguageServerEnabled = isLanguageServerEnabled
-        self.workspaceFingerprintProvider = workspaceFingerprintProvider
         self.workspaceStateResetter = workspaceStateResetter
-        self.workspaceStateCleaner = workspaceStateCleaner
         self.languageFeatureProviders = languageFeatureProviders + [
             BuiltinLanguageFeatureProvider(core: builtinCore ?? UnavailableBuiltinLanguageFeatureCore())
         ]
         runtimesByID = Dictionary(uniqueKeysWithValues: runtimes.map { ($0.descriptor.id, $0) })
+        pluginServers.onStatusesChange = { [weak self] statuses in self?.pluginServerStatuses = statuses }
     }
 
     package var activeLanguageServerIDs: Set<String> {
@@ -139,118 +126,6 @@ package final class LanguageToolingSessionManager: ObservableObject,
                   languageServerStates[providerID] == .ready else { return nil }
             return providerID
         })
-    }
-
-    package func dependencySnapshot(workspaceURL: URL) -> LanguageDependencySnapshot? {
-        guard javaDependencyWorkspaceURL == workspaceURL.standardizedFileURL else { return nil }
-        return javaDependencySnapshot
-    }
-
-    private func refreshJavaDependenciesWhenReady() {
-        guard projectPreparation?.status == "ready",
-              languageServerStates["java"] == .ready,
-              let workspace = languageServerRoots["java"],
-              let session = languageServers["java"], session.isRunning,
-              let identity = languageServerSessionIdentities["java"] else { return }
-        javaDependencyRefreshTask?.cancel()
-        javaDependencyRefreshTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let snapshot = try await self.resolvedJavaDependencies(workspace: workspace)
-                guard !Task.isCancelled,
-                      self.languageServerSessionIdentities["java"] == identity,
-                      self.languageServerRoots["java"] == workspace else { return }
-                guard self.javaDependencyWorkspaceURL != workspace
-                    || self.javaDependencySnapshot != snapshot else { return }
-                self.javaDependencyWorkspaceURL = workspace
-                self.javaDependencySnapshot = snapshot
-                self.onJavaDependencySnapshotChange?()
-            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
-            } catch is CancellationError {
-                return
-            } catch {
-                self.recordLogIssue("java", nil, true, "dependencies", "dependencyProjectionUnavailable", nil)
-            }
-        }
-    }
-
-    private func scheduleJavaDependencyRefresh(after changes: [LanguageServerWorkspaceFileChange]) {
-        let managementFiles: Set<String> = [
-            "pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle",
-            "settings.gradle.kts", "gradle.properties", "libs.versions.toml", "extensions.xml"
-        ]
-        guard changes.contains(where: { managementFiles.contains($0.fileURL.lastPathComponent.lowercased()) }) else {
-            return
-        }
-        javaDependencyChangeTask?.cancel()
-        javaDependencyChangeTask = Task { [weak self] in
-            // Watched-file notifications have no acknowledgement. Give JDT LS time to
-            // start a configuration job; its ready transition takes precedence.
-            // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
-            try? await Task.sleep(for: .milliseconds(750))
-            guard !Task.isCancelled, let self else { return }
-            self.refreshJavaDependenciesWhenReady()
-        }
-    }
-
-    /// `java.project.getClasspaths` options selecting the runtime classpath.
-    ///
-    /// JDT LS deserializes this argument only from JSON text, as its own
-    /// VS Code client sends it; a JSON object leaves the options null and the
-    /// command fails inside the server.
-    private static let javaRuntimeClasspathOptions = #"{"scope":"runtime"}"#
-
-    private func resolvedJavaDependencies(workspace: URL) async throws -> LanguageDependencySnapshot {
-        let projects = try await executeJavaCommand("java.project.getAll", arguments: [], rootURL: workspace)
-        guard case .array(let values) = projects else {
-            throw LanguageToolingSessionError.toolingUnavailable("The Java service returned an invalid project list.")
-        }
-        var dependencyPaths: Set<String> = []
-        for case .string(let projectURI) in values {
-            try Task.checkCancellation()
-            guard let projectURL = URL(string: projectURI), projectURL.isFileURL,
-                  Self.isLocated(projectURL, within: workspace) else { continue }
-            let response = try await executeJavaCommand(
-                "java.project.getClasspaths",
-                arguments: [.string(projectURI), .string(Self.javaRuntimeClasspathOptions)],
-                rootURL: workspace
-            )
-            guard case .object(let paths) = response else {
-                throw LanguageToolingSessionError.toolingUnavailable("The Java service returned an invalid classpath.")
-            }
-            for path in Self.stringValues(paths["classpaths"] ?? .array([]))
-                + Self.stringValues(paths["modulepaths"] ?? .array([])) {
-                guard (path as NSString).isAbsolutePath else { continue }
-                let url = URL(fileURLWithPath: path).standardizedFileURL
-                guard !Self.isLocated(url, within: workspace) else { continue }
-                dependencyPaths.insert(url.path)
-            }
-        }
-        return LanguageDependencySnapshot(dependencyRoots: dependencyPaths.sorted().map {
-            URL(fileURLWithPath: $0)
-        })
-    }
-
-    /// The host must prepare plugin imports before any entry point can start
-    /// Java. Throwing here prevents a synchronous document/run path from using
-    /// a previous workspace's context while that preparation is pending.
-    package func configureJavaLanguageImportProvider(
-        _ provider: @escaping (LanguageProviderDescriptor, URL) throws -> JavaLanguageImportConfiguration
-    ) {
-        javaLanguageImportProvider = provider
-    }
-
-    private func javaLanguageImport(
-        _ descriptor: LanguageProviderDescriptor, rootURL: URL
-    ) throws -> JavaLanguageImportConfiguration {
-        guard descriptor.id == "java" else { return JavaLanguageImportConfiguration() }
-        if let javaLanguageImportProvider { return try javaLanguageImportProvider(descriptor, rootURL) }
-        return JavaLanguageImportConfiguration()
-    }
-
-    package func retryMavenProfiles(providerID: String) {
-        guard let session = languageServers[providerID] else { return }
-        session.retryMavenProfiles()
     }
 
     package func updateCatalog(_ catalog: LanguageProviderCatalog) {
@@ -297,7 +172,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
         let configuration = provider.configuration
         guard configuration.languageID == support.id,
               let ownerModuleID = support.languageServerModuleID,
-              !configuration.executableNames.isEmpty,
+              // A server its plugin backend launches names no executable
+              // until it starts.
+              !configuration.executableNames.isEmpty
+                  || configuration.launchSource?.resolvesLaunchWithBackend == true
+                  || configuration.launchSource?.launchesThroughTool == true,
               // The module that owns this provider already stopped it.
               !provider.lifecycle.isRetired,
               let runtimeFactory else { return false }
@@ -318,7 +197,6 @@ package final class LanguageToolingSessionManager: ObservableObject,
             launchSource: configuration.launchSource,
             pluginID: configuration.pluginID,
             executableVersionRequirement: configuration.executableVersionRequirement,
-            hostIntegrationID: configuration.hostIntegrationID,
             launchRuntimeTool: configuration.launchRuntimeTool
         )
         let descriptor = LanguageProviderDescriptor(
@@ -461,104 +339,6 @@ package final class LanguageToolingSessionManager: ObservableObject,
         return languageServerOperationIDs[providerID] ?? operationID
     }
 
-    /// Outcome of handing the workspace's Maven context to its Java session.
-    package enum JavaMavenConfigurationOutcome: Equatable {
-        /// The running session took the change and re-resolves in place.
-        case updated(LanguageServerMavenConfigurationUpdate)
-        /// No Java session runs for this root; the next start reads the context.
-        case noSession
-        /// A session runs but could not take the change and needs a restart.
-        case failed(LanguageServerRuntimeFailure)
-    }
-
-    /// Sends the workspace's current Maven context to the running Java session.
-    ///
-    /// JDT LS re-resolves on its own: changed settings make it force-update every
-    /// Maven project, and `reloadProjects` re-resolves even when nothing changed.
-    /// A restart would reuse the workspace state and skip every project whose
-    /// `pom.xml` did not change, keeping unresolved artifacts missing (#970).
-    @discardableResult
-    package func updateJavaMavenConfiguration(
-        rootURL: URL,
-        reloadProjects: Bool
-    ) -> JavaMavenConfigurationOutcome {
-        let root = rootURL.standardizedFileURL
-        // The workspace preference is rechecked like every other entry point;
-        // a disabled provider reports no session, so a reload fails where a
-        // start would.
-        guard isLanguageServerEnabled("java", root),
-              let session = languageServers["java"],
-              session.isRunning,
-              languageServerRoots["java"] == root,
-              let descriptor = catalog.descriptors.first(where: { $0.id == "java" }) else {
-            return .noSession
-        }
-        let context: MavenLaunchContext
-        do {
-            if let configured = try javaLanguageImport(descriptor, rootURL: root).mavenContext {
-                context = configured
-            } else if let previous = languageServerMavenContexts["java"] {
-                // Removing the build plugin must clear its old Profiles,
-                // settings and repository instead of leaving them in JDT LS.
-                context = MavenLaunchContext(
-                    reactorPath: previous.reactorPath, profiles: [], settingsPath: nil,
-                    localRepositoryPath: nil, skipTests: false, mavenExecutablePath: nil, javaHomePath: nil
-                )
-            } else {
-                return .noSession
-            }
-        } catch {
-            recordHostFailure(providerID: "java", stage: "language-import", error: error)
-            return .failed(LanguageServerRuntimeFailure(code: "languageImportUnavailable", message: error.localizedDescription))
-        }
-        switch session.updateMavenConfiguration(context, reloadProjects: reloadProjects) {
-        case .success(let update):
-            if languageServerMavenContexts["java"] != context || reloadProjects { javaImportRevision &+= 1 }
-            languageServerMavenContexts["java"] = context
-            return .updated(update)
-        case .failure(let failure): return .failed(failure)
-        }
-    }
-
-    /// Reloads Java Maven projects and waits for readiness, preserving other
-    /// providers. A running session re-resolves in place; a restart is only the
-    /// recovery for a session that cannot take the update, or the way to start
-    /// one. Cancellation terminates only a session created by this reload.
-    package func reloadJavaWorkspace(rootURL: URL) async throws {
-        if case .updated = updateJavaMavenConfiguration(rootURL: rootURL, reloadProjects: true) {
-            try await waitUntilLanguageServerReady(providerID: "java", rootURL: rootURL)
-            return
-        }
-        stopLanguageServer(providerID: "java")
-        let operationID = try startLanguageServer(providerID: "java", rootURL: rootURL)
-        do {
-            try await waitUntilLanguageServerReady(providerID: "java", rootURL: rootURL)
-            try Task.checkCancellation()
-        } catch {
-            if languageServerOperationIDs["java"] == operationID {
-                stopLanguageServer(providerID: "java")
-            }
-            throw error
-        }
-    }
-
-    /// Starts or reuses JDT LS, then asks its bundled Java Debug extension for
-    /// the loopback DAP port. The caller remains responsible for the socket.
-    package func startJavaDebugServer(rootURL: URL) async throws -> UInt16 {
-        let normalizedRoot = rootURL.standardizedFileURL
-        _ = try startLanguageServer(providerID: "java", rootURL: normalizedRoot)
-        try await waitUntilLanguageServerReady(providerID: "java", rootURL: normalizedRoot)
-        let value = try await executeJavaCommand(
-            "vscode.java.startDebugSession",
-            arguments: [],
-            rootURL: normalizedRoot
-        )
-        guard let port = Self.debugAdapterPort(from: value) else {
-            throw LanguageToolingSessionError.invalidJavaDebugServerPort
-        }
-        return port
-    }
-
     /// The loopback port a language server answers a debug-start command
     /// with: an integer or a numeric string, 1...65535.
     package static func debugAdapterPort(from value: ToolingJSONValue) -> UInt16? {
@@ -613,500 +393,6 @@ package final class LanguageToolingSessionManager: ObservableObject,
         return port
     }
 
-    /// Resolves the current Java source through JDT LS project metadata instead
-    /// of deriving package or module names from its filesystem path.
-    package func resolveJavaDebugLaunchTarget(
-        fileURL: URL,
-        rootURL: URL
-    ) async throws -> JavaDebugLaunchTarget {
-        switch try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL) {
-        case .ready(let target):
-            return target
-        case .buildFailed(_, let failure):
-            throw LanguageToolingSessionError.toolingUnavailable(failure.message)
-        }
-    }
-
-    /// Builds the owning Java project and resolves the exact runtime paths used
-    /// by both Run and Debug. Java Debug Server owns these project-model rules.
-    package func prepareJavaRunLaunchTarget(
-        fileURL: URL,
-        rootURL: URL,
-        mainClass: String? = nil
-    ) async throws -> JavaLaunchPreparation {
-        try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL, mainClass: mainClass)
-    }
-
-    /// The exact options of the successful build preparation, without saving
-    /// a project override or reconstructing a second Maven configuration.
-    package func prepareJavaRunLaunchTarget(fileURL: URL, rootURL: URL,
-                                            languageImport: JavaLanguageImportConfiguration, mainClass: String? = nil) async throws -> JavaLaunchPreparation {
-        try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL, mainClass: mainClass, languageImport: languageImport)
-    }
-
-    /// Rebuilds the original running target without allowing a failed build to proceed.
-    package func buildJavaServiceUpdate(
-        target: JavaDebugLaunchTarget, fileURL: URL, rootURL: URL
-    ) async throws {
-        // Match launch preparation: JDT owns test-root and dependency selection.
-        let paths = try await executeJavaCommand(
-            "vscode.java.resolveClasspath",
-            arguments: [.string(target.mainClass), .string(target.projectName ?? "")],
-            rootURL: rootURL
-        )
-        guard case .array(let groups) = paths, groups.count == 2,
-              Self.stringValues(groups[0]) == target.modulePaths,
-              Self.stringValues(groups[1]) == target.classPaths else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "Runtime paths changed. Restart the service to use the new dependencies."
-            )
-        }
-        let payload = JavaWorkspaceBuildRequest(
-            mainClass: target.mainClass, projectName: target.projectName,
-            filePath: fileURL.path, isFullBuild: false
-        )
-        let json = String(decoding: try JSONEncoder().encode(payload), as: UTF8.self)
-        let result = try await executeJavaCommand(
-            "vscode.java.buildWorkspace", arguments: [.string(json)], rootURL: rootURL
-        )
-        guard result == .integer(1) || result == .string("1") else {
-            throw LanguageToolingSessionError.toolingUnavailable("Java compilation did not complete successfully.")
-        }
-    }
-
-    /// JDT's launchable classes for the workspace, starting the Java service
-    /// when needed. Lithe never derives entry points from source text.
-    ///
-    /// Note: 入口点归属见 .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
-    package func javaEntrypoints(rootURL: URL) async throws -> JavaEntrypoints {
-        try prepareJavaImportSession(rootURL: rootURL.standardizedFileURL)
-        let revision = javaImportRevision
-        let value = try await javaEntrypoints(in: rootURL.standardizedFileURL)
-        guard javaImportRevision == revision else { throw CancellationError() }
-        return value
-    }
-
-    /// Reuse the current session when Core can update it in place. A session
-    /// originally started without Maven inputs must restart with those inputs.
-    private func prepareJavaImportSession(rootURL: URL, override: JavaLanguageImportConfiguration? = nil) throws {
-        guard let descriptor = catalog.descriptors.first(where: { $0.id == "java" }) else {
-            throw LanguageToolingSessionError.toolingUnavailable("Java")
-        }
-        let configuration = try override ?? javaLanguageImport(descriptor, rootURL: rootURL)
-        let session = try ensureLanguageServerSession(descriptor: descriptor, rootURL: rootURL,
-            operationID: nil, javaImportOverride: configuration)
-        if let context = configuration.mavenContext, languageServerMavenContexts["java"] != context {
-            switch session.updateMavenConfiguration(context, reloadProjects: false) {
-            case .success:
-                javaImportRevision &+= 1
-                languageServerMavenContexts["java"] = context
-            case .failure:
-                stopLanguageServer(providerID: "java")
-                _ = try ensureLanguageServerSession(descriptor: descriptor, rootURL: rootURL,
-                    operationID: nil, javaImportOverride: configuration)
-            }
-        } else if configuration.mavenContext == nil, languageServerMavenContexts["java"] != nil {
-            if case .failed(let failure) = updateJavaMavenConfiguration(rootURL: rootURL, reloadProjects: false) {
-                throw LanguageToolingSessionError.toolingUnavailable(failure.userMessage)
-            }
-        }
-    }
-
-    private func javaEntrypoints(in normalizedRoot: URL) async throws -> JavaEntrypoints {
-        _ = try startLanguageServer(providerID: "java", rootURL: normalizedRoot)
-        try await waitUntilLanguageServerReady(providerID: "java", rootURL: normalizedRoot)
-        guard let session = languageServers["java"], session.isRunning else {
-            throw LanguageToolingSessionError.toolingUnavailable("Java")
-        }
-        return try await session.javaEntrypoints()
-    }
-
-    /// `file` relative to `root` with `/` separators, comparing the paths
-    /// with symbolic links resolved so `/var` and `/private/var` agree.
-    private static func workspaceRelativePath(of file: URL, in root: URL) -> String? {
-        let rootPath = root.resolvingSymlinksInPath().standardizedFileURL.path
-        let filePath = file.resolvingSymlinksInPath().standardizedFileURL.path
-        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
-        guard filePath.hasPrefix(prefix) else { return nil }
-        return String(filePath.dropFirst(prefix.count))
-    }
-
-    /// Whether `url` is `root` or lies below it, with symbolic links resolved.
-    /// JDT reports canonical locations, such as `/private/var`, for a
-    /// workspace that was opened through a link, such as `/var`.
-    private static func isLocated(_ url: URL, within root: URL) -> Bool {
-        url.resolvingSymlinksInPath().standardizedFileURL.path
-            == root.resolvingSymlinksInPath().standardizedFileURL.path
-            || workspaceRelativePath(of: url, in: root) != nil
-    }
-
-    private func prepareJavaLaunchTarget(
-        fileURL: URL, rootURL: URL, mainClass: String? = nil,
-        languageImport: JavaLanguageImportConfiguration? = nil
-    ) async throws -> JavaLaunchPreparation {
-        let normalizedRoot = rootURL.standardizedFileURL
-        let resolvedFile = fileURL.standardizedFileURL.resolvingSymlinksInPath()
-        try prepareJavaImportSession(rootURL: normalizedRoot, override: languageImport)
-        let revision = javaImportRevision, sessionIdentity = languageServerSessionIdentities["java"]
-        func checkInputs() throws {
-            try Task.checkCancellation()
-            guard javaImportRevision == revision, languageServerRoots["java"] == normalizedRoot,
-                  languageServerSessionIdentities["java"] == sessionIdentity else { throw CancellationError() }
-        }
-        try await waitUntilLanguageServerReady(providerID: "java", rootURL: normalizedRoot)
-        try checkInputs()
-        guard let session = languageServers["java"], session.isRunning else {
-            throw LanguageToolingSessionError.toolingUnavailable("Java")
-        }
-        let preparation = try await awaitJavaPreparation {
-            try await session.prepareJavaLaunch(fileURL: resolvedFile, mainClass: mainClass)
-        }
-        try checkInputs()
-        return preparation
-    }
-
-    /// Framework goals build with Maven; only synchronize the same import and
-    /// await Core's configuration barrier, without a second JDT build or launch.
-    package func applyJavaRunImport(rootURL: URL, languageImport: JavaLanguageImportConfiguration) async throws {
-        let root = rootURL.standardizedFileURL
-        try prepareJavaImportSession(rootURL: root, override: languageImport)
-        let revision = javaImportRevision, identity = languageServerSessionIdentities["java"]
-        try await waitUntilLanguageServerReady(providerID: "java", rootURL: root)
-        guard javaImportRevision == revision, languageServerRoots["java"] == root,
-              languageServerSessionIdentities["java"] == identity,
-              let session = languageServers["java"], session.isRunning else { throw CancellationError() }
-        _ = try await awaitJavaPreparation { try await session.javaEntrypoints() }
-        try Task.checkCancellation()
-        guard javaImportRevision == revision, languageServerRoots["java"] == root,
-              languageServerSessionIdentities["java"] == identity else { throw CancellationError() }
-    }
-
-    private func awaitJavaPreparation<T: Sendable>(_ operation: @escaping @MainActor () async throws -> T) async throws -> T {
-        let id = UUID(), task = Task { try await operation() }
-        javaPreparationCancellations[id] = { task.cancel() }
-        defer { javaPreparationCancellations[id] = nil; task.cancel() }
-        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
-    }
-
-    /// Resolves one Java source file or discovered test item through the Java
-    /// Test extension and returns the metadata required by shared Debug Core.
-    package func resolveJavaTestDebugLaunchTarget(
-        fileURL: URL,
-        testIdentifier: String? = nil,
-        rootURL: URL
-    ) async throws -> JavaTestDebugLaunchTarget {
-        let normalizedFile = fileURL.standardizedFileURL
-        let normalizedRoot = rootURL.standardizedFileURL
-        let discovered = try await resolvedJavaTestItems(
-            fileURL: normalizedFile,
-            rootURL: normalizedRoot
-        )
-        let selected: [JavaTestItem]
-        if let testIdentifier, !testIdentifier.isEmpty {
-            selected = Self.flattenJavaTestItems(discovered).filter {
-                $0.matches(identifier: testIdentifier)
-            }
-        } else {
-            selected = discovered.filter { $0.level == 5 }
-        }
-        guard !selected.isEmpty else {
-            let target = testIdentifier ?? normalizedFile.lastPathComponent
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "No Java test was found for \(target)."
-            )
-        }
-        guard Set(selected.map(\.projectName)).count == 1,
-              Set(selected.map(\.kind)).count == 1,
-              Set(selected.map(\.level)).count == 1,
-              let projectName = selected.first?.projectName,
-              let kind = selected.first?.kind,
-              let level = selected.first?.level else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "Debug one Java test framework and project at a time."
-            )
-        }
-        let framework: JavaTestDebugFramework
-        switch kind {
-        case 0, 1: framework = .junit
-        case 2: framework = .testng
-        default:
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The selected Java test framework is not supported."
-            )
-        }
-        let launchTestNames: [String]
-        if framework == .junit, level == 6 {
-            launchTestNames = selected.compactMap(\.jdtHandler)
-        } else {
-            launchTestNames = selected.map(\.fullName)
-        }
-        guard launchTestNames.count == selected.count else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java language service returned incomplete test identifiers."
-            )
-        }
-        let launchRequest = ToolingJSONValue.object([
-            "projectName": .string(projectName),
-            "testLevel": .integer(level),
-            "testKind": .integer(kind),
-            "testNames": .array(launchTestNames.map(ToolingJSONValue.string)),
-        ])
-        let requestData = try JSONSerialization.data(
-            withJSONObject: launchRequest.foundationObject,
-            options: [.sortedKeys]
-        )
-        guard let requestJSON = String(data: requestData, encoding: .utf8) else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "Could not encode the Java test launch request."
-            )
-        }
-        let launchValue = try await executeJavaTestCommand(
-            "vscode.java.test.junit.argument",
-            arguments: [.string(requestJSON)],
-            rootURL: normalizedRoot
-        )
-        let launch = try Self.javaTestLaunchArguments(launchValue)
-        let testNGTestNames = framework == .testng
-            ? selected.flatMap(Self.javaTestNGMethodNames)
-            : []
-        let testNGRunnerPath: String?
-        let mainClass: String
-        if framework == .testng {
-            guard let runnerURL = languageServers["java"]?.javaTestRunnerURL else {
-                throw LanguageToolingSessionError.toolingUnavailable(
-                    "The packaged Java TestNG runner is unavailable. Reinstall Lithe."
-                )
-            }
-            guard !testNGTestNames.isEmpty else {
-                throw LanguageToolingSessionError.toolingUnavailable(
-                    "No TestNG test method was found in \(normalizedFile.lastPathComponent)."
-                )
-            }
-            testNGRunnerPath = runnerURL.standardizedFileURL.path
-            mainClass = "com.microsoft.java.test.runner.Launcher"
-        } else {
-            guard let resolvedMainClass = launch.mainClass else {
-                throw LanguageToolingSessionError.toolingUnavailable(
-                    "The Java language service returned no JUnit runner main class."
-                )
-            }
-            testNGRunnerPath = nil
-            mainClass = resolvedMainClass
-        }
-        return JavaTestDebugLaunchTarget(
-            fileURL: normalizedFile,
-            name: selected.count == 1 ? selected[0].label : normalizedFile.lastPathComponent,
-            framework: framework,
-            workingDirectory: launch.workingDirectory,
-            mainClass: mainClass,
-            projectName: launch.projectName,
-            classPaths: launch.classPaths,
-            modulePaths: launch.modulePaths,
-            vmArguments: launch.vmArguments,
-            programArguments: launch.programArguments,
-            testNGRunnerPath: testNGRunnerPath,
-            testNGTestNames: testNGTestNames
-        )
-    }
-
-    /// Discovers the Java test classes and methods in one source file for the
-    /// native Tests tree. This reuses the same identifiers accepted by Debug.
-    /// JDT owns semantic identities and file membership. Build providers consume
-    /// these public fullName values unchanged; the host never derives a selector
-    /// from a filename, package declaration or method spelling.
-    package func javaBuildTestSelectors(fileURL: URL, identifier: String?, rootURL: URL) async throws -> [String] {
-        let items = try await resolvedJavaTestItems(fileURL: fileURL.standardizedFileURL, rootURL: rootURL.standardizedFileURL)
-        let selected: [JavaTestItem]
-        if let identifier {
-            selected = Self.flattenJavaTestItems(items).filter { $0.matches(identifier: identifier) }
-        } else {
-            selected = items
-        }
-        let values = Array(Set(selected.map(\.fullName).filter { !$0.isEmpty })).sorted()
-        guard !values.isEmpty, values.count <= 64, identifier == nil || values.count == 1 else {
-            throw LanguageToolingSessionError.toolingUnavailable("Java")
-        }
-        return values
-    }
-
-    package func discoverJavaTestItems(
-        fileURL: URL,
-        rootURL: URL
-    ) async throws -> [LanguageTestItem] {
-        let normalizedFile = fileURL.standardizedFileURL
-        let discovered = try await resolvedJavaTestItems(
-            fileURL: normalizedFile,
-            rootURL: rootURL.standardizedFileURL
-        )
-        return Self.projectJavaTestItems(
-            discovered,
-            fileURL: normalizedFile,
-            depth: 1
-        )
-    }
-
-    private func executeJavaCommand(
-        _ commandID: String,
-        arguments: [ToolingJSONValue],
-        rootURL: URL
-    ) async throws -> ToolingJSONValue {
-        guard isLanguageServerEnabled("java", rootURL.standardizedFileURL) else {
-            throw LanguageToolingSessionError.providerDisabled("Java")
-        }
-        let command = LanguageServerCommand(
-            title: commandID,
-            command: commandID,
-            arguments: arguments
-        )
-        guard let session = languageServers["java"], session.isRunning,
-              languageServerRoots["java"] == rootURL.standardizedFileURL else {
-            throw LanguageToolingSessionError.toolingUnavailable("Java")
-        }
-        return try await session.executeReturningValue(command, fileURL: rootURL)
-    }
-
-    private func executeJavaTestCommand(
-        _ commandID: String,
-        arguments: [ToolingJSONValue],
-        rootURL: URL
-    ) async throws -> ToolingJSONValue {
-        try await executeJavaCommand(commandID, arguments: arguments, rootURL: rootURL)
-    }
-
-    private func resolvedJavaTestItems(
-        fileURL: URL,
-        rootURL: URL
-    ) async throws -> [JavaTestItem] {
-        try prepareJavaImportSession(rootURL: rootURL)
-        let revision = javaImportRevision
-        try await waitUntilLanguageServerReady(providerID: "java", rootURL: rootURL)
-        guard let session = languageServers["java"], session.isRunning else {
-            throw LanguageToolingSessionError.toolingUnavailable("Java")
-        }
-        let items: [JavaTestItem] = try await withCheckedThrowingContinuation { continuation in
-            do {
-                try session.javaTestItems(fileURL: fileURL) { result in
-                    continuation.resume(with: result.map(\.items))
-                }
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
-        try Task.checkCancellation()
-        guard javaImportRevision == revision else { throw CancellationError() }
-        return items
-    }
-
-    private static func stringValues(_ value: ToolingJSONValue) -> [String] {
-        guard case .array(let values) = value else { return [] }
-        return values.compactMap { value in
-            guard case .string(let value) = value, !value.isEmpty else { return nil }
-            return value
-        }
-    }
-
-    private static func integerValue(_ value: ToolingJSONValue?) -> Int? {
-        switch value {
-        case .integer(let value): value
-        case .string(let value): Int(value)
-        default: nil
-        }
-    }
-
-    private static func flattenJavaTestItems(
-        _ items: [JavaTestItem]
-    ) -> [JavaTestItem] {
-        items.flatMap { [$0] + flattenJavaTestItems($0.children) }
-    }
-
-    private static func projectJavaTestItems(
-        _ items: [JavaTestItem],
-        fileURL: URL,
-        depth: Int
-    ) -> [LanguageTestItem] {
-        sortedJavaTestItems(items).flatMap { item in
-            [LanguageTestItem(
-                id: item.id,
-                providerID: "java",
-                label: item.label,
-                kind: .testCase,
-                fileURL: fileURL,
-                testIdentifier: item.fullName,
-                depth: depth,
-                reportIdentity: javaTestReportIdentity(item)
-            )] + projectJavaTestItems(
-                item.children,
-                fileURL: fileURL,
-                depth: depth + 1
-            )
-        }
-    }
-
-    /// Keep JDT's display-name convention in its existing language adapter;
-    /// the generic Tests view never parses report names or execution selectors.
-    private static func javaTestReportIdentity(_ item: JavaTestItem) -> LanguageTestItem.ReportIdentity? {
-        if item.level == 5 { return .init(suite: item.fullName) }
-        guard item.level == 6, let separator = item.fullName.firstIndex(of: "#") else { return nil }
-        let name = item.fullName[item.fullName.index(after: separator)...]
-        return .init(suite: String(item.fullName[..<separator]),
-                     name: name.split(separator: "(", maxSplits: 1).first.map(String.init) ?? String(name))
-    }
-
-    private static func sortedJavaTestItems(
-        _ items: [JavaTestItem]
-    ) -> [JavaTestItem] {
-        items.sorted {
-            ($0.sortText ?? $0.label, $0.label, $0.id)
-                < ($1.sortText ?? $1.label, $1.label, $1.id)
-        }
-    }
-
-    private static func javaTestNGMethodNames(_ item: JavaTestItem) -> [String] {
-        if item.level == 6 { return [item.fullName] }
-        return item.children.flatMap(javaTestNGMethodNames)
-    }
-
-    private static func javaTestLaunchArguments(
-        _ value: ToolingJSONValue
-    ) throws -> ResolvedJavaTestLaunchArguments {
-        guard case .object(let response) = value else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java language service returned invalid test launch arguments."
-            )
-        }
-        if case .string(let message)? = response["errorMessage"], !message.isEmpty {
-            throw LanguageToolingSessionError.toolingUnavailable(message)
-        }
-        guard case .object(let body)? = response["body"],
-              case .string(let workingDirectory)? = body["workingDirectory"],
-              !workingDirectory.isEmpty else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java language service returned incomplete test launch arguments."
-            )
-        }
-        let mainClass: String?
-        if case .string(let value)? = body["mainClass"], !value.isEmpty {
-            mainClass = value
-        } else {
-            mainClass = nil
-        }
-        let projectName: String?
-        if case .string(let value)? = body["projectName"], !value.isEmpty {
-            projectName = value
-        } else {
-            projectName = nil
-        }
-        return ResolvedJavaTestLaunchArguments(
-            workingDirectory: workingDirectory,
-            mainClass: mainClass,
-            projectName: projectName,
-            classPaths: stringValues(body["classpath"] ?? .array([])),
-            modulePaths: stringValues(body["modulepath"] ?? .array([])),
-            vmArguments: stringValues(body["vmArguments"] ?? .array([])),
-            programArguments: stringValues(body["programArguments"] ?? .array([]))
-        )
-    }
-
     package func notifyWorkspaceFilesChanged(
         providerID: String,
         changes: [LanguageServerWorkspaceFileChange]
@@ -1115,7 +401,6 @@ package final class LanguageToolingSessionManager: ObservableObject,
               let session = languageServers[providerID],
               session.isRunning else { return }
         try session.notifyWorkspaceFilesChanged(changes)
-        if providerID == "java" { scheduleJavaDependencyRefresh(after: changes) }
     }
 
     package func notifyDocumentSaved(_ fileURL: URL, text: String, currentText: String) throws {
@@ -1208,16 +493,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
     private func removeLanguageServer(providerID: String, stopSession: Bool) {
-        languageServerStartupAttempts[providerID] = nil
-        if providerID == "java" { projectPreparation = nil }
-        if providerID == "java" {
-            javaDependencyChangeTask?.cancel()
-            javaDependencyChangeTask = nil
-            javaDependencyRefreshTask?.cancel()
-            javaDependencyRefreshTask = nil
-            javaDependencyWorkspaceURL = nil
-            javaDependencySnapshot = nil
-        }
+        languageServerActivation[providerID] = nil
         let operationID = languageServerOperationIDs[providerID]
         if languageServers[providerID] != nil {
             let wasPreparing = switch languageServerStates[providerID] {
@@ -1230,14 +506,10 @@ package final class LanguageToolingSessionManager: ObservableObject,
                                operationID: operationID?.uuidString)
         }
         clearDiagnostics(providerID: providerID)
-        if providerID == "java" { mavenProfileProjectResults.removeAll() }
         languageServerSessionIdentities[providerID] = nil
         let removed = languageServers.removeValue(forKey: providerID)
         if stopSession { removed?.stop() }
         languageServerRoots[providerID] = nil
-        if providerID == "java" { javaImportRevision &+= 1 }
-        languageServerMavenContexts[providerID] = nil
-        languageServerWorkspaceFingerprints[providerID] = nil
         languageServerFeatures[providerID] = nil
         languageServerInfos[providerID] = nil
         languageServerFeatureProviders[providerID] = nil
@@ -1265,12 +537,10 @@ package final class LanguageToolingSessionManager: ObservableObject,
         languageServerInfos = [:]
         languageServers = [:]
         languageServerRoots = [:]
-        languageServerMavenContexts = [:]
-        languageServerWorkspaceFingerprints = [:]
         languageServerSessionIdentities = [:]
         languageServerFeatureProviders = [:]
         languageServerStates = [:]
-        languageServerStartupAttempts = [:]
+        languageServerActivation = [:]
         languageServerOperationIDs = [:]
     }
 
@@ -1328,15 +598,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
         }
 
         let normalizedRoot = rootURL.standardizedFileURL
-        let fingerprint: String?
-        if languageServerRoots[providerID] == normalizedRoot,
-           let activeFingerprint = languageServerWorkspaceFingerprints[providerID] {
-            fingerprint = activeFingerprint
-        } else {
-            fingerprint = try workspaceFingerprintProvider(descriptor, normalizedRoot)
-        }
         stopLanguageServer(providerID: providerID)
-        try workspaceStateResetter(descriptor, normalizedRoot, fingerprint)
+        try workspaceStateResetter(descriptor, normalizedRoot)
     }
 
     package func navigate(
@@ -1446,9 +709,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             providers: providers,
             index: 0,
             context: context,
-            items: [],
-            isIncomplete: false,
-            seenLabels: [],
+            lists: [],
             completion: completion
         )
     }
@@ -1603,6 +864,60 @@ package final class LanguageToolingSessionManager: ObservableObject,
         return await session.updateWorkspaceConfigurationAsync(configuration)
     }
 
+    // MARK: Plugin-owned language servers (API-25)
+
+    /// Sends one request of `pluginID`'s backend to the language server
+    /// `serverID`. Rust Core decides whether the server belongs to the plugin
+    /// and whether the method is declared; this only finds the session.
+    package func requestPluginServer(
+        pluginID: String,
+        serverID: String,
+        method: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval?
+    ) async -> Result<ToolingJSONValue, PluginHostRequestFailure> {
+        guard let session = languageServers[serverID] else { return .failure(.languageServerUnavailable) }
+        return await session.requestPluginServer(
+            pluginID: pluginID, serverID: serverID, method: method, params: params, timeout: timeout
+        )
+    }
+
+    /// Sends one notification of `pluginID`'s backend to the language server
+    /// `serverID`; `true` when it was written.
+    package func notifyPluginServer(
+        pluginID: String,
+        serverID: String,
+        method: String,
+        params: ToolingJSONValue
+    ) async -> Result<Bool, PluginHostRequestFailure> {
+        guard let session = languageServers[serverID] else { return .failure(.languageServerUnavailable) }
+        return await session.notifyPluginServer(
+            pluginID: pluginID, serverID: serverID, method: method, params: params
+        )
+    }
+
+    /// Records the preparation status `pluginID` reports for its server.
+    /// Core never sees this call, so ownership is checked by the relay.
+    package func setPluginServerStatus(
+        _ status: PluginServerStatus,
+        serverID: String,
+        pluginID: String
+    ) -> Result<Void, PluginHostRequestFailure> {
+        pluginServers.setStatus(status, serverID: serverID, pluginID: pluginID)
+    }
+
+    private func relayPluginServerStates(from previous: [String: LanguageServerSessionState]) {
+        for serverID in Set(previous.keys).union(languageServerStates.keys) {
+            let state = languageServerStates[serverID]
+            guard state != previous[serverID] else { continue }
+            pluginServers.serverStateChanged(
+                serverID: serverID,
+                owner: runtimesByID[serverID]?.descriptor.languageServerLaunch?.pluginID,
+                to: state
+            )
+        }
+    }
+
     package func resolveVirtualDocument(
         providerID: String,
         uri: URL,
@@ -1621,54 +936,6 @@ package final class LanguageToolingSessionManager: ObservableObject,
             throw LanguageToolingSessionError.toolingUnavailable(descriptor.displayName)
         }
         try session.resolveVirtualDocument(uri: uri.absoluteString, completion: completion)
-    }
-
-    package func javaNavigationMarkers(
-        fileURL: URL,
-        completion: @escaping (Result<[JavaNavigationMarker], Error>) -> Void
-    ) throws {
-        guard let session = readyLanguageServerSession(for: fileURL) else {
-            throw unavailableLanguageServerError(for: fileURL)
-        }
-        try session.javaNavigationMarkers(fileURL: fileURL, completion: completion)
-    }
-
-    /// Launchable `main` methods in one file, from an already running Java session.
-    package func javaMainMethods(
-        fileURL: URL,
-        completion: @escaping (Result<JavaMainMethods, Error>) -> Void
-    ) throws {
-        guard let session = readyLanguageServerSession(for: fileURL) else {
-            throw unavailableLanguageServerError(for: fileURL)
-        }
-        try session.javaMainMethods(fileURL: fileURL, completion: completion)
-    }
-
-    /// Test classes and methods in one file, from an already running Java
-    /// session. Unlike test-tool-window discovery, it never starts the server.
-    package func javaTestItems(
-        fileURL: URL,
-        completion: @escaping (Result<JavaTestItems, Error>) -> Void
-    ) throws {
-        guard let session = readyLanguageServerSession(for: fileURL) else {
-            throw unavailableLanguageServerError(for: fileURL)
-        }
-        try session.javaTestItems(fileURL: fileURL, completion: completion)
-    }
-
-    package func resolveJavaNavigation(
-        fileURL: URL,
-        marker: JavaNavigationMarker,
-        completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
-    ) throws {
-        guard let session = readyLanguageServerSession(for: fileURL) else {
-            throw unavailableLanguageServerError(for: fileURL)
-        }
-        try session.resolveJavaNavigation(
-            fileURL: fileURL,
-            marker: marker,
-            completion: completion
-        )
     }
 
     package func resolveCompletion(
@@ -1735,15 +1002,14 @@ package final class LanguageToolingSessionManager: ObservableObject,
     private func ensureLanguageServerSession(
         descriptor: LanguageProviderDescriptor,
         rootURL: URL,
-        operationID requestedOperationID: UUID?,
-        javaImportOverride: JavaLanguageImportConfiguration? = nil
+        operationID requestedOperationID: UUID?
     ) throws -> any LanguageServerSession {
         guard stoppingServers[descriptor.id] == nil else {
             throw LanguageToolingSessionError.toolingUnavailable(
                 L10n.string("The language server is still stopping. Try again after it has stopped.")
             )
         }
-        // All entry points, including Maven reload, testing, and debugging, must
+        // All entry points, including reload, testing, and debugging, must
         // recheck the current workspace preference before creating or reusing a session.
         guard isLanguageServerEnabled(descriptor.id, rootURL) else {
             throw LanguageToolingSessionError.providerDisabled(descriptor.displayName)
@@ -1754,12 +1020,18 @@ package final class LanguageToolingSessionManager: ObservableObject,
             return active
         }
 
-        let previousAttempt = languageServerStartupAttempts[descriptor.id]
-        let attempts = previousAttempt?.root == rootURL ? previousAttempt?.count ?? 0 : 0
+        let previousActivation = languageServerActivation[descriptor.id]
+        let activationHistory = previousActivation?.root == rootURL ? previousActivation?.state : nil
         // Document synchronization must not turn a persistent startup failure
-        // into an unbounded process loop. Explicit stop/restart clears the budget.
-        if attempts >= Self.maximumStartupAttempts,
-           case .failed(let failure) = languageServerStates[descriptor.id] {
+        // into an unbounded process loop. Explicit stop/restart clears the history.
+        if let outcome = activationOutcome(.automaticStart, providerID: descriptor.id, history: activationHistory),
+           outcome.decision != .allow {
+            let failure: LanguageServerSessionFailure
+            if case .failed(let previous) = languageServerStates[descriptor.id] {
+                failure = previous
+            } else {
+                failure = LanguageServerSessionFailure(code: "start_failed", stage: "processStart", message: nil)
+            }
             throw LanguageServerSessionStartError(failure: failure)
         }
 
@@ -1786,7 +1058,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
         if languageServers[descriptor.id] != nil || languageServerRoots[descriptor.id] != nil {
             stopLanguageServer(providerID: descriptor.id)
         }
-        languageServerStartupAttempts[descriptor.id] = (rootURL, attempts + 1)
+        // Retiring the previous projection clears its history; this start keeps it.
+        languageServerActivation[descriptor.id] = activationHistory.map { (rootURL, $0) }
         let operationID = requestedOperationID ?? UUID()
         // Only a declarative launch has no plugin process to report its start;
         // a plugin API 1 server is one too, though it has no launch templates.
@@ -1808,45 +1081,10 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 message: message
             ))
             languageServerStates[descriptor.id] = state
+            recordActivation(.startFailed, providerID: descriptor.id, rootURL: rootURL)
             recordLogIssue(descriptor.id, operationID.uuidString, false, "discovery", "tool_not_found", nil)
             onLanguageServerStateChange?(descriptor.id, state, operationID)
             throw LanguageToolingSessionError.toolingUnavailable(message)
-        }
-
-        let workspaceFingerprint: String?
-        do {
-            workspaceFingerprint = try workspaceFingerprintProvider(
-                descriptor,
-                rootURL
-            )
-        } catch {
-            startupAttempt?.end(throwing: error)
-            let state = LanguageServerSessionState.failed(LanguageServerSessionFailure(
-                code: "workspace_fingerprint_failed",
-                stage: "workspaceFingerprint",
-                message: error.localizedDescription
-            ))
-            languageServerStates[descriptor.id] = state
-            recordLogIssue(descriptor.id, operationID.uuidString, false, "workspaceFingerprint", "workspace_fingerprint_failed", nil)
-            onLanguageServerStateChange?(descriptor.id, state, operationID)
-            throw error
-        }
-        if let workspaceFingerprint, let workspaceStateCleaner {
-            do {
-                let removedCount = try workspaceStateCleaner(
-                    descriptor,
-                    rootURL,
-                    workspaceFingerprint
-                )
-                if let logSink, let server = logSubject(for: descriptor.id) {
-                    logSink.emit(LspCacheCleaned(removed: Int64(removedCount), server: server,
-                                                operationID: operationID.uuidString))
-                }
-            } catch {
-                // Cache maintenance is best-effort and must not prevent the
-                // current workspace's language server from starting.
-                recordLogIssue(descriptor.id, operationID.uuidString, true, "cacheCleanup", "cacheCleanupFailed", nil)
-            }
         }
 
         if let startupAttempt { created.observePluginStartup(startupAttempt) }
@@ -1863,7 +1101,6 @@ package final class LanguageToolingSessionManager: ObservableObject,
         languageServerFeatureProviders[descriptor.id] = featureProvider
         languageServers[descriptor.id] = created
         languageServerRoots[descriptor.id] = rootURL
-        languageServerWorkspaceFingerprints[descriptor.id] = workspaceFingerprint
         configureLanguageServerCallbacks(
             created,
             providerID: descriptor.id,
@@ -1880,15 +1117,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         )
 
         do {
-            let importConfiguration = try javaImportOverride ?? javaLanguageImport(descriptor, rootURL: rootURL)
-            if descriptor.id == "java" { javaImportRevision &+= 1 }
-            languageServerMavenContexts[descriptor.id] = importConfiguration.mavenContext
-            try created.start(
-                rootURL: rootURL,
-                workspaceFingerprint: workspaceFingerprint,
-                mavenContext: importConfiguration.mavenContext,
-                javaGradle: importConfiguration.javaGradle
-            )
+            try created.start(rootURL: rootURL)
         } catch {
             // Before the session handed the attempt to Core; a no-op after.
             startupAttempt?.end(throwing: error)
@@ -1906,6 +1135,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
                     )
                 let state = LanguageServerSessionState.failed(failure)
                 languageServerStates[descriptor.id] = state
+                recordActivation(.startFailed, providerID: descriptor.id, rootURL: rootURL)
                 recordLogIssue(descriptor.id, languageServerOperationIDs[descriptor.id]?.uuidString, false, failure.stage ?? "processStart", failure.code ?? "start_failed", failure.exitCode.map(Int.init))
                 onLanguageServerStateChange?(descriptor.id, state, operationID)
             }
@@ -1916,20 +1146,41 @@ package final class LanguageToolingSessionManager: ObservableObject,
         return created
     }
 
+    /// Asks Core for the activation decision. A Core failure is logged and
+    /// leaves starts allowed so a policy fault never disables the language server.
+    private func activationOutcome(
+        _ event: LanguageServerActivationEvent,
+        providerID: String,
+        history: LanguageServerActivationState?
+    ) -> LanguageServerActivationOutcome? {
+        guard let policyCore else { return nil }
+        switch policyCore.languageServerActivation(state: history, event: event, nowMs: monotonicNowMs()) {
+        case .success(let outcome):
+            return outcome
+        case .failure(let failure):
+            logSink?.emit(AppCoreFallbackSelected(error: LogFailure(domain: "RustCore", code: failure.code),
+                                                  stage: "lsp.activationPolicy"))
+            return nil
+        }
+    }
+
+    private func recordActivation(_ event: LanguageServerActivationEvent, providerID: String, rootURL: URL) {
+        let previous = languageServerActivation[providerID]
+        let history = previous?.root == rootURL ? previous?.state : nil
+        guard let outcome = activationOutcome(event, providerID: providerID, history: history) else { return }
+        languageServerActivation[providerID] = outcome.state.map { (rootURL, $0) }
+    }
+
     private func clearLanguageServerSession(
         providerID: String,
         sessionIdentity: ObjectIdentifier,
         stop: Bool
     ) {
         guard languageServerSessionIdentities[providerID] == sessionIdentity else { return }
-        if providerID == "java" { mavenProfileProjectResults.removeAll() }
         clearDiagnostics(providerID: providerID)
         languageServerSessionIdentities[providerID] = nil
         let session = languageServers.removeValue(forKey: providerID)
         languageServerRoots[providerID] = nil
-        if providerID == "java" { javaImportRevision &+= 1 }
-        languageServerMavenContexts[providerID] = nil
-        languageServerWorkspaceFingerprints[providerID] = nil
         languageServerFeatures[providerID] = nil
         languageServerInfos[providerID] = nil
         languageServerFeatureProviders[providerID] = nil
@@ -2014,31 +1265,22 @@ package final class LanguageToolingSessionManager: ObservableObject,
         providers: [any LanguageFeatureProvider],
         index: Int,
         context: LanguageFeatureRequestContext,
-        items: [LanguageServerCompletionItem],
-        isIncomplete: Bool,
-        seenLabels: Set<String>,
+        lists: [LanguageServerCompletionList],
         completion: @escaping (Result<LanguageServerCompletionList, Error>) -> Void
     ) {
         guard index < providers.count else {
-            completion(.success(LanguageServerCompletionList(items: items, isIncomplete: isIncomplete)))
+            completion(.success(mergeCompletionLists(lists)))
             return
         }
         do {
             try providers[index].completionList(in: context) { [self] result in
                 switch result {
                 case .success(let providerItems):
-                    var merged = items
-                    var labels = seenLabels
-                    for item in providerItems.items where labels.insert(item.label).inserted {
-                        merged.append(item)
-                    }
                     routeCompletions(
                         providers: providers,
                         index: index + 1,
                         context: context,
-                        items: merged,
-                        isIncomplete: isIncomplete || providerItems.isIncomplete,
-                        seenLabels: labels,
+                        lists: lists + [providerItems],
                         completion: completion
                     )
                 case .failure(let error):
@@ -2047,6 +1289,32 @@ package final class LanguageToolingSessionManager: ObservableObject,
             }
         } catch {
             completion(.failure(error))
+        }
+    }
+
+    /// Core decides which candidates survive across prioritized providers
+    /// (`lsp.mergeCompletions`); only labels cross the boundary.
+    private func mergeCompletionLists(_ lists: [LanguageServerCompletionList]) -> LanguageServerCompletionList {
+        let isIncomplete = lists.contains(where: \.isIncomplete)
+        // With at most one non-empty list nothing can be shadowed, and the shared
+        // rule keeps a provider's list whole, so the call is skipped.
+        guard lists.filter({ !$0.items.isEmpty }).count > 1 else {
+            return LanguageServerCompletionList(items: lists.flatMap(\.items), isIncomplete: isIncomplete)
+        }
+        guard let policyCore else {
+            return LanguageServerCompletionList(items: lists.flatMap(\.items), isIncomplete: isIncomplete)
+        }
+        switch policyCore.mergeCompletions(labels: lists.map { $0.items.map(\.label) },
+                                           incomplete: lists.map(\.isIncomplete)) {
+        case .success(let selection):
+            let items = zip(lists, selection.keep).flatMap { list, keep in
+                keep.compactMap { list.items.indices.contains($0) ? list.items[$0] : nil }
+            }
+            return LanguageServerCompletionList(items: items, isIncomplete: selection.isIncomplete)
+        case .failure(let failure):
+            logSink?.emit(AppCoreFallbackSelected(error: LogFailure(domain: "RustCore", code: failure.code),
+                                                  stage: "lsp.mergeCompletions"))
+            return LanguageServerCompletionList(items: lists.flatMap(\.items), isIncomplete: isIncomplete)
         }
     }
 
@@ -2151,27 +1419,6 @@ package final class LanguageToolingSessionManager: ObservableObject,
                 self.languageServerInfos[providerID] = info
             }
         }
-        session.onProjectPreparation = { [weak self] snapshot in
-            guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
-            if providerID == "java" {
-                let previous = self.projectPreparation
-                self.projectPreparation = snapshot
-                if snapshot.status != "ready" {
-                    self.javaDependencyChangeTask?.cancel()
-                    self.javaDependencyRefreshTask?.cancel()
-                } else if previous != snapshot {
-                    self.refreshJavaDependenciesWhenReady()
-                }
-            }
-        }
-        session.onMavenProfileTask = { [weak self] status in
-            guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
-            if status == "running" { self.mavenProfileProjectResults.removeAll() }
-        }
-        session.onMavenProfileProject = { [weak self] result in
-            guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
-            self.mavenProfileProjectResults[result.projectURI] = result
-        }
         // Retiring sessions still own their terminal facts after UI state is cleared.
         // Core records carry their own identity, so do not apply the UI stale-session gate.
         let sink = logSink
@@ -2182,6 +1429,14 @@ package final class LanguageToolingSessionManager: ObservableObject,
             guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
             self.recordLogIssue(providerID, operationID ?? self.languageServerOperationIDs[providerID]?.uuidString,
                 warning, stage, code, exitCode)
+        }
+        // The relay raised the generation when this session's state first
+        // became `startingProcess`, just before these callbacks are bound.
+        if let generation = pluginServers.liveGeneration(of: providerID) {
+            session.onPluginServerNotification = { [weak self] notification in
+                guard let self, self.languageServerSessionIdentities[providerID] == sessionIdentity else { return }
+                self.pluginServers.receive(notification, serverID: providerID, generation: generation)
+            }
         }
         session.onStateChange = { [weak self] state in
             self?.handleLanguageServerState(
@@ -2201,35 +1456,16 @@ package final class LanguageToolingSessionManager: ObservableObject,
     ) {
         guard languageServerSessionIdentities[providerID] == sessionIdentity else { return }
         languageServerStates[providerID] = state
-        if providerID == "java" {
-            switch state {
-            case .startingProcess: projectPreparation = .init(phase: "starting", status: "loading", blocksRun: true)
-            case .initializing: projectPreparation = .init(phase: "importing", status: "loading", blocksRun: true)
-            case .failed:
-                let phase = projectPreparation?.phase
-                projectPreparation = .init(
-                    phase: phase == "ready" ? "starting" : (phase ?? "starting"),
-                    status: "failed", blocksRun: true
-                )
-            case .stopped, .stopping: projectPreparation = nil
-            case .ready: break // Rust may still be synchronizing project configuration.
-            }
-        }
         resumeLanguageServerReadyWaiters(
             providerID: providerID,
             state: state,
             rootURL: languageServerRoots[providerID]
         )
+        if case .failed = state, let rootURL = languageServerRoots[providerID] {
+            recordActivation(.startFailed, providerID: providerID, rootURL: rootURL)
+        }
         switch state {
         case .stopped, .failed:
-            if providerID == "java" {
-                javaDependencyChangeTask?.cancel()
-                javaDependencyChangeTask = nil
-                javaDependencyRefreshTask?.cancel()
-                javaDependencyRefreshTask = nil
-                javaDependencyWorkspaceURL = nil
-                javaDependencySnapshot = nil
-            }
             clearLanguageServerSession(
                 providerID: providerID,
                 sessionIdentity: sessionIdentity,
@@ -2242,10 +1478,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
             languageServerFeatures[providerID] = nil
             languageServerInfos[providerID] = nil
         case .ready:
-            languageServerStartupAttempts[providerID] = nil
+            if let rootURL = languageServerRoots[providerID] {
+                recordActivation(.ready, providerID: providerID, rootURL: rootURL)
+            }
             languageServerFeatures[providerID] = session.features
             languageServerInfos[providerID] = session.serverInfo
-            if providerID == "java" { refreshJavaDependenciesWhenReady() }
         }
         onLanguageServerStateChange?(
             providerID,
@@ -2321,23 +1558,6 @@ package final class LanguageToolingSessionManager: ObservableObject,
         let providerID: String
         let rootURL: URL
         let continuation: CheckedContinuation<Void, Error>
-    }
-
-    private struct JavaWorkspaceBuildRequest: Encodable {
-        let mainClass: String
-        let projectName: String?
-        let filePath: String
-        let isFullBuild: Bool
-    }
-
-    private struct ResolvedJavaTestLaunchArguments {
-        let workingDirectory: String
-        let mainClass: String?
-        let projectName: String?
-        let classPaths: [String]
-        let modulePaths: [String]
-        let vmArguments: [String]
-        let programArguments: [String]
     }
 
     private func replaceDiagnostics(

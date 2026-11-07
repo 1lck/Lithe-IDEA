@@ -142,7 +142,7 @@ struct ProcessExitCoordinatorTests {
             resources: BackgroundResourceAnswer(terminate: ["service:20:2"], remember: false)
         )
         let coordinator = ProcessExitCoordinator(core: RustProcessLifecycleDecider(core: RustCoreBridge()), presenter: presenter)
-        let busy = terminal(programs: [TerminalRunningProgram(processID: 10, commandLine: "mvn spring-boot:run")])
+        let busy = terminal(programs: [TerminalRunningProgram(processID: 10, commandLine: "tool-a serve")])
         let idle = terminal(programs: [])
 
         let (outcome, _) = await coordinator.confirmQuit(
@@ -171,13 +171,13 @@ struct ProcessExitCoordinatorTests {
 
         let (outcome, _) = await coordinator.confirmQuit(
             settings: ProcessTerminationSettings(),
-            runServices: [service("run:api"), service("maven:install")],
+            runServices: [service("run:api"), service("tool-a:install")],
             terminals: [busy],
             agentTasks: [],
             resources: []
         )
 
-        #expect(presenter.asked == ["runServices:quit:run:api,maven:install", "terminal:\(busy.sessionID)"])
+        #expect(presenter.asked == ["runServices:quit:run:api,tool-a:install", "terminal:\(busy.sessionID)"])
         guard case .proceed = outcome else {
             Issue.record("Expected to proceed, got \(outcome)")
             return

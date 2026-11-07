@@ -37,7 +37,7 @@ extension LitheWorkspaceModule.WorkspaceFeatureModel {
         restoreSession: @escaping @MainActor @Sendable (WorkspaceSession, [URL]) async -> Void,
         openFile: @escaping @MainActor @Sendable (URL) -> Void,
         notify: @escaping @MainActor @Sendable (String) -> Void,
-        recordHistory: @escaping @MainActor @Sendable (URL, LocalHistoryReason) async -> Void,
+        recordHistory: @escaping @MainActor @Sendable (URL, LocalHistoryEvent) async -> Void,
         relocateHistory: @escaping @MainActor @Sendable (URL, URL) async -> Void,
         moveTrackedItem: @escaping @MainActor @Sendable (URL, URL) async -> Bool = { _, _ in false },
         relocateOpenDocuments: @escaping @MainActor @Sendable (URL, URL) -> Void,

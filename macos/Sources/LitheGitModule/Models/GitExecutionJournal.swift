@@ -16,6 +16,8 @@ package final class GitExecutionJournal: @unchecked Sendable {
     private var entryIDs: [String: Set<UUID>] = [:]
     private var hidden: Set<String> = []
     private var omittedHistory = false
+    /// Core's budget from the latest `requestStarted`.
+    private var retention: GitJournalRetention?
 
     package init() {}
 
@@ -48,8 +50,9 @@ package final class GitExecutionJournal: @unchecked Sendable {
                 entries.append(entry)
             }
         }
-        if entries.count > 200 { omittedHistory = true; entries.removeFirst(entries.count - 200) }
-        while entries.count > 1 && entries.reduce(0, { $0 + $1.output.count }) > 1_048_576 {
+        guard let retention else { return }
+        if entries.count > retention.maxRecords { omittedHistory = true; entries.removeFirst(entries.count - retention.maxRecords) }
+        while entries.count > 1 && entries.reduce(0, { $0 + $1.output.count }) > retention.maxTotalOutputCharacters {
             omittedHistory = true
             entries.removeFirst()
         }
@@ -63,6 +66,7 @@ package final class GitExecutionJournal: @unchecked Sendable {
     private func receiveLocked(_ event: GitExecutionEvent, root: URL?) -> Bool {
         let operationID = event.operationId
         if event.type == "requestStarted" {
+            if let budget = event.retention { retention = budget }
             activeRequests.insert(operationID)
             requestRoots[operationID] = root ?? event.workingDirectory.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
             return false
@@ -78,7 +82,7 @@ package final class GitExecutionJournal: @unchecked Sendable {
             if hidden.remove(operationID) != nil { return wasRunning }
             guard let context = contexts[operationID] else {
                 // A request cancelled before any command ran (a newer request superseded it) is not a failure.
-                guard let error = event.error, !error.isCancellation,
+                guard let error = event.error, event.failureRecord == true,
                       let root = requestRoots[operationID] ?? root else { return wasRunning }
                 retain([GitConsoleEntry(workingDirectory: root, arguments: [], output: "", exitCode: -1,
                     state: .unconfirmed, operationErrorMessage: [error.message, error.details].compactMap { $0 }.joined(separator: "\n"))])
@@ -100,7 +104,7 @@ package final class GitExecutionJournal: @unchecked Sendable {
         }
         // Empty bookkeeping requests are not invented console commands.
         guard event.type == "started" || contexts[operationID] != nil else { return false }
-        let context = contexts[operationID] ?? GitExecutionContext(operationID: operationID)
+        let context = contexts[operationID] ?? GitExecutionContext(operationID: operationID, retention: retention)
         contexts[operationID] = context
         context.receive(event)
         omittedHistory = omittedHistory || context.hasOmittedHistory

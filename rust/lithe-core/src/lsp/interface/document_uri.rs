@@ -16,9 +16,10 @@ struct Request {
     platform: Platform,
 }
 
-#[derive(Clone, Copy, Deserialize)]
+/// Path syntax of a native absolute path; `auto` recognizes drive and UNC paths.
+#[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
-enum Platform {
+pub(crate) enum Platform {
     Posix,
     Windows,
     Auto,
@@ -27,6 +28,29 @@ enum Platform {
 pub(crate) fn document_uri_command(payload: Value) -> Result<Value, CoreError> {
     let request: Request = serde_json::from_value(payload).map_err(|_| invalid())?;
     Ok(json!({"uri": document_uri(&request.path, request.platform)?}))
+}
+
+/// Public alias for planners that compare native paths through their URIs.
+pub(crate) type DocumentPathPlatform = Platform;
+
+impl Platform {
+    /// Canonical file URI of an absolute native path; see `lsp.documentUri`.
+    pub(crate) fn document_uri(self, path: &str) -> Result<String, CoreError> {
+        document_uri(path, self)
+    }
+
+    /// True when `path` uses Windows syntax: drive or UNC, or `windows` explicitly.
+    pub(crate) fn is_windows_path(self, path: &str) -> bool {
+        match self {
+            Platform::Windows => true,
+            Platform::Posix => false,
+            Platform::Auto => {
+                path.starts_with("\\\\")
+                    || path.starts_with("//")
+                    || path.as_bytes().get(1) == Some(&b':')
+            }
+        }
+    }
 }
 
 fn document_uri(path: &str, platform: Platform) -> Result<String, CoreError> {

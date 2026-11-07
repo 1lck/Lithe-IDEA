@@ -3,6 +3,7 @@ import CoreText
 import Foundation
 import ObjectiveC
 @testable import LitheGitModule
+import LitheGitTestSupport
 import SwiftUI
 @testable import Lithe
 import Testing
@@ -18,7 +19,7 @@ struct GitGraphInteractionTests {
         func group(_ decorations: String) throws -> GitGraphReferenceGroup {
             let commit = GitCommit(hash: "tip", shortHash: "tip", parentHashes: [], authorName: "Test",
                 authorEmail: "", date: "", subject: "Subject", decorations: decorations)
-            let row = try #require(GitGraphLayoutService.layout(commits: [commit]).rows.first)
+            let row = try #require(GitGraphCoreTestSupport.layout(commits: [commit]).rows.first)
             return GitGraphReferenceGroup(labels: row.labels, references: [local])
         }
         let tracked = try group("HEAD -> main, refs/remotes/upstream/release, tag: v1")
@@ -159,7 +160,7 @@ struct GitGraphInteractionTests {
         let commit = GitCommit(hash: "tip", shortHash: "tip", parentHashes: [], authorName: "Test", authorEmail: "",
             date: "2026/09/09", subject: "A commit with a long branch reference",
             decorations: "HEAD -> main, origin/main, refs/remotes/origin/codex/frontend-preview-with-long-name")
-        let rows = GitGraphLayoutService.layout(commits: [commit]).rows
+        let rows = GitGraphCoreTestSupport.layout(commits: [commit]).rows
         let frame = CGRect(x: 0, y: 0, width: 780, height: GitGraphGeometry.rowHeight)
         let view = GitGraphCommitRowsNSView(frame: frame)
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -198,7 +199,7 @@ struct GitGraphInteractionTests {
 
     @Test("Real history matches IDEA for page, repository context and Normal date order", arguments: ["page", "context", "date"])
     func reportedHistoryParity(_ fixture: String) throws {
-        let layout = GitGraphLayoutService.layout(commits: try reportedCommits(fixture == "date" ? "issue410-date-history" : "issue410-history"),
+        let layout = GitGraphCoreTestSupport.layout(commits: try reportedCommits(fixture == "date" ? "issue410-date-history" : "issue410-history"),
             repositoryCommits: fixture == "page" ? [] : try reportedCommits(fixture == "date" ? "issue410-date-context" : "issue410-context"))
         var actual = ["Width|\(layout.recommendedLaneCount)"]
         for (index, row) in layout.rows.enumerated() {
@@ -231,7 +232,7 @@ struct GitGraphInteractionTests {
 
     @Test("Real merge clusters render in date and legacy order in both appearances", arguments: [false, true])
     func reportedHistoryRendering(_ dateOrder: Bool) throws {
-        let layout = GitGraphLayoutService.layout(commits: try reportedCommits(dateOrder ? "issue410-date-history" : "issue410-history"),
+        let layout = GitGraphCoreTestSupport.layout(commits: try reportedCommits(dateOrder ? "issue410-date-history" : "issue410-history"),
             repositoryCommits: try reportedCommits(dateOrder ? "issue410-date-context" : "issue410-context"))
         #expect(layout.rows.count == (dateOrder ? 300 : 200))
         let selectedIndex = try #require(layout.rows.firstIndex { $0.commit.hash.hasPrefix("ba3725bb") })
@@ -312,12 +313,12 @@ struct GitGraphInteractionTests {
             GitCommit(hash: String(index), shortHash: String(index), parentHashes: [],
                       authorName: "", authorEmail: "", date: date, subject: "", decorations: "")
         }
-        let rows = GitGraphLayoutService.layout(commits: commits).rows
+        let rows = GitGraphCoreTestSupport.layout(commits: commits).rows
         let frame = NSRect(x: 0, y: 0, width: 850, height: CGFloat(rows.count) * GitGraphGeometry.rowHeight)
         let view = GitGraphCommitRowsNSView(frame: frame)
         view.update(rows: rows, selectedHash: nil, showDecorations: false, graphWidth: 100,
                     rowHeight: GitGraphGeometry.rowHeight, actions: actions { _ in })
-        let layout = GitGraphLayoutService.layout(commits: commits)
+        let layout = GitGraphCoreTestSupport.layout(commits: commits)
         let hosting = NSHostingView(rootView: GitGraphView(presentation: presentation(layout), selectedHash: nil,
             showCommitDecorations: false, actions: actions { _ in }).environment(\.locale, Locale(identifier: "en")))
         hosting.frame = frame
@@ -423,7 +424,7 @@ struct GitGraphInteractionTests {
 
     @Test("Both arrow hit regions navigate to their real visible endpoint")
     func arrowHitRegions() throws {
-        let layout = GitGraphLayoutService.layout(commits: commits())
+        let layout = GitGraphCoreTestSupport.layout(commits: commits())
         let view = GitGraphNSView()
         view.update(snapshot: GitGraphLayoutService.routingSnapshot(for: layout), width: 60, rowHeight: GitGraphGeometry.rowHeight)
         var targets = Set<String>()
@@ -554,7 +555,7 @@ struct GitGraphInteractionTests {
                 authorName: value.authorName, authorEmail: value.authorEmail, date: value.date,
                 subject: value.subject, decorations: value.decorations)
         }
-        return GitGraphLayoutService.layout(commits: history, options: .expanded)
+        return GitGraphCoreTestSupport.layout(commits: history, options: .expanded)
     }
 
     @Test("Native arrow routing leaves ordinary SwiftUI row clicks selectable")
@@ -593,7 +594,7 @@ struct GitGraphInteractionTests {
 
     @Test("The hovered row follows a stationary pointer while rows scroll under it")
     func hoverFollowsThePointerWhenRowsScroll() throws {
-        let layout = GitGraphLayoutService.layout(commits: commits())
+        let layout = GitGraphCoreTestSupport.layout(commits: commits())
         let scroll = GitGraphScrollView.makeScrollView(
             presentation: presentation(layout), selectedHash: nil, showCommitDecorations: true,
             canLoadMore: false, isLoadingMore: false,
@@ -631,7 +632,7 @@ struct GitGraphInteractionTests {
 
     @Test("Arrow activation selects and scrolls to parent, then back to child")
     func bidirectionalNavigation() throws {
-        let layout = GitGraphLayoutService.layout(commits: commits())
+        let layout = GitGraphCoreTestSupport.layout(commits: commits())
         var selection: String?
         let scroll = GitGraphScrollView.makeScrollView(
             presentation: presentation(layout), selectedHash: nil, showCommitDecorations: true,
@@ -661,7 +662,7 @@ struct GitGraphInteractionTests {
 
     @Test("Production SwiftUI arrow buttons deliver clicks to both destinations")
     func swiftUIArrowButtons() async throws {
-        let layout = GitGraphLayoutService.layout(commits: commits())
+        let layout = GitGraphCoreTestSupport.layout(commits: commits())
         var targets: [String] = []
         var callbacks = actions { _ in }
         callbacks.onNavigateHash = { targets.append($0) }
@@ -699,7 +700,7 @@ struct GitGraphInteractionTests {
     func renderSurfaces() throws {
         for expanded in [false, true] {
             for dark in [false, true] {
-                let layout = GitGraphLayoutService.layout(commits: commits(), options: expanded ? .expanded : .compact)
+                let layout = GitGraphCoreTestSupport.layout(commits: commits(), options: expanded ? .expanded : .compact)
                 let document = GitGraphScrollDocumentView()
                 document.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
                 document.update(presentation: presentation(layout), selectedHash: "0", showCommitDecorations: true,
@@ -725,7 +726,7 @@ struct GitGraphInteractionTests {
 
     @Test("Text follows local graph width and leaves diagonal boundary clearance")
     func compactTextWidth() {
-        let layout = GitGraphLayoutService.layout(commits: commits())
+        let layout = GitGraphCoreTestSupport.layout(commits: commits())
         let narrow = GitGraphGeometry.rowWidth(layout.rows[20], recommendedLaneCount: 0)
         let arrow = GitGraphGeometry.rowWidth(layout.rows[1], recommendedLaneCount: 0)
         #expect(narrow < arrow)
@@ -747,7 +748,7 @@ struct GitGraphInteractionTests {
             #expect(offset >= minimum)
             #expect(offset >= floor(GitGraphGeometry.rowWidth(row, recommendedLaneCount: 0)) + 2)
         }
-        let compact = GitGraphLayoutService.layout(commits: commits()).rows[20]
+        let compact = GitGraphCoreTestSupport.layout(commits: commits()).rows[20]
         #expect(GitGraphGeometry.titleOffset(compact, recommendedLaneCount: 0) == minimum)
     }
 
@@ -756,7 +757,7 @@ struct GitGraphInteractionTests {
         let commit = GitCommit(hash: "merge", shortHash: "merge", parentHashes: ["left", "right"],
                                authorName: "MMMMMMMM", authorEmail: "test@example.invalid",
                                date: "MMMMMMMM", subject: "MMMMMMMM", decorations: "")
-        let layout = GitGraphLayoutService.layout(commits: [commit])
+        let layout = GitGraphCoreTestSupport.layout(commits: [commit])
         let row = try #require(layout.rows.first)
         let frame = NSRect(x: 0, y: 0, width: 850, height: GitGraphGeometry.rowHeight)
         let native = GitGraphCommitRowsNSView(frame: frame)
@@ -804,8 +805,8 @@ struct GitGraphInteractionTests {
     @Test("Native history scrolling loads pages automatically and stops on failure or exhaustion")
     func automaticHistoryPaging() async throws {
         let all = try reportedCommits("issue410-date-history")
-        let initial = presentation(GitGraphLayoutService.layout(commits: Array(all.prefix(50))))
-        let expanded = presentation(GitGraphLayoutService.layout(commits: Array(all.prefix(100))))
+        let initial = presentation(GitGraphCoreTestSupport.layout(commits: Array(all.prefix(50))))
+        let expanded = presentation(GitGraphCoreTestSupport.layout(commits: Array(all.prefix(100))))
         var requests = 0
         let callbacks = actions { _ in }
         let scroll = GitGraphScrollView.makeScrollView(presentation: initial,
@@ -869,7 +870,7 @@ struct GitGraphInteractionTests {
     @Test("The reserved footer row is never blank: it offers the next page, shows progress, and goes away with the history")
     func footerRowIsNeverBlankWhileOlderHistoryExists() throws {
         let all = try reportedCommits("issue410-date-history")
-        let page = presentation(GitGraphLayoutService.layout(commits: Array(all.prefix(50))))
+        let page = presentation(GitGraphCoreTestSupport.layout(commits: Array(all.prefix(50))))
         let callbacks = actions { _ in }
         var requests = 0
         let scroll = GitGraphScrollView.makeScrollView(presentation: page,
@@ -917,8 +918,8 @@ struct GitGraphInteractionTests {
     @Test("Background history refresh retains the visible commit and pixel inset while explicit navigation still wins")
     func backgroundHistoryRefreshAnchorsVisibleCommitInsteadOfSelectedCommit() throws {
         let all = try reportedCommits("issue410-date-history")
-        let initial = presentation(GitGraphLayoutService.layout(commits: Array(all[1..<201])))
-        let refreshed = presentation(GitGraphLayoutService.layout(commits: Array(all.prefix(200))))
+        let initial = presentation(GitGraphCoreTestSupport.layout(commits: Array(all[1..<201])))
+        let refreshed = presentation(GitGraphCoreTestSupport.layout(commits: Array(all.prefix(200))))
         let callbacks = actions { _ in }
         let selected = initial.rows[150].commit.hash
         let scroll = GitGraphScrollView.makeScrollView(presentation: initial, selectedHash: selected,
@@ -957,7 +958,7 @@ struct GitGraphInteractionTests {
 
     @Test("Continuous native viewport resizing retains document, scroll and multiple selections")
     func continuousViewportResize() throws {
-        let layout = GitGraphLayoutService.layout(commits: try reportedCommits("issue410-date-history"))
+        let layout = GitGraphCoreTestSupport.layout(commits: try reportedCommits("issue410-date-history"))
         let data = presentation(layout)
         var clicked: [(String, NSEvent.ModifierFlags)] = []
         var callbacks = actions { _ in }
@@ -1057,7 +1058,7 @@ struct GitGraphInteractionTests {
 
     @Test("The production split handle continuously resizes Git Log with a diff above it")
     func dragGitLogWithDiff() async throws {
-        let data = presentation(GitGraphLayoutService.layout(commits: try reportedCommits("issue410-date-history")))
+        let data = presentation(GitGraphCoreTestSupport.layout(commits: try reportedCommits("issue410-date-history")))
         let diff = (0..<1_200).map { index in
             DiffRow(oldLine: index + 1, newLine: index + 1, left: "let value = \(index)",
                     right: nil, kind: .context, sequence: index)
@@ -1165,7 +1166,7 @@ struct GitGraphInteractionTests {
 
     @Test("Git Log viewport resize comparison with 300 commits")
     func viewportResizeComparison() throws {
-        let layout = GitGraphLayoutService.layout(commits: try reportedCommits("issue410-date-history"))
+        let layout = GitGraphCoreTestSupport.layout(commits: try reportedCommits("issue410-date-history"))
         let data = presentation(layout)
         let callbacks = actions { _ in }
         let legacy = NSHostingView(rootView: ScrollView {

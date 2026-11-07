@@ -165,9 +165,16 @@ struct GitLogView: View {
             let visibleHashes = visibleCommitHashes
             let options: GitGraphDisplayOptions = showLongGraphEdges ? .expanded : .compact
             let highlightsCurrentBranch = graphProjectionIdentity.highlightsCurrentBranch
-            let task = UserActionContext.detached(priority: .userInitiated) {
-                let layout = GitGraphLayoutService.layout(commits: commits, references: references,
-                    repositoryCommits: repositoryCommits, visibleHashes: visibleHashes, options: options)
+            let currentBranch = highlightsCurrentBranch
+                ? references.first(where: { $0.kind == .local && $0.isCurrent })?.shortName : nil
+            let projector = feature.graphProjector
+            // One Core call projects the whole loaded window; layout runs off the main actor.
+            let task = UserActionContext.detached(priority: .userInitiated) { () -> GitGraphPresentation? in
+                guard let layout = await GitGraphLayoutService.layout(
+                    commits: commits, references: references, repositoryCommits: repositoryCommits,
+                    visibleHashes: visibleHashes, options: options, currentBranch: currentBranch,
+                    project: projector
+                ) else { return nil }
                 let referenceIndex = GitGraphReferenceGroup.ReferenceIndex(references)
                 return GitGraphPresentation(rows: layout.rows,
                     routingSnapshot: GitGraphLayoutService.routingSnapshot(for: layout),
@@ -175,14 +182,14 @@ struct GitLogView: View {
                     referenceGroups: Dictionary(uniqueKeysWithValues: layout.rows.map {
                         ($0.commit.hash, GitGraphReferenceGroup(labels: $0.labels, index: referenceIndex))
                     }),
-                    currentBranchHashes: highlightsCurrentBranch
-                        ? GitGraphLayoutService.currentBranchHashes(commits: commits, repositoryCommits: repositoryCommits, references: references) : [])
+                    currentBranchHashes: layout.currentBranchHashes)
             }
-            let presentation = await withTaskCancellationHandler {
+            let result = await withTaskCancellationHandler {
                 await task.value
             } onCancel: {
                 task.cancel()
             }
+            guard let presentation = result else { return }
             guard !Task.isCancelled, graphProjectionIdentity == identity else { return }
             presentationCache.store(presentation, for: identity)
             graphPresentation = presentation
@@ -816,7 +823,7 @@ struct GitLogView: View {
                         content: AnyView(
                             HStack(spacing: LitheTheme.Tree.iconTextGap) {
                                 LitheIDEAIcon(
-                                    resourcePath: "maven/toolWindowMaven.svg", size: LitheTheme.Tree.iconSize,
+                                    resourcePath: "expui/nodes/folder.svg", size: LitheTheme.Tree.iconSize,
                                     preservesOriginalColors: true)
                                 if let index = gitRepositoryColorIndex(for: repository.repositoryRoot) {
                                     Circle().fill(GitRepositoryColor.color(at: index)).frame(width: 8, height: 8)

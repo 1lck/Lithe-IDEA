@@ -1,4 +1,5 @@
 import type { FileEntry } from "@/features/file-system/types/app.types";
+import { partitionDirectoriesFirst } from "@/features/file-system/utils/entry-order";
 import type { FileIconSemanticKind } from "@/extensions/icon-themes/file-icon-semantics";
 import { getCompactFolderChild } from "@/features/file-system/controllers/file-tree-utils";
 import { buildMavenDirectorySemantics } from "@/features/file-explorer/lib/maven-file-tree-semantics";
@@ -41,7 +42,8 @@ export interface FilterFileTreeEntriesOptions {
   isAlwaysHidden: (name: string) => boolean;
   isGitIgnored: (path: string, isDir: boolean) => boolean;
   isHiddenName: (name: string) => boolean;
-  isUserHidden: (path: string, isDir: boolean) => boolean;
+  /** Whether each child of `directoryPath` is hidden by the user's hidden-path rules, in one batch. */
+  classifyUserHidden: (directoryPath: string, children: readonly FileEntry[]) => boolean[];
   showGitignoredFiles: boolean;
   showHiddenFiles: boolean;
 }
@@ -49,14 +51,17 @@ export interface FilterFileTreeEntriesOptions {
 export function filterFileTreeEntries(
   files: FileEntry[],
   options: FilterFileTreeEntriesOptions,
+  directoryPath = "",
 ): FileEntry[] {
   let changed = false;
   const filteredItems: FileEntry[] = [];
+  // One classification per directory: the children are batched, never asked one by one.
+  const userHidden = options.classifyUserHidden(directoryPath, files);
 
-  for (const item of files) {
+  for (const [index, item] of files.entries()) {
     const ignored = options.isGitIgnored(item.path, item.isDir);
 
-    if (options.isAlwaysHidden(item.name) || options.isUserHidden(item.path, item.isDir)) {
+    if (options.isAlwaysHidden(item.name) || userHidden[index] === true) {
       changed = true;
       continue;
     }
@@ -72,7 +77,7 @@ export function filterFileTreeEntries(
     }
 
     const filteredChildren = item.children
-      ? filterFileTreeEntries(item.children, options)
+      ? filterFileTreeEntries(item.children, options, item.path)
       : undefined;
     const childrenChanged = filteredChildren !== item.children;
     const ignoredChanged = item.ignored !== ignored && (ignored || item.ignored !== undefined);
@@ -121,17 +126,15 @@ export function collectFileTreeSearchHits(
   return hits;
 }
 
+/**
+ * Children are stored in Core's name order (`workspace.orderEntries`); rows only
+ * partition it, so rendering never compares names.
+ */
 function sortFileTreeEntriesForDisplay(
   entries: readonly FileEntry[],
   sortOrder: FileTreeSortOrder,
 ): FileEntry[] {
-  return [...entries].sort((left, right) => {
-    if (sortOrder === "folders-first" && left.isDir !== right.isDir) {
-      return left.isDir ? -1 : 1;
-    }
-
-    return left.name.toLowerCase().localeCompare(right.name.toLowerCase());
-  });
+  return sortOrder === "folders-first" ? partitionDirectoriesFirst(entries) : [...entries];
 }
 
 export function buildVisibleFileTreeRows(

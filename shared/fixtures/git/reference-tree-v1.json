@@ -1,0 +1,235 @@
+{
+  "description": "git.referenceTree groups one kind of references by '/' segments. Siblings sort by prioritized reference, group containing a prioritized reference, references before pure groups, then IDEA natural name order. Views own expansion, indentation, and row identities.",
+  "cases": [
+    {
+      "name": "natural order with references before groups",
+      "request": {
+        "references": [
+          {
+            "name": "feature/b"
+          },
+          {
+            "name": "main"
+          },
+          {
+            "name": "feature/a"
+          },
+          {
+            "name": "v10"
+          },
+          {
+            "name": "v2"
+          },
+          {
+            "name": "feature"
+          }
+        ]
+      },
+      "nodes": [
+        {
+          "name": "feature",
+          "path": "feature",
+          "reference": 5,
+          "children": [
+            {
+              "name": "a",
+              "path": "feature/a",
+              "reference": 2,
+              "children": []
+            },
+            {
+              "name": "b",
+              "path": "feature/b",
+              "reference": 0,
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "main",
+          "path": "main",
+          "reference": 1,
+          "children": []
+        },
+        {
+          "name": "v2",
+          "path": "v2",
+          "reference": 4,
+          "children": []
+        },
+        {
+          "name": "v10",
+          "path": "v10",
+          "reference": 3,
+          "children": []
+        }
+      ]
+    },
+    {
+      "name": "pure groups follow references",
+      "request": {
+        "references": [
+          {
+            "name": "release/1.0"
+          },
+          {
+            "name": "main"
+          },
+          {
+            "name": "bugfix/x/y"
+          }
+        ]
+      },
+      "nodes": [
+        {
+          "name": "main",
+          "path": "main",
+          "reference": 1,
+          "children": []
+        },
+        {
+          "name": "bugfix",
+          "path": "bugfix",
+          "reference": null,
+          "children": [
+            {
+              "name": "x",
+              "path": "bugfix/x",
+              "reference": null,
+              "children": [
+                {
+                  "name": "y",
+                  "path": "bugfix/x/y",
+                  "reference": 2,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "release",
+          "path": "release",
+          "reference": null,
+          "children": [
+            {
+              "name": "1.0",
+              "path": "release/1.0",
+              "reference": 0,
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "prioritized references and the groups holding them sort first",
+      "request": {
+        "references": [
+          {
+            "name": "main"
+          },
+          {
+            "name": "zeta/one",
+            "prioritized": true
+          },
+          {
+            "name": "alpha"
+          },
+          {
+            "name": "beta",
+            "prioritized": true
+          }
+        ]
+      },
+      "nodes": [
+        {
+          "name": "beta",
+          "path": "beta",
+          "reference": 3,
+          "children": []
+        },
+        {
+          "name": "zeta",
+          "path": "zeta",
+          "reference": null,
+          "children": [
+            {
+              "name": "one",
+              "path": "zeta/one",
+              "reference": 1,
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "alpha",
+          "path": "alpha",
+          "reference": 2,
+          "children": []
+        },
+        {
+          "name": "main",
+          "path": "main",
+          "reference": 0,
+          "children": []
+        }
+      ]
+    },
+    {
+      "name": "case differences tie-break by raw name",
+      "request": {
+        "references": [
+          {
+            "name": "release"
+          },
+          {
+            "name": "Release"
+          }
+        ]
+      },
+      "nodes": [
+        {
+          "name": "Release",
+          "path": "Release",
+          "reference": 1,
+          "children": []
+        },
+        {
+          "name": "release",
+          "path": "release",
+          "reference": 0,
+          "children": []
+        }
+      ]
+    },
+    {
+      "name": "empty segments are ignored",
+      "request": {
+        "references": [
+          {
+            "name": "//a//b"
+          },
+          {
+            "name": "/"
+          }
+        ]
+      },
+      "nodes": [
+        {
+          "name": "a",
+          "path": "a",
+          "reference": null,
+          "children": [
+            {
+              "name": "b",
+              "path": "a/b",
+              "reference": 0,
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

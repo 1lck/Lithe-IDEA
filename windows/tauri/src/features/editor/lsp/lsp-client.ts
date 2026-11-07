@@ -68,11 +68,7 @@ import {
   normalizeLspDocumentTarget,
   type LspDocumentTargetInput,
 } from "./lsp-document-target";
-import {
-  clearLanguageServerFailure,
-  isLanguageServerFailureCoolingDown,
-  recordLanguageServerFailure,
-} from "./language-server-failure-cooldown";
+import { LanguageServerActivationHistory } from "./language-server-activation-policy";
 import { isCanceledLspRequest, normalizeLspError } from "./lsp-request-error";
 import {
   applyWorkspaceEdit,
@@ -245,8 +241,8 @@ export class LspClient {
   private activeServerFiles = new Map<string, Set<string>>(); // workspace:language -> tracked files
   private workspaceRepresentativeFiles = new Map<string, string>();
   private serverScopes = new Map<string, WorkspaceLaunchScope>();
-  /** workspace:language -> failure timestamp (ms); expired after a short cooldown. */
-  private failedLanguageServers = new Map<string, number>();
+  /** workspace:language -> Core-owned startup failure history. */
+  private activationHistory = new LanguageServerActivationHistory();
   private repairLanguageServerPromises = new Map<string, Promise<LanguageServerRepairOutcome>>();
   private fileAttachmentIds = new Map<string, string>();
   private fileStartTasks = new Map<string, PendingFileStart>();
@@ -1027,6 +1023,15 @@ export class LspClient {
     return task;
   }
 
+  /** Records a start outcome; a policy failure must not mask the start result. */
+  private async recordActivation(serverKey: string, event: "ready" | "startFailed"): Promise<void> {
+    try {
+      await this.activationHistory.apply(serverKey, event);
+    } catch (error) {
+      logger.error("LSPClient", `Failed to record language server ${event}:`, error);
+    }
+  }
+
   private async startFileAttachment(
     filePath: string,
     scope: WorkspaceLaunchScope,
@@ -1101,13 +1106,15 @@ export class LspClient {
       );
 
       const serverKey = `${workspacePath}:${languageId}`;
-      if (attempt.kind !== "attach") {
-        clearLanguageServerFailure(this.failedLanguageServers, serverKey);
-      }
-      if (isLanguageServerFailureCoolingDown(this.failedLanguageServers, serverKey, Date.now())) {
+      const activation = await this.activationHistory.apply(
+        serverKey,
+        attempt.kind === "attach" ? "automaticStart" : "explicitStart",
+      );
+      if (!isCurrentAttachment()) return { kind: "cancelled", reason: "superseded" };
+      if (activation.decision !== "allow") {
         logger.debug(
           "LSPClient",
-          `Skipping LSP restart for ${languageId} in ${workspacePath} during startup failure cooldown`,
+          `Skipping LSP start for ${languageId} in ${workspacePath}: ${activation.decision}`,
         );
         throw new Error(
           `${getLanguageDisplayName(languageId)} language server previously failed to start.`,
@@ -1151,10 +1158,10 @@ export class LspClient {
           await invoke<void>("lsp_stop_for_file", { filePath, attachmentId });
           return { kind: "cancelled", reason: "superseded" };
         }
-        clearLanguageServerFailure(this.failedLanguageServers, serverKey);
+        await this.recordActivation(serverKey, "ready");
         this.registerActiveServer(serverKey, languageId, scope, filePath);
       } catch (error) {
-        recordLanguageServerFailure(this.failedLanguageServers, serverKey, Date.now());
+        await this.recordActivation(serverKey, "startFailed");
         if (attempt.kind !== "repairRetry" && this.isRepairableStartupError(error)) {
           const repaired = await this.repairLanguageServerForFile(filePath, languageId);
           if (repaired.kind === "repaired") {
@@ -1335,7 +1342,7 @@ export class LspClient {
             this.activeLanguageServers.delete(activeKey);
             this.serverScopes.delete(activeKey);
           }
-          clearLanguageServerFailure(this.failedLanguageServers, activeKey);
+          this.activationHistory.release(activeKey);
         }
 
         const displayName = getLanguageDisplayName(languageId);

@@ -6,8 +6,12 @@ import LitheCoreContracts
 final class AgentHooksFeatureModel: ObservableObject {
     enum Phase: Equatable { case idle, loading, ready, saving, failed(String) }
     @Published private(set) var phase: Phase = .idle
-    @Published private(set) var library: AgentHookLibrary?
-    @Published var draft: AgentHook?
+    @Published private(set) var library: AgentHookLibrary? { didSet { revalidate() } }
+    @Published var draft: AgentHook? { didSet { revalidate() } }
+    /// Raw timeout text; Core parses it so the integer and range rules have one owner.
+    @Published var timeoutText = "" { didSet { revalidate() } }
+    /// Core's field-level verdict for the current draft; `nil` without a draft or library.
+    @Published private(set) var draftValidation: AgentHookDraftValidation?
     @Published var query = ""
     private let service: any AgentHooksService
 
@@ -18,14 +22,21 @@ final class AgentHooksFeatureModel: ObservableObject {
             query.isEmpty || [entry.hook.name, entry.hook.description, entry.hook.command].contains { $0.localizedCaseInsensitiveContains(query) }
         }
     }
-    var canSave: Bool {
-        guard let draft, library != nil, !isBusy else { return false }
-        return !draft.name.isEmpty && draft.name.utf8.count <= 80
-            && draft.name.utf8.allSatisfy { (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95 }
-            && draft.description.unicodeScalars.count <= 200 && !draft.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && draft.command.utf8.count <= 32768 && !draft.command.contains("\0") && !draft.agents.isEmpty
-            && (draft.timeoutSeconds == nil || (1...86400).contains(draft.timeoutSeconds!))
-            && !(library?.hooks.contains { $0.id != draft.id && $0.hook.name.caseInsensitiveCompare(draft.name) == .orderedSame } ?? false)
+    var canSave: Bool { draft != nil && library != nil && !isBusy && draftValidation?.valid == true }
+
+    /// Starts editing `hook`, seeding the timeout field from its stored value.
+    func beginEditing(_ hook: AgentHook) {
+        timeoutText = hook.timeoutSeconds.map(String.init) ?? ""
+        draft = hook
+    }
+
+    private func revalidate() {
+        guard let draft, let library else { draftValidation = nil; return }
+        do { draftValidation = try service.validateDraft(draft, timeoutText: timeoutText, library: library) }
+        catch {
+            // log-exempt: 同一次失败已经记录过：Core 请求轨迹已记录 agent.hooks.validateDraft 的失败，保存按钮保持禁用
+            draftValidation = nil
+        }
     }
 
     func load() async {
@@ -36,7 +47,8 @@ final class AgentHooksFeatureModel: ObservableObject {
         catch { phase = .failed(error.localizedDescription) }
     }
     func save() async {
-        guard canSave, let draft, let library else { return }
+        guard canSave, var draft, let library, let validation = draftValidation else { return }
+        draft.timeoutSeconds = validation.timeoutSeconds
         phase = .saving
         do {
             self.library = try await service.save(draft, library: library)

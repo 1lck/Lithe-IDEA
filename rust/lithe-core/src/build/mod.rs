@@ -10,8 +10,8 @@
 //! executables, start processes, watch files, and store user choices.
 //!
 //! Nothing here starts a process or writes a file. Workspace files are only
-//! read, and only where a command says so (static models, test reports, sync
-//! fingerprints, and the `maven` integration).
+//! read, and only where a command says so (static models, test reports, and
+//! sync fingerprints).
 //!
 //! Note: the contract is recorded in .agents/notes/implemented/architecture/2026-10-17-build-system-plugin-contract.md
 
@@ -20,9 +20,7 @@ mod configuration;
 mod debug_preparation;
 mod decode;
 mod detect;
-mod integrations;
 mod invocation;
-mod language_import;
 mod manifest;
 mod model;
 mod model_inputs;
@@ -31,10 +29,13 @@ mod outputs;
 mod plans;
 mod project_options;
 mod run_preparation;
+mod run_start;
 mod select;
 mod stored_options;
 mod template;
 mod test_discovery;
+mod test_outcome;
+mod test_outcome_merge;
 
 pub(crate) use commands::*;
 pub(crate) use invocation::host_runtime_version_arguments;
@@ -43,4 +44,7 @@ pub(crate) use manifest::{
     ProviderProcess,
 };
 pub(crate) use project_options::project_options_command;
+pub(crate) use run_start::run_decode_start_command;
 pub(crate) use stored_options::resolve_stored_options_command;
+pub(crate) use test_outcome::resolve_test_run_outcome;
+pub(crate) use test_outcome_merge::merge_test_outcomes;

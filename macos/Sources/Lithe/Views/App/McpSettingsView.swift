@@ -15,7 +15,7 @@ struct McpSettingsView: View {
         LitheSettingsSection(
             title: "Lithe IDE access",
             accessory: {
-                LitheInfoTip("Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes, and the project-level server registration is removed. Enabled plugins can also use this project grant.")
+                LitheInfoTip("Authorize this project to expose its environment, build tools, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes, and the project-level server registration is removed. Enabled plugins can also use this project grant.")
             },
             content: {
                 if workspaceURL == nil {
@@ -25,8 +25,8 @@ struct McpSettingsView: View {
                         statusCard
                         accessRow(
                             isOn: $feature.allowConfigure,
-                            title: "Allow project environment and Maven configuration changes",
-                            info: "Connected agents can change the project JDK, Maven and run configuration settings."
+                            title: "Allow project environment and build configuration changes",
+                            info: "Connected agents can change the project toolchain, build and run configuration settings."
                         )
                         accessRow(
                             isOn: $feature.allowExecute,

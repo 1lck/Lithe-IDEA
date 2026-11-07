@@ -41,6 +41,15 @@ if ! /usr/bin/xcrun ld -help 2>&1 | /usr/bin/grep -q -- '-no_warn_duplicate_libr
     SWIFT_BUILD_ARGS+=(-Xswiftc "-ld-path=$ROOT_DIR/scripts/macos/build/ld-macos13-compat.sh")
 fi
 
+# The graph layout is Rust Core's; the verifier measures the same linked Core call.
+case "$(uname -m)" in
+    arm64) RUST_TARGET="aarch64-apple-darwin" ;;
+    x86_64) RUST_TARGET="x86_64-apple-darwin" ;;
+    *) print -u2 -- "Unsupported host architecture: $(uname -m)"; exit 1 ;;
+esac
+RUST_LIBRARY="$(scripts/rust-core/build-rust-core.sh --release --target "$RUST_TARGET")"
+SWIFT_BUILD_ARGS+=(-Xlinker -force_load -Xlinker "$RUST_LIBRARY")
+
 # Build only the verifier product so Release mode does not compile unrelated
 # app test targets whose testing hooks intentionally exist only in Debug. The
 # Node runner supplies a local process-tree deadline before the CI timeout.

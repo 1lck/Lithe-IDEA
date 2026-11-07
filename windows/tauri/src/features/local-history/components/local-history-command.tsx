@@ -185,7 +185,12 @@ function FileLocalHistoryCommandContent({
     if (label === null) return;
 
     try {
-      const entry = await recordLocalHistoryFile(targetPath, "manual", label.trim() || undefined);
+      const entry = await recordLocalHistoryFile(
+        targetPath,
+        "manual",
+        "afterChange",
+        label.trim() || undefined,
+      );
       if (!entry) {
         toast.info(t("localHistory.noChanges"));
         return;
@@ -210,7 +215,7 @@ function FileLocalHistoryCommandContent({
   }, [targetPath]);
 
   const openDiff = useCallback(
-    (params: { title: string; oldContent: string; newContent: string }) => {
+    async (params: { title: string; oldContent: string; newContent: string }) => {
       if (!targetPath) return;
 
       if (params.oldContent === params.newContent) {
@@ -218,7 +223,7 @@ function FileLocalHistoryCommandContent({
         return;
       }
 
-      const diff = createLocalHistoryDiff({
+      const diff = await createLocalHistoryDiff({
         filePath: targetPath,
         oldContent: params.oldContent,
         newContent: params.newContent,
@@ -250,7 +255,7 @@ function FileLocalHistoryCommandContent({
           getCurrentContent(),
         ]);
 
-        openDiff({
+        await openDiff({
           title: `${fileName}: ${getEntryTitle(entry)} vs Current`,
           oldContent: snapshotContent,
           newContent: currentContent,
@@ -280,7 +285,7 @@ function FileLocalHistoryCommandContent({
           readLocalHistoryEntry(targetPath, entry.id),
         ]);
 
-        openDiff({
+        await openDiff({
           title: `${fileName}: ${getEntryTitle(previousEntry)} vs ${getEntryTitle(entry)}`,
           oldContent: previousContent,
           newContent: snapshotContent,
@@ -299,7 +304,7 @@ function FileLocalHistoryCommandContent({
 
       try {
         const content = await readLocalHistoryEntry(targetPath, entry.id);
-        await recordLocalHistoryFile(targetPath, "restore");
+        await recordLocalHistoryFile(targetPath, "restore", "beforeChange");
         await writeFile(targetPath, content);
 
         const bufferStore = useBufferStore.getState();

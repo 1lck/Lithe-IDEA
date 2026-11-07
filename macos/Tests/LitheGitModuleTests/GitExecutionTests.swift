@@ -2,6 +2,10 @@ import Foundation
 @testable import LitheGitModule
 import Testing
 
+/// Core's journal budget as `requestStarted` carries it.
+private let coreRetention = GitJournalRetention(
+    maxRecords: 200, maxRecordOutputCharacters: 32_768, maxRecordOutputLines: 2_000, maxTotalOutputCharacters: 1_048_576)
+
 struct GitExecutionTests {
     @Test
     func contextKeepsPreflightFailuresSeparateFromEarlierRequests() throws {
@@ -15,14 +19,15 @@ struct GitExecutionTests {
         context.receive(GitExecutionEvent(operationId: "workflow", type: "requestStarted"), at: root)
         context.receive(GitExecutionEvent(operationId: "workflow", type: "started", invocationId: 1,
             workingDirectory: root.path, arguments: ["config", "pull.rebase", "true"]))
-        context.receive(GitExecutionEvent(operationId: "workflow", type: "finished", invocationId: 1, exitCode: 0))
-        context.receive(GitExecutionEvent(operationId: "workflow", type: "requestFinished"))
+        context.receive(GitExecutionEvent(operationId: "workflow", type: "finished", invocationId: 1, exitCode: 0, state: "completed"))
+        context.receive(GitExecutionEvent(operationId: "workflow", type: "requestFinished", unconfirmedInvocations: [], failureRecord: false))
         let original = try #require(context.drainSnapshot()?.first)
 
         let otherRoot = URL(fileURLWithPath: "/other-workspace")
         context.receive(GitExecutionEvent(operationId: "workflow", type: "requestStarted"), at: otherRoot)
         let failure = GitExecutionEvent(operationId: "workflow", type: "requestFinished",
-            error: .init(code: "process_start_failed", message: "Could not inspect Git executable", details: "Missing executable"))
+            error: .init(code: "process_start_failed", message: "Could not inspect Git executable", details: "Missing executable"),
+            unconfirmedInvocations: [], failureRecord: true)
         context.receive(failure)
         let entries = try #require(context.drainSnapshot())
         #expect(entries.count == 2 && context.hasEntries)
@@ -41,14 +46,15 @@ struct GitExecutionTests {
         let context = GitExecutionContext(operationID: "workflow", source: .user)
         context.receive(GitExecutionEvent(operationId: "workflow", type: "requestStarted"), at: URL(fileURLWithPath: "/workspace"))
         context.receive(GitExecutionEvent(operationId: "workflow", type: "requestFinished",
-            error: .init(code: "cancelled", message: "Operation was cancelled")))
+            error: .init(code: "cancelled", message: "Operation was cancelled"), unconfirmedInvocations: [], failureRecord: false))
         #expect(context.drainSnapshot() == nil, "A superseded request is not a failed command")
         #expect(!context.hasEntries)
 
         // A different failure on the same context is still reported.
         context.receive(GitExecutionEvent(operationId: "workflow", type: "requestStarted"), at: URL(fileURLWithPath: "/workspace"))
         context.receive(GitExecutionEvent(operationId: "workflow", type: "requestFinished",
-            error: .init(code: "process_failed", message: "Git process cleanup did not complete within its deadline")))
+            error: .init(code: "process_failed", message: "Git process cleanup did not complete within its deadline"),
+            unconfirmedInvocations: [], failureRecord: true))
         #expect(context.drainSnapshot()?.last?.operationErrorMessage == "Git process cleanup did not complete within its deadline")
     }
 
@@ -56,10 +62,11 @@ struct GitExecutionTests {
     func contextPreflightFailureHistoryRemainsBounded() {
         let context = GitExecutionContext(operationID: "workflow")
         for index in 0..<201 {
-            context.receive(GitExecutionEvent(operationId: "workflow", type: "requestStarted"),
+            context.receive(GitExecutionEvent(operationId: "workflow", type: "requestStarted", retention: coreRetention),
                 at: URL(fileURLWithPath: "/workspace"))
             context.receive(GitExecutionEvent(operationId: "workflow", type: "requestFinished",
-                error: .init(code: "process_start_failed", message: "Failure \(index)")))
+                error: .init(code: "process_start_failed", message: "Failure \(index)"),
+                unconfirmedInvocations: [], failureRecord: true))
         }
         let entries = context.drainSnapshot()
         #expect(entries?.count == 200 && context.hasOmittedHistory)
@@ -103,9 +110,10 @@ struct GitExecutionTests {
         let journal = GitExecutionJournal()
         for index in 0..<201 {
             let id = "preflight-\(index)"
-            journal.receive(GitExecutionEvent(operationId: id, type: "requestStarted"), at: URL(fileURLWithPath: "/workspace"))
+            journal.receive(GitExecutionEvent(operationId: id, type: "requestStarted", retention: coreRetention), at: URL(fileURLWithPath: "/workspace"))
             journal.receive(GitExecutionEvent(operationId: id, type: "requestFinished",
-                error: .init(code: "process_start_failed", message: "Could not inspect Git executable")))
+                error: .init(code: "process_start_failed", message: "Could not inspect Git executable"),
+                unconfirmedInvocations: [], failureRecord: true))
         }
         #expect(journal.snapshot.count == 200)
         #expect(journal.hasOmittedHistory)
@@ -148,8 +156,8 @@ struct GitExecutionTests {
         for id in ["publish", "stage", "branch", "commit"] {
             journal.receive(GitExecutionEvent(operationId: id, type: "output", invocationId: 1,
                 stream: "stdout", text: id))
-            journal.receive(GitExecutionEvent(operationId: id, type: "finished", invocationId: 1, exitCode: 0))
-            journal.receive(GitExecutionEvent(operationId: id, type: "requestFinished"))
+            journal.receive(GitExecutionEvent(operationId: id, type: "finished", invocationId: 1, exitCode: 0, state: "completed"))
+            journal.receive(GitExecutionEvent(operationId: id, type: "requestFinished", unconfirmedInvocations: [], failureRecord: false))
         }
         let entries = journal.snapshot
         #expect(entries.map(\.arguments) == [["add"], ["commit"], ["checkout"], ["push"]])
@@ -174,7 +182,7 @@ struct GitExecutionTests {
         journal.receive(GitExecutionEvent(operationId: "new", type: "started", invocationId: 1,
             workingDirectory: "/workspace", arguments: ["checkout"]))
         journal.receive(GitExecutionEvent(operationId: "new", type: "requestFinished",
-            error: .init(code: "cancelled", message: "Operation was cancelled")))
+            error: .init(code: "cancelled", message: "Operation was cancelled"), unconfirmedInvocations: [1], failureRecord: false))
         #expect(journal.snapshot.last?.state == .unconfirmed)
         #expect(journal.snapshot.last?.operationErrorMessage == "Operation was cancelled")
     }
@@ -283,6 +291,7 @@ struct GitExecutionTests {
     @Test
     func consoleBoundsEmptyRowsAndPreservesLatestStreamOrder() throws {
         let context = GitExecutionContext(operationID: "operation")
+        context.receive(GitExecutionEvent(operationId: "operation", type: "requestStarted", retention: coreRetention))
         context.receive(GitExecutionEvent(operationId: "operation", type: "started", invocationId: 1,
             workingDirectory: "/workspace", arguments: ["fetch"]))
         for _ in 0..<2_100 {
@@ -325,7 +334,7 @@ struct GitExecutionTests {
         #expect(progress?.progressText == "Receiving: 50%")
         #expect(progress?.standardError == "")
         try receive(#"{"operationId":"operation","type":"output","invocationId":1,"stream":"stderr","text":"updated remote","progress":false}"#)
-        try receive(#"{"operationId":"operation","type":"finished","invocationId":1,"exitCode":0,"durationMilliseconds":42}"#)
+        try receive(#"{"operationId":"operation","type":"finished","invocationId":1,"exitCode":0,"state":"completed","durationMilliseconds":42}"#)
         let finished = context.drainSnapshot()?.last
         #expect(finished?.succeeded == true)
         #expect(finished?.durationMilliseconds == 42)
@@ -354,6 +363,7 @@ struct GitExecutionTests {
     @Test
     func unrelatedRequestsAndExcessOutputStayBounded() {
         let context = GitExecutionContext(operationID: "operation")
+        context.receive(GitExecutionEvent(operationId: "operation", type: "requestStarted", retention: coreRetention))
         context.receive(GitExecutionEvent(operationId: "other", type: "started", invocationId: 1, workingDirectory: "/wrong", arguments: ["fetch"]))
         #expect(context.drainSnapshot() == nil)
         context.receive(GitExecutionEvent(operationId: "operation", type: "started", invocationId: 1, workingDirectory: "/workspace", arguments: ["fetch"]))
@@ -370,12 +380,13 @@ struct GitConsolePresentationTests {
     @Test
     func omittedCommandsAreDistinguishedFromReversibleOutputFolds() {
         let journal = GitExecutionJournal()
+        journal.receive(GitExecutionEvent(operationId: "budget", type: "requestStarted", retention: coreRetention))
         for index in 0..<205 {
             let id = "query-\(index)"
             journal.receive(GitExecutionEvent(operationId: id, type: "started", invocationId: 1,
                 workingDirectory: "/workspace", arguments: ["status"]))
-            journal.receive(GitExecutionEvent(operationId: id, type: "finished", invocationId: 1, exitCode: 0))
-            journal.receive(GitExecutionEvent(operationId: id, type: "requestFinished"))
+            journal.receive(GitExecutionEvent(operationId: id, type: "finished", invocationId: 1, exitCode: 0, state: "completed"))
+            journal.receive(GitExecutionEvent(operationId: id, type: "requestFinished", unconfirmedInvocations: [], failureRecord: false))
         }
         #expect(journal.snapshot.count == 200)
         #expect(journal.hasOmittedHistory)
@@ -413,7 +424,7 @@ struct GitConsolePresentationTests {
         context.receive(GitExecutionEvent(operationId: "query", type: "started", invocationId: 1,
             workingDirectory: "/workspace", arguments: ["config", "--get", "remote.origin.skipFetchAll"]))
         context.receive(GitExecutionEvent(operationId: "query", type: "finished", invocationId: 1,
-            expectedExit: true, exitCode: 1))
+            expectedExit: true, exitCode: 1, state: "completed"))
         let entry = try #require(context.drainSnapshot()?.last)
         #expect(entry.succeeded)
         #expect(entry.exitCode == 1)
@@ -439,7 +450,7 @@ struct GitConsolePresentationTests {
         for (id, command) in [(1, "fetch"), (2, "for-each-ref")] {
             context.receive(GitExecutionEvent(operationId: "transfer", type: "started", invocationId: id,
                 workingDirectory: "/workspace", arguments: [command]))
-            context.receive(GitExecutionEvent(operationId: "transfer", type: "finished", invocationId: id, exitCode: 0))
+            context.receive(GitExecutionEvent(operationId: "transfer", type: "finished", invocationId: id, exitCode: 0, state: "completed"))
         }
         context.receive(GitExecutionEvent(operationId: "transfer", type: "remoteResult", remote: "origin",
             succeeded: true, invocationId: 1))

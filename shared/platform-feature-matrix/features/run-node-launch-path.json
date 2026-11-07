@@ -5,11 +5,11 @@
   "capability": "Node 生态运行脚本的启动 PATH",
   "macos": {
     "evidence": [
-      "macos/Sources/Lithe/Services/Java/RunLaunchEnvironment.swift",
-      "macos/Sources/Lithe/Services/Java/RunExecutableResolver.swift",
       "macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeLocator.swift",
       "macos/Tests/LitheTests/RunLaunchEnvironmentTests.swift",
-      "shared/fixtures/execution/search-path-v1.json"
+      "shared/fixtures/execution/search-path-v1.json",
+      "macos/Sources/Lithe/Services/Runtime/RunLaunchEnvironment.swift",
+      "macos/Sources/Lithe/Services/Runtime/RunExecutableResolver.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

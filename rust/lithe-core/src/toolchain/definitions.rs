@@ -1,11 +1,11 @@
-//! Validates plugin-owned tool policies and constructs an origin-checked registry.
+//! Validates plugin-owned tool policies and constructs the enabled-plugin registry.
 //! Filesystem evidence and native execution remain host-owned responsibilities.
 
 use crate::plugins::declarative::{invalid, validate_manifest_value, UIIcon, Validation};
 use crate::plugins::executables::{ordered_indices, ExecutableCandidate};
 use regex::Regex;
 use serde_json::{json, Map, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Validates a short tool ID or a plugin-qualified tool ID, without granting ownership.
 pub(crate) fn tool_id(value: &str) -> bool {
@@ -722,28 +722,21 @@ pub(crate) fn validate_declarations(
     Ok(())
 }
 
-/// Revalidates complete enabled manifests and host-attested origin before registration.
-/// A conflicting batch is rejected atomically; an existing definition is never replaced.
+/// Revalidates the complete manifests of enabled plugins and builds the tool registry.
+/// A tool ID declared by several plugins belongs to none of them: install order and plugin
+/// ID must not decide ownership, or a hostile plugin could claim an ID before its rightful
+/// owner. Those definitions are left out and reported in `conflicts`; every other definition
+/// still registers. Duplicate plugin IDs make the enabled set ambiguous, so they reject the
+/// whole batch.
 pub(crate) fn registry(input: &Value) -> Validation<Value> {
     object(input, &["plugins"], &["plugins"], "registry")?;
     let plugins = list(&input["plugins"], 0, 128, "plugins")?;
     let mut definitions = Vec::new();
     let mut providers = Vec::new();
-    let mut tool_ids = BTreeSet::new();
+    let mut owners: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut plugin_ids = BTreeSet::new();
     for entry in plugins {
-        object(
-            entry,
-            &["manifest", "verifiedOfficial"],
-            &["manifest", "verifiedOfficial"],
-            "plugins",
-        )?;
-        let official = entry["verifiedOfficial"].as_bool().ok_or_else(|| {
-            invalid(
-                "verifiedOfficial",
-                "Verified origin is host-supplied boolean evidence.",
-            )
-        })?;
+        object(entry, &["manifest"], &["manifest"], "plugins")?;
         let manifest = validate_manifest_value(entry["manifest"].clone())?;
         let manifest = serde_json::to_value(manifest)
             .map_err(|_| invalid("manifest", "The validated manifest cannot be encoded."))?;
@@ -756,9 +749,10 @@ pub(crate) fn registry(input: &Value) -> Validation<Value> {
         }
         for definition in optional_list(&manifest, "toolDefinitions", 32)? {
             let id = text(&definition["id"], 192, "toolDefinitions.id")?;
-            if (!id.contains(':') && !official) || !tool_ids.insert(id.to_owned()) {
-                return Err(invalid("toolDefinitions.id", "A short ID needs verified official provenance and no ID may replace an existing owner."));
-            }
+            owners
+                .entry(id.to_owned())
+                .or_default()
+                .insert(plugin_id.to_owned());
             let mut normalized = definition.clone();
             let indices = candidates(definition)?;
             normalized["executables"] = json!(indices
@@ -777,6 +771,18 @@ pub(crate) fn registry(input: &Value) -> Validation<Value> {
             ));
         }
     }
+    // A qualified ID starts with its unique plugin ID, so only short IDs can be claimed twice.
+    let conflicts: Vec<Value> = owners
+        .iter()
+        .filter(|(_, claimants)| claimants.len() > 1)
+        .map(|(tool, claimants)| json!({"tool":tool,"pluginIDs":claimants}))
+        .collect();
+    definitions.retain(|entry| {
+        entry["definition"]["id"]
+            .as_str()
+            .and_then(|id| owners.get(id))
+            .is_some_and(|claimants| claimants.len() == 1)
+    });
     definitions.sort_by_key(|entry| {
         (
             entry["definition"]["id"].as_str().unwrap_or("").to_owned(),
@@ -789,5 +795,5 @@ pub(crate) fn registry(input: &Value) -> Validation<Value> {
             entry["provider"]["id"].as_str().unwrap_or("").to_owned(),
         )
     });
-    Ok(json!({"definitions":definitions,"providers":providers}))
+    Ok(json!({"definitions":definitions,"providers":providers,"conflicts":conflicts}))
 }

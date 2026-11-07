@@ -1,22 +1,31 @@
 import { activateMainEditorPane } from "@/features/editor/stores/buffer-pane-sync";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getWorkingTreePathDiff } from "../api/git-diff-api";
-import { stageHunk } from "../api/git-status-api";
+import { stageGitGutterChangeInCore } from "../api/git-diff-block-api";
 import type { GitGutterBase } from "../hooks/use-git-gutter-base";
-import { gitGutterChangeHunk, type GitGutterChange } from "../utils/git-gutter-changes";
+import type { GitGutterChange } from "../utils/git-gutter-changes";
 import { createSingleFileWorkingTreeDiff } from "../utils/working-tree-multi-diff";
 
 /**
- * Stages one gutter change through the existing hunk API. The patch is built
- * against the index text the change was computed from, so Git rejects it
- * instead of staging the wrong lines if the index moved in the meantime.
+ * Stages one gutter change through Core. Core confirms the index and the saved
+ * file still show the compared lines, then builds the patch from original
+ * bytes; the host sends only the change's ranges and lines.
  */
-export function stageGitGutterChange(
+export async function stageGitGutterChange(
   base: GitGutterBase,
-  baseLines: readonly string[],
   change: GitGutterChange,
 ): Promise<boolean> {
-  return stageHunk(base.repoPath, gitGutterChangeHunk(base.filePath, baseLines, change));
+  const result = await stageGitGutterChangeInCore({
+    repoPath: base.repoPath,
+    filePath: base.filePath,
+    originalStart: change.originalStart,
+    originalEnd: change.originalEnd,
+    modifiedStart: change.modifiedStart,
+    modifiedEnd: change.modifiedEnd,
+    originalLines: change.originalLines,
+    modifiedLines: change.modifiedLines,
+  });
+  return result === "applied";
 }
 
 /**

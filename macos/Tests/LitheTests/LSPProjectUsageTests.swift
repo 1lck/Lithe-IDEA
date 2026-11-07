@@ -9,13 +9,13 @@ import Testing
 struct LSPProjectUsageTests {
     @Test func indexedMatchingPreservesProviderAndPluginSemantics() throws {
         let providers = [
-            provider("source", extensions: ["JAVA", "py"]),
+            provider("source", extensions: ["RS", "py"]),
             provider("named", names: ["Makefile", "文档 % #.txt", ".toolrc"]),
             provider("prefix", prefixes: ["Dockerfile", ".env."]),
             provider("missing", extensions: ["absent"]),
             provider("emptyExtension", extensions: [""])
         ]
-        let files = ["中文/Foo.JAVA", "a/test.PY", "b/Makefile", "c/文档 % #.txt", "d/.toolrc",
+        let files = ["中文/Foo.RS", "a/test.PY", "b/Makefile", "c/文档 % #.txt", "d/.toolrc",
                      "e/Dockerfile.prod", "f/.ENV.local", "g/README", "h/unrelated.bin"]
             .map { URL(fileURLWithPath: "/fixture/" + $0) }
         let rules = providers.map {
@@ -28,11 +28,11 @@ struct LSPProjectUsageTests {
     }
 
     @Test func pluginProjectNamesAndSourceExtensionsShareTheSamePass() throws {
-        let files = ["pom.xml", "build.gradle.kts", "GO.MOD", "composer.json", "view.PHTML"]
+        let files = ["GO.MOD", "composer.json", "view.PHTML", "README"]
             .map { URL(fileURLWithPath: "/fixture/" + $0) }
         let summary = try #require(LSPProjectUsageScanner.scan(files: files, rules: pluginRules()))
         #expect(summary.pluginIDs == expectedPluginIDs(files))
-        #expect(summary.pluginIDs.count == 3)
+        #expect(summary.pluginIDs.count == 2)
     }
 
     @Test func emptyAndUnmatchedInventoriesProduceACompletedEmptySummary() {
@@ -43,7 +43,7 @@ struct LSPProjectUsageTests {
 
     @Test func requestIdentityUsesSnapshotAndNormalizedRulesRatherThanFileCount() {
         let snapshot = UUID()
-        let a = LSPProjectUsageRequest.Rule(target: .provider("a"), fileExtensions: ["JAVA"], fileNamePrefixes: ["Dockerfile"])
+        let a = LSPProjectUsageRequest.Rule(target: .provider("a"), fileExtensions: ["RS"], fileNamePrefixes: ["Dockerfile"])
         let b = LSPProjectUsageRequest.Rule(target: .plugin("b"), fileExtensions: [], fileNames: ["Makefile"])
         let first = request(snapshot: snapshot, rules: [a, b])
         #expect(first == request(snapshot: snapshot, rules: [b, a]))
@@ -143,20 +143,20 @@ struct LSPProjectUsageTests {
         }
         defer { first.cancel(); release.open(); releaseWait.cancel(); model.reset() }
         #expect(await entered.waitUntilOpen())
-        await model.load(newest, files: [URL(fileURLWithPath: "/fixture/pom.xml")])
+        await model.load(newest, files: [URL(fileURLWithPath: "/fixture/composer.json")])
         #expect(await firstFinished.waitUntilOpen())
         #expect(!release.isOpen)
         #expect(!returned.isOpen)
         await first.value
         #expect(model.summary(for: old) == nil)
-        #expect(model.summary(for: newest)?.pluginIDs == [OfficialPluginCatalog.javaPluginID.rawValue])
+        #expect(model.summary(for: newest)?.pluginIDs == [OfficialPluginCatalog.phpPluginID.rawValue])
         #expect(await probe.maximumActive == 2)
         release.open()
         #expect(await releaseWait.value)
         #expect(await returned.waitUntilOpen())
         await model.load(newest, files: [])
         #expect(model.summary(for: old) == nil)
-        #expect(model.summary(for: newest)?.pluginIDs == [OfficialPluginCatalog.javaPluginID.rawValue])
+        #expect(model.summary(for: newest)?.pluginIDs == [OfficialPluginCatalog.phpPluginID.rawValue])
         #expect(await probe.calls == 2)
     }
 
@@ -179,8 +179,8 @@ struct LSPProjectUsageTests {
         #expect(!release.isOpen)
         #expect(model.state == .idle)
         #expect(model.summary(for: input) == nil)
-        await model.load(input, files: [URL(fileURLWithPath: "/fixture/pom.xml")])
-        #expect(model.summary(for: input)?.pluginIDs == [OfficialPluginCatalog.javaPluginID.rawValue])
+        await model.load(input, files: [URL(fileURLWithPath: "/fixture/composer.json")])
+        #expect(model.summary(for: input)?.pluginIDs == [OfficialPluginCatalog.phpPluginID.rawValue])
         await task.value
         release.open()
         #expect(await releaseWait.value)

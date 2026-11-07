@@ -3,14 +3,14 @@ import Testing
 
 @Suite("Services browser selection and layout")
 struct RunBrowserStateTests {
-    private let node = RunConfiguration(id: "npm:web", name: "web", kind: .process(provider: "npm.script"), execution: .service, modulePath: nil, mainClass: nil)
-    private let rust = RunConfiguration(id: "cargo:worker", name: "worker", kind: .process(provider: "cargo.run"), modulePath: nil, mainClass: nil)
-    private let java = RunConfiguration(id: "java:api", name: "api", kind: .javaMain, modulePath: nil, mainClass: "demo.Api")
-    private let spring = RunConfiguration(id: "spring:api", name: "api", kind: .springBoot, modulePath: nil, mainClass: "demo.Api")
+    private let node = RunConfiguration(id: "npm:web", name: "web", kind: .process(provider: "npm.script"), execution: .service)
+    private let rust = RunConfiguration(id: "cargo:worker", name: "worker", kind: .process(provider: "cargo.run"))
+    private let java = RunConfiguration(id: "java:api", name: "api", kind: .process(provider: "fixture.main"))
+    private let spring = RunConfiguration(id: "spring:api", name: "api", kind: .process(provider: "fixture.service"), execution: .service)
 
     @Test func groupsApplicationFamiliesAcrossExecutionCategories() {
         let groups = RunBrowserState.groups(for: [spring, rust, .currentFile, node, java])
-        #expect(groups.map(\.title) == ["Java", "Node", "Rust"])
+        #expect(groups.map(\.title) == ["Fixture", "Node", "Rust"])
         #expect(groups[0].configurations.map(\.id) == [java.id, spring.id])
         #expect(groups[1].configurations == [node])
         #expect(groups[2].configurations == [rust])
@@ -18,7 +18,7 @@ struct RunBrowserStateTests {
     }
 
     @Test func unknownProvidersRemainVisible() {
-        let unknown = RunConfiguration(id: "custom:run", name: "run", kind: .process(provider: "custom.launch"), modulePath: nil, mainClass: nil)
+        let unknown = RunConfiguration(id: "custom:run", name: "run", kind: .process(provider: "custom.launch"))
         let groups = RunBrowserState.groups(for: [unknown, node])
         #expect(groups.map(\.title) == ["Custom", "Node"])
         #expect(groups[0].configurations == [unknown])

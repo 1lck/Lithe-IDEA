@@ -33,14 +33,14 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { useGitLogColumnResize } from "../../hooks/use-git-log-column-resize";
 import { useGitGraphPaint } from "../../hooks/use-git-graph-paint";
 import { useGitGraphReferenceMetrics } from "../../hooks/use-git-graph-reference-metrics";
-import { currentGitBranchHashes, shouldHighlightCurrentGitBranch } from "../../utils/git-graph-highlights";
+import { shouldHighlightCurrentGitBranch } from "../../utils/git-graph-highlights";
 import { groupGitGraphReferences } from "../../utils/git-graph-reference-group";
 import {
   type GitLogFilterScope,
   useGitLogPreferencesStore,
 } from "../../stores/git-log-preferences.store";
 import type { GitCommit, GitReference } from "../../types/git.types";
-import { layoutGitGraph } from "../../utils/git-graph-layout";
+import { useGitGraphLayout } from "../../hooks/use-git-graph-layout";
 import { matchesGitLogCommit } from "../../utils/git-log-filter";
 import {
   selectedCommitsInHistoryOrder,
@@ -154,21 +154,27 @@ export function GitCommitTable({
   useEffect(() => setDraftQuery(query), [query]);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const paint = useGitGraphPaint();
-  const graphLayout = useMemo(
+  const matchingHashes = useMemo(
     () =>
-      layoutGitGraph(
-        commits,
-        query.trim()
-          ? new Set(
-              commits
-                .filter((commit) => matchesGitLogCommit(commit, query, scope))
-                .map((commit) => commit.hash),
-            )
-          : undefined,
-        { repositoryCommits, references, displayMode: showLongGraphEdges ? "expanded" : "compact" },
-      ),
-    [commits, repositoryCommits, references, query, scope, showLongGraphEdges],
+      query.trim()
+        ? commits
+            .filter((commit) => matchesGitLogCommit(commit, query, scope))
+            .map((commit) => commit.hash)
+        : undefined,
+    [commits, query, scope],
   );
+  const highlightsCurrentBranch = shouldHighlightCurrentGitBranch(selectedReference);
+  const currentBranchName = highlightsCurrentBranch
+    ? references?.find((reference) => reference.kind === "local" && reference.isCurrent)?.shortName
+    : undefined;
+  const graphLayout = useGitGraphLayout({
+    commits,
+    repositoryCommits,
+    references,
+    visibleHashes: matchingHashes,
+    displayMode: showLongGraphEdges ? "expanded" : "compact",
+    currentBranch: currentBranchName,
+  });
   const visibleRows = graphLayout.rows;
   const graphWidth = useMemo(
     () => gitGraphWidth(visibleRows, paint, graphLayout.recommendedLaneCount),
@@ -242,9 +248,7 @@ export function GitCommitTable({
   );
   const { columnStyle, activeColumn, startResize } = useGitLogColumnResize(scrollRef);
   const referenceMetrics = useGitGraphReferenceMetrics(scrollRef, columnStyle, paint.rowHeight);
-  const currentBranchHashes = useMemo(() => shouldHighlightCurrentGitBranch(selectedReference)
-    ? currentGitBranchHashes(commits, repositoryCommits ?? [], references ?? []) : new Set<string>(),
-    [commits, repositoryCommits, references, selectedReference]);
+  const currentBranchHashes = graphLayout.currentBranchHashes;
   const referenceGroups = useMemo(() => new Map(visibleRows.map((row) => [row.commit.hash,
     groupGitGraphReferences(row.labels, references)])), [visibleRows, references]);
 

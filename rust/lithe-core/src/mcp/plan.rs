@@ -16,54 +16,54 @@ use serde_json::{json, Map, Value};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct OwnedEntry {
+pub(super) struct OwnedEntry {
     /// Entry name recorded when Lithe wrote it.
-    name: String,
+    pub(super) name: String,
     /// Grouping definition hash recorded at write time.
-    definition_hash: String,
+    pub(super) definition_hash: String,
     /// Complete entry hash recorded at write time; legacy records omit it.
     #[serde(default)]
-    source_hash: Option<String>,
+    pub(super) source_hash: Option<String>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct WriteRequest {
+pub(super) struct WriteRequest {
     /// Configuration owner: `codex` or `claude`.
-    source: String,
+    pub(super) source: String,
     /// `global` or `project`.
-    scope: String,
+    pub(super) scope: String,
     #[serde(default)]
-    project_path: Option<String>,
+    pub(super) project_path: Option<String>,
     /// Current file text; `null` means the file does not exist yet.
     #[serde(default)]
-    content: Option<String>,
+    pub(super) content: Option<String>,
     /// `set` or `remove`.
-    operation: String,
+    pub(super) operation: String,
     #[serde(default)]
-    server: Option<McpServer>,
+    pub(super) server: Option<McpServer>,
     #[serde(default)]
-    name: Option<String>,
+    pub(super) name: Option<String>,
     /// Existing name this set renames from. The old entry is used as the base
     /// for the new one so settings Lithe does not model survive the rename.
     #[serde(default)]
-    previous_name: Option<String>,
+    pub(super) previous_name: Option<String>,
     /// Complete source hash of the displayed original entry. On rename this
     /// refers to `previousName`, and never authorizes the destination entry.
     #[serde(default)]
-    expected_hash: Option<String>,
+    pub(super) expected_hash: Option<String>,
     /// Entries the host recorded as written by Lithe.
     #[serde(default)]
-    owned: Vec<OwnedEntry>,
+    pub(super) owned: Vec<OwnedEntry>,
     /// Non-secret native filters retained when this server was removed.
     #[serde(default)]
-    tool_filters: Option<ToolFilters>,
+    pub(super) tool_filters: Option<ToolFilters>,
 }
 
 /// Native Codex restrictions, kept separately from credentials and connection fields.
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ToolFilters {
+pub(super) struct ToolFilters {
     /// Absence differs from an empty allow-list, which allows no tools.
     #[serde(skip_serializing_if = "Option::is_none")]
     enabled_tools: Option<Vec<String>>,
@@ -85,6 +85,12 @@ fn invalid_request() -> CoreError {
 /// Successful set plans also return the actual entry's grouping and source hashes.
 pub fn plan_write(payload: Value) -> Result<Value, CoreError> {
     let request: WriteRequest = serde_json::from_value(payload).map_err(|_| invalid_request())?;
+    plan_write_request(&request)
+}
+
+/// Typed form of [`plan_write`] used by library batch planning, which feeds
+/// each operation the output of the previous one without a JSON round trip.
+pub(super) fn plan_write_request(request: &WriteRequest) -> Result<Value, CoreError> {
     let content = request.content.clone().unwrap_or_default();
     if content.len() > MAX_CONFIGURATION_BYTES {
         return Err(invalid_request());
@@ -101,11 +107,11 @@ pub fn plan_write(payload: Value) -> Result<Value, CoreError> {
             // The client may send a stale hash from an edited draft; identity is
             // always derived from the definition actually being written.
             server.refresh_hash();
-            plan_set(&request, &server, &content, project_path)
+            plan_set(request, &server, &content, project_path)
         }
         "remove" => {
             let name = request.name.as_deref().ok_or_else(invalid_request)?;
-            plan_remove(&request, name, &content, project_path)
+            plan_remove(request, name, &content, project_path)
         }
         _ => Err(invalid_request()),
     }

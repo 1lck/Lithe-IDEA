@@ -3,48 +3,63 @@ import Foundation
 import Testing
 
 struct GitInteractiveRebaseTests {
-    @Test
-    func defaultSquashAfterEditIsNotSentAsAStaleMessageOverride() {
-        var plan = GitRebasePlanDraft(commits: [
-            GitHistoryRewriteCommit(hash: "a", parents: ["base"], message: "A\n\nFirst body"),
-            GitHistoryRewriteCommit(hash: "b", parents: ["a"], message: "B\n\nSecond body"),
-            GitHistoryRewriteCommit(hash: "c", parents: ["b"], message: "C")
-        ])
-        plan.setAction(.edit, for: "a")
-        plan.setAction(.squash, for: "b")
-        plan.setAction(.fixup, for: "c")
-        #expect(plan.steps[1].message == "A\n\nFirst body\n\nB\n\nSecond body")
-        // Core must combine the then-current Edit message, not this predicted text.
-        #expect(plan.wireSteps[1].message == nil)
-        #expect(plan.outputCommitCount == 1)
-        plan.setMessage("Custom combined\n\nKeep my full body", for: "b")
-        plan.move("b", by: 1)
-        plan.setAction(.pick, for: "b")
-        plan.setAction(.squash, for: "b")
-        #expect(plan.wireSteps.last?.message == "Custom combined\n\nKeep my full body")
-        plan.useDefaultSquashMessage(for: "b")
-        #expect(plan.wireSteps.last?.message == nil)
-        #expect(plan.steps.last?.message == "A\n\nFirst body\n\nB\n\nSecond body")
+    private struct PlanFixture: Decodable {
+        struct Case: Decodable {
+            let name: String
+            let steps: [GitRebaseStep]
+            let response: GitRebasePlanPreview
+        }
+        struct Commit: Decodable { let hash: String; let message: String }
+        let commits: [Commit]
+        let cases: [Case]
+        var rewriteCommits: [GitHistoryRewriteCommit] {
+            commits.map { GitHistoryRewriteCommit(hash: $0.hash, parents: [], message: $0.message) }
+        }
+    }
+
+    private func planFixture() throws -> PlanFixture {
+        let repository = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: repository.appendingPathComponent("shared/fixtures/git/rebase-plan-preview-v1.json"))
+        return try JSONDecoder().decode(PlanFixture.self, from: data)
     }
 
     @Test
-    func defaultSquashPredictionFollowsEarlierRewordsAndIgnoresFixupMessages() {
-        var plan = GitRebasePlanDraft(commits: [
-            GitHistoryRewriteCommit(hash: "a", parents: ["base"], message: "A"),
-            GitHistoryRewriteCommit(hash: "b", parents: ["a"], message: "Discarded fixup message"),
-            GitHistoryRewriteCommit(hash: "c", parents: ["b"], message: "C")
-        ])
-        plan.setAction(.reword, for: "a")
-        plan.setAction(.fixup, for: "b")
-        plan.setAction(.squash, for: "c")
-        plan.setMessage("A revised\n\nComplete body", for: "a")
-        #expect(plan.steps.last?.message == "A revised\n\nComplete body\n\nC")
-        #expect(plan.wireSteps.last?.message == nil)
-        #expect(plan.validationMessage == nil)
-        plan.move("b", by: -1)
-        #expect(plan.validationMessage != nil)
-        plan.move("b", by: 1)
-        #expect(plan.validationMessage == nil)
+    func draftSendsOnlyExplicitOverridesAndShowsCoreDerivedMessages() throws {
+        let fixture = try planFixture()
+        let sample = try #require(fixture.cases.first)
+        var plan = GitRebasePlanDraft(commits: fixture.rewriteCommits)
+        for step in sample.steps { plan.setAction(step.action, for: step.hash) }
+        // The shared fixture owns the derivation; Core must receive no predicted text.
+        let request = plan.previewRequest
+        #expect(request.steps.map(\.hash) == sample.steps.map(\.hash))
+        #expect(request.steps.allSatisfy { $0.message == nil })
+        #expect(!plan.isPlanned && plan.wireSteps.isEmpty)
+        plan.apply(sample.response, for: request)
+        #expect(plan.isPlanned)
+        #expect(plan.wireSteps == sample.response.startSteps)
+        #expect(plan.outputCommitCount == sample.response.outputCommitCount)
+        for row in sample.response.steps {
+            #expect(plan.steps.first { $0.hash == row.hash }?.message == row.message)
+        }
+    }
+
+    @Test
+    func editingTheDraftInvalidatesCoreAnswersAndIgnoresStaleOnes() throws {
+        let fixture = try planFixture()
+        let sample = try #require(fixture.cases.first)
+        var plan = GitRebasePlanDraft(commits: fixture.rewriteCommits)
+        for step in sample.steps { plan.setAction(step.action, for: step.hash) }
+        let stale = plan.previewRequest
+        let squash = try #require(sample.steps.first { $0.action == .squash })
+        plan.setMessage("Custom combined", for: squash.hash)
+        #expect(!plan.isPlanned)
+        #expect(plan.previewRequest.steps.first { $0.hash == squash.hash }?.message == "Custom combined")
+        plan.apply(sample.response, for: stale)
+        #expect(!plan.isPlanned && plan.wireSteps.isEmpty)
+        plan.useDefaultSquashMessage(for: squash.hash)
+        #expect(plan.previewRequest == stale)
     }
 
     @Test

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "protocol": "litheFunctions",
-  "offer": { "versions": [1, 2, 3] },
+  "offer": { "versions": [1, 2, 3, 4] },
   "negotiation": [
     {
       "name": "no answer leaves the protocol off",
@@ -47,8 +47,13 @@
       "expected": { "functions": ["query.run"], "version": 3 }
     },
     {
+      "name": "version 4 negotiates the same registry and adds the cross-plugin relay",
+      "capabilities": { "experimental": { "litheFunctions": { "version": 4, "functions": [{ "id": "query.run" }] } } },
+      "expected": { "functions": ["query.run"], "version": 4 }
+    },
+    {
       "name": "a version the host never offered is not negotiated",
-      "capabilities": { "experimental": { "litheFunctions": { "version": 4 } } },
+      "capabilities": { "experimental": { "litheFunctions": { "version": 5 } } },
       "expected": { "functions": null }
     },
     {
@@ -543,7 +548,118 @@
     {"name": "terminal aggregate grant cannot authorize terminal creation", "version": 3, "hostServices": ["terminal"], "method": "lithe/host/terminal/create", "params": {}, "expected": {"code": "plugin.host.permissionDenied", "rpcCode": -32010}},
     {"name": "an older protocol cannot create a native terminal", "version": 2, "hostServices": ["lithe/host/terminal/create"], "method": "lithe/host/terminal/create", "params": {}, "expected": {"code": "plugin.host.unavailable", "rpcCode": -32601}},
     {"name": "terminal reopen is granted on protocol 3", "version": 3, "hostServices": ["lithe/host/terminal/reopen"], "method": "lithe/host/terminal/reopen", "params": {"context": {"contextID": "w-terminal", "generation": 1}, "terminalID": "owned"}, "expected": {"forward": "terminal"}},
-    {"name": "terminal dispose is granted on protocol 3", "version": 3, "hostServices": ["lithe/host/terminal/dispose"], "method": "lithe/host/terminal/dispose", "params": {"context": {"contextID": "w-terminal", "generation": 1}, "terminalID": "owned"}, "expected": {"forward": "terminal"}}
+    {"name": "terminal dispose is granted on protocol 3", "version": 3, "hostServices": ["lithe/host/terminal/dispose"], "method": "lithe/host/terminal/dispose", "params": {"context": {"contextID": "w-terminal", "generation": 1}, "terminalID": "owned"}, "expected": {"forward": "terminal"}},
+    { "name": "a run start is granted on protocol 3", "version": 3, "hostServices": ["lithe/host/run/start"], "method": "lithe/host/run/start", "params": { "context": { "contextID": "w-run", "generation": 1 }, "label": "Run app" }, "expected": { "forward": "run" } },
+    { "name": "a run stop is granted on protocol 3", "version": 3, "hostServices": ["lithe/host/run/stop"], "method": "lithe/host/run/stop", "params": { "context": { "contextID": "w-run", "generation": 1 }, "runID": "r1" }, "expected": { "forward": "run" } },
+    { "name": "a run start needs its own grant", "version": 3, "hostServices": ["lithe/host/run/stop"], "method": "lithe/host/run/start", "params": { "context": { "contextID": "w-run", "generation": 1 } }, "expected": { "code": "plugin.host.permissionDenied", "rpcCode": -32010 } },
+    { "name": "a run start takes an object", "version": 3, "hostServices": ["lithe/host/run/start"], "method": "lithe/host/run/start", "params": [], "expected": { "code": "plugin.host.invalidParams", "rpcCode": -32602 } },
+    { "name": "an older protocol cannot start a run", "version": 2, "hostServices": ["lithe/host/run/start"], "method": "lithe/host/run/start", "params": {}, "expected": { "code": "plugin.host.unavailable", "rpcCode": -32601 } },
+    { "name": "a debug start is granted on protocol 3", "version": 3, "hostServices": ["lithe/host/debug/start"], "method": "lithe/host/debug/start", "params": { "context": { "contextID": "w-run", "generation": 1 }, "label": "Debug app" }, "expected": { "forward": "debug" } },
+    { "name": "a debug start is not covered by the run grant", "version": 3, "hostServices": ["lithe/host/run/start", "lithe/host/run/stop"], "method": "lithe/host/debug/start", "params": { "context": { "contextID": "w-run", "generation": 1 } }, "expected": { "code": "plugin.host.permissionDenied", "rpcCode": -32010 } },
+    {"name": "a language server request is forwarded when languageServer.request is granted", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/request", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "method": "metals/doctorRun", "params": {"verbose": true}}, "expected": {"forward": "languageServer"}},
+    {"name": "a language server request may bound its own timeout", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/request", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "rust-analyzer", "method": "rust-analyzer/expandMacro", "params": {}, "timeoutMilliseconds": 300000}, "expected": {"forward": "languageServer"}},
+    {"name": "a language server request may run a declared command", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/request", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "method": "workspace/executeCommand", "params": {"command": "metals.build-import"}}, "expected": {"forward": "languageServer"}},
+    {"name": "a language server notification is forwarded", "version": 3, "hostServices": ["lithe/host/languageServer/notify"], "method": "lithe/host/languageServer/notify", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "method": "workspace/didChangeConfiguration", "params": {"settings": {}}}, "expected": {"forward": "languageServer"}},
+    {"name": "a language server status is forwarded", "version": 3, "hostServices": ["lithe/host/languageServer/setStatus"], "method": "lithe/host/languageServer/setStatus", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "state": "preparing", "message": "Importing build", "percentage": 40}, "expected": {"forward": "languageServer"}},
+    {"name": "a language server status may omit the message and the percentage", "version": 3, "hostServices": ["lithe/host/languageServer/setStatus"], "method": "lithe/host/languageServer/setStatus", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "rust-analyzer", "state": "ready"}, "expected": {"forward": "languageServer"}},
+    {"name": "a language server request needs the languageServer.request grant", "version": 3, "hostServices": [], "method": "lithe/host/languageServer/request", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "method": "metals/doctorRun"}, "expected": {"rpcCode": -32010, "code": "plugin.host.permissionDenied"}},
+    {"name": "another service's grant never authorizes a language server request", "version": 3, "hostServices": ["workspace"], "method": "lithe/host/languageServer/request", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "method": "metals/doctorRun"}, "expected": {"rpcCode": -32010, "code": "plugin.host.permissionDenied"}},
+    {"name": "the aggregate service name never authorizes a language server request", "version": 3, "hostServices": ["languageServer"], "method": "lithe/host/languageServer/request", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "method": "metals/doctorRun"}, "expected": {"rpcCode": -32010, "code": "plugin.host.permissionDenied"}},
+    {"name": "a notify grant never authorizes a language server request", "version": 3, "hostServices": ["lithe/host/languageServer/notify"], "method": "lithe/host/languageServer/request", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "method": "metals/doctorRun"}, "expected": {"rpcCode": -32010, "code": "plugin.host.permissionDenied"}},
+    {"name": "a language server request is unavailable before protocol 3", "version": 2, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/request", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "method": "metals/doctorRun"}, "expected": {"rpcCode": -32601, "code": "plugin.host.unavailable"}},
+    {"name": "a language server request needs a context", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/request", "params": {"serverID": "metals", "method": "metals/doctorRun"}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "a language server request names a server", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/request", "params": {"context": {"contextID": "w1", "generation": 1}, "method": "metals/doctorRun"}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "a language server request names a method", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/request", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals"}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "a language server request refuses an empty method", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/request", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "method": ""}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "a language server request timeout is positive", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/request", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "method": "metals/doctorRun", "timeoutMilliseconds": 0}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "a language server request timeout has an upper bound", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/request", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "method": "metals/doctorRun", "timeoutMilliseconds": 300001}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "a language server request names the option it does not support", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/request", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "method": "metals/doctorRun", "workspaceFolder": "/tmp"}, "expected": {"rpcCode": -32018, "code": "plugin.host.unsupportedOption", "details": {"option": "workspaceFolder"}}},
+    {"name": "a language server notification takes no timeout", "version": 3, "hostServices": ["lithe/host/languageServer/notify"], "method": "lithe/host/languageServer/notify", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "method": "workspace/didChangeConfiguration", "timeoutMilliseconds": 5}, "expected": {"rpcCode": -32018, "code": "plugin.host.unsupportedOption", "details": {"option": "timeoutMilliseconds"}}},
+    {"name": "a language server status state is a closed set", "version": 3, "hostServices": ["lithe/host/languageServer/setStatus"], "method": "lithe/host/languageServer/setStatus", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "state": "importing"}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "a language server status percentage stops at one hundred", "version": 3, "hostServices": ["lithe/host/languageServer/setStatus"], "method": "lithe/host/languageServer/setStatus", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "state": "preparing", "percentage": 101}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "a language server status percentage is a whole number", "version": 3, "hostServices": ["lithe/host/languageServer/setStatus"], "method": "lithe/host/languageServer/setStatus", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "state": "preparing", "percentage": 12.5}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "a language server status message is text", "version": 3, "hostServices": ["lithe/host/languageServer/setStatus"], "method": "lithe/host/languageServer/setStatus", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "state": "failed", "message": {"text": "x"}}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "a language server status has no method field", "version": 3, "hostServices": ["lithe/host/languageServer/setStatus"], "method": "lithe/host/languageServer/setStatus", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "state": "ready", "method": "x"}, "expected": {"rpcCode": -32018, "code": "plugin.host.unsupportedOption", "details": {"option": "method"}}},
+    {"name": "a content provider is registered with the documents.contentProvider grant", "version": 3, "hostServices": ["lithe/host/documents/registerContentProvider"], "method": "lithe/host/documents/registerContentProvider", "params": {"context": {"contextID": "w1", "generation": 1}, "scheme": "metals-library", "function": "documents.read"}, "expected": {"forward": "documents"}},
+    {"name": "the aggregate documents name never authorizes a content provider", "version": 3, "hostServices": ["documents"], "method": "lithe/host/documents/registerContentProvider", "params": {"context": {"contextID": "w1", "generation": 1}, "scheme": "metals-library", "function": "documents.read"}, "expected": {"rpcCode": -32010, "code": "plugin.host.permissionDenied"}},
+    {"name": "a content provider needs its own grant", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/documents/registerContentProvider", "params": {"context": {"contextID": "w1", "generation": 1}, "scheme": "metals-library", "function": "documents.read"}, "expected": {"rpcCode": -32010, "code": "plugin.host.permissionDenied"}},
+    {"name": "a content provider cannot serve a scheme the host owns", "version": 3, "hostServices": ["lithe/host/documents/registerContentProvider"], "method": "lithe/host/documents/registerContentProvider", "params": {"context": {"contextID": "w1", "generation": 1}, "scheme": "file", "function": "documents.read"}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "a content provider cannot serve the lithe scheme", "version": 3, "hostServices": ["lithe/host/documents/registerContentProvider"], "method": "lithe/host/documents/registerContentProvider", "params": {"context": {"contextID": "w1", "generation": 1}, "scheme": "lithe", "function": "documents.read"}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "a content scheme is lowercase", "version": 3, "hostServices": ["lithe/host/documents/registerContentProvider"], "method": "lithe/host/documents/registerContentProvider", "params": {"context": {"contextID": "w1", "generation": 1}, "scheme": "Metals", "function": "documents.read"}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "a content scheme starts with a letter", "version": 3, "hostServices": ["lithe/host/documents/registerContentProvider"], "method": "lithe/host/documents/registerContentProvider", "params": {"context": {"contextID": "w1", "generation": 1}, "scheme": "1metals", "function": "documents.read"}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "a content provider names a plugin function", "version": 3, "hostServices": ["lithe/host/documents/registerContentProvider"], "method": "lithe/host/documents/registerContentProvider", "params": {"context": {"contextID": "w1", "generation": 1}, "scheme": "metals-library", "function": "not a function"}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "a content provider needs a context", "version": 3, "hostServices": ["lithe/host/documents/registerContentProvider"], "method": "lithe/host/documents/registerContentProvider", "params": {"scheme": "metals-library", "function": "documents.read"}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "a declared caller lists the providers of a function", "version": 4, "hostServices": ["functions"], "method": "lithe/host/functions/providers", "params": {"functionID": "languageImport.settings"}, "expected": {"relay": true}},
+    {"name": "a declared caller invokes another plugin's function through the relay", "version": 4, "hostServices": ["functions"], "method": "lithe/host/functions/invoke", "params": {"pluginID": "dev.lithe.fixture.go", "functionID": "languageImport.settings", "context": {"contextID": "w1", "generation": 1}, "params": {"project": "app"}, "timeoutMilliseconds": 5000}, "expected": {"relay": true}},
+    {"name": "a nested invocation names the relayed call it belongs to", "version": 4, "hostServices": ["functions"], "method": "lithe/host/functions/invoke", "params": {"pluginID": "dev.lithe.fixture.go", "functionID": "languageImport.settings", "context": {"contextID": "w1", "generation": 1}, "params": {"project": "app"}, "timeoutMilliseconds": 5000, "parentOperationID": "17"}, "expected": {"relay": true}},
+    {"name": "an invocation's parent operation ID is a string", "version": 4, "hostServices": ["functions"], "method": "lithe/host/functions/invoke", "params": {"pluginID": "dev.lithe.fixture.go", "functionID": "languageImport.settings", "context": {"contextID": "w1", "generation": 1}, "params": {"project": "app"}, "timeoutMilliseconds": 5000, "parentOperationID": 17}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "the relay needs protocol version 4", "version": 3, "hostServices": ["functions"], "method": "lithe/host/functions/invoke", "params": {"pluginID": "dev.lithe.fixture.go", "functionID": "languageImport.settings", "context": {"contextID": "w1", "generation": 1}}, "expected": {"rpcCode": -32601, "code": "plugin.host.unavailable"}},
+    {"name": "the relay needs the manifest's pluginFunctions calls", "version": 4, "hostServices": [], "method": "lithe/host/functions/providers", "params": {"functionID": "languageImport.settings"}, "expected": {"rpcCode": -32010, "code": "plugin.host.permissionDenied"}},
+    {"name": "an invocation names the workspace context it runs in", "version": 4, "hostServices": ["functions"], "method": "lithe/host/functions/invoke", "params": {"pluginID": "dev.lithe.fixture.go", "functionID": "languageImport.settings"}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "an invocation's function ID is well formed", "version": 4, "hostServices": ["functions"], "method": "lithe/host/functions/invoke", "params": {"pluginID": "dev.lithe.fixture.go", "functionID": "Not-Valid", "context": {"contextID": "w1", "generation": 1}}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "an invocation's params are an object", "version": 4, "hostServices": ["functions"], "method": "lithe/host/functions/invoke", "params": {"pluginID": "dev.lithe.fixture.go", "functionID": "languageImport.settings", "context": {"contextID": "w1", "generation": 1}, "params": [1]}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "an invocation's timeout is positive", "version": 4, "hostServices": ["functions"], "method": "lithe/host/functions/invoke", "params": {"pluginID": "dev.lithe.fixture.go", "functionID": "languageImport.settings", "context": {"contextID": "w1", "generation": 1}, "timeoutMilliseconds": 0}, "expected": {"rpcCode": -32602, "code": "plugin.host.invalidParams"}},
+    {"name": "a caller cannot choose who the callee thinks called", "version": 4, "hostServices": ["functions"], "method": "lithe/host/functions/invoke", "params": {"pluginID": "dev.lithe.fixture.go", "functionID": "languageImport.settings", "context": {"contextID": "w1", "generation": 1}, "caller": {"pluginID": "dev.lithe.fixture.other"}}, "expected": {"rpcCode": -32018, "code": "plugin.host.unsupportedOption", "details": {"option": "caller"}}}
+  ],
+  "invocationCallers": [
+    {
+      "name": "a version 4 callee receives the plugin that called it",
+      "version": 4,
+      "params": { "functionID": "languageImport.settings", "operationID": "7", "params": {} },
+      "caller": "dev.lithe.fixture.python",
+      "expected": {
+        "params": {
+          "functionID": "languageImport.settings",
+          "operationID": "7",
+          "params": {},
+          "caller": { "pluginID": "dev.lithe.fixture.python" }
+        }
+      }
+    },
+    {
+      "name": "an older callee never receives a caller",
+      "version": 3,
+      "params": { "functionID": "languageImport.settings", "operationID": "7", "params": {} },
+      "caller": "dev.lithe.fixture.python",
+      "expected": { "params": { "functionID": "languageImport.settings", "operationID": "7", "params": {} } }
+    },
+    {
+      "name": "a call the host started has no caller, which means the host",
+      "version": 4,
+      "params": { "functionID": "languageImport.settings", "operationID": "7", "params": {} },
+      "expected": { "params": { "functionID": "languageImport.settings", "operationID": "7", "params": {} } }
+    },
+    {
+      "name": "Core's caller replaces any field the params already carried",
+      "version": 4,
+      "params": { "functionID": "languageImport.settings", "operationID": "7", "params": {}, "caller": { "pluginID": "dev.lithe.fixture.other" } },
+      "caller": "dev.lithe.fixture.python",
+      "expected": {
+        "params": {
+          "functionID": "languageImport.settings",
+          "operationID": "7",
+          "params": {},
+          "caller": { "pluginID": "dev.lithe.fixture.python" }
+        }
+      }
+    }
+  ],
+  "relayErrors": [
+    { "name": "the caller did not declare the call", "code": "plugin.function.notDeclared", "rpcCode": -32027 },
+    { "name": "the provider does not export the function", "code": "plugin.function.notExported", "rpcCode": -32028 },
+    { "name": "the provider is not enabled", "code": "plugin.function.providerDisabled", "rpcCode": -32029 },
+    { "name": "the declared and exported contract versions differ", "code": "plugin.function.versionMismatch", "rpcCode": -32030 },
+    { "name": "the provider is already on the call chain", "code": "plugin.function.callCycle", "rpcCode": -32065 },
+    { "name": "the call chain is too long", "code": "plugin.function.depthExceeded", "rpcCode": -32066 },
+    { "name": "the caller has too many relayed calls running", "code": "plugin.function.tooManyCalls", "rpcCode": -32067 },
+    { "name": "the params or result exceed the relay's bound", "code": "plugin.function.payloadTooLarge", "rpcCode": -32068 },
+    { "name": "the provider's backend could not serve the call", "code": "plugin.function.providerUnavailable", "rpcCode": -32069 },
+    { "name": "the provider's function answered with an error", "code": "plugin.function.failed", "rpcCode": -32070 },
+    { "name": "the provider answered without a result Core can pass on", "code": "plugin.function.invalidResult", "rpcCode": -32071 },
+    { "name": "the relay's own deadline passed", "code": "plugin.host.timeout", "rpcCode": -32015 },
+    { "name": "the caller or an upstream caller cancelled", "code": "plugin.host.cancelled", "rpcCode": -32800 },
+    { "name": "the workspace context is unknown or replaced", "code": "plugin.host.contextExpired", "rpcCode": -32011 },
+    { "name": "the workspace is remote", "code": "plugin.host.authorityUnsupported", "rpcCode": -32012 }
   ],
   "invocationContexts": [
     {
@@ -594,7 +710,12 @@
     { "name": "the host is busy and the request may be retried", "code": "plugin.host.busy", "expected": { "code": "plugin.host.busy", "rpcCode": -32020 } },
     { "name": "the plugin sent requests too often", "code": "plugin.host.rateLimited", "expected": { "code": "plugin.host.rateLimited", "rpcCode": -32021 } },
     { "name": "a host cannot borrow a function code", "code": "plugin.function.unknown", "expected": { "code": "plugin.host.failed", "rpcCode": -32603 } },
-    { "name": "a host cannot report a backend exit to the backend", "code": "plugin.backend.exited", "expected": { "code": "plugin.host.failed", "rpcCode": -32603 } }
+    { "name": "a host cannot report a backend exit to the backend", "code": "plugin.backend.exited", "expected": { "code": "plugin.host.failed", "rpcCode": -32603 } },
+    { "name": "a tool the host cannot resolve", "code": "plugin.host.toolUnresolved", "expected": { "code": "plugin.host.toolUnresolved", "rpcCode": -32025 } },
+    {"name": "the plugin's language server is not running", "code": "plugin.host.languageServerUnavailable", "expected": {"code": "plugin.host.languageServerUnavailable", "rpcCode": -32022}},
+    {"name": "the language server answered with an error", "code": "plugin.host.languageServerError", "expected": {"code": "plugin.host.languageServerError", "rpcCode": -32023}},
+    {"name": "the method is not in the language server's declared session", "code": "plugin.host.methodNotDeclared", "expected": {"code": "plugin.host.methodNotDeclared", "rpcCode": -32024}},
+    {"name": "the server belongs to another plugin", "code": "plugin.host.foreignContribution", "expected": {"code": "plugin.host.foreignContribution", "rpcCode": -32026}}
   ],
   "hostNotifications": [
     { "name": "changed contexts reach a workspace session", "version": 3, "hostServices": ["workspace"], "method": "lithe/host/workspace/didChangeContexts", "params": { "revision": 4 }, "expected": { "delivered": true } },
@@ -606,6 +727,25 @@
     { "name": "a command run in a window", "version": 3, "hostServices": [], "method": "lithe/host/commands/didRun", "params": { "commandID": "db.refresh", "context": { "contextID": "w1", "generation": 2 } }, "expected": { "delivered": true } },
     { "name": "a command without a window", "version": 3, "hostServices": [], "method": "lithe/host/commands/didRun", "params": { "commandID": "db.refresh" }, "expected": { "delivered": true } },
     { "name": "extra command params are refused", "version": 3, "hostServices": [], "method": "lithe/host/commands/didRun", "params": { "commandID": "db.refresh", "path": "/etc" }, "expected": { "code": "plugin.host.invalidParams" } },
-    { "name": "the host cannot call the backend's own protocol", "version": 3, "hostServices": [], "method": "lithe/functions/invoke", "params": {}, "expected": { "code": "plugin.host.unavailable" } }
+    { "name": "the host cannot call the backend's own protocol", "version": 3, "hostServices": [], "method": "lithe/functions/invoke", "params": {}, "expected": { "code": "plugin.host.unavailable" } },
+    { "name": "a run exit with a status", "version": 3, "hostServices": ["lithe/host/run/start"], "method": "lithe/host/run/didExit", "params": { "runID": "r1", "exitCode": 0 }, "expected": { "delivered": true } },
+    { "name": "a run exit by signal", "version": 3, "hostServices": ["lithe/host/run/start"], "method": "lithe/host/run/didExit", "params": { "runID": "r1", "signal": 9 }, "expected": { "delivered": true } },
+    { "name": "a run exit the host lost track of", "version": 3, "hostServices": ["lithe/host/run/start"], "method": "lithe/host/run/didExit", "params": { "runID": "r1" }, "expected": { "delivered": true } },
+    { "name": "a run exit needs the run grant", "version": 3, "hostServices": ["lithe/host/debug/start"], "method": "lithe/host/run/didExit", "params": { "runID": "r1", "exitCode": 0 }, "expected": { "code": "plugin.host.permissionDenied" } },
+    { "name": "a run exit status is a 32-bit integer", "version": 3, "hostServices": ["lithe/host/run/start"], "method": "lithe/host/run/didExit", "params": { "runID": "r1", "exitCode": 4294967296 }, "expected": { "code": "plugin.host.invalidParams" } },
+    { "name": "a run exit signal is a signal number", "version": 3, "hostServices": ["lithe/host/run/start"], "method": "lithe/host/run/didExit", "params": { "runID": "r1", "signal": 0 }, "expected": { "code": "plugin.host.invalidParams" } },
+    { "name": "a run exit names its run", "version": 3, "hostServices": ["lithe/host/run/start"], "method": "lithe/host/run/didExit", "params": { "exitCode": 0 }, "expected": { "code": "plugin.host.invalidParams" } },
+    {"name": "a language server changed state", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/didChangeState", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "state": "running", "generation": 3}, "expected": {"delivered": true}},
+    {"name": "a language server state is a closed set", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/didChangeState", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "state": "ready", "generation": 3}, "expected": {"code": "plugin.host.invalidParams"}},
+    {"name": "a language server state names its generation", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/didChangeState", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "state": "stopped"}, "expected": {"code": "plugin.host.invalidParams"}},
+    {"name": "a language server state generation is positive", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/didChangeState", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "state": "crashed", "generation": 0}, "expected": {"code": "plugin.host.invalidParams"}},
+    {"name": "a language server state needs the languageServer.request grant", "version": 3, "hostServices": [], "method": "lithe/host/languageServer/didChangeState", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "state": "running", "generation": 1}, "expected": {"code": "plugin.host.permissionDenied"}},
+    {"name": "a version 2 backend skips language server state", "version": 2, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/didChangeState", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "state": "running", "generation": 1}, "expected": {"delivered": false}},
+    {"name": "a forwarded server notification carries its params", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/didReceiveNotification", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "generation": 2, "method": "metals/status", "params": {"text": "Importing"}}, "expected": {"delivered": true}},
+    {"name": "an oversized server notification is marked truncated without params", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/didReceiveNotification", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "generation": 2, "method": "metals/status", "truncated": true}, "expected": {"delivered": true}},
+    {"name": "a truncated server notification drops its params", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/didReceiveNotification", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "generation": 2, "method": "metals/status", "params": {}, "truncated": true}, "expected": {"code": "plugin.host.invalidParams"}},
+    {"name": "a server notification names its method", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/didReceiveNotification", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "generation": 2}, "expected": {"code": "plugin.host.invalidParams"}},
+    {"name": "a server notification names its generation", "version": 3, "hostServices": ["lithe/host/languageServer/request"], "method": "lithe/host/languageServer/didReceiveNotification", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "method": "metals/status", "params": {}}, "expected": {"code": "plugin.host.invalidParams"}},
+    {"name": "a server notification needs the languageServer.request grant", "version": 3, "hostServices": [], "method": "lithe/host/languageServer/didReceiveNotification", "params": {"context": {"contextID": "w1", "generation": 1}, "serverID": "metals", "generation": 2, "method": "metals/status", "params": {}}, "expected": {"code": "plugin.host.permissionDenied"}}
   ]
 }

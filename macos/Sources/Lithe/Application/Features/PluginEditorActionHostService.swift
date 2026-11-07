@@ -40,6 +40,8 @@ final class PluginEditorActionHostService: PluginHostServiceHandling {
     let methods: Set<String> = ["lithe/host/editor/registerActions"]
     private let contexts: PluginWorkspaceContexts
     private let decoder: any PluginEditorActionDecoding
+    /// What this host draws; Core validates every result against it.
+    let host: PluginEditorHostOptions
     private let changed = PassthroughSubject<Void, Never>()
     private var entries: [UUID: PluginEditorActionRegistration] = [:]
     private var disposeRegistration: [UUID: @MainActor () -> Void] = [:]
@@ -47,9 +49,10 @@ final class PluginEditorActionHostService: PluginHostServiceHandling {
 
     var changes: AnyPublisher<Void, Never> { changed.eraseToAnyPublisher() }
 
-    init(contexts: PluginWorkspaceContexts, decoder: any PluginEditorActionDecoding) {
+    init(contexts: PluginWorkspaceContexts, decoder: any PluginEditorActionDecoding, host: PluginEditorHostOptions) {
         self.contexts = contexts
         self.decoder = decoder
+        self.host = host
     }
 
     func registrations(context: PluginWorkspaceContextReference, filename: String) -> [PluginEditorActionRegistration] {
@@ -87,7 +90,7 @@ final class PluginEditorActionHostService: PluginHostServiceHandling {
                 "selector": .object(try args.object("selector")),
             ])
             let normalized: ToolingJSONValue
-            do { normalized = try decoder.decodeEditorActions(kind: "registration", value: input, text: "") }
+            do { normalized = try decoder.decodeEditorActions(kind: "registration", value: input, text: "", host: host) }
             catch { throw PluginHostArguments.invalid }
             guard case .object(let result) = normalized, case .object(let value)? = result["registration"],
                   case .string(let id)? = value["id"], case .string(let functionID)? = value["function"],
@@ -128,9 +131,17 @@ final class PluginEditorActionHostService: PluginHostServiceHandling {
     }
 
     func decode(_ result: ToolingJSONValue, text: String) throws -> [PluginEditorAction] {
-        let value = try decoder.decodeEditorActions(kind: "actions", value: result, text: text)
+        let value = try decoder.decodeEditorActions(kind: "actions", value: result, text: text, host: host)
         struct Response: Decodable { let actions: [PluginEditorAction] }
         return try JSONDecoder().decode(Response.self, from: JSONEncoder().encode(value)).actions
+    }
+
+    /// The `reveal` of a clicked action's result, or nil when the function
+    /// answered without one. Other members of the result stay the plugin's own.
+    func decodeReveal(_ result: ToolingJSONValue) throws -> PluginEditorReveal? {
+        let value = try decoder.decodeEditorActions(kind: "invokeResult", value: result, text: "", host: host)
+        struct Response: Decodable { let reveal: PluginEditorReveal? }
+        return try JSONDecoder().decode(Response.self, from: JSONEncoder().encode(value)).reveal
     }
 
     func endSession(pluginID: String, sessionID: String) {

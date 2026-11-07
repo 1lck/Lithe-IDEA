@@ -13,7 +13,12 @@ import type { GitHubFormContent } from "@/features/panes/types/pane-content.type
 import { getBranches } from "@/features/git/api/git-branches-api";
 import { getRefDiff } from "@/features/git/api/git-diff-api";
 import { getGitStatus } from "@/features/git/api/git-status-api";
-import { requestInlineEdit } from "@/features/editor/services/editor-inline-edit-service";
+import {
+  InlineEditError,
+  inlineEditErrorMessage,
+  requestInlineEdit,
+} from "@/features/editor/services/editor-inline-edit-service";
+import { commitAIError } from "@/features/git/services/ai-commit-service";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { Button } from "@/ui/button";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -31,6 +36,10 @@ import type {
   WorkflowListItem,
 } from "../types/github.types";
 import { useGitHubStore } from "../stores/github.store";
+import {
+  comparisonFiles,
+  generatePullRequestDescription,
+} from "../services/pull-request-description-ai";
 import { githubActionListCache, githubIssueListCache } from "../utils/github-data-cache";
 import { getGitHubAvatarUrl } from "../utils/github-avatar-url";
 import { getRepositoryDisplayName } from "../utils/github-viewer-utils";
@@ -62,22 +71,6 @@ function extractJsonObject(text: string): GeneratedGitHubDraft {
   } catch {
     return {};
   }
-}
-
-function summarizeDiffs(diffs: Awaited<ReturnType<typeof getRefDiff>>) {
-  if (!diffs?.length) return "No branch diff available.";
-
-  return diffs
-    .slice(0, 12)
-    .map((diff) => {
-      const changes = diff.lines
-        .filter((line) => line.line_type === "added" || line.line_type === "removed")
-        .slice(0, 30)
-        .map((line) => `${line.line_type === "added" ? "+" : "-"}${line.content}`)
-        .join("\n");
-      return `File: ${diff.file_path}\n${changes || "Binary or metadata-only change."}`;
-    })
-    .join("\n\n");
 }
 
 export function GitHubCreateView({ buffer }: { buffer: GitHubFormContent }) {
@@ -170,6 +163,7 @@ function GitHubCreateViewContent({
   const aiAutocompleteProvider = useSettingsStore(
     (state) => state.settings.aiAutocompleteProvider,
   );
+  const aiCommitSettings = useSettingsStore((state) => state.settings.aiCommit);
 
   useEffect(() => {
     let cancelled = false;
@@ -310,9 +304,20 @@ function GitHubCreateViewContent({
     setError(null);
 
     try {
+      if (kind === "pull-request") {
+        const diffs = await getRefDiff(repoPath, base, head);
+        if (!diffs) throw new Error("AI_COMMIT_DIFF_FAILED");
+        const draft = await generatePullRequestDescription(
+          aiCommitSettings,
+          { repository: repoPath, base, head, files: comparisonFiles(diffs) },
+          new AbortController().signal,
+        );
+        setTitle(draft.title);
+        setBody(draft.description);
+        toast.success(t("github.prDraftGenerated"));
+        return;
+      }
       const status = await getGitStatus(repoPath);
-      const diffSummary =
-        kind === "pull-request" ? summarizeDiffs(await getRefDiff(repoPath, base, head)) : "";
       const statusSummary =
         status?.files
           .slice(0, 30)
@@ -322,24 +327,7 @@ function GitHubCreateViewContent({
         ? selectedLabelNames.join(", ")
         : "No labels selected.";
 
-      const prompt =
-        kind === "pull-request"
-          ? `Create a concise GitHub pull request title and body from this repository context.
-Return only JSON with "title" and "body" string fields.
-Title must be short and imperative. Body should include a compact summary and test notes if inferable.
-
-Repository: ${repoPath}
-Branch: ${head} -> ${base}
-Labels: ${selectedLabelSummary}
-Existing title: ${title || "(empty)"}
-Existing body: ${body || "(empty)"}
-
-Git status:
-${statusSummary}
-
-Diff summary:
-${diffSummary}`
-          : `Create a concise GitHub issue title and body from this draft.
+      const prompt = `Create a concise GitHub issue title and body from this draft.
 Return only JSON with "title" and "body" string fields.
 Title must be specific. Body should include problem, expected behavior, and useful context without filler.
 
@@ -361,8 +349,8 @@ ${statusSummary}`;
           selectedText: prompt,
           afterSelection: "",
           instruction:
-            "Generate a GitHub issue or pull request draft. Return valid JSON only with title and body string fields. Do not include markdown fences or explanation.",
-          filePath: kind === "pull-request" ? "github-pull-request" : "github-issue",
+            "Generate a GitHub issue draft. Return valid JSON only with title and body string fields. Do not include markdown fences or explanation.",
+          filePath: "github-issue",
           languageId: "json",
         },
       );
@@ -373,11 +361,17 @@ ${statusSummary}`;
       }
       if (draft.title?.trim()) setTitle(draft.title.trim());
       if (draft.body?.trim()) setBody(draft.body.trim());
-      toast.success(
-        kind === "pull-request" ? t("github.prDraftGenerated") : t("github.issueDraftGenerated"),
-      );
+      toast.success(t("github.issueDraftGenerated"));
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      setError(
+        kind === "pull-request"
+          ? commitAIError(nextError, t)
+          : nextError instanceof InlineEditError
+            ? inlineEditErrorMessage(nextError, t)
+            : nextError instanceof Error
+              ? nextError.message
+              : String(nextError),
+      );
     } finally {
       setIsGenerating(false);
     }

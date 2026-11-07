@@ -367,7 +367,7 @@ classify_path() {
             rust_core=true
             macos_release=true
             ;;
-        scripts/windows/build/build-windows.ps1|scripts/windows/verify/verify-windows-boundaries.ps1|scripts/windows/verify/verify-windows-boundaries.sh|scripts/windows/prepare/prepare-jdtls.ps1|scripts/windows/prepare/prepare-jdk.ps1|scripts/windows/package/package-windows.ps1|scripts/windows/build/install-windows-frontend-dependencies.ps1|scripts/windows/build/invoke-windows-bun-install.ps1|scripts/windows/build/windows-frontend-install.test.ts|scripts/windows/build/invoke-windows-tauri-build.ps1|scripts/release/windows/create-windows-updater-manifest.ps1|scripts/release/windows/test-windows-updater-manifest.ps1)
+        scripts/windows/build/build-windows.ps1|scripts/windows/verify/verify-windows-boundaries.ps1|scripts/windows/verify/verify-windows-boundaries.sh|scripts/windows/prepare/prepare-jdtls.ps1|scripts/windows/prepare/prepare-jdk.ps1|scripts/windows/prepare/prepare-core-rules-wasm.mjs|scripts/windows/package/package-windows.ps1|scripts/windows/build/install-windows-frontend-dependencies.ps1|scripts/windows/build/invoke-windows-bun-install.ps1|scripts/windows/build/windows-frontend-install.test.ts|scripts/windows/build/invoke-windows-tauri-build.ps1|scripts/release/windows/create-windows-updater-manifest.ps1|scripts/release/windows/test-windows-updater-manifest.ps1)
             windows=true
             ;;
         scripts/windows/perf/*)

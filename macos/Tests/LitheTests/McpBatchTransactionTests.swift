@@ -200,6 +200,15 @@ private final class FailingBatchStore: McpConfigurationStore {
     func planWrite(_ request: McpWriteRequest, for file: McpConfigurationFile) throws -> McpWritePlan {
         try base.planWrite(request, for: file)
     }
+    func librarySnapshot(_ files: [McpLibraryFileInput]) throws -> McpLibrarySnapshot {
+        try base.librarySnapshot(files)
+    }
+    func validateDraft(_ draft: McpDraftPayload) throws -> McpDraftValidation {
+        try base.validateDraft(draft)
+    }
+    func batchPlan(files: [McpLibraryFileInput], intent: McpBatchIntent) throws -> McpBatchOutcome {
+        try base.batchPlan(files: files, intent: intent)
+    }
     func excludeFromVersionControl(_ relativePath: String, workspace: URL) throws {
         excludeCalls += 1
         try base.excludeFromVersionControl(relativePath, workspace: workspace)

@@ -94,7 +94,7 @@ interface UseFileExplorerContextMenuOptions {
   isIndexExcluded?: (path: string) => boolean;
   markForPath?: (path: string) => DirectoryMark | undefined;
   canExcludeDirectory?: (path: string) => boolean;
-  markDirectory?: (path: string, action: DirectoryAction) => void;
+  markDirectory?: (path: string, action: DirectoryAction) => void | Promise<void>;
   onFileSelect: (path: string, isDir: boolean) => void | string | Promise<void | string>;
   onCreateNewFileInDirectory?: (
     directoryPath: string,
@@ -875,14 +875,16 @@ export function useFileExplorerContextMenu({
                 : `project.mark.${mark}`,
             ),
             onClick: () => {
-              try {
-                markDirectory(contextMenu.path, excluded ? { kind: "cancelExclusion" }
-                  : mark === "excluded" ? { kind: "exclude" } : { kind: "setRole", role: mark });
-              } catch (error) {
-                toast.error(t("project.markFailed"), {
-                  description: t(error instanceof IndexingSettingsError ? `indexing.${error.code}` : "indexing.writeFailed"),
+              const action: DirectoryAction = excluded ? { kind: "cancelExclusion" }
+                : mark === "excluded" ? { kind: "exclude" } : { kind: "setRole", role: mark };
+              // The async wrapper calls `markDirectory` synchronously and turns both a thrown
+              // error and a rejected promise into the same failure toast.
+              void (async () => markDirectory(contextMenu.path, action))()
+                .catch((error: unknown) => {
+                  toast.error(t("project.markFailed"), {
+                    description: t(error instanceof IndexingSettingsError ? `indexing.${error.code}` : "indexing.writeFailed"),
+                  });
                 });
-              }
             },
           })),
         });
@@ -949,6 +951,7 @@ export function useFileExplorerContextMenu({
         onClick: () => {
           void pasteIntoExplorerDirectory({
             targetDirectory: contextMenu.path,
+            workspaceRoots: rootFolderPath ? [rootFolderPath] : undefined,
             createFileInDirectory: onCreateNewFileInDirectory,
             refreshDirectory: onRefreshDirectory,
             onJavaClassCreated: (fileName) => {

@@ -2,14 +2,25 @@
 
 pub(crate) mod backend;
 pub mod capabilities;
+/// Read-only documents a plugin backend serves as a URI scheme.
+pub(crate) mod content_providers;
 pub mod declarative;
 /// Independent, host-rendered editor actions of ordinary tool plugins.
 pub mod editor_actions;
+pub mod editor_providers;
 pub(crate) mod executables;
 pub(crate) mod grammar;
+/// Public host-method catalog and authorization for platform dispatchers.
+pub(crate) mod host_api;
 pub(crate) mod keymap_import;
+/// Session fields of plugin-owned language servers and the launch their
+/// backend resolves.
+pub(crate) mod language_server_sessions;
 pub mod marketplace;
 pub(crate) mod native_ui;
+/// Plugin-declared console link patterns and their resolution.
+pub(crate) mod output_links;
+pub(crate) mod plugin_functions;
 pub(crate) mod settings;
 
 use serde::Deserialize;

@@ -423,6 +423,7 @@ fn run_local_api_turn_with(status: u16, observe_model_calls: bool) {
                 session_id: id,
                 after_turn_finished,
                 call,
+                ..
             } => {
                 assert!(!after_turn_finished, "the turn waits for its own calls");
                 model_calls.push((id, call));

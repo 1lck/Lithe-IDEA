@@ -21,12 +21,12 @@ struct WorkbenchLayout: Codable, Sendable {
     static let minimumSidebarWidth = minimumPaneSize
     static let defaultSidebarWidth: Double = 360
     static let defaultTopPaneFraction: Double = 0.72
-    static let defaultMavenPaneWidth: Double = 360
+    static let defaultRightPaneWidth: Double = 360
     var toolWindows: [ToolWindowState]?
     var groupFractions: [String: Double]?
     let sidebarWidth: Double
     let topPaneHeight: Double?
-    let mavenPaneWidth: Double?
+    let rightPaneWidth: Double?
     let branchPopupWidth: Double?
     let branchPopupHeight: Double?
     var sidebarToolWindowID: String?
@@ -34,10 +34,10 @@ struct WorkbenchLayout: Codable, Sendable {
     var visibleToolWindowIDs: [String]?
     var contributionPreferences: [String: WorkbenchFeatureModel.ContributionPreference]?
 
-    init(sidebarWidth: Double, topPaneHeight: Double?, mavenPaneWidth: Double? = nil, branchPopupWidth: Double? = nil, branchPopupHeight: Double? = nil) {
+    init(sidebarWidth: Double, topPaneHeight: Double?, rightPaneWidth: Double? = nil, branchPopupWidth: Double? = nil, branchPopupHeight: Double? = nil) {
         self.sidebarWidth = sidebarWidth
         self.topPaneHeight = topPaneHeight
-        self.mavenPaneWidth = mavenPaneWidth
+        self.rightPaneWidth = rightPaneWidth
         self.branchPopupWidth = branchPopupWidth
         self.branchPopupHeight = branchPopupHeight
     }
@@ -57,7 +57,7 @@ struct WorkbenchLayoutStore {
               let layout = try? JSONDecoder().decode(WorkbenchLayout.self, from: data),
               layout.sidebarWidth.isFinite,
               layout.sidebarWidth >= WorkbenchLayout.minimumPaneSize,
-              (layout.mavenPaneWidth.map({ $0.isFinite && $0 >= WorkbenchLayout.minimumPaneSize }) ?? true),
+              (layout.rightPaneWidth.map({ $0.isFinite && $0 >= WorkbenchLayout.minimumPaneSize }) ?? true),
               (layout.branchPopupWidth.map({ $0.isFinite && $0 > 0 }) ?? true),
               layout.branchPopupHeight.map({ $0.isFinite && $0 > 0 }) ?? true else {
             return Self.defaultLayout

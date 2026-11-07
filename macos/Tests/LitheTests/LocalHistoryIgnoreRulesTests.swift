@@ -17,7 +17,7 @@ struct LocalHistoryIgnoreRulesTests {
 
     @Test
     func previewReportsInvalidRegexLinesAndTheMatchingRule() throws {
-        let result = try #require(preview("src/Generated/Api.java", patterns: ["*.log", ""],
+        let result = try #require(preview("src/Generated/Api.txt", patterns: ["*.log", ""],
                                           regexes: ["", "(unclosed", "generated/"]))
         #expect(Array(result.regexErrors.keys) == [1])
         #expect(result.matched == .regex(index: 2))
@@ -28,17 +28,17 @@ struct LocalHistoryIgnoreRulesTests {
         #expect(preview("logs/run.log", patterns: ["*.log"])?.matched == .pattern("*.log"))
         #expect(preview("ios/Pods/A/a.h")?.matched == .pattern("**/Pods/"))
         #expect(preview(".git/config")?.matched == .hidden)
-        #expect(preview("src/Main.java")?.matched == nil)
+        #expect(preview("src/Main.txt")?.matched == nil)
     }
 
     @Test
     func builtInFolderRulesCanBeDeleted() {
         #expect(preview("ios/Pods/A/a.h", patterns: ["!**/Pods/"])?.matched == nil)
-        #expect(preview("gen/A.java", patterns: ["**/gen/"])?.matched == .pattern("**/gen/"))
+        #expect(preview("gen/A.txt", patterns: ["**/gen/"])?.matched == .pattern("**/gen/"))
         // Showing a hidden built-in folder still leaves it out of local history.
         #expect(preview(".git/config", hidden: ["!**/.git/"])?.matched == .pattern("**/.git/"))
         #expect(preview(".git/config", patterns: ["!**/.git/"], hidden: ["!**/.git/"])?.matched == nil)
-        #expect(preview("build/src/Main.java", patterns: ["!**/build/", "*.log"],
+        #expect(preview("build/src/Main.txt", patterns: ["!**/build/", "*.log"],
                         hidden: ["!**/build/"])?.matched == nil)
     }
 
@@ -104,7 +104,7 @@ struct LocalHistoryIgnoreRulesTests {
         #expect(await feature.clearHistory())
         #expect(!feature.hasActiveModuleWork)
         #expect(operations.paths.isEmpty)
-        await feature.recordHistorySnapshot(text: "after clear", for: document.url, reason: .saved)
+        await feature.recordHistorySnapshot(text: "after clear", for: document.url, event: .beforeBatchReplace)
         #expect(operations.paths == ["saved"])
     }
 
@@ -163,6 +163,10 @@ private final class ClearingHistoryOperations: LocalHistoryOperations, @unchecke
     func entries(at workspaceURL: URL, storageURL: URL, relativePath: String?, visibilityRules: LocalHistoryVisibilityRules) -> [LocalHistoryEntryPayload]? { [] }
     func content(at storageURL: URL, contentPath: String) -> String? { nil }
     func relocate(at storageURL: URL, sourcePath: String, destinationPath: String) -> Bool { false }
+    func planEvent(_ event: LocalHistoryEvent) -> [LocalHistorySnapshotPlan]? {
+        [LocalHistorySnapshotPlan(source: .beforeChange, reason: .saved)]
+    }
     func usage(at storageURL: URL, limitBytes: Int64?) -> LocalHistoryUsage? { nil }
     func ignorePreview(path: String?, rules: LocalHistoryVisibilityRules, workspaceURL: URL?) -> LocalHistoryIgnorePreview? { nil }
+    func compareTexts(old: String, current: String) -> [LocalHistoryDiffRow]? { [] }
 }

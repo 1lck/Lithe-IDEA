@@ -194,19 +194,19 @@ struct DiagnosticsWorkflowTests {
                 let op = "render-operation-\(index / 16)"
                 switch index % 10 {
                 case 0: writer.emit(AppSessionStarted(operationID: op))
-                case 1, 2: writer.emit(LspTraceReceived(diagnostic: "Received response", server: LogSegment("jdtls")!, operationID: op))
+                case 1, 2: writer.emit(LspTraceReceived(diagnostic: "Received response", server: LogSegment("example-server")!, operationID: op))
                 case 3: writer.emit(LspTraceReceived(diagnostic: "Sending request", server: LogSegment("rust-analyzer")!, operationID: op))
-                case 4: writer.emit(LspStderrReceived(diagnostic: "Building workspace", server: LogSegment("jdtls")!, truncated: false, operationID: op))
+                case 4: writer.emit(LspStderrReceived(diagnostic: "Building workspace", server: LogSegment("example-server")!, truncated: false, operationID: op))
                 case 5: writer.emit(LspSessionDegradationReceived(failureCode: "unavailable", server: LogSegment("invalid-3f9a0c2e")!, stage: "index", operationID: op))
                 case 6: writer.emit(VcsGitCommandFinished(arguments: "fetch --prune origin", command: "fetch", duration: .milliseconds(487), exitCode: 0, source: "background", operationID: op))
-                case 7: writer.emit(PluginsHostMessageLogged(diagnostic: "Using mirror central", plugin: LogSegment("maven")!, severity: "info", operationID: op))
+                case 7: writer.emit(PluginsHostMessageLogged(diagnostic: "Using mirror", plugin: LogSegment("example-plugin")!, severity: "info", operationID: op))
                 case 8: writer.emit(PluginsHostMessageLogged(diagnostic: "Process stopped", plugin: LogSegment("lldb")!, severity: "debug", operationID: op))
                 default: writer.emit(AppDiagnosticsExportFailed(error: LogFailure(domain: "render", code: "unavailable"), stage: "planning", operationID: op))
                 }
             }
             for offset in 0..<6 { writer.emit(VcsGitCommandFinished(arguments: "fetch --prune origin", command: "fetch", duration: .milliseconds(480 + offset), exitCode: 0, source: "background", operationID: "render-selected")) }
             writer.emit(AppDiagnosticsExportFailed(error: NSError(domain: "render", code: 1, userInfo: [NSLocalizedDescriptionKey: "token=synthetic-render-secret"]), stage: "planning", operationID: "render-selected"))
-            writer.emit(LspMessageLogged(diagnostic: "Workspace initialized", server: LogSegment("jdtls")!, severity: "info", operationID: "render-selected"))
+            writer.emit(LspMessageLogged(diagnostic: "Workspace initialized", server: LogSegment("example-server")!, severity: "info", operationID: "render-selected"))
             let model = LogWindowModel(logging: writer)
             let loaded = TestGate(), traced = TestGate()
             let observation = model.$state.sink { state in
@@ -216,7 +216,7 @@ struct DiagnosticsWorkflowTests {
             defer { observation.cancel(); model.stop() }
             model.refresh()
             try #require(await loaded.waitUntilOpen(timeout: .seconds(5)), "Catalog render fixture did not load")
-            #expect(Set(model.state.records.map(\.channel)).isSuperset(of: ["app", "lsp/jdtls", "lsp/rust-analyzer", "lsp/invalid-3f9a0c2e", "vcs/git", "plugins/maven/host", "plugins/lldb/host"]))
+            #expect(Set(model.state.records.map(\.channel)).isSuperset(of: ["app", "lsp/example-server", "lsp/rust-analyzer", "lsp/invalid-3f9a0c2e", "vcs/git", "plugins/example-plugin/host", "plugins/lldb/host"]))
             #expect(Set(model.state.records.map(\.level)) == ["DEBUG", "INFO", "WARN", "ERROR"])
             #expect(model.displayRows.contains { $0.isRun && $0.count >= 3 })
             #expect(model.state.records.contains { $0.fields.values.contains { $0.contains("<redacted>") || $0.contains("‹redacted›") } })

@@ -5,7 +5,8 @@ Version: 1. Behavioral fixture: `shared/fixtures/ai/commit-generation-v1.json`.
 Windows consumes the typed Rust API in `lithe_core::ai`; macOS uses the same planner
 and decoder through the Core JSON commands `ai.planCommit` and
 `ai.decodeCommitMessage`. The API has no filesystem, HTTP, operating-system
-credential, or UI dependencies. macOS PR-description generation remains separate.
+credential, or UI dependencies. Pull request descriptions and inline edits reuse
+the same provider request model; see [AI generation requests](ai-generation-requests.md).
 
 ## Portable inputs
 
@@ -91,6 +92,7 @@ All commands route through existing `platform_invoke`:
 | `ai_commit_detect` | `{}` | `{ configurations: [{provider,hasCredential}], warnings: [{source,code}] }` |
 | `ai_commit_key` | `{id,action:"status"|"save"|"remove",value?}` | Boolean credential presence; never the credential |
 | `ai_commit_generate` | `{operationId,provider,options,files}` | `{message}` |
+| `ai_commit_pull_request` | `{operationId,provider,options,comparison}` | `{title,description}` |
 | `ai_commit_cancel` | `{operationId}` | `null` |
 
 The adapter reloads imported profiles immediately before each request and ignores

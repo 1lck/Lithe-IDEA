@@ -199,6 +199,26 @@ struct RemoteRoutingWorkspaceOperations: WorkspaceOperations {
         local.rootRows(at: rootURL, visibilityRules: visibilityRules)
     }
 
+    func orderedTreeSiblings(_ rows: [FileNode]) -> [FileNode]? {
+        local.orderedTreeSiblings(rows)
+    }
+
+    func copyName(for name: String, isDirectory: Bool, existing: [String], duplicate: Bool) -> String? {
+        local.copyName(for: name, isDirectory: isDirectory, existing: existing, duplicate: duplicate)
+    }
+
+    func reduceDirectoryAction(
+        _ action: WorkspaceDirectoryAction, at path: String, rules: WorkspaceDirectoryRules
+    ) -> WorkspaceDirectoryReduction? {
+        local.reduceDirectoryAction(action, at: path, rules: rules)
+    }
+
+    func relocateDirectoryRules(
+        _ rules: WorkspaceDirectoryRules, moving source: String, to destination: String?
+    ) -> WorkspaceDirectoryRules? {
+        local.relocateDirectoryRules(rules, moving: source, to: destination)
+    }
+
     func warmSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules) {
         local.warmSearchIndex(at: rootURL, visibilityRules: visibilityRules)
     }

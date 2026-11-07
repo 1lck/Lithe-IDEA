@@ -32,10 +32,10 @@ if [[ -n "$windows_bundle_write_violations" ]]; then
     exit 1
 fi
 
-# JDT LS is the one runtime that writes into a packaged directory by design.
-# Rust Core redirects its Equinox configuration area into the host cache for
-# both products; `jdt_configuration` tests and the real JDT LS smoke test
-# prove the installation stays byte-identical, so no source pattern is
-# duplicated here.
+# Language servers that write next to their own installation (for example an
+# OSGi configuration area) are shipped by plugins, not by the host. The plugin
+# launch must point them at the plugin state directory the host provides, and
+# the plugin's own tests prove the installed plugin stays byte-identical, so no
+# source pattern for packaged plugin directories is duplicated here.
 
 print -- "Runtime bundle immutability verification passed"

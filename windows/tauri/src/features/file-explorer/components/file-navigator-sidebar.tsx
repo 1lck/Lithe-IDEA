@@ -11,7 +11,7 @@ import {
   useState,
 } from "react";
 import { cva } from "class-variance-authority";
-import { fuzzyScore } from "@/features/quick-open/utils/fuzzy-search";
+import { useRankedNames } from "@/features/file-search/hooks/use-ranked-names";
 import { useFileOpenTarget } from "@/features/keymaps/hooks/use-file-open-target";
 import { useTranslation } from "@/i18n/locale-provider";
 import { EmptyState } from "@/ui/empty";
@@ -93,15 +93,6 @@ const fileNavigatorSurfaceVariants = cva(
 
 function getItemSearchText(item: FileNavigatorItem) {
   return [item.label, item.path, item.key, item.iconPath].filter(Boolean).join(" ").toLowerCase();
-}
-
-function getFuzzyItemSearchScore(item: FileNavigatorItem, query: string) {
-  const { fileName, directoryPath } = getFlatItemParts(item);
-  const fields = [item.label, fileName, item.path, directoryPath, item.key, item.iconPath].filter(
-    (value): value is string => Boolean(value),
-  );
-
-  return Math.max(...fields.map((field) => fuzzyScore(field, query)));
 }
 
 function getFlatItemParts(item: FileNavigatorItem) {
@@ -303,30 +294,20 @@ export const FileNavigatorSidebar = memo(function FileNavigatorSidebar({
 
   const searchableItems = useMemo(() => items.slice(0, MAX_NAVIGATOR_SYNC_ITEMS), [items]);
   const hiddenItemCount = Math.max(0, items.length - searchableItems.length);
+  const trimmedQuery = searchQuery.trim();
+  // Fuzzy mode is ranked by Core (`workspace.rankNames`); substring mode stays a plain filter.
+  const rankedItems = useRankedNames(
+    searchableItems,
+    searchMode === "fuzzy" ? trimmedQuery : "",
+    (item) => ({ name: getFlatItemParts(item).fileName, path: item.path }),
+  );
   const filteredItems = useMemo(() => {
-    const trimmedQuery = searchQuery.trim();
     if (!trimmedQuery) return searchableItems;
-
-    if (searchMode === "fuzzy") {
-      const scoredItems: Array<{ item: FileNavigatorItem; score: number }> = [];
-      for (const item of searchableItems) {
-        const score = getFuzzyItemSearchScore(item, trimmedQuery);
-        if (score > 0) {
-          scoredItems.push({ item, score });
-        }
-      }
-
-      scoredItems.sort(
-        (left, right) => right.score - left.score || left.item.path.localeCompare(right.item.path),
-      );
-      return scoredItems.map(({ item }) => item);
-    }
+    if (searchMode === "fuzzy") return rankedItems ?? searchableItems;
 
     const query = trimmedQuery.toLowerCase();
-    if (!query) return searchableItems;
-
     return searchableItems.filter((item) => getItemSearchText(item).includes(query));
-  }, [searchableItems, searchMode, searchQuery]);
+  }, [rankedItems, searchableItems, searchMode, trimmedQuery]);
   const tree = useMemo(
     () =>
       viewMode === "tree"

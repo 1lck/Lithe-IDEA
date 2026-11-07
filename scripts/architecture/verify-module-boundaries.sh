@@ -78,7 +78,8 @@ for legacy_terminal_file in \
     fi
 done
 
-for terminal_type in TerminalFeatureModel TerminalSession TerminalTransport TerminalLinkResolver; do
+# Link parsing lives in Rust Core (`terminal.parseLinkTarget`); the module keeps no parser of its own.
+for terminal_type in TerminalFeatureModel TerminalSession TerminalTransport; do
     rg -q "(class|protocol|enum) ${terminal_type}" macos/Sources/LitheTerminalModule || {
         print -u2 "Terminal module is missing real implementation: ${terminal_type}"
         exit 1

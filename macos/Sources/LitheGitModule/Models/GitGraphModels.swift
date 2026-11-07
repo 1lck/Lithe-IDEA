@@ -1,12 +1,12 @@
 import Foundation
 
+/// How much of a long edge the graph draws. Core owns the thresholds
+/// (`git.graphProjection` `displayMode`); the host only picks the mode.
 package struct GitGraphDisplayOptions: Hashable, Sendable {
-    package static let compact = Self(longEdgeSize: 30, visiblePartSize: 1, edgeWithArrowSize: Int.max)
-    package static let expanded = Self(longEdgeSize: 1_000, visiblePartSize: 250, edgeWithArrowSize: 30)
+    package static let compact = Self(mode: "compact")
+    package static let expanded = Self(mode: "expanded")
 
-    let longEdgeSize: Int
-    let visiblePartSize: Int
-    let edgeWithArrowSize: Int
+    let mode: String
 }
 
 package enum GitGraphReferenceKind: String, Hashable, Sendable {
@@ -74,12 +74,18 @@ package struct GitGraphLayout: Sendable {
     package let laneCount: Int
     package let hasMissingParents: Bool
     package let recommendedLaneCount: Int
+    /// Ancestry of the requested current branch, for the row background highlight.
+    package let currentBranchHashes: Set<String>
 
-    package init(rows: [GitGraphRow], laneCount: Int, hasMissingParents: Bool, recommendedLaneCount: Int = 0) {
+    package init(
+        rows: [GitGraphRow], laneCount: Int, hasMissingParents: Bool, recommendedLaneCount: Int = 0,
+        currentBranchHashes: Set<String> = []
+    ) {
         self.rows = rows
         self.laneCount = laneCount
         self.hasMissingParents = hasMissingParents
         self.recommendedLaneCount = recommendedLaneCount
+        self.currentBranchHashes = currentBranchHashes
     }
 }
 

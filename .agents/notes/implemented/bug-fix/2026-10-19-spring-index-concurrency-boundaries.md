@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 持续编辑大项目时，Windows 端以前会为每一次编辑派发一份完整的 Spring 全量索引。
@@ -133,7 +135,7 @@
 
 ## 适用范围
 
-- `rust/lithe-core/src/languages/spring.rs`
+- 已迁出：原 `rust/lithe-core/src/languages/spring.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
 - `windows/tauri/src/features/spring/hooks/use-spring-index.ts`
 - `windows/tauri/src/features/spring/hooks/use-spring-index.test.tsx`
 - `windows/tauri/src/features/spring/api/spring-index-api.ts`

@@ -389,9 +389,6 @@ struct SettingsView: View {
         } else if viewState.selection == .run {
             RunConfigurationSettingsView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if viewState.selection == .project {
-            ProjectRuntimeSettingsView(feature: model.runtimeFeature)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if viewState.selection == .toolchainEnvironment {
             ToolchainEnvironmentSettingsView(feature: model.toolchainSettingsFeature, onOpenPlugins: {
                 viewState.selection = .plugins
@@ -428,7 +425,6 @@ struct SettingsView: View {
                     case .keymap: EmptyView()
                     case .terminal: terminalSettings
                     case .lsp: EmptyView()
-                    case .project: EmptyView()
                     case .toolchainEnvironment, .toolchainSources: EmptyView()
                     case .run: EmptyView()
                     case .ai: aiSettings
@@ -673,10 +669,6 @@ struct SettingsView: View {
                 LitheSettingsCheckbox(
                     isOn: $settings.editorMinimapEnabled,
                     title: "Show minimap"
-                )
-                LitheSettingsCheckbox(
-                    isOn: $settings.javaKeywordNavigationFilterEnabled,
-                    title: "Skip definition lookups for Java keywords"
                 )
             }
             editorAppearanceOptions

@@ -7,7 +7,13 @@
         {
           "event": {
             "operationId": "pending",
-            "type": "requestStarted"
+            "type": "requestStarted",
+            "retention": {
+              "maxRecords": 200,
+              "maxRecordOutputCharacters": 32768,
+              "maxRecordOutputLines": 2000,
+              "maxTotalOutputCharacters": 1048576
+            }
           },
           "commands": [],
           "running": []
@@ -15,7 +21,9 @@
         {
           "event": {
             "operationId": "pending",
-            "type": "requestFinished"
+            "type": "requestFinished",
+            "unconfirmedInvocations": [],
+            "failureRecord": false
           },
           "commands": [],
           "running": []
@@ -28,7 +36,13 @@
         {
           "event": {
             "operationId": "pending",
-            "type": "requestStarted"
+            "type": "requestStarted",
+            "retention": {
+              "maxRecords": 200,
+              "maxRecordOutputCharacters": 32768,
+              "maxRecordOutputLines": 2000,
+              "maxTotalOutputCharacters": 1048576
+            }
           },
           "commands": [],
           "running": []
@@ -75,7 +89,11 @@
             "error": {
               "code": "cancelled",
               "message": "Operation was cancelled"
-            }
+            },
+            "unconfirmedInvocations": [
+              1
+            ],
+            "failureRecord": false
           },
           "commands": [],
           "running": []
@@ -83,7 +101,13 @@
         {
           "event": {
             "operationId": "new",
-            "type": "requestStarted"
+            "type": "requestStarted",
+            "retention": {
+              "maxRecords": 200,
+              "maxRecordOutputCharacters": 32768,
+              "maxRecordOutputLines": 2000,
+              "maxTotalOutputCharacters": 1048576
+            }
           },
           "commands": [],
           "running": []
@@ -114,7 +138,8 @@
             "operationId": "new",
             "type": "finished",
             "invocationId": 1,
-            "exitCode": 0
+            "exitCode": 0,
+            "state": "completed"
           },
           "commands": [
             [
@@ -129,7 +154,9 @@
         {
           "event": {
             "operationId": "new",
-            "type": "requestFinished"
+            "type": "requestFinished",
+            "unconfirmedInvocations": [],
+            "failureRecord": false
           },
           "commands": [
             [
@@ -147,7 +174,13 @@
         {
           "event": {
             "operationId": "pending",
-            "type": "requestStarted"
+            "type": "requestStarted",
+            "retention": {
+              "maxRecords": 200,
+              "maxRecordOutputCharacters": 32768,
+              "maxRecordOutputLines": 2000,
+              "maxTotalOutputCharacters": 1048576
+            }
           },
           "commands": [],
           "running": []
@@ -185,7 +218,8 @@
             "operationId": "pending",
             "type": "finished",
             "invocationId": 1,
-            "exitCode": 0
+            "exitCode": 0,
+            "state": "completed"
           },
           "commands": [],
           "running": [
@@ -195,7 +229,9 @@
         {
           "event": {
             "operationId": "pending",
-            "type": "requestFinished"
+            "type": "requestFinished",
+            "unconfirmedInvocations": [],
+            "failureRecord": false
           },
           "commands": [],
           "running": []
@@ -209,7 +245,13 @@
           "event": {
             "operationId": "preflight-failure",
             "type": "requestStarted",
-            "workingDirectory": "/workspace/repository"
+            "workingDirectory": "/workspace/repository",
+            "retention": {
+              "maxRecords": 200,
+              "maxRecordOutputCharacters": 32768,
+              "maxRecordOutputLines": 2000,
+              "maxTotalOutputCharacters": 1048576
+            }
           },
           "commands": [],
           "running": []
@@ -222,7 +264,9 @@
               "code": "process_start_failed",
               "message": "Could not inspect Git executable",
               "details": "Permission denied"
-            }
+            },
+            "unconfirmedInvocations": [],
+            "failureRecord": true
           },
           "commands": [
             []
@@ -247,7 +291,13 @@
           "event": {
             "operationId": "superseded",
             "type": "requestStarted",
-            "workingDirectory": "/workspace/repository"
+            "workingDirectory": "/workspace/repository",
+            "retention": {
+              "maxRecords": 200,
+              "maxRecordOutputCharacters": 32768,
+              "maxRecordOutputLines": 2000,
+              "maxTotalOutputCharacters": 1048576
+            }
           },
           "commands": [],
           "running": []
@@ -259,7 +309,9 @@
             "error": {
               "code": "cancelled",
               "message": "Operation was cancelled"
-            }
+            },
+            "unconfirmedInvocations": [],
+            "failureRecord": false
           },
           "commands": [],
           "running": [],
@@ -276,7 +328,13 @@
           "event": {
             "operationId": "interrupted",
             "type": "requestStarted",
-            "workingDirectory": "/workspace/repository"
+            "workingDirectory": "/workspace/repository",
+            "retention": {
+              "maxRecords": 200,
+              "maxRecordOutputCharacters": 32768,
+              "maxRecordOutputLines": 2000,
+              "maxTotalOutputCharacters": 1048576
+            }
           },
           "commands": [],
           "running": []
@@ -309,7 +367,11 @@
             "error": {
               "code": "cancelled",
               "message": "Operation was cancelled"
-            }
+            },
+            "unconfirmedInvocations": [
+              1
+            ],
+            "failureRecord": false
           },
           "commands": [
             [
@@ -337,7 +399,13 @@
           "event": {
             "operationId": "preflight-failure",
             "type": "requestStarted",
-            "workingDirectory": "/workspace/repository"
+            "workingDirectory": "/workspace/repository",
+            "retention": {
+              "maxRecords": 200,
+              "maxRecordOutputCharacters": 32768,
+              "maxRecordOutputLines": 2000,
+              "maxTotalOutputCharacters": 1048576
+            }
           },
           "commands": [],
           "running": []
@@ -355,7 +423,9 @@
               "code": "process_start_failed",
               "message": "Could not inspect Git executable",
               "details": "Permission denied"
-            }
+            },
+            "unconfirmedInvocations": [],
+            "failureRecord": true
           },
           "commands": [],
           "running": [],

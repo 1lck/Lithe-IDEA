@@ -4,6 +4,7 @@ import CryptoKit
 import SwiftUI
 import Testing
 import LitheGitModule
+import LitheGitTestSupport
 import WebKit
 @testable import Lithe
 
@@ -154,7 +155,7 @@ struct BundledUIFontTests {
                               authorName: "Author", authorEmail: "author@example.invalid", date: "2026/09/30",
                               subject: subject, decorations: "")
                 }
-            let rows = GitGraphLayoutService.layout(commits: commits).rows
+            let rows = GitGraphCoreTestSupport.layout(commits: commits).rows
             for dark in [false, true] {
                 let view = GitGraphCommitRowsNSView(frame: NSRect(x: 0, y: 0, width: 720, height: CGFloat(rows.count) * 26))
                 view.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)

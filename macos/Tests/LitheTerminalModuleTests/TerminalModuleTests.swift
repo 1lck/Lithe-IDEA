@@ -141,11 +141,11 @@ struct TerminalModuleTests {
         let feature = TerminalFeatureModel(terminalFactory: { transport })
         let launch = TerminalProcessLaunch(
             title: "Debug Main",
-            executablePath: "/opt/jdk/bin/java",
-            arguments: ["-cp", "/workspace/classes", "example.Main"],
+            executablePath: "/opt/tool-a/bin/tool-a",
+            arguments: ["--config", "/workspace/config", "example-target"],
             workingDirectory: "/workspace",
             environmentChanges: [
-                TerminalEnvironmentChange(name: "JAVA_HOME", value: "/opt/jdk"),
+                TerminalEnvironmentChange(name: "TOOL_A_HOME", value: "/opt/tool-a"),
                 TerminalEnvironmentChange(name: "REMOVE_ME", value: nil)
             ]
         )
@@ -156,7 +156,7 @@ struct TerminalModuleTests {
         #expect(created.session.isManagedProcess)
         #expect(created.session.displayTitle == "Debug Main")
         #expect(transport.processLaunches == [launch])
-        #expect(transport.processEnvironments.first?["JAVA_HOME"] == "/opt/jdk")
+        #expect(transport.processEnvironments.first?["TOOL_A_HOME"] == "/opt/tool-a")
         #expect(transport.processEnvironments.first?["REMOVE_ME"] == nil)
         #expect(transport.processEnvironments.first?["TERM_PROGRAM"] == "Lithe")
         created.session.restart()
@@ -235,8 +235,8 @@ struct TerminalModuleTests {
         let feature = TerminalFeatureModel(terminalFactory: { transport })
         let launch = TerminalProcessLaunch(
             title: "Debug Main",
-            executablePath: "/opt/jdk/bin/java",
-            arguments: ["example.Main"],
+            executablePath: "/opt/tool-a/bin/tool-a",
+            arguments: ["example-target"],
             workingDirectory: "/workspace"
         )
         let created = try feature.createProcessSession(launch)
@@ -250,22 +250,6 @@ struct TerminalModuleTests {
     }
 
     @Test
-    func linkResolverKeepsExternalURLsAndResolvesLocations() {
-        let workspace = URL(fileURLWithPath: "/tmp/lithe-terminal-module-test")
-        let expected = workspace.appendingPathComponent("Sources/App.swift").standardizedFileURL
-        #expect(TerminalLinkResolver.resolve(
-            "Sources/App.swift:12:4",
-            relativeTo: workspace,
-            fileExists: { $0 == expected }
-        ) == .file(TerminalLinkLocation(url: expected, line: 12, column: 4)))
-        #expect(TerminalLinkResolver.resolve(
-            "https://example.com",
-            relativeTo: workspace,
-            fileExists: { _ in false }
-        ) == .external(URL(string: "https://example.com")!))
-    }
-
-    @Test
     func processOutputIsForwardedBeforeAndAfterProcessStart() throws {
         let transport = TestTransport()
         transport.outputOnStart = "early\n"
@@ -275,7 +259,7 @@ struct TerminalModuleTests {
         let created = try feature.createProcessSession(
             TerminalProcessLaunch(
                 title: "Debug Main",
-                executablePath: "/usr/bin/java",
+                executablePath: "/usr/bin/tool-a",
                 arguments: ["Main"],
                 workingDirectory: "/tmp"
             ),
@@ -296,7 +280,7 @@ struct TerminalModuleTests {
         let created = try feature.createProcessSession(
             TerminalProcessLaunch(
                 title: "Debug Main",
-                executablePath: "/usr/bin/java",
+                executablePath: "/usr/bin/tool-a",
                 arguments: ["Main"],
                 workingDirectory: "/tmp"
             ),

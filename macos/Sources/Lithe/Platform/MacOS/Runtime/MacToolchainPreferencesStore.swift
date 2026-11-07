@@ -80,7 +80,7 @@ final class MacToolchainPreferencesStore: ToolchainPreferencesStoring {
         }) else { throw ToolchainSettingsLoadError.readFailed }
         let bytes = try MacToolchainSettingsLoader.safeNativeRead(url, maximumBytes: 2_097_152)
         let store = MacRunConfigurationStore(core: core, storage: storage, preferences: MacUserDefaultsStore(), immutableRoots: immutable)
-        let inspection = store.inspect(at: workspace, checkFingerprint: false, javaEntrypoints: nil)
+        let inspection = store.inspect(at: workspace, checkFingerprint: false, providerRuns: nil)
         if case .invalid = inspection.status { throw ToolchainSettingsLoadError.invalidLocal }
         guard try MacToolchainSettingsLoader.safeNativeRead(url, maximumBytes: 2_097_152) == bytes else { throw ProjectRuntimeSettingsStoreError.conflict }
         let run = try bytes.map { try JSONDecoder().decode(ToolingJSONValue.self, from: $0) }
@@ -91,5 +91,18 @@ final class MacToolchainPreferencesStore: ToolchainPreferencesStoring {
         var identity = Data(canonical.utf8); identity.append(0); identity.append(bytes == nil ? 0 : 1); identity.append(bytes ?? Data())
         let revision = SHA256.hash(data: identity).map { String(format: "%02x", $0) }.joined()
         return Reading(snapshot: .init(workspace: workspace, document: document, revision: revision), bytes: bytes)
+    }
+}
+
+/// Failures shared by the conditional writers of the project's local run
+/// document. The messages tell the user that their draft is kept.
+enum ProjectRuntimeSettingsStoreError: LocalizedError {
+    case conflict
+    case readBack
+    var errorDescription: String? {
+        switch self {
+        case .conflict: L10n.string("Project environment settings changed on disk. Reload before saving; your draft has been kept.")
+        case .readBack: L10n.string("Could not verify the saved project environment settings. The previous preferences have been kept when possible.")
+        }
     }
 }

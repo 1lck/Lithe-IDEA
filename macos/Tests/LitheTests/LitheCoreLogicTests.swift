@@ -20,7 +20,6 @@ struct LitheCoreLogicTests {
         let expectations: [(path: String, kind: LitheIconKind)] = [
             ("rust/lithe-core/src/lib.rs", .rustSource),
             ("Cargo.toml", .toml),
-            ("src/main/java/App.java", .javaGeneric),
             ("docs/README.md", .readme),
             ("docs/guide.md", .markdown),
             (".gitignore", .gitignore),
@@ -69,34 +68,6 @@ struct LitheCoreLogicTests {
                     == LitheIcons.kind(forFilePath: path)
             )
         }
-    }
-
-    @Test
-    func javaInterfaceSymbolAcceptsUnicodeIdentifiers() {
-        #expect(
-            LitheIcons.javaSymbolKind(fromSourcePrefix: "public interface 用户服务 {}")
-                == .javaInterface
-        )
-    }
-
-    @Test
-    func javaNavigationMarkersUseTheFourIntelliJGutterAssets() {
-        #expect(
-            LitheIcons.implementationMarkerAssetPath(isInterface: true, pointingDown: true)
-                == "gutter/implementedMethod.svg"
-        )
-        #expect(
-            LitheIcons.implementationMarkerAssetPath(isInterface: true, pointingDown: false)
-                == "gutter/implementingMethod.svg"
-        )
-        #expect(
-            LitheIcons.implementationMarkerAssetPath(isInterface: false, pointingDown: true)
-                == "gutter/overridenMethod.svg"
-        )
-        #expect(
-            LitheIcons.implementationMarkerAssetPath(isInterface: false, pointingDown: false)
-                == "gutter/overridingMethod.svg"
-        )
     }
 
     @Test
@@ -348,8 +319,7 @@ struct LitheCoreLogicTests {
                     services: MacServiceContainer(
                         store: store,
                         settings: settings,
-                        moduleLaunchMode: .safeMode,
-                        javaMavenOperations: NoProjectJavaOperations()
+                        moduleLaunchMode: .safeMode
                     ).services
                 )
             },
@@ -432,8 +402,7 @@ struct LitheCoreLogicTests {
                     services: MacServiceContainer(
                         store: store,
                         settings: settings,
-                        moduleLaunchMode: .safeMode,
-                        javaMavenOperations: NoProjectJavaOperations()
+                        moduleLaunchMode: .safeMode
                     ).services
                 )
             },
@@ -476,8 +445,7 @@ struct LitheCoreLogicTests {
                     services: MacServiceContainer(
                         store: store,
                         settings: settings,
-                        moduleLaunchMode: .safeMode,
-                        javaMavenOperations: NoProjectJavaOperations()
+                        moduleLaunchMode: .safeMode
                     ).services
                 )
             },
@@ -524,8 +492,7 @@ struct LitheCoreLogicTests {
                     services: MacServiceContainer(
                         store: store,
                         settings: settings,
-                        moduleLaunchMode: .safeMode,
-                        javaMavenOperations: NoProjectJavaOperations()
+                        moduleLaunchMode: .safeMode
                     ).services
                 )
             },
@@ -565,8 +532,7 @@ struct LitheCoreLogicTests {
                     services: MacServiceContainer(
                         store: store,
                         settings: settings,
-                        moduleLaunchMode: .safeMode,
-                        javaMavenOperations: NoProjectJavaOperations()
+                        moduleLaunchMode: .safeMode
                     ).services
                 )
             },
@@ -614,8 +580,7 @@ struct LitheCoreLogicTests {
                     services: MacServiceContainer(
                         store: store,
                         settings: settings,
-                        moduleLaunchMode: .safeMode,
-                        javaMavenOperations: NoProjectJavaOperations()
+                        moduleLaunchMode: .safeMode
                     ).services
                 )
             },
@@ -662,8 +627,7 @@ struct LitheCoreLogicTests {
                     services: MacServiceContainer(
                         store: store,
                         settings: settings,
-                        moduleLaunchMode: .safeMode,
-                        javaMavenOperations: NoProjectJavaOperations()
+                        moduleLaunchMode: .safeMode
                     ).services
                 )
             },
@@ -703,8 +667,7 @@ struct LitheCoreLogicTests {
                     services: MacServiceContainer(
                         store: store,
                         settings: settings,
-                        moduleLaunchMode: .safeMode,
-                        javaMavenOperations: NoProjectJavaOperations()
+                        moduleLaunchMode: .safeMode
                     ).services
                 )
             },
@@ -752,8 +715,7 @@ struct LitheCoreLogicTests {
                     services: MacServiceContainer(
                         store: store,
                         settings: settings,
-                        moduleLaunchMode: .safeMode,
-                        javaMavenOperations: NoProjectJavaOperations()
+                        moduleLaunchMode: .safeMode
                     ).services
                 )
             },
@@ -790,8 +752,7 @@ struct LitheCoreLogicTests {
                     services: MacServiceContainer(
                         store: store,
                         settings: settings,
-                        moduleLaunchMode: .safeMode,
-                        javaMavenOperations: NoProjectJavaOperations()
+                        moduleLaunchMode: .safeMode
                     ).services
                 )
                 createdModels.append(model)
@@ -830,7 +791,7 @@ struct LitheCoreLogicTests {
             modelFactory: {
                 AppModel(
                     settings: settings,
-                    services: MacServiceContainer(store: store, settings: settings, javaMavenOperations: NoProjectJavaOperations()).services
+                    services: MacServiceContainer(store: store, settings: settings).services
                 )
             },
             projectWindowPresenter: { _ in }
@@ -1844,27 +1805,33 @@ struct LitheCoreLogicTests {
     }
 
     @Test
-    func localHistoryDiffBuilderProducesChangedRow() {
-        let rows = LocalHistoryDiffBuilder.rows(old: "before\n", current: "after\n")
-
-        #expect(rows.count == 1)
-        #expect(rows[0].kind == .changed)
-        #expect(rows[0].left == "before")
-        #expect(rows[0].rightText == "after")
-    }
-
-    @Test
-    func localHistoryDiffPairsSimilarLinesAndSeparatesUnrelatedOnes() {
-        // The added comment used to be paired positionally with the statement,
-        // labelling two unrelated lines as one modification.
-        let rows = LocalHistoryDiffBuilder.rows(
-            old: "let total = compute(a, b)\n",
-            current: "// recompute\nlet total = compute(a, b, c)\n"
-        )
-
-        #expect(rows.map(\.kind) == [.addition, .changed])
-        #expect(rows[1].left == "let total = compute(a, b)")
-        #expect(rows[1].rightText == "let total = compute(a, b, c)")
+    func textComparisonMatchesSharedFixture() throws {
+        // Local History, Agent and VCS provider diffs all render these Core rows,
+        // so the bridge must preserve every kind, line number, and side.
+        struct Fixture: Decodable {
+            struct Case: Decodable {
+                struct Expected: Decodable {
+                    struct Row: Decodable { let oldLine: Int?; let newLine: Int?; let left: String?; let right: String?; let kind: String }
+                    let rows: [Row]
+                }
+                let name: String
+                let oldText: String
+                let newText: String
+                let expected: Expected
+            }
+            let cases: [Case]
+        }
+        let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: repository.appendingPathComponent("shared/fixtures/diff/compare-texts-v1.json"))
+        for item in try JSONDecoder().decode(Fixture.self, from: data).cases {
+            let rows = try #require(RustCoreBridge().compareTexts(old: item.oldText, current: item.newText), "\(item.name)")
+            #expect(rows.map(\.oldLine) == item.expected.rows.map(\.oldLine), "\(item.name)")
+            #expect(rows.map(\.newLine) == item.expected.rows.map(\.newLine), "\(item.name)")
+            #expect(rows.map(\.left) == item.expected.rows.map(\.left), "\(item.name)")
+            #expect(rows.map(\.rightText) == item.expected.rows.map { $0.kind == "context" ? $0.left : $0.right }, "\(item.name)")
+            #expect(rows.map { "\($0.kind)" } == item.expected.rows.map(\.kind), "\(item.name)")
+        }
     }
 
     @Test
@@ -2099,118 +2066,6 @@ struct LitheCoreLogicTests {
     }
 
     @Test
-    func doubleShiftRecognizerRequiresTwoStandaloneTaps() {
-        var recognizer = DoubleShiftGestureRecognizer(threshold: 0.35)
-
-        var triggered = recognizer.handleFlagsChanged(
-            isShiftDown: true,
-            hasOtherModifiers: false,
-            timestamp: 1.00
-        )
-        #expect(!triggered)
-        triggered = recognizer.handleFlagsChanged(
-            isShiftDown: false,
-            hasOtherModifiers: false,
-            timestamp: 1.05
-        )
-        #expect(!triggered)
-        triggered = recognizer.handleFlagsChanged(
-            isShiftDown: true,
-            hasOtherModifiers: false,
-            timestamp: 1.20
-        )
-        #expect(!triggered)
-        triggered = recognizer.handleFlagsChanged(
-            isShiftDown: false,
-            hasOtherModifiers: false,
-            timestamp: 1.25
-        )
-        #expect(triggered)
-    }
-
-    @Test
-    func doubleShiftRecognizerRejectsUppercaseTypingAndInterveningKeys() {
-        var recognizer = DoubleShiftGestureRecognizer(threshold: 0.35)
-
-        _ = recognizer.handleFlagsChanged(
-            isShiftDown: true,
-            hasOtherModifiers: false,
-            timestamp: 1.00
-        )
-        recognizer.handleKeyDown()
-        var triggered = recognizer.handleFlagsChanged(
-            isShiftDown: false,
-            hasOtherModifiers: false,
-            timestamp: 1.05
-        )
-        #expect(!triggered)
-        _ = recognizer.handleFlagsChanged(
-            isShiftDown: true,
-            hasOtherModifiers: false,
-            timestamp: 1.20
-        )
-        recognizer.handleKeyDown()
-        triggered = recognizer.handleFlagsChanged(
-            isShiftDown: false,
-            hasOtherModifiers: false,
-            timestamp: 1.25
-        )
-        #expect(!triggered)
-
-        _ = recognizer.handleFlagsChanged(
-            isShiftDown: true,
-            hasOtherModifiers: false,
-            timestamp: 2.00
-        )
-        _ = recognizer.handleFlagsChanged(
-            isShiftDown: false,
-            hasOtherModifiers: false,
-            timestamp: 2.05
-        )
-        recognizer.handleKeyDown()
-        _ = recognizer.handleFlagsChanged(
-            isShiftDown: true,
-            hasOtherModifiers: false,
-            timestamp: 2.20
-        )
-        triggered = recognizer.handleFlagsChanged(
-            isShiftDown: false,
-            hasOtherModifiers: false,
-            timestamp: 2.25
-        )
-        #expect(!triggered)
-    }
-
-    @Test
-    func resettingDoubleShiftRecognizerDropsPendingTap() {
-        var recognizer = DoubleShiftGestureRecognizer(threshold: 0.35)
-
-        _ = recognizer.handleFlagsChanged(
-            isShiftDown: true,
-            hasOtherModifiers: false,
-            timestamp: 1.00
-        )
-        _ = recognizer.handleFlagsChanged(
-            isShiftDown: false,
-            hasOtherModifiers: false,
-            timestamp: 1.05
-        )
-        recognizer.reset()
-        _ = recognizer.handleFlagsChanged(
-            isShiftDown: true,
-            hasOtherModifiers: false,
-            timestamp: 1.20
-        )
-        let triggered = recognizer.handleFlagsChanged(
-            isShiftDown: false,
-            hasOtherModifiers: false,
-            timestamp: 1.25
-        )
-
-        #expect(!triggered)
-    }
-
-    @Test
     func markdownImageInsertionSeparatesTheReferenceFromRawHTML() {
         let source = "<table>\n</table>\n"
         let reference = "![pasted image](assets/pasted-image.png)"
@@ -2289,8 +2144,10 @@ struct LitheCoreLogicTests {
     }
 
     @Test
-    func workspaceTreeCompactsMiddlePackagesOnlyUnderSourceRoots() throws {
+    func workspaceTreeDoesNotCompactPackagesWithoutSourceRoots() throws {
         // 目录树按 Rust core 实际发出的 JSON 形状构造，避免测试绕过解码路径。
+        // 源码根只能由用户标记或插件导入的构建模型给出；没有源码根时，
+        // 任何目录（包括 src/main/java 这种惯用名）都不压缩、不用包图标。
         func dir(_ path: String, _ children: String...) -> String {
             let name = (path as NSString).lastPathComponent
             let list = children.joined(separator: ",")
@@ -2346,28 +2203,26 @@ struct LitheCoreLogicTests {
         }
 
         let javaRoot = try child(child(child(tree, "src"), "main"), "java")
-        #expect(javaRoot.iconKind == .sourceFolder)
+        #expect(javaRoot.iconKind == .folder)
+        #expect(!javaRoot.isInsideSourceRoot)
 
-        // com/alibaba/nacos/ai 压缩成一行，url 仍指向最深的真实目录。
-        let compacted = try child(javaRoot, "com.alibaba.nacos.ai")
-        #expect(compacted.iconKind == .packageFolder)
-        #expect(compacted.url.lastPathComponent == "ai")
-        #expect(compacted.collapsedAncestorPaths.map { ($0 as NSString).lastPathComponent }
-            == ["com", "alibaba", "nacos"])
-        #expect(compacted.children?.map(\.name).sorted() == ["App.java", "config"])
-        #expect(try child(compacted, "config").iconKind == .packageFolder)
+        // 没有源码根时 com/alibaba/nacos/ai 保持逐层展开，url 指向各自的真实目录。
+        let com = try child(javaRoot, "com")
+        #expect(com.iconKind == .folder)
+        #expect(com.collapsedAncestorPaths.isEmpty)
+        let ai = try child(child(child(com, "alibaba"), "nacos"), "ai")
+        #expect(ai.collapsedAncestorPaths.isEmpty)
+        #expect(ai.children?.map(\.name).sorted() == ["App.java", "config"])
+        #expect(try child(ai, "config").iconKind == .folder)
 
-        // 含文件的目录不是空中间包，不压缩。
         let solo = try child(javaRoot, "solo")
         #expect(solo.collapsedAncestorPaths.isEmpty)
-        #expect(try child(solo, "inner").iconKind == .packageFolder)
+        #expect(try child(solo, "inner").iconKind == .folder)
 
-        // 资源根用资源图标；META-INF 名字不是合法包名，保持普通文件夹。
         let resources = try child(child(child(tree, "src"), "main"), "resources")
-        #expect(resources.iconKind == .resourceFolder)
+        #expect(resources.iconKind == .folder)
         #expect(try child(resources, "META-INF").iconKind == .folder)
 
-        // 源码根之外不压缩，也不用包图标。
         let docs = try child(tree, "docs")
         #expect(docs.iconKind == .folder)
         #expect(docs.collapsedAncestorPaths.isEmpty)
@@ -2498,56 +2353,6 @@ struct LitheCoreLogicTests {
         }
     }
 
-    @Test
-    func runConfigurationMigrationWritesToolchainsIntoServiceOverrides() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-run-migration-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let store = MutableKeyValueStore()
-        let projectKey = root.standardizedFileURL.path.replacingOccurrences(of: "/", with: "_")
-        store.set(try JSONEncoder().encode(JavaRunOptions(
-            javaHomePath: "/jdk/legacy",
-            workingDirectoryPath: "backend",
-            vmArguments: "-Xmx2g",
-            programArguments: "--spring.profiles.active=dev",
-            activeProfiles: ["dev"]
-        )), forKey: "lithe.java-run-options.\(projectKey).current-file")
-        store.set(try JSONEncoder().encode(ProjectRuntimeSettings(
-            javaHomePath: "/Library/Java/jdk-21",
-            mavenHomeSelection: .custom,
-            mavenHomePath: "/opt/maven",
-            mavenJavaHomePath: "/Library/Java/jdk-17"
-        )), forKey: "lithe.project-runtime.\(projectKey)")
-
-        let adapter = MacRunConfigurationStore(
-            core: RustCoreBridge(),
-            storage: MacFileStorage(),
-            preferences: store,
-            documentMutator: RunTestDocumentMutator()
-        )
-        try adapter.migrateLegacySettings(at: root, configurationIDs: ["current-file"])
-        try adapter.saveOptions(
-            JavaRunOptions(
-                javaHomePath: "/Library/Java/jdk-22",
-                workingDirectoryPath: "backend app",
-                vmArguments: "\"-Dlabel=hello world\" -Xmx1g",
-                programArguments: "--dev",
-                activeProfiles: ["local"]
-            ),
-            configurationID: "current-file",
-            scope: .local,
-            at: root
-        )
-
-        let local = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent(".lithe/run/local.json"))) as? [String: Any]
-        let configs = local?["configurations"] as? [[String: Any]]
-        #expect(configs?.first?["workingDirectory"] as? String == "backend app")
-        #expect(configs?.first?["jvmArguments"] as? [String] == ["-Dlabel=hello world", "-Xmx1g"])
-        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/toolchains/local.json").path))
-        #expect(store.object(forKey: "lithe.run-configuration-migrated.\(projectKey)") as? Bool == true)
-        #expect(store.data(forKey: "lithe.java-run-options.\(projectKey).current-file") != nil)
-        #expect(store.data(forKey: "lithe.java-run-options.\(projectKey).current-file") != nil)
-    }
 }
 
 private let projectWindowShutdownTestManifest = ModuleManifest(
@@ -2861,110 +2666,6 @@ struct EditorDocumentTests {
     }
 
     @Test
-    func searchRelevanceRanksMatchFormsInOrder() {
-        let root = "/tmp/project/src/"
-        func result(_ name: String) -> FileSearchResult {
-            FileSearchResult(
-                url: URL(fileURLWithPath: root + name),
-                line: nil,
-                preview: "",
-                kind: .file
-            )
-        }
-
-        let query = "DeviceHandler"
-        let exact = SearchRelevance.score(result("DeviceHandler.java"), query: query)
-        let prefix = SearchRelevance.score(result("DeviceHandlerFactory.java"), query: query)
-        let substring = SearchRelevance.score(result("AbstractDeviceHandlerBase.java"), query: query)
-        let miss = SearchRelevance.score(result("PadController.java"), query: query)
-
-        #expect(exact > prefix)
-        #expect(prefix > substring)
-        #expect(substring > 0)
-        #expect(miss == 0)
-    }
-
-    @Test
-    func searchRelevanceMatchesCamelCaseInitials() {
-        let target = FileSearchResult(
-            url: URL(fileURLWithPath: "/tmp/project/src/DeviceHandler.java"),
-            line: nil,
-            preview: "",
-            kind: .file
-        )
-        let unrelated = FileSearchResult(
-            url: URL(fileURLWithPath: "/tmp/project/src/PadController.java"),
-            line: nil,
-            preview: "",
-            kind: .file
-        )
-
-        #expect(SearchRelevance.score(target, query: "dh") > 0)
-        #expect(SearchRelevance.score(unrelated, query: "dh") == 0)
-    }
-
-    @Test
-    func searchRelevancePrefersNameMatchOverPathMatch() {
-        let query = "handler"
-        let byName = FileSearchResult(
-            url: URL(fileURLWithPath: "/tmp/project/Handler.java"),
-            line: nil,
-            preview: "",
-            kind: .file
-        )
-        let byPathOnly = FileSearchResult(
-            url: URL(fileURLWithPath: "/tmp/project/handler/Pad.java"),
-            line: nil,
-            preview: "",
-            kind: .file
-        )
-
-        #expect(SearchRelevance.score(byName, query: query) > SearchRelevance.score(byPathOnly, query: query))
-    }
-
-    @Test
-    func searchRelevancePrefersShallowerFiles() {
-        let shallow = FileSearchResult(
-            url: URL(fileURLWithPath: "/tmp/project/Device.java"),
-            line: nil,
-            preview: "",
-            kind: .file
-        )
-        let deep = FileSearchResult(
-            url: URL(fileURLWithPath: "/tmp/project/a/b/c/d/Device.java"),
-            line: nil,
-            preview: "",
-            kind: .file
-        )
-
-        #expect(SearchRelevance.score(shallow, query: "Device") > SearchRelevance.score(deep, query: "Device"))
-    }
-
-    @Test
-    func searchRelevanceRanksTypeAboveContentForEqualNames() {
-        let url = URL(fileURLWithPath: "/tmp/project/src/DeviceHandler.java")
-        let type = FileSearchResult(
-            url: url,
-            line: 10,
-            preview: "",
-            kind: .type,
-            symbolName: "DeviceHandler"
-        )
-        let content = FileSearchResult(
-            url: url,
-            line: 42,
-            preview: "new DeviceHandler()",
-            kind: .content,
-            symbolName: "DeviceHandler"
-        )
-
-        #expect(
-            SearchRelevance.score(type, query: "DeviceHandler")
-                > SearchRelevance.score(content, query: "DeviceHandler")
-        )
-    }
-
-    @Test
     @MainActor
     func terminalSessionKeepsNativeSurfaceAndOwnsLifecycle() {
         let transport = TestTerminalTransport()
@@ -3037,40 +2738,6 @@ struct EditorDocumentTests {
         #expect(ObjectIdentifier(session.nativeView) == nativeViewID)
         #expect(transport.startRequests == ["/bin/bash", "/bin/zsh"])
         #expect(transport.stopCount == 1)
-    }
-
-    @Test
-    func terminalLinkResolverResolvesWorkspacePathAndLocation() {
-        let workspace = URL(fileURLWithPath: "/tmp/lithe-terminal-link-tests")
-        let sourceURL = workspace.appendingPathComponent("Sources/App.swift")
-        let fileManager = FileManager.default
-        try? fileManager.createDirectory(
-            at: sourceURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        defer { try? fileManager.removeItem(at: workspace) }
-        fileManager.createFile(atPath: sourceURL.path, contents: Data())
-
-        let target = TerminalLinkResolver.resolve(
-            "Sources/App.swift:12:4",
-            relativeTo: workspace,
-            fileExists: { fileManager.fileExists(atPath: $0.path) }
-        )
-
-        #expect(target == .file(
-            TerminalLinkLocation(url: sourceURL.standardizedFileURL, line: 12, column: 4)
-        ))
-    }
-
-    @Test
-    func terminalLinkResolverKeepsExternalURLsAsExternalTargets() {
-        let target = TerminalLinkResolver.resolve(
-            "https://example.com/docs",
-            relativeTo: URL(fileURLWithPath: "/tmp"),
-            fileExists: { _ in false }
-        )
-
-        #expect(target == .external(URL(string: "https://example.com/docs")!))
     }
 
     @Test
@@ -6218,13 +5885,13 @@ struct EditorDocumentTests {
 
         let app = package.appendingPathComponent("App.java")
         let license = root.appendingPathComponent("LICENSE")
-        let withApp = try #require(Self.updatedTree(tree.inserting(file: app)))
-        let inserted = try #require(Self.updatedTree(withApp.inserting(file: license)))
+        let withApp = try #require(Self.updatedTree(tree.inserting(file: app, order: coreTreeOrder)))
+        let inserted = try #require(Self.updatedTree(withApp.inserting(file: license, order: coreTreeOrder)))
         #expect(inserted.fileURLs == [app, main, license, readme])
-        #expect(Self.isUnchanged(inserted.inserting(file: app)))
+        #expect(Self.isUnchanged(inserted.inserting(file: app, order: coreTreeOrder)))
         // A file in a collapsed middle package would split the compact row.
-        #expect(Self.isReload(tree.inserting(file: source.appendingPathComponent("com/New.java"))))
-        #expect(Self.isReload(tree.inserting(file: root.appendingPathComponent("new/New.java"))))
+        #expect(Self.isReload(tree.inserting(file: source.appendingPathComponent("com/New.java"), order: coreTreeOrder)))
+        #expect(Self.isReload(tree.inserting(file: root.appendingPathComponent("new/New.java"), order: coreTreeOrder)))
 
         #expect(Self.updatedTree(inserted.removing(file: readme))?.fileURLs == [app, main, license])
         #expect(Self.isUnchanged(tree.removing(file: package)))
@@ -6270,8 +5937,8 @@ struct EditorDocumentTests {
         #expect(row.url == docs)
         #expect(tree.displayedNode(for: guide) == nil)
         #expect(tree.node(exactlyAt: docs)?.isUnloadedDirectory == true)
-        #expect(Self.isUnchanged(tree.inserting(file: guide)))
-        #expect(Self.isUnchanged(tree.inserting(file: docs.appendingPathComponent("README.md"))))
+        #expect(Self.isUnchanged(tree.inserting(file: guide, order: coreTreeOrder)))
+        #expect(Self.isUnchanged(tree.inserting(file: docs.appendingPathComponent("README.md"), order: coreTreeOrder)))
         #expect(tree.unloadedRows(expandedPaths: [root.path]).isEmpty)
         #expect(tree.unloadedRows(expandedPaths: [root.path, docs.path, source.path]).map(\.url) == [docs, source])
         #expect(tree.unloadedRows(expandedPaths: [docs.path]).isEmpty)
@@ -6289,7 +5956,7 @@ struct EditorDocumentTests {
     }
 
     @Test
-    func projectTreeLoaderCompactsPackagesLikeTheFullTreeConversion() throws {
+    func projectTreeLoaderMatchesTheFullTreeConversionWithoutSourceRoots() throws {
         let root = URL(fileURLWithPath: "/in-memory/lithe-tree-loader")
         let files = [
             "pom.xml",
@@ -6345,11 +6012,10 @@ struct EditorDocumentTests {
 
         #expect(unloaded(lazy).isEmpty)
         #expect(lazy == full)
+        // 没有源码根时懒加载树和整树转换都不压缩中间包。
         let package = root.appendingPathComponent("src/main/java/com/acme/app")
-        #expect(lazy.node(exactlyAt: package)?.collapsedAncestorPaths == [
-            root.appendingPathComponent("src/main/java/com").path,
-            root.appendingPathComponent("src/main/java/com/acme").path,
-        ])
+        #expect(lazy.node(exactlyAt: package)?.collapsedAncestorPaths == [])
+        #expect(lazy.node(exactlyAt: root.appendingPathComponent("src/main/java/com")) != nil)
         #expect(listingCalls > 0)
     }
 
@@ -6498,7 +6164,7 @@ private func makeWorkspaceObservationUnitModel(
     processExternalChanges: @escaping @MainActor ([URL]) -> Bool = { _ in false },
     notifyWorkspaceFileChanges: @escaping @MainActor ([WorkspaceFileChange]) -> Void = { _ in },
     reloadProjectServices: @escaping @MainActor () async -> Void = {},
-    recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void = { _, _ in },
+    recordHistory: @escaping @MainActor (URL, LocalHistoryEvent) async -> Void = { _, _ in },
     relocateHistory: @escaping @MainActor (URL, URL) async -> Void = { _, _ in },
     directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore(),
     observationDelay: (@Sendable (Duration) async throws -> Void)? = nil,
@@ -6966,7 +6632,7 @@ struct EditorSessionCoordinatorTests {
     }
 }
 
-private struct EmptyWorkspaceOperations: WorkspaceOperations {
+private struct EmptyWorkspaceOperations: WorkspaceOperations, CoreBackedWorkspaceRules {
     let readFileValue: String?
 
     init(readFileValue: String? = nil) {
@@ -7131,7 +6797,8 @@ private final class BlockingBinaryWorkspaceOperations: WorkspaceOperations, @unc
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
 }
 
-private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecked Sendable {
+private final class SequencedWorkspaceOperations: WorkspaceOperations, CoreBackedWorkspaceRules, @unchecked Sendable {
+    func orderedTreeSiblings(_ rows: [FileNode]) -> [FileNode]? { coreTreeOrder(rows) }
     private let lock = NSLock()
     private var snapshotAvailability: [Bool]
     private let files: [URL]
@@ -7760,7 +7427,7 @@ private struct PreviewExternalChangeLifecycleDecider: DocumentLifecycleDeciding 
 
 /// Records how many copies and Trash moves had finished each time the tree
 /// was rescanned, to show when a batch refreshes the project tree.
-private final class BatchProgressScanOperations: WorkspaceOperations, @unchecked Sendable {
+private final class BatchProgressScanOperations: WorkspaceOperations, CoreBackedWorkspaceRules, @unchecked Sendable {
     private let files: RecordingBatchProjectFileOperations
     private let lock = NSLock()
     private var progress: [[Int]] = []

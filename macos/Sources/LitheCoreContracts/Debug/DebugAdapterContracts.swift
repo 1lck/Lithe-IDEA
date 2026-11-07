@@ -79,6 +79,9 @@ public struct DebugLaunchConfiguration: Codable, Equatable, Sendable {
     public let name: String
     public let request: DebugRequestKind
     public let arguments: [String: ToolingJSONValue]
+    /// User-edited stepping policy. Absent means the adapter's declared
+    /// defaults; Core only forwards either to adapters that declared
+    /// `features.stepFilters`.
     public let steppingFilters: DebugSteppingFilters?
     /// Host-selected Registry identity (`pluginID/adapterID` for plugins).
     /// A missing identity selects by source file; an unavailable explicit
@@ -215,6 +218,8 @@ public protocol DebugAdapterRunInTerminalSession: AnyObject {
     var onRunInTerminalRequest: DebugRunInTerminalRequestHandler? { get set }
 }
 
+/// Portable stepping policy for adapters that declared `features.stepFilters`.
+/// Pattern syntax belongs to the adapter; the host only stores and forwards it.
 public struct DebugSteppingFilters: Codable, Equatable, Sendable {
     public let classNameFilters: [String]
     public let skipSynthetics: Bool
@@ -235,109 +240,18 @@ public struct DebugSteppingFilters: Codable, Equatable, Sendable {
         self.skipConstructors = skipConstructors
         self.hideFilteredStackFrames = hideFilteredStackFrames
     }
-}
 
-/// JDT LS-owned identity for one Java launch target. `mainClass` may include
-/// the JPMS module prefix (`module/name.Type`) required by Java Debug Server.
-public struct JavaDebugLaunchTarget: Codable, Hashable, Sendable {
-    public let mainClass: String
-    public let projectName: String?
-    public let modulePaths: [String]
-    public let classPaths: [String]
-    /// The host completed the current build provider preparation before JDT launch resolution.
-    public let buildPrepared: Bool
-
-    public init(mainClass: String, projectName: String?, modulePaths: [String] = [], classPaths: [String] = []) {
-        self.init(mainClass: mainClass, projectName: projectName, modulePaths: modulePaths, classPaths: classPaths, buildPrepared: false)
+    /// The policy an adapter declared in `defaults.stepFilters`, or no
+    /// filtering when it declared none.
+    public init(declared: DebugAdapterDeclaredBehavior.DefaultStepFilters?) {
+        self.init(
+            classNameFilters: declared?.classNameFilters ?? [],
+            skipSynthetics: declared?.skipSynthetics ?? false,
+            skipStaticInitializers: declared?.skipStaticInitializers ?? false,
+            skipConstructors: declared?.skipConstructors ?? false,
+            hideFilteredStackFrames: declared?.hideFilteredStackFrames ?? false
+        )
     }
-
-    public init(
-        mainClass: String,
-        projectName: String?,
-        modulePaths: [String] = [],
-        classPaths: [String] = [],
-        buildPrepared: Bool
-    ) {
-        self.mainClass = mainClass
-        self.projectName = projectName
-        self.modulePaths = modulePaths
-        self.classPaths = classPaths
-        self.buildPrepared = buildPrepared
-    }
-
-    private enum CodingKeys: String, CodingKey { case mainClass, projectName, modulePaths, classPaths, buildPrepared }
-
-    /// Core's shared Java preparation has no host resource receipt. An absent
-    /// receipt must retain Maven preparation rather than bypass it.
-    public init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(mainClass: try values.decode(String.self, forKey: .mainClass),
-            projectName: try values.decodeIfPresent(String.self, forKey: .projectName),
-            modulePaths: try values.decode([String].self, forKey: .modulePaths),
-            classPaths: try values.decode([String].self, forKey: .classPaths),
-            buildPrepared: try values.decodeIfPresent(Bool.self, forKey: .buildPrepared) ?? false)
-    }
-
-}
-
-/// Java test runner family reported by the JDT LS Java Test extension.
-public enum JavaTestDebugFramework: String, Codable, Equatable, Sendable {
-    case junit
-    case testng
-}
-
-/// JDT LS-owned metadata required to launch one Java test selection through DAP.
-public struct JavaTestDebugLaunchTarget: Equatable, Sendable {
-    public let fileURL: URL
-    public let name: String
-    public let framework: JavaTestDebugFramework
-    public let workingDirectory: String
-    public let mainClass: String
-    public let projectName: String?
-    public let classPaths: [String]
-    public let modulePaths: [String]
-    public let vmArguments: [String]
-    public let programArguments: [String]
-    public let testNGRunnerPath: String?
-    public let testNGTestNames: [String]
-
-    public init(
-        fileURL: URL,
-        name: String,
-        framework: JavaTestDebugFramework,
-        workingDirectory: String,
-        mainClass: String,
-        projectName: String?,
-        classPaths: [String],
-        modulePaths: [String],
-        vmArguments: [String],
-        programArguments: [String],
-        testNGRunnerPath: String? = nil,
-        testNGTestNames: [String] = []
-    ) {
-        self.fileURL = fileURL.standardizedFileURL
-        self.name = name
-        self.framework = framework
-        self.workingDirectory = workingDirectory
-        self.mainClass = mainClass
-        self.projectName = projectName
-        self.classPaths = classPaths
-        self.modulePaths = modulePaths
-        self.vmArguments = vmArguments
-        self.programArguments = programArguments
-        self.testNGRunnerPath = testNGRunnerPath
-        self.testNGTestNames = testNGTestNames
-    }
-}
-
-/// Resolves a Java test selection through the active language-service project model.
-@MainActor
-public protocol JavaTestDebugLaunchTargetResolving: AnyObject {
-    func resolveJavaTestDebugLaunchTarget(
-        fileURL: URL,
-        testIdentifier: String?,
-        rootURL: URL
-    ) async throws -> JavaTestDebugLaunchTarget
 }
 
 /// One exact editor replacement using zero-based, document-relative UTF-16 offsets.
@@ -1043,12 +957,16 @@ public protocol DebugAdapterControllingSession: DebugAdapterSession {
     /// Text the adapter's console reads as "a debugger command follows"; nil when the
     /// plugin declared none.
     var consoleCommandPrefix: String? { get }
+    /// What the adapter's plugin declared beyond standard DAP (`features`, `defaults`); a view
+    /// reads it to decide which extra actions to offer.
+    var declaredBehavior: DebugAdapterDeclaredBehavior { get }
     func cancelPendingOperations()
 }
 
 public extension DebugAdapterControllingSession {
     var consoleCommands: [DebugConsoleCommand] { [] }
     var consoleCommandPrefix: String? { nil }
+    var declaredBehavior: DebugAdapterDeclaredBehavior { .none }
     func evaluateInConsole(
         _ expression: String,
         frameID: Int?,

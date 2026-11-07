@@ -5,7 +5,7 @@
   "capability": "引用结果面板与引用跳转",
   "macos": {
     "evidence": [
-      "macos/Sources/Lithe/Views/Language/JavaReferencesView.swift"
+      "macos/Sources/Lithe/Views/Language/LanguageReferencesView.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

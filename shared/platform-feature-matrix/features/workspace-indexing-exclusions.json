@@ -22,9 +22,10 @@
       "macos/Tests/LitheTests/LazyProjectTreeInventoryTests.swift",
       "macos/Tests/LitheTests/WorkspaceSessionCoordinatorTests.swift",
       "macos/Tests/LitheTests/GitStatusObservationTests.swift",
-      "macos/Tests/LitheTests/RunEntryPointTests.swift",
       "shared/fixtures/workspace/directory-actions-v1.json",
-      "macos/Sources/Lithe/Models/AppModel/AppModel+LanguageServerRuntime.swift"
+      "macos/Sources/Lithe/Models/AppModel/AppModel+LanguageServerRuntime.swift",
+      "rust/lithe-core/src/project/directory_actions.rs",
+      "shared/fixtures/workspace/directory-rules-v1.json"
     ]
   },
   "windows": {
@@ -56,7 +57,10 @@
       "windows/tauri/crates/project/src/indexing_refresh.rs",
       "windows/tauri/crates/project/src/git_watcher.rs",
       "windows/tauri/src/features/git/runtime/git-metadata-watch-host.tsx",
-      "windows/tauri/src/features/editor/lsp/mounted-lsp-documents.ts"
+      "windows/tauri/src/features/editor/lsp/mounted-lsp-documents.ts",
+      "rust/lithe-core/src/project/directory_actions.rs",
+      "shared/fixtures/workspace/directory-rules-v1.json"
     ]
-  }
+  },
+  "notes": "目录角色、排除时记住原角色、取消排除时恢复，以及移动、重命名或删除目录后的规则迁移，都由 Core 的 workspace.reduceDirectoryAction 和 workspace.relocateDirectoryRules 执行；两端只负责读取和保存各自的偏好存储。Windows 现在在拖放移动和剪切粘贴之后同样迁移这些规则。"
 }

@@ -4,10 +4,15 @@ import fixture from "../../../../shared/fixtures/keymap/context-v1.json";
 import type { ParsedContext } from "@/features/keymaps/utils/context";
 
 /** Fixed Core-verified plans for routing tests; this helper never parses expressions. */
-export function installKeymapContextPlans() {
+export function installKeymapContextPlans(
+  /** Answers other Core commands a test has proven separately; return undefined to defer. */
+  answerOther?: (command: string, payload: unknown) => unknown,
+) {
   const original = native.invoke;
   const plans: Record<string, ParsedContext> = fixture.bundledPlans;
   return spyOn(native, "invoke").mockImplementation(async <T>(command: string, payload?: unknown): Promise<T> => {
+    const other = answerOther?.(command, payload);
+    if (other !== undefined) return other as T;
     if (command !== "keymap.parseContext") return original<T>(command, payload as Record<string, unknown>);
     const expression = (payload as { expression: string }).expression;
     return {

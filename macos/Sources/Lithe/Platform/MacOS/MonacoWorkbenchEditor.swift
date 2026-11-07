@@ -91,7 +91,6 @@ private struct MonacoWorkbenchDisplayConfiguration: Equatable {
     let fontFamily: String
     let wrap: Bool
     let minimap: Bool
-    let javaKeywordNavigationFilter: Bool
     let theme: MonacoWorkbenchThemeConfiguration
     let appearance: EditorAppearanceSettings
 
@@ -101,7 +100,6 @@ private struct MonacoWorkbenchDisplayConfiguration: Equatable {
             "fontFamily": fontFamily,
             "wrap": wrap,
             "minimap": minimap,
-            "javaKeywordNavigationFilter": javaKeywordNavigationFilter,
             "dark": theme.dark,
             "theme": theme.bridgePayload,
             "appearance": appearance.monacoOptions
@@ -166,7 +164,6 @@ private struct MonacoWorkbenchContent: View {
                     ),
                     wrap: settings.editorSoftWrapEnabled,
                     minimap: settings.editorMinimapEnabled,
-                    javaKeywordNavigationFilter: settings.javaKeywordNavigationFilterEnabled,
                     appearance: settings.editorAppearance,
                     markers: diagnostics.diagnostics(for: document.url),
                     secondaryMarkers: secondaryDocument.map { diagnostics.diagnostics(for: $0.url) } ?? [],
@@ -198,7 +195,6 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
     let theme: MonacoWorkbenchThemeConfiguration
     let wrap: Bool
     let minimap: Bool
-    let javaKeywordNavigationFilter: Bool
     let appearance: EditorAppearanceSettings
     let markers: [EditorDiagnostic]
     let secondaryMarkers: [EditorDiagnostic]
@@ -215,7 +211,7 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
         coordinator.session.detachView(ownerID: coordinator.ownerID)
     }
     func updateNSView(_ view: NSView, context: Context) {
-        session.update(ownerID: context.coordinator.ownerID, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, javaKeywordNavigationFilter: javaKeywordNavigationFilter, appearance: appearance, markers: markers, secondaryMarkers: secondaryMarkers, softWrapControl: softWrapControl)
+        session.update(ownerID: context.coordinator.ownerID, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, appearance: appearance, markers: markers, secondaryMarkers: secondaryMarkers, softWrapControl: softWrapControl)
     }
 }
 
@@ -312,11 +308,6 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
     private var unconfirmedModels: Set<String> = []
     private var completionLists: [String: (context: MonacoDocumentContext, revision: Int?, key: String, items: [LanguageServerCompletionItem])] = [:]
     private var codeActionLists: [String: (context: MonacoDocumentContext, workspace: MonacoWorkspaceContext, revision: Int?, key: String, items: [LanguageServerCodeAction])] = [:]
-    private var javaNavigationLists: [String: (context: MonacoDocumentContext, revision: Int, url: URL, markers: [JavaImplementationMarker])] = [:]
-    private var javaNavigationRequests: [String: UUID] = [:]
-    private var javaRunMarkerLists: [String: (context: MonacoDocumentContext, revision: Int, url: URL, markers: [JavaRunMarker])] = [:]
-    private var javaRunMarkerRequests: [String: UUID] = [:]
-    private var javaRunMarkerRefreshSubscription: AnyCancellable?
     private struct EditorActionList {
         let context: MonacoDocumentContext
         let contentVersion: UInt64
@@ -327,10 +318,9 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
     private var pluginActionRequests: [String: (id: UUID, task: Task<Void, Never>, deadline: Task<Void, Never>)] = [:]
     private var pluginActionExecutions: [UUID: (documentID: String, registration: PluginEditorActionRegistration, task: Task<Void, Never>)] = [:]
     private var pluginActionsSubscription: AnyCancellable?
+    private let pluginProviders = MonacoPluginEditorProviders()
     private var pluginLanguagesSubscription: AnyCancellable?
     private var lastPluginLanguages: PluginEditorLanguageSet?
-    private var testOutcomeSubscription: AnyCancellable?
-    private var testServiceIdentity: ObjectIdentifier?
     private var codeActionCommands: [String: (context: MonacoDocumentContext, key: String, root: URL?, command: LanguageServerCommand)] = [:]
     private var subscriptions: [String: AnyCancellable] = [:]
     private var readOnlySubscriptions: [String: AnyCancellable] = [:]
@@ -354,8 +344,6 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
     private var lastLiveIDs: Set<String> = []
     private var debugSubscription: AnyCancellable?
     private var debugAvailabilitySubscription: AnyCancellable?
-    private var codeVisionSubscription: AnyCancellable?
-    private var lastCodeVisionEnabled: Bool?
     private var debugFeatureIdentity: ObjectIdentifier?
     private var lastDebugStates: [String: Data] = [:]
     private var gitSubscription: AnyCancellable?
@@ -466,7 +454,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         selectMount()
     }
 
-    func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, javaKeywordNavigationFilter: Bool = true, appearance: EditorAppearanceSettings = EditorAppearanceSettings(), markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic], softWrapControl: EditorSoftWrapToggleConfiguration? = nil) {
+    func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, appearance: EditorAppearanceSettings = EditorAppearanceSettings(), markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic], softWrapControl: EditorSoftWrapToggleConfiguration? = nil) {
         guard mounts[ownerID] != nil else { return }
         self.model = model
         observeFind(model: model)
@@ -478,11 +466,11 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         ) }
         mounts[ownerID]?.update = { [weak self, weak document, weak secondaryDocument, weak model] in
             guard let self, let document, let model else { return }
-            self.present(document: document, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, javaKeywordNavigationFilter: javaKeywordNavigationFilter, appearance: appearance, markers: markers)
+            self.present(document: document, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, appearance: appearance, markers: markers)
             self.presentMarkdownScroll(document: document, binding: markdownScrollPosition)
             if let secondaryDocument {
                 self.hasSecondaryView = true
-                self.present(document: secondaryDocument, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, javaKeywordNavigationFilter: javaKeywordNavigationFilter, appearance: appearance, markers: secondaryMarkers, surface: "secondary")
+                self.present(document: secondaryDocument, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, appearance: appearance, markers: secondaryMarkers, surface: "secondary")
             } else if self.hasSecondaryView {
                 self.hasSecondaryView = false
                 self.activeIDs.removeValue(forKey: "secondary")
@@ -621,6 +609,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         subscriptions[id] = document.textDidChange.sink { [weak self, weak document] in
             guard let self, let document, self.currentDocument(id) === document, !self.applyingEdit else { return }
             self.cancelPluginActions(for: id)
+            self.pluginProviders.cancel(documentID: id, closing: false)
             let previous = self.revisions[id] ?? 0
             self.revisions[id] = previous + 1
             self.call("window.lithe.replace(payload)", arguments: ["payload": ["id": id, "text": document.text, "previousRevision": previous, "revision": previous + 1]])
@@ -715,28 +704,6 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         refreshDebugState(model: model)
     }
 
-    /// Run markers depend on JDT finishing project preparation and on recorded
-    /// test outcomes; either change asks the editor to request them again.
-    private func observeJavaRunMarkerInputs(model: AppModel) {
-        if javaRunMarkerRefreshSubscription == nil {
-            javaRunMarkerRefreshSubscription = model.languageToolingFeature.$projectPreparation
-                .removeDuplicates()
-                .dropFirst()
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] _ in self?.call("window.lithe.refreshJavaRunMarkers()") }
-        }
-        let service = model.languageTestServiceIfActive
-        let identity = service.map(ObjectIdentifier.init)
-        guard identity != testServiceIdentity else { return }
-        testServiceIdentity = identity
-        testOutcomeSubscription = service?.$testOutcomesByProviderID
-            .map { $0["java"] ?? [] }
-            .removeDuplicates()
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.call("window.lithe.refreshJavaRunMarkers()") }
-    }
-
     /// Plugin grammars apply without a restart: the editor follows every
     /// change of the plugins' independent static editor resources.
     private func observePluginLanguages(model: AppModel) {
@@ -776,6 +743,19 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         }
     }
 
+    /// Provider registrations are per window; whenever they change the page
+    /// drops what it holds and asks again.
+    private func observePluginProviders(model: AppModel) {
+        pluginProviders.observe(model: model) { [weak self] in
+            guard let self, self.ready, !self.failed else { return }
+            self.call("window.lithe.refreshPluginEditorProviders()") { result in
+                if case .failure(let error) = result {
+                    self.model?.services.logSink?.emit(PluginsEditorRefreshFailed(error: error))
+                }
+            }
+        }
+    }
+
     private func observePluginActions(model: AppModel) {
         guard pluginActionsSubscription == nil, let service = model.services.pluginEditorActions else { return }
         pluginActionsSubscription = service.changes.receive(on: DispatchQueue.main).sink { [weak self, weak service] in
@@ -794,18 +774,6 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                     }
                 }
             }
-        }
-    }
-
-    private func observeCodeVision(model: AppModel) {
-        if codeVisionSubscription == nil {
-            codeVisionSubscription = model.javaFeature.$javaCodeVisionHints
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] _ in self?.call("window.lithe.codeVisionRefresh()") }
-        }
-        if lastCodeVisionEnabled != model.settings.showCodeVision {
-            lastCodeVisionEnabled = model.settings.showCodeVision
-            call("window.lithe.codeVisionRefresh()")
         }
     }
 
@@ -871,15 +839,6 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
 
     private func refreshDebugState(model: AppModel) {
         let feature = model.genericDebugFeatureIfActive
-        if let feature, feature.state == .paused, feature.providerID == "java",
-           let frame = feature.selectedFrame, let url = frame.sourceURL?.standardizedFileURL,
-           let document = documents.values.first(where: { $0.url.standardizedFileURL == url }) {
-            // The debug feature deduplicates this frame/expression set and rejects
-            // responses after its inspection generation or selected frame changes.
-            feature.requestAutomaticVariables(DebugAutomaticExpressionProjection.javaExpressions(
-                forLine: max(0, frame.line - 1), in: document.text as NSString
-            ))
-        }
         for (id, document) in documents {
             guard !unconfirmedModels.contains(id) else { continue }
             let url = document.url.standardizedFileURL
@@ -911,11 +870,12 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         }
     }
 
-    private func present(document: EditorDocument, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, javaKeywordNavigationFilter: Bool = true, appearance: EditorAppearanceSettings = EditorAppearanceSettings(), markers: [EditorDiagnostic], surface: String = "primary") {
+    private func present(document: EditorDocument, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, appearance: EditorAppearanceSettings = EditorAppearanceSettings(), markers: [EditorDiagnostic], surface: String = "primary") {
         guard viewOwnerID != nil else { return }
         // Before the document: its file may be of a plugin language.
         observePluginLanguages(model: model)
         observePluginActions(model: model)
+        observePluginProviders(model: model)
         let id = document.id.uuidString
         let groupDocuments: [EditorDocument]
         if let scopedDocumentID {
@@ -935,11 +895,8 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             codeActionCommands[oldID] = nil
             unconfirmedModels.remove(oldID)
             lastDebugStates[oldID] = nil
-            javaNavigationLists[oldID] = nil
-            javaNavigationRequests[oldID] = nil
-            javaRunMarkerLists[oldID] = nil
-            javaRunMarkerRequests[oldID] = nil
             cancelPluginActions(for: oldID, closing: true)
+            pluginProviders.cancel(documentID: oldID, closing: true)
             lastGitStates[oldID] = nil
             gitLoads.removeValue(forKey: oldID)?.cancel()
             blameLoads.removeValue(forKey: oldID)?.cancel()
@@ -994,8 +951,6 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             }
         }
         observeDebugState(model: model)
-        observeCodeVision(model: model)
-        observeJavaRunMarkerInputs(model: model)
         refreshGitState(model: model)
         refreshDebugState(model: model)
         let semanticState = model.semanticHighlightingSessionState
@@ -1013,7 +968,6 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             fontFamily: MacEditorFontCatalog.editorFontStack(fontFamily),
             wrap: wrap,
             minimap: minimap,
-            javaKeywordNavigationFilter: javaKeywordNavigationFilter,
             theme: theme,
             appearance: appearance
         )
@@ -1156,8 +1110,8 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
 
     func allowsMessage(_ type: String) -> Bool {
         !isReadOnlyPreview || !["format", "codeActions", "resolveCodeAction", "executeCodeAction",
-                               "rename", "resolveCompletion", "javaRunMarkerAction", "pluginEditorAction",
-                               "setBlameVisibility"].contains(type)
+                               "rename", "resolveCompletion", "pluginEditorAction",
+                               "pluginEditorProviderCommand", "setBlameVisibility"].contains(type)
     }
 
     func receive(_ message: WKScriptMessage, reply: @escaping (Any?, String?) -> Void) {
@@ -1239,130 +1193,34 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 binding.wrappedValue = position
             }
             reply(["ok": true], nil)
-        case "javaFolding":
-            guard let model, !failed, document.url.pathExtension.lowercased() == "java",
-                  let revision = body["revision"] as? Int, revision == revisions[id] else {
-                reply(["ranges": []], nil); return
-            }
-            let url = document.url, source = document.text
-            Task { @MainActor [weak self, weak document, weak model] in
-                guard let self, let document, let model, self.isCurrent(context) else { reply(["cancelled": true], nil); return }
-                // ponytail: reuse Core's lexical folds before Java startup; semantic LSP folds can replace this provider.
-                let structure = await model.javaStructure(source: source)
-                guard self.isCurrent(context), self.revisions[id] == revision, document.url == url else {
-                    reply(["cancelled": true], nil); return
-                }
-                reply(["ranges": (structure?.foldRegions ?? []).map {
-                    ["start": $0.startLine + 1, "end": $0.endLine + 1, "kind": $0.kind.rawValue] as [String: Any]
-                }], nil)
-            }
-        case "javaNavigation":
-            guard let model, !failed, document.url.pathExtension.lowercased() == "java",
-                  let revision = body["revision"] as? Int, revision == revisions[id] else {
-                reply(["markers": []], nil); return
-            }
-            let url = document.url
-            let requestID = UUID()
-            javaNavigationRequests[id] = requestID
-            Task { @MainActor [weak self, weak document, weak model] in
-                guard let self, let document, let model, self.isCurrent(context) else { reply(["cancelled": true], nil); return }
-                let markers = await model.javaNavigationMarkers(for: document)
-                guard self.isCurrent(context), self.revisions[id] == revision, document.url == url,
-                      self.javaNavigationRequests[id] == requestID else {
-                    reply(["cancelled": true], nil); return
-                }
-                self.javaNavigationLists[id] = (context, revision, url, markers)
-                reply(["markers": markers.map { ["id": $0.id, "line": $0.line + 1, "direction": $0.direction.rawValue, "relation": $0.relation.rawValue] as [String: Any] }], nil)
-            }
-        case "javaRunMarkers":
-            guard let model, !failed, document.url.pathExtension.lowercased() == "java",
-                  let revision = body["revision"] as? Int, revision == revisions[id] else {
-                reply(["markers": []], nil); return
-            }
-            let url = document.url
-            let requestID = UUID()
-            javaRunMarkerRequests[id] = requestID
-            Task { @MainActor [weak self, weak document, weak model] in
-                guard let self, let document, let model, self.isCurrent(context) else { reply(["cancelled": true], nil); return }
-                let markers = await model.javaRunMarkers(for: document)
-                guard self.isCurrent(context), self.revisions[id] == revision, document.url == url,
-                      self.javaRunMarkerRequests[id] == requestID else {
-                    reply(["cancelled": true], nil); return
-                }
-                let hasTests = markers.contains { $0.kind == .testClass || $0.kind == .testMethod }
-                if document.hasJavaTests != hasTests { document.hasJavaTests = hasTests }
-                let hasMain = markers.contains { $0.kind == .main }
-                if document.hasRunnableJavaMain != hasMain { document.hasRunnableJavaMain = hasMain }
-                self.javaRunMarkerLists[id] = (context, revision, url, markers)
-                reply(["canDebug": true, "markers": markers.map { marker in
-                    ["id": marker.id, "line": marker.line + 1, "endLine": marker.endLine + 1,
-                     "kind": marker.kind.rawValue, "label": marker.label, "status": marker.status.rawValue] as [String: Any]
-                }], nil)
-            }
-        case "javaRunMarkerAction":
-            guard let model, !failed, let revision = body["revision"] as? Int, revision == revisions[id],
-                  let list = javaRunMarkerLists[id], isCurrent(list.context), list.revision == revision, list.url == document.url,
-                  let markerID = body["marker"] as? String,
-                  let marker = list.markers.first(where: { $0.id == markerID }),
-                  let action = (body["action"] as? String).flatMap(AppModel.JavaRunMarkerAction.init(rawValue:)) else {
-                reply(["cancelled": true], nil); return
-            }
-            model.editorDidFocus(document)
-            model.performJavaRunMarker(marker, action: action, in: document.url)
-            reply(["ok": true], nil)
         case "pluginEditorActions":
             guard let model, !failed, !isReadOnlyPreview,
                   let revision = body["revision"] as? Int, revision == revisions[id],
-                  let workspace = model.pluginWebWorkspaceContext,
-                  model.services.pluginWorkspaceContexts?.contexts.contains(where: { $0.reference == workspace && $0.authority == .local }) == true,
-                  let service = model.services.pluginEditorActions, let backends = model.pluginWebBackends,
-                  document.text.utf8.count <= 128 * 1024 else { reply(["actions": []], nil); return }
+                  let collector = model.pluginEditorActionCollector,
+                  PluginEditorActionCollector.admits(document, service: collector.service) else { reply(["actions": []], nil); return }
             cancelPluginActions(for: id)
-            let registrations = service.registrations(context: workspace, filename: document.url.lastPathComponent)
+            let registrations = collector.registrations(for: document)
             let text = document.text, version = document.contentVersion, requestID = UUID(), batch = UUID().uuidString
-            let input: ToolingJSONValue = .object([
-                "document": .object(["documentID": .string(id), "version": .integer(Int(clamping: version)),
-                    "path": model.workspaceURL.flatMap { root in
-                        let prefix = root.standardizedFileURL.path + "/", path = document.url.standardizedFileURL.path
-                        return path.hasPrefix(prefix) ? .string(String(path.dropFirst(prefix.count))) : nil
-                    } ?? .null]),
-                "text": .string(text),
-            ])
+            let path = PluginEditorActionCollector.workspaceRelativePath(of: document.url, root: model.workspaceURL)
             let task = Task { @MainActor [weak self, weak document] in
                 defer {
                     if self?.pluginActionRequests[id]?.id == requestID {
                         self?.pluginActionRequests.removeValue(forKey: id)?.deadline.cancel()
                     }
                 }
-                var items: [(key: String, registration: PluginEditorActionRegistration, action: PluginEditorAction)] = []
-                let clock = ContinuousClock(), started = clock.now
-                for registration in registrations {
-                    do {
-                        try Task.checkCancellation()
-                        guard let remaining = PluginEditorActionCollectionBudget.remaining(after: started.duration(to: clock.now)) else { break }
-                        guard service.contains(registration) else { continue }
-                        let result = try await backends.invokePluginFunction(registration.functionID, params: input,
-                            ofPlugin: registration.pluginID, context: workspace, timeout: remaining, progress: { _ in })
-                        try Task.checkCancellation()
-                        let actions = try service.decode(result, text: text)
-                        guard service.contains(registration), actions.allSatisfy({ service.contains(registration, functionID: $0.invoke.functionID) }) else { continue }
-                        for action in actions { items.append((UUID().uuidString, registration, action)) }
-                        guard items.count <= 1000 else { items = []; break }
-                    } catch {
-                        if Task.isCancelled { break }
-                        if let plugin = LogSegment(registration.pluginID) { self?.model?.services.logSink?.emit(PluginsEditorActionsFailed(error: error, plugin: plugin)) }
-                    }
-                }
+                let collected = (try? await collector.collect(documentID: id, version: version, path: path, text: text,
+                                                              registrations: registrations)) ?? []
+                let items = collected.map { (key: UUID().uuidString, registration: $0.registration, action: $0.action) }
                 guard let self, let document, !Task.isCancelled, self.isCurrent(context), document.contentVersion == version,
-                      self.pluginActionRequests[id]?.id == requestID,
-                      items.allSatisfy({ service.contains($0.registration, functionID: $0.action.invoke.functionID) }) else {
+                      self.pluginActionRequests[id]?.id == requestID, collector.stillRegistered(collected) else {
                     reply(["cancelled": true], nil); return
                 }
                 self.pluginActionRequests.removeValue(forKey: id)?.deadline.cancel()
                 self.pluginActionLists[id] = EditorActionList(context: context, contentVersion: version, batch: batch, actions: items)
                 reply(["batch": batch, "actions": items.map { item in
                     ["id": item.key, "line": item.action.range.start.line, "endLine": item.action.range.end.line,
-                     "title": item.action.title, "icon": item.action.icon] as [String: Any]
+                     "title": item.action.title, "icon": item.action.icon,
+                     "alternatives": item.action.alternatives.map { ["id": $0.id, "title": $0.title, "icon": $0.icon] }] as [String: Any]
                 }], nil)
             }
             let deadline = Task { @MainActor [weak self] in
@@ -1378,24 +1236,24 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                   let list = pluginActionLists[id], list.batch == body["batch"] as? String,
                   isCurrent(list.context), list.contentVersion == document.contentVersion,
                   let key = body["action"] as? String, let item = list.actions.first(where: { $0.key == key }),
-                  let service = model.services.pluginEditorActions,
-                  service.contains(item.registration, functionID: item.action.invoke.functionID),
-                  model.pluginWebWorkspaceContext == item.registration.context,
-                  let backends = model.pluginWebBackends,
+                  let collector = model.pluginEditorActionCollector,
+                  let chosen = Self.chosenInvocation(of: item.action, alternativeID: body["alternative"]),
+                  collector.service.contains(item.registration, functionID: chosen.invoke.functionID),
+                  collector.workspace == item.registration.context,
                   pluginActionExecutions.count < 16 else { reply(["cancelled": true], nil); return }
             model.editorDidFocus(document)
             let operation = UUID()
-            let params: ToolingJSONValue = .object([
-                "documentID": .string(id), "expectedVersion": .integer(Int(clamping: list.contentVersion)),
-                "actionID": .string(item.action.id), "data": item.action.invoke.params,
-            ])
+            let choice = PluginEditorActionChoice(
+                item: PluginEditorActionItem(registration: item.registration, action: item.action),
+                invocation: chosen.invoke, alternativeID: chosen.alternativeID)
+            let expectedVersion = list.contentVersion
             let task = Task { @MainActor [weak self] in
                 defer { self?.pluginActionExecutions[operation] = nil }
                 do {
-                    _ = try await backends.invokePluginFunction(item.action.invoke.functionID, params: params,
-                        ofPlugin: item.registration.pluginID, context: item.registration.context,
-                        timeout: .seconds(60), progress: { _ in })
-                    try Task.checkCancellation()
+                    // The plugin may point at places the click led to; showing them is the host's job.
+                    if let reveal = try await collector.invoke(choice, documentID: id, expectedVersion: expectedVersion) {
+                        self?.model?.revealPluginLocations(reveal)
+                    }
                     reply(["ok": true], nil)
                 } catch {
                     if Task.isCancelled { reply(["cancelled": true], nil) }
@@ -1406,23 +1264,31 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                             self?.model?.services.logSink?.emit(event)
                             reference = event.reference
                         }
-                        self?.model?.showNotification("The plugin host request could not be completed.", logReference: reference)
+                        self?.model?.showNotification(
+                            L10n.string("The plugin host request could not be completed."), logReference: reference)
                         reply(["ok": false], nil)
                     }
                 }
             }
             pluginActionExecutions[operation] = (id, item.registration, task)
-        case "javaNavigationAction":
-            guard let model, !failed, let revision = body["revision"] as? Int, revision == revisions[id],
-                  let list = javaNavigationLists[id], isCurrent(list.context), list.revision == revision, list.url == document.url,
-                  document.url.pathExtension.lowercased() == "java",
-                  let markerID = body["marker"] as? String,
-                  let marker = list.markers.first(where: { $0.id == markerID }) else {
+        case "pluginEditorProviders":
+            guard let model, !failed, !isReadOnlyPreview, body["revision"] as? Int == revisions[id] else {
                 reply(["cancelled": true], nil); return
             }
-            model.editorDidFocus(document)
-            model.resolveJavaNavigation(marker, in: document.url)
-            reply(["ok": true], nil)
+            pluginProviders.answer(body: body, document: document, documentID: id, model: model,
+                isCurrent: { [weak self] in self?.isCurrent(context) == true }, reply: reply)
+        case "pluginEditorProviderCommand":
+            guard let model, !failed, !isReadOnlyPreview, !self.isReadOnly(document), body["revision"] as? Int == revisions[id] else {
+                reply(["cancelled": true], nil); return
+            }
+            pluginProviders.run(body: body, document: document, documentID: id, model: model,
+                isCurrent: { [weak self] in self?.isCurrent(context) == true }, reply: reply)
+        case "pluginEditorProviderLink":
+            guard let model, !failed, !isReadOnlyPreview, body["revision"] as? Int == revisions[id] else {
+                reply(["cancelled": true], nil); return
+            }
+            pluginProviders.open(body: body, document: document, documentID: id, model: model,
+                isCurrent: { [weak self] in self?.isCurrent(context) == true }, reply: reply)
         case "setBlameVisibility":
             guard let model, !failed, body["revision"] as? Int == revisions[id],
                   let visible = body["visible"] as? Bool,
@@ -1470,29 +1336,6 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 }
                 reply(["ok": true], nil)
             }
-        case "codeVision":
-            guard let model, body["revision"] as? Int == revisions[id], model.settings.showCodeVision else {
-                reply(["hints": []], nil); return
-            }
-            let hints = model.javaCodeVisionHints[document.url.standardizedFileURL] ?? []
-            reply(["hints": hints.map { hint in
-                ["id": hint.id, "line": hint.line + 1, "usageCount": hint.usageCount,
-                 "implementationCount": hint.implementationCount, "authorName": hint.authorName ?? ""] as [String: Any]
-            }], nil)
-        case "codeVisionAction":
-            guard let model, body["revision"] as? Int == revisions[id], model.settings.showCodeVision,
-                  let hintID = body["hint"] as? String,
-                  let hint = model.javaCodeVisionHints[document.url.standardizedFileURL]?.first(where: { $0.id == hintID }) else {
-                reply(["cancelled": true], nil); return
-            }
-            model.editorDidFocus(document)
-            switch body["action"] as? String {
-            case "usages": model.findUsages(for: hint, in: document.url)
-            case "implementations": model.findJavaImplementations(line: hint.line, utf16Column: hint.utf16Column, in: document.url)
-            case "author": model.showBlame(for: document.url)
-            default: reply(nil, "Unknown CodeVision action"); return
-            }
-            reply(["ok": true], nil)
         case "prepareImagePaste":
             guard !failed, !self.isReadOnly(document), body["revision"] as? Int == revisions[id] else {
                 reply(["cancelled": true], nil); return
@@ -1549,6 +1392,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             }
         case "edit":
             cancelPluginActions(for: id)
+            pluginProviders.cancel(documentID: id, closing: false)
             guard !self.isReadOnly(document), !failed, body["baseRevision"] as? Int == revisions[id],
                   let changes = body["changes"] as? [[String: Any]] else { reply(nil, "Stale editor edit"); return }
             var bound = (document.text as NSString).length
@@ -1845,7 +1689,9 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 reply(["available": false], nil); return
             }
             let revision = revisions[id]
-            model.requestDefinitionAvailability(for: document, line: line, utf16Column: column) { [weak self] result in
+            model.requestDefinitionAvailability(
+                for: document, line: line, utf16Column: column, askPlugins: !isReadOnlyPreview
+            ) { [weak self] result in
                 guard let self, self.isCurrent(context), self.revisions[id] == revision else {
                     reply(["available": false], nil); return
                 }
@@ -1860,10 +1706,21 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 reply(["cancelled": true], nil); return
             }
             model.editorDidFocus(document)
-            model.navigateToSymbol(line: line, utf16Column: column, in: document.url)
+            model.navigateToSymbol(line: line, utf16Column: column, in: document.url, askPlugins: !isReadOnlyPreview)
             reply(["ok": true], nil)
         default: reply(nil, "Unknown editor message")
         }
+    }
+
+    /// The invocation a click on `action` calls: its own, or the alternative
+    /// the page named. nil when the page named an alternative the action lacks.
+    private static func chosenInvocation(
+        of action: PluginEditorAction, alternativeID: Any?
+    ) -> (invoke: PluginEditorAction.Invocation, alternativeID: String?)? {
+        guard let alternativeID, !(alternativeID is NSNull) else { return (action.invoke, nil) }
+        guard let id = alternativeID as? String,
+              let alternative = action.alternatives.first(where: { $0.id == id }) else { return nil }
+        return (alternative.invoke, id)
     }
 
     private static func completionPayload(_ item: LanguageServerCompletionItem) -> [String: Any] {
@@ -1886,6 +1743,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         pluginActionRequests.values.forEach { $0.deadline.cancel(); $0.task.cancel() }
         pluginActionExecutions.values.forEach { $0.task.cancel() }
         pluginActionRequests.removeAll(); pluginActionExecutions.removeAll(); pluginActionLists.removeAll()
+        pluginProviders.cancelAll()
         contextMenu.dismiss()
         model?.showNotification("Editor: \(message)", logReference: model?.notificationRejection(operation: "editor", reason: "web_content_failed"))
     }
@@ -1898,6 +1756,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
     isolated deinit {
         pluginActionRequests.values.forEach { $0.deadline.cancel(); $0.task.cancel() }
         pluginActionExecutions.values.forEach { $0.task.cancel() }
+        pluginProviders.cancelAll()
         contextMenu.dismiss()
         gitLoads.values.forEach { $0.cancel() }
         blameLoads.values.forEach { $0.cancel() }

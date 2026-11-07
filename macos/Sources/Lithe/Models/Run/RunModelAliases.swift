@@ -1,0 +1,10 @@
+import LitheCoreContracts
+import LitheExecutionModule
+
+typealias RunOptions = LitheCoreContracts.RunOptions
+typealias RunSession = LitheCoreContracts.RunSession
+typealias RunConfigurationCapabilities = LitheCoreContracts.RunConfigurationCapabilities
+typealias RunConfigurationKind = LitheCoreContracts.RunConfigurationKind
+typealias RunConfigurationExecution = LitheCoreContracts.RunConfigurationExecution
+typealias RunConfiguration = LitheCoreContracts.RunConfiguration
+typealias RunService = LitheExecutionModule.RunService

@@ -14,12 +14,9 @@ settings detections are never used as launch permits. Existing Java and
 language-server consumers still use their previous adapters. Windows has no
 toolchain adapter and does not advertise `toolDefinitions` or
 `toolchainProviders`, so Core refuses packages that require them there.
-Publisher signatures provide independent origin evidence when present; legacy
-unsigned records never do.
-The [broader proposal](proposal/README.md) still describes unsupported
-consumer migration, native lifecycle, persistence and manager-plugin work.
-The active shape is [plugin-manifest.schema.json](../plugin-manifest.schema.json),
-not the proposal envelopes.
+Consumer migration, the native query lifecycle and cache, pin saving and
+version-manager plugins are not specified yet. The manifest shape is
+[plugin-manifest.schema.json](../plugin-manifest.schema.json).
 
 ## Manifest admission and registry
 
@@ -48,13 +45,18 @@ replies may not contain statements. Providers share the plugin's
 backend; admission permits a host-query trigger without a page or startup event,
 and the macOS host starts the backend on the first query. Bootstrap must be `packaged`, or
 `runtime` with `packagedRuntime`, without discovered runtime dependencies. Existing
-runtime launch tool restrictions remain; generic consumer launches are not added.
+runtime launch tool restrictions remain for `serverProcess` 1 and 2, which name
+a closed set of runtimes. From `serverProcess` 4 a plugin names any tool definition
+by ID instead; see [`instantiateLaunch`](#launching-a-tool-definition).
 
 `toolchains.provide` may influence which program a defined tool launches. It does
 not grant arbitrary command replacement, installation, network or workspace-code
-execution. Short definition IDs require independently verified official origin;
-community definitions use `<own-plugin-id>:<local-id>`. Community providers may
-answer short IDs. No host-owned tool table, name alias or manager parser is added.
+execution. Any plugin may define a short ID such as `compiler` or a qualified
+`<own-plugin-id>:<local-id>`; the prefix of a qualified ID must be the defining
+plugin's own ID, so qualified IDs of different plugins never collide. A short ID
+defined by more than one enabled plugin belongs to none of them (see the registry
+rules below). Providers may answer short IDs. No host-owned tool table, name
+alias or manager parser is added.
 
 A native Build consumer that directly executes a tool currently accepts only
 `["${executable}", "${arguments}"]`: its tool context carries a program and
@@ -104,22 +106,75 @@ are not a substitute for that adapter. These commands perform no native I/O.
 
 | Command | Input | Success key |
 | --- | --- | --- |
-| `toolchains.registry` | `{plugins:[{manifest,verifiedOfficial}]}` | `registry` |
+| `toolchains.registry` | `{plugins:[{manifest}]}` | `registry` |
 | `toolchains.decodeReply` | Query/response and native evidence described below | `snapshot` |
 | `toolchains.failureReply` | `{params,code}` described below | `reply` |
 | `toolchains.resolvePins` | `{document,directory,tool}` | `resolution` |
 | `toolchains.resolve` | Captured resolver input described below | `resolution` |
 | `toolchains.checkVersion` | `{registry,tool,output,minimumVersion?}` | `version` |
+| `toolchains.instantiateLaunch` | `{registry,tool,executable,home?,entry?,runtimeArguments,arguments}` | `launch` |
 | `toolchains.discoveryPlan` | `{registry,platform}` | `plan` |
 | `toolchains.candidates` | Captured discovery input described below | `candidates` |
 
-Every `registry` input is the raw `{plugins:[...]}` request, not a previously
-normalized result. Core revalidates complete production manifests and the
-host-supplied `verifiedOfficial` boolean; a plugin cannot assert that evidence
-inside its own manifest. Output is `{definitions:[{pluginID,definition}],
-providers:[{pluginID,provider}]}` in stable order. Duplicate plugin/tool ownership
-rejects the batch without replacing earlier owners. Limits are 128 plugins,
-512 aggregate definitions and 256 aggregate providers.
+Every `registry` input is the raw `{plugins:[{manifest}]}` request of the enabled
+plugins, not a previously normalized result. Core revalidates complete production
+manifests; the host supplies no proof of a plugin's origin, and a plugin's own
+claim of one is not read. Output is `{definitions:[{pluginID,definition}],
+providers:[{pluginID,provider}],conflicts:[{tool,pluginIDs}]}` in stable order.
+
+A short ID defined by more than one enabled plugin belongs to none of them. Core
+registers none of those definitions and registers every other definition as
+usual. `conflicts` lists each contested tool once, sorted by `tool`, with the IDs
+of all plugins that defined it, sorted. Ownership is never decided by arrival
+order or by plugin ID order, because a hostile plugin could take a tool by being
+loaded first or by choosing a smaller ID. A contested tool is absent from the
+registry: `discoveryPlan` lists no scans or providers for it, and a consumer that
+resolves it treats it as declared by nobody. A host should tell the user which
+plugins contest the tool; the macOS settings page shows one diagnostic per
+conflict and advises keeping only one of those plugins enabled. Qualified IDs
+cannot be contested, since their prefix is the defining plugin's ID. A repeated
+plugin ID still rejects the whole batch without replacing earlier owners. Limits
+are 128 plugins, 512 aggregate definitions and 256 aggregate providers.
+
+## Provider backend negotiation
+
+A provider answers over its plugin backend's JSON-RPC connection, the same
+`serverProcess` transport other backend requests use. The backend need not
+declare a language, language server, Build provider or callable function.
+
+The host starts the backend with `lsp.startServer` and passes the manifest's
+provider IDs as `toolchainProviders`. Only a plugin-owned session that declares
+at least one provider is offered the protocol, in the client capabilities of
+`initialize`:
+
+```json
+{"experimental": {"litheToolchains": {"versions": [1], "providers": ["first", "second"]}}}
+```
+
+`providers` lists the declared IDs in sorted order. The backend selects in the
+server capabilities of its `initialize` result:
+
+```json
+{"experimental": {"litheToolchains": {"version": 1, "providers": ["first"]}}}
+```
+
+`version` must be an offered version and `providers` a non-empty list of
+offered IDs without repeats; other fields are ignored. Any other answer, including
+an unoffered version, an undeclared, repeated or non-string ID, or an empty list,
+enables no provider at all rather than a partial set, and no query is sent. On
+success Core emits a `toolchainProviders` runtime event with `result: {providers}`.
+
+The host sends each query with `lsp.toolchainRequest`
+`{sessionId, operationId?, params, timeoutMilliseconds?}`, where `params` is the
+`toolchains/query` params described below; Core writes the request with that
+method and its own JSON-RPC ID. A `params.providerID` the backend did not select
+is refused with `not_supported` and details `plugin.toolchain.providerUnavailable`,
+and nothing is written. `timeoutMilliseconds` is clamped to 1-60,000; without it
+the session's request timeout applies. Completion carries `result.value: {id,
+response}`: the wire ID and the complete, unvalidated response, error replies
+included. The host passes it with the same `params` to `decodeReply`.
+Cancellation and late results follow
+[`lsp.toolchainRequest`](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/rust-core-api.md).
 
 ## Provider reply validation
 
@@ -164,10 +219,46 @@ remote authority, unsafe paths and malformed error mappings reject it.
 
 The snapshot contains `{installations,statements,watch,diagnostics}`; normalized
 entries carry qualified `<pluginID>:<providerID>` provenance and project source
-directory. JSON-RPC errors are checked against the distinct semantic/numeric map
-in the [protocol proposal](proposal/protocol.md#stable-failure-mapping).
-Cancellation, deadlines, cache invalidation and whole-generation requery remain
-native-client implementation work, not behavior performed by this decoder.
+directory. Cancellation, deadlines, cache invalidation and whole-generation
+requery remain native-client implementation work, not behavior performed by this
+decoder.
+
+### Error replies
+
+A provider that cannot answer returns a JSON-RPC `error` instead of `result`.
+`error` has exactly `{code,message,data}`, and `data` has `{code,operationID,
+providerID}` plus an optional `details`:
+
+- `code` is a number from the table below and `data.code` is the stable code
+  on its row. Each number has exactly one stable code.
+- `operationID` and `providerID` equal those of the request `params`.
+- `message` is non-empty diagnostic text of at most 1,024 UTF-8 bytes without
+  control characters. It is shown as provider text and never selects behavior.
+- `details`, when present, is an object of at most 4,096 bytes serialized. It
+  must not carry credentials.
+
+`decodeReply` then refuses with the stable code and the provider's `message`.
+An error reply that breaks any of these rules, including an unknown number or a
+number that does not match `data.code`, is refused as
+`plugin.toolchain.invalidReply`.
+
+| JSON-RPC | Stable code | Meaning |
+| --- | --- | --- |
+| `-32601` | `plugin.toolchain.methodUnavailable` | The backend does not serve the query method |
+| `-32602` | `plugin.toolchain.invalidParams` | Malformed request or invalid declared input |
+| `-32800` | `plugin.toolchain.cancelled` | The caller cancelled the request |
+| `-32070` | `plugin.toolchain.permissionDenied` | A permission, review or enabled-state prerequisite is missing |
+| `-32071` | `plugin.toolchain.authorityUnsupported` | The provider cannot serve the requested authority |
+| `-32072` | `plugin.toolchain.timeout` | The local deadline passed |
+| `-32073` | `plugin.toolchain.providerUnavailable` | The backend failed to start, disconnected, or its upstream query failed |
+| `-32074` | `plugin.toolchain.invalidReply` | Malformed reply, or an installation reference to another tool |
+| `-32075` | `plugin.toolchain.limitExceeded` | A reply, scan or watch budget was exceeded |
+| `-32076` | `plugin.toolchain.unsafePath` | A path is not absolute, escapes its containment or fails executable checks |
+| `-32077` | `plugin.toolchain.operationExpired` | The context or generation was already stale when the query was sent |
+
+A missing installation, an incompatible version or conflicting requirements are
+not errors: report them in `result` (an unmet requirement has
+`installation:null`) and let the resolver give the reason.
 
 When a query gets no reply at all, the host asks `failureReply` for one. `params`
 is the query's own `params` and `code` is `plugin.toolchain.timeout` (the local
@@ -258,6 +349,34 @@ login-shell home variables (`{variable,path}` from its platform-applicable
 `environment` candidates). It neither scans, queries nor executes them; limits
 are 256 roots, 4096 entries and 64 ancestors for the host adapter.
 
+## Launching a tool definition
+
+A plugin that starts a tool by definition ID (a `launch.kind: "tool"` plan, or a
+`run/start` with `{kind: "tool"}`) never writes the tool's argv. The definition's
+`launch` template says how the tool takes an entry file, runtime arguments and
+program arguments, so no host and no plugin branches on a tool name.
+`toolchains.instantiateLaunch` expands it for the executable the host selected:
+
+- `registry` and `tool` are as in `checkVersion`; `executable` is the selected
+  executable (required). `home` is the resolved tool home, `entry` an absolute
+  file path, `runtimeArguments` and `arguments` string lists. A text is at most
+  4096 bytes, a list at most 1024 items of 64 KiB each, and none holds a NUL.
+- `${executable}`, `${home}`, `${entry}`, `${runtimeArguments}` and
+  `${arguments}` are replaced by the matching value, a list expanding in place.
+  Any other template token is passed as written.
+- The result is `{executable, arguments, versionArguments}`: the program, the
+  rest of the argv, and the definition's `version.arguments` for the probe.
+- A value the caller supplies that the template cannot carry (an `entry` for a
+  tool that launches none, or arguments for one that takes none), or a `${home}`
+  or `${entry}` the caller left out, is
+  `plugin.toolchain.launchMismatch`. An unknown or disabled `tool` is
+  `plugin.toolchain.invalidParams` with `field: "tool"`.
+
+The command performs no native I/O. The host selects the executable with the
+four resolution layers and the launch's `minimumVersion`, probes
+`versionArguments`, checks the output with `checkVersion`, and then starts the
+expanded argv.
+
 ## Settings candidates
 
 `candidates` reports what a settings page shows for one tool's global and
@@ -297,7 +416,9 @@ Production-shape examples are [tool-definition.plugin.json](../fixtures/toolchai
 and [toolchain-provider.plugin.json](../fixtures/toolchains/toolchain-provider.plugin.json).
 Core acceptance vectors are in
 [toolchain_definitions.rs](https://github.com/1lck/Lithe-IDEA/blob/preview/rust/lithe-core/src/tests/toolchain_definitions.rs),
-with sibling pins/query/resolution suites. Passing them is not native product
-verification. Contract changes must be mirrored after merge with
+with sibling pins/query/resolution suites. The pin document, query exchange and
+one error reply per stable code that those suites share are inline in
+[toolchain_vectors.rs](https://github.com/1lck/Lithe-IDEA/blob/preview/rust/lithe-core/src/tests/toolchain_vectors.rs).
+Passing them is not native product verification. Contract changes must be mirrored after merge with
 `node scripts/contract.mjs sync --revision <merged-preview-commit>` in
 [lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs).

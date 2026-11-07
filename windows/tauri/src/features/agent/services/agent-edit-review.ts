@@ -1,9 +1,17 @@
 import type { AgentConversationMessage, AgentToolDiff } from "../types/agent.types";
 
+/** Host evidence plus the ACP kind of the tool that reported it. */
+export interface AgentFileChangeDiff extends AgentToolDiff {
+  toolKind: string | null;
+}
+
 export interface AgentFileChange {
   path: string;
   versions: string[];
-  diffs: AgentToolDiff[];
+  diffs: AgentFileChangeDiff[];
+  /** A tool touched the file without diff evidence, or moved it. */
+  missingEvidence: boolean;
+  /** Presentation: some evidence is missing or truncated. */
   incomplete: boolean;
   pending: boolean;
 }
@@ -19,10 +27,11 @@ export function agentFileChanges(messages: AgentConversationMessage[], reviewed:
     const paths = new Set([...diffs.map((diff) => diff.path), ...details.locations.map((location) => location.path)]);
     for (const path of paths) {
       const selected = diffs.filter((diff) => diff.path === path);
-      const file = files.get(path) ?? { path, versions: [], diffs: [], incomplete: false, pending: false };
+      const file = files.get(path) ?? { path, versions: [], diffs: [], missingEvidence: false, incomplete: false, pending: false };
       file.versions.push(JSON.stringify([tool.id, tool.toolStatus, details.kind, selected]));
-      file.diffs.push(...selected);
-      file.incomplete ||= selected.length === 0 || details.kind === "move" || selected.some((diff) => diff.incomplete);
+      file.diffs.push(...selected.map((diff) => ({ ...diff, toolKind: details.kind })));
+      file.missingEvidence ||= selected.length === 0 || details.kind === "move";
+      file.incomplete ||= file.missingEvidence || selected.some((diff) => diff.incomplete);
       file.pending ||= tool.toolStatus !== "completed";
       files.set(path, file);
     }
@@ -38,67 +47,25 @@ export function agentFileChanges(messages: AgentConversationMessage[], reviewed:
   });
 }
 
+/** Agent Host decides per-diff eligibility; `agent.edits.reversePlan` rechecks it. */
 export function canRevertAgentChange(change: AgentFileChange): boolean {
-  return !change.pending && !change.incomplete && change.diffs.length > 0 &&
-    change.diffs.every((diff) => !diff.incomplete && (diff.oldText !== null || diff.operation === "add"));
+  return !change.pending && !change.missingEvidence && change.diffs.length > 0 && change.diffs.every((diff) => diff.revertible);
 }
 
-function normalizeLineEndings(value: string): string {
-  return value.replace(/\r\n?/g, "\n");
+/** Payload of `agent.edits.reversePlan` (shared/contracts/agent-edit-review.md). */
+export function agentReversePlanRequest(change: AgentFileChange, disk: string | null) {
+  return {
+    diffs: change.diffs.map((diff) => ({ oldText: diff.oldText, newText: diff.newText, operation: diff.operation,
+      toolKind: diff.toolKind, truncated: diff.incomplete })),
+    pending: change.pending,
+    missingEvidence: change.missingEvidence,
+    disk,
+  };
 }
 
-function dominantLineEnding(value: string): "\n" | "\r\n" {
-  return value.includes("\r\n") ? "\r\n" : "\n";
-}
-
-function withLineEnding(value: string, lineEnding: "\n" | "\r\n"): string {
-  return normalizeLineEndings(value).replace(/\n/g, lineEnding);
-}
-
-function uniqueTextReplacement(restored: string, newText: string, oldText: string): string | null {
-  if (restored === newText) return oldText;
-
-  const lineEnding = dominantLineEnding(restored);
-  const diskNewText = withLineEnding(newText, lineEnding);
-  const diskOldText = withLineEnding(oldText, lineEnding);
-  const exactIndex = restored.indexOf(diskNewText);
-  if (exactIndex >= 0) {
-    if (restored.indexOf(diskNewText, exactIndex + 1) >= 0) return null;
-    return restored.slice(0, exactIndex) + diskOldText + restored.slice(exactIndex + diskNewText.length);
-  }
-
-  // ACP diffs use LF while Windows document reads may return CRLF. Compare
-  // canonically, but preserve the disk's line-ending style in the result.
-  const canonicalRestored = normalizeLineEndings(restored);
-  const canonicalNewText = normalizeLineEndings(newText);
-  const canonicalIndex = canonicalRestored.indexOf(canonicalNewText);
-  if (canonicalIndex < 0 || canonicalRestored.indexOf(canonicalNewText, canonicalIndex + 1) >= 0) {
-    return null;
-  }
-  return withLineEnding(
-    canonicalRestored.slice(0, canonicalIndex) + normalizeLineEndings(oldText) + canonicalRestored.slice(canonicalIndex + canonicalNewText.length),
-    lineEnding,
-  );
-}
-
-/** Reverse complete snapshots or exactly one nonempty excerpt, newest first. */
-export function reverseAgentChange(change: AgentFileChange, disk: string | null): string | null {
-  if (!canRevertAgentChange(change)) throw new Error("agent.edits.incomplete");
-  let restored = disk;
-  for (const diff of [...change.diffs].reverse()) {
-    if (diff.operation === "delete") {
-      if (restored !== null || diff.oldText === null) throw new Error("agent.edits.changed");
-      restored = diff.oldText;
-    } else if (diff.oldText === null) {
-      if (diff.operation !== "add" || restored === null || normalizeLineEndings(restored) !== normalizeLineEndings(diff.newText)) {
-        throw new Error("agent.edits.changed");
-      }
-      restored = null;
-    } else if (restored !== null) {
-      const replacement = uniqueTextReplacement(restored, diff.newText, diff.oldText);
-      if (replacement === null) throw new Error("agent.edits.changed");
-      restored = replacement;
-    }
-  }
-  return restored;
-}
+/** Core rollback plan; conflicts carry a stable reason instead of a write. */
+export type AgentReversePlan =
+  | { action: "write"; text: string }
+  | { action: "trash" }
+  | { action: "none" }
+  | { action: "conflict"; reason: "changed" | "incomplete" };

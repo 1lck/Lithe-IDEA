@@ -284,7 +284,7 @@ struct WorkbenchView: View {
     @StateObject private var toolContentStore = WorkbenchToolContentStore()
     @State private var sidebarWidth = CGFloat(WorkbenchLayout.defaultSidebarWidth)
     @State private var rightSidebarWidth: CGFloat = 380
-    @State private var mavenPaneWidth = CGFloat(WorkbenchLayout.defaultMavenPaneWidth)
+    @State private var rightPaneWidth = CGFloat(WorkbenchLayout.defaultRightPaneWidth)
     @State private var branchPopupHeight: CGFloat?
     @State private var branchPopupWidth = LitheDropdownMetrics.branchMinimumWidth
     @State private var topPaneHeight: CGFloat?
@@ -371,12 +371,6 @@ struct WorkbenchView: View {
                     .frame(minWidth: 640, minHeight: 420)
             }
         }
-        .sheet(item: Binding(
-            get: { model.pendingJavaLaunchDecision },
-            set: { _ in }
-        )) { request in
-            JavaLaunchDecisionDialog(request: request)
-        }
         .onAppear {
             updateWorkbenchBackgroundImage(model.workbenchBackgroundFeature.imageData)
             model.setNotificationsApplicationActive(NSApplication.shared.isActive)
@@ -433,7 +427,7 @@ struct WorkbenchView: View {
         }
         .sheet(item: $model.pendingPullStrategy) { request in
             GitPullStrategyDialog(request: request) { strategy in
-                Task { await model.resolvePullStrategy(strategy) }
+                Task { await model.resolvePullStrategy(strategy, for: request) }
             }
             .onDisappear { model.cancelPullStrategy() }
         }
@@ -1108,7 +1102,7 @@ struct WorkbenchView: View {
                 HStack(spacing: 6) {
                     if let target = model.activeTestTarget {
                         LitheIDEAIcon(
-                            resourcePath: "expui/runConfigurations/junit.svg",
+                            resourcePath: "expui/nodes/testGroup.svg",
                             size: LitheTheme.MainToolbar.iconSize,
                             preservesOriginalColors: true
                         )
@@ -1161,7 +1155,7 @@ struct WorkbenchView: View {
                         } label: {
                             HStack(spacing: 10) {
                                 LitheIDEAIcon(
-                                    resourcePath: "expui/runConfigurations/junit.svg",
+                                    resourcePath: "expui/nodes/testGroup.svg",
                                     size: 16,
                                     preservesOriginalColors: true
                                 )
@@ -1369,7 +1363,7 @@ struct WorkbenchView: View {
             let state = moduleUIRegistry.state(for: entry, model: model)
             return state.isVisible && state.isEnabled
         }
-        return (tool == .references || tool == .spring) && model.workbenchFeature.isVisible(tool)
+        return tool == .references && model.workbenchFeature.isVisible(tool)
     }
 
     private func isToolEntryVisible(_ tool: WorkbenchFeatureModel.ToolWindow) -> Bool {
@@ -1508,7 +1502,6 @@ struct WorkbenchView: View {
     @ViewBuilder
     private func toolContent(_ tool: WorkbenchFeatureModel.ToolWindow?) -> some View {
         if tool == .references { LanguageReferencesView().modifier(LitheToolWindowHoverRegion()) }
-        else if tool == .spring { SpringEndpointsView().modifier(LitheToolWindowHoverRegion()) }
         else if let tool, let entry = contribution(for: tool), let renderer = moduleUIRegistry.renderer(for: entry) {
             let content = ModuleToolContent(rendererID: renderer.id,
                 contentIdentity: renderer.contentIdentity(model), content: renderer.content(model)).equatable()
@@ -1549,7 +1542,7 @@ struct WorkbenchView: View {
         guard let runFeature = model.runFeatureIfActive else { return }
         let intent = runFeature.generationIntent
         Task {
-            // Through the app model so JDT is asked which classes can be launched.
+            // Through the app model so the language backend is asked which entry points can be launched.
             await model.generateRunConfigurations()
             guard runFeature.configurationStatus == .ready else { return }
             switch intent {
@@ -1595,7 +1588,7 @@ struct WorkbenchView: View {
         WorkbenchWorkspaceSplitView(
             sidebarWidth: sidebarWidth,
             isSidebarVisible: hasVisibleTool(on: .left),
-            rightToolWidth: mavenPaneWidth,
+            rightToolWidth: rightPaneWidth,
             isRightToolVisible: hasVisibleTool(on: .right),
             topPaneHeight: topPaneHeight,
             isBottomToolVisible: isBottomToolVisible,
@@ -1612,7 +1605,7 @@ struct WorkbenchView: View {
                     model.closeGitLog()
                 },
                 onRightToolWidthCommitted: { width in
-                    mavenPaneWidth = width
+                    rightPaneWidth = width
                     saveLayout(sidebarWidth: sidebarWidth, topPaneHeight: topPaneHeight)
                 }
             ),
@@ -1639,7 +1632,7 @@ struct WorkbenchView: View {
             bottomTool: { dockContent(on: .bottom) },
             rightTool: { dockContent(on: .right) }
         )
-        .background(ToolWindowWorkspaceAnchor(drag: toolWindowDrag, sideWidths: [.left: sidebarWidth, .right: mavenPaneWidth]))
+        .background(ToolWindowWorkspaceAnchor(drag: toolWindowDrag, sideWidths: [.left: sidebarWidth, .right: rightPaneWidth]))
     }
 
     @ViewBuilder
@@ -1647,7 +1640,7 @@ struct WorkbenchView: View {
         if toolWindowDrag.source != nil, toolWindowDrag.targetsEditor {
             GeometryReader { geometry in
                 let leading = hasVisibleTool(on: .left) ? min(sidebarWidth, geometry.size.width) : 0
-                let trailing = hasVisibleTool(on: .right) ? min(mavenPaneWidth, geometry.size.width - leading) : 0
+                let trailing = hasVisibleTool(on: .right) ? min(rightPaneWidth, geometry.size.width - leading) : 0
                 let height = isBottomToolVisible ? min(topPaneHeight ?? geometry.size.height * WorkbenchLayout.defaultTopPaneFraction, geometry.size.height)
                     : geometry.size.height
                 Rectangle().fill(LitheTheme.toolWindowDropArea)
@@ -1828,7 +1821,7 @@ struct WorkbenchView: View {
             .help(LocalizedStringKey(
                 model.activeDocument?.isReadOnly == true ? "Read-only document" : "Save"
             ))
-            ProjectPreparationStatusView(compact: true)
+            PluginServerStatusView()
             LanguageServerStatusView()
             MemoryUsageStatusView()
             FrameRateStatusView()
@@ -1839,7 +1832,7 @@ struct WorkbenchView: View {
     private var compactStatusItems: some View {
         HStack(spacing: 10) {
             EditorCaretPositionLabel(chrome: model.editorChrome) { model.showGoToLine() }
-            ProjectPreparationStatusView(compact: true)
+            PluginServerStatusView()
             LanguageServerStatusView()
             MemoryUsageStatusView()
             FrameRateStatusView()
@@ -1869,7 +1862,7 @@ struct WorkbenchView: View {
         let layout = model.loadWorkbenchLayout(for: workspaceURL)
         sidebarWidth = CGFloat(layout.sidebarWidth)
         topPaneHeight = layout.topPaneHeight.map { CGFloat($0) }
-        mavenPaneWidth = CGFloat(layout.mavenPaneWidth ?? WorkbenchLayout.defaultMavenPaneWidth)
+        rightPaneWidth = CGFloat(layout.rightPaneWidth ?? WorkbenchLayout.defaultRightPaneWidth)
         branchPopupHeight = layout.branchPopupHeight.map { CGFloat($0) }
         branchPopupWidth = layout.branchPopupWidth.map { CGFloat($0) } ?? LitheDropdownMetrics.branchMinimumWidth
         didRestoreLayout = true
@@ -1884,7 +1877,7 @@ struct WorkbenchView: View {
             WorkbenchLayout(
                 sidebarWidth: Double(sidebarWidth),
                 topPaneHeight: topPaneHeight.map(Double.init),
-                mavenPaneWidth: Double(mavenPaneWidth),
+                rightPaneWidth: Double(rightPaneWidth),
                 branchPopupWidth: Double(branchPopupWidth),
                 branchPopupHeight: branchPopupHeight.map { Double($0) }
             ),

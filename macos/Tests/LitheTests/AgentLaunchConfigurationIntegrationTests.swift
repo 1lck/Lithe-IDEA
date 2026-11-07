@@ -43,7 +43,7 @@ struct AgentLaunchConfigurationIntegrationTests {
                 catch { Issue.record("Temporary Agent test files could not be removed") }
             }
         }
-        let source = MacClaudeConfigurationSource(fileManager: RouteIntegrationFileManager(home: home))
+        let source = MacClaudeConfigurationSource(core: RustCoreBridge(), fileManager: RouteIntegrationFileManager(home: home), environment: [:])
         let store = RouteIntegrationSettingsStore()
         let settings = AppSettings(store: store)
         let credentials = MacAIProviderCredentialResolver(localStore: secureStore, configurationSources: [source])

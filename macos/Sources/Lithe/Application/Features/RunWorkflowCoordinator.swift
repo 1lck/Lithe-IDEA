@@ -41,7 +41,6 @@ enum RunConfigurationReadiness {
 enum DebugSourceResolution {
     case resolved(URL)
     case currentFileUnavailable
-    case javaSourceUnavailable(String)
     case unsupported(String)
 }
 
@@ -105,14 +104,15 @@ final class RunWorkflowCoordinator {
 
     private let pluginCatalog: ValidatedPluginCatalog
     private let moduleRuntime: ModuleRuntime
-    private let notify: @MainActor (String) -> Void
+    /// A localization key and its `%@` arguments, resolved when shown.
+    private let notify: @MainActor (String, [String]) -> Void
     private let onPendingActionChange: @MainActor () -> Void
     private weak var actions: (any RunWorkflowActions)?
 
     init(
         pluginCatalog: ValidatedPluginCatalog,
         moduleRuntime: ModuleRuntime,
-        notify: @escaping @MainActor (String) -> Void,
+        notify: @escaping @MainActor (String, [String]) -> Void,
         onPendingActionChange: @escaping @MainActor () -> Void = {}
     ) {
         self.pluginCatalog = pluginCatalog
@@ -143,30 +143,12 @@ final class RunWorkflowCoordinator {
         runFeature.select(selected)
     }
 
-    func debugConfiguration(
-        selected: RunConfiguration,
-        activeDocumentIsLaunchable: Bool,
-        configurations: [RunConfiguration]
-    ) -> RunConfiguration {
-        DebugLaunchSourceResolver().configurationForDebug(
-            selected: selected,
-            activeDocumentIsLaunchable: activeDocumentIsLaunchable,
-            configurations: configurations
-        )
-    }
-
     func sourceURLForDebug(
         configuration: RunConfiguration,
         activeDocument: EditorDocument?,
         projectFiles: [URL],
         workspaceURL: URL
     ) -> URL? {
-        if configuration.usesCurrentEditorFile {
-            return activeDocument?.url
-        }
-        guard configuration.kind.capabilities.contains(.jdwpDebug) else {
-            return nil
-        }
         return DebugLaunchSourceResolver().resolve(
             configuration: configuration,
             activeDocumentURL: activeDocument?.url,
@@ -190,9 +172,6 @@ final class RunWorkflowCoordinator {
             if configuration.usesCurrentEditorFile {
                 return .currentFileUnavailable
             }
-            if configuration.kind.capabilities.contains(.jdwpDebug) {
-                return .javaSourceUnavailable(configuration.name)
-            }
             return .unsupported(configuration.name)
         }
         return .resolved(sourceURL)
@@ -213,7 +192,7 @@ final class RunWorkflowCoordinator {
         runFeature: RunFeatureModel
     ) async -> Bool {
         guard support.executionModuleID != nil else {
-            notify("\(support.displayName) does not provide project execution")
+            notify("%@ does not provide project execution", [support.displayName])
             return false
         }
         do {
@@ -222,12 +201,12 @@ final class RunWorkflowCoordinator {
             )
             guard let provider = value as? any LanguageRunExtensionProviding,
                   runFeature.registerLanguageRunExtension(provider, support: support) else {
-                notify("\(support.displayName) returned an invalid execution provider")
+                notify("%@ returned an invalid execution provider", [support.displayName])
                 return false
             }
             return true
         } catch {
-            if !error.isCancellation { notify(error.localizedDescription) }
+            if !error.isCancellation { notify(error.localizedDescription, []) }
             return false
         }
     }
@@ -271,6 +250,48 @@ final class RunWorkflowCoordinator {
         return support
     }
 
+    /// The package whose own editor actions the toolbar button for
+    /// `capability` must call. That is the package owning the current file's
+    /// language when it declares neither a module nor a host capability for
+    /// `capability`: the host has nothing of its own to start, and the package
+    /// exposes running or debugging only as editor actions. For Debug, a
+    /// package whose adapter never launches a file (it only attaches, or debugs
+    /// executables) counts the same: its debug module serves the sessions its
+    /// run action opens, and the host could only answer the button with an
+    /// error. `nil` for host-run languages, for project configurations, and for
+    /// packages that only add a debugger or editor resources to a language
+    /// another owner serves.
+    func languageSupportRoutingToEditorActions(
+        _ capability: LanguageHostCapability,
+        for configuration: RunConfiguration,
+        currentFileURL: URL?,
+        languageSupportForFile: (URL) -> LanguageSupportDeclaration?,
+        hostLaunchesFiles: (_ languageID: String) -> Bool
+    ) -> LanguageSupportDeclaration? {
+        guard configuration.usesCurrentEditorFile, let currentFileURL,
+              let support = languageSupportForFile(currentFileURL),
+              !support.isDebugOnly, !support.isEditorOnly,
+              !support.hostCapabilities.contains(capability) else { return nil }
+        switch capability {
+        case .run: return support.executionModuleID == nil ? support : nil
+        case .debug: return support.debugModuleID == nil || !hostLaunchesFiles(support.id) ? support : nil
+        case .testing: return support.testingModuleID == nil ? support : nil
+        }
+    }
+
+    func languageSupportRoutingToEditorActions(
+        _ capability: LanguageHostCapability,
+        for configuration: RunConfiguration,
+        currentFileURL: URL?,
+        hostLaunchesFiles: (_ languageID: String) -> Bool
+    ) -> LanguageSupportDeclaration? {
+        languageSupportRoutingToEditorActions(
+            capability, for: configuration, currentFileURL: currentFileURL,
+            languageSupportForFile: { [pluginCatalog] fileURL in pluginCatalog.languageSupport(for: fileURL)?.declaration },
+            hostLaunchesFiles: hostLaunchesFiles
+        )
+    }
+
     func languageSupport(
         for configuration: RunConfiguration,
         currentFileURL: URL?,
@@ -300,7 +321,7 @@ final class RunWorkflowCoordinator {
             saving.recordSave(document, previousText: previousText)
             return true
         } catch {
-            notify("Could not save \(document.url.lastPathComponent)")
+            notify("Could not save %@", [document.url.lastPathComponent])
             return false
         }
     }

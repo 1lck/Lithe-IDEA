@@ -20,22 +20,13 @@ package protocol LanguageIntelligenceServiceGraph: AnyObject {
 }
 
 @MainActor
-public final class LanguageIntelligenceCapability: NSObject, LanguageDependencyProviding {
+public final class LanguageIntelligenceCapability: NSObject {
     package let sessions: LanguageToolingSessionManager
     package let tools: LanguageServerToolService
 
     fileprivate init(graph: any LanguageIntelligenceServiceGraph) {
         sessions = graph.sessions
         tools = graph.tools
-    }
-
-    public func dependencySnapshot(workspaceURL: URL, serviceID: String) -> LanguageDependencySnapshot? {
-        guard serviceID == "language:java" else { return nil }
-        return sessions.dependencySnapshot(workspaceURL: workspaceURL)
-    }
-
-    public func setDependencySnapshotChangeHandler(_ handler: (@MainActor () -> Void)?) {
-        sessions.onJavaDependencySnapshotChange = handler
     }
 }
 

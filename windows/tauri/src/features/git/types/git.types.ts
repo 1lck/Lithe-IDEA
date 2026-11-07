@@ -164,16 +164,11 @@ export interface GitDiff {
   old_blob_base64?: string;
   new_blob_base64?: string;
   raw_patch?: string;
-  /**
-   * Original index-to-worktree patch bytes from the dedicated full-context
-   * read, preserved for byte-faithful hunk rollback. Never populated by the
-   * generic adapter for all diffs — only by the rollback channel.
-   */
-  writePatch?: string;
   /** Display normalization lost EOF/CRLF bytes; only whole-file writes are safe. */
   has_lossy_line_endings?: boolean;
   has_decoding_loss?: boolean;
-  core_hunks?: { id: string; header: string; patch: string }[];
+  /** Core-split Git-default hunks; `lineStart`/`lineEnd` index `lines` for complete-file diffs. */
+  core_hunks?: { id: string; header: string; patch: string; lineStart?: number; lineEnd?: number }[];
   additions?: number;
   deletions?: number;
   is_truncated?: boolean;
@@ -196,9 +191,8 @@ export interface GitHunk {
   file_path: string;
   lines: GitDiffLine[];
   /**
-   * Complete pre-built patch text with original bytes (CR, EOF markers) from
-   * the index-to-worktree read. When present, the host applies this verbatim
-   * through Core's git.apply instead of reconstructing from display lines.
+   * Core-owned patch text with original bytes (CR, EOF markers). The host
+   * applies it verbatim through Core's git.apply; hosts never rebuild patches.
    */
   rawPatch?: string;
 }
@@ -215,6 +209,8 @@ export interface GitPullPreflight {
   behind: number;
   diverged: boolean;
   hasLocalChanges: boolean;
+  /** Strategy `pull.rebase` or `pull.ff` selects; null when Git is not configured. */
+  configuredStrategy?: PullStrategy | null;
 }
 
 /** A pull policy accepted by the shared Rust Core. */
@@ -223,6 +219,8 @@ export type PullStrategy = "ffOnly" | "merge" | "rebase";
 export type GitPullResult =
   | { status: "pulled"; strategy: PullStrategy }
   | { status: "cancelled" }
+  /** The history diverged and the user must pick merge or rebase (Pull dialog). */
+  | { status: "needs-strategy" }
   | {
       status: "blocked";
       reason: "no-upstream" | "up-to-date" | "dirty" | "state-changed";

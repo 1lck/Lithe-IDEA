@@ -55,8 +55,8 @@ struct ProjectTreeNameOrderTests {
         let zeta = try #require(snapshot.root.children?.first { $0.name == "zeta" })
         #expect((zeta.children ?? []).map(\.name) == ["part2", "part10"])
 
-        let listed = builder.listDirectories([root], at: root, visibilityRules: rules)
-        let listedNames = try #require(listed[root.standardizedFileURL.path]).map { $0.url.lastPathComponent }
+        let listed = try #require(RustWorkspaceOperations(core: RustCoreBridge()).rootRows(at: root, visibilityRules: rules))
+        let listedNames = listed.map { $0.url.lastPathComponent }
         #expect(listedNames == rootNames)
     }
 
@@ -68,7 +68,7 @@ struct ProjectTreeNameOrderTests {
         }
         var tree = FileNode(url: root, isDirectory: true, children: [row("v0.1.4.md"), row("v0.1.13.md"), row("v0.2.0.md")])
         for name in ["v0.1.5.md", "v0.1.12.md", "TEMPLATE.md"] {
-            guard case .updated(let updated) = tree.inserting(file: root.appendingPathComponent(name)) else {
+            guard case .updated(let updated) = tree.inserting(file: root.appendingPathComponent(name), order: coreTreeOrder) else {
                 Issue.record("Inserting \(name) should update the loaded directory")
                 return
             }
@@ -77,5 +77,33 @@ struct ProjectTreeNameOrderTests {
         #expect((tree.children ?? []).map(\.name) == [
             "TEMPLATE.md", "v0.1.4.md", "v0.1.5.md", "v0.1.12.md", "v0.1.13.md", "v0.2.0.md",
         ])
+    }
+}
+
+/// Orders rows with the same Core entry-order command production uses.
+func coreTreeOrder(_ rows: [FileNode]) -> [FileNode]? {
+    RustWorkspaceOperations(core: RustCoreBridge()).orderedTreeSiblings(rows)
+}
+
+/// Test doubles that conform get the same Core-backed copy-name and directory-rule
+/// operations production uses, so their tests exercise Core's rules instead of a stub.
+protocol CoreBackedWorkspaceRules: WorkspaceOperations {}
+
+extension CoreBackedWorkspaceRules {
+    func copyName(for name: String, isDirectory: Bool, existing: [String], duplicate: Bool) -> String? {
+        RustWorkspaceOperations(core: RustCoreBridge())
+            .copyName(for: name, isDirectory: isDirectory, existing: existing, duplicate: duplicate)
+    }
+
+    func reduceDirectoryAction(
+        _ action: WorkspaceDirectoryAction, at path: String, rules: WorkspaceDirectoryRules
+    ) -> WorkspaceDirectoryReduction? {
+        RustWorkspaceOperations(core: RustCoreBridge()).reduceDirectoryAction(action, at: path, rules: rules)
+    }
+
+    func relocateDirectoryRules(
+        _ rules: WorkspaceDirectoryRules, moving source: String, to destination: String?
+    ) -> WorkspaceDirectoryRules? {
+        RustWorkspaceOperations(core: RustCoreBridge()).relocateDirectoryRules(rules, moving: source, to: destination)
     }
 }

@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import * as virtual from "@tanstack/react-virtual";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
+import { installGitGraphProjectionStub } from "@/test-utils/git-graph-projection-stub";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitCommit } from "../../types/git.types";
 import { GitCommitTable, GRAPH_LOCATE_PAGE_BUDGET } from "./git-commit-table";
@@ -93,8 +94,11 @@ function Harness({
   );
 }
 
+let graphStub: ReturnType<typeof installGitGraphProjectionStub>;
+
 beforeEach(() => {
   restoreDom = installHappyDom();
+  graphStub = installGitGraphProjectionStub();
   // Paging tests mount with `hasMore`; the sentinel observer is not under test.
   const globe = globalThis as typeof globalThis & { IntersectionObserver?: unknown };
   globe.IntersectionObserver ??= class {
@@ -172,6 +176,7 @@ afterEach(async () => {
   viewportSpy.mockRestore();
   useGitLogPreferencesStore.setState(previousPreferences, true);
   environment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+  graphStub.mockRestore();
   restoreDom();
 });
 
@@ -259,6 +264,11 @@ function PagedHarness({
 const mountPaged = async (pages: GitCommit[][], onLoadObserved?: () => void) => {
   await act(async () => root.render(<PagedHarness pages={pages} onLoadObserved={onLoadObserved} />));
 };
+/** Core owns layout: paging tests replay Core-shaped missing-parent edges, not TS routing. */
+const useMissingParentProjection = () => {
+  graphStub.mockRestore();
+  graphStub = installGitGraphProjectionStub({ missingParents: true });
+};
 const click = async (element: Element) => {
   await act(async () => element.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
 };
@@ -335,6 +345,7 @@ test("arrow key activation does not trigger the source row's Enter diff action a
 });
 
 test("missing-history markers offer a locate target while ordinary selection and diff remain available", async () => {
+  useMissingParentProjection();
   const loadMore = mock(async () => false);
   await mountWith([commit("tip", ["missing"]), commit("other")], { onLoadMore: loadMore });
   const locate = container.querySelector('[data-git-graph-target="missing"]')!;
@@ -352,6 +363,7 @@ test("missing-history markers offer a locate target while ordinary selection and
 });
 
 test("a fresh batch of missing parents preloads within the bounded page budget", async () => {
+  useMissingParentProjection();
   // Page 1 ends at "tip" whose parent "missing" only arrives with page 3.
   const page1 = [
     commit("tip", ["missing"]),
@@ -379,6 +391,7 @@ test("a fresh batch of missing parents preloads within the bounded page budget",
 });
 
 test("the preload budget stops after five pages even when parents stay missing", async () => {
+  useMissingParentProjection();
   // The second row carries the missing-parent arrow; every later page is filler
   // that never contains the parent, so the budget alone stops the chain.
   const page1 = [commit("tip", ["missing"]), commit("other")];
@@ -408,6 +421,7 @@ test("the preload budget stops after five pages even when parents stay missing",
 });
 
 test("clicking a missing-parent arrow locates the target through bounded pages and reveals it", async () => {
+  useMissingParentProjection();
   // The second row carries the missing-parent arrow; the preload budget burns
   // filler pages first, and the click's own locate run reaches the parent page.
   const page1 = [commit("tip", ["missing"]), commit("other")];
@@ -434,6 +448,9 @@ test("clicking a missing-parent arrow locates the target through bounded pages a
 });
 
 test("appending a page and repainting references preserve the manually scrolled viewport and selection", async () => {
+  // The two pages are not a recorded Core history; this test asserts scrolling, not geometry.
+  graphStub.mockRestore();
+  graphStub = installGitGraphProjectionStub({ geometryFree: true });
   await mount();
   await click(container.querySelector('[data-git-commit-hash="0"]')!);
   await act(async () => moveViewport?.(36));

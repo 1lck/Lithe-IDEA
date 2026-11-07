@@ -1,0 +1,359 @@
+{
+  "command": "agent.attachments.retentionPlan",
+  "description": "Retention plan for pasted Agent images shared by macOS and Windows. Images that any conversation accepted are kept; abandoned pastes and unreferenced images older than seven days are deleted by the platform.",
+  "cases": [
+    {
+      "name": "recent unreferenced image is kept",
+      "request": {
+        "nowMs": 1800000000000,
+        "entries": [
+          {
+            "path": "/c/a.png",
+            "modifiedMs": 1799913600000
+          }
+        ],
+        "ledgerPresent": true
+      },
+      "expected": {
+        "delete": [],
+        "keep": [
+          {
+            "path": "/c/a.png",
+            "reason": "recent"
+          }
+        ],
+        "seed": []
+      }
+    },
+    {
+      "name": "old referenced image is kept",
+      "request": {
+        "nowMs": 1800000000000,
+        "entries": [
+          {
+            "path": "/c/a.png",
+            "modifiedMs": 1797408000000
+          }
+        ],
+        "acceptedReferences": [
+          "/c/a.png"
+        ],
+        "ledgerPresent": true
+      },
+      "expected": {
+        "delete": [],
+        "keep": [
+          {
+            "path": "/c/a.png",
+            "reason": "referenced"
+          }
+        ],
+        "seed": []
+      }
+    },
+    {
+      "name": "old unreferenced image expires",
+      "request": {
+        "nowMs": 1800000000000,
+        "entries": [
+          {
+            "path": "/c/a.png",
+            "modifiedMs": 1799308800000
+          }
+        ],
+        "ledgerPresent": true
+      },
+      "expected": {
+        "delete": [
+          {
+            "path": "/c/a.png",
+            "reason": "expired"
+          }
+        ],
+        "keep": [],
+        "seed": []
+      }
+    },
+    {
+      "name": "exactly seven days is still kept",
+      "request": {
+        "nowMs": 1800000000000,
+        "entries": [
+          {
+            "path": "/c/a.png",
+            "modifiedMs": 1799395200000
+          }
+        ],
+        "ledgerPresent": true
+      },
+      "expected": {
+        "delete": [],
+        "keep": [
+          {
+            "path": "/c/a.png",
+            "reason": "recent"
+          }
+        ],
+        "seed": []
+      }
+    },
+    {
+      "name": "abandoned paste is deleted at once",
+      "request": {
+        "nowMs": 1800000000000,
+        "entries": [
+          {
+            "path": "/c/a.png",
+            "modifiedMs": 1800000000000,
+            "abandoned": true
+          }
+        ],
+        "ledgerPresent": true
+      },
+      "expected": {
+        "delete": [
+          {
+            "path": "/c/a.png",
+            "reason": "abandoned"
+          }
+        ],
+        "keep": [],
+        "seed": []
+      }
+    },
+    {
+      "name": "referenced image survives an abandoned flag",
+      "request": {
+        "nowMs": 1800000000000,
+        "entries": [
+          {
+            "path": "/c/a.png",
+            "modifiedMs": 1800000000000,
+            "abandoned": true
+          }
+        ],
+        "acceptedReferences": [
+          "/c/a.png"
+        ],
+        "ledgerPresent": true
+      },
+      "expected": {
+        "delete": [],
+        "keep": [
+          {
+            "path": "/c/a.png",
+            "reason": "referenced"
+          }
+        ],
+        "seed": []
+      }
+    },
+    {
+      "name": "unknown age is never expired",
+      "request": {
+        "nowMs": 1800000000000,
+        "entries": [
+          {
+            "path": "/c/a.png"
+          }
+        ],
+        "ledgerPresent": true
+      },
+      "expected": {
+        "delete": [],
+        "keep": [
+          {
+            "path": "/c/a.png",
+            "reason": "recent"
+          }
+        ],
+        "seed": []
+      }
+    },
+    {
+      "name": "windows paths compare by separator and case",
+      "request": {
+        "nowMs": 1800000000000,
+        "caseInsensitive": true,
+        "entries": [
+          {
+            "path": "C:\\Cache\\Pasted-1.PNG",
+            "modifiedMs": 1797408000000
+          }
+        ],
+        "acceptedReferences": [
+          "c:/cache/pasted-1.png"
+        ],
+        "ledgerPresent": true
+      },
+      "expected": {
+        "delete": [],
+        "keep": [
+          {
+            "path": "C:\\Cache\\Pasted-1.PNG",
+            "reason": "referenced"
+          }
+        ],
+        "seed": []
+      }
+    },
+    {
+      "name": "case differs on a case-sensitive platform",
+      "request": {
+        "nowMs": 1800000000000,
+        "entries": [
+          {
+            "path": "/c/A.png",
+            "modifiedMs": 1797408000000
+          }
+        ],
+        "acceptedReferences": [
+          "/c/a.png"
+        ],
+        "ledgerPresent": true
+      },
+      "expected": {
+        "delete": [
+          {
+            "path": "/c/A.png",
+            "reason": "expired"
+          }
+        ],
+        "keep": [],
+        "seed": []
+      }
+    },
+    {
+      "name": "mixed cache keeps order within each list",
+      "request": {
+        "nowMs": 1800000000000,
+        "entries": [
+          {
+            "path": "/c/1.png",
+            "modifiedMs": 1797408000000
+          },
+          {
+            "path": "/c/2.png",
+            "modifiedMs": 1797408000000
+          },
+          {
+            "path": "/c/3.png",
+            "modifiedMs": 1799827200000
+          },
+          {
+            "path": "/c/4.png",
+            "modifiedMs": 1799222400000
+          }
+        ],
+        "acceptedReferences": [
+          "/c/2.png"
+        ],
+        "ledgerPresent": true
+      },
+      "expected": {
+        "delete": [
+          {
+            "path": "/c/1.png",
+            "reason": "expired"
+          },
+          {
+            "path": "/c/4.png",
+            "reason": "expired"
+          }
+        ],
+        "keep": [
+          {
+            "path": "/c/2.png",
+            "reason": "referenced"
+          },
+          {
+            "path": "/c/3.png",
+            "reason": "recent"
+          }
+        ],
+        "seed": []
+      }
+    },
+    {
+      "name": "missing ledger seeds every cached image and keeps old ones",
+      "request": {
+        "nowMs": 1800000000000,
+        "ledgerPresent": false,
+        "entries": [
+          {
+            "path": "/c/old.png",
+            "modifiedMs": 1797408000000
+          },
+          {
+            "path": "/c/new.png",
+            "modifiedMs": 1799913600000
+          }
+        ]
+      },
+      "expected": {
+        "delete": [],
+        "keep": [
+          {
+            "path": "/c/old.png",
+            "reason": "referenced"
+          },
+          {
+            "path": "/c/new.png",
+            "reason": "referenced"
+          }
+        ],
+        "seed": [
+          "/c/old.png",
+          "/c/new.png"
+        ]
+      }
+    },
+    {
+      "name": "empty ledger that exists does not migrate again",
+      "request": {
+        "nowMs": 1800000000000,
+        "ledgerPresent": true,
+        "acceptedReferences": [],
+        "entries": [
+          {
+            "path": "/c/old.png",
+            "modifiedMs": 1797408000000
+          }
+        ]
+      },
+      "expected": {
+        "delete": [
+          {
+            "path": "/c/old.png",
+            "reason": "expired"
+          }
+        ],
+        "keep": [],
+        "seed": []
+      }
+    },
+    {
+      "name": "missing ledger never seeds an abandoned paste",
+      "request": {
+        "nowMs": 1800000000000,
+        "ledgerPresent": false,
+        "entries": [
+          {
+            "path": "/c/gone.png",
+            "abandoned": true
+          }
+        ]
+      },
+      "expected": {
+        "delete": [
+          {
+            "path": "/c/gone.png",
+            "reason": "abandoned"
+          }
+        ],
+        "keep": [],
+        "seed": []
+      }
+    }
+  ]
+}

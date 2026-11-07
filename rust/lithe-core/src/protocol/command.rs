@@ -75,14 +75,30 @@ pub enum CoreCommand {
     AgentUninstall,
     /// Installs or updates an agent's CLI through its installation owner (`agent.installCli`).
     AgentInstallCli,
-    /// Parses credential-free Agent provider metadata (`agent.parseProviderConfiguration`).
-    AgentParseProviderConfiguration,
+    /// Plans a rollback of one file's Agent edits from evidence and disk text (`agent.edits.reversePlan`).
+    AgentEditsReversePlan,
+    /// Validates an unsaved Hook draft field by field (`agent.hooks.validateDraft`).
+    AgentHooksValidateDraft,
+    /// Plans which pasted Agent images may be deleted (`agent.attachments.retentionPlan`).
+    AgentAttachmentsRetentionPlan,
     /// Budgets diff prefixes before crossing the native boundary (`ai.commitInputBudget`).
     AiCommitInputBudget,
     /// Plans a credential-free commit message request (`ai.planCommit`).
     AiPlanCommit,
     /// Decodes a provider commit message response (`ai.decodeCommitMessage`).
     AiDecodeCommitMessage,
+    /// Names the native files of one AI CLI configuration source (`ai.configuration.sources`).
+    AiConfigurationSources,
+    /// Parses AI CLI configuration into credential-free metadata (`ai.configuration.parse`).
+    AiConfigurationParse,
+    /// Plans a credential-free pull request description request (`ai.pullRequest.plan`).
+    AiPullRequestPlan,
+    /// Decodes a strict pull request title and description (`ai.pullRequest.decode`).
+    AiPullRequestDecode,
+    /// Plans a credential-free inline edit request (`ai.inlineEdit.plan`).
+    AiInlineEditPlan,
+    /// Decodes the replacement text of an inline edit response (`ai.inlineEdit.decode`).
+    AiInlineEditDecode,
     /// Parses one Agent MCP configuration file into normalized servers (`mcp.parseConfiguration`).
     McpParseConfiguration,
     /// Normalizes a public Registry response into discoverable server drafts (`mcp.parseRegistry`).
@@ -97,10 +113,20 @@ pub enum CoreCommand {
     McpToolPolicy,
     /// Round-trips a quoted command line into exact argv boundaries.
     McpCommandLine,
+    /// Merges discovered MCP sources into library rows with ownership (`mcp.librarySnapshot`).
+    McpLibrarySnapshot,
+    /// Returns field-level issues for an MCP server editor draft (`mcp.validateDraft`).
+    McpValidateDraft,
+    /// Plans an all-or-nothing multi-file MCP library edit (`mcp.batchPlan`).
+    McpBatchPlan,
     /// Validates and normalizes a declarative plugin manifest (`plugins.declarative.validate`).
     PluginsDeclarativeValidate,
     /// Validates native plugin UI data with declaration identity and node budgets.
     PluginsNativeUIValidateData,
+    /// Describes the Core-owned backend host-method catalog.
+    PluginsHostApiDescribe,
+    /// Rechecks a backend host request against Core's grant rules.
+    PluginsHostApiAuthorize,
     /// Expands a declarative plugin's run template (`plugins.declarative.runPlan`).
     PluginsDeclarativeRunPlan,
     /// Lists a declarative plugin's workspace and file tests (`plugins.declarative.discoverTests`).
@@ -109,6 +135,12 @@ pub enum CoreCommand {
     PluginsDeclarativeTestPlan,
     /// Expands a declarative plugin's language-server launch (`plugins.declarative.languageServerLaunchPlan`).
     PluginsDeclarativeLanguageServerLaunchPlan,
+    /// Checks a plugin backend's language-server launch answer (`plugins.languageServers.decodeLaunch`).
+    PluginsLanguageServersDecodeLaunch,
+    /// Picks the stored language-server state the host may delete (`plugins.languageServers.stateRetention`).
+    PluginsLanguageServersStateRetention,
+    /// Checks a plugin content provider's answer (`plugins.contentProviders.decode`).
+    PluginsContentProvidersDecode,
     /// Checks a debug start and returns the adapter's DAP arguments (`debug.adapters.startArguments`).
     DebugAdaptersStartArguments,
     /// Validates an IDE-to-DAP TCP endpoint, not an attach target.
@@ -132,6 +164,8 @@ pub enum CoreCommand {
     PluginsDeclarativeDecodeGrammar,
     /// Validates independent editor action registration or results.
     PluginsEditorActionsDecode,
+    /// Validates editor provider registrations and provider results.
+    PluginsEditorProvidersDecode,
     /// Validates a normalized shortcut import against the host's action catalog.
     KeymapDecodeImport,
     /// Plans the selected provider's declared shortcut source inputs.
@@ -160,6 +194,16 @@ pub enum CoreCommand {
     ToolchainsDiscoveryPlan,
     /// Lists checked installations and the automatic choice for one tool.
     ToolchainsCandidates,
+    /// Expands a tool definition's launch template for a selected executable.
+    ToolchainsInstantiateLaunch,
+    /// Validates a plugin backend's Run start request (`run.decodeStart`).
+    RunDecodeStart,
+    /// Validates a plugin backend's debug start request (`debug.decodeBackendConfiguration`).
+    DebugDecodeBackendConfiguration,
+    /// Finds the output links plugin matchers declare in console lines (`outputLinks.match`).
+    OutputLinksMatch,
+    /// Checks a plugin function's answer to an output link (`outputLinks.decodeResolution`).
+    OutputLinksDecodeResolution,
     /// Finds the build-system instances of a workspace (`build.detect`).
     BuildDetect,
     /// Validates a native team's persisted Build options (`build.projectOptions`).
@@ -214,8 +258,10 @@ pub enum CoreCommand {
     BuildDecodeDependencies,
     /// Digests the files a build model depends on (`build.syncFingerprint`).
     BuildSyncFingerprint,
-    /// Maps build options to the Java language server's project import (`build.languageImport`).
-    BuildLanguageImport,
+    /// Reduces a test run's termination and decoded summary to one verdict (`build.resolveTestRunOutcome`).
+    BuildResolveTestRunOutcome,
+    /// Merges a run's test results into the stored history inside the host-stated scope (`build.mergeTestOutcomes`).
+    BuildMergeTestOutcomes,
     /// Detects VCS roots and registered providers of a workspace (`vcs.detectRoots`).
     VcsDetectRoots,
     /// Assigns workspace paths to detected VCS roots (`vcs.ownerOf`).
@@ -262,10 +308,24 @@ pub enum CoreCommand {
     WorkspaceReleaseIndexing,
     /// Lists the visible children of project directories (`workspace.listDirectories`).
     WorkspaceListDirectories,
+    /// Orders natively enumerated directory siblings (`workspace.orderEntries`).
+    WorkspaceOrderEntries,
+    /// Ranks host-supplied candidate names with the shared matcher (`workspace.rankNames`).
+    WorkspaceRankNames,
+    /// Plans the name of a duplicated project item (`workspace.planDuplicate`).
+    WorkspacePlanDuplicate,
+    /// Plans the destination names of pasted project items (`workspace.planPaste`).
+    WorkspacePlanPaste,
+    /// Applies a directory role, exclusion or cancel action (`workspace.reduceDirectoryAction`).
+    WorkspaceReduceDirectoryAction,
+    /// Migrates directory rules after a move or delete (`workspace.relocateDirectoryRules`).
+    WorkspaceRelocateDirectoryRules,
     /// Filter ordinary workspace-relative event paths using shared defaults.
     WorkspaceFilterChanges,
     /// Finds Git repositories that belong to an opened workspace (`workspace.repositories`).
     WorkspaceRepositories,
+    /// Applies one action to the recent project list (`workspace.recentProjects.reduce`).
+    WorkspaceRecentProjectsReduce,
     /// Builds or reuses the workspace search index (`workspace.searchIndex.warm`).
     WorkspaceSearchIndexWarm,
     /// Applies changed paths to the search index (`workspace.searchIndex.update`).
@@ -290,6 +350,10 @@ pub enum CoreCommand {
     DocumentLifecycle,
     /// Classifies decoded Unicode text independently of its filename (`document.classifyText`).
     DocumentClassifyText,
+    /// Selects the open documents a save batch writes (`document.planSaveBatch`).
+    DocumentPlanSaveBatch,
+    /// Reduces save batch member outcomes and live documents (`document.reduceSaveBatch`).
+    DocumentReduceSaveBatch,
     /// Records one local-history snapshot (`history.record`).
     HistoryRecord,
     /// Lists retained local-history metadata (`history.entries`).
@@ -298,6 +362,8 @@ pub enum CoreCommand {
     HistoryContent,
     /// Moves history after a workspace path relocation (`history.relocate`).
     HistoryRelocate,
+    /// Plans which snapshots an editing event records (`history.planEvent`).
+    HistoryPlanEvent,
     /// Changes the optional label of a history snapshot (`history.rename`).
     HistoryRename,
     /// Deletes one history snapshot (`history.delete`).
@@ -308,12 +374,8 @@ pub enum CoreCommand {
     HistoryUsage,
     /// Deletes every snapshot of one project (`history.clear`).
     HistoryClear,
-    /// Inspects a declared Maven reactor (`maven.scan`).
-    MavenScan,
-    /// Produces a deterministic Maven invocation (`maven.launchPlan`).
-    MavenLaunchPlan,
-    /// Shortens an oversized Java launch using a JDK argument file when needed.
-    ExecutionPlanLaunchCommand,
+    /// Compares two host-supplied texts line by line (`diff.compareTexts`).
+    DiffCompareTexts,
     /// Resolve environment precedence after platform tool discovery.
     ExecutionResolveEnvironment,
     /// Resolves deterministic process search-path ordering (`execution.resolveSearchPath`).
@@ -324,30 +386,44 @@ pub enum CoreCommand {
     ProcessLifecycleInventory,
     /// Turns a plan and the user's answers into what ends (`processLifecycle.settle`).
     ProcessLifecycleSettle,
-    /// Produces a bounded Maven dependency-tree invocation (`maven.dependencyPlan`).
-    MavenDependencyPlan,
-    /// Normalizes Maven dependency-tree output (`maven.dependencies`).
-    MavenDependencies,
-    /// Normalizes diagnostics from Maven output (`maven.diagnostics`).
-    MavenDiagnostics,
-    /// Normalizes JUnit/Surefire results from Maven output (`maven.testResults`).
-    MavenTestResults,
     /// Renders and sanitizes shared Markdown (`markdown.render`).
     MarkdownRender,
     /// Compiles a bounded boolean shortcut context (`keymap.parseContext`).
     KeymapParseContext,
     /// Evaluates a precompiled shortcut context (`keymap.evaluateContext`).
     KeymapEvaluateContext,
+    /// Finds conflicts among the final layered shortcut bindings (`keymap.analyzeConflicts`).
+    KeymapAnalyzeConflicts,
+    /// Advances the double-Shift gesture recognizer by one event (`keymap.modifierGestureStep`).
+    /// The rule itself lives in `lithe-core-rules` so the Windows frontend can run it synchronously.
+    KeymapModifierGestureStep,
+    /// Applies one editor-group state transition: open, close, move, pin, preview, merge or normalize
+    /// (`editor.workbenchState.reduce`). The rule lives in `lithe-core-rules` so the Windows frontend
+    /// can run it synchronously inside store updates.
+    EditorWorkbenchStateReduce,
+    /// Classifies a batch of workspace-relative paths as hidden or visible (`workspace.classifyVisibility`).
+    /// The rule lives in `lithe-core-rules` so the Windows frontend can run it synchronously.
+    WorkspaceClassifyVisibility,
+    /// Returns the built-in hidden-path lists (`workspace.visibilityDefaults`), also from `lithe-core-rules`.
+    WorkspaceVisibilityDefaults,
+    /// Resolves terminal link candidates into file or external targets (`terminal.parseLinkTarget`).
+    TerminalParseLinkTarget,
     /// Creates one transport-neutral Debug Adapter Protocol session (`debug.createSession`).
     DebugCreateSession,
     /// Queues a launch or attach request for a debug session (`debug.launch`).
     DebugLaunch,
-    /// Creates a Java test launch configuration from JDT LS metadata (`debug.javaTestLaunch`).
-    DebugJavaTestLaunch,
     /// Returns or normalizes portable stepping filters (`debug.steppingFilters`).
     DebugSteppingFilters,
     /// Moves source breakpoints across one UTF-16 editor mutation (`debug.relocateBreakpoints`).
     DebugRelocateBreakpoints,
+    /// Plans the first page of one variable container (`debug.planVariablePage`).
+    DebugPlanVariablePage,
+    /// Merges one variable page into its paging cursor (`debug.reduceVariablePage`).
+    DebugReduceVariablePage,
+    /// Plans the first request of one disassembly fetch (`debug.planDisassemblyWindow`).
+    DebugPlanDisassemblyWindow,
+    /// Reduces one disassembly reply to the next bounded step (`debug.reduceDisassemblyPage`).
+    DebugReduceDisassemblyPage,
     /// Replaces breakpoints for one source file (`debug.setBreakpoints`).
     DebugSetBreakpoints,
     /// Replaces exception filters for one debug session (`debug.setExceptionBreakpoints`).
@@ -380,11 +456,23 @@ pub enum CoreCommand {
     DebugDestroySession,
     /// Applies validated UTF-16 LSP text edits (`lsp.applyTextEdits`).
     LspApplyTextEdits,
+    /// Validates workspace-edit targets and orders their commit
+    /// (`lsp.planWorkspaceEdit`).
+    LspPlanWorkspaceEdit,
+    /// Decides whether a language-server jump target opens, opens read-only
+    /// or is refused (`lsp.classifyNavigationTarget`).
+    LspClassifyNavigationTarget,
     /// Applies a deterministic line-level editing transform
     /// (`editor.lineEdit`).
     EditorLineEdit,
+    /// Validates and orders a plugin document edit batch
+    /// (`editor.planTextEdits`).
+    EditorPlanTextEdits,
     /// Parses a line or line:column navigation input (`editor.parseNavigationInput`).
     EditorParseNavigationInput,
+    /// Reduces one bounded back/forward navigation history event
+    /// (`editor.navigationHistory.reduce`).
+    EditorNavigationHistoryReduce,
     /// Resolves the line comment token for a file extension
     /// (`editor.lineCommentToken`).
     EditorLineCommentToken,
@@ -399,25 +487,16 @@ pub enum CoreCommand {
     LspBuiltinHover,
     /// Provides same-document fallback navigation (`lsp.builtinNavigation`).
     LspBuiltinNavigation,
+    /// Merges completion lists from prioritized providers (`lsp.mergeCompletions`).
+    LspMergeCompletions,
+    /// Decides whether a language server may start automatically (`lsp.activationPolicy`).
+    LspActivationPolicy,
+    /// Filters, orders, and groups Problems tool-window diagnostics (`lsp.problems.query`).
+    LspProblemsQuery,
     /// Starts and initializes a managed language server (`lsp.startServer`).
     LspStartServer,
-    /// Derives the durable JDT LS workspace directory key (`lsp.jdtWorkspaceKey`).
-    LspJdtWorkspaceKey,
-    /// Plans Java workspace activation and change handling (`java.workspacePolicy`).
-    JavaWorkspacePolicy,
-    /// Projects JDT main/test discovery and test outcomes into editor Run markers (`java.runMarkers`).
-    JavaRunMarkers,
-    /// Selects expired inactive JDT LS workspace caches (`java.jdtCacheRetention`).
-    JavaJdtCacheRetention,
-    /// Derives a JDT LS workspace fingerprint from platform observations (`java.jdtWorkspaceFingerprint`).
-    JavaJdtWorkspaceFingerprint,
     /// Gracefully shuts down a managed server (`lsp.stopServer`).
     LspStopServer,
-    /// Retries Maven profile application for an existing Java session.
-    LspRetryMavenProfiles,
-    /// Sends a changed Maven configuration to a running Java session
-    /// (`lsp.updateMavenConfiguration`).
-    LspUpdateMavenConfiguration,
     /// Replaces the plugin settings a plugin-provided server reads
     /// (`lsp.updateWorkspaceConfiguration`).
     LspUpdateWorkspaceConfiguration,
@@ -443,16 +522,17 @@ pub enum CoreCommand {
     LspKeymapImportRequest,
     /// Invokes one plugin function (`lsp.functionRequest`).
     LspFunctionRequest,
+    /// Replaces the plugins and workspace contexts the cross-plugin function
+    /// relay checks calls against (`lsp.configureFunctionRelay`).
+    LspConfigureFunctionRelay,
     /// Answers a plugin backend's host-service request (`lsp.hostResponse`).
     LspHostResponse,
     /// Sends a plugin backend one host notification (`lsp.hostNotify`).
     LspHostNotify,
-    /// Queues shared Java gutter marker resolution (`java.navigationMarkers`).
-    JavaNavigationMarkers,
-    /// Queues shared Java entry selection, build and classpath preparation (`java.prepareLaunch`).
-    JavaPrepareLaunch,
-    /// Queues click-time Java navigation resolution (`java.resolveNavigation`).
-    JavaResolveNavigation,
+    /// Sends a plugin-owned language server one request of its backend (`lsp.pluginServerRequest`).
+    LspPluginServerRequest,
+    /// Sends a plugin-owned language server one notification of its backend (`lsp.pluginServerNotify`).
+    LspPluginServerNotify,
     /// Cancels one pending semantic request (`lsp.cancelOperation`).
     LspCancelOperation,
     /// Drains queued session events (`lsp.pollEvents`).
@@ -467,8 +547,6 @@ pub enum CoreCommand {
     RunConfigInspect,
     /// Reads effective saved tool paths for one Provider root (`runConfig.projectToolchain`).
     RunConfigProjectToolchain,
-    /// Selects an automatic project JDK (`runConfig.selectJava`).
-    RunConfigSelectJava,
     /// Regenerates detected run configurations (`runConfig.generate`).
     RunConfigGenerate,
     /// Formats argument vectors as reversible editor text (`runConfig.argumentText`).
@@ -489,20 +567,6 @@ pub enum CoreCommand {
     RunConfigCreateLaunchPlan,
     /// Resolves user choices for a provider-owned launch (`runConfig.providerLaunchInputs`).
     RunConfigProviderLaunchInputs,
-    /// Counts workspace uses of Java declarations (`java.codeVision`).
-    JavaCodeVision,
-    /// Resolves a package-qualified Java class name (`java.className`).
-    JavaClassName,
-    /// Finds a Java type or member declaration (`java.sourceDefinition`).
-    JavaSourceDefinition,
-    /// Reads a Spring server port from configuration (`java.serverPort`).
-    JavaServerPort,
-    /// Computes lightweight Java structure features (`java.structure`).
-    JavaStructure,
-    /// Builds Spring configuration, bean, injection, and endpoint indexes (`spring.index`).
-    SpringIndex,
-    /// Builds MyBatis mapper-interface and XML statement indexes (`mybatis.index`).
-    MybatisIndex,
     /// Reads normalized repository and working-tree state (`git.status`).
     GitStatus,
     /// Lists one level of a summarized untracked directory (`git.untrackedDirectory`).
@@ -627,6 +691,12 @@ pub enum CoreCommand {
     GitParsePatch,
     /// Applies a patch to the index or working tree (`git.apply`).
     GitApply,
+    /// Plans commit-review blocks and their Core-owned patches (`git.planDiffBlocks`).
+    GitPlanDiffBlocks,
+    /// Includes, excludes or rolls back one planned block (`git.applyDiffBlock`).
+    GitApplyDiffBlock,
+    /// Stages one editor gutter change with its original bytes (`git.stageGutterChange`).
+    GitStageGutterChange,
     /// Lists references and bounded commit history (`git.history`).
     GitHistory,
     /// Filters commit dates against explicit absolute bounds (`git.historyQuery`).
@@ -643,6 +713,18 @@ pub enum CoreCommand {
     GitBranchNamePreview,
     /// Assigns palette slots to a page of ordered repository identities.
     GitRepositoryColorAssignments,
+    /// Plans a branch Update or Pull from collected facts (`git.updatePlan`).
+    GitUpdatePlan,
+    /// Plans history refresh windows, page merges, and selection retention (`git.historyWindow`).
+    GitHistoryWindow,
+    /// Projects the commit graph's lanes, colors, routes, and labels (`git.graphProjection`).
+    GitGraphProjection,
+    /// Drops targets already covered by a selected untracked summary (`git.normalizeChangeTargets`).
+    GitNormalizeChangeTargets,
+    /// Validates an interactive rebase draft and derives its messages (`git.rebasePlanPreview`).
+    GitRebasePlanPreview,
+    /// Groups one kind of loaded references into an ordered tree (`git.referenceTree`).
+    GitReferenceTree,
     /// Resolves the destination and commits for a branch push (`git.pushPreview`).
     GitPushPreview,
     /// Resolves metadata for one commit (`git.commit`).
@@ -731,10 +813,18 @@ impl CoreCommand {
             "agent.install" => Some(Self::AgentInstall),
             "agent.uninstall" => Some(Self::AgentUninstall),
             "agent.installCli" => Some(Self::AgentInstallCli),
-            "agent.parseProviderConfiguration" => Some(Self::AgentParseProviderConfiguration),
+            "agent.edits.reversePlan" => Some(Self::AgentEditsReversePlan),
+            "agent.hooks.validateDraft" => Some(Self::AgentHooksValidateDraft),
+            "agent.attachments.retentionPlan" => Some(Self::AgentAttachmentsRetentionPlan),
             "ai.commitInputBudget" => Some(Self::AiCommitInputBudget),
             "ai.planCommit" => Some(Self::AiPlanCommit),
             "ai.decodeCommitMessage" => Some(Self::AiDecodeCommitMessage),
+            "ai.configuration.sources" => Some(Self::AiConfigurationSources),
+            "ai.configuration.parse" => Some(Self::AiConfigurationParse),
+            "ai.pullRequest.plan" => Some(Self::AiPullRequestPlan),
+            "ai.pullRequest.decode" => Some(Self::AiPullRequestDecode),
+            "ai.inlineEdit.plan" => Some(Self::AiInlineEditPlan),
+            "ai.inlineEdit.decode" => Some(Self::AiInlineEditDecode),
             "mcp.parseConfiguration" => Some(Self::McpParseConfiguration),
             "mcp.parseRegistry" => Some(Self::McpParseRegistry),
             "mcp.featuredRegistry" => Some(Self::McpFeaturedRegistry),
@@ -742,6 +832,9 @@ impl CoreCommand {
             "mcp.probe" => Some(Self::McpProbe),
             "mcp.toolPolicy" => Some(Self::McpToolPolicy),
             "mcp.commandLine" => Some(Self::McpCommandLine),
+            "mcp.librarySnapshot" => Some(Self::McpLibrarySnapshot),
+            "mcp.validateDraft" => Some(Self::McpValidateDraft),
+            "mcp.batchPlan" => Some(Self::McpBatchPlan),
             "plugins.declarative.validate" => Some(Self::PluginsDeclarativeValidate),
             "plugins.nativeUI.validateData" => Some(Self::PluginsNativeUIValidateData),
             "plugins.declarative.runPlan" => Some(Self::PluginsDeclarativeRunPlan),
@@ -750,6 +843,13 @@ impl CoreCommand {
             "plugins.declarative.languageServerLaunchPlan" => {
                 Some(Self::PluginsDeclarativeLanguageServerLaunchPlan)
             }
+            "plugins.languageServers.decodeLaunch" => {
+                Some(Self::PluginsLanguageServersDecodeLaunch)
+            }
+            "plugins.languageServers.stateRetention" => {
+                Some(Self::PluginsLanguageServersStateRetention)
+            }
+            "plugins.contentProviders.decode" => Some(Self::PluginsContentProvidersDecode),
             "debug.adapters.startArguments" => Some(Self::DebugAdaptersStartArguments),
             "debug.validateAdapterEndpoint" => Some(Self::DebugValidateAdapterEndpoint),
             "debug.adapters.executablePlan" => Some(Self::DebugAdaptersExecutablePlan),
@@ -765,6 +865,9 @@ impl CoreCommand {
             }
             "plugins.declarative.decodeGrammar" => Some(Self::PluginsDeclarativeDecodeGrammar),
             "plugins.editorActions.decode" => Some(Self::PluginsEditorActionsDecode),
+            "plugins.hostApi.describe" => Some(Self::PluginsHostApiDescribe),
+            "plugins.hostApi.authorize" => Some(Self::PluginsHostApiAuthorize),
+            "plugins.editorProviders.decode" => Some(Self::PluginsEditorProvidersDecode),
             "keymap.decodeImport" => Some(Self::KeymapDecodeImport),
             "keymap.planImportSources" => Some(Self::KeymapPlanImportSources),
             "keymap.planImportBindings" => Some(Self::KeymapPlanImportBindings),
@@ -781,6 +884,11 @@ impl CoreCommand {
             "toolchains.checkVersion" => Some(Self::ToolchainsCheckVersion),
             "toolchains.discoveryPlan" => Some(Self::ToolchainsDiscoveryPlan),
             "toolchains.candidates" => Some(Self::ToolchainsCandidates),
+            "toolchains.instantiateLaunch" => Some(Self::ToolchainsInstantiateLaunch),
+            "run.decodeStart" => Some(Self::RunDecodeStart),
+            "debug.decodeBackendConfiguration" => Some(Self::DebugDecodeBackendConfiguration),
+            "outputLinks.match" => Some(Self::OutputLinksMatch),
+            "outputLinks.decodeResolution" => Some(Self::OutputLinksDecodeResolution),
             "build.detect" => Some(Self::BuildDetect),
             "build.projectOptions" => Some(Self::BuildProjectOptions),
             "build.resolveStoredOptions" => Some(Self::BuildResolveStoredOptions),
@@ -808,7 +916,8 @@ impl CoreCommand {
             "build.decodeDiagnostics" => Some(Self::BuildDecodeDiagnostics),
             "build.decodeDependencies" => Some(Self::BuildDecodeDependencies),
             "build.syncFingerprint" => Some(Self::BuildSyncFingerprint),
-            "build.languageImport" => Some(Self::BuildLanguageImport),
+            "build.resolveTestRunOutcome" => Some(Self::BuildResolveTestRunOutcome),
+            "build.mergeTestOutcomes" => Some(Self::BuildMergeTestOutcomes),
             "vcs.detectRoots" => Some(Self::VcsDetectRoots),
             "vcs.ownerOf" => Some(Self::VcsOwnerOf),
             "vcs.decodeReply" => Some(Self::VcsDecodeReply),
@@ -833,7 +942,14 @@ impl CoreCommand {
             "workspace.refreshIndexing" => Some(Self::WorkspaceRefreshIndexing),
             "workspace.filterChanges" => Some(Self::WorkspaceFilterChanges),
             "workspace.listDirectories" => Some(Self::WorkspaceListDirectories),
+            "workspace.orderEntries" => Some(Self::WorkspaceOrderEntries),
+            "workspace.rankNames" => Some(Self::WorkspaceRankNames),
+            "workspace.planDuplicate" => Some(Self::WorkspacePlanDuplicate),
+            "workspace.planPaste" => Some(Self::WorkspacePlanPaste),
+            "workspace.reduceDirectoryAction" => Some(Self::WorkspaceReduceDirectoryAction),
+            "workspace.relocateDirectoryRules" => Some(Self::WorkspaceRelocateDirectoryRules),
             "workspace.repositories" => Some(Self::WorkspaceRepositories),
+            "workspace.recentProjects.reduce" => Some(Self::WorkspaceRecentProjectsReduce),
             "workspace.searchIndex.warm" => Some(Self::WorkspaceSearchIndexWarm),
             "workspace.searchIndex.update" => Some(Self::WorkspaceSearchIndexUpdate),
             "workspace.searchIndex.invalidate" => Some(Self::WorkspaceSearchIndexInvalidate),
@@ -847,35 +963,41 @@ impl CoreCommand {
             "file.write" => Some(Self::FileWrite),
             "document.lifecycle" => Some(Self::DocumentLifecycle),
             "document.classifyText" => Some(Self::DocumentClassifyText),
+            "document.planSaveBatch" => Some(Self::DocumentPlanSaveBatch),
+            "document.reduceSaveBatch" => Some(Self::DocumentReduceSaveBatch),
             "history.record" => Some(Self::HistoryRecord),
             "history.entries" => Some(Self::HistoryEntries),
             "history.content" => Some(Self::HistoryContent),
             "history.relocate" => Some(Self::HistoryRelocate),
+            "history.planEvent" => Some(Self::HistoryPlanEvent),
             "history.rename" => Some(Self::HistoryRename),
             "history.delete" => Some(Self::HistoryDelete),
             "history.ignorePreview" => Some(Self::HistoryIgnorePreview),
             "history.usage" => Some(Self::HistoryUsage),
             "history.clear" => Some(Self::HistoryClear),
-            "maven.scan" => Some(Self::MavenScan),
-            "maven.launchPlan" => Some(Self::MavenLaunchPlan),
+            "diff.compareTexts" => Some(Self::DiffCompareTexts),
             "execution.resolveEnvironment" => Some(Self::ExecutionResolveEnvironment),
             "execution.resolveSearchPath" => Some(Self::ExecutionResolveSearchPath),
-            "execution.planLaunchCommand" => Some(Self::ExecutionPlanLaunchCommand),
             "processLifecycle.resolve" => Some(Self::ProcessLifecycleResolve),
             "processLifecycle.inventory" => Some(Self::ProcessLifecycleInventory),
             "processLifecycle.settle" => Some(Self::ProcessLifecycleSettle),
-            "maven.dependencyPlan" => Some(Self::MavenDependencyPlan),
-            "maven.dependencies" => Some(Self::MavenDependencies),
-            "maven.diagnostics" => Some(Self::MavenDiagnostics),
-            "maven.testResults" => Some(Self::MavenTestResults),
             "markdown.render" => Some(Self::MarkdownRender),
             "keymap.parseContext" => Some(Self::KeymapParseContext),
             "keymap.evaluateContext" => Some(Self::KeymapEvaluateContext),
+            "keymap.analyzeConflicts" => Some(Self::KeymapAnalyzeConflicts),
+            "keymap.modifierGestureStep" => Some(Self::KeymapModifierGestureStep),
+            "editor.workbenchState.reduce" => Some(Self::EditorWorkbenchStateReduce),
+            "workspace.classifyVisibility" => Some(Self::WorkspaceClassifyVisibility),
+            "workspace.visibilityDefaults" => Some(Self::WorkspaceVisibilityDefaults),
+            "terminal.parseLinkTarget" => Some(Self::TerminalParseLinkTarget),
             "debug.createSession" => Some(Self::DebugCreateSession),
             "debug.launch" => Some(Self::DebugLaunch),
-            "debug.javaTestLaunch" => Some(Self::DebugJavaTestLaunch),
             "debug.steppingFilters" => Some(Self::DebugSteppingFilters),
             "debug.relocateBreakpoints" => Some(Self::DebugRelocateBreakpoints),
+            "debug.planVariablePage" => Some(Self::DebugPlanVariablePage),
+            "debug.reduceVariablePage" => Some(Self::DebugReduceVariablePage),
+            "debug.planDisassemblyWindow" => Some(Self::DebugPlanDisassemblyWindow),
+            "debug.reduceDisassemblyPage" => Some(Self::DebugReduceDisassemblyPage),
             "debug.setBreakpoints" => Some(Self::DebugSetBreakpoints),
             "debug.setExceptionBreakpoints" => Some(Self::DebugSetExceptionBreakpoints),
             "debug.setFunctionBreakpoints" => Some(Self::DebugSetFunctionBreakpoints),
@@ -892,23 +1014,23 @@ impl CoreCommand {
             "debug.disconnect" => Some(Self::DebugDisconnect),
             "debug.destroySession" => Some(Self::DebugDestroySession),
             "lsp.applyTextEdits" => Some(Self::LspApplyTextEdits),
+            "lsp.planWorkspaceEdit" => Some(Self::LspPlanWorkspaceEdit),
+            "lsp.classifyNavigationTarget" => Some(Self::LspClassifyNavigationTarget),
             "editor.lineEdit" => Some(Self::EditorLineEdit),
+            "editor.planTextEdits" => Some(Self::EditorPlanTextEdits),
             "editor.parseNavigationInput" => Some(Self::EditorParseNavigationInput),
+            "editor.navigationHistory.reduce" => Some(Self::EditorNavigationHistoryReduce),
             "editor.lineCommentToken" => Some(Self::EditorLineCommentToken),
             "network.proxyPolicy" => Some(Self::NetworkProxyPolicy),
             "lsp.plainSnippet" => Some(Self::LspPlainSnippet),
             "lsp.builtinCompletions" => Some(Self::LspBuiltinCompletions),
             "lsp.builtinHover" => Some(Self::LspBuiltinHover),
             "lsp.builtinNavigation" => Some(Self::LspBuiltinNavigation),
+            "lsp.mergeCompletions" => Some(Self::LspMergeCompletions),
+            "lsp.activationPolicy" => Some(Self::LspActivationPolicy),
+            "lsp.problems.query" => Some(Self::LspProblemsQuery),
             "lsp.startServer" => Some(Self::LspStartServer),
-            "lsp.jdtWorkspaceKey" => Some(Self::LspJdtWorkspaceKey),
-            "java.workspacePolicy" => Some(Self::JavaWorkspacePolicy),
-            "java.runMarkers" => Some(Self::JavaRunMarkers),
-            "java.jdtCacheRetention" => Some(Self::JavaJdtCacheRetention),
-            "java.jdtWorkspaceFingerprint" => Some(Self::JavaJdtWorkspaceFingerprint),
             "lsp.stopServer" => Some(Self::LspStopServer),
-            "lsp.retryMavenProfiles" => Some(Self::LspRetryMavenProfiles),
-            "lsp.updateMavenConfiguration" => Some(Self::LspUpdateMavenConfiguration),
             "lsp.updateWorkspaceConfiguration" => Some(Self::LspUpdateWorkspaceConfiguration),
             "lsp.documentUri" => Some(Self::LspDocumentUri),
             "lsp.syncDocument" => Some(Self::LspSyncDocument),
@@ -921,10 +1043,11 @@ impl CoreCommand {
             "lsp.toolchainRequest" => Some(Self::LspToolchainRequest),
             "lsp.keymapImportRequest" => Some(Self::LspKeymapImportRequest),
             "lsp.functionRequest" => Some(Self::LspFunctionRequest),
+            "lsp.configureFunctionRelay" => Some(Self::LspConfigureFunctionRelay),
             "lsp.hostResponse" => Some(Self::LspHostResponse),
             "lsp.hostNotify" => Some(Self::LspHostNotify),
-            "java.resolveNavigation" => Some(Self::JavaResolveNavigation),
-            "java.prepareLaunch" => Some(Self::JavaPrepareLaunch),
+            "lsp.pluginServerRequest" => Some(Self::LspPluginServerRequest),
+            "lsp.pluginServerNotify" => Some(Self::LspPluginServerNotify),
             "lsp.cancelOperation" => Some(Self::LspCancelOperation),
             "lsp.pollEvents" => Some(Self::LspPollEvents),
             "lsp.setDetailedDiagnostics" => Some(Self::LspSetDetailedDiagnostics),
@@ -932,7 +1055,6 @@ impl CoreCommand {
             "lsp.destroyServer" => Some(Self::LspDestroyServer),
             "runConfig.inspect" => Some(Self::RunConfigInspect),
             "runConfig.projectToolchain" => Some(Self::RunConfigProjectToolchain),
-            "runConfig.selectJava" => Some(Self::RunConfigSelectJava),
             "runConfig.generate" => Some(Self::RunConfigGenerate),
             "runConfig.argumentText" => Some(Self::RunConfigArgumentText),
             "runConfig.resolve" => Some(Self::RunConfigResolve),
@@ -945,14 +1067,6 @@ impl CoreCommand {
             "runConfig.createUserConfiguration" => Some(Self::RunConfigCreateUserConfiguration),
             "runConfig.createLaunchPlan" => Some(Self::RunConfigCreateLaunchPlan),
             "runConfig.providerLaunchInputs" => Some(Self::RunConfigProviderLaunchInputs),
-            "java.codeVision" => Some(Self::JavaCodeVision),
-            "java.className" => Some(Self::JavaClassName),
-            "java.sourceDefinition" => Some(Self::JavaSourceDefinition),
-            "java.serverPort" => Some(Self::JavaServerPort),
-            "java.structure" => Some(Self::JavaStructure),
-            "java.navigationMarkers" => Some(Self::JavaNavigationMarkers),
-            "spring.index" => Some(Self::SpringIndex),
-            "mybatis.index" => Some(Self::MybatisIndex),
             "git.status" => Some(Self::GitStatus),
             "git.untrackedDirectory" => Some(Self::GitUntrackedDirectory),
             "git.commitState" => Some(Self::GitCommitState),
@@ -1015,6 +1129,9 @@ impl CoreCommand {
             "git.diff" => Some(Self::GitDiff),
             "git.parsePatch" => Some(Self::GitParsePatch),
             "git.apply" => Some(Self::GitApply),
+            "git.planDiffBlocks" => Some(Self::GitPlanDiffBlocks),
+            "git.applyDiffBlock" => Some(Self::GitApplyDiffBlock),
+            "git.stageGutterChange" => Some(Self::GitStageGutterChange),
             "git.history" => Some(Self::GitHistory),
             "git.historyQuery" => Some(Self::GitHistoryQuery),
             "git.references" => Some(Self::GitReferences),
@@ -1023,6 +1140,12 @@ impl CoreCommand {
             "git.historyLocate" => Some(Self::GitHistoryLocate),
             "git.branchNamePreview" => Some(Self::GitBranchNamePreview),
             "git.repositoryColorAssignments" => Some(Self::GitRepositoryColorAssignments),
+            "git.updatePlan" => Some(Self::GitUpdatePlan),
+            "git.historyWindow" => Some(Self::GitHistoryWindow),
+            "git.graphProjection" => Some(Self::GitGraphProjection),
+            "git.normalizeChangeTargets" => Some(Self::GitNormalizeChangeTargets),
+            "git.rebasePlanPreview" => Some(Self::GitRebasePlanPreview),
+            "git.referenceTree" => Some(Self::GitReferenceTree),
             "git.pushPreview" => Some(Self::GitPushPreview),
             "git.commit" => Some(Self::GitCommit),
             "git.commitFiles" => Some(Self::GitCommitFiles),
@@ -1073,9 +1196,7 @@ mod tests {
     fn parses_semantic_lsp_runtime_commands() {
         for command in [
             "lsp.startServer",
-            "lsp.jdtWorkspaceKey",
             "lsp.stopServer",
-            "lsp.updateMavenConfiguration",
             "lsp.updateWorkspaceConfiguration",
             "lsp.syncDocument",
             "lsp.closeDocument",
@@ -1085,8 +1206,14 @@ mod tests {
             "lsp.toolchainRequest",
             "lsp.keymapImportRequest",
             "lsp.functionRequest",
+            "lsp.configureFunctionRelay",
             "lsp.hostResponse",
             "lsp.hostNotify",
+            "lsp.pluginServerRequest",
+            "lsp.pluginServerNotify",
+            "plugins.languageServers.decodeLaunch",
+            "plugins.languageServers.stateRetention",
+            "plugins.contentProviders.decode",
             "lsp.cancelOperation",
             "lsp.pollEvents",
             "lsp.waitEvents",
@@ -1123,14 +1250,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_java_launch_command_planner() {
-        assert!(matches!(
-            CoreCommand::parse("execution.planLaunchCommand"),
-            Some(CoreCommand::ExecutionPlanLaunchCommand)
-        ));
-    }
-
-    #[test]
     fn parses_process_lifecycle_command() {
         assert!(matches!(
             CoreCommand::parse("processLifecycle.resolve"),
@@ -1147,21 +1266,16 @@ mod tests {
     }
 
     #[test]
-    fn parses_maven_test_results_command() {
-        assert!(matches!(
-            CoreCommand::parse("maven.testResults"),
-            Some(CoreCommand::MavenTestResults)
-        ));
-    }
-
-    #[test]
     fn parses_debug_runtime_commands() {
         for command in [
             "debug.createSession",
             "debug.launch",
-            "debug.javaTestLaunch",
             "debug.steppingFilters",
             "debug.relocateBreakpoints",
+            "debug.planVariablePage",
+            "debug.reduceVariablePage",
+            "debug.planDisassemblyWindow",
+            "debug.reduceDisassemblyPage",
             "debug.setBreakpoints",
             "debug.setExceptionBreakpoints",
             "debug.setFunctionBreakpoints",
@@ -1180,6 +1294,19 @@ mod tests {
             "debug.transport.policy",
             "debug.transport.handle",
             "debug.transport.release",
+        ] {
+            assert!(CoreCommand::parse(command).is_some(), "missing {command}");
+        }
+    }
+
+    #[test]
+    fn parses_plugin_run_debug_and_output_link_commands() {
+        for command in [
+            "toolchains.instantiateLaunch",
+            "run.decodeStart",
+            "debug.decodeBackendConfiguration",
+            "outputLinks.match",
+            "outputLinks.decodeResolution",
         ] {
             assert!(CoreCommand::parse(command).is_some(), "missing {command}");
         }

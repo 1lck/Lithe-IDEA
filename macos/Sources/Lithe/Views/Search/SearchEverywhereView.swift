@@ -243,13 +243,13 @@ private struct SearchEverywhereContent: View {
         let value: FileSearchResult
     }
 
-    /// 按相关度降序。同分保持原顺序，避免逐字输入时行位置来回跳动。
+    /// 按 Core 在截断前算出的 `matchingDegree` 降序。同分保持原顺序，避免逐字输入时行位置来回跳动。
     private func rankedResults(_ results: [FileSearchResult]) -> [SearchItem] {
         var ranked: [RankedResult] = []
         ranked.reserveCapacity(results.count)
         for (index, value) in results.enumerated() {
             ranked.append(
-                RankedResult(index: index, score: SearchRelevance.score(value, query: query), value: value)
+                RankedResult(index: index, score: value.matchingDegree ?? 0, value: value)
             )
         }
         ranked.sort { left, right in
@@ -637,7 +637,7 @@ private struct SearchEverywhereContent: View {
         return parent
     }
 
-    /// 结果归属的 Maven 模块 artifactID；非 Maven 项目或匹配不到时回退到顶层目录名。
+    /// 结果归属的构建系统项目名；匹配不到时回退到顶层目录名。
     private func moduleLabel(for url: URL) -> String {
         moduleLabel(url)
     }
@@ -693,9 +693,9 @@ private struct SearchEverywhereContent: View {
         case .file, .content:
             return LitheIcons.kind(for: result.url, isDirectory: false)
         case .type:
-            return .javaClass
+            return .typeSymbol
         case .symbol:
-            return .javaGeneric
+            return .symbol
         }
     }
 

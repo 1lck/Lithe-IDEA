@@ -93,6 +93,10 @@ pub fn cancel(operation_id: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Fails with the cancellation error when the current scope was cancelled.
+///
+/// Long-running Core work calls this between steps; outside a scope it always
+/// succeeds.
 pub fn check() -> Result<(), CoreError> {
     CURRENT.with(|current| {
         let Some(state) = current.borrow().as_ref().cloned() else {

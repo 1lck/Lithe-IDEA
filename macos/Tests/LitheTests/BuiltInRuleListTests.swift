@@ -1,5 +1,7 @@
+import Foundation
 import LitheCoreContracts
 import Testing
+@testable import Lithe
 
 /// Built-in rules shown as editable lines, where deleting a line turns the rule off.
 struct BuiltInRuleListTests {
@@ -15,8 +17,10 @@ struct BuiltInRuleListTests {
     @Test
     func disabledEntriesTurnOffBuiltInHiddenPaths() {
         let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: ["!**/.git/"])
-        #expect(!rules.hiddenDirectoryNames.contains(".git"))
+        let root = URL(fileURLWithPath: "/tmp/lithe-built-in-rule-list")
+        let git = root.appendingPathComponent(".git")
+        #expect(!rules.isHidden(git, relativeTo: root, isDirectory: true))
         #expect(rules.hiddenFilePatterns.contains("!**/.git/"))
-        #expect(!FileVisibilityRules.default.hiddenDirectoryNames.isEmpty)
+        #expect(FileVisibilityRules.default.isHidden(git, relativeTo: root, isDirectory: true))
     }
 }

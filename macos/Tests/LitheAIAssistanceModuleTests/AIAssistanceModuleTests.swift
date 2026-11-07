@@ -95,4 +95,10 @@ private struct UnusedCommitCore: AICommitPlanning {
     func decodeCommitResponse(protocolName: CommitMessageAPIProtocol, response: Data, includeBody: Bool) throws -> String {
         throw CommitMessageGenerationError.invalidResponse
     }
+    func planPullRequest(input: PullRequestDescriptionInput, settings: CommitMessageAISettings, provider: AIProviderProfile) throws -> AICommitRequestPlan {
+        throw CommitMessageGenerationError.invalidOptions
+    }
+    func decodePullRequestResponse(protocolName: CommitMessageAPIProtocol, response: Data) throws -> PullRequestDescriptionOutput {
+        throw PullRequestDescriptionGenerationError.invalidResponse
+    }
 }

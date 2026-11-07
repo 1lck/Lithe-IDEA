@@ -2,6 +2,13 @@
 //!
 //! Events contain sanitized diagnostics, never command input or environment.
 //! Native process ownership belongs to the `lithe-git-host` adapter.
+//!
+//! Hosts keep a console journal of these events. The journal's record states
+//! and retention budget are part of this contract: `requestStarted` carries
+//! [`JOURNAL_RETENTION`], `finished` carries the record's final state, and
+//! `requestFinished` names the records that never confirmed an exit and
+//! whether a failure needs a record of its own. Hosts store, lock, and
+//! throttle; they do not derive states or redact again.
 
 use crate::protocol::CoreError;
 use serde::Serialize;
@@ -12,6 +19,28 @@ use std::time::Instant;
 const MAX_LINE_BYTES: usize = 16 * 1024;
 const MAX_DIAGNOSTIC_BYTES: usize = 512 * 1024;
 const MAX_OUTPUT_EVENTS: usize = 4096;
+
+/// Console journal retention shared by every host, in host string length units.
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct JournalRetention {
+    /// Records kept across all requests; the oldest are dropped first.
+    pub(crate) max_records: usize,
+    /// Output kept per record; earlier lines are dropped first.
+    pub(crate) max_record_output_characters: usize,
+    /// Output lines kept per record, including empty lines.
+    pub(crate) max_record_output_lines: usize,
+    /// Output kept across all records before the oldest record is dropped.
+    pub(crate) max_total_output_characters: usize,
+}
+
+/// One budget for both products, chosen for the lower resident memory.
+pub(crate) const JOURNAL_RETENTION: JournalRetention = JournalRetention {
+    max_records: 200,
+    max_record_output_characters: 32_768,
+    max_record_output_lines: 2_000,
+    max_total_output_characters: 1_048_576,
+};
 /// A serialized event consumer, invoked synchronously during its owning request.
 pub type EventSink = Arc<dyn Fn(&str) + Send + Sync>;
 
@@ -32,9 +61,16 @@ struct Event<'a> {
 )]
 /// Process start is evidence of a spawned child; failure may have no exit code.
 enum Kind<'a> {
-    RequestStarted,
+    RequestStarted {
+        retention: JournalRetention,
+    },
     RequestFinished {
         error: Option<serde_json::Value>,
+        /// Records of this request still running; hosts mark them `unconfirmed`.
+        unconfirmed_invocations: Vec<u64>,
+        /// The failure happened before any Git process of this request started,
+        /// so it is shown as its own record instead of on an executed command.
+        failure_record: bool,
     },
     Started {
         source: super::console::Source,
@@ -61,6 +97,8 @@ enum Kind<'a> {
         exit_code: Option<i32>,
         duration_milliseconds: u128,
         error: Option<&'a CoreError>,
+        /// `completed` with an exit code; `unconfirmed` when the exit was not observed.
+        state: &'static str,
     },
 }
 
@@ -71,6 +109,10 @@ struct Context {
     next_invocation: u64,
     /// Transfer summaries remain attached to the transfer despite subsequent inspection queries.
     last_transfer: Option<u64>,
+    /// Processes started by the current request.
+    request_invocations: usize,
+    /// Started processes of the current request without a `finished` event.
+    open_invocations: std::collections::BTreeSet<u64>,
 }
 thread_local! { static CURRENT: RefCell<Option<Context>> = const { RefCell::new(None) }; }
 
@@ -99,6 +141,8 @@ pub(crate) fn with_sink<T>(sink: EventSink, operation: impl FnOnce() -> T) -> T 
         operation_id: String::new(),
         next_invocation: 0,
         last_transfer: None,
+        request_invocations: 0,
+        open_invocations: Default::default(),
     }));
     operation()
 }
@@ -116,22 +160,34 @@ pub(crate) fn request_started(operation_id: Option<&str>) {
         let mut current = current.borrow_mut();
         let context = current.as_mut()?;
         context.operation_id = operation_id.unwrap_or_default().to_string();
+        context.request_invocations = 0;
+        context.open_invocations.clear();
         Some((context.sink.clone(), context.operation_id.clone()))
     });
     if let Some((sink, operation_id)) = context {
-        send(&sink, &operation_id, Kind::RequestStarted);
+        send(
+            &sink,
+            &operation_id,
+            Kind::RequestStarted {
+                retention: JOURNAL_RETENTION,
+            },
+        );
     }
 }
 
 /// A final event shares the same ordered channel, including preflight failures.
 pub(crate) fn request_finished(response: &str) {
     let context = CURRENT.with(|current| {
-        current
-            .borrow()
-            .as_ref()
-            .map(|context| (context.sink.clone(), context.operation_id.clone()))
+        current.borrow_mut().as_mut().map(|context| {
+            (
+                context.sink.clone(),
+                context.operation_id.clone(),
+                context.request_invocations,
+                std::mem::take(&mut context.open_invocations),
+            )
+        })
     });
-    let Some((sink, operation_id)) = context else {
+    let Some((sink, operation_id, started, open)) = context else {
         return;
     };
     let value: serde_json::Value = serde_json::from_str(response).unwrap_or_default();
@@ -149,7 +205,21 @@ pub(crate) fn request_finished(response: &str) {
         "details": error.get("details").and_then(|value| value.as_str()).map(redact),
     }));
     let error = error.or_else(|| value.pointer("/data/exitCode").and_then(|value| value.as_i64()).filter(|code| *code != 0).map(|code| serde_json::json!({ "code": "process_failed", "message": format!("Git exited with code {code}") })));
-    send(&sink, &operation_id, Kind::RequestFinished { error });
+    // A request cancelled before any command ran was superseded; it has
+    // nothing to report. Any other early failure needs its own record.
+    let failure_record = started == 0
+        && error
+            .as_ref()
+            .is_some_and(|error| error["code"] != "cancelled");
+    send(
+        &sink,
+        &operation_id,
+        Kind::RequestFinished {
+            error,
+            unconfirmed_invocations: open.into_iter().collect(),
+            failure_record,
+        },
+    );
 }
 
 /// A traced invocation. The byte decoders are independent for stdout/stderr.
@@ -241,6 +311,12 @@ impl Invocation {
                 }
             });
         }
+        CURRENT.with(|current| {
+            if let Some(context) = current.borrow_mut().as_mut() {
+                context.request_invocations += 1;
+                context.open_invocations.insert(self.id);
+            }
+        });
         let arguments = arguments
             .iter()
             .map(|argument| redact(argument))
@@ -386,6 +462,11 @@ impl Invocation {
             message: redact(&error.message),
             details: error.details.as_ref().map(|value| redact(value)),
         });
+        CURRENT.with(|current| {
+            if let Some(context) = current.borrow_mut().as_mut() {
+                context.open_invocations.remove(&self.id);
+            }
+        });
         send(
             &self.sink,
             &self.operation_id,
@@ -395,6 +476,11 @@ impl Invocation {
                 exit_code,
                 duration_milliseconds: self.clock.elapsed().as_millis(),
                 error: error.as_ref(),
+                state: if exit_code.is_some() {
+                    "completed"
+                } else {
+                    "unconfirmed"
+                },
             },
         );
     }
@@ -482,6 +568,19 @@ pub(crate) fn emit(mut value: serde_json::Value) {
     if let Some((sink, operation_id, transfer)) = context {
         if value["type"] == "remoteResult" {
             value["invocationId"] = transfer.into();
+        }
+        // Structured results can carry native error text; it is redacted here
+        // like every other event so hosts never redact a second time.
+        if let Some(error) = value
+            .get_mut("error")
+            .and_then(|error| error.as_object_mut())
+        {
+            for key in ["message", "details"] {
+                if let Some(text) = error.get(key).and_then(|text| text.as_str()) {
+                    let redacted = redact(text);
+                    error.insert(key.into(), redacted.into());
+                }
+            }
         }
         value["operationId"] = operation_id.into();
         deliver(&sink, &value.to_string());
@@ -666,6 +765,62 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(serde_json::json!(events), fixture["events"]);
+    }
+
+    fn capture_request(operation: impl FnOnce()) -> Vec<serde_json::Value> {
+        let captured = Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
+        let sink_capture = captured.clone();
+        with_sink(
+            Arc::new(move |json| {
+                sink_capture
+                    .lock()
+                    .unwrap()
+                    .push(serde_json::from_str(json).unwrap())
+            }),
+            operation,
+        );
+        let events = captured.lock().unwrap().clone();
+        events
+    }
+
+    /// Hosts no longer infer record states; a process whose exit was never
+    /// observed must be named by Core or it would stay "running" forever.
+    #[test]
+    fn request_finished_names_unconfirmed_records_and_early_failures() {
+        let events = capture_request(|| {
+            request_started(Some("lost"));
+            let invocation = Invocation::current().unwrap();
+            invocation.started("/workspace", &["fetch".into()]);
+            drop(invocation);
+            request_finished(r#"{"ok":false,"error":{"code":"timed_out","message":"late"}}"#);
+            request_started(Some("preflight"));
+            request_finished(
+                r#"{"ok":false,"error":{"code":"invalid_request","message":"https://u:p@h/x?client_secret=s"}}"#,
+            );
+            request_started(Some("superseded"));
+            request_finished(r#"{"ok":false,"error":{"code":"cancelled","message":"Cancelled"}}"#);
+        });
+        let finished = events
+            .iter()
+            .filter(|event| event["type"] == "requestFinished")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            finished[0]["unconfirmedInvocations"],
+            serde_json::json!([1])
+        );
+        assert_eq!(finished[0]["failureRecord"], false);
+        assert_eq!(finished[1]["unconfirmedInvocations"], serde_json::json!([]));
+        assert_eq!(finished[1]["failureRecord"], true);
+        assert_eq!(
+            finished[1]["error"]["message"],
+            "https://redacted@h/x?client_secret=<redacted>"
+        );
+        assert_eq!(finished[2]["failureRecord"], false);
+        let started = events
+            .iter()
+            .find(|event| event["type"] == "requestStarted")
+            .unwrap();
+        assert_eq!(started["retention"]["maxRecordOutputCharacters"], 32_768);
     }
 
     #[test]

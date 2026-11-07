@@ -83,13 +83,9 @@ final class MacProjectGenerationPlatform: ProjectGenerationPlatform, @unchecked 
         onOutput: @escaping @Sendable (String) -> Void
     ) async throws {
         let (executable, environment) = await MainActor.run { () -> (URL?, [String: String]) in
-            var environment = self.environment(overrides)
-            // A JDK the generator selected also comes first on PATH, so the
-            // tool and anything it starts use the same Java.
-            if let javaHome = overrides["JAVA_HOME"], !javaHome.isEmpty {
-                environment["PATH"] = javaHome + "/bin:" + (environment["PATH"] ?? "")
-            }
-            return (self.executable(command.command), environment)
+            // Generators own their environment through the manifest `environment`
+            // map; the host only merges it over the process environment.
+            return (self.executable(command.command), self.environment(overrides))
         }
         guard let executable else {
             throw ProjectGenerationError(message: String(

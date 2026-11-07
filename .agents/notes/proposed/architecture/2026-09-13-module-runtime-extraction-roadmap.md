@@ -2,6 +2,8 @@
 
 状态：提议中
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 这是一份逐步完成模块边界的路线图，不代表所有功能现在都已经抽取完成。后续每一步都要先证明模块有真实的所有权和独立测试价值，不能为了目录看起来整齐而制造空壳 target 或包装层。
@@ -113,7 +115,7 @@ command、DTO、错误码、取消或陈旧结果语义。因此先保持 Rust �
 - `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
 - `macos/Sources/LitheCoreContracts/`
 - `macos/Sources/Lithe*Module/`
-- `Plugins/mac/Official/`
+- 已迁出：原 `Plugins/mac/Official/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - `scripts/architecture/verify-module-boundaries.sh`
 - `macos/Tests/LitheApplicationKernelTests/`
 - 各功能模块的对应测试 target

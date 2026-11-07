@@ -6,7 +6,7 @@ import Testing
 @Suite("Remote editor document synchronization")
 struct EditorDocumentSynchronizationTests {
     private func document() -> EditorDocument {
-        EditorDocument(url: URL(fileURLWithPath: "/in-memory/Probe.java"), text: "class Probe {}", modificationDate: nil)
+        EditorDocument(url: URL(fileURLWithPath: "/in-memory/Probe.txt"), text: "probe text", modificationDate: nil)
     }
 
     @Test func nativeDocumentActionsRemainSynchronous() {
@@ -35,10 +35,10 @@ struct EditorDocumentSynchronizationTests {
         #expect(document.needsEditorSynchronization)
         #expect(throws: EditorDocument.DocumentError.self) { try document.save(using: MacWorkspaceFileOperations()) }
         // Explicitly deliver the last browser edit before acknowledging the flush.
-        document.applyLiveEditorEdit(replacedRange: NSRange(location: 6, length: 5), replacement: "中文😀")
+        document.applyLiveEditorEdit(replacedRange: NSRange(location: 6, length: 4), replacement: "中文😀")
         let acknowledge = try #require(release)
         acknowledge(.success(()))
-        #expect(observedText == "class 中文😀 {}")
+        #expect(observedText == "probe 中文😀")
         #expect(permitted)
         #expect(document.needsEditorSynchronization)
     }
@@ -110,16 +110,16 @@ struct EditorDocumentSynchronizationTests {
         #expect(acknowledgments.count == 2)
         first(.success(()))
         first(.failure(EditorDocument.DocumentError.editorNotSynchronized))
-        #expect(savedSnapshots == ["class Probe {}"])
+        #expect(savedSnapshots == ["probe text"])
         // Only the second drain may release the action after its final edit arrives.
-        document.applyLiveEditorText("class Latest {}")
+        document.applyLiveEditorText("latest text")
         let second = try #require(acknowledgments.last)
         second(.success(()))
-        #expect(savedSnapshots == ["class Probe {}", "class Latest {}"])
+        #expect(savedSnapshots == ["probe text", "latest text"])
         #expect(document.needsEditorSynchronization)
     }
     @Test func mixedNewlinesKeepLanguageServerEditPositionsInModelCoordinates() throws {
-        let document = EditorDocument(url: URL(fileURLWithPath: "/in-memory/Mixed.java"),
+        let document = EditorDocument(url: URL(fileURLWithPath: "/in-memory/Mixed.txt"),
             text: "first\rsecond\r\n😀value\n", modificationDate: nil)
         let source = document.text as NSString
         let range = source.range(of: "value")

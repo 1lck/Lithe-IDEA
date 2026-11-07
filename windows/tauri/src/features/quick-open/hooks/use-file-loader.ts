@@ -84,5 +84,7 @@ export const useFileLoader = (isVisible: boolean) => {
     isLoadingFiles,
     isIndexing,
     rootFolderPath,
+    nativeRootPaths,
+    workspaceId,
   };
 };

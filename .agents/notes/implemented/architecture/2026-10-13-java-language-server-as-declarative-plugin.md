@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护；宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 Java 的语言服务器 JDT LS（Eclipse 的 Java 语言服务器，提供补全、诊断和跳转）不再是 Lithe.app 里写死的一部分，而是官方插件 Java Support（`dev.lithe.plugin.java-support`）。插件包拥有 JDT LS、Lombok、调试和测试扩展，以及它运行所用的 JDK；`plugin.json` 声明这些文件在包内的位置和启动方式。过渡期随应用发行、默认启用，用户可以卸载和恢复；完整双架构官方下载上架后默认应用省去资源，迁移与安装引导由[后续分发决策](2026-10-25-java-plugin-distribution-foundation.md)规定。
@@ -42,7 +44,7 @@ Java 的语言服务器 JDT LS（Eclipse 的 Java 语言服务器，提供补全
 - `launch.kind: "runtime"`：用运行时启动包内入口文件，不需要启动脚本。运行时有两种来源：插件自带（`packagedRuntime`，宿主只启动包内这一个文件），或由宿主发现并按 `minimumVersion` 检查版本。
 - 启动模板变量 `${pluginDir}`、`${stateDir}`、`${workspaceStateDir}`、`${arch}`，以及 `initializationOptions`。
 - `settings`：用户可调的选项（整数、枚举、布尔），在启动模板里写 `${setting:<id>}` 引用。Java Support 用它暴露 JDT LS 的最大堆内存和日志级别，决策见 [声明式插件设置](../feature/2026-10-14-declarative-plugin-settings.md)。
-- `hostIntegration`：`{ id, capabilities, resources }`。只有 `dev.lithe` 命名空间的插件可以声明，因为它让受信任的宿主代码去读插件的文件。
+- `hostIntegration`：`{ id, capabilities, resources }`。任何插件都可以声明，不再限于 `dev.lithe` 命名空间（最初只给官方命名空间，2026-11-05 放开）。放开的理由：集成虽然是宿主代码，但只读取声明它的插件自己包内的资源，并把它们交给该插件自己启动的语言服务器或 Java 子进程（扩展 bundle、Lombok agent、测试运行器、调试），没有给插件增加任何权限；普通插件经用户在安装确认窗口确认后，本来就能运行自带的服务器进程。宿主不认识的集成名仍以 `plugin.integration.unsupported` 拒绝。构建系统的 `hostIntegration`（目前只有 `maven`）是另一个声明，仍只给官方命名空间，规则见[构建系统插件契约](2026-10-17-build-system-plugin-contract.md)。
 - 两个 Core 命令：`plugins.declarative.languageServerLaunchPlan` 展开启动计划，`plugins.declarative.checkRuntimeVersion` 解析并比较运行时版本。
 
 API 1 的行为完全不变：已发布的 PHP、Go 包声明 API 1，其参数里的 `${...}` 仍按字面量传递。
@@ -177,6 +179,10 @@ dev.lithe.plugin.java-support/
 
 能把 Java 的全部逻辑搬出宿主，也是 Maven 这类带业务逻辑的模块最终需要的形态。但它要先设计取消、超时、崩溃隔离和权限，而 JDT LS 的启动和资源归属用声明就能解决。两者不冲突，协议可以之后单独提案。
 
+### `hostIntegration` 继续只给官方命名空间
+
+最初的做法。它假定“集成运行受信任的宿主代码，所以只能让官方插件用”。2026-11-05 放弃：Java 插件改为普通插件（不再区分官方和普通插件），这条限制会让它的下载版被宿主拒绝；而且限制没有保护到东西，因为集成读取的路径都必须在声明它的插件包内，交给的也只是这个插件自己启动的进程，普通插件经用户确认安装后本来就能运行自带的服务器进程。放开后宿主仍只执行自己实现的集成，不认识的名字被拒绝，所以普通插件拿到的是“按名字启用一段宿主已有的逻辑”，不是执行任意代码的新途径。
+
 ## 后果
 
 收益：
@@ -199,7 +205,7 @@ dev.lithe.plugin.java-support/
 ## 验证
 
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib plugins`：API 2 的合法与非法清单、启动计划标准答案、运行时版本判定，以及仓库里的官方 `plugin.json`。
-- `./scripts/plugins/verify-official-plugins.sh`：组装三个官方包并校验入口、自带运行时、符号链接和原生代码的位置。
+- 官方插件包的组装与校验（原 verify-official-plugins 脚本：组装三个官方包并校验入口、自带运行时、符号链接和原生代码的位置。）已随插件移出本仓库，由各插件仓库的 CI 负责（#1495）。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'Plugin|LanguageExtensionProcessLifecycleTests|LanguageServerToolServiceTests|JavaLanguageServerRuntimeTests|MacJdtWorkspaceStateTests|MacJdtHostIntegrationStateTests|LanguageToolEnvironmentTests'`：按声明定位资源、路径固定在包内、版本过滤、默认启用、移除与恢复；卸载后 JDT 的索引和 Equinox 配置区被删除（扫描失败或插件被拒绝时保留）；运行时启动的服务器 `PATH` 上先找到宿主选中的运行时。
 - `LITHE_RUN_JAVA_DEBUG_INTEGRATION=1 ./scripts/macos/test/test-macos.sh --filter RealJavaDebugIntegrationTests`：从组装好的插件包启动真实的 JDT LS 并完成 Spring Boot 断点调试。迁移初版时它因 `java.project.getClasspaths` 在服务端抛空指针而失败（迁移前的代码同样失败），该问题已随入口发现的修复一并解决，见 [Java 入口由 JDT 判定](2026-09-21-java-entrypoints-owned-by-jdt.md)。这组测试直接组装调试会话，不验证应用里的能力目录。
 - `./scripts/macos/test/test-macos.sh --filter '(LanguageProviderCatalogSourceTests|RunWorkflowCoordinatorTests|RunConfigurationIntegrationTests)'`：用仓库里的官方 Java 清单验证能力目录保留运行、测试、调试；未声明的插件得不到任何宿主能力；注册表只为声明的能力创建内置工具；声明了 `run` 的语言不要求执行模块。
@@ -212,18 +218,18 @@ dev.lithe.plugin.java-support/
 
 - `shared/contracts/plugins/v1/`
 - `rust/lithe-core/src/plugins/declarative.rs`
-- `Plugins/mac/Official/JavaSupport/`
-- `scripts/plugins/build-official-plugins.sh`
+- 已迁出：原 `Plugins/mac/Official/JavaSupport/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
+- 已迁出：原 `scripts/plugins/build-official-plugins.sh`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - `scripts/macos/package/package-app.sh`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLanguageServerLaunchResolver.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Plugins/HostIntegrations/`
+- 已迁出：原 `macos/Sources/Lithe/Platform/MacOS/Plugins/HostIntegrations/`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
 - `macos/Sources/Lithe/Core/Language/PluginLanguageProviderCatalogSource.swift`
 - `macos/Sources/Lithe/Services/Language/LanguagePackRegistry.swift`
 - `macos/Sources/Lithe/Application/Features/RunWorkflowCoordinator.swift`
 - `macos/Sources/LitheModuleAPI/Plugins/PluginTypes.swift`
-- `macos/Sources/LitheCoreContracts/Language/LanguageServerHostIntegrationContracts.swift`
+- 已迁出：原 `macos/Sources/LitheCoreContracts/Language/LanguageServerHostIntegrationContracts.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`
 - `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
-- `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`
+- 已迁出：原 `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
 - `macos/Sources/LitheLanguageIntelligenceModule/Services/LanguageServerToolService.swift`
 - `macos/Tests/LitheOfficialPluginVerifier/OfficialPluginVerifier.swift`

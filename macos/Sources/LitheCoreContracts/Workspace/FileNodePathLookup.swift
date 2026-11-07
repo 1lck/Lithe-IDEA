@@ -84,8 +84,10 @@ extension FileNode {
     }
 
     /// Adds a file below the directory row that owns its parent path. Nothing
-    /// changes when that directory has not been loaded.
-    package func inserting(file url: URL) -> TreeEdit {
+    /// changes when that directory has not been loaded. `order` returns the
+    /// rows in Core's Project-view order (`workspace.orderEntries`); without
+    /// an order the directory is reloaded instead of guessing a position.
+    package func inserting(file url: URL, order: ([FileNode]) -> [FileNode]?) -> TreeEdit {
         switch placement(of: url.deletingLastPathComponent()) {
         case .belowUnloaded:
             return .unchanged
@@ -98,10 +100,9 @@ extension FileNode {
             if children.contains(where: { !$0.isDirectory && $0.url.lastPathComponent == name }) {
                 return .unchanged
             }
-            let file = FileNode(url: url, isDirectory: false, children: nil)
-            let position = children.firstIndex { Self.treeOrder(file, before: $0) } ?? children.endIndex
-            children.insert(file, at: position)
-            return loadingChildren(children, intoRowAt: directory.url).map(TreeEdit.updated) ?? .reload
+            children.append(FileNode(url: url, isDirectory: false, children: nil))
+            guard let ordered = order(children) else { return .reload }
+            return loadingChildren(ordered, intoRowAt: directory.url).map(TreeEdit.updated) ?? .reload
         }
     }
 
@@ -163,7 +164,8 @@ extension FileNode {
         return nil
     }
 
-    private var firstPathComponent: String {
+    /// The sibling name this row sorts by; a compacted package row sorts by its top folder.
+    package var firstPathComponent: String {
         collapsedAncestorPaths.first.map { ($0 as NSString).lastPathComponent }
             ?? url.lastPathComponent
     }
@@ -212,11 +214,5 @@ extension FileNode {
         for child in children {
             child.appendLoadedDirectoryRows(to: &rows)
         }
-    }
-
-    /// Matches the snapshot scan: directories first, then IDEA's file-name order.
-    private static func treeOrder(_ left: FileNode, before right: FileNode) -> Bool {
-        if left.isDirectory != right.isDirectory { return left.isDirectory }
-        return NaturalNameOrder.compareFileNames(left.firstPathComponent, right.firstPathComponent) < 0
     }
 }

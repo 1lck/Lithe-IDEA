@@ -27,6 +27,7 @@ package final class LanguageTestService: ObservableObject {
     @Published package private(set) var runID: UUID?
     @Published package private(set) var processID: Int32?
 
+    private let outcomeResolver: any TestRunOutcomeResolving
     private let catalog: LanguageProviderCatalog
     private let registry: LanguageTestProviderRegistry
     private let executableResolver: any RunExecutableResolving
@@ -42,15 +43,16 @@ package final class LanguageTestService: ObservableObject {
     private var lastBackendRun: (@MainActor () -> Void)?
     private var lastRun: LastRun?
     private let maximumOutputCharacters = 400_000
-    private static let javaTestTimeoutMilliseconds = 120_000
 
     package init(
+        outcomeResolver: any TestRunOutcomeResolving,
         catalog: LanguageProviderCatalog = .compatibilityFallback,
         registry: LanguageTestProviderRegistry? = nil,
         executableResolver: any RunExecutableResolving,
         processFactory: @escaping () -> any StreamingProcess,
         extensionRequiredLanguageIDs: Set<String> = []
     ) {
+        self.outcomeResolver = outcomeResolver
         self.catalog = catalog
         self.registry = registry ?? .standard(catalog: catalog)
         self.executableResolver = executableResolver
@@ -210,7 +212,6 @@ package final class LanguageTestService: ObservableObject {
             state = .running
             timedOutOperationID = nil
             append("$ \(resolved.executableURL.lastPathComponent) \(plan.launchPlan.arguments.joined(separator: " "))\n\n")
-            let timeoutMilliseconds = Self.testTimeoutMilliseconds(for: plan.frameworkID)
             if let extensionProvider {
                 let session = extensionProvider.makeTestExecutionSession()
                 configureExtensionSession(
@@ -225,7 +226,7 @@ package final class LanguageTestService: ObservableObject {
                     arguments: plan.launchPlan.arguments,
                     workingDirectory: workingDirectory.path,
                     environment: resolved.environment,
-                    timeoutMilliseconds: timeoutMilliseconds
+                    timeoutMilliseconds: nil
                 ))
             } else {
                 let process = processFactory()
@@ -241,7 +242,7 @@ package final class LanguageTestService: ObservableObject {
                     arguments: plan.launchPlan.arguments,
                     workingDirectory: workingDirectory.path,
                     environment: resolved.environment,
-                    timeoutMilliseconds: timeoutMilliseconds
+                    timeoutMilliseconds: nil
                 ))
             }
             return true
@@ -299,19 +300,25 @@ package final class LanguageTestService: ObservableObject {
                 resultsWorkspaceURL = workspaceURL.standardizedFileURL
                 // Only the backend can say that a whole suite/project completed.
                 // Legacy reports without coverage replace their exact returned cases.
-                let keys = Set(result.reports.flatMap(\.tests).map(BuildTestCaseKey.init))
+                // Core merges by id; this adapter only names the ids and prefixes.
+                let previous = testOutcomesByProviderID[providerID] ?? []
                 let coverage = result.reports.flatMap { $0.coverage ?? [] }
-                var outcomes = testOutcomesByProviderID[providerID] ?? []
-                outcomes.removeAll { outcome in
-                    keys.contains(BuildTestCaseKey(outcome))
-                    || coverage.contains { scope in
-                        scope.project == outcome.project
-                        && (scope.suite == nil || scope.suite == outcome.suite)
-                        && (scope.testCase == nil || scope.testCase == outcome.name)
-                    }
+                let merged = try outcomeResolver.mergeTestOutcomes(
+                    previous: previous.map(\.id),
+                    incoming: report.tests.map(\.id),
+                    scope: TestOutcomeMergeScope(
+                        ids: report.tests.map(\.id),
+                        prefixes: coverage.map(Self.coveragePrefix)
+                    )
+                )
+                testOutcomesByProviderID[providerID] = merged.map {
+                    $0.source == .previous ? previous[$0.index] : report.tests[$0.index]
                 }
-                testOutcomesByProviderID[providerID] = outcomes + report.tests
-                state = result.exitCode == 0 ? .passed : .failed(exitCode: result.exitCode)
+                applyVerdict(
+                    termination: .exited(result.exitCode),
+                    scope: scope,
+                    summary: result.reports.isEmpty ? nil : report.summary
+                )
             } catch is CancellationError {
                 if activeOperationID == id.uuidString { state = .cancelled }
             } catch {
@@ -321,6 +328,16 @@ package final class LanguageTestService: ObservableObject {
                 state = .failed(exitCode: -1)
             }
         }
+    }
+
+    /// A coverage scope is a prefix of the ids it completed: a project, one of
+    /// its suites, or (with a case name) exactly one test. `TestCase.id` is
+    /// length-prefixed per part, so a shorter scope never matches another name.
+    private static func coveragePrefix(_ scope: BuildTestResults.Coverage) -> String {
+        // Decoding rejects a case without its suite, so levels are contiguous.
+        [scope.project, scope.suite, scope.testCase]
+            .compactMap { $0.map { "\($0.utf8.count):" + $0 } }
+            .joined()
     }
 
     package func sourceURL(for test: BuildTestResults.TestCase) -> URL? {
@@ -511,7 +528,13 @@ package final class LanguageTestService: ObservableObject {
             errorMessage = message
             append(message + "\n")
         }
-        state = timedOut ? .timedOut : (exitCode == 0 ? .passed : .failed(exitCode: exitCode))
+        // Process-backed providers report no structured results; the verdict
+        // then rests on how the process ended.
+        applyVerdict(
+            termination: timedOut ? .timedOut : .exited(exitCode),
+            scope: lastRun?.scope,
+            summary: nil
+        )
         activeOperationID = nil
         processID = nil
         timedOutOperationID = nil
@@ -524,10 +547,55 @@ package final class LanguageTestService: ObservableObject {
         L10n.string("The build tool timed out.")
     }
 
-    private static func testTimeoutMilliseconds(for frameworkID: String?) -> Int? {
-        switch frameworkID {
-        case "junit": return javaTestTimeoutMilliseconds
-        default: return nil
+    /// Shows Core's tool-neutral verdict. A run that executed no selected test
+    /// is a failure with its own reason, never a pass on exit code 0.
+    private func applyVerdict(
+        termination: TestRunTermination,
+        scope: LanguageTestScope?,
+        summary: BuildTestResults.Summary?
+    ) {
+        let verdict: TestRunVerdict
+        do {
+            verdict = try outcomeResolver.resolveTestRunOutcome(
+                termination: termination,
+                scope: Self.scopeKind(scope),
+                summary: summary.map {
+                    TestRunSummaryCounts(
+                        total: $0.total,
+                        passed: $0.passed,
+                        failed: $0.failed,
+                        errors: $0.errors,
+                        skipped: $0.skipped
+                    )
+                }
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+            append(error.localizedDescription + "\n")
+            state = .failed(exitCode: -1)
+            return
+        }
+        switch verdict.outcome {
+        case .passed: state = .passed
+        case .timedOut: state = .timedOut
+        case .cancelled: state = .cancelled
+        case .testsFailed, .exitedWithError: state = .failed(exitCode: verdict.exitCode ?? -1)
+        case .noTestsMatched, .noTestsFound:
+            let message = verdict.outcome == .noTestsMatched
+                ? L10n.string("No tests matched the selection.")
+                : L10n.string("No tests were found.")
+            errorMessage = message
+            append(message + "\n")
+            state = .failed(exitCode: verdict.exitCode ?? 0)
+        }
+    }
+
+    private static func scopeKind(_ scope: LanguageTestScope?) -> TestRunScopeKind {
+        switch scope {
+        case .none, .workspace: return .workspace
+        case .file: return .suite
+        case .testCase(_, _, let reference?) where reference.testCase == nil: return .suite
+        case .testCase: return .case
         }
     }
 

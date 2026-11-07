@@ -2,9 +2,13 @@
 
 状态：提议中
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护；宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
-Java Support 已经是声明式插件，JDT LS、JDK、Lombok 和调试、测试扩展都由插件包拥有，本提案不重复做插件化。建议下一步把它从“随 Lithe.app 发行”改成“官方签名、独立发布、按需安装”，让不使用 Java 的用户不再下载这部分资源。先完成可信安装、版本匹配拒绝和用户配置迁移，再从主安装包移除资源。现有 `jdt` 宿主集成与 Java 运行、测试、调试是分发提案的当前边界；完整领域后端迁移由 [#1495 清单](2026-10-26-maven-java-domain-plugin-migration.md)继续推进，完成后删除这些宿主专属实现。
+Java Support 已经是声明式插件，JDT LS、JDK、Lombok 和调试、测试扩展都由插件包拥有，本提案不重复做插件化。建议下一步把它从“随 Lithe.app 发行”改成“独立发布、按需安装”，让不使用 Java 的用户不再下载这部分资源。先完成安装、版本匹配拒绝和用户配置迁移，再从主安装包移除资源。现有 `jdt` 宿主集成与 Java 运行、测试、调试是分发提案的当前边界；完整领域后端迁移由 [#1495 清单](2026-10-26-maven-java-domain-plugin-migration.md)继续推进，完成后删除这些宿主专属实现。
+
+2026-11-05 改定身份：Lithe 不再区分官方插件和普通插件，Java 和 Cargo、Maven、Gradle 一样是普通插件，ID 为 `io.github.lithe-idea.java-support`，`signatureRequirement: "none"`，源码在 [Lithe-IDEA/lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)，由 Lithe Store 自动收录。原先“保留官方 ID、加发布者签名”的方案作废；宿主需要解除的限制和旧 ID 的迁移见[通用 API 与语言闸门](2026-11-04-java-extraction-generic-apis-and-gate.md)的 Q1。
 
 ## 问题
 
@@ -28,9 +32,9 @@ Java Support 已经是声明式插件，JDT LS、JDK、Lombok 和调试、测试
 
 ### 独立分发存在几个实际阻碍
 
-1. **信任方式不同。** Java 当前声明 `sameTeamAsHost`，含义是由宿主 app 的代码签名封住资源；`MacOfficialPluginSignatureVerifier` 会拒绝位于宿主 bundle 外的这种包。下载版需要 `publisherPackage` 发布者签名，不能只把同一目录压缩上传。
+1. **信任方式不同。** Java 当前声明 `sameTeamAsHost`，含义是由宿主 app 的代码签名封住资源；`MacOfficialPluginSignatureVerifier` 会拒绝位于宿主 bundle 外的这种包。不能只把同一目录压缩上传。原计划给下载版加 `publisherPackage` 发布者签名，2026-11-05 改为换用普通插件 ID、不签名（见第三节）。
 2. **发布工具还不能原样发布 Java。** `scripts/plugins/official-plugin-releases.mjs` 当前按 API 1、单个下载项生成索引；Java 已使用 API 3，需要准确保留 `requires`，并按架构记录不同下载包和校验值。
-3. **旧宿主不一定能安装新版。** 旧版官方目录将 Java 的签名策略固定为 `sameTeamAsHost`。即使旧宿主认识 API 3 和清单的全部能力，也不代表它能接受下载版的新信任方式。
+3. **旧宿主不一定能安装新版。** 旧版宿主只允许官方命名空间使用 `hostIntegration` 和短工具 ID。即使旧宿主认识 API 3 和清单的全部能力，也会拒绝新 ID 的下载版。
 4. **首次离线体验会变化。** 当前实现明确以“首次启动离线可用”为随包发行的理由。改为按需安装后，未安装 Java 插件的新用户需要联网，或提前准备可信磁盘包。这是本提案建议改变的产品行为，尚未落地。
 5. **语言服务器 JDK 同时参与现有运行时发现。** 资源移出主包时，需要验证项目运行时选择，防止运行或调试落到失效的旧插件路径。
 
@@ -47,32 +51,33 @@ Java Support 已经是声明式插件，JDT LS、JDK、Lombok 和调试、测试
 | Rust Core | 现有清单校验、LSP（语言服务器协议）会话、JDT 适配及运行/测试/调试的共享契约 |
 | 平台存储适配器 | 插件版本目录、下载临时文件、安装记录、日志、索引和可写配置区 |
 
-沿用当前插件 ID，不用新 ID 让用户重新配置 Java。下载版采用新插件版本，不得覆盖已发行 `1.0.0` 的内容；精确版本号在实施和发布时确定。
+下载版使用新 ID `io.github.lithe-idea.java-support`。旧 ID `dev.lithe.plugin.java-support` 只留给随应用发行的内置包，按 [#1357](https://github.com/1lck/Lithe-IDEA/pull/1357) 迁移 Go 和 PHP 的做法，在官方目录里保留旧条目并填写 `communityReplacementID`，引导用户换装新 ID；插件设置、项目 JDK 和运行配置要随 ID 迁移，不让用户重新配置 Java。下载版采用新插件版本，不得覆盖已发行 `1.0.0` 的内容；精确版本号在实施和发布时确定。
 
 本轮不拆 Spring/MyBatis，不把 Maven/Gradle 构建模型搬进 Java 插件，不设计新的 Java 语义分析器，也不顺带把 Run/Test/Debug 改为公共扩展点。后者按 [#1495 领域迁移](2026-10-26-maven-java-domain-plugin-migration.md)与关联 #1210 调试能力推进；历史[公共扩展契约提案](2026-10-13-public-extension-contract-and-provider-api.md)只供核对已有设计，具体字段须随正式契约评审。
 
 ### 二、分发与源码位置
 
-独立分发不要求独立仓库。首期继续在 `Plugins/mac/Official/JavaSupport/` 维护源码，复用主仓库的官方插件构建和发布流程，以插件自己的版本、标签及下载包发布；改插件不再要求用户更新整个 Lithe 安装包。
+下载版的源码、组装和发布在独立仓库 `Lithe-IDEA/lithe-plugin-java`，以插件自己的版本、标签及下载包发布；改插件不再要求用户更新整个 Lithe 安装包。主仓库的 `Plugins/mac/Official/JavaSupport/` 只服务旧 ID 的内置包，等宿主能接受新 ID、用户迁到新 ID 后随旧 ID 一起退役。
 
 - macOS 先发布 `darwin-arm64`、`darwin-x64` 两个包，使用同一插件版本和能力声明，各有自己的 ZIP 和 SHA-256。通用架构的 Lithe 根据实际运行架构选择包，不能依靠文件名猜测架构。
-- 官方插件目录和官方索引保留在主仓库。下载 URL 必须属于索引登记的插件发布仓库，沿用当前索引约束。
-- 主仓库继续拥有现有上游锁定清单、组装、资源完整性和真实 JDT 回归，不因默认应用精简而删除测试或 Windows 仍消费的资源输入。
-- 迁入独立官方仓库是后续可选任务，拟用名 `Lithe-IDEA/lithe-plugin-java`，不作为首期验收前提。届时一次性迁移插件源码及专属测试，不同时保留两份可编辑源码；宿主兼容性测试用固定提交与校验值准备输入，禁止两个仓库各自静默升级一份。
+- 下载版由 Lithe Store 收录：Store 只追踪正式 Release，自动登记下载 URL 和 SHA-256。独立仓库在宿主能接受新 ID 之前只发预发布，Store 不会收录。
+- 主仓库在内置包退役前继续拥有它的上游锁定清单、组装、资源完整性和真实 JDT 回归，不因默认应用精简而删除测试或 Windows 仍消费的资源输入。
+- 一次性迁移插件源码及专属测试，不长期保留两份可编辑源码；宿主兼容性测试用固定提交与校验值准备输入，禁止两个仓库各自静默升级一份。
 
 继续复用现有 JDT LS、Java Debug、Java Test 和 Lombok 组合，首轮迁移不同时升级它们。Java 的符号、源码根、classpath、可运行入口和测试发现仍由现有上游引擎提供，避免把分发改造变成语言后端重写。
 
 ### 三、先解决信任和兼容，再公开下载
 
-发布者签名（Ed25519，对插件完整文件树的签名）与 macOS 原生可执行文件的启动信任是两件事，需要分别验证。
+包的来源信任与 macOS 原生可执行文件的启动信任是两件事，需要分别验证。
 
-- 下载版清单和宿主官方目录一致要求 `publisherPackage`，签名必须覆盖所有最终资源；代码签名、资源规范化等会改变字节的构建步骤全部在包签名之前完成。
-- 旧内置包只能在宿主自身签名封装的 bundle 内按旧策略读取；用户目录里的同名、同版本包不能因此获得旧信任。过渡期允许两种来源时，必须明确检查来源、清单和版本，不能把 Java 的全局校验放宽成“任意一种签名都可以”。
+- 下载版和其他普通插件一样声明 `signatureRequirement: "none"`，不带发布者签名、`bundledSignatureRequirement` 和 `packageTrust`。来源信任靠 Store 登记的 SHA-256 和安装前的用户确认；发布流程不读任何私钥。
+- 新 ID 要能工作，宿主必须先解除两条按官方身份设的限制：`languageServers[].hostIntegration` 只给官方命名空间用，以及不带 `:` 的短工具 ID（Maven 插件依赖的 `java`）要求官方来源。解除方式由通用契约变更确定，不能按插件名加特判。
+- 旧内置包只能在宿主自身签名封装的 bundle 内按旧策略读取；用户目录里的旧 ID 包不能因此获得旧信任，新 ID 也不继承旧 ID 的任何信任。
 - 实测下载包里的 JDK 可执行文件及动态库的签名、解压后的执行权限、隔离属性和系统启动限制；沿用或调整原生签名、公证方式的选择由这轮证据确定，不能靠启动时改写包或移除系统保护来通过。
 - 发布前确定版本不匹配的拒绝方案；不为旧宿主补业务兼容路径。当前索引没有可直接填写的最低宿主版本字段，不能虚构字段，也不能仅凭 `pluginAPIVersion: 3` 判定可安装。若现有能力表不足以表达信任边界变化，先通过通用契约变更补齐拒绝机制，再上架新包。
 - 如需新增兼容或信任能力，契约在主仓库随 Core 修改，合并后按[两仓库同步规则](../../implemented/architecture/2026-10-23-plugin-contract-publishing.md)发布到 `lithe-plugin-docs`；未来独立插件仓库不能直接修改契约副本。
 
-首期在主仓库受保护的官方插件发布流程中完成签名，不引入跨仓库私钥分发。私钥不进入插件、源码、构建缓存或日志；本提案不要求读取或转移私钥。未来迁移独立仓库时，另行确定发布权限和签名流程。
+改为普通插件后，独立仓库的发布流程不需要私钥，也就不存在跨仓库私钥分发的问题。
 
 ### 四、安装、升级和老用户迁移
 
@@ -80,9 +85,9 @@ Java Support 已经是声明式插件，JDT LS、JDK、Lombok 和调试、测试
 
 老用户采用先具备安装能力、再移除内置资源的顺序：
 
-1. **先具备可信安装能力。** 新宿主先实现新信任策略、官方源和下载安装。分发过渡期如仍有内置包，只有它与当前宿主能力匹配时才可作为尚未切换的资源来源；不能把旧 JDT 宿主业务保留为后端迁移失败的兜底。
-2. **安装可信下载版。** 从已发布签名包安装到用户目录，经验证和重启后切换。不要复制旧 bundle 中的包再让客户端自行签名，也不要尝试修改已安装 app。
-3. **单一生效来源。** 同一 ID 只能有一个与当前宿主匹配的生效版本：已验证的用户安装版本优先，过渡宿主中的内置包只作为尚未完成切换时且能力匹配的资源来源。选择规则由通用包管理器执行，避免两个 Java 所有者或两个 JDT 会话同时注册。
+1. **先具备安装能力。** 新宿主先解除第三节的两条官方限制，并能从 Store 下载安装新 ID。分发过渡期如仍有内置包，只有它与当前宿主能力匹配时才可作为尚未切换的资源来源；不能把旧 JDT 宿主业务保留为后端迁移失败的兜底。
+2. **安装下载版。** 从已发布的包安装到用户目录，校验 SHA-256 并重启后切换。不要复制旧 bundle 中的包再让客户端自行签名，也不要尝试修改已安装 app。
+3. **单一生效来源。** 新旧两个 ID 只能有一个生效：装上新 ID 后，旧 ID 的内置包按 `communityReplacementID` 停止注册，过渡宿主中的内置包只作为尚未完成切换时且能力匹配的资源来源。选择规则由通用包管理器执行，避免两个 Java 所有者或两个 JDT 会话同时注册。
 4. **保留用户选择。** 已启用、已禁用和已卸载分别迁移；旧 `.removed-bundled-plugins.json` 标记不能被当作重新启用的授权。插件设置、项目 JDK 和已有运行配置不重置。
 5. **再发布精简主包。** 只有下载、离线安装、迁移和失败恢复都验证后，才删除主包组装步骤。延后安装的用户届时仍可编辑普通文本，但 Java 语言服务、测试和调试需要完成插件安装；产品提示要说明这一变化。
 
@@ -100,7 +105,7 @@ Java Support 已经是声明式插件，JDT LS、JDK、Lombok 和调试、测试
 
 ### 六、Windows 单独验收
 
-Windows 接入依赖声明式插件宿主及其官方签名、下载管理、`jdt` 集成等实际能力，不能把宿主 PR 合并等同于 Java 插件已经可用。
+Windows 接入依赖声明式插件宿主及其下载管理、`jdt` 集成等实际能力，不能把宿主 PR 合并等同于 Java 插件已经可用。
 
 当前 Java 清单还要求 `settings: 2`、`projectGenerators: 1`。只有 Windows 能执行清单中每项必需能力，才能公开 Windows 下载；不能悄悄忽略生成器，或在同一索引版本下发出 `requires` 不同的包。若需要先交付 Java 语言服务，先另立生成器拆包方案并定义依赖和迁移，本提案不默认拆包。
 
@@ -127,17 +132,17 @@ Windows 插件包使用自己的原生运行时、入口和存储适配器，复
 | 阶段 | 交付内容 | 进入下一阶段前必须证明 |
 | --- | --- | --- |
 | 0：确认基线 | 盘点两种 macOS 架构的实际资源、压缩体积、JDK 消费者和离线行为；记录上游版本与许可证 | 明确本轮只改变分发；列出需保留的用户工作流和资源消费者 |
-| 1：可信下载安装 | 信任迁移、不匹配宿主/插件的拒绝、真实 API/能力索引、多架构发布、签名包安装；分发过渡期只允许匹配的内置来源 | 干净环境可构建；下载包能在对应架构实际启动；正式构建拒绝伪造、损坏和未签名包 |
+| 1：下载安装 | 解除官方限制、不匹配宿主/插件的拒绝、Store 收录、多架构发布、新 ID 包安装；分发过渡期只允许匹配的内置来源 | 干净环境可构建；下载包能在对应架构实际启动；宿主拒绝 SHA-256 不符和损坏的包 |
 | 2：老用户切换 | 验证下载版选择、重启切换、设置迁移、失败恢复，以及跳过过渡版的升级路径 | 同一 ID 只有一个生效版本；启用、禁用、卸载选择均正确保留；迁移不依赖用户逐版升级 |
 | 3：移除内置资源 | 删除默认应用组装中的 Java 包，更新推荐安装、离线说明、资源清单与矩阵 | 精简应用不含 JDT/JDK 副本；安装插件后完整 Java 工作流可用 |
-| 后续：独立仓库 | 可选迁移插件源码、专属测试和发布来源，固定宿主测试资源输入 | 无第二份可编辑源码；用户无需重新安装或重置设置 |
+| 独立仓库 | 源码、专属测试和发布流程已迁到 `Lithe-IDEA/lithe-plugin-java`；内置包退役时删除主仓库副本，宿主测试改用固定提交的资源输入 | 无第二份可编辑源码；迁到新 ID 后用户不需要重置设置 |
 | 后续：Windows 对齐 | 补齐必需宿主能力、平台包和真实 Windows 回归 | 同一版本能力声明可执行，Windows 安装目录哈希不变 |
 
-按用户要求，可信下载安装、老用户切换与受发布索引保护的精简构建在同一个实现 PR 中交付，阶段 0 的基线记录一并保留。完成阶段 3 即可验收 macOS 独立分发，不等待独立仓库或 Windows；Windows 另行验收前不声明双端完成。实现分支从最新 `preview` 创建，本地验证后先提交 Draft PR；不通过反复推送试探完整 CI。
+按用户要求，下载安装、老用户切换与受发布索引保护的精简构建在同一个实现 PR 中交付，阶段 0 的基线记录一并保留。完成阶段 3 即可验收 macOS 独立分发，不等待 Windows；Windows 另行验收前不声明双端完成。实现分支从最新 `preview` 创建，本地验证后先提交 Draft PR；不通过反复推送试探完整 CI。
 
 ### 正确做法与反例
 
-正确做法：升级 Java Support 时，由插件流水线固定并校验上游输入，生成对应架构的最终签名包，宿主验证后在用户目录安装；重启后现有 `jdt` 集成读取新包声明的资源。
+正确做法：升级 Java Support 时，由插件流水线固定并校验上游输入，生成对应架构的最终包，宿主校验 SHA-256 后在用户目录安装；重启后现有 `jdt` 集成读取新包声明的资源。
 
 不要这样做：把旧内置目录直接上传为下载包，继续声明 `sameTeamAsHost`；下载后往 `Lithe.app/Contents/Resources` 解压；为了让旧宿主接受下载版而取消官方 ID 的签名检查。这些做法分别破坏独立来源信任、发行基线和官方身份边界。
 
@@ -155,14 +160,14 @@ Windows 插件包使用自己的原生运行时、入口和存储适配器，复
 
 最终可降低宿主对 Java 原始协议的了解，但需要新的领域 Provider 契约、SDK 支持和完整工作流验证。独立分发本身不依赖这些能力，本轮同时推进会扩大回归面，另行规划。
 
-### 换用社区插件 ID
+### 保留官方 ID 并加发布者签名
 
-发布可以更独立，但会改变官方身份、用户配置和迁移路径，还不能使用现有受信任 `jdt` 集成。保留官方 ID 和官方签名，通过明确的来源迁移解决问题。
+原先的选择：沿用 `dev.lithe.plugin.java-support`，下载版带 `publisherPackage` 签名，好处是不改用户配置，也能直接使用受信任的 `jdt` 集成。2026-11-05 放弃，因为 Lithe 不再区分官方插件和普通插件；独立仓库发布还要分发签名私钥。换用普通插件 ID 的代价是宿主要解除 `hostIntegration` 和短工具 ID 的官方限制，并迁移旧 ID 的用户配置。
 
 ## 验收标准
 
 - 全新安装的精简 macOS 应用不含 Java Support 资源、JDT LS 或备用 JDK 副本；移除前后分别记录应用大小与下载大小。
-- 两种 macOS 架构均能从官方源或磁盘安装可信包；缺包、取消、离线、错误架构、校验失败及旧宿主不兼容都有明确结果。
+- 两种 macOS 架构均能从 Store 或磁盘安装新 ID 的包；缺包、取消、离线、错误架构、校验失败及旧宿主不兼容都有明确结果。
 - 安装后真实完成补全、诊断、跳转、Java 主类运行、Spring Boot 运行、测试发现与执行，以及工具栏断点调试；不能只验证启动器或接口调用。
 - 插件语言服务器 JDK 与用户程序 JDK 的选择符合现有规则，显式无效配置不会静默回退。
 - 老用户的设置和启用选择保留，失败安装保留数据与安装前有效状态；恢复包仍须匹配当前宿主，更新、禁用、卸载没有重复会话和残留进程，不调用旧宿主业务 fallback。
@@ -194,7 +199,7 @@ node scripts/architecture/verify-java-semantic-ownership.mjs
 ./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh
 ```
 
-实现时新增覆盖官方索引真实 API/能力与多下载项、过渡期来源选择、签名降级拒绝、用户选择迁移及版本回滚的回归；复用现有 Java 入口、真实 JDT、运行配置、测试和调试集成验证。修改平台实现后，在提交和 PR 前通过相对实际基线的矩阵变更门禁；所有本次验证启动的应用和子进程在交付前关闭并确认无残留。
+实现时新增覆盖 Store 索引真实 API/能力与多下载项、过渡期来源选择、新旧 ID 只有一个生效、旧 ID 的签名降级拒绝、用户选择迁移及版本回滚的回归；复用现有 Java 入口、真实 JDT、运行配置、测试和调试集成验证。修改平台实现后，在提交和 PR 前通过相对实际基线的矩阵变更门禁；所有本次验证启动的应用和子进程在交付前关闭并确认无残留。
 
 ## 风险
 
@@ -207,10 +212,10 @@ node scripts/architecture/verify-java-semantic-ownership.mjs
 
 ## 适用范围
 
-- `Plugins/mac/Official/JavaSupport/`
+- 已迁出：原 `Plugins/mac/Official/JavaSupport/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - `Plugins/marketplace/`
-- `scripts/plugins/build-official-plugins.sh`
-- `scripts/plugins/official-plugin-releases.mjs`
+- 已迁出：原 `scripts/plugins/build-official-plugins.sh`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
+- 已迁出：原 `scripts/plugins/official-plugin-releases.mjs`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - `scripts/macos/package/package-app.sh`
 - `scripts/macos/verify/verify-macos-package.sh`
 - `scripts/resources/worktree-resources.json`
@@ -220,7 +225,7 @@ node scripts/architecture/verify-java-semantic-ownership.mjs
 - `third_party/jdk/manifest.json`
 - `macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/`
-- `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`
+- 已迁出：原 `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
 - `macos/Sources/LithePluginPackageSigning/`
 - `rust/lithe-core/src/lsp/languages/`
 - `shared/contracts/plugins/v1/`

@@ -21,7 +21,6 @@ package enum LanguageTestPlanError: LocalizedError, Equatable, Sendable {
 
 package struct StandardLanguageTestProvider: LanguageTestProvider {
     private enum StandardTestFramework: String {
-        case gradle
         case go
         case pytest
         case npm
@@ -42,13 +41,11 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
     }
 
     /// Real workspace discovery carries project markers so a plain source
-    /// directory is not misidentified as Maven/npm/Cargo merely because it
+    /// directory is not misidentified as an npm/Cargo project merely because it
     /// contains a file whose name looks like a test. The legacy overload above
     /// remains permissive for callers that only have a file list.
     package func discoverTests(context: LanguageTestContext) -> [LanguageTestItem] {
-        guard descriptor.id == "java" || framework(for: descriptor.id, context: context) != nil else { return [] }
-        if descriptor.id == "java", !context.projectFiles.contains(where: { descriptor.handles(fileURL: $0) }),
-           context.projectFileNames.isDisjoint(with: ["build.gradle", "build.gradle.kts", "gradlew"]) { return [] }
+        guard framework(for: descriptor.id, context: context) != nil else { return [] }
         return makeTestItems(
             workspaceURL: context.workspaceURL,
             files: context.projectFiles
@@ -91,12 +88,6 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
         }
         let plan: SharedLaunchPlan
         switch framework {
-        case .gradle:
-            plan = SharedLaunchPlan(
-                executable: .toolchain("project-gradle"),
-                arguments: try gradleArguments(scope: scope, root: root),
-                workingDirectory: "."
-            )
         case .go:
             plan = SharedLaunchPlan(
                 executable: .toolchain("project-go"),
@@ -140,13 +131,6 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
     ) -> StandardTestFramework? {
         let names = context.projectFileNames
         switch providerID {
-        case "java":
-            if names.contains("build.gradle")
-                || names.contains("build.gradle.kts")
-                || names.contains("gradlew") {
-                return .gradle
-            }
-            return nil
         case "go":
             return context.projectFiles.isEmpty
                 || names.contains("go.mod")
@@ -171,11 +155,6 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
         let name = url.lastPathComponent.lowercased()
         let relative = relativePath(url, root: root).lowercased()
         switch descriptor.id {
-        case "java":
-            // JDT/Java Test owns semantic test discovery. Every Java source is
-            // offered to it so inherited tests, custom composed annotations,
-            // and non-conventional file names are not filtered out locally.
-            return true
         case "go":
             return name.hasSuffix("_test.go")
         case "python":
@@ -188,33 +167,6 @@ package struct StandardLanguageTestProvider: LanguageTestProvider {
         default:
             return false
         }
-    }
-
-    private func gradleArguments(scope: LanguageTestScope, root: URL) throws -> [String] {
-        // Keep test workers in this invocation's owned process tree, including
-        // when an unrelated reusable Gradle daemon is already running.
-        var arguments = ["test", "--no-daemon"]
-        switch scope {
-        case .workspace:
-            break
-        case .file(let url):
-            arguments.append(contentsOf: ["--tests", try gradleSelector(for: url, root: root)])
-        case .testCase(let identifier, _, _):
-            arguments.append(contentsOf: [
-                "--tests",
-                normalizedJavaTestIdentifier(identifier).replacingOccurrences(of: "#", with: "."),
-            ])
-        }
-        return arguments
-    }
-
-    private func normalizedJavaTestIdentifier(_ identifier: String) -> String {
-        identifier.hasSuffix("()") ? String(identifier.dropLast(2)) : identifier
-    }
-
-    private func gradleSelector(for url: URL, root: URL) throws -> String {
-        _ = try checkedRelativePath(url, root: root)
-        return url.deletingPathExtension().lastPathComponent
     }
 
     private func goArguments(scope: LanguageTestScope, root: URL) throws -> [String] {

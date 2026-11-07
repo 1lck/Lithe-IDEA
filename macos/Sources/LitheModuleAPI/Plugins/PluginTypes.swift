@@ -521,14 +521,18 @@ public struct PluginManifest: Equatable, Codable, Sendable {
     public static let hostCapabilities: [String: [Int]] = [
         "keymapImportProviders": [1],
         "packageTrust": [1],
+        "pluginFunctions": [1],
         "backend": [1, 2],
         "buildProviders": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], "buildModelInputs": [1],
-        "buildSystems": [1, 2, 3, 4], "debugAdapters": [1, 2], "executableResolution": [1, 2],
+        "buildSystems": [1, 2, 3, 4], "debugAdapters": [1, 2, 3], "executableResolution": [1, 2],
         "executionProviders": [1],
-        "languageServers": [1, 2],
+        "languageServers": [1, 2, 3],
         "languages": [1, 2],
-        "projectGenerators": [1],
-        "serverProcess": [1],
+        "outputLinkMatchers": [1],
+        "projectGenerators": [1, 2],
+        // 4: a runtime launch names a tool definition that the host resolves
+        // through its four layers and starts with the definition's template.
+        "serverProcess": [1, 3, 4],
         "settings": [1, 2],
         "toolDefinitions": [1],
         "toolchainProviders": [1],

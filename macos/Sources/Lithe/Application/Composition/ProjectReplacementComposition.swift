@@ -19,7 +19,7 @@ enum ProjectReplacementComposition {
             },
             recordHistory: { [weak model] text, url in
                 guard let feature = await model?.activateHistoryModule() else { return }
-                await feature.recordHistorySnapshot(text: text, for: url, reason: .beforeBatchReplace)
+                await feature.recordHistorySnapshot(text: text, for: url, event: .beforeBatchReplace)
             },
             saveOverride: { [weak model] url, text in
                 guard let model,

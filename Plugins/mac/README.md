@@ -1,23 +1,35 @@
 # macOS plugins
 
-`Official/` contains the official plugin packages for the macOS product. They
-are declarative packages following
-[plugin contract v1](../../shared/contracts/plugins/v1/README.md): each package
-is a `plugin.json` plus the resources it declares. Lithe reads the declaration,
-verifies the package, and launches the declared language server and run/test
-processes itself. No plugin code is loaded into the Lithe process, so a package
-does not need to be rebuilt for each Lithe release; compatibility is decided by
-`pluginAPIVersion`.
+The macOS product no longer bundles or builds any official plugin. Every
+language, build-tool and VCS plugin is a community plugin maintained and
+released in its own repository and listed in
+[Lithe Store](https://github.com/Lithe-IDEA/Lithe-store). Plugins are
+declarative packages following
+[plugin contract v1](../../shared/contracts/plugins/v1/README.md); plugin
+authors follow [lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs).
 
-| Package | Distribution | Language server |
-| --- | --- | --- |
-| `JavaSupport` | Publisher-signed download; sealed transition copy until both architectures are listed | JDT LS packaged with Lithe; New Project entries for Java, Maven Archetype, and Spring Boot ([project generators](../../shared/contracts/plugins/v1/README.md#project-generators)) |
+`Plugins/marketplace/index.json` stays as the empty official index that app
+packaging embeds; it lists no official plugin.
+
+## Java, Maven and Gradle moved to Lithe Store
+
+Java Support is no longer an official plugin and the app no longer bundles a
+JDK or JDT LS. The community plugins bring their own language server and
+runtime resources:
+
+| Plugin ID | Repository |
+| --- | --- |
+| `io.github.lithe-idea.java-support` | [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) |
+| `io.github.lithe-idea.maven-support` | [lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven) |
+| `io.github.lithe-idea.gradle-support` | [lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle) |
+
+The retired official ID `dev.lithe.plugin.java-support` stays in
+`OfficialPluginCatalog` as moved to the community, like Go and PHP below.
 
 ## Go and PHP moved to Lithe Store
 
 Go Support and PHP Support are no longer official plugins. They are community
-plugins in their own repositories and are listed in
-[Lithe Store](https://github.com/Lithe-IDEA/Lithe-store):
+plugins in their own repositories:
 
 | Plugin ID | Repository | Language server |
 | --- | --- | --- |
@@ -27,13 +39,13 @@ plugins in their own repositories and are listed in
 The PHP plugin does not bundle Intelephense because the Intelephense licence
 does not allow redistribution.
 
-The retired official IDs `dev.lithe.plugin.go-support` and
-`dev.lithe.plugin.php-support` stay in `OfficialPluginCatalog` so an installed
-copy is still verified against its publisher signature. Plugin Management shows
-those copies as moved to the community, offers no official update, and asks the
-user to uninstall them before installing the community version. Their last
-manifests live in `macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins/` for
-tests only.
+The retired official IDs `dev.lithe.plugin.go-support`,
+`dev.lithe.plugin.php-support` and `dev.lithe.plugin.java-support` stay in
+`OfficialPluginCatalog` so an installed copy is still verified against its
+publisher signature. Plugin Management shows those copies as moved to the
+community, offers no official update, and asks the user to uninstall them
+before installing the community version. The last Go and PHP manifests live in
+`macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins/` for tests only.
 
 ## Cargo community plugin
 
@@ -59,59 +71,4 @@ its manifest fixture, and the Core tests; the SDK's sample provider
 (`sample-vcs`) lives with the SDK in
 [lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs).
 
-## Downloadable official plugins
-
-Java Support now has a two-architecture release configuration, with automatic
-publication disabled (`releaseEnabled: false`) until the host trust capability
-and migration are released. No downloadable official plugin is listed yet:
-`Plugins/marketplace/index.json` is empty. The release flow (`scripts/plugins/build-official-plugins.sh`,
-`scripts/plugins/official-plugin-releases.mjs`, and
-`.github/workflows/release-official-plugins.yml`) is kept for future official
-plugins. A new one gets its own directory under `Official/`, its own tag series
-(`plugin-<name>-v<version>`), and an entry in `official-plugins.json`.
-
-A publisher-signed package requires `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`, a
-base64-encoded 32-byte Ed25519 private key whose public key matches the embedded
-publisher key; debug builds skip these packages when the key is absent, and a
-direct package build fails instead of producing an unsigned package. Keep the
-key in a protected file or environment variable and never commit it.
-
-## Local development packages
-
-This section is for official plugins built in this repository. Community plugin
-authors follow [lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs)
-instead.
-
-Plugin authors can test without the publisher key. Build an unsigned
-development package with `--development-unsigned`, then install it from disk in
-a debug build of Lithe:
-
-```sh
-scripts/plugins/build-official-plugins.sh --configuration debug \
-  --triple arm64-apple-macosx --plugin-id <plugin-id> \
-  --development-unsigned --output /tmp/lithe-dev-plugins
-```
-
-The package has no `lithe-plugin-signature.json`. Plugin Management records it
-as an unsigned development package and replaces it when the same version is
-installed again. Release builds of Lithe refuse to load it, and the flag is
-rejected for release plugin builds. A package that does contain a signature
-document is always verified, whichever way it was installed.
-
 Plugins never delete user tools or project files.
-
-Java Support's manifest now requires `packageTrust: 1`: user-installed copies
-require a publisher signature, while the explicitly pinned bundled copy can
-rely on the host application's seal. `--bundled-only` selects that application
-build; an ordinary standalone release build must carry the publisher signature.
-Existing hosts without this capability refuse the new version before download.
-
-Java publication remains paused (`releaseEnabled: false`). App assembly retains
-the transition copy until the checked-in official index lists a compatible
-release at or above `bundledUntilPublishedVersion` with both architecture
-archives. Then `--bundled-only` omits Java and app packaging skips its downloads.
-The same index is embedded in the app. `LITHE_OFFICIAL_PLUGIN_INDEX` (app build)
-and `--marketplace-index` (plugin build) select an explicit read-only build input;
-test fixture indexes must never be published. Installation preserves saved
-choices and settings; missing Java support has Marketplace and offline disk
-installation entry points.

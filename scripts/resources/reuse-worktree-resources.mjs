@@ -94,6 +94,8 @@ async function readRegistry() {
   // document tokens and editor action leases are memory-only, never reusable.
   // Shared logging catalogs and generated API sources also use the refusal route:
   // validate with generate-log-events.mjs in the target checkout; never copy.
+  // The core rules wasm module (rust/lithe-core-rules) has no identity stamp either:
+  // each worktree rebuilds it with prepare-core-rules-wasm.mjs; it never gains a validator.
   // Shared i18n source and generated tables take this same refusal route:
   // rebuild from the target checkout, never copy another worktree's translations.
   // AutoBuild publication checkpoints and baseline downloads are invocation-owned,

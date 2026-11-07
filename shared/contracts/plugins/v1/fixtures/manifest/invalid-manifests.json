@@ -47,7 +47,7 @@
     {
       "name": "unsupported runtime dependency",
       "base": "language-packaged-server.plugin.json",
-      "edits": [{ "op": "set", "path": "/languageServers/0/runtimeDependencies", "value": [{ "tool": "python" }] }],
+      "edits": [{ "op": "set", "path": "/languageServers/0/runtimeDependencies", "value": [{ "tool": "Python 3" }] }],
       "expectedCode": "plugin.runtime.unsupported"
     },
     {
@@ -129,12 +129,6 @@
       "expectedCode": "plugin.manifest.invalid"
     },
     {
-      "name": "java runtime in an API 1 manifest",
-      "base": "language-packaged-server.plugin.json",
-      "edits": [{ "op": "set", "path": "/languageServers/0/runtimeDependencies", "value": [{ "tool": "java" }] }],
-      "expectedCode": "plugin.runtime.unsupported"
-    },
-    {
       "name": "runtime launch with a tool that cannot start an entry",
       "base": "node-runtime.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/launch/tool", "value": "go" }],
@@ -165,20 +159,8 @@
       "expectedCode": "plugin.manifest.invalid"
     },
     {
-      "name": "packaged runtime escapes the package",
-      "base": "language-host-integration.plugin.json",
-      "edits": [{ "op": "set", "path": "/languageServers/0/launch/packagedRuntime", "value": "../jdk/bin/java" }],
-      "expectedCode": "plugin.manifest.invalid"
-    },
-    {
-      "name": "packaged runtime varies by something other than the architecture",
-      "base": "language-host-integration.plugin.json",
-      "edits": [{ "op": "set", "path": "/languageServers/0/launch/packagedRuntime", "value": "${stateDir}/jdk/bin/java" }],
-      "expectedCode": "plugin.manifest.invalid"
-    },
-    {
       "name": "packaged runtime also states a minimum version",
-      "base": "language-host-integration.plugin.json",
+      "base": "publisher-bundled.plugin.json",
       "edits": [{ "op": "set", "path": "/languageServers/0/launch/minimumVersion", "value": "21" }],
       "expectedCode": "plugin.manifest.invalid"
     },
@@ -226,74 +208,9 @@
     },
     {
       "name": "unknown host integration",
-      "base": "language-host-integration.plugin.json",
-      "edits": [{ "op": "set", "path": "/languageServers/0/hostIntegration/id", "value": "roslyn" }],
+      "base": "node-runtime.plugin.json",
+      "edits": [{ "op": "set", "path": "/languageServers/0/hostIntegration", "value": { "id": "roslyn" } }],
       "expectedCode": "plugin.integration.unsupported"
-    },
-    {
-      "name": "host integration requested outside the official namespace",
-      "base": "language-host-integration.plugin.json",
-      "edits": [{ "op": "set", "path": "/id", "value": "io.example.java" }, { "op": "set", "path": "/vendor/signatureRequirement", "value": "none" }],
-      "expectedCode": "plugin.integration.unsupported"
-    },
-    {
-      "name": "jdt integration without a java runtime launch",
-      "base": "language-host-integration.plugin.json",
-      "edits": [{ "op": "set", "path": "/languageServers/0/launch", "value": { "kind": "packaged", "path": "language-server/bin/jdtls" } }],
-      "expectedCode": "plugin.manifest.invalid"
-    },
-    {
-      "name": "jdt integration misses a required resource",
-      "base": "language-host-integration.plugin.json",
-      "edits": [{ "op": "remove", "path": "/languageServers/0/hostIntegration/resources/configuration" }],
-      "expectedCode": "plugin.manifest.invalid"
-    },
-    {
-      "name": "jdt integration declares a resource it does not use",
-      "base": "language-host-integration.plugin.json",
-      "edits": [{ "op": "set", "path": "/languageServers/0/hostIntegration/resources/indexer", "value": "language-server/indexer.jar" }],
-      "expectedCode": "plugin.manifest.invalid"
-    },
-    {
-      "name": "integration resource leaves the package",
-      "base": "language-host-integration.plugin.json",
-      "edits": [{ "op": "set", "path": "/languageServers/0/hostIntegration/resources/lombokAgent", "value": "../lombok.jar" }],
-      "expectedCode": "plugin.manifest.invalid"
-    },
-    {
-      "name": "integration resource list given as a single path",
-      "base": "language-host-integration.plugin.json",
-      "edits": [{ "op": "set", "path": "/languageServers/0/hostIntegration/resources/extensionBundleDirectories", "value": "language-server/java-debug" }],
-      "expectedCode": "plugin.manifest.invalid"
-    },
-    {
-      "name": "integration capability the integration does not provide",
-      "base": "language-host-integration.plugin.json",
-      "edits": [{ "op": "set", "path": "/languageServers/0/hostIntegration/capabilities", "value": ["formatting"] }],
-      "expectedCode": "plugin.manifest.invalid"
-    },
-    {
-      "name": "integration capability without the resource its host code reads",
-      "base": "language-host-integration.plugin.json",
-      "edits": [{ "op": "remove", "path": "/languageServers/0/hostIntegration/resources/testRunner" }],
-      "expectedCode": "plugin.manifest.invalid"
-    },
-    {
-      "name": "integration capability that the plugin's execution provider already provides",
-      "base": "language-host-integration.plugin.json",
-      "edits": [
-        { "op": "set", "path": "/permissions", "value": ["languageServer.launch", "process.run"] },
-        { "op": "set", "path": "/activationEvents", "value": ["onLanguage:java", "onRun:java"] },
-        {
-          "op": "set",
-          "path": "/executionProviders",
-          "value": [{
-            "languageID": "java",
-            "run": { "executable": { "command": "java" }, "arguments": ["${file}"] }
-          }]
-        }
-      ],
-      "expectedCode": "plugin.manifest.invalid"
     },
     {"name": "settings on API level 1", "base": "language-packaged-server.plugin.json", "edits": [{"op": "set", "path": "/settings", "value": [{"id": "x", "type": "boolean", "title": "X", "default": true}]}], "expectedCode": "plugin.manifest.invalid"},
     {"name": "launch template names an undeclared setting", "base": "node-runtime.plugin.json", "edits": [{"op": "set", "path": "/languageServers/0/arguments/1", "value": "--log-level=${setting:verbosity}"}], "expectedCode": "plugin.template.invalid"},
@@ -484,25 +401,10 @@
       "expectedCode": "plugin.manifest.invalid"
     },
     {
-      "name": "host integration is reserved to official plugins",
-      "base": "build-host-integration.plugin.json",
-      "edits": [
-        { "op": "set", "path": "/id", "value": "org.example.maven-build" },
-        { "op": "set", "path": "/vendor/id", "value": "org.example" }
-      ],
-      "expectedCode": "plugin.integration.unsupported"
-    },
-    {
       "name": "host integration the host does not provide",
-      "base": "build-host-integration.plugin.json",
+      "base": "build-toolchains.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/hostIntegration", "value": "sbt" }],
       "expectedCode": "plugin.integration.unsupported"
-    },
-    {
-      "name": "host-integration model without a host integration",
-      "base": "build-host-integration.plugin.json",
-      "edits": [{ "op": "remove", "path": "/buildSystems/0/hostIntegration" }],
-      "expectedCode": "plugin.manifest.invalid"
     },
     {
       "name": "option arguments placed twice",
@@ -560,8 +462,8 @@
     },
     {
       "name": "user arguments required but never placed",
-      "base": "build-host-integration.plugin.json",
-      "edits": [{ "op": "set", "path": "/buildSystems/0/tasks/4/arguments", "value": ["validate"] }],
+      "base": "build-command-output-file.plugin.json",
+      "edits": [{ "op": "set", "path": "/buildSystems/0/tasks/2/arguments", "value": ["tasks"] }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
@@ -580,15 +482,6 @@
       "name": "runtime executable without its dependency",
       "base": "build-command-stdout.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/invocation/runtimeDependencies", "value": [] }],
-      "expectedCode": "plugin.manifest.invalid"
-    },
-    {
-      "name": "plugin-described runtime without executables",
-      "base": "build-command-stdout.plugin.json",
-      "edits": [
-        { "op": "set", "path": "/buildSystems/0/invocation/executables/0/runtime", "value": "zig" },
-        { "op": "set", "path": "/buildSystems/0/invocation/runtimeDependencies/0/id", "value": "zig" }
-      ],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
@@ -932,8 +825,8 @@
     },
     {
       "name": "toolbar option that is not boolean",
-      "base": "build-host-integration.plugin.json",
-      "edits": [{ "op": "set", "path": "/buildSystems/0/options/0/presentation", "value": "toolbar" }, { "op": "set", "path": "/buildSystems/0/options/0/icon", "value": {"host": "settings"} }],
+      "base": "build-static-file.plugin.json",
+      "edits": [{ "op": "set", "path": "/buildSystems/0/options/1/presentation", "value": "toolbar" }, { "op": "set", "path": "/buildSystems/0/options/1/icon", "value": {"host": "settings"} }],
       "expectedCode": "plugin.manifest.invalid"
     },
     {
@@ -1054,6 +947,58 @@
     {"name": "languages 2 is used by a grammar or configuration", "base": "language-grammar.plugin.json", "edits": [{"op": "remove", "path": "/languages/0/grammar"}, {"op": "remove", "path": "/languages/0/configuration"}], "expectedCode": "plugin.manifest.invalid"},
     {"name": "a grammar names a known engine", "base": "language-grammar.plugin.json", "edits": [{"op": "set", "path": "/languages/0/grammar/kind", "value": "textmate"}], "expectedCode": "plugin.manifest.invalid"},
     {"name": "a grammar file stays in the package", "base": "language-grammar.plugin.json", "edits": [{"op": "set", "path": "/languages/0/grammar/path", "value": "../http.monarch.json"}], "expectedCode": "plugin.manifest.invalid"},
-    {"name": "a comment delimiter is one short line", "base": "language-grammar.plugin.json", "edits": [{"op": "set", "path": "/languages/0/configuration/lineComment", "value": "#\n"}], "expectedCode": "plugin.manifest.invalid"}
+    {"name": "a comment delimiter is one short line", "base": "language-grammar.plugin.json", "edits": [{"op": "set", "path": "/languages/0/configuration/lineComment", "value": "#\n"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a runtime tool must be listed in requiresTools", "base": "tool-reference-launch.plugin.json", "edits": [{"op": "set", "path": "/requiresTools", "value": ["other-tool"]}], "expectedCode": "plugin.runtime.undeclared"},
+    {"name": "requiresTools needs serverProcess 4", "base": "tool-reference-launch.plugin.json", "edits": [{"op": "set", "path": "/requires/serverProcess", "value": 1}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "serverProcess 4 lists its tools", "base": "tool-reference-launch.plugin.json", "edits": [{"op": "remove", "path": "/requiresTools"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a required tool is a tool-definition ID", "base": "tool-reference-launch.plugin.json", "edits": [{"op": "set", "path": "/requiresTools", "value": ["Interpreter"]}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "adapter features need debugAdapters 3", "base": "debug-adapter-features.plugin.json", "edits": [{"op": "set", "path": "/requires/debugAdapters", "value": 2}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a step filter argument is a DAP name", "base": "debug-adapter-features.plugin.json", "edits": [{"op": "set", "path": "/debugAdapters/0/features/stepFilters/argument", "value": "step filters"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a hot code replace request is a DAP name", "base": "debug-adapter-features.plugin.json", "edits": [{"op": "set", "path": "/debugAdapters/0/features/hotCodeReplace/request", "value": "1reload"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "an output link pattern must compile", "base": "tool-reference-launch.plugin.json", "edits": [{"op": "set", "path": "/outputLinkMatchers/0/pattern", "value": "File ("}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "an output link without a resolver captures a path", "base": "tool-reference-launch.plugin.json", "edits": [{"op": "set", "path": "/outputLinkMatchers/0/pattern", "value": "File (?P<name>.+)"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "run.start needs backend 2", "base": "backend.plugin.json", "edits": [{"op": "set", "path": "/permissions", "value": ["backend.launch", "credentials.store", "run.start", "ui.contribute", "ui.web"]}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "debug.start needs a declared adapter", "base": "backend-workspace.plugin.json", "edits": [{"op": "set", "path": "/permissions", "value": ["backend.launch", "debug.start"]}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "session fields need languageServers 3", "base": "language-server-backend-launch.plugin.json", "edits": [{"op": "set", "path": "/requires/languageServers", "value": 2}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a backend launch needs serverProcess 3", "base": "language-server-backend-launch.plugin.json", "edits": [{"op": "set", "path": "/requires/serverProcess", "value": 2}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "serverProcess 3 needs pluginAPIVersion 4", "base": "language-server-backend-launch.plugin.json", "edits": [{"op": "set", "path": "/pluginAPIVersion", "value": 3}], "expectedCode": "plugin.api.unsupported"},
+    {"name": "a backend launch needs a backend", "base": "language-server-backend-launch.plugin.json", "edits": [{"op": "remove", "path": "/backend"}, {"op": "remove", "path": "/requires/backend"}, {"op": "set", "path": "/permissions", "value": ["languageServer.launch", "languageServer.request"]}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a backend launch needs backend 2", "base": "language-server-backend-launch.plugin.json", "edits": [{"op": "set", "path": "/requires/backend", "value": 1}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a backend launch takes its arguments from the answer", "base": "language-server-backend-launch.plugin.json", "edits": [{"op": "set", "path": "/languageServers/0/arguments", "value": ["--stdio"]}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a backend launch function is a function ID", "base": "language-server-backend-launch.plugin.json", "edits": [{"op": "set", "path": "/languageServers/0/launch/function", "value": "Resolve Launch"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a backend launch timeout stays in range", "base": "language-server-backend-launch.plugin.json", "edits": [{"op": "set", "path": "/languageServers/0/launch/timeoutMilliseconds", "value": 100}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "request methods need the request permission", "base": "language-server-backend-launch.plugin.json", "edits": [{"op": "set", "path": "/permissions", "value": ["backend.launch", "languageServer.launch"]}], "expectedCode": "plugin.permission.undeclared"},
+    {"name": "the request permission needs a server to reach", "base": "language-server-backend-launch.plugin.json", "edits": [{"op": "remove", "path": "/languageServers/0/requestMethods"}, {"op": "remove", "path": "/languageServers/0/commands"}, {"op": "remove", "path": "/languageServers/0/serializedCommands"}, {"op": "remove", "path": "/languageServers/0/forwardNotifications"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "executeCommand needs a command list", "base": "language-server-backend-launch.plugin.json", "edits": [{"op": "remove", "path": "/languageServers/0/commands"}, {"op": "remove", "path": "/languageServers/0/serializedCommands"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a serialized command is a listed command", "base": "language-server-backend-launch.plugin.json", "edits": [{"op": "set", "path": "/languageServers/0/serializedCommands", "value": ["build-reset"]}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a request method is listed once", "base": "language-server-backend-launch.plugin.json", "edits": [{"op": "set", "path": "/languageServers/0/requestMethods", "value": ["workspace/executeCommand", "workspace/executeCommand"]}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a backend cannot send what the host sends", "base": "language-server-backend-launch.plugin.json", "edits": [{"op": "set", "path": "/languageServers/0/requestMethods", "value": ["textDocument/didOpen", "workspace/executeCommand"]}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a backend cannot forward protocol plumbing", "base": "language-server-backend-launch.plugin.json", "edits": [{"op": "set", "path": "/languageServers/0/forwardNotifications", "value": ["$/progress"]}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "state retention keeps a workspace for a day at least", "base": "language-server-backend-launch.plugin.json", "edits": [{"op": "set", "path": "/languageServers/0/state/retention/maxAgeDays", "value": 0}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "state belongs to a known scope", "base": "language-server-backend-launch.plugin.json", "edits": [{"op": "set", "path": "/languageServers/0/state/scope", "value": "user"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "remote support is supported or unsupported", "base": "language-server-backend-launch.plugin.json", "edits": [{"op": "set", "path": "/languageServers/0/remote", "value": "partial"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a content provider needs backend 2", "base": "backend.plugin.json", "edits": [{"op": "set", "path": "/permissions/1", "value": "documents.contentProvider"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "an export states its calling context", "base": "plugin-functions-exporter.plugin.json", "edits": [{"op": "remove", "path": "/pluginFunctions/exports/0/context"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "an export names a context Lithe knows", "base": "plugin-functions-exporter.plugin.json", "edits": [{"op": "set", "path": "/pluginFunctions/exports/0/context", "value": "remote"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "an export is an object, not a bare function ID", "base": "plugin-functions-exporter.plugin.json", "edits": [{"op": "set", "path": "/pluginFunctions/exports/0", "value": "document.format"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "an export version is a positive integer", "base": "plugin-functions-exporter.plugin.json", "edits": [{"op": "set", "path": "/pluginFunctions/exports/0/version", "value": 0}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a function is exported once", "base": "plugin-functions-exporter.plugin.json", "edits": [{"op": "set", "path": "/pluginFunctions/exports/1/id", "value": "document.format"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "an exported function ID is lowerCamelCase segments", "base": "plugin-functions-exporter.plugin.json", "edits": [{"op": "set", "path": "/pluginFunctions/exports/0/id", "value": "Document.Format"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a call states the contract version it was written for", "base": "plugin-functions-caller.plugin.json", "edits": [{"op": "remove", "path": "/pluginFunctions/calls/0/version"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a call never names the provider plugin", "base": "plugin-functions-caller.plugin.json", "edits": [{"op": "set", "path": "/pluginFunctions/calls/0/pluginID", "value": "dev.lithe.fixture.functionexporter"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "exported and called functions need backend 2", "base": "plugin-functions-exporter.plugin.json", "edits": [{"op": "set", "path": "/requires/backend", "value": 1}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "pluginFunctions lists an export or a call", "base": "plugin-functions-exporter.plugin.json", "edits": [{"op": "set", "path": "/pluginFunctions", "value": {}}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "pluginFunctions is listed in requires", "base": "plugin-functions-caller.plugin.json", "edits": [{"op": "remove", "path": "/requires/pluginFunctions"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "requires lists pluginFunctions only when the manifest uses it", "base": "plugin-functions-caller.plugin.json", "edits": [{"op": "remove", "path": "/pluginFunctions"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "editor providers read the documents they answer for", "base": "editor-providers.plugin.json", "edits": [{"op": "set", "path": "/permissions", "value": ["backend.launch", "editor.providers", "workspace.metadata"]}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a tool field needs projectGenerators 2", "base": "project-generator.plugin.json", "edits": [{"op": "set", "path": "/projectGenerators/0/fields/1", "value": {"id": "sdk", "type": "tool", "title": "SDK", "tool": "python"}}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "projectGenerators 2 has no runtime field", "base": "project-generator.plugin.json", "edits": [{"op": "set", "path": "/requires/projectGenerators", "value": 2}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a tool field names a tool definition ID", "base": "project-generator-tool-field.plugin.json", "edits": [{"op": "set", "path": "/projectGenerators/0/fields/0/tool", "value": "Python Interpreter"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a tool field names a tool", "base": "project-generator-tool-field.plugin.json", "edits": [{"op": "remove", "path": "/projectGenerators/0/fields/0/tool"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a tool field minimum version is dotted numbers", "base": "project-generator-tool-field.plugin.json", "edits": [{"op": "set", "path": "/projectGenerators/0/fields/0/minimumVersion", "value": "latest"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a tool field is pinned to a known scope", "base": "project-generator-tool-field.plugin.json", "edits": [{"op": "set", "path": "/projectGenerators/0/fields/0/pinAs", "value": "workspace"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "the host chooses a tool field's initial installation", "base": "project-generator-tool-field.plugin.json", "edits": [{"op": "set", "path": "/projectGenerators/0/fields/0/default", "value": "/usr/bin"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "only a tool field has an executable", "base": "project-generator-tool-field.plugin.json", "edits": [{"op": "set", "path": "/projectGenerators/0/steps/1/arguments/2", "value": "${field.venv.executable}"}], "expectedCode": "plugin.manifest.invalid"},
+    {"name": "a tool property needs a tool field", "base": "project-generator-tool-field.plugin.json", "edits": [{"op": "set", "path": "/projectGenerators/0/fields/1/tool", "value": "python"}], "expectedCode": "plugin.manifest.invalid"}
   ]
 }

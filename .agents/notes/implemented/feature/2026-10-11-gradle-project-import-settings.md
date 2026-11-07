@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 Lithe 打包的 JDT LS 已内置 Buildship，因此 Gradle 工程本就能被导入、索引与补全。本次改动不改这条链路，只把原本依赖 Buildship 默认值的 Gradle 导入显式化：平台侧探测工作区根是否声明 Gradle、是否带 wrapper 描述文件，Rust Core 据此在 `settings.java` 下发 `java.import.gradle`，并把 Gradle 工程的结构文件和 wrapper 的 Gradle 版本纳入工作区指纹。下发的两个开关与上游默认值相同，对今天的导入结果是空操作，它固定的是 Lithe 依赖的行为前提，并让 Gradle 与 Maven 走同一套「平台探测 → Core 组装 → JDT LS」结构。
@@ -58,7 +60,7 @@ Gradle 与 Maven 在导入设置上结构对称，行为可预期、可扩展。
 
 ## 适用范围
 
-- `rust/lithe-core/src/lsp/languages/jdt.rs`
+- 已迁出：原 `rust/lithe-core/src/lsp/languages/jdt.rs`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `windows/tauri/crates/lithe-legacy-tooling/`。
 - `rust/lithe-core/src/lsp/interface/engine.rs`
 - `windows/tauri/src-tauri/src/lsp.rs`
 - `windows/tauri/src-tauri/src/lsp/jdt_workspace.rs`

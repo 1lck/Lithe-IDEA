@@ -170,6 +170,145 @@ struct McpWritePlan: Decodable, Sendable {
     let toolFilters: McpToolFilters?
 }
 
+/// One configuration file and its ledger slice, as Core's library operations
+/// consume it. `id` is the ledger key; `path` keys retained tool filters.
+struct McpLibraryFileInput: Encodable, Sendable {
+    let id: String
+    let source: String
+    let scope: String
+    let projectPath: String?
+    let path: String
+    /// `nil` when the file does not exist yet.
+    let content: String?
+    let owned: [McpOwnedEntry]
+}
+
+/// Core's merged library rows (`mcp.librarySnapshot`), already ordered.
+struct McpLibrarySnapshot: Decodable, Sendable {
+    struct Source: Decodable, Sendable {
+        let file: String
+        let definitionHash: String
+        let sourceHash: String?
+        let ownedByLithe: Bool
+    }
+
+    struct Row: Decodable, Sendable {
+        let id: String
+        let definition: McpServerDefinition
+        let sources: [Source]
+        let hasDefinitionConflict: Bool
+    }
+
+    /// A file Core could not parse; `message` never echoes its content.
+    struct Failure: Decodable, Sendable {
+        let file: String
+        let message: String
+    }
+
+    let rows: [Row]
+    let failures: [Failure]
+}
+
+/// Editor draft sent to Core for validation and save planning.
+struct McpDraftPayload: Encodable, Sendable {
+    let name: String
+    let transport: McpTransport
+    let command: String
+    let url: String
+    let arguments: [String]
+    let env: [McpKeyValue]
+    let headers: [McpKeyValue]
+    let enabledAgents: [String]
+    let setup: String?
+}
+
+/// One field-level reason a draft cannot be saved; `code` is localized by the host.
+struct McpDraftIssue: Decodable, Equatable, Sendable {
+    let field: String
+    let code: String
+}
+
+/// Core's draft validation (`mcp.validateDraft`).
+struct McpDraftValidation: Decodable, Sendable {
+    /// Ordered by display priority.
+    let issues: [McpDraftIssue]
+    /// Normalized definition a save writes; `nil` while issues remain.
+    let definition: McpServerDefinition?
+}
+
+/// Library edit Core expands into per-file operations (`mcp.batchPlan`).
+enum McpBatchIntent: Encodable, Sendable {
+    struct OriginalSource: Encodable, Sendable {
+        let file: String
+        let sourceHash: String?
+        let ownedByLithe: Bool
+    }
+
+    struct Original: Encodable, Sendable {
+        let name: String
+        let sources: [OriginalSource]
+    }
+
+    case save(draft: McpDraftPayload, original: Original?)
+    case setAgent(definition: McpServerDefinition, agent: String, enabled: Bool)
+    case delete(name: String, files: [String])
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, draft, original, definition, agent, enabled, name, files
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .save(let draft, let original):
+            try container.encode("save", forKey: .kind)
+            try container.encode(draft, forKey: .draft)
+            try container.encodeIfPresent(original, forKey: .original)
+        case .setAgent(let definition, let agent, let enabled):
+            try container.encode("setAgent", forKey: .kind)
+            try container.encode(definition, forKey: .definition)
+            try container.encode(agent, forKey: .agent)
+            try container.encode(enabled, forKey: .enabled)
+        case .delete(let name, let files):
+            try container.encode("delete", forKey: .kind)
+            try container.encode(name, forKey: .name)
+            try container.encode(files, forKey: .files)
+        }
+    }
+}
+
+/// Core's all-or-nothing plan for a library edit.
+struct McpBatchOutcome: Decodable, Sendable {
+    struct Rejection: Decodable, Sendable {
+        /// `notOwned`, `externallyModified` or `agentHasNoGlobalConfiguration`.
+        let code: String
+        let name: String
+        /// File whose plan conflicted; `nil` for draft-level ownership checks.
+        let file: String?
+    }
+
+    struct Rename: Decodable, Sendable {
+        let from: String
+        let to: String
+    }
+
+    struct Change: Decodable, Sendable {
+        let file: String
+        let changed: Bool
+        /// Present only when `changed`.
+        let content: String?
+        /// Complete next ledger for the file, stored only after the batch is written.
+        let owned: [McpOwnedEntry]
+        let renames: [Rename]
+    }
+
+    /// `ready`, `invalid` or `rejected`.
+    let status: String
+    let issues: [McpDraftIssue]?
+    let rejection: Rejection?
+    let changes: [Change]?
+}
+
 /// One compare-and-replace operation in an all-or-rollback batch.
 struct McpConfigurationChange: Sendable {
     let file: McpConfigurationFile
@@ -246,6 +385,12 @@ protocol McpConfigurationStore {
     func parse(_ file: McpConfigurationFile, content: String) throws -> [McpServerDefinition]
     /// Plans a set or remove operation, enforcing the ownership ledger.
     func planWrite(_ request: McpWriteRequest, for file: McpConfigurationFile) throws -> McpWritePlan
+    /// Merges the supplied files into ordered library rows with ownership.
+    func librarySnapshot(_ files: [McpLibraryFileInput]) throws -> McpLibrarySnapshot
+    /// Returns field-level issues and the normalized definition for a draft.
+    func validateDraft(_ draft: McpDraftPayload) throws -> McpDraftValidation
+    /// Plans a multi-file library edit against the supplied files and ledger.
+    func batchPlan(files: [McpLibraryFileInput], intent: McpBatchIntent) throws -> McpBatchOutcome
     /// Adds a Lithe-created project file to Git's local exclude list so it does
     /// not appear as an untracked change. No-op outside a Git worktree.
     func excludeFromVersionControl(_ relativePath: String, workspace: URL) throws
@@ -326,6 +471,18 @@ struct UnavailableMcpConfigurationStore: McpConfigurationStore {
     }
 
     func planWrite(_ request: McpWriteRequest, for file: McpConfigurationFile) throws -> McpWritePlan {
+        throw McpConfigurationError.unavailable
+    }
+
+    func librarySnapshot(_ files: [McpLibraryFileInput]) throws -> McpLibrarySnapshot {
+        throw McpConfigurationError.unavailable
+    }
+
+    func validateDraft(_ draft: McpDraftPayload) throws -> McpDraftValidation {
+        throw McpConfigurationError.unavailable
+    }
+
+    func batchPlan(files: [McpLibraryFileInput], intent: McpBatchIntent) throws -> McpBatchOutcome {
         throw McpConfigurationError.unavailable
     }
 

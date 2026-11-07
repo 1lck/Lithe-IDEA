@@ -24,6 +24,8 @@ for (const locale of ["C", "en_US.UTF-8"]) {
         mkdirSync(bin);
         mkdirSync(path.join(root, "scripts/rust-core"), { recursive: true });
         mkdirSync(path.join(root, "rust/lithe-core/src"), { recursive: true });
+        mkdirSync(path.join(root, "rust/lithe-core-rules/src"), { recursive: true });
+        writeFileSync(path.join(root, "rust/lithe-core-rules/src/lib.rs"), "//! Rules fixture.\n");
         copyFileSync(path.join(scripts, "verify-rust-core-comments.sh"), path.join(root, "scripts/rust-core/verify-rust-core-comments.sh"));
         writeFileSync(path.join(root, "rust/lithe-core/src/lib.rs"), `//! Fixture module.\n${source}\n`);
         // Exercise the no-ripgrep path; system Ruby also needs uname while loading rbconfig.
@@ -49,3 +51,34 @@ for (const locale of ["C", "en_US.UTF-8"]) {
     });
   }
 }
+
+// lithe-core-rules ships inside Core (and as wasm), so it must not escape the English-comment rule.
+test("comments in lithe-core-rules are checked too", { timeout: 15_000 }, () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "lithe-rules-"));
+  try {
+    const bin = path.join(root, "bin");
+    mkdirSync(bin);
+    mkdirSync(path.join(root, "scripts/rust-core"), { recursive: true });
+    mkdirSync(path.join(root, "rust/lithe-core/src"), { recursive: true });
+    mkdirSync(path.join(root, "rust/lithe-core-rules/src"), { recursive: true });
+    copyFileSync(path.join(scripts, "verify-rust-core-comments.sh"), path.join(root, "scripts/rust-core/verify-rust-core-comments.sh"));
+    writeFileSync(path.join(root, "rust/lithe-core/src/lib.rs"), "//! Fixture module.\n");
+    writeFileSync(path.join(root, "rust/lithe-core-rules/src/lib.rs"), "//! Rules fixture.\nconst X: u8 = 1; // 中文说明\n");
+    for (const tool of ["dirname", "find", "awk", "ruby", "sed", "sort", "uname"]) {
+      const located = spawnSync("/bin/sh", ["-c", `command -v ${tool}`], { encoding: "utf8", timeout: 2_000 });
+      assert.equal(located.status, 0, `Required checker tool: ${tool}`);
+      symlinkSync(located.stdout.trim(), path.join(bin, tool));
+    }
+    const cargo = path.join(bin, "cargo");
+    writeFileSync(cargo, "#!/bin/sh\nexit 0\n");
+    chmodSync(cargo, 0o755);
+    const result = spawnSync("/bin/bash", [path.join(root, "scripts/rust-core/verify-rust-core-comments.sh")], {
+      env: { ...process.env, PATH: bin }, encoding: "utf8", timeout: 10_000,
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stderr, /lithe-core-rules\/src\/lib\.rs/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -64,6 +64,7 @@ final class MacRemotePluginLaunchPreparer {
             var runtimes = dependencies
             var requirement: LanguageServerExecutableVersionRequirement?
             switch process.executable {
+            case .tool: throw Self.toolLaunchUnavailable
             case .file(let url): candidates = [.setting(id: "pluginPackage", path: url.path)]
             case .commands(let commands): candidates = commands.map { .command($0) }
             case .runtime(let tool, let version):
@@ -165,7 +166,9 @@ final class MacRemotePluginLaunchPreparer {
                 switch directory {
                 case .state: url = state
                 case .workspaceState: url = workspaceState
-                case .log: throw CocoaError(.featureUnsupported)
+                // A remote workspace never runs a plugin-resolved launch, which
+                // is the only one that asks for log or scratch directories.
+                case .log, .temporary: throw CocoaError(.featureUnsupported)
                 }
                 _ = try await host.pluginRequest("fs.createDir", params: .object([
                     "path": .string(url.path), "recursive": .bool(true), "mode": .integer(0o700)]), session: binding.sessionID)
@@ -193,12 +196,21 @@ final class MacRemotePluginLaunchPreparer {
         case .runtime(let tool)?:
             executable = plan.packagedRuntimePath.map { .file(root.appendingPathComponent($0)) }
                 ?? .runtime(tool, versionRequirement: plan.executableVersionRequirement)
-        case nil: throw CocoaError(.fileReadCorruptFile)
+        case nil:
+            if plan.toolLaunch != nil { throw Self.toolLaunchUnavailable }
+            throw CocoaError(.fileReadCorruptFile)
         }
         return .init(executable: executable, arguments: plan.arguments, initializationOptions: plan.initializationOptions,
             runtimeTools: plan.runtimeRequirements.map(\.tool), executesProjectCode: executesProjectCode,
             mayUseNetwork: mayUseNetwork, settings: settings)
     }
+
+    /// A launch that names a tool definition resolves the tool on this Mac
+    /// through its four layers; a remote host has no such resolution yet.
+    private static let toolLaunchUnavailable = DeclarativePluginRejection(
+        code: "plugin.launch.unavailable",
+        message: "A launch that names a tool definition cannot start in a remote workspace yet."
+    )
 
     private func digest(_ value: String) -> String {
         SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()

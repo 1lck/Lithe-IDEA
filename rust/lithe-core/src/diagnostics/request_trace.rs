@@ -174,6 +174,8 @@ pub(crate) fn is_hot(method: &str) -> bool {
             "document.classifyText"
                 | "document.lifecycle"
                 | "markdown.render"
+                | "workspace.classifyVisibility"
+                | "workspace.visibilityDefaults"
                 | "lsp.syncDocument"
                 | "lsp.closeDocument"
                 | "lsp.request"
@@ -182,10 +184,8 @@ pub(crate) fn is_hot(method: &str) -> bool {
                 | "lsp.builtinCompletions"
                 | "lsp.builtinHover"
                 | "lsp.builtinNavigation"
-                | "java.codeVision"
-                | "java.navigationMarkers"
-                | "java.runMarkers"
-                | "java.structure"
+                | "lsp.mergeCompletions"
+                | "lsp.problems.query"
         )
         // Search-as-you-type issues one request per query revision.
         || matches!(
@@ -291,6 +291,7 @@ mod tests {
             "document.lifecycle",
             "workspace.search",
             "workspace.filterChanges",
+            "workspace.classifyVisibility",
             "git.classifyMetadataChanges",
             "debug.transport.handle",
         ] {

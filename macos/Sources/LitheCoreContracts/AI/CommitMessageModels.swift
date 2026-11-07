@@ -17,17 +17,6 @@ public enum CommitMessageAPIProtocol: String, CaseIterable, Codable, Identifiabl
             return "Claude Messages API"
         }
     }
-
-    public var endpointSuffix: String {
-        switch self {
-        case .responses:
-            return "responses"
-        case .chatCompletions:
-            return "chat/completions"
-        case .anthropicMessages:
-            return "messages"
-        }
-    }
 }
 
 /// Lithe's explicit Chat Completions token field for gateway compatibility.

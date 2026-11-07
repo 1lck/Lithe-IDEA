@@ -72,9 +72,10 @@
 ## 开发与协作
 1. 每次进行功能开发或者 bug 修复都单独从最新的 preview 分支创建新分支，如果有对应的 issue 分支名最好与 issue 编号相关
 2. 开发的时候如果涉及到 github 相关的操作麻烦使用 gh CLI 来进行操作而不是使用 Compute rUse 的 Skill。由于沙盒影响可能导致需要反复的 gh 授权，每次需要授权的时候麻烦先申请更高的权限去主环境中查看对应是否有 gh 的Token，如果有就直接复用，这个时候找不到才要求登录 gh
-3. 开发完成提交 PR 的时候需要说清楚对应改动的功能点，哪怕是一些细小的改动也是需要包含在内的，需要确保 code reviewer 马上就可以理解这个改动是什么
+3. 开发完成提交 PR 的时候需要说清楚对应改动的功能点，哪怕是一些细小的改动也是需要包含在内的，需要确保 code reviewer 马上就可以理解这个改动是什么。PR 描述必须以 `.github/pull_request_template.md` 为骨架：最前面是关联 Issue，再选 feat / fix / docs / release 类型；只实现单一平台的 feat 必须为另一平台提交跟进 Issue；功能矩阵、统一日志系统等检查项逐项回答。`gh pr create` 带 `--body` 或 `--body-file` 时不会自动套用模板，必须先读取模板再按它填写
 4. 如果让你修复有关 CI 的流程，记得使用 gh 或者 curl 之类的去查看(优先 gh)而不是使用 Computer Use
 5. 提交 PR 时默认创建 Draft PR（`gh pr create --draft`）。Draft PR 只运行 Linux 检查，不占用 macOS 和 Windows runner。开发完成、本地验证通过、可以评审时，再用 `gh pr ready` 标记为 ready，这时才会运行完整 CI。标记为 ready 之后，把修改攒在一起再 push：每次 push 都会重新运行完整 CI，并取消上一轮还没跑完的 CI。仓库曾因 Actions 用量过高被 GitHub 判定为滥用，所以不要为了看 CI 结果而反复 push；能在本地验证的先在本地验证。
+6. 发现既有债务（无用代码、可重构之处、未沉入 Core 的逻辑）必须当次建单，不接受“先记下来、以后再改”。归类、查重、回填编号的三步做法和等价违规写法以 `develop-lithe` 第九节为准；入口文件只保留这条提醒，不复制规则细节。
 
 ## 脚本放置与分类
 
@@ -122,6 +123,17 @@
   登记：合入日期、PR、修改人（PR 作者）、改了哪个协议或 API；新版本号同时写进该页“按协议查首次出现”的表。
   只改了后两个文件、契约目录没变时，同样要同步到合并后的 commit 并登记。登记和契约同步放在同一个
   lithe-plugin-docs PR 里，PR 描述中直接 `@` 每个被登记 PR 的作者，请他们核对自己那一行。具体步骤见该页的“维护”一节。
+- 新增或修改宿主方法、宿主通知的 PR，即使只是给已有 API 加一个子方法，也要在 PR 描述里附一张
+  “原计划编号 | 方法 | 用途”表，每个方法占一行，格式参照
+  [#1653](https://github.com/1lck/Lithe-IDEA/pull/1653) 的描述。原计划编号只用
+  [API 实施计划](docs/development/macos-plugin-api-plan.md)里的 API-01–44，不得自编新号；
+  不属于任何编号的方法写 —。合并后登记时，每个方法在 lithe-plugin-docs 两处各加一行：
+  [API 总表](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/reference/api-catalog.md)的中英两张方法表
+  （API、方法、用途、权限、协议），以及更新记录的“宿主方法（按 API 编号）”索引（API、方法、协议、日期、PR）。
+  这个 PR 在时间线上的“API 编号”列也要填上。同一个 API 的方法分几个 PR 加入时，每个方法记自己的 PR。
+- 插件开发者只读 lithe-plugin-docs 就必须能开发对应插件。方法的参数、返回值、错误码、权限、生命周期和平台限制，
+  要写进契约 README，再经同步进入 lithe-plugin-docs 的 `contract/v1/`；面向开发者的用法说明写进
+  lithe-plugin-docs 的功能页。只写在实施计划、Agent Note、契约草案或宿主代码里的行为，不算已公开。
 - 契约 README 里指向该目录以外的链接必须写成绝对 URL；`scripts/architecture/verify-shared-contracts.sh`
   会拒绝离开该目录的相对链接。
 - 面向插件开发者的新说明写进 lithe-plugin-docs，不写进本仓库或 Lithe Store。

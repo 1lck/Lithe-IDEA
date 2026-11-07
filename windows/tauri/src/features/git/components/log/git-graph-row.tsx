@@ -1,6 +1,6 @@
 import { memo, useId, type CSSProperties } from "react";
 import { graphColor } from "../../utils/git-graph-colors";
-import type { GitGraphRow as GraphRow } from "../../utils/git-graph-layout";
+import type { GitGraphRow as GraphRow } from "../../api/git-graph-projection-api";
 import {
   groupGitGraphReferences,
   type GitGraphReferenceGroup,
@@ -120,7 +120,7 @@ export const GitGraphCanvas = memo(function GitGraphCanvas({
             d={path.d}
             fill="none"
             className="git-graph-tone"
-            style={tone(path.colorIndex)}
+            style={tone(path.colorId)}
             stroke="currentColor"
             strokeWidth={paint.lineWidth}
             strokeLinecap="round"
@@ -143,7 +143,7 @@ export const GitGraphCanvas = memo(function GitGraphCanvas({
               rx={radius}
               ry={radius}
               className="git-graph-tone"
-              style={tone(row.colorIndex)}
+              style={tone(row.colorId)}
               fill={isHead ? "none" : "currentColor"}
               stroke={isHead ? "currentColor" : undefined}
               strokeWidth={isHead ? paint.headRingWidth : undefined}
@@ -155,7 +155,7 @@ export const GitGraphCanvas = memo(function GitGraphCanvas({
                 rx={paint.headInnerDiameter / 2}
                 ry={paint.headInnerDiameter / 2}
                 className="git-graph-tone"
-                style={tone(row.colorIndex)}
+                style={tone(row.colorId)}
                 fill="currentColor"
               />
             )}
@@ -180,7 +180,7 @@ export const GitGraphCanvas = memo(function GitGraphCanvas({
 type GraphPath = {
   id: string;
   d: string;
-  colorIndex: number;
+  colorId: number;
   dash?: ReturnType<GitGraphPaintMetrics["dash"]>;
 };
 
@@ -245,7 +245,7 @@ function buildGraphPaths(
       paths.push({
         id: `${edgeId}:${rowIndex + rowOffset}:${segment.direction}`,
         d: points.join(" "),
-        colorIndex: segment.colorIndex,
+        colorId: segment.colorId,
         dash: segment.isDotted && !segment.hasArrow && !next?.hasArrow ? paint.dash(segment) : undefined,
       });
     });

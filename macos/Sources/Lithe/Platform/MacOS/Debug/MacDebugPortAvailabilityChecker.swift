@@ -26,7 +26,8 @@ final class MacDebugPortAvailabilityChecker: DebugPortAvailabilityChecking {
         return UInt16(bigEndian: address.sin_port)
     }
 
-    /// A bind probe does not connect to or resume a suspended JDWP VM. The
+    /// A bind probe does not connect to or resume a debuggee that is suspended
+    /// waiting for its debugger. The
     /// operation guard also ends the wait when its owning process exits.
     func waitForLoopbackListener(_ port: UInt16, processID: @escaping @MainActor () -> Int32?, isCurrent: @escaping @MainActor () -> Bool) async throws {
         let clock = ContinuousClock(), deadline = ContinuousClock.now.advanced(by: .seconds(120))
@@ -44,7 +45,7 @@ final class MacDebugPortAvailabilityChecker: DebugPortAvailabilityChecking {
             guard isCurrent() else { throw CancellationError() }
             try await clock.sleep(for: .milliseconds(100))
         }
-        throw RunConfigurationOperationFailure(message: L10n.string("The framework did not open its JVM debug port before the deadline. Check the Run output."))
+        throw RunConfigurationOperationFailure(message: L10n.string("The program did not open its debug port before the deadline. Check the Run output."))
     }
 
     func isPortAvailable(_ port: Int) -> Bool {

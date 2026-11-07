@@ -214,6 +214,22 @@ done
       abort "plan case #{item.fetch("name")} uses an undocumented code" unless documented.include?(expected.fetch("code"))
     end
   end
+  resolution = JSON.parse(File.read(File.join(fixtures, "languages", "language-server-launch-resolution.json")))
+  abort "language server launch resolution fixture schema must be 1" unless resolution.fetch("schemaVersion") == 1
+  resolution.fetch("cases").each do |item|
+    abort "launch resolution case #{item.fetch("name")} uses an unknown operation" unless %w[languageServerLaunchPlan decodeLaunch].include?(item.fetch("operation"))
+    abort "launch resolution case #{item.fetch("name")} needs a result" if item.fetch("operation") == "decodeLaunch" && !item.key?("result")
+    abort "launch resolution case #{item.fetch("name")} uses an unknown plugin" if item.key?("plugin") && !fixture_names.include?(item.fetch("plugin"))
+    expected = item.fetch("expected")
+    if expected.fetch("status") == "rejected"
+      abort "launch resolution case #{item.fetch("name")} uses an undocumented code" unless documented.include?(expected.fetch("code"))
+    end
+  end
+  # A project plan case runs against the version 1 generator fixture unless it names another.
+  JSON.parse(File.read(File.join(fixtures, "project-generators", "project-plans.json"))).fetch("cases").each do |item|
+    next unless item.key?("manifest")
+    abort "project plan case #{item.fetch("name")} uses an unknown manifest" unless fixture_names.include?(item.fetch("manifest"))
+  end
   build_operations = %w[
     invocationPlan checkToolVersion resolveOptions modelPlan taskPlan testPlan dependencyPlan
     decodeModel decodeTestResults decodeDiagnostics decodeDependencies syncFingerprint
@@ -234,7 +250,7 @@ done
   functions = JSON.parse(File.read(File.join(fixtures, "backend", "function-protocol.json")))
   abort "function protocol fixture schema must be 1" unless functions.fetch("schemaVersion") == 1
   abort "function protocol fixture must describe litheFunctions" unless functions.fetch("protocol") == "litheFunctions"
-  function_sections = %w[negotiation registration invocations outcomes progress backendRequests hostRequests]
+  function_sections = %w[negotiation registration invocations outcomes progress backendRequests hostRequests invocationCallers relayErrors]
   function_names = function_sections.flat_map { |section| functions.fetch(section).map { |item| item.fetch("name") } }
   abort "function protocol case names must be unique" unless function_names.uniq.length == function_names.length
   function_codes = []
@@ -246,10 +262,42 @@ done
   functions.fetch("outcomes").each { |item| function_codes << item.fetch("expected").fetch("error", {})["code"] }
   functions.fetch("backendRequests").each { |item| function_codes << item.fetch("expected")["code"] }
   functions.fetch("hostRequests").each { |item| function_codes << item.fetch("expected")["code"] }
+  functions.fetch("relayErrors").each { |item| function_codes << item.fetch("code") }
+  relay_numbers = functions.fetch("relayErrors").map { |item| [item.fetch("code"), item.fetch("rpcCode")] }.uniq
+  abort "relay error codes must each have one number" unless relay_numbers.map(&:first).uniq.length == relay_numbers.length
+  new_relay_numbers = relay_numbers.select { |code, _| code.start_with?("plugin.function.") && code != "plugin.function.failed" }.map(&:last)
+  abort "each new plugin.function relay code needs its own number" unless new_relay_numbers.uniq.length == new_relay_numbers.length
   function_codes.compact.uniq.each do |code|
     abort "function protocol fixture uses an undocumented code #{code}" unless documented.include?(code)
   end
   abort "function protocol fixture contains a machine path" if JSON.generate(functions).match?(%r{/(?:Users|home|var/folders|private/var)/|[A-Za-z]:\\\\})
+  # Editor actions (version 2) and editor providers: Core decodes every case.
+  actions = JSON.parse(File.read(File.join(fixtures, "editor", "editor-actions-v2.json")))
+  abort "editor action fixture schema must be 1" unless actions.fetch("schemaVersion") == 1
+  action_names = actions.fetch("cases").map { |item| item.fetch("name") }
+  abort "editor action case names must be unique" unless action_names.uniq.length == action_names.length
+  actions.fetch("cases").each do |item|
+    abort "editor action case #{item.fetch("name")} uses an unknown kind" unless %w[actions invokeResult].include?(item.fetch("kind"))
+    abort "editor action case #{item.fetch("name")} uses an unknown status" unless %w[accepted rejected].include?(item.fetch("expected").fetch("status"))
+  end
+  providers = JSON.parse(File.read(File.join(fixtures, "editor", "editor-providers.json")))
+  abort "editor provider fixture schema must be 1" unless providers.fetch("schemaVersion") == 1
+  provider_types = providers.fetch("host").fetch("providerTypes")
+  provider_names = (providers.fetch("registrations") + providers.fetch("results")).map { |item| item.fetch("name") }
+  abort "editor provider case names must be unique" unless provider_names.uniq.length == provider_names.length
+  providers.fetch("registrations").each do |item|
+    code = item.fetch("expected")["code"]
+    abort "editor provider case #{item.fetch("name")} uses an undocumented code" unless code.nil? || documented.include?(code)
+  end
+  providers.fetch("results").each do |item|
+    abort "editor provider case #{item.fetch("name")} uses an unknown type" unless provider_types.include?(item.fetch("type"))
+  end
+  provider_types.each do |type|
+    abort "editor provider type #{type} is undocumented" unless readme.include?("`#{type}`")
+  end
+  [actions, providers].each do |fixture|
+    abort "editor fixture contains a machine path" if JSON.generate(fixture).match?(%r{/(?:Users|home|var/folders|private/var)/|[A-Za-z]:\\\\})
+  end
   index_schema = JSON.parse(File.read(File.join(root, "plugin-index.schema.json")))
   abort "plugin index schema ID mismatch" unless index_schema.fetch("$id") == "#{published_base}/plugin-index.schema.json"
   abort "plugin indexes must use schemaVersion 1" unless index_schema.fetch("properties").fetch("schemaVersion").fetch("const") == 1

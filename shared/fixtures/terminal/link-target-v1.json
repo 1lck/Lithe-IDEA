@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "relative-path-with-line-and-column",
+      "request": { "texts": ["Sources/App.swift:12:4", "src/lib.rs:7", "./a/../b.txt"], "baseDirectory": "/work/project" },
+      "expected": [
+        { "kind": "file", "path": "/work/project/Sources/App.swift", "line": 12, "column": 4, "explicit": true },
+        { "kind": "file", "path": "/work/project/src/lib.rs", "line": 7, "column": null, "explicit": true },
+        { "kind": "file", "path": "/work/project/b.txt", "line": null, "column": null, "explicit": true }
+      ]
+    },
+    {
+      "name": "extension-is-never-inspected",
+      "request": { "texts": ["Makefile", "build/output", "LICENSE:3", "notes.zzz"], "baseDirectory": "/work/project" },
+      "expected": [
+        { "kind": "file", "path": "/work/project/Makefile", "line": null, "column": null, "explicit": false },
+        { "kind": "file", "path": "/work/project/build/output", "line": null, "column": null, "explicit": true },
+        { "kind": "file", "path": "/work/project/LICENSE", "line": 3, "column": null, "explicit": true },
+        { "kind": "file", "path": "/work/project/notes.zzz", "line": null, "column": null, "explicit": false }
+      ]
+    },
+    {
+      "name": "file-uri-is-decoded",
+      "request": { "texts": ["file:///Users/me/My%20Project/a%C3%A9.rs:9", "file://localhost/tmp/x.txt", "file:///C:/Users/me/a%20b.rs:3:1", "file:///tmp/%zz"], "baseDirectory": "/work" },
+      "expected": [
+        { "kind": "file", "path": "/Users/me/My Project/aé.rs", "line": 9, "column": null, "explicit": true },
+        { "kind": "file", "path": "/tmp/x.txt", "line": null, "column": null, "explicit": true },
+        { "kind": "file", "path": "C:\\Users\\me\\a b.rs", "line": 3, "column": 1, "explicit": true },
+        null
+      ]
+    },
+    {
+      "name": "web-urls-are-external-and-scheme-lookalikes-are-paths",
+      "request": { "texts": ["https://example.com/docs", "mailto:a@b.c", "App.swift:12"], "baseDirectory": "/work" },
+      "expected": [
+        { "kind": "external", "url": "https://example.com/docs" },
+        { "kind": "external", "url": "mailto:a@b.c" },
+        { "kind": "file", "path": "/work/App.swift", "line": 12, "column": null, "explicit": true }
+      ]
+    },
+    {
+      "name": "tilde-needs-a-home-directory",
+      "request": { "texts": ["~/notes/todo.md:2", "~"], "baseDirectory": "/work", "homeDirectory": "/Users/me" },
+      "expected": [
+        { "kind": "file", "path": "/Users/me/notes/todo.md", "line": 2, "column": null, "explicit": true },
+        { "kind": "file", "path": "/Users/me", "line": null, "column": null, "explicit": true }
+      ]
+    },
+    {
+      "name": "tilde-without-home-and-relative-without-base-are-rejected",
+      "request": { "texts": ["~/a.txt", "src/a.txt", "/abs/a.txt:5"] },
+      "expected": [
+        null,
+        null,
+        { "kind": "file", "path": "/abs/a.txt", "line": 5, "column": null, "explicit": true }
+      ]
+    },
+    {
+      "name": "windows-paths-keep-drive-and-separator-style",
+      "request": { "texts": ["src\\main.rs:10:2", "..\\other\\a.rs", "D:\\x\\y.txt:4", "\\\\srv\\share\\f.txt"], "baseDirectory": "C:\\work\\project" },
+      "expected": [
+        { "kind": "file", "path": "C:\\work\\project\\src\\main.rs", "line": 10, "column": 2, "explicit": true },
+        { "kind": "file", "path": "C:\\work\\other\\a.rs", "line": null, "column": null, "explicit": true },
+        { "kind": "file", "path": "D:\\x\\y.txt", "line": 4, "column": null, "explicit": true },
+        { "kind": "file", "path": "\\\\srv\\share\\f.txt", "line": null, "column": null, "explicit": true }
+      ]
+    },
+    {
+      "name": "provider-workspace-keeps-paths-inside-the-provider",
+      "request": { "texts": ["src/a.rs:3", "/etc/hosts", "wsl://Ubuntu/home/me/b.rs:1", "../c.rs"], "baseDirectory": "remote://conn1/home/me/app", "providerSchemes": ["remote", "wsl"] },
+      "expected": [
+        { "kind": "file", "path": "remote://conn1/home/me/app/src/a.rs", "line": 3, "column": null, "explicit": true },
+        { "kind": "file", "path": "remote://conn1/etc/hosts", "line": null, "column": null, "explicit": true },
+        { "kind": "file", "path": "wsl://Ubuntu/home/me/b.rs", "line": 1, "column": null, "explicit": true },
+        { "kind": "file", "path": "remote://conn1/home/me/c.rs", "line": null, "column": null, "explicit": true }
+      ]
+    },
+    {
+      "name": "empty-and-zero-location-texts",
+      "request": { "texts": ["", "   ", "a.rs:0"], "baseDirectory": "/work" },
+      "expected": [
+        null,
+        null,
+        { "kind": "file", "path": "/work/a.rs:0", "line": null, "column": null, "explicit": false }
+      ]
+    }
+  ]
+}

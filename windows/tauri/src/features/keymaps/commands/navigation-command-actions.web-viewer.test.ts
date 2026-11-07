@@ -26,7 +26,6 @@ beforeEach(() => {
       buffers: [{ id: WEB_BUFFER_ID, type: "webViewer", path: "https://example.com" }],
     } as unknown as ReturnType<typeof useBufferStore.getState>),
     spyOn(useJumpListStore, "getState").mockReturnValue({
-      currentIndex: -1,
       actions: { goBack: jumpGoBack, goForward: jumpGoForward },
     } as unknown as ReturnType<typeof useJumpListStore.getState>),
     spyOn(editorAPI, "getCursorPosition").mockReturnValue({ line: 0, column: 0, offset: 0 }),
@@ -64,6 +63,6 @@ describe("navigation commands on a web viewer tab", () => {
     expect(webGoForward).not.toHaveBeenCalled();
     // The page has no editor cursor, so leaving it must not record a jump position.
     expect(jumpGoBack).toHaveBeenCalledWith(undefined);
-    expect(jumpGoForward).toHaveBeenCalledTimes(1);
+    expect(jumpGoForward).toHaveBeenCalledWith(undefined);
   });
 });

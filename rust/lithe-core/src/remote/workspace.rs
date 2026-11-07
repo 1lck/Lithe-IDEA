@@ -49,7 +49,6 @@ impl Scope {
                             | "workspace.searchIndex.update"
                             | "workspace.searchIndex.invalidate"
                             | "workspace.replacePreview"
-                            | "runConfig.selectJava"
                             | "lsp.startServer"
                     ))
                 {

@@ -1,18 +1,6 @@
 import Foundation
 import LitheCoreContracts
 
-extension RustCoreBridge: JavaTestDebugLaunchResolving {
-    func resolveJavaTestDebugLaunch(
-        target: JavaTestDebugLaunchTarget,
-        resultPort: UInt16
-    ) throws -> DebugLaunchConfiguration {
-        try executeResult(
-            command: "debug.javaTestLaunch",
-            payload: JavaTestDebugLaunchPayload(target: target, resultPort: resultPort)
-        ).get()
-    }
-}
-
 extension RustCoreBridge: DebugBreakpointRelocating {
     func relocateDebugBreakpoints(
         source: String,
@@ -49,7 +37,8 @@ extension RustCoreBridge: DebugProtocolCore {
         supportsRunInTerminalRequest: Bool,
         supportsStartDebuggingRequest: Bool,
         disabledCapabilities: [String],
-        parentSessionID: String?
+        parentSessionID: String?,
+        declared: DebugAdapterDeclaredBehavior
     ) throws -> DebugCoreUpdate {
         try executeResult(
             command: "debug.createSession",
@@ -60,7 +49,9 @@ extension RustCoreBridge: DebugProtocolCore {
                 supportsRunInTerminalRequest: supportsRunInTerminalRequest,
                 supportsStartDebuggingRequest: supportsStartDebuggingRequest,
                 disabledCapabilities: disabledCapabilities,
-                parentSessionID: parentSessionID
+                parentSessionID: parentSessionID,
+                features: declared.features,
+                defaults: declared.defaults
             )
         ).get()
     }
@@ -348,43 +339,6 @@ extension RustCoreBridge: DebugProtocolCore {
     }
 }
 
-private struct JavaTestDebugLaunchPayload: Encodable {
-    let name: String
-    let framework: JavaTestDebugFramework
-    let workingDirectory: String
-    let mainClass: String
-    let projectName: String?
-    let classPaths: [String]
-    let modulePaths: [String]
-    let vmArguments: [String]
-    let programArguments: [String]
-    let resultPort: UInt16
-    let testNGRunnerPath: String?
-    let testNGTestNames: [String]
-
-    init(target: JavaTestDebugLaunchTarget, resultPort: UInt16) {
-        name = target.name
-        framework = target.framework
-        workingDirectory = target.workingDirectory
-        mainClass = target.mainClass
-        projectName = target.projectName
-        classPaths = target.classPaths
-        modulePaths = target.modulePaths
-        vmArguments = target.vmArguments
-        programArguments = target.programArguments
-        self.resultPort = resultPort
-        testNGRunnerPath = target.testNGRunnerPath
-        testNGTestNames = target.testNGTestNames
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case name, framework, workingDirectory, mainClass, projectName
-        case classPaths, modulePaths, vmArguments, programArguments, resultPort
-        case testNGRunnerPath = "testngRunnerPath"
-        case testNGTestNames = "testngTestNames"
-    }
-}
-
 private struct DebugBreakpointRelocationPayload: Encodable {
     let source: String
     let edit: DebugSourceEdit
@@ -403,12 +357,16 @@ private struct DebugCreateSessionPayload: Encodable {
     let supportsStartDebuggingRequest: Bool
     let disabledCapabilities: [String]
     let parentSessionID: String?
+    /// What the plugin declared for its adapter; Core flattens both keys into the request.
+    let features: DebugAdapterDeclaredBehavior.Features?
+    let defaults: DebugAdapterDeclaredBehavior.Defaults?
 
     private enum CodingKeys: String, CodingKey {
         case sessionID = "sessionId"
         case adapterID = "adapterId"
         case parentSessionID = "parentSessionId"
         case rootPath, supportsRunInTerminalRequest, supportsStartDebuggingRequest, disabledCapabilities
+        case features, defaults
     }
 }
 

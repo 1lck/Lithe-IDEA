@@ -64,15 +64,35 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
         }.childRows(of: rows)
     }
 
+    func orderedTreeSiblings(_ rows: [FileNode]) -> [FileNode]? {
+        core.orderEntries(rows.map {
+            RustCoreBridge.OrderedEntry(name: $0.firstPathComponent, isDirectory: $0.isDirectory)
+        })?.map { rows[$0] }
+    }
+
+    func copyName(for name: String, isDirectory: Bool, existing: [String], duplicate: Bool) -> String? {
+        core.copyName(for: name, isDirectory: isDirectory, existing: existing, duplicate: duplicate)
+    }
+
+    func reduceDirectoryAction(
+        _ action: WorkspaceDirectoryAction, at path: String, rules: WorkspaceDirectoryRules
+    ) -> WorkspaceDirectoryReduction? {
+        core.reduceDirectoryAction(action, at: path, rules: rules)
+    }
+
+    func relocateDirectoryRules(
+        _ rules: WorkspaceDirectoryRules, moving source: String, to destination: String?
+    ) -> WorkspaceDirectoryRules? {
+        core.relocateDirectoryRules(rules, moving: source, to: destination)
+    }
+
     func rootRows(at rootURL: URL, visibilityRules: FileVisibilityRules) -> [FileNode]? {
         guard let entries = listDirectories([rootURL], at: rootURL, visibilityRules: visibilityRules)?[rootURL.standardizedFileURL.path] else {
             return nil
         }
-        let insideSourceRoot = LitheIcons.isSourceRootDirectory(rootURL)
         return entries.map { entry in
             FileNode(url: entry.url, isDirectory: entry.isDirectory,
-                     children: entry.isEmptyDirectory ? [] : nil,
-                     isInsideSourceRoot: entry.isDirectory && insideSourceRoot)
+                     children: entry.isEmptyDirectory ? [] : nil)
         }
     }
 
@@ -88,20 +108,14 @@ struct RustWorkspaceOperations: WorkspaceOperations, Sendable {
             if path == rootPath { return "" }
             return path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : nil
         }
+        // Core owns visibility and order; a failed listing leaves the rows
+        // unloaded instead of falling back to a second Swift implementation.
         guard let payload = core.listDirectories(
             at: rootURL,
             relativePaths: relativePaths,
             hiddenDirectoryNames: visibilityRules.hiddenDirectoryNames,
             hiddenFilePatterns: visibilityRules.hiddenFilePatterns
-        ) else {
-            // A remote placeholder is never a fallback filesystem when its host fails.
-            if core.remoteWorkspaces?.binding(forRoot: rootURL) != nil { return nil }
-            return FileSystemWorkspaceSnapshotBuilder().listDirectories(
-                directories,
-                at: rootURL,
-                visibilityRules: visibilityRules
-            )
-        }
+        ) else { return nil }
         func url(for relativePath: String) -> URL {
             relativePath.isEmpty ? rootURL : rootURL.appendingPathComponent(relativePath)
         }

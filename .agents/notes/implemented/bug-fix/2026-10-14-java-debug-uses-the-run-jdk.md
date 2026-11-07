@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 macOS 上 Java 调试启动的 JVM 现在就是“运行”会用的那个 JDK。调试不保存自己的 JDK 配置：它只说明“我要调试的是哪类目标”，再向运行所用的同一条选择链取 `java` 路径，写进调试启动参数 `javaExec`。所以改运行配置的 JDK、项目 JDK 或 `JAVA_HOME`，调试自动跟着变。
@@ -51,7 +53,7 @@ macOS 上 Java 调试启动的 JVM 现在就是“运行”会用的那个 JDK�
 ## 适用范围
 
 - `macos/Sources/Lithe/Services/Debug/DebugLaunchConfigurationResolver.swift`
-- `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`
+- 已迁出：原 `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
 - `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
 - `macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift`
 - `shared/platform-feature-matrix/features/debug-java-runtime.json`

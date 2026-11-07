@@ -58,6 +58,26 @@ struct PluginPublicHostAPITests {
     }
 
     @Test
+    func aMethodCannotBeDispatchedUnderADifferentService() async {
+        let contexts = PluginWorkspaceContexts()
+        let dispatcher = PluginHostServiceDispatcher(contexts: contexts)
+        dispatcher.register(PluginDocumentHostService(contexts: contexts))
+        let method = "lithe/host/editor/applyEdits"
+        dispatcher.beginSession(pluginID: "plugin", hostServices: [method])
+        defer { dispatcher.endSession(pluginID: "plugin") }
+        let forged = PluginHostRequest(id: "test-request", method: method, service: "workspace", params: .object([:]))
+        #expect(code(await dispatcher.dispatch(forged, pluginID: "plugin")) == "plugin.host.unavailable")
+    }
+
+    /// Core answers `functions` (calls between plugins) itself, so the host
+    /// has no handler for it; a plugin that declares calls is still granted it.
+    @Test
+    func theFunctionsServiceIsGrantedThoughCoreAnswersIt() {
+        let dispatcher = PluginHostServiceDispatcher(contexts: PluginWorkspaceContexts())
+        #expect(dispatcher.supportedGrants(["functions", "lithe/host/functions/missing"]) == ["functions"])
+    }
+
+    @Test
     func closingContextCancelsAnInflightRequestExactlyOnce() async throws {
         let contexts = PluginWorkspaceContexts()
         let window = NSObject()
@@ -65,11 +85,11 @@ struct PluginPublicHostAPITests {
         let dispatcher = PluginHostServiceDispatcher(contexts: contexts)
         let handler = HeldHandler()
         dispatcher.register(handler)
-        dispatcher.beginSession(pluginID: "plugin", hostServices: ["lithe/host/test/wait"])
+        dispatcher.beginSession(pluginID: "plugin", hostServices: ["lithe/host/window/showInformation"])
         defer { handler.release.open(); dispatcher.endSession(pluginID: "plugin") }
         let answered = TestGate()
         var answers: [Result<ToolingJSONValue, PluginHostRequestFailure>] = []
-        dispatcher.handle(request("test/wait", ["context": reference(context)]), pluginID: "plugin") {
+        dispatcher.handle(request("window/showInformation", ["context": reference(context)]), pluginID: "plugin") {
             answers.append($0); answered.open()
         }
         try #require(await handler.started.waitUntilOpen())
@@ -85,19 +105,19 @@ struct PluginPublicHostAPITests {
         let dispatcher = PluginHostServiceDispatcher(contexts: PluginWorkspaceContexts())
         let handler = HeldHandler()
         dispatcher.register(handler)
-        let old = dispatcher.beginSession(pluginID: "plugin", hostServices: ["lithe/host/test/wait"])
-        let current = dispatcher.beginSession(pluginID: "plugin", hostServices: ["lithe/host/test/wait"])
+        let old = dispatcher.beginSession(pluginID: "plugin", hostServices: ["lithe/host/window/showInformation"])
+        let current = dispatcher.beginSession(pluginID: "plugin", hostServices: ["lithe/host/window/showInformation"])
         defer { handler.release.open(); dispatcher.endSession(pluginID: "plugin") }
         let answered = TestGate()
         var count = 0
-        dispatcher.handle(request("test/wait", [:]), pluginID: "plugin", sessionID: current) { _ in count += 1; answered.open() }
+        dispatcher.handle(request("window/showInformation", [:]), pluginID: "plugin", sessionID: current) { _ in count += 1; answered.open() }
         try #require(await handler.started.waitUntilOpen())
         dispatcher.cancel(hostRequestID: "test-request", pluginID: "plugin", sessionID: old)
         #expect(!handler.finished.isOpen)
         handler.release.open()
         try #require(await answered.waitUntilOpen())
         #expect(count == 1)
-        dispatcher.handle(request("test/wait", [:]), pluginID: "plugin", sessionID: old) { _ in count += 1 }
+        dispatcher.handle(request("window/showInformation", [:]), pluginID: "plugin", sessionID: old) { _ in count += 1 }
         #expect(count == 1)
     }
 
@@ -140,8 +160,8 @@ struct PluginPublicHostAPITests {
     }
 
     private final class HeldHandler: PluginHostServiceHandling {
-        let service = "test"
-        let methods: Set<String> = ["lithe/host/test/wait"]
+        let service = "window"
+        let methods: Set<String> = ["lithe/host/window/showInformation"]
         let started = TestGate(), release = TestGate(), finished = TestGate()
         func answer(_ call: PluginHostCall) async -> Result<ToolingJSONValue, PluginHostServiceError> {
             defer { finished.open() }

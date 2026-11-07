@@ -6,7 +6,7 @@ import SwiftUI
 /// Three proxy modes for the application's own HTTP traffic. The custom mode
 /// exposes the full server configuration: type, host, port, optional
 /// credentials, an exclusion list and a connectivity check. Terminal
-/// commands, Git, JVM dependency downloads and the built-in updater keep
+/// commands, Git, build-tool dependency downloads and the built-in updater keep
 /// their own network settings; the updater always follows the system proxy.
 struct NetworkSettingsView: View {
     @EnvironmentObject private var settingsContext: SettingsModelContext
@@ -29,7 +29,7 @@ struct NetworkSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             LitheSettingsSection(title: "Proxy server", accessory: {
-                LitheInfoTip("These settings apply to Lithe's own requests: the plugin marketplace, GitHub and AI providers. Terminal commands, Git, JVM dependency downloads and the built-in updater keep their own network settings; the updater always follows the system proxy. Changes apply to new requests.")
+                LitheInfoTip("These settings apply to Lithe's own requests: the plugin marketplace, GitHub and AI providers. Terminal commands, Git, build tool dependency downloads and the built-in updater keep their own network settings; the updater always follows the system proxy. Changes apply to new requests.")
             }) {
                 row(
                     "Proxy mode",

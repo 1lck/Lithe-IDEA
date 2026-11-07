@@ -1,28 +1,16 @@
-import type { JumpListEntry } from "../stores/jump-list.store";
+import { type JumpListEntry, useJumpListStore } from "../stores/jump-list.store";
 
-export type CursorHistoryEntry = Omit<JumpListEntry, "timestamp">;
-
-function cursorEntriesEqual(left: CursorHistoryEntry, right: CursorHistoryEntry): boolean {
-  return (
-    left.bufferId === right.bufferId &&
-    left.filePath === right.filePath &&
-    left.line === right.line &&
-    left.column === right.column &&
-    left.offset === right.offset
-  );
-}
+export type CursorHistoryEntry = JumpListEntry;
 
 /**
- * Returns the position before a mouse gesture when the gesture moved the cursor.
- * A click without movement does not create a jump-list entry.
+ * Records a completed mouse gesture as a jump from its start position. Core
+ * ignores a gesture that ends where it started, so a click without movement
+ * adds no history. One call per gesture keeps this off the per-cursor-move path.
  */
-export function cursorEntryToRecordAfterMouseGesture(
+export function recordMouseGesture(
   gestureStart: CursorHistoryEntry | null,
   gestureEnd: CursorHistoryEntry | null,
-): CursorHistoryEntry | null {
-  if (!gestureStart || !gestureEnd || cursorEntriesEqual(gestureStart, gestureEnd)) {
-    return null;
-  }
-
-  return gestureStart;
+): void {
+  if (!gestureStart || !gestureEnd) return;
+  void useJumpListStore.getState().actions.record(gestureStart, gestureEnd);
 }

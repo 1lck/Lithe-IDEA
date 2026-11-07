@@ -9,9 +9,6 @@ package struct RunSession: Identifiable, Hashable, Sendable {
     package var output: String
     package var isRunning: Bool
     package var exitCode: Int32?
-    /// Immutable runtime inputs from this execution, never the current editor selection.
-    package var javaUpdateTarget: JavaDebugLaunchTarget?
-    package var javaUpdateSource: URL?
 
     package init(
         executionID: String = UUID().uuidString,
@@ -32,22 +29,7 @@ package struct RunSession: Identifiable, Hashable, Sendable {
     }
 }
 
-package struct RunPortConflict: Identifiable, Hashable, Sendable {
-    package let port: Int
-    package let configurationNames: [String]
-
-    package init(port: Int, configurationNames: [String]) {
-        self.port = port
-        self.configurationNames = configurationNames
-    }
-
-    package var id: String { String(port) }
-
-    package var title: String {
-        "Port \(port) is used by " + configurationNames.joined(separator: ", ")
-    }
-}
-
+/// Fields a run configuration exposes in the shared editor.
 package struct RunConfigurationCapabilities: OptionSet, Hashable, Sendable {
     package let rawValue: Int
     package init(rawValue: Int) { self.rawValue = rawValue }
@@ -55,68 +37,20 @@ package struct RunConfigurationCapabilities: OptionSet, Hashable, Sendable {
     package static let workingDirectory = Self(rawValue: 1 << 0)
     package static let arguments = Self(rawValue: 1 << 1)
     package static let environment = Self(rawValue: 1 << 2)
-    package static let javaRuntime = Self(rawValue: 1 << 3)
-    package static let javaVMArguments = Self(rawValue: 1 << 4)
-    package static let mavenProfiles = Self(rawValue: 1 << 5)
-    package static let jdwpDebug = Self(rawValue: 1 << 6)
-    package static let mavenSkipTests = Self(rawValue: 1 << 7)
 
     package static let process: Self = [.workingDirectory, .arguments, .environment]
 }
 
-/// A JVM framework launched by a Maven goal rather than by spawning a process.
-///
-/// These share Spring Boot's capabilities exactly -- the core assembles the goal
-/// and the property names its arguments travel under -- so they are one case
-/// carrying the framework rather than three parallel cases.
-package enum MavenFrameworkKind: String, Hashable, Sendable, CaseIterable {
-    case springBoot
-    case quarkus
-    case micronaut
-
-    /// The core provider this framework is reported as.
-    package var provider: String {
-        switch self {
-        case .springBoot: "spring-boot.maven"
-        case .quarkus: "quarkus.maven"
-        case .micronaut: "micronaut.maven"
-        }
-    }
-
-    package var title: String {
-        switch self {
-        case .springBoot: "Spring Boot"
-        case .quarkus: "Quarkus"
-        case .micronaut: "Micronaut"
-        }
-    }
-
-    /// Only Spring Boot's goal accepts a main class; Quarkus and Micronaut
-    /// resolve it from the build, so naming one would be ignored.
-    package var namesMainClass: Bool { self == .springBoot }
-}
-
 package enum RunConfigurationKind: Hashable, Identifiable, Sendable {
     case currentFile
-    case javaMain
-    case mavenModule
-    /// A JVM framework whose service is started by a Maven goal.
-    case mavenFramework(MavenFrameworkKind)
-    /// Any provider this build has no first-class handling for. Carrying the
-    /// raw provider keeps unknown ecosystems visible and runnable instead of
-    /// silently dropping them at the decode boundary.
+    /// Any provider reported by Core or a plugin. Carrying the raw provider
+    /// keeps every ecosystem visible and runnable instead of dropping it at
+    /// the decode boundary.
     case process(provider: String)
-
-    package static let springBoot: Self = .mavenFramework(.springBoot)
 
     package init?(rawValue: String) {
         switch rawValue {
         case "currentFile": self = .currentFile
-        case "springBoot": self = .springBoot
-        case "javaMain": self = .javaMain
-        case "mavenModule": self = .mavenModule
-        case "quarkus": self = .mavenFramework(.quarkus)
-        case "micronaut": self = .mavenFramework(.micronaut)
         default: return nil
         }
     }
@@ -124,45 +58,22 @@ package enum RunConfigurationKind: Hashable, Identifiable, Sendable {
     package var id: String {
         switch self {
         case .currentFile: "currentFile"
-        case .javaMain: "javaMain"
-        case .mavenModule: "mavenModule"
-        case .mavenFramework(let framework): framework.rawValue
         case .process(let provider): provider
         }
     }
 
+    /// The provider namespace; Current File belongs to no provider.
     package var providerID: String {
         switch self {
-        case .currentFile, .javaMain: "java"
-        case .mavenModule, .mavenFramework: "maven"
+        case .currentFile: ""
         case .process(let provider): provider.split(separator: ".").first.map(String.init) ?? provider
         }
     }
 
-    /// The framework whose Maven goal starts this configuration, if any.
-    package var mavenFramework: MavenFrameworkKind? {
-        if case .mavenFramework(let framework) = self { return framework }
-        return nil
-    }
-
-    /// True for the Maven-backed kinds that support JDWP debugging and Maven
-    /// profiles. Callers should branch on this rather than enumerating cases.
-    package var isMavenBacked: Bool {
-        self == .mavenModule || mavenFramework != nil
-    }
-
     package var capabilities: RunConfigurationCapabilities {
         switch self {
-        case .currentFile, .javaMain:
-            return [.workingDirectory, .arguments, .environment, .javaRuntime, .javaVMArguments, .jdwpDebug]
-        case .mavenModule:
-            return [.workingDirectory, .arguments, .environment, .javaRuntime,
-                    .javaVMArguments, .mavenProfiles, .mavenSkipTests]
-        case .mavenFramework:
-            return [
-                .workingDirectory, .arguments, .environment, .javaRuntime,
-                .javaVMArguments, .mavenProfiles, .mavenSkipTests, .jdwpDebug
-            ]
+        case .currentFile:
+            return .process
         case .process(let provider):
             return provider == "build.provider" ? [] : .process
         }
@@ -171,9 +82,6 @@ package enum RunConfigurationKind: Hashable, Identifiable, Sendable {
     package var title: String {
         switch self {
         case .currentFile: "Current File"
-        case .javaMain: "Java Application"
-        case .mavenModule: "Maven Module"
-        case .mavenFramework(let framework): framework.title
         case .process(let provider): Self.displayTitle(for: provider)
         }
     }
@@ -181,11 +89,6 @@ package enum RunConfigurationKind: Hashable, Identifiable, Sendable {
     package var systemImage: String {
         switch self {
         case .currentFile: "doc.text"
-        case .javaMain: "cup.and.heat.waves"
-        case .mavenModule: "shippingbox"
-        // All three are long-running JVM services started the same way, so they
-        // share one symbol rather than implying a difference that is not there.
-        case .mavenFramework: "leaf"
         case .process(let provider): Self.symbol(for: provider)
         }
     }
@@ -242,32 +145,11 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
     package let name: String
     package let kind: RunConfigurationKind
     package let execution: RunConfigurationExecution
-    package let modulePath: String?
-    package let mainClass: String?
-    /// Workspace-relative Java source that owns this launch target, when known.
-    package let sourcePath: String?
-    /// Detected ownership from Core, independent of an overridden working directory.
-    package let mavenReactorPath: String?
     package let debugAdapter: String?
     package let disabled: Bool
     package let buildProvider: BuildProviderRunReference?
-    package let buildProject: RunBuildProjectReference?
 
     package var usesCurrentEditorFile: Bool { kind == .currentFile }
-
-    /// These persisted configurations depend on current Provider generation facts.
-    package var requiresProviderGeneration: Bool {
-        guard buildProvider == nil else { return false }
-        switch kind {
-        case .javaMain, .mavenModule, .mavenFramework: return true
-        case .currentFile, .process: return false
-        }
-    }
-
-    /// Only launches backed by a JDT project wait for workspace preparation.
-    package var usesJavaProjectPreparation: Bool {
-        (kind == .javaMain || (kind == .springBoot && sourcePath?.lowercased().hasSuffix(".java") == true)) && (buildProject != nil || mavenReactorPath != nil)
-    }
 
     /// Saved provider services may attach through their declared registry type.
     package var usesProviderConnectionDebug: Bool {
@@ -279,78 +161,27 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
         name: String,
         kind: RunConfigurationKind,
         execution: RunConfigurationExecution? = nil,
-        modulePath: String?,
-        mainClass: String?,
-        sourcePath: String? = nil,
-        mavenReactorPath: String? = nil,
         debugAdapter: String? = nil,
         disabled: Bool = false,
-        buildProvider: BuildProviderRunReference? = nil,
-        buildProject: RunBuildProjectReference? = nil
+        buildProvider: BuildProviderRunReference? = nil
     ) {
         self.id = id
         self.name = name
         self.kind = kind
-        self.execution = execution ?? Self.defaultExecution(for: kind)
-        self.modulePath = modulePath
-        self.mainClass = mainClass
-        self.sourcePath = sourcePath
-        self.mavenReactorPath = mavenReactorPath
+        self.execution = execution ?? .application
         self.debugAdapter = debugAdapter
         self.disabled = disabled
         self.buildProvider = buildProvider
-        self.buildProject = buildProject
     }
 
     package var systemImage: String { kind.systemImage }
-
-    /// Current File is a language-neutral entry. Java keeps its legacy JDK
-    /// capability, while other Providers expose only the shared process
-    /// fields in the configuration editor.
-    package func effectiveCapabilities(
-        for currentFileURL: URL?,
-        catalog: LanguageProviderCatalog = .compatibilityFallback
-    ) -> RunConfigurationCapabilities {
-        guard kind == .currentFile else { return kind.capabilities }
-        guard let currentFileURL,
-              let descriptor = catalog.provider(for: currentFileURL) else {
-            // An unknown extension is still a language-neutral Current File
-            // entry. Showing JDK/Maven controls here would make an unsupported
-            // language look like a Java project and leak provider assumptions
-            // into the shared editor.
-            return .process
-        }
-        guard descriptor.id == "java" else {
-            return .process
-        }
-        return kind.capabilities
-    }
 
     package static var currentFile: RunConfiguration {
         RunConfiguration(
             id: currentFileID,
             name: "Current File",
             kind: .currentFile,
-            execution: .application,
-            modulePath: nil,
-            mainClass: nil
+            execution: .application
         )
     }
-
-    private static func defaultExecution(
-        for kind: RunConfigurationKind
-    ) -> RunConfigurationExecution {
-        switch kind {
-        case .mavenFramework: .service
-        case .currentFile, .javaMain, .process: .application
-        case .mavenModule: .task
-        }
-    }
 }
-
-// Temporary source compatibility at the Java-debug boundary. These aliases do
-// not own behavior; the canonical models above are language neutral.
-package typealias JavaRunSession = RunSession
-package typealias JavaRunPortConflict = RunPortConflict
-package typealias JavaRunConfigurationKind = RunConfigurationKind
-package typealias JavaRunConfiguration = RunConfiguration

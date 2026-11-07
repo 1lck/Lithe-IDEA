@@ -11,7 +11,7 @@
 
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Bound on one buffered SSE line or non-streaming body kept for parsing.
@@ -70,7 +70,7 @@ impl ModelCallUsage {
 /// Estimated split of one request's prompt. Byte sizes of the serialized
 /// sections are scaled to the provider-reported prompt tokens when available;
 /// otherwise a four-bytes-per-token approximation is used.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextComposition {
     pub system_prompt_tokens: u64,

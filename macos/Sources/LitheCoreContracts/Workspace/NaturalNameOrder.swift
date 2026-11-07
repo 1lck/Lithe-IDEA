@@ -34,7 +34,7 @@ package enum NaturalNameOrder {
 
     /// The upstream natural-name comparator compares digit runs without an
     /// integer conversion, including leading-zero length and a case tie-break.
-    /// UTF-16 preserves Java's ordering for supplementary characters as well.
+    /// UTF-16 code units preserve the upstream ordering for supplementary characters as well.
     /// `likeFileNames` ranks `-` next to `_` (IDEA-80435).
     package static func compare(
         _ a: [UInt16],
@@ -117,13 +117,13 @@ package enum NaturalNameOrder {
     }
 
     private static func caseUnit(_ value: UInt16, uppercase: Bool) -> UInt16 {
-        // U+0130 has a two-scalar full lowercase mapping, but Java Character
-        // uses its simple mapping to U+0069.
+        // U+0130 has a two-scalar full lowercase mapping, but the upstream
+        // per-character mapping uses its simple mapping to U+0069.
         if !uppercase && value == 0x0130 { return 0x0069 }
         guard let scalar = UnicodeScalar(value) else { return value }
         let string = String(scalar)
         let mapped = Array((uppercase ? string.uppercased() : string.lowercased()).utf16)
-        // Java Character mappings stay one UTF-16 unit, never expand a letter.
+        // The upstream per-character mappings stay one UTF-16 unit, never expand a letter.
         return mapped.count == 1 ? mapped[0] : value
     }
 }

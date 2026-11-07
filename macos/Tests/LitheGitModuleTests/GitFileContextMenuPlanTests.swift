@@ -11,7 +11,7 @@ struct GitFileContextMenuPlanTests {
     ) -> GitChange {
         GitChange(
             repositoryRoot: URL(fileURLWithPath: "/repo"),
-            path: "src/App.java",
+            path: "src/App.txt",
             originalPath: nil,
             indexStatus: indexStatus,
             workTreeStatus: workTreeStatus,

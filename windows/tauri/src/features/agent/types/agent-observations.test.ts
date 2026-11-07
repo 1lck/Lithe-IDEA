@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { finishChildren, modelCallTotals, parseModelCall, updateChild, type AgentSubagent } from "./agent-observations";
+import statisticsFixture from "../../../../../../shared/fixtures/agent/model-call-statistics-v1.json";
+import { finishChildren, latestContext, modelCallTotals, parseModelCall, updateChild, type AgentSubagent } from "./agent-observations";
 
 const child = (id: string, parentID: string): AgentSubagent => ({
   id, parentID, name: id, task: "Inspect", state: "running", messages: [], plan: [], contextUsage: null,
@@ -17,25 +18,25 @@ describe("Agent observations", () => {
     expect(updateChild(result[0], { sessionUpdate: "agent_message_chunk", content: { text: "late" } })).toBe(result[0]);
   });
 
-  test("missing and malformed provider usage stays unknown in cumulative totals", () => {
-    const known = parseModelCall({ api: "responses", status: 200, durationMs: 900, streaming: true,
-      firstTokenMs: 100, usage: { inputTokens: 20, cacheReadTokens: 5, cacheWriteTokens: 0, outputTokens: 10 },
-    })!;
-    const unknown = parseModelCall({ api: "responses", status: 500, durationMs: 10, usage: { inputTokens: -1 } })!;
-    expect(known.usage?.reasoningTokens).toBeNull();
-    expect(unknown.usage).toBeNull();
-    expect(modelCallTotals([known, unknown])).toMatchObject({ calls: 2, input: 20, cacheRead: 5, cacheWrite: 0, output: 10, lowerBound: true,
-      durationMs: 910, latencyCount: 1, latencyMs: 100, generatingMs: 800, streamingOutput: 10, nonStreaming: 1 });
-    expect(parseModelCall({ api: "responses", status: 200, durationMs: Infinity })).toBeNull();
+  test("Host contributions sum to the shared totals", () => {
+    for (const entry of statisticsFixture.cases) {
+      const calls = entry.events.map((event) => parseModelCall(event.statistics)!);
+      const total = entry.total as Record<string, unknown>;
+      const expected = parseModelCall(total)!;
+      expect(modelCallTotals(calls)).toEqual({
+        calls: expected.steps, input: expected.inputTokens, cacheRead: expected.cacheReadTokens, cacheWrite: expected.cacheWriteTokens,
+        output: expected.outputTokens, lowerBound: entry.events.some((event) => event.statistics.requests > event.statistics.callsWithUsage),
+        durationMs: expected.durationMs, latencyMs: expected.firstTokenMs, latencyCount: expected.firstTokenCount,
+        generatingMs: expected.generationMs, streamingOutput: expected.generatedTokens, nonStreaming: expected.nonStreamingSteps,
+      });
+      expect(latestContext(calls)).toEqual(expected.context);
+    }
   });
 
-  test("auxiliary requests spend tokens but are not steps or latency samples", () => {
-    const title = parseModelCall({ api: "anthropicMessages", status: 200, durationMs: 2000, streaming: true, firstTokenMs: 1900,
-      auxiliary: true, usage: { inputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 16 } })!;
-    const step = parseModelCall({ api: "anthropicMessages", status: 200, durationMs: 1000, streaming: true, firstTokenMs: 100,
-      usage: { inputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 4 } })!;
-    expect(title.auxiliary).toBe(true);
-    expect(modelCallTotals([title, step])).toMatchObject({ calls: 1, input: 30, output: 20, durationMs: 1000,
-      latencyCount: 1, latencyMs: 100, generatingMs: 900, streamingOutput: 4 });
+  test("malformed contributions are dropped instead of guessed", () => {
+    const valid = statisticsFixture.cases[0].events[0].statistics;
+    expect(parseModelCall({ ...valid, steps: -1 })).toBeNull();
+    expect(parseModelCall({ ...valid, durationMs: Infinity })).toBeNull();
+    expect(parseModelCall({ api: "responses", status: 200, durationMs: 1 })).toBeNull();
   });
 });

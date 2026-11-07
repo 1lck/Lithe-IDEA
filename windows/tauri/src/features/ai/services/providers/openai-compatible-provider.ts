@@ -4,6 +4,8 @@ import {
   type ProviderHeaders,
   type ProviderModel,
   type StreamRequest,
+  chatCompletionsFacts,
+  type ProviderRequestFacts,
 } from "./ai-provider-interface";
 
 function trimTrailingSlashes(value: string): string {
@@ -36,6 +38,15 @@ export class OpenAICompatibleProvider extends AIProvider {
 
   getBaseUrl(): string {
     return this.baseUrlOverride || this.config.apiUrl;
+  }
+
+  requestFacts(): ProviderRequestFacts {
+    // A user-entered base URL may be a trusted local server; only the custom profile accepts any model id.
+    const custom = this.config.id === "custom";
+    return chatCompletionsFacts(this.getBaseUrl(), {
+      allowsInsecureHttp: custom,
+      acceptsUnlistedModels: custom,
+    });
   }
 
   buildHeaders(apiKey?: string): ProviderHeaders {

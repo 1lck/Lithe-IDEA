@@ -26,6 +26,36 @@ struct ToolchainSettingsLoaderTests {
                      manifest: try JSONSerialization.data(withJSONObject: manifest), isEnabled: enabled)
     }
 
+    /// A complete manifest Core admits, unlike `source()`: the loader asks Core's registry which short tool
+    /// IDs are contested, and Core refuses an incomplete manifest. A provider is added when `providerTools` is set.
+    private func definingSource(
+        pluginID: String, name: String, tools: [String], providerTools: [String] = []
+    ) throws -> ToolchainSettingsPluginSource {
+        var manifest: [String: Any] = [
+            "schemaVersion": 2, "id": pluginID, "displayName": name, "version": "1.0.0", "pluginAPIVersion": 3,
+            "requires": ["toolDefinitions": 1, "executableResolution": 2],
+            "vendor": ["id": "org.example", "displayName": "Fixture publisher", "signatureRequirement": "publisherPackage"],
+            "permissions": [],
+            "toolDefinitions": tools.map { tool -> [String: Any] in
+                ["id": tool, "displayName": "Fixture \(tool)", "icon": ["host": "plugin"],
+                 "executableLayouts": [["path": "bin/\(tool)"]],
+                 "executables": [["id": "shell", "kind": "command", "command": tool]],
+                 "version": ["arguments": ["--version"], "pattern": #"\#(tool) (\d+(?:\.\d+)*)"#],
+                 "commands": [tool], "launch": ["${executable}", "${arguments}"]]
+            }
+        ]
+        if !providerTools.isEmpty {
+            manifest["requires"] = ["toolDefinitions": 1, "executableResolution": 2, "toolchainProviders": 1,
+                                    "backend": 2, "serverProcess": 1]
+            manifest["permissions"] = ["backend.launch", "toolchains.provide"]
+            manifest["toolchainProviders"] = [["id": "manager", "displayName": "Fixture manager", "tools": providerTools,
+                "watchFiles": [["pattern": ".fixture-version", "reader": "native"]]] as [String: Any]]
+            manifest["backend"] = ["launch": ["kind": "packaged", "path": "bin/kits"]]
+        }
+        return .init(pluginID: pluginID, name: name, manifest: try JSONSerialization.data(withJSONObject: manifest),
+                     isEnabled: true)
+    }
+
     private func local(_ pins: [String: Any]) throws -> Data {
         try JSONSerialization.data(withJSONObject: ["version": 1, "toolchains": [:], "pins": pins])
     }
@@ -365,6 +395,8 @@ struct ToolchainSettingsLoaderTests {
         }
     }
 
+    /// `source()` manifests are incomplete, so Core's registry refuses them and names no conflict. The loader
+    /// then keeps its own check: a repeated tool ID or plugin ID it cannot attribute is still refused.
     @Test func duplicateToolOwnersAndMalformedEnabledDeclarationsAreRefused() async throws {
         let (first, second) = (try source(), try source(pluginID: "dev.lithe.fixture.other"))
         let malformed = ToolchainSettingsPluginSource(pluginID: "invalid", name: "Invalid", manifest: Data("invalid".utf8), isEnabled: true)
@@ -373,6 +405,32 @@ struct ToolchainSettingsLoaderTests {
                 try await loader(sources: { sources }).load(workspace: nil)
             }
         }
+    }
+
+    /// A short tool ID defined by two enabled plugins belongs to neither. The page still loads: the
+    /// contested tool has no row and no provider capsule, other tools stay listed, and the diagnostics
+    /// name every plugin involved, in plugin ID order.
+    @Test func aToolDefinedByTwoEnabledPluginsIsUnlistedAndExplainedInsteadOfFailingThePage() async throws {
+        let alpha = try definingSource(pluginID: "io.example.alpha", name: "Alpha", tools: ["demo", "extra"],
+                                       providerTools: ["demo", "extra"])
+        let beta = try definingSource(pluginID: "io.example.beta", name: "Beta", tools: ["demo"])
+        let requests = ToolchainDiscoveryRequests()
+        let snapshot = try await loader(sources: { [beta, alpha] }, discover: { request in
+            requests.record(request)
+            return .init()
+        }).load(workspace: workspace)
+        #expect(snapshot.tools.map(\.id) == ["extra"])
+        #expect(snapshot.tools.first?.pluginID == alpha.pluginID && snapshot.tools.first?.pluginName == "Alpha")
+        #expect(snapshot.providers.map(\.tools) == [["extra"]])
+        #expect(snapshot.diagnostics == [L10n.string(
+            "Tool \("demo") is defined by more than one enabled plugin (\("Alpha, Beta")), so none of these definitions is used. Keep only one of these plugins enabled.")])
+        // Discovery still receives every enabled source; Core leaves the contested tool out of its own plan.
+        #expect(requests.values.count == 1)
+        #expect(requests.values.first?.sources.map(\.pluginID) == [alpha.pluginID, beta.pluginID])
+
+        // Without a workspace there is no page to explain it on, yet the capsule list stays consistent.
+        let listing = try await loader(sources: { [alpha, beta] }).load(workspace: nil)
+        #expect(listing.providers.map(\.tools) == [["extra"]])
     }
 
     @Test func installationOnlyProvidersAreListedWithoutCheckingVersionFiles() async throws {

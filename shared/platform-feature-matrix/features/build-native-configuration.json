@@ -13,8 +13,8 @@
       "macos/Sources/Lithe/Platform/MacOS/Build/MacBuildNativeConfigurationStore.swift",
       "macos/Sources/Lithe/Views/App/ContributedBuildConfigurationSection.swift",
       "macos/Tests/LitheTests/BuildNativeConfigurationTests.swift",
-      "macos/Tests/LitheTests/MacNativeBuildProviderIntegrationTests.swift",
-      "macos/Tests/LitheExecutionModuleTests/BuildSystemServiceTests.swift"
+      "macos/Tests/LitheExecutionModuleTests/BuildSystemServiceTests.swift",
+      "macos/Tests/LitheTests/MacBuildProviderSessionsTests.swift"
     ]
   },
   "windows": {

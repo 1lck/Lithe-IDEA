@@ -92,20 +92,4 @@ struct LSPControlCenterPresentationTests {
             isActive: true
         ) == .active)
     }
-
-    @Test
-    func mavenProfileResultsExposeApplyingAndPartialFailureStates() {
-        let projectA = URL(string: "file:///workspace/module-a")!
-        let projectB = URL(string: "file:///workspace/module-b")!
-        #expect(LSPControlCenterPresenter.mavenProfileState([
-            MavenProfileProjectResult(projectURI: projectA, status: "running")
-        ]) == .applying)
-        #expect(LSPControlCenterPresenter.mavenProfileState([
-            MavenProfileProjectResult(projectURI: projectA, status: "failed", errorDetails: "bad pom"),
-            MavenProfileProjectResult(projectURI: projectB, status: "succeeded")
-        ]) == .partiallyFailed(failed: 1, total: 2))
-        #expect(LSPControlCenterPresenter.mavenProfileState([
-            MavenProfileProjectResult(projectURI: projectA, status: "succeeded")
-        ]) == .complete)
-    }
 }

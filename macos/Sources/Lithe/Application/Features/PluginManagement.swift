@@ -180,6 +180,8 @@ struct PluginCapability: Equatable, Sendable, Identifiable {
         /// Started by a runtime; `packagedRuntime` when the plugin ships it.
         case runtimeServer(tool: String, packagedRuntime: Bool)
         case systemServer(commands: [String])
+        /// The plugin's backend chooses the command each time it starts.
+        case backendServer
         /// Lithe's own implementation serves the capability; the plugin only
         /// turns it on for its language.
         case hostIntegration
@@ -216,6 +218,7 @@ struct PluginCapability: Equatable, Sendable, Identifiable {
                 case .packaged?: .packagedServer
                 case .runtime(let tool, _, let packagedRuntime)?: .runtimeServer(tool: tool, packagedRuntime: packagedRuntime != nil)
                 case .systemCommand(let commands)?: .systemServer(commands: commands)
+                case .backend?: .backendServer
                 case nil: .none
                 }
                 result.append(PluginCapability(

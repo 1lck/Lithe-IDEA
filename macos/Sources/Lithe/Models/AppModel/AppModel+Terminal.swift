@@ -169,11 +169,6 @@ extension AppModel {
             debugTerminalSessionIDsByDebugSession[debugSessionID, default: []].insert(created.session.id)
             activeDebugTerminalSessionIDsByDebugSession[debugSessionID] = created.session.id
         }
-        if let id = debugSessionID, executablePath.hasSuffix("/java"),
-           services.remoteConnections?.workspaces.contains(workspaceURL) != true {
-            debugPerformanceFeature.register(DebugPerformanceTarget(processID: created.processID,
-                javaExecutable: URL(fileURLWithPath: executablePath)), sessionID: id.rawValue)
-        }
         showToolWindow(.terminal)
         created.session.focus()
         return DebugRunInTerminalResponse(processID: Int(created.processID))
@@ -232,9 +227,10 @@ extension AppModel {
     private func openTerminalLink(_ link: String, params: [String: String], sessionID: UUID) {
         guard let session = terminalSessions.first(where: { $0.id == sessionID }),
               let fallbackDirectory = session.currentDirectory ?? workspaceURL else { return }
-        guard let target = TerminalLinkResolver.resolve(
+        guard let target = RustCoreBridge().terminalLinkTarget(
             link,
             relativeTo: fallbackDirectory,
+            homeDirectory: services.fileStorage.homeDirectory(),
             fileExists: { [services] in services.fileStorage.fileExists(at: $0) }
         ) else { return }
         switch target {

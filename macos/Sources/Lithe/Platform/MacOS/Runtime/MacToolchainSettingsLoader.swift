@@ -9,8 +9,6 @@ struct ToolchainSettingsPluginSource: Equatable, Sendable {
     let name: String
     let manifest: Data
     let isEnabled: Bool
-    /// Host-verified official origin; Core requires it for short tool definition IDs.
-    var verifiedOfficial = false
 }
 
 struct ToolchainSettingsSavedPin: Equatable, Sendable {
@@ -133,6 +131,21 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
         let commands: [String]
     }
 
+    /// Core's registry decides which short tool IDs are contested; Swift never judges a conflict itself.
+    private static func contestedTools(_ sources: [ToolchainSettingsPluginSource]) -> [String: [String]] {
+        let input = MacToolchainDiscovery.registry(of: sources)
+        guard (input["plugins"] as? [Any])?.isEmpty == false,
+              let registry = MacToolchainDiscovery.callCore("toolchains.registry", input)?["registry"] as? [String: Any],
+              let conflicts = registry["conflicts"] as? [[String: Any]]
+        else { return [:] }
+        var contested: [String: [String]] = [:]
+        for conflict in conflicts {
+            guard let tool = conflict["tool"] as? String, let pluginIDs = conflict["pluginIDs"] as? [String] else { continue }
+            contested[tool] = pluginIDs
+        }
+        return contested
+    }
+
     private static func snapshot(
         workspace: URL?, sources: [ToolchainSettingsPluginSource], directoryIDs: [String], io: IO
     ) async throws -> ToolchainSettingsSnapshot {
@@ -143,6 +156,7 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
         var knownTools: Set<String> = []
         var knownPlugins: Set<String> = []
         let enabled = sources.filter(\.isEnabled).sorted(by: { $0.pluginID < $1.pluginID })
+        let contested = Self.contestedTools(enabled)
         for source in enabled {
             try Task.checkCancellation()
             guard source.manifest.count <= 1_048_576, knownPlugins.insert(source.pluginID).inserted,
@@ -150,9 +164,11 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
                   manifest["id"] as? String == source.pluginID
             else { throw ToolchainSettingsLoadError.invalidDeclarations }
             for tool in try contribution(manifest, key: "toolDefinitions", maximum: 32) {
-                guard let id = text(tool["id"], maximum: 192), let name = text(tool["displayName"], maximum: 128),
-                      knownTools.insert(id).inserted
+                guard let id = text(tool["id"], maximum: 192), let name = text(tool["displayName"], maximum: 128)
                 else { throw ToolchainSettingsLoadError.invalidDeclarations }
+                // A tool defined by several enabled plugins belongs to none of them: it is not listed, and the diagnostics explain why.
+                if contested[id] != nil { continue }
+                guard knownTools.insert(id).inserted else { throw ToolchainSettingsLoadError.invalidDeclarations }
                 let icon = (tool["icon"] as? [String: Any])?["host"] as? String
                 definitions.append(Definition(id: id, name: name, pluginID: source.pluginID,
                                               pluginName: source.name, icon: icon, commands: commands(tool)))
@@ -223,6 +239,10 @@ struct MacToolchainSettingsLoader: ToolchainSettingsLoading {
             guard validDirectory(id) else { throw ToolchainSettingsLoadError.invalidLocal }
         }
         var diagnostics: [String] = []
+        for (tool, pluginIDs) in contested.sorted(by: { $0.key < $1.key }) {
+            let names = pluginIDs.map { id in enabled.first { $0.pluginID == id }?.name ?? id }.joined(separator: ", ")
+            diagnostics.append(L10n.string("Tool \(tool) is defined by more than one enabled plugin (\(names)), so none of these definitions is used. Keep only one of these plugins enabled."))
+        }
         let found = try versionFiles(workspace: workspace, directories: ["."] + directoryIDs, providers: providers,
                                      fileExists: io.fileExists, diagnostics: &diagnostics)
         // Only directories with their own facts are listed, with the ancestors that connect them.

@@ -266,7 +266,6 @@ enum FileReader {
     Remote {
         host: Host,
         path: String,
-        metadata: Metadata,
         offset: u64,
         /// Version captured by the first read, not a separate path stat.
         version: Option<methods::FileVersion>,
@@ -289,25 +288,12 @@ impl File {
                 Ok(Self(FileReader::Remote {
                     host,
                     path,
-                    metadata,
                     offset: 0,
                     version: None,
                     eof: false,
                 }))
             }
             None => std::fs::File::open(path_value).map(|file| Self(FileReader::Local(file))),
-        }
-    }
-    /// Metadata of this opened file, without a separate native filesystem lookup.
-    pub(crate) fn metadata(&self) -> io::Result<Metadata> {
-        match &self.0 {
-            FileReader::Local(file) => file.metadata().map(native_metadata),
-            FileReader::Remote { metadata, .. } => Ok(Metadata {
-                kind: metadata.kind,
-                size: metadata.size,
-                mode: metadata.mode,
-                modified: metadata.modified,
-            }),
         }
     }
 }

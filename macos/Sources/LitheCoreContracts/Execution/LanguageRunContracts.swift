@@ -152,7 +152,6 @@ package struct LanguageRunProviderRegistry: Sendable {
         Self(providers: catalog.descriptors
             .filter {
                 $0.capabilities.contains(.run)
-                    && $0.id != "java"
                     && $0.id != "go"
             }
             .map(StandardLanguageRunProvider.init))

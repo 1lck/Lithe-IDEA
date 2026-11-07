@@ -44,7 +44,7 @@ struct LanguageNavigationCoordinatorTests {
         #expect(decision(linkedLibrary) == .externalReadOnly)
         #expect(decision(library) == .externalReadOnly)
         #expect(decision(credentials) == .rejected)
-        #expect(decision(URL(string: "jdt://contents/rt.jar/java.lang/String.class")!) == .workspace)
+        #expect(decision(URL(string: "virtual://contents/archive.zip/Example.txt")!) == .workspace)
     }
 
     /// `/outside/link.go -> /workspace/main.go` resolves inside the workspace,
@@ -82,44 +82,11 @@ struct LanguageNavigationCoordinatorTests {
         #expect(decision(main, language: "go") == .workspace)
     }
 
-    @Test("external jumps open only source files of the originating language")
-    func externalJumpsOnlyOpenSameLanguageSources() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-external-source-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let source = root.appendingPathComponent("print.go")
-        let secret = root.appendingPathComponent("id_rsa")
-        let disguised = root.appendingPathComponent("secret.go")
-        try Data("package fmt\n".utf8).write(to: source)
-        try Data("key\n".utf8).write(to: secret)
-        try FileManager.default.createSymbolicLink(at: disguised, withDestinationURL: secret)
-        let languageOf: (URL) -> String? = { url in
-            switch url.pathExtension {
-            case "go": "go"
-            case "json": "json"
-            default: nil
-            }
-        }
-
-        #expect(LanguageNavigationCoordinator.allowsExternalSource(source, languageID: "go", languageOf: languageOf))
-        #expect(!LanguageNavigationCoordinator.allowsExternalSource(source, languageID: "php", languageOf: languageOf))
-        #expect(!LanguageNavigationCoordinator.allowsExternalSource(source, languageID: nil, languageOf: languageOf))
-        #expect(!LanguageNavigationCoordinator.allowsExternalSource(secret, languageID: "go", languageOf: languageOf))
-        #expect(!LanguageNavigationCoordinator.allowsExternalSource(disguised, languageID: "go", languageOf: languageOf))
-        #expect(!LanguageNavigationCoordinator.allowsExternalSource(
-            root.appendingPathComponent("credentials.json"), languageID: "go", languageOf: languageOf
-        ))
-        #expect(!LanguageNavigationCoordinator.allowsExternalSource(
-            URL(string: "jdt://contents/rt.jar/java.lang/String.class")!, languageID: "go", languageOf: languageOf
-        ))
-    }
-
     @Test("projects language-server locations")
     @MainActor
     func projectsLocations() {
         let coordinator = LanguageNavigationCoordinator(notify: { _ in })
-        let url = URL(fileURLWithPath: "/workspace/Source.java")
+        let url = URL(fileURLWithPath: "/workspace/Source.txt")
         let values = [
             LanguageServerLocation(
                 url: url,
@@ -128,7 +95,7 @@ struct LanguageNavigationCoordinatorTests {
                     end: LanguageServerPosition(line: 4, utf16Column: 12)
                 ),
                 isReadOnly: false,
-                displayPath: "Source.java"
+                displayPath: "Source.txt"
             )
         ]
 
@@ -138,7 +105,7 @@ struct LanguageNavigationCoordinatorTests {
         #expect(locations[0].url == url)
         #expect(locations[0].line == 4)
         #expect(locations[0].utf16Column == 7)
-        #expect(locations[0].displayPath == "Source.java")
+        #expect(locations[0].displayPath == "Source.txt")
     }
 
     @Test("does not create a result state for an empty response")
@@ -149,7 +116,7 @@ struct LanguageNavigationCoordinatorTests {
         #expect(
             coordinator.resultState(
                 from: [],
-                providerID: "java",
+                providerID: "example",
                 kind: .definitions
             ) == nil
         )
@@ -159,10 +126,10 @@ struct LanguageNavigationCoordinatorTests {
     @MainActor
     func loadingStateOwnsOperationID() {
         let coordinator = LanguageNavigationCoordinator(notify: { _ in })
-        let operationID = coordinator.begin(providerID: "java", kind: .references)
+        let operationID = coordinator.begin(providerID: "example", kind: .references)
 
         #expect(coordinator.owns(operationID))
-        #expect(coordinator.state.providerID == "java")
+        #expect(coordinator.state.providerID == "example")
         #expect(coordinator.state.kind == .references)
     }
 
@@ -173,8 +140,8 @@ struct LanguageNavigationCoordinatorTests {
     func ignoresSupersededFailure() {
         var messages: [String] = []
         let coordinator = LanguageNavigationCoordinator(notify: { messages.append($0) })
-        let stale = coordinator.begin(providerID: "java", kind: .definitions)
-        let current = coordinator.begin(providerID: "java", kind: .references)
+        let stale = coordinator.begin(providerID: "example", kind: .definitions)
+        let current = coordinator.begin(providerID: "example", kind: .references)
 
         coordinator.fail(stale, message: "stale failure")
 
@@ -189,7 +156,7 @@ struct LanguageNavigationCoordinatorTests {
     func clearsStateOnCurrentFailure() {
         var messages: [String] = []
         let coordinator = LanguageNavigationCoordinator(notify: { messages.append($0) })
-        let operationID = coordinator.begin(providerID: "java", kind: .definitions)
+        let operationID = coordinator.begin(providerID: "example", kind: .definitions)
 
         coordinator.fail(operationID, message: "definition failed")
 
@@ -201,12 +168,12 @@ struct LanguageNavigationCoordinatorTests {
     @MainActor
     func reportsEmptyResponse() {
         let coordinator = LanguageNavigationCoordinator(notify: { _ in })
-        coordinator.begin(providerID: "java", kind: .definitions)
+        coordinator.begin(providerID: "example", kind: .definitions)
         var events: [String] = []
 
         coordinator.handleResult(
             [],
-            providerID: "java",
+            providerID: "example",
             kind: .definitions,
             onEmpty: { events.append("empty") },
             onResults: { _ in Issue.record("no results were returned") }
@@ -260,7 +227,7 @@ struct LanguageNavigationCoordinatorTests {
     @MainActor
     func decidesImplementationFallback() {
         let coordinator = LanguageNavigationCoordinator(notify: { _ in })
-        let url = URL(fileURLWithPath: "/workspace/Main.java")
+        let url = URL(fileURLWithPath: "/workspace/Main.txt")
         let location = LanguageServerLocation(
             url: url,
             range: LanguageServerRange(
@@ -291,61 +258,6 @@ struct LanguageNavigationCoordinatorTests {
             ).shouldRequestImplementations)
         }
 
-    }
-}
-
-@Suite("Java test workflow state")
-struct JavaTestWorkflowStateTests {
-    @Test("resolves a Java test case request")
-    @MainActor
-    func resolvesTestCase() {
-        let state = JavaTestWorkflowState(notify: { _ in })
-        let url = URL(fileURLWithPath: "/workspace/Test.java")
-
-        let result = state.resolveDebugRequest(
-            providerID: "java",
-            scope: .testCase(identifier: "Example.test", fileURL: url)
-        )
-
-        guard case .resolved(let request) = result else {
-            Issue.record("expected a resolved Java test request")
-            return
-        }
-        #expect(request.fileURL == url.standardizedFileURL)
-        #expect(request.testIdentifier == "Example.test")
-    }
-
-    @Test("rejects a workspace-wide Java debug request")
-    @MainActor
-    func rejectsWorkspaceRequest() {
-        let state = JavaTestWorkflowState(notify: { _ in })
-
-        guard case .rejected(let message) = state.resolveDebugRequest(
-            providerID: "java",
-            scope: .workspace
-        ) else {
-            Issue.record("expected workspace debugging to be rejected")
-            return
-        }
-        #expect(message == "Select a Java test file or test case to debug")
-    }
-
-    @Test("does not require a save for an absent document")
-    @MainActor
-    func absentDocumentIsReady() async {
-        let notifications = NotificationSpy()
-        let state = JavaTestWorkflowState(notify: notifications.notify)
-        let actions = WorkflowActionsSpy()
-
-        let ready = await state.prepareDirtyDocument(
-            fileURL: URL(fileURLWithPath: "/workspace/Test.java"),
-            documents: [],
-            saving: actions
-        )
-
-        #expect(ready)
-        #expect(actions.events.isEmpty)
-        #expect(notifications.messages.isEmpty)
     }
 }
 
@@ -381,7 +293,7 @@ struct LanguageEditingCoordinatorTests {
     @MainActor
     func buildsCompletionWorkspaceEdit() {
         let coordinator = LanguageEditingCoordinator(notify: { _ in })
-        let url = URL(fileURLWithPath: "/workspace/Main.java")
+        let url = URL(fileURLWithPath: "/workspace/Main.txt")
         let fallbackRange = LanguageServerRange(
             start: LanguageServerPosition(line: 2, utf16Column: 1),
             end: LanguageServerPosition(line: 2, utf16Column: 4)
@@ -535,7 +447,7 @@ struct LanguageEditingCoordinatorTests {
         let coordinator = LanguageEditingCoordinator(
             notify: { _ in Issue.record("unexpected notification") }
         )
-        let url = URL(fileURLWithPath: "/workspace/Main.java")
+        let url = URL(fileURLWithPath: "/workspace/Main.txt")
         let edit = LanguageServerTextEdit(
             range: LanguageServerRange(
                 start: LanguageServerPosition(line: 0, utf16Column: 0),

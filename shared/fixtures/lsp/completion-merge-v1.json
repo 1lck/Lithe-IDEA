@@ -1,0 +1,206 @@
+{
+  "description": "lsp.mergeCompletions: lists arrive in provider priority order; a provider's own candidates are never collapsed; a lower-priority candidate is dropped when a higher-priority provider offered the same label.",
+  "cases": [
+    {
+      "name": "a provider keeps every candidate, including overloads that share a label",
+      "request": {
+        "lists": [
+          {
+            "labels": [
+              "print",
+              "print",
+              "println"
+            ],
+            "isIncomplete": false
+          }
+        ]
+      },
+      "response": {
+        "keep": [
+          [
+            0,
+            1,
+            2
+          ]
+        ],
+        "isIncomplete": false
+      }
+    },
+    {
+      "name": "a lower-priority provider is shadowed by labels a higher-priority provider offered",
+      "request": {
+        "lists": [
+          {
+            "labels": [
+              "value",
+              "valueOf"
+            ],
+            "isIncomplete": false
+          },
+          {
+            "labels": [
+              "value",
+              "values",
+              "valueOf"
+            ],
+            "isIncomplete": false
+          }
+        ]
+      },
+      "response": {
+        "keep": [
+          [
+            0,
+            1
+          ],
+          [
+            1
+          ]
+        ],
+        "isIncomplete": false
+      }
+    },
+    {
+      "name": "shadowing cascades through every lower-priority provider",
+      "request": {
+        "lists": [
+          {
+            "labels": [
+              "a"
+            ],
+            "isIncomplete": false
+          },
+          {
+            "labels": [
+              "b",
+              "a"
+            ],
+            "isIncomplete": false
+          },
+          {
+            "labels": [
+              "a",
+              "b",
+              "c",
+              "c"
+            ],
+            "isIncomplete": false
+          }
+        ]
+      },
+      "response": {
+        "keep": [
+          [
+            0
+          ],
+          [
+            0
+          ],
+          [
+            2,
+            3
+          ]
+        ],
+        "isIncomplete": false
+      }
+    },
+    {
+      "name": "an empty higher-priority list shadows nothing",
+      "request": {
+        "lists": [
+          {
+            "labels": [],
+            "isIncomplete": true
+          },
+          {
+            "labels": [
+              "x"
+            ],
+            "isIncomplete": false
+          }
+        ]
+      },
+      "response": {
+        "keep": [
+          [],
+          [
+            0
+          ]
+        ],
+        "isIncomplete": true
+      }
+    },
+    {
+      "name": "labels compare exactly",
+      "request": {
+        "lists": [
+          {
+            "labels": [
+              "Foo"
+            ],
+            "isIncomplete": false
+          },
+          {
+            "labels": [
+              "foo",
+              "Foo "
+            ],
+            "isIncomplete": false
+          }
+        ]
+      },
+      "response": {
+        "keep": [
+          [
+            0
+          ],
+          [
+            0,
+            1
+          ]
+        ],
+        "isIncomplete": false
+      }
+    },
+    {
+      "name": "incomplete from any provider marks the merged list incomplete",
+      "request": {
+        "lists": [
+          {
+            "labels": [
+              "a"
+            ],
+            "isIncomplete": false
+          },
+          {
+            "labels": [
+              "b"
+            ],
+            "isIncomplete": true
+          }
+        ]
+      },
+      "response": {
+        "keep": [
+          [
+            0
+          ],
+          [
+            0
+          ]
+        ],
+        "isIncomplete": true
+      }
+    },
+    {
+      "name": "no providers",
+      "request": {
+        "lists": []
+      },
+      "response": {
+        "keep": [],
+        "isIncomplete": false
+      }
+    }
+  ]
+}

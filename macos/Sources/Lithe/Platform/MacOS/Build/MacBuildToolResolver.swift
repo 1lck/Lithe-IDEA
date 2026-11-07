@@ -6,7 +6,8 @@ import LitheCoreContracts
 
 /// Picks the executable of a build-system run from the candidates Rust Core
 /// ordered. Runtimes come first, so a tool found through them sees the
-/// same `JAVA_HOME` and `PATH` its probe ran with.
+/// same `PATH`, and the variables a selected tool definition exports, that
+/// its probe ran with.
 ///
 /// Bare commands resolve through the host's tool discovery, never to a
 /// project-local copy: only a declared `projectFile` candidate may run code
@@ -60,6 +61,10 @@ final class MacBuildToolResolver: BuildToolResolving {
             guard runtime.projectURL == workspaceURL.standardizedFileURL else { throw CancellationError() }
         }
         var environment = runtime.processEnvironment()
+        // Variables the selected runtimes contribute, such as a tool
+        // definition's exports, reach the provider even when the host
+        // process already has the same value.
+        var contributed: Set<String> = []
         var runtimeExecutables: [String: URL] = [:]
         for dependency in invocation.runtimeDependencies {
             runtimeExecutables[dependency.id] = try await resolveRuntime(
@@ -67,6 +72,7 @@ final class MacBuildToolResolver: BuildToolResolving {
                 invocation: invocation,
                 workspaceURL: workspaceURL,
                 environment: &environment,
+                contributed: &contributed,
                 checkVersion: checkVersion
             )
         }
@@ -82,17 +88,20 @@ final class MacBuildToolResolver: BuildToolResolving {
             case .resolved(let choices):
                 for choice in choices {
                     var selectedEnvironment = environment.merging(choice.environment) { _, selected in selected }
+                    let selectedContributed = contributed.union(choice.environment.keys)
                     if choice.terminal {
                         let directory = choice.url.deletingLastPathComponent().path
                         let paths = (selectedEnvironment["PATH"] ?? "").split(separator: ":").map(String.init)
                         selectedEnvironment["PATH"] = ([directory] + paths.filter { $0 != directory }).joined(separator: ":")
                     }
                     if choice.executesProjectCode {
-                        return resolved(choice.url, environment: selectedEnvironment, projectCode: true, version: nil)
+                        return resolved(choice.url, environment: selectedEnvironment, contributed: selectedContributed,
+                                        projectCode: true, version: nil)
                     }
                     do {
                         if let tool = try await accept(choice.url, invocation: invocation, environment: selectedEnvironment,
-                                                       workspaceURL: workspaceURL, checkVersion: checkVersion, problems: &problems) { return tool }
+                                                       contributed: selectedContributed, workspaceURL: workspaceURL,
+                                                       checkVersion: checkVersion, problems: &problems) { return tool }
                     } catch is CancellationError { throw CancellationError() }
                     catch { throw BuildToolResolutionError(error.localizedDescription, terminal: choice.terminal) }
                     if choice.terminal { throw BuildToolResolutionError(Self.unavailableMessage(displayName, problems: problems), terminal: true) }
@@ -100,43 +109,6 @@ final class MacBuildToolResolver: BuildToolResolving {
             }
         }
         throw BuildToolResolutionError(Self.unavailableMessage(displayName, problems: problems))
-    }
-
-    /// Project import needs the installation path for global settings, but
-    /// must not run build code or a version probe merely by opening a project.
-    func languageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) -> URL? {
-        guard registry?.contains(workspaceURL) != true else { return nil }
-        let environment = runtime.processEnvironment()
-        let resolver = candidateResolver([:], workspaceURL: workspaceURL, passive: true)
-        for candidate in invocation.executables {
-            // No runtime selection or version probes during passive import.
-            switch resolver.resolve(candidate, workspaceURL: workspaceURL, environment: environment, environmentInputs: invocation.environmentInputs) {
-            case .skip: continue
-            case .terminalFailure: return nil
-            case .resolved(let choices): return choices.first?.url
-            }
-        }
-        return nil
-    }
-
-    func prepareLanguageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) async throws -> URL? {
-        guard registry?.contains(workspaceURL) == true else {
-            return languageImportExecutable(invocation, workspaceURL: workspaceURL)
-        }
-        try Task.checkCancellation()
-        guard runtime.projectURL == workspaceURL.standardizedFileURL else { throw CancellationError() }
-        let environment = runtime.processEnvironment()
-        let resolver = try await preparedResolver([:], candidates: invocation.executables,
-                                                  workspaceURL: workspaceURL, environment: environment, consumerID: invocation.toolConsumerID)
-        for candidate in invocation.executables {
-            switch resolver.resolve(candidate, workspaceURL: workspaceURL, environment: environment,
-                                    environmentInputs: invocation.environmentInputs) {
-            case .skip: continue
-            case .terminalFailure: return nil
-            case .resolved(let choices): return choices.first?.url
-            }
-        }
-        return nil
     }
 
     private func preparedResolver(
@@ -157,8 +129,12 @@ final class MacBuildToolResolver: BuildToolResolving {
                       environment: environment, minimumVersion: minimumVersion, projectCodeAllowed: true, fixed: selections[id], use: use, consumerID: consumerID) else {
                 throw BuildToolResolutionError(L10n.string("The selected toolchain is unavailable."), terminal: true)
             }
+            // The choice carries only what the selection added. Its full
+            // environment is the caller's plus these exports, so merging the
+            // exports back reproduces it without marking every variable the
+            // host process already had as contributed by the tool.
             definitions[id + "\n" + root] = .resolved([.init(url: selected.executable,
-                executesProjectCode: selected.projectCode, terminal: true, environment: selected.environment)])
+                executesProjectCode: selected.projectCode, terminal: true, environment: selected.exports)])
         }
         guard let binding = registry?.resolve(workspaceURL)?.binding else {
             return candidateResolver(runtimes, workspaceURL: workspaceURL, definitions: definitions)
@@ -216,8 +192,9 @@ final class MacBuildToolResolver: BuildToolResolving {
             commands: { [self] in commandCandidates($0) }, runtimes: { runtimes[$0] },
             toolchains: { [self] id, root in
                 if let selected = definitions[id + "\n" + root] { return selected }
-                guard runtime.reloadSettings() else { return .terminalFailure(runtime.settingsError ?? "") }
-                let options = runtime.settings.overlay(onto: RunOptions(), workspaceRelativePath: root)
+                // Per-tool choices come from plugin-defined tool definitions and
+                // the Run document; the host keeps no language-specific defaults.
+                let options = RunOptions()
                 let project = root == "." ? workspaceURL : workspaceURL.appendingPathComponent(root)
                 do {
                     let tool: ResolvedRunToolchain
@@ -250,12 +227,13 @@ final class MacBuildToolResolver: BuildToolResolving {
         _ url: URL,
         invocation: BuildInvocation,
         environment: [String: String],
+        contributed: Set<String>,
         workspaceURL: URL,
         checkVersion: @escaping @Sendable (String?, String) throws -> BuildVersionCheck,
         problems: inout [String]
     ) async throws -> ResolvedBuildTool? {
         guard let arguments = invocation.versionArguments, let minimum = invocation.minimumVersion else {
-            return resolved(url, environment: environment, projectCode: false, version: nil)
+            return resolved(url, environment: environment, contributed: contributed, projectCode: false, version: nil)
         }
         let output = try await probe(url, arguments: arguments, environment: environment, workspaceURL: workspaceURL)
         let check = try checkVersion(nil, output)
@@ -263,32 +241,37 @@ final class MacBuildToolResolver: BuildToolResolving {
             problems.append(Self.tooOldMessage(url.path, found: check.version, minimum: minimum))
             return nil
         }
-        return resolved(url, environment: environment, projectCode: false, version: check.version)
+        return resolved(url, environment: environment, contributed: contributed, projectCode: false, version: check.version)
     }
 
-    private func resolved(_ url: URL, environment: [String: String], projectCode: Bool, version: String?) -> ResolvedBuildTool {
+    private func resolved(
+        _ url: URL, environment: [String: String], contributed: Set<String>, projectCode: Bool, version: String?
+    ) -> ResolvedBuildTool {
         let base = runtime.processEnvironment()
-        let inputs = environment.filter { key, value in key == "JAVA_HOME" || key == "PATH" || base[key] != value }
+        let inputs = environment.filter { key, value in key == "PATH" || contributed.contains(key) || base[key] != value }
         return ResolvedBuildTool(executableURL: url, environment: environment, executesProjectCode: projectCode,
             version: version, providerEnvironment: inputs)
     }
 
-    /// Resolves one runtime and puts it first on `PATH`. `java`, `node`, and
-    /// `go` follow the user's runtime settings; any other runtime is found
-    /// through the candidates it declares.
+    /// Resolves one runtime and puts it first on `PATH`. Host-managed
+    /// runtimes follow the user's runtime settings. A runtime the plugin does
+    /// not describe arrives from Core as the toolchain candidate of the tool
+    /// definition with its ID, which checks `minimumVersion` and whose
+    /// exports join the environment; any other runtime is found through the
+    /// candidates it declares.
     private func resolveRuntime(
         _ dependency: BuildInvocation.RuntimeDependency,
         invocation: BuildInvocation,
         workspaceURL: URL,
         environment: inout [String: String],
+        contributed: inout Set<String>,
         checkVersion: @escaping @Sendable (String?, String) throws -> BuildVersionCheck
     ) async throws -> URL {
         let name = dependency.displayName ?? dependency.id
-        let javaHome = dependency.hostManaged && dependency.id == "java" && dependency.executables.isEmpty ? runtime.javaHomeURL() : nil
         let sources: [ExecutableCandidate] = dependency.hostManaged && dependency.executables.isEmpty
-            ? (dependency.id == "java" ? [.runtime("java")] : [.command(dependency.id)])
+            ? [.command(dependency.id)]
             : dependency.executables
-        let resolver = try await preparedResolver(javaHome.map { ["java": $0.appendingPathComponent("bin/java")] } ?? [:],
+        let resolver = try await preparedResolver([:],
             candidates: sources, workspaceURL: workspaceURL, environment: environment, minimumVersion: dependency.minimumVersion,
             selections: invocation.toolSelections, use: .installation, consumerID: invocation.toolConsumerID)
         var problems: [String] = []
@@ -302,7 +285,6 @@ final class MacBuildToolResolver: BuildToolResolving {
                     // next to a selected runtime. Failed candidates must not
                     // contribute their environment to the next choice.
                     var selectedEnvironment = environment.merging(choice.environment) { _, selected in selected }
-                    if let javaHome { selectedEnvironment["JAVA_HOME"] = javaHome.path }
                     let directory = choice.url.deletingLastPathComponent().path
                     let path = selectedEnvironment["PATH"] ?? ""
                     selectedEnvironment["PATH"] = path.isEmpty ? directory : directory + ":" + path
@@ -319,6 +301,7 @@ final class MacBuildToolResolver: BuildToolResolving {
                         }
                     }
                     environment = selectedEnvironment
+                    contributed.formUnion(choice.environment.keys)
                     return choice.url
                 }
             }

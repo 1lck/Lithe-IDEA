@@ -87,7 +87,6 @@ const entry: JumpListEntry = {
   offset: 123,
   scrollTop: 240,
   scrollLeft: 16,
-  timestamp: 0,
 };
 
 const originalRequestAnimationFrame = globalThis.requestAnimationFrame;

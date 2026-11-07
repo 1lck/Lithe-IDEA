@@ -1,4 +1,5 @@
 import type { LspLocation } from "./lsp-client";
+import type { NavigationTargetDecision } from "./navigation-classification";
 import { filePathFromUri } from "./workspace-edit";
 import { getBufferByPath } from "@/features/editor/utils/buffer-index";
 import type { OpenContentSpec, PaneContent } from "@/features/panes/types/pane-content.types";
@@ -17,6 +18,8 @@ interface OpenLspNavigationLocationOptions {
   actions: NavigationBufferActions;
   getVirtualDocument: (sourceFilePath: string, virtualUri: string) => Promise<string | null>;
   readFileContent: (filePath: string) => Promise<string>;
+  /** Core decision for a file outside the buffers already open. */
+  classifyTarget: (filePath: string, sourceFilePath: string) => Promise<NavigationTargetDecision>;
 }
 
 function physicalPath(location: LspLocation): string | null {
@@ -85,6 +88,7 @@ export async function openLspNavigationLocation({
   actions,
   getVirtualDocument,
   readFileContent,
+  classifyTarget,
 }: OpenLspNavigationLocationOptions): Promise<string | null> {
   const filePath = physicalPath(location);
   const targetPath = filePath ?? location.uri;
@@ -119,12 +123,17 @@ export async function openLspNavigationLocation({
   }
 
   if (filePath) {
+    // Core refuses targets outside the workspace unless they are sources of
+    // the originating language, and those open read-only.
+    const decision = await classifyTarget(filePath, sourceFilePath);
+    if (decision.classification === "rejected") return null;
     const content = await readFileContent(filePath);
     const bufferId = actions.openContent({
       type: "editor",
       path: filePath,
       name: getBaseName(filePath),
       content,
+      ...(decision.isReadOnly ? { readOnly: true } : {}),
     });
     actions.setActiveBuffer(bufferId);
     return bufferId;

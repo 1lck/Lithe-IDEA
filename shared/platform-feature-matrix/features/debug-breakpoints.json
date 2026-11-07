@@ -14,15 +14,15 @@
       "macos/Experiments/Monaco/workbench.integration.ts",
       "macos/Sources/LitheDebugModule/Application/DebugBreakpointLocationValidator.swift",
       "macos/Sources/LitheDebugModule/Application/GenericDebugFeatureModel.swift",
-      "macos/Tests/LitheTests/RealJavaDebugIntegrationTests.swift",
       "shared/fixtures/debug/breakpoint-binding-v1.json",
       "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift",
       "macos/Sources/Lithe/Views/Workbench/WorkbenchModuleUIComposition.swift",
       "macos/Tests/LitheTests/DebugToolbarPresentationTests.swift",
       "macos/Sources/Lithe/Models/AppModel/AppModel+Debugging.swift",
-      "macos/Tests/LitheTests/RunEntryPointTests.swift",
       "macos/Sources/LitheDebugModule/Runtime/DebugAdapterSessionManager.swift",
-      "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift"
+      "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+      "macos/Tests/LitheTests/DebugBreakpointPersistenceTests.swift",
+      "macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

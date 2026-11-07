@@ -9,7 +9,7 @@
 
 macOS 和 Windows 的 Git 提交图现在使用同一套 IntelliJ 风格的永久图规则：先按引用优先级确定图头，再为每个图头分配稳定的图片段和颜色，最后根据提交顺序投影到屏幕泳道。这样本地分支新增提交时，不会因为沿用父分支的第一条泳道而和父分支混成同一种颜色；两个端的分支优先级、颜色身份和合并拓扑也保持一致。
 
-Windows 使用 SVG 绘制，图头排序、永久布局、紧凑长边及普通节点尺寸与 macOS 的 IntelliJ 基准一致。颜色使用完整有符号身份生成明暗主题 RGB，普通节点为实心，HEAD 使用外圈和中心实点；连线为直线，尺寸按字号和显示器缩放调整。今后修改提交图时，必须同时以 macOS 的实现和 IntelliJ 固定基准为准，不要重新引入泳道着色或六色取模。
+Windows 使用 SVG 绘制，图头排序、永久布局、紧凑长边及普通节点尺寸与 macOS 的 IntelliJ 基准一致。颜色使用完整有符号身份生成明暗主题 RGB，普通节点为实心，HEAD 使用外圈和中心实点；连线为直线，尺寸按字号和显示器缩放调整。今后修改提交图时，必须以 Rust Core 的共享实现和 IntelliJ 固定基准为准，不要重新引入泳道着色或六色取模。
 
 Windows 的日志筛选也基于完整已加载历史生成可见图。隐藏中间提交后，用虚线连接仍可见的祖先，而不是直接删除已绘制的行；清空筛选恢复原图。
 
@@ -31,9 +31,8 @@ macOS 已经按 IntelliJ 的永久图规则处理了这个问题，但 Windows �
 
 ### 筛选后的祖先连接
 
-筛选先保留完整已加载历史的永久布局，再计算哪些提交可见。Windows
-`git-graph-filter-projection.ts` 移植 macOS `GitGraphProjection.dottedEdges`
-的双向最近可见节点遍历规则，算法来源仍是上文关联 Note 固定的 Community
+筛选先保留完整已加载历史的永久布局，再计算哪些提交可见。Rust Core 的
+`git.graphProjection` 使用双向最近可见节点遍历规则，算法来源仍是上文关联 Note 固定的 Community
 `36415d346b3d18a6ded90d05afb8e0a0bface9d6` 的 `DottedFilterEdgesGenerator`。
 本次另核对本地 Community `fb72b4df43aba102479eb0502d20b03586b9c5b8`
 的同名文件；不会按相邻显示行猜测父子关系，也不会在每次搜索时重新分配分支颜色。
@@ -42,7 +41,7 @@ macOS 已经按 IntelliJ 的永久图规则处理了这个问题，但 Windows �
 原始父哈希仍保留 Git 返回值。直接父子关系继续使用实线；两条路径到达同一
 可见祖先时去重，直接关系优先。无关分支不会因为显示行相邻而连接。
 
-未加载父提交通过 macOS `GitGraphMissingParents` 相同的隐藏边界分组规则
+未加载父提交通过 Core 的隐藏边界分组规则
 传播，多个合并路径共用边界组，避免给每条隐藏提交复制全部祖先哈希集合。
 传播遇到可见祖先就停止，由该祖先持有后续连接；分页加载父提交后重新投影，
 不再标记该父提交缺失。隐藏的已加载根提交不属于缺失历史。
@@ -287,14 +286,13 @@ ResizeObserver（浏览器按帧合并的尺寸观察器）服务已挂载行，
 
 ## 适用范围
 
-- `windows/tauri/src/features/git/utils/git-graph-layout.ts`
+- `rust/lithe-core/src/git/graph.rs`
 - `windows/tauri/src/features/git/utils/git-graph-colors.ts`
 - `windows/tauri/src/features/git/utils/git-graph-geometry.ts`
 - `windows/tauri/src/features/git/hooks/use-git-graph-paint.ts`
 - `windows/tauri/src/features/git/hooks/use-git-log-controller.ts`
 - `windows/tauri/src/features/git/api/git-commits-api.ts`
 - `windows/tauri/src/features/git/stores/git-log-preferences.store.ts`
-- `windows/tauri/src/features/git/utils/git-graph-filter-projection.ts`
 - `windows/tauri/src/features/git/components/log/git-commit-table.tsx`
 - `windows/tauri/src/features/git/components/log/git-commit-inspector.tsx`
 - `windows/tauri/src/features/git/components/log/git-log-tool-window.tsx`
@@ -304,6 +302,8 @@ ResizeObserver（浏览器按帧合并的尺寸观察器）服务已挂载行，
 - `windows/tauri/src/features/git/hooks/use-git-graph-reference-metrics.ts`
 - `windows/tauri/src/features/git/components/log/git-graph-row.tsx`
 - `windows/tauri/src/features/git/components/log/git-graph.css`
-- `macos/Sources/LitheGitModule/Services/GitGraphHeadOrdering.swift`
-- `macos/Sources/LitheGitModule/Services/GitGraphProjection.swift`
-- `macos/Tests/LitheGitModuleTests/Fixtures/GitGraphIDEA/`
+- `shared/fixtures/git/graph-idea/`
+
+## 后续：布局下沉到 Rust Core（#1662 GIT-18/19）
+
+本文描述的 DFS、head 排序、定色、过滤后的虚线拓扑和 missing parents 算法已搬进 `rust/lithe-core/src/git/graph.rs`，由 `git.graphProjection` 统一提供，规则以 `shared/fixtures/git/graph-projection-v1.json` 为准。文中提到的 Swift/TS 实现文件已删除；两端只保留绘制、像素和颜色 ID 到主题色的映射。

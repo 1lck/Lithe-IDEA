@@ -194,3 +194,70 @@ fn workspace_snapshot_keeps_its_traversal_order_while_the_tree_rows_are_natural(
     assert_eq!(with_tree, expected);
     assert_eq!(without_tree, expected);
 }
+
+fn execute(command: &str, payload: Value) -> Value {
+    serde_json::from_str(&execute_json(
+        &serde_json::json!({"id": "entry-order", "command": command, "payload": payload})
+            .to_string(),
+    ))
+    .expect("core response should be JSON")
+}
+
+// Windows and macOS plugin listings enumerate natively and only apply this
+// permutation, so the shared fixture pins the cases where the old Windows
+// lowercase-plus-localeCompare order diverged.
+#[test]
+fn order_entries_matches_the_shared_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/workspace/entry-order-v1.json"
+    ))
+    .expect("entry-order fixture should be JSON");
+    for case in fixture["cases"].as_array().unwrap() {
+        let response = execute("workspace.orderEntries", case["request"].clone());
+        assert_eq!(response["ok"], true, "{}: {response}", case["id"]);
+        let entries = case["request"]["entries"].as_array().unwrap();
+        let names = response["data"]["order"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|index| entries[index.as_u64().unwrap() as usize]["name"].clone())
+            .collect::<Vec<_>>();
+        assert_eq!(Value::Array(names), case["orderedNames"], "{}", case["id"]);
+    }
+}
+
+#[test]
+fn order_entries_rejects_oversized_input_instead_of_truncating() {
+    let long_name = "a".repeat(4097);
+    let response = execute(
+        "workspace.orderEntries",
+        serde_json::json!({"entries": [{"name": long_name, "isDirectory": false}]}),
+    );
+    assert_eq!(response["ok"], false);
+    assert_eq!(response["error"]["code"], "invalid_request");
+
+    let entries = (0..100_001)
+        .map(|index| serde_json::json!({"name": format!("f{index}"), "isDirectory": false}))
+        .collect::<Vec<_>>();
+    let response = execute(
+        "workspace.orderEntries",
+        serde_json::json!({ "entries": entries }),
+    );
+    assert_eq!(response["ok"], false);
+    assert_eq!(response["error"]["code"], "invalid_request");
+}
+
+// Identical names cannot occur in one directory, but the order must stay total
+// so a host never observes a platform-dependent unstable sort.
+#[test]
+fn order_entries_keeps_request_order_for_identical_names() {
+    let response = execute(
+        "workspace.orderEntries",
+        serde_json::json!({"entries": [
+            {"name": "same", "isDirectory": false},
+            {"name": "same", "isDirectory": false},
+            {"name": "Same", "isDirectory": false}
+        ]}),
+    );
+    assert_eq!(response["data"]["order"], serde_json::json!([2, 0, 1]));
+}

@@ -26,7 +26,7 @@ struct BuildToolProviderResolutionTests {
             "runtimePath": .string(selection == "runtime" ? root.appendingPathComponent("missing runtime").path : "")
         ]
         let planner = RustBuildSystemOperations(core: RustCoreBridge())
-        let runtime = ProjectRuntimeService(runtimeLocator: ProviderRuntimeLocator(root: root), store: ProviderEmptyStore())
+        let runtime = ProjectRuntimeService(runtimeLocator: ProviderRuntimeLocator(root: root))
         let resolver = MacBuildToolResolver(runtime: runtime, processRunner: MacProcessRunner(), fileStorage: MacFileStorage())
         let target = BuildSystemTarget(manifest: source.manifest, buildSystemID: "fixture")
         let invocation = try planner.invocationPlan(target, root: ".", settings: settings)
@@ -168,13 +168,7 @@ private struct ProviderStateLocator: BuildSystemStateLocating {
 private struct ProviderRuntimeLocator: RuntimeLocator {
     let root: URL
     func environment() -> [String: String] { ["FIXTURE_RUNTIME": root.path] }
-    func discover() -> RuntimeDiscoveryResult { .init(javaRuntimes: [], mavenRuntimes: []) }
-    func validJavaHome(path: String) -> URL? { nil }
-    func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate? { nil }
     func isExecutable(at url: URL) -> Bool { false }
-    func systemMavenExecutable() -> URL? { nil }
-    func mavenExecutable(forHomePath path: String) -> URL? { nil }
-    func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
 }
 
 private struct ProviderEmptyStore: KeyValueStore {

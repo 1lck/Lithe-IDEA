@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import fixture from "../../../../../../shared/fixtures/agent/acp-events-v1.json";
+import { createTranslator, DEFAULT_DISPLAY_LANGUAGE } from "@/i18n/locale";
 import { AgentConnectionModel } from "./agent-connection.model";
 import type { AgentTransport } from "../services/agent-transport";
 import type { AgentSessionStatistics } from "../types/agent-session-statistics";
@@ -233,35 +234,68 @@ describe("Agent parity lifecycle", () => {
     expect(view().reviewedEdits).toBeUndefined();
   });
 
-  test("next-turn settings apply model first, wait for each ACK, then continue", () => {
+  test("next-turn settings go to the Host as one batch after the turn, then continue", () => {
     model.send("First turn");
     model.setConfigOption("reasoning_effort", "high");
     model.setConfigOption("model", "other");
     model.send("Continue");
     deliver({ ...fixture.events.steeringResult, token: command("steer").token, outcome: "promptRequired" });
-    expect(commands.filter((item) => item.kind === "setConfigOption")).toHaveLength(0);
+    expect(commands.filter((item) => item.kind === "applyNextTurnConfiguration")).toHaveLength(0);
     deliver({ kind: "turnFinished", sessionId: "session-1", stopReason: "end_turn" });
-    expect(command("setConfigOption").configId).toBe("model");
+    // The Host orders, revalidates and confirms the choices; the product sends them once.
+    const batch = command("applyNextTurnConfiguration");
+    expect(batch.choices).toEqual([{ configId: "model", value: "other" }, { configId: "reasoning_effort", value: "high" }]);
+    expect((batch.catalog as { id: string }[]).map((option) => option.id)).toEqual(["model", "reasoning_effort"]);
+    expect(commands.filter((item) => item.kind === "setConfigOption")).toHaveLength(0);
     expect(commands.filter((item) => item.kind === "prompt")).toHaveLength(1);
-    deliver({ kind: "sessionConfigured", token: command("setConfigOption").token, sessionId: "session-1", configOptions: options("other") });
-    expect(command("setConfigOption").configId).toBe("reasoning_effort");
-    deliver({ kind: "sessionConfigured", token: command("setConfigOption").token, sessionId: "session-1", configOptions: options("other").map((item) => item.id === "reasoning_effort" ? { ...item, currentValue: "high" } : item) });
+    deliver({ kind: "sessionConfigured", token: "stale", sessionId: "session-1", configOptions: options("other") });
+    expect(view().pendingConfigToken).toBe(batch.token as string);
+    deliver({ kind: "nextTurnConfigured", token: batch.token, sessionId: "session-1", configOptions: options("other").map((item) => item.id === "reasoning_effort" ? { ...item, currentValue: "high" } : item) });
     expect(command("prompt").text).toBe("Continue");
+    expect(view().configOptions[0].currentValue).toBe("other");
     expect(view().stagedConfig).toEqual({});
   });
 
-  test("configuration rejection preserves confirmed value and fails the queued continuation", () => {
+  test.each([
+    ["notConfirmed", "native.theAgentDidNotConfirmTheSelectedSessionSetting"],
+    ["unsupported", "native.theAgentNoLongerSupportsTheSelectedSessionSetting"],
+  ])("a %s next-turn failure keeps confirmed settings and fails the queued continuation", (failure, key) => {
+    const message = createTranslator(DEFAULT_DISPLAY_LANGUAGE)(key);
     model.send("First turn");
     model.setConfigOption("model", "other");
     model.send("Continue");
     deliver({ ...fixture.events.steeringResult, token: command("steer").token, outcome: "promptRequired" });
     deliver({ kind: "turnFinished", sessionId: "session-1", stopReason: "end_turn" });
-    deliver({ kind: "requestFailed", token: command("setConfigOption").token, sessionId: "session-1", message: "Not available" });
+    deliver({ kind: "nextTurnConfigured", token: command("applyNextTurnConfiguration").token, sessionId: "session-1", failure });
     expect(view().configOptions[0].currentValue).toBe("example-model");
     expect(view().pendingConfigToken).toBeNull();
+    expect(view().configurationError).toBe(message);
     expect(command("prompt").text).toBe("First turn");
-    expect(view().messages.slice(-1)[0]?.delivery).toEqual({ failed: "Not available" });
+    expect(view().messages.slice(-1)[0]?.delivery).toEqual({ failed: message });
     expect(model.getSnapshot().hasPendingContinuation).toBe(false);
+  });
+
+  test("a failed request keeps the Agent's message", () => {
+    model.send("First turn");
+    model.setConfigOption("model", "other");
+    deliver({ kind: "turnFinished", sessionId: "session-1", stopReason: "end_turn" });
+    deliver({ kind: "nextTurnConfigured", token: command("applyNextTurnConfiguration").token, sessionId: "session-1", failure: "requestFailed", message: "Not available" });
+    expect(view().configurationError).toBe("Not available");
+    deliver({ kind: "requestFailed", token: command("applyNextTurnConfiguration").token, sessionId: "session-1", message: "Late" });
+    expect(view().configurationError).toBe("Not available");
+  });
+
+  test("a failed turn still applies next-turn settings but never replays the deferred input", () => {
+    model.send("First turn");
+    model.setConfigOption("model", "other");
+    model.send("Continue");
+    deliver({ ...fixture.events.steeringResult, token: command("steer").token, outcome: "promptRequired" });
+    deliver({ kind: "requestFailed", token: null, sessionId: "session-1", message: "Turn failed" });
+    expect(view().messages.slice(-1)[0]?.delivery).toEqual({ failed: "Turn failed" });
+    expect(command("applyNextTurnConfiguration").choices).toEqual([{ configId: "model", value: "other" }]);
+    deliver({ kind: "nextTurnConfigured", token: command("applyNextTurnConfiguration").token, sessionId: "session-1", configOptions: options("other") });
+    expect(commands.filter((item) => item.kind === "prompt")).toHaveLength(1);
+    expect(view().configOptions[0].currentValue).toBe("other");
   });
 
   test("activity clears retry indicators and retired retries cannot contaminate a later turn", () => {
@@ -292,16 +326,16 @@ describe("Agent parity lifecycle", () => {
     model.send("First turn");
     deliver({ kind: "turnFinished", sessionId: "session-1", stopReason: "end_turn" });
     model.send("Second turn");
-    deliver({ kind: "modelCall", sessionId: "session-1", afterTurnFinished: true, call: { api: "messages", model: "test", status: 200, streaming: false, durationMs: 12 } });
+    deliver({ ...fixture.events.modelCallNonStreaming, afterTurnFinished: true });
     expect(view().modelCalls).toHaveLength(1);
-    expect(view().modelCalls[0].usage).toBeNull();
+    expect(view().modelCalls[0].nonStreamingSteps).toBe(1);
+    expect(view().statistics.calls.nonStreaming).toBe(1);
     expect(view().activeTurn?.modelCalls).toEqual([]);
   });
 
   test("durable statistics survive closing and loading without counting history replay", () => {
     model.send("Count once");
-    deliver({ kind: "modelCall", sessionId: "session-1", call: { api: "messages", status: 200, streaming: true, durationMs: 900, firstTokenMs: 100,
-      usage: { inputTokens: 20, cacheReadTokens: 5, cacheWriteTokens: 0, outputTokens: 10 } } });
+    deliver(fixture.events.modelCall);
     deliver(fixture.events.turnFinishedWithUsage);
     const saved = statistics.get("session-1")!;
     expect(saved.turnCount).toBe(1);
@@ -310,7 +344,7 @@ describe("Agent parity lifecycle", () => {
     model.selectSession("session-1");
     update({ sessionUpdate: "user_message_chunk", content: { type: "text", text: "Count once" } });
     // Even if a peer replays observations, loading must never charge them twice.
-    deliver({ kind: "modelCall", sessionId: "session-1", call: { api: "messages", status: 200, durationMs: 900 } });
+    deliver(fixture.events.modelCallNonStreaming);
     deliver({ kind: "sessionLoaded", token: command("loadSession").token, sessionId: "session-1", configOptions: options() });
     deliver({ kind: "turnFinished", sessionId: "session-1", stopReason: "end_turn" });
     expect(view().statistics).toEqual(saved);

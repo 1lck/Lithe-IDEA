@@ -3,7 +3,6 @@ import type { GitPullPreflight, GitReference } from "../types/git.types";
 import {
   canUseFastForward,
   defaultPullReference,
-  defaultPullStrategy,
   isUpstreamPullTarget,
 } from "./git-pull-selection";
 
@@ -41,9 +40,7 @@ describe("Pull dialog selection defaults", () => {
     expect(defaultPullReference([remote("origin/release")], preflight())).toBeNull();
   });
 
-  test("defaults to merge and never preselects fast-forward only", () => {
-    // Even a linear upstream keeps the safe merge default; ff-only is opt-in.
-    expect(defaultPullStrategy()).toBe("merge");
+  test("offers fast-forward only where the Core can still fast-forward safely", () => {
     expect(canUseFastForward(preflight(), remote("origin/main"))).toBe(true);
     // Diverged history or another branch cannot be safely fast-forwarded.
     expect(canUseFastForward(preflight({ diverged: true }), remote("origin/main"))).toBe(false);

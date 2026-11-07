@@ -7,7 +7,7 @@ import Testing
 @MainActor
 struct BackgroundResourceSelectionViewTests {
     @Test func longCommandsWrapAndManyResourcesScrollWithinTheAlert() throws {
-        let command = "java " + String(repeating: "--add-opens=java.base/java.lang=ALL-UNNAMED ", count: 40)
+        let command = "tool-a " + String(repeating: "--option=value/with/a/long/path ", count: 40)
         let resources = (0..<12).map { resource("service-\($0)", detail: command + String(repeating: "x", count: 200)) }
         let view = BackgroundResourceSelectionView(resources: resources)
         view.layoutSubtreeIfNeeded()
@@ -172,7 +172,7 @@ struct BackgroundResourceSelectionViewTests {
         }
     }
 
-    private func resource(_ id: String, name: String = "java service", detail: String = "java --add-opens=java.base/java.lang=ALL-UNNAMED --module-path=example.jar", recognizer: String? = nil) -> BackgroundResourceCandidate {
+    private func resource(_ id: String, name: String = "tool-a service", detail: String = "tool-a --option=value --config=example.toml", recognizer: String? = nil) -> BackgroundResourceCandidate {
         BackgroundResourceCandidate(id: id, name: name, detail: detail, processIDs: [20, 21], listeningPorts: [8080], startedAt: nil, recognizerID: recognizer, recognizedPolicy: nil, kind: .daemon)
     }
 

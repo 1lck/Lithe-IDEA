@@ -9,11 +9,9 @@ struct CoreVerification {
     static func main() async {
         verifySharedContractFixtures()
         verifyDiffParser()
-        verifyVisibilityRules()
-        verifyGitGraph()
         verifyWhitespaceModes()
         verifySearchOptions()
-        print("Core verification passed: shared fixtures, diff, visibility, graph, search options, and whitespace modes")
+        print("Core verification passed: shared fixtures, diff, search options, and whitespace modes")
     }
 
     private struct SearchFixture: Decodable {
@@ -70,26 +68,6 @@ struct CoreVerification {
         let operationError: OperationError?
     }
 
-    private struct GitFixture: Decodable {
-        struct Commit: Decodable {
-            let hash: String
-            let parents: [String]
-            let subject: String
-            let decorations: String
-        }
-
-        struct Expected: Decodable {
-            let rowCount: Int
-            let mergeRow: Int
-            let mergeParentCount: Int
-            let hasMissingParents: Bool
-            let headLabel: String
-        }
-
-        let commits: [Commit]
-        let expected: Expected
-    }
-
     private static func verifySharedContractFixtures() {
         let searchURL = URL(fileURLWithPath: "shared/fixtures/search/basic.json")
         guard let searchData = try? Data(contentsOf: searchURL),
@@ -98,17 +76,11 @@ struct CoreVerification {
             return
         }
 
-        let fixtureRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-shared-search-fixture", isDirectory: true)
-        let visibilityRules = FileVisibilityRules.default
+        // Hidden-path rules live in Rust Core, which this verifier does not link; they are
+        // verified by shared/fixtures/workspace/visibility-v1.json. The only hidden file in this
+        // fixture is the linked-worktree copy, so the verifier leaves out that folder itself.
         let files = searchFixture.files
-            .filter { file in
-                !visibilityRules.isHidden(
-                    fixtureRoot.appendingPathComponent(file.path),
-                    relativeTo: fixtureRoot,
-                    isDirectory: false
-                )
-            }
+            .filter { !$0.path.hasPrefix(".worktree/") }
             .sorted { $0.path < $1.path }
         for fixtureCase in searchFixture.cases {
             var actual: [SearchFixture.Match] = []
@@ -140,31 +112,6 @@ struct CoreVerification {
             }
             require(actual == fixtureCase.expected, "search fixture case failed: \(fixtureCase.name)")
         }
-
-        let gitURL = URL(fileURLWithPath: "shared/fixtures/git/graph.json")
-        guard let gitData = try? Data(contentsOf: gitURL),
-              let gitFixture = try? JSONDecoder().decode(GitFixture.self, from: gitData) else {
-            require(false, "Git contract fixture could not be decoded")
-            return
-        }
-        let commits = gitFixture.commits.map { commit in
-            GitCommit(
-                hash: commit.hash,
-                shortHash: commit.hash,
-                parentHashes: commit.parents,
-                authorName: "Fixture",
-                authorEmail: "fixture@example.com",
-                date: "2026/08/02 10:00",
-                subject: commit.subject,
-                decorations: commit.decorations
-            )
-        }
-        let layout = GitGraphLayoutService.layout(commits: commits)
-        let mergeRow = layout.rows[gitFixture.expected.mergeRow]
-        require(layout.rows.count == gitFixture.expected.rowCount, "Git fixture row count changed")
-        require(mergeRow.parentEdges.count == gitFixture.expected.mergeParentCount, "Git fixture merge edge count changed")
-        require(layout.hasMissingParents == gitFixture.expected.hasMissingParents, "Git fixture missing-parent state changed")
-        require(mergeRow.labels.contains { $0.title == gitFixture.expected.headLabel }, "Git fixture HEAD label changed")
 
         let commandURL = URL(fileURLWithPath: "shared/fixtures/git/command-response-v1.json")
         guard let commandData = try? Data(contentsOf: commandURL),
@@ -212,15 +159,15 @@ struct CoreVerification {
 
     private static func verifyDiffParser() {
         let patch = """
-        diff --git a/Example.java b/Example.java
-        --- a/Example.java
-        +++ b/Example.java
+        diff --git a/example.txt b/example.txt
+        --- a/example.txt
+        +++ b/example.txt
         @@ -1,3 +1,4 @@
-         class Example {
-        -    return 1;
-        +    return 2;
-        +    // added
-         }
+         [section]
+        -value = 1
+        +value = 2
+        +# added
+         end
         """
         let document = DiffParser.parseDocument(patch)
         require(document.hunks.count == 1, "expected one diff hunk")
@@ -235,44 +182,6 @@ struct CoreVerification {
             document.rows.first { $0.kind == .context }?.rightText != nil,
             "context rows must expose shared text on the right side"
         )
-    }
-
-    private static func verifyVisibilityRules() {
-        let root = URL(fileURLWithPath: "/tmp/lithe-test-project")
-        let rules = FileVisibilityRules.default
-        require(
-            rules.isHidden(
-                root.appendingPathComponent(".build/debug/Lithe"),
-                relativeTo: root,
-                isDirectory: false
-            ),
-            "build artifacts should be hidden"
-        )
-        require(
-            !rules.isHidden(
-                root.appendingPathComponent("src/main.swift"),
-                relativeTo: root,
-                isDirectory: false
-            ),
-            "source files should remain visible"
-        )
-    }
-
-    private static func verifyGitGraph() {
-        let root = commit(hash: "root", parents: [], subject: "root", decorations: "")
-        let side = commit(hash: "side", parents: ["root"], subject: "side", decorations: "feature/orders")
-        let main = commit(
-            hash: "main",
-            parents: ["side", "root"],
-            subject: "merge",
-            decorations: "HEAD -> main"
-        )
-        let layout = GitGraphLayoutService.layout(commits: [main, side, root])
-        require(layout.rows.count == 3, "expected three graph rows")
-        require(layout.rows[0].isMerge, "expected merge commit")
-        require(layout.rows[0].parentEdges.count == 2, "expected two merge parent edges")
-        require(layout.rows[0].parentEdges.allSatisfy { !$0.isMissing }, "merge parents should be present")
-        require(layout.rows[0].labels.contains { $0.kind == .head }, "HEAD label should be parsed")
     }
 
     private static func verifyWhitespaceModes() {
@@ -299,24 +208,6 @@ struct CoreVerification {
         var regularExpression = standard
         regularExpression.regularExpression = true
         require(regularExpression.matches("UserService42", query: "UserService\\d+"), "regex search should match a pattern")
-    }
-
-    private static func commit(
-        hash: String,
-        parents: [String],
-        subject: String,
-        decorations: String
-    ) -> GitCommit {
-        GitCommit(
-            hash: hash,
-            shortHash: hash,
-            parentHashes: parents,
-            authorName: "Test",
-            authorEmail: "test@example.com",
-            date: "2026/08/02 10:00",
-            subject: subject,
-            decorations: decorations
-        )
     }
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) {

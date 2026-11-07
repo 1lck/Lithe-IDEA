@@ -16,31 +16,11 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// Default workspace exclusions, also used by Git discovery for generated directories.
-pub(crate) const BUILT_IN_HIDDEN_DIRECTORIES: &[&str] = &[
-    ".git",
-    ".svn",
-    ".worktree",
-    ".worktrees",
-    ".build",
-    ".swiftpm",
-    "node_modules",
-    // Python virtual environments and bytecode caches are dependency or generated
-    // output like `node_modules`. They hold tens of thousands of files that no
-    // snapshot consumer wants. Environments are matched by their conventional
-    // names only, so a differently named one still has to be hidden by the user.
-    ".venv",
-    "venv",
-    "__pycache__",
-    "target",
-    "build",
-    "DerivedData",
-    ".gradle",
-    ".next",
-    "dist",
-    "coverage",
-    "design-qa-artifacts",
-    ".artifacts",
-];
+/// The list lives in `lithe-core-rules`, the only definition every host shares.
+pub(crate) use lithe_core_rules::visibility::BUILT_IN_HIDDEN_DIRECTORIES;
+use lithe_core_rules::visibility::{
+    self as shared_visibility, disabled_built_ins, glob_matches, is_disabled_directory,
+};
 /// Whether an ordinary workspace event belongs to visible project inputs.
 /// Callers first relativize to the most specific explicitly watched root; native
 /// event-loss flags always bypass this filter and request recovery.
@@ -88,29 +68,6 @@ pub fn filter_workspace_changes(request: WorkspaceChangeFilterRequest) -> Vec<St
         .collect()
 }
 
-/// The entries after a leading `!`. Such an entry turns a built-in rule off
-/// instead of hiding anything; it is never matched as a pattern itself.
-fn disabled_built_ins(hidden_file_patterns: &[String]) -> Vec<String> {
-    hidden_file_patterns
-        .iter()
-        .filter_map(|pattern| pattern.trim().strip_prefix('!'))
-        .map(|pattern| pattern.trim().to_string())
-        .collect()
-}
-
-/// A built-in folder is turned off by its displayed form `**/name/` or its bare name.
-fn is_disabled_directory(name: &str, disabled: &[String]) -> bool {
-    disabled.iter().any(|entry| {
-        entry.eq_ignore_ascii_case(name)
-            || entry
-                .strip_prefix("**/")
-                .and_then(|rest| rest.strip_suffix('/'))
-                .is_some_and(|rest| rest.eq_ignore_ascii_case(name))
-    })
-}
-
-/// File names omitted from workspace snapshots, search, and related scans.
-const BUILT_IN_HIDDEN_FILE_PATTERNS: &[&str] = &[".DS_Store", "*.pyc"];
 const MAX_FILE_SIZE: u64 = 2 * 1024 * 1024;
 const MAX_OPEN_FILE_SIZE: u64 = 32 * 1024 * 1024;
 
@@ -184,7 +141,7 @@ pub struct SearchRequest {
     pub hidden_directory_names: Vec<String>,
     #[serde(default)]
     pub hidden_file_patterns: Vec<String>,
-    /// Comma-separated file masks such as `*.java, *.kt`; empty means no filter.
+    /// Comma-separated file masks such as `*.md, *.txt`; empty means no filter.
     #[serde(default)]
     pub file_mask: String,
     /// Case-insensitive glob fragments that a candidate path must match.
@@ -193,6 +150,10 @@ pub struct SearchRequest {
     /// Case-insensitive glob fragments that exclude matching candidate paths.
     #[serde(default)]
     pub exclude_path_patterns: Vec<String>,
+    /// Open and recent files that break ties between equal file-name matches. Paths are
+    /// relative to `root` with `/` separators; without it ordering is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<super::name_ranking::RankContext>,
     /// Optional root prefix used solely for include/exclude matching.
     #[serde(default)]
     pub path_filter_prefix: String,
@@ -236,6 +197,8 @@ pub struct SearchIndexUpdateRequest {
 /// Search-index size and whether an incremental request required a rebuild.
 pub struct SearchIndexStatusResponse {
     pub file_count: usize,
+    /// Always zero: Core no longer indexes language symbols. The field stays
+    /// because the macOS bridge still decodes it as required.
     pub symbol_count: usize,
     pub posting_count: usize,
     pub rebuilt: bool,
@@ -739,7 +702,11 @@ fn search_with_index(
     Ok(SearchResponse { matches })
 }
 
-/// Combines file, content, and Java-symbol results for Search Everywhere.
+/// Combines file and content results for Search Everywhere.
+///
+/// The `type` and `symbol` buckets stay in the paging contract but Core no
+/// longer fills them: symbol knowledge belongs to language servers and
+/// plugins, so a source-specific regex here would favour one language.
 pub fn search_everywhere(request: SearchRequest) -> Result<SearchResponse, CoreError> {
     search_everywhere_with_page(request, None)
 }
@@ -793,6 +760,10 @@ pub(crate) fn search_everywhere_with_page(
     } else {
         request.max_content_results.unwrap_or(limit).min(limit)
     };
+    let context_index = request
+        .context
+        .as_ref()
+        .map(super::name_ranking::ContextIndex::new);
     let mut files = Vec::new();
     let mut types = Vec::new();
     let mut symbols = Vec::new();
@@ -848,6 +819,11 @@ pub(crate) fn search_everywhere_with_page(
             } else {
                 continue;
             }
+            if let Some(index) = &context_index {
+                result.matching_degree = result
+                    .matching_degree
+                    .map(|degree| index.contextual_degree(degree, &file.path));
+            }
             if let Some(page) = page.as_ref() {
                 page.push(&mut files, result, file_limit);
             } else {
@@ -877,11 +853,9 @@ pub(crate) fn search_everywhere_with_page(
         std::time::Instant::now(),
         true,
     );
-    // Publish names before content parsing or symbol extraction starts.
+    // Publish names before content parsing starts.
     // Zero source caps are execution boundaries, not just post-scan truncation.
-    let shared_index = if symbol_limit > 0 {
-        Some(search_index::get_or_build(&root, &rules)?)
-    } else if content_limit > 0 {
+    let shared_index = if content_limit > 0 {
         Some(search_index::get_for_text(&root, &rules)?)
     } else {
         None
@@ -894,61 +868,6 @@ pub(crate) fn search_everywhere_with_page(
                 .map_err(|_| CoreError::new(ErrorCode::Unknown, "Search index lock was poisoned"))
         })
         .transpose()?;
-    if symbol_limit > 0 {
-        let index = index
-            .as_ref()
-            .expect("symbol source requires content index");
-        for id in index.all_file_ids() {
-            crate::protocol::cancellation::check()?;
-            let Some(file) = index.file(id) else { continue };
-            if !scope_allows(&request.scope_paths, &file.path)
-                || !file_mask_allows(&masks, &file.path)
-                || !path_filters.allows(&file.path)
-            {
-                continue;
-            }
-            for symbol in index.symbols(id) {
-                let mut result = search_index::make_symbol_match(symbol, file.path.clone());
-                if match_everywhere_name(&request, &matcher, &symbol.name, &mut result) {
-                    if result.kind == "type" {
-                        if let Some(page) = page.as_ref() {
-                            page.push(&mut types, result, symbol_limit);
-                        } else {
-                            types.push(result);
-                        }
-                    } else {
-                        if let Some(page) = page.as_ref() {
-                            page.push(&mut symbols, result, symbol_limit);
-                        } else {
-                            symbols.push(result);
-                        }
-                    }
-                    emit_search_results(
-                        [
-                            (&mut files, file_limit),
-                            (&mut types, symbol_limit),
-                            (&mut symbols, symbol_limit),
-                        ],
-                        limit,
-                        &mut last_flush,
-                        std::time::Instant::now(),
-                        false,
-                    );
-                }
-            }
-        }
-    }
-    emit_search_results(
-        [
-            (&mut files, file_limit),
-            (&mut types, symbol_limit),
-            (&mut symbols, symbol_limit),
-        ],
-        limit,
-        &mut last_flush,
-        std::time::Instant::now(),
-        true,
-    );
     if let Some(page) = page.as_mut() {
         page.finish("file", &mut files, file_limit);
         page.finish("type", &mut types, symbol_limit);
@@ -1180,7 +1099,7 @@ pub fn warm_search_index(
     let stats = index.stats();
     Ok(SearchIndexStatusResponse {
         file_count: stats.file_count,
-        symbol_count: stats.symbol_count,
+        symbol_count: 0,
         posting_count: stats.posting_count,
         rebuilt: false,
     })
@@ -1216,7 +1135,7 @@ pub fn update_search_index(
     let stats = index.stats();
     Ok(SearchIndexStatusResponse {
         file_count: stats.file_count,
-        symbol_count: stats.symbol_count,
+        symbol_count: 0,
         posting_count: stats.posting_count,
         rebuilt: rebuilt || matches!(outcome, UpdateOutcome::NotIndexed),
     })
@@ -1276,7 +1195,11 @@ pub fn write_file(request: FileWriteRequest) -> Result<FileWriteResponse, CoreEr
     })
 }
 
-/// Effective built-in plus caller-supplied rules for excluding workspace paths.
+/// Effective hidden-path rules plus the nested roots this request delegates.
+///
+/// Matching is `lithe-core-rules`' [`shared_visibility::VisibilityRules`], the same code the
+/// hosts reach through `workspace.classifyVisibility`; only the delegated roots, which depend on
+/// the file system, are added here.
 pub(crate) struct VisibilityRules {
     pub(crate) hidden_directories: Vec<String>,
     pub(crate) hidden_file_patterns: Vec<String>,
@@ -1286,32 +1209,11 @@ pub(crate) struct VisibilityRules {
 
 impl VisibilityRules {
     /// Adds the built-in rules except those turned off by a `!` entry.
-    ///
-    /// Callers may already send built-in names; a turned-off entry is dropped
-    /// from their lists too, so the caller's copy cannot re-hide it.
     pub(crate) fn new(hidden_directories: Vec<String>, hidden_files: Vec<String>) -> Self {
-        let disabled = disabled_built_ins(&hidden_files);
-        let mut directories = BUILT_IN_HIDDEN_DIRECTORIES
-            .iter()
-            .map(|value| (*value).to_string())
-            .collect::<Vec<_>>();
-        directories.extend(hidden_directories);
-        directories.retain(|name| !is_disabled_directory(name, &disabled));
-        let mut files = BUILT_IN_HIDDEN_FILE_PATTERNS
-            .iter()
-            .map(|value| (*value).to_string())
-            .collect::<Vec<_>>();
-        files.extend(hidden_files);
-        files.retain(|pattern| {
-            let pattern = pattern.trim();
-            !pattern.starts_with('!')
-                && !disabled
-                    .iter()
-                    .any(|entry| entry.eq_ignore_ascii_case(pattern))
-        });
+        let rules = shared_visibility::VisibilityRules::new(hidden_directories, hidden_files);
         Self {
-            hidden_directories: normalize(directories),
-            hidden_file_patterns: normalize(files),
+            hidden_directories: rules.hidden_directories,
+            hidden_file_patterns: rules.hidden_file_patterns,
             delegated_roots: Vec::new(),
         }
     }
@@ -1339,71 +1241,13 @@ impl VisibilityRules {
     }
 
     pub(crate) fn is_hidden(&self, path: &str, is_directory: bool) -> bool {
-        let components = path
-            .split('/')
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>();
-        if components.iter().any(|component| {
-            self.hidden_directories
-                .iter()
-                .any(|hidden| hidden.eq_ignore_ascii_case(component))
-        }) {
-            return true;
-        }
-        let directory_count = components.len().saturating_sub(usize::from(!is_directory));
-        let mut folder_globs = self
-            .hidden_file_patterns
-            .iter()
-            .filter_map(|pattern| folder_glob(pattern))
-            .peekable();
-        if folder_globs.peek().is_some() {
-            // Each ancestor prefix is joined once and shared by every folder
-            // rule, instead of being rebuilt per rule.
-            let prefixes = (1..=directory_count)
-                .map(|count| components[..count].join("/"))
-                .collect::<Vec<_>>();
-            if folder_globs.any(|glob| {
-                prefixes
-                    .iter()
-                    .any(|prefix| path_glob_matches(glob, prefix))
-            }) {
-                return true;
-            }
-        }
-        if is_directory {
-            return false;
-        }
-        let last = components.last().copied().unwrap_or_default();
-        self.hidden_file_patterns
-            .iter()
-            .any(|pattern| path_glob_matches(pattern, last) || path_glob_matches(pattern, path))
+        shared_visibility::is_path_hidden(
+            &self.hidden_directories,
+            &self.hidden_file_patterns,
+            path,
+            Some(is_directory),
+        )
     }
-}
-
-/// Matches a hidden-path glob, letting a leading `**/` stand for zero or more
-/// folders, so `**/dist/` covers a root-level `dist` as well as `a/b/dist`.
-///
-/// `*` already spans `/`, which covers the non-root case; the root case needs
-/// the second attempt because the glob would otherwise demand a literal `/`.
-fn path_glob_matches(pattern: &str, value: &str) -> bool {
-    glob_matches(pattern, value)
-        || pattern
-            .strip_prefix("**/")
-            .is_some_and(|rest| glob_matches(rest, value))
-}
-
-/// The folder glob of a hidden-path entry that ends in `/`, `/*` or `/**`.
-///
-/// Such an entry names a folder from the project root (or at any depth when it
-/// starts with `**/`), so the folder and everything below it is hidden instead
-/// of leaving an empty folder behind. Other entries keep their file-only
-/// meaning, as pinned by `shared/fixtures/search/exclusions.json`.
-fn folder_glob(pattern: &str) -> Option<&str> {
-    let glob = pattern
-        .strip_suffix("/**")
-        .or_else(|| pattern.strip_suffix("/*"))
-        .or_else(|| pattern.strip_suffix('/'))?;
-    (!glob.is_empty()).then_some(glob)
 }
 
 fn scan_node(
@@ -1818,22 +1662,6 @@ pub(crate) fn relative_path(path: &Path, root: &Path) -> String {
         .to_string()
 }
 
-fn normalize(values: Vec<String>) -> Vec<String> {
-    let mut result = Vec::new();
-    for value in values {
-        let normalized = value.trim().to_string();
-        if normalized.is_empty()
-            || result
-                .iter()
-                .any(|existing: &String| existing.eq_ignore_ascii_case(&normalized))
-        {
-            continue;
-        }
-        result.push(normalized);
-    }
-    result
-}
-
 /// Matches IDEA's Preserve Case behavior for literal replacement text.
 ///
 /// All-uppercase matches uppercase the replacement, initial-uppercase matches
@@ -1933,7 +1761,7 @@ impl SearchPathFilters {
     }
 }
 
-/// Splits a mask list such as `*.java, *.kt`; an empty list disables filtering.
+/// Splits a mask list such as `*.md, *.txt`; an empty list disables filtering.
 fn parse_file_mask(mask: &str) -> Vec<String> {
     mask.split(',')
         .map(|part| part.trim())
@@ -1949,37 +1777,6 @@ fn file_mask_allows(masks: &[String], path: &str) -> bool {
     }
     let name = path.rsplit('/').next().unwrap_or(path);
     masks.iter().any(|mask| glob_matches(mask, name))
-}
-
-fn glob_matches(pattern: &str, value: &str) -> bool {
-    let pattern = pattern.to_lowercase().chars().collect::<Vec<_>>();
-    let value = value.to_lowercase().chars().collect::<Vec<_>>();
-    let mut pattern_index = 0;
-    let mut value_index = 0;
-    let mut star_index = None;
-    let mut star_match = 0;
-    while value_index < value.len() {
-        if pattern_index < pattern.len()
-            && (pattern[pattern_index] == value[value_index] || pattern[pattern_index] == '?')
-        {
-            pattern_index += 1;
-            value_index += 1;
-        } else if pattern_index < pattern.len() && pattern[pattern_index] == '*' {
-            star_index = Some(pattern_index);
-            star_match = value_index;
-            pattern_index += 1;
-        } else if let Some(star) = star_index {
-            pattern_index = star + 1;
-            star_match += 1;
-            value_index = star_match;
-        } else {
-            return false;
-        }
-    }
-    while pattern_index < pattern.len() && pattern[pattern_index] == '*' {
-        pattern_index += 1;
-    }
-    pattern_index == pattern.len()
 }
 
 /// Literal or regular-expression search semantics compiled for repeated matches.
@@ -2203,86 +2000,6 @@ fn original_ranges_for_lowercase_matches(
         }
     }
     result
-}
-
-pub(crate) struct JavaSymbol {
-    pub(crate) name: String,
-    pub(crate) kind: String,
-    pub(crate) line: usize,
-    pub(crate) signature: String,
-}
-
-pub(crate) fn java_symbols(path: &str, source: &str) -> Vec<JavaSymbol> {
-    if !path.to_lowercase().ends_with(".java") {
-        return Vec::new();
-    }
-    let type_pattern = Regex::new(
-        r"(?m)^[ \t]*(?:(?:public|protected|private|abstract|final|static|sealed|non-sealed)\s+)*(class|interface|enum|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)",
-    );
-    let method_pattern = Regex::new(
-        r"(?m)^[ \t]*(?:(?:public|protected|private|static|final|abstract|synchronized|native|default|strictfp)\s+)*(?:<[^>\n]+>\s+)?(?:[A-Za-z_$][A-Za-z0-9_$<>,.?\[\]]*\s+)+([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^;\n{}]*\)",
-    );
-    let mut symbols = Vec::new();
-    if let Ok(expression) = type_pattern {
-        for captures in expression.captures_iter(source) {
-            let Some(name) = captures.get(2) else {
-                continue;
-            };
-            let start = captures
-                .get(0)
-                .map(|value| value.start())
-                .unwrap_or(name.start());
-            symbols.push(JavaSymbol {
-                name: name.as_str().to_string(),
-                kind: "type".to_string(),
-                line: line_number(source, start),
-                signature: line_signature(source, start),
-            });
-        }
-    }
-    if let Ok(expression) = method_pattern {
-        for captures in expression.captures_iter(source) {
-            let Some(name) = captures.get(1) else {
-                continue;
-            };
-            let start = captures
-                .get(0)
-                .map(|value| value.start())
-                .unwrap_or(name.start());
-            symbols.push(JavaSymbol {
-                name: name.as_str().to_string(),
-                kind: "symbol".to_string(),
-                line: line_number(source, start),
-                signature: line_signature(source, start),
-            });
-        }
-    }
-    symbols.sort_by(|left, right| {
-        left.line
-            .cmp(&right.line)
-            .then_with(|| left.name.cmp(&right.name))
-    });
-    symbols
-}
-
-fn line_number(source: &str, byte_offset: usize) -> usize {
-    source[..byte_offset.min(source.len())]
-        .bytes()
-        .filter(|byte| *byte == b'\n')
-        .count()
-        + 1
-}
-
-fn line_signature(source: &str, byte_offset: usize) -> String {
-    let start = source[..byte_offset.min(source.len())]
-        .rfind('\n')
-        .map(|index| index + 1)
-        .unwrap_or(0);
-    let end = source[byte_offset.min(source.len())..]
-        .find('\n')
-        .map(|index| byte_offset.min(source.len()) + index)
-        .unwrap_or(source.len());
-    source[start..end].trim().to_string()
 }
 
 fn safe_relative_path_string(value: &str) -> Result<String, CoreError> {

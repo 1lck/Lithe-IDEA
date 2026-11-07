@@ -1,0 +1,69 @@
+{
+  "description": "git.normalizeChangeTargets drops entries listed below an untracked directory summary of the same repository. Both hosts send their captured selection and act only on the returned indices.",
+  "cases": [
+    {
+      "name": "summary absorbs its listed files and nested summaries",
+      "request": {
+        "targets": [
+          { "root": "/repo", "path": "src/App.swift" },
+          { "root": "/repo", "path": "target/", "untrackedDirectory": true },
+          { "root": "/repo", "path": "target/a.class" },
+          { "root": "/repo", "path": "target/classes/", "untrackedDirectory": true },
+          { "root": "/repo", "path": "target/classes/b.class" }
+        ]
+      },
+      "indices": [0, 1]
+    },
+    {
+      "name": "a sibling with a shared name prefix is not below the summary",
+      "request": {
+        "targets": [
+          { "root": "/repo", "path": "target/", "untrackedDirectory": true },
+          { "root": "/repo", "path": "targets.txt" },
+          { "root": "/repo", "path": "target" }
+        ]
+      },
+      "indices": [0, 1, 2]
+    },
+    {
+      "name": "a summary only covers its own repository",
+      "request": {
+        "targets": [
+          { "root": "/workspace/app", "path": "build/", "untrackedDirectory": true },
+          { "root": "/workspace/lib", "path": "build/out.txt" },
+          { "root": "/workspace/app", "path": "build/out.txt" }
+        ]
+      },
+      "indices": [0, 1]
+    },
+    {
+      "name": "listed files without their summary stay targets",
+      "request": {
+        "targets": [
+          { "root": "/repo", "path": "target/a.class" },
+          { "root": "/repo", "path": "target/classes/" , "untrackedDirectory": true}
+        ]
+      },
+      "indices": [0, 1]
+    },
+    {
+      "name": "an empty selection stays empty",
+      "request": { "targets": [] },
+      "indices": []
+    }
+  ],
+  "invalid": [
+    {
+      "name": "summary without trailing slash",
+      "request": { "targets": [{ "root": "/repo", "path": "target", "untrackedDirectory": true }] }
+    },
+    {
+      "name": "missing root",
+      "request": { "targets": [{ "root": "", "path": "a.txt" }] }
+    },
+    {
+      "name": "unknown field",
+      "request": { "targets": [{ "root": "/repo", "path": "a.txt", "status": "??" }] }
+    }
+  ]
+}

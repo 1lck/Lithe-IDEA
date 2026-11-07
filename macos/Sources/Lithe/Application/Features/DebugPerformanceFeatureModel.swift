@@ -20,9 +20,9 @@ final class DebugPerformanceFeatureModel: ObservableObject {
     init(sampler: (any DebugPerformanceSampling)?) { self.sampler = sampler }
 
     func register(_ target: DebugPerformanceTarget, sessionID: UUID) {
-        guard target.processID > 0, (target.javaExecutable == nil || target.javaExecutable?.lastPathComponent == "java") else { return }
+        guard target.processID > 0 else { return }
         guard targets[sessionID] != target else { return }
-        // DAP restart can retain the session ID while launching a different JVM.
+        // DAP restart can retain the session ID while launching a different process.
         if targets[sessionID] != nil {
             histories.removeValue(forKey: sessionID)
             if activeSessionID == sessionID { samples = [] }
@@ -59,10 +59,7 @@ final class DebugPerformanceFeatureModel: ObservableObject {
         isSampling = false
         errorMessage = nil
         guard isVisible, isActive else { return }
-        guard let id = activeSessionID, let target = targets[id], let sampler else {
-            errorMessage = "Performance is available for local Java processes launched by Lithe."
-            return
-        }
+        guard let id = activeSessionID, let target = targets[id], let sampler else { return }
         let current = generation
         isSampling = true
         task = Task { [weak self] in

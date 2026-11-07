@@ -4,21 +4,40 @@ import Foundation
 import LitheCoreContracts
 import LitheLanguageIntelligenceModule
 
-// Note: Java 语言服务器插件化与启动计划见 .agents/notes/implemented/architecture/2026-10-13-java-language-server-as-declarative-plugin.md
+// Note: 语言服务器插件化与启动计划见 .agents/notes/implemented/architecture/2026-10-12-declarative-language-plugins.md
 
 /// Writable state of declarative plugins' language servers. It lives outside
 /// both the app bundle and the installed plugin packages, which stay
 /// read-only, and is removed with the plugin that owns it.
 struct MacPluginStateDirectories: Sendable {
     let rootURL: URL
+    /// Holds the scratch directory of each start of a backend-launched
+    /// server. Scratch files are disposable, so they live in the temporary
+    /// area, not beside the state a plugin keeps.
+    let temporaryRootURL: URL
 
-    init(rootURL: URL) {
+    init(rootURL: URL, temporaryRootURL: URL? = nil) {
         self.rootURL = rootURL.standardizedFileURL
+        self.temporaryRootURL = (temporaryRootURL ?? Self.defaultTemporaryRoot(FileManager.default.temporaryDirectory))
+            .standardizedFileURL
     }
 
     init(fileStorage: any FileStorage) {
-        self.init(rootURL: fileStorage.applicationSupportDirectory()
-            .appendingPathComponent("Lithe/PluginState", isDirectory: true))
+        self.init(
+            rootURL: fileStorage.applicationSupportDirectory()
+                .appendingPathComponent("Lithe/PluginState", isDirectory: true),
+            temporaryRootURL: Self.defaultTemporaryRoot(fileStorage.temporaryDirectory())
+        )
+    }
+
+    private static func defaultTemporaryRoot(_ temporaryDirectory: URL) -> URL {
+        temporaryDirectory.appendingPathComponent("lithe-plugin-launch", isDirectory: true)
+    }
+
+    /// `${temporaryDirectory}` of one start of a backend-launched server: a
+    /// fresh directory whose owner removes it when the process ends.
+    func launchScratchDirectory() -> URL {
+        temporaryRootURL.appendingPathComponent(UUID().uuidString, isDirectory: true)
     }
 
     /// Everything the plugin's servers have written, for every language.
@@ -31,11 +50,16 @@ struct MacPluginStateDirectories: Sendable {
         pluginDirectory(pluginID: pluginID).appendingPathComponent(languageID, isDirectory: true)
     }
 
+    /// Holds one `${workspaceStateDir}` per workspace of one language server.
+    func workspaceStatesDirectory(pluginID: String, languageID: String) -> URL {
+        stateDirectory(pluginID: pluginID, languageID: languageID)
+            .appendingPathComponent("workspaces", isDirectory: true)
+    }
+
     /// `${workspaceStateDir}`: keyed by the workspace root so two projects
     /// never share an index, without putting the user's path in a file name.
     func workspaceStateDirectory(pluginID: String, languageID: String, workspaceRootURL: URL) -> URL {
-        stateDirectory(pluginID: pluginID, languageID: languageID)
-            .appendingPathComponent("workspaces", isDirectory: true)
+        workspaceStatesDirectory(pluginID: pluginID, languageID: languageID)
             .appendingPathComponent(Self.workspaceDigest(workspaceRootURL), isDirectory: true)
     }
 
@@ -174,8 +198,121 @@ struct MacPluginLanguageServerLaunchResolver {
         return ResolvedLanguageServerLaunch(
             arguments: plan.arguments,
             initializationOptions: plan.initializationOptions,
-            workspaceConfiguration: plan.workspaceConfiguration
+            workspaceConfiguration: plan.workspaceConfiguration,
+            sessionPolicy: plan.sessionPolicy
         )
+    }
+
+    // MARK: Backend-resolved launches (`serverProcess` 3)
+
+    /// The first step of a launch the plugin's backend decides: what to ask
+    /// the backend, with the directories this start owns. The second step
+    /// needs the same request, so the question carries it.
+    struct BackendLaunchQuestion: Equatable {
+        let function: String
+        let timeoutMilliseconds: Int
+        /// Params of the function; the host adds the workspace `context`.
+        let resolveParams: [String: ToolingJSONValue]
+        /// Removed by the owner of the process once it ends.
+        let scratchDirectory: URL
+        let request: DeclarativeLanguageServerLaunchRequest
+    }
+
+    /// What the backend's answer asks the host to start, after Core bounded
+    /// it and the package paths were verified.
+    struct BackendLaunchProcess: Equatable {
+        enum Program: Equatable {
+            /// A runnable file inside the plugin package.
+            case file(URL)
+            /// A tool definition of the plugin, resolved by the host.
+            case tool(String)
+        }
+
+        let program: Program
+        let environment: [String: String]
+        let launch: ResolvedLanguageServerLaunch
+    }
+
+    func backendLaunchQuestion(
+        for source: DeclarativeLanguageServerLaunchSource,
+        workspaceRootURL: URL
+    ) throws -> BackendLaunchQuestion {
+        let scratch = directories.launchScratchDirectory()
+        let request = request(for: source, workspaceRootURL: workspaceRootURL, temporaryDirectory: scratch)
+        do {
+            let plan = try planner.languageServerLaunchPlan(
+                manifest: source.manifest, languageID: source.languageID, request: request
+            )
+            guard let resolution = plan.backendResolution else {
+                throw DeclarativePluginRejection(
+                    code: "plugin.launch.notBackend",
+                    message: "Rust Core returned a launch plan without a question for the plugin backend."
+                )
+            }
+            try createRequiredDirectories(of: plan, request: request)
+            return BackendLaunchQuestion(
+                function: resolution.function,
+                timeoutMilliseconds: resolution.timeoutMilliseconds,
+                resolveParams: resolution.resolveParams,
+                scratchDirectory: scratch,
+                request: request
+            )
+        } catch {
+            // The caller gets no question to clean up after, so the
+            // directory the plan may already have created goes here.
+            // log-exempt: 清理只是尽力而为，调用方要处理的是上面抛出的原始错误
+            try? fileManager.removeItem(at: scratch)
+            throw error
+        }
+    }
+
+    /// Has Rust Core check the backend's answer, then verifies the files it
+    /// names and creates the parents of the paths the process writes.
+    func backendLaunchProcess(
+        for source: DeclarativeLanguageServerLaunchSource,
+        question: BackendLaunchQuestion,
+        answer: ToolingJSONValue
+    ) throws -> BackendLaunchProcess {
+        let plan = try planner.decodeLaunch(
+            manifest: source.manifest, languageID: source.languageID, request: question.request, result: answer
+        )
+        guard let resolved = plan.resolvedLaunch else {
+            throw DeclarativePluginRejection(
+                code: "plugin.launch.invalidResult",
+                message: "Rust Core returned a decoded launch without a program."
+            )
+        }
+        let program = try backendProgram(resolved.program, packageURL: source.packageURL)
+        for path in resolved.writablePaths {
+            try fileManager.createDirectory(
+                at: URL(fileURLWithPath: path).deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+        }
+        return BackendLaunchProcess(
+            program: program,
+            environment: resolved.environment,
+            launch: ResolvedLanguageServerLaunch(
+                arguments: plan.arguments,
+                initializationOptions: plan.initializationOptions,
+                workspaceConfiguration: plan.workspaceConfiguration,
+                sessionPolicy: plan.sessionPolicy
+            )
+        )
+    }
+
+    /// A packaged program must be a runnable file inside the package; a tool
+    /// is only a name here, because the host resolves it later.
+    private func backendProgram(
+        _ program: DeclarativeLanguageServerLaunchPlan.ResolvedLaunch.Program,
+        packageURL: URL
+    ) throws -> BackendLaunchProcess.Program {
+        switch program {
+        case .packaged(let path):
+            let file = try packagedExecutable(path, packageURL: packageURL.standardizedFileURL)
+            return .file(file)
+        case .tool(let tool):
+            return .tool(tool)
+        }
     }
 
     /// How a build system's provider answers, after Core expanded its launch.
@@ -195,12 +332,17 @@ struct MacPluginLanguageServerLaunchResolver {
             case commands([String])
             /// A runtime the host discovers with the user's settings.
             case runtime(String, versionRequirement: LanguageServerExecutableVersionRequirement?)
+            /// A tool definition the host resolves through its four layers, or the
+            /// runtime the plugin ships. The definition's `launch` template places
+            /// the entry and runtime arguments, and `arguments` fill `${arguments}`.
+            case tool(DefinedToolProcessLaunch)
         }
 
         let executable: Executable
         let arguments: [String]
         let initializationOptions: ToolingJSONValue?
-        /// Runtimes the process needs on `PATH`.
+        /// Runtimes the process needs on `PATH`. Under a tool launch these
+        /// are only the closed-list runtimes; `.tool` resolves the others.
         let runtimeTools: [String]
         let executesProjectCode: Bool
         let mayUseNetwork: Bool
@@ -461,50 +603,81 @@ struct MacPluginLanguageServerLaunchResolver {
                 .runtime(tool, versionRequirement: plan.executableVersionRequirement)
             }
         case nil:
-            throw DeclarativePluginRejection(
-                code: "plugin.launch.unavailable",
-                message: "Rust Core returned a provider launch without an executable."
-            )
+            // A tool launch names no executable; its definition starts it.
+            guard let launch = plan.toolLaunch else {
+                throw DeclarativePluginRejection(
+                    code: "plugin.launch.unavailable",
+                    message: "Rust Core returned a provider launch without an executable."
+                )
+            }
+            executable = .tool(try toolProcess(launch, plan: plan, packageURL: root))
         }
         try createRequiredDirectories(of: plan, request: request)
         return BuildProviderProcess(
             executable: executable,
             arguments: plan.arguments,
             initializationOptions: plan.initializationOptions,
-            runtimeTools: plan.runtimeRequirements.map(\.tool),
+            runtimeTools: Self.closedListRuntimeTools(of: plan),
             executesProjectCode: executesProjectCode,
             mayUseNetwork: mayUseNetwork,
             settings: launchSettings
         )
     }
 
-    /// A declared host integration with its resources located in the package.
-    struct HostIntegration: Equatable {
-        let id: String
-        /// Entry file of the runtime launch the integration builds on.
-        let entryURL: URL?
-        let resources: [String: [URL]]
-
-        func resource(_ name: String) -> URL? { resources[name]?.first }
+    /// A tool launch with the runtime the plugin ships, when it ships one,
+    /// checked to be a runnable file inside the package.
+    private func toolProcess(
+        _ launch: DeclarativeLanguageServerLaunchPlan.ToolLaunch,
+        plan: DeclarativeLanguageServerLaunchPlan,
+        packageURL: URL
+    ) throws -> DefinedToolProcessLaunch {
+        DefinedToolProcessLaunch(
+            launch: launch,
+            packagedRuntimeURL: try launch.packagedRuntime.map { try packagedExecutable($0, packageURL: packageURL) },
+            requirements: plan.runtimeRequirements.filter(\.resolvesThroughDefinition)
+        )
     }
 
-    /// Locates the files a server's host integration consumes. Every path is
-    /// verified to exist inside the package before host code is given it.
-    func hostIntegration(for source: DeclarativeLanguageServerLaunchSource) throws -> HostIntegration? {
+    /// The runtimes the host's closed list puts on `PATH`. A tool launch
+    /// resolves its definition requirements itself, so they are left out;
+    /// every other launch keeps all of them as before.
+    private static func closedListRuntimeTools(of plan: DeclarativeLanguageServerLaunchPlan) -> [String] {
+        guard plan.toolLaunch != nil else { return plan.runtimeRequirements.map(\.tool) }
+        return plan.runtimeRequirements.filter { !$0.resolvesThroughDefinition }.map(\.tool)
+    }
+
+    /// A language server whose launch names a tool definition: the plan is
+    /// expanded for the workspace, its package paths verified and its
+    /// directories created. The caller resolves the tool when it starts and
+    /// expands the command line with `launch.arguments` as `${arguments}`.
+    func resolveToolLaunch(
+        _ source: DeclarativeLanguageServerLaunchSource,
+        workspaceRootURL: URL
+    ) throws -> (process: DefinedToolProcessLaunch, runtimeTools: [String], launch: ResolvedLanguageServerLaunch) {
+        let request = request(for: source, workspaceRootURL: workspaceRootURL)
         let plan = try planner.languageServerLaunchPlan(
             manifest: source.manifest,
             languageID: source.languageID,
-            request: request(for: source, workspaceRootURL: source.packageURL)
+            request: request
         )
-        guard let integration = plan.hostIntegration else { return nil }
+        guard let launch = plan.toolLaunch else {
+            throw DeclarativePluginRejection(
+                code: "plugin.launch.unavailable",
+                message: "Rust Core returned no tool launch for \(source.languageID)."
+            )
+        }
         try verifyPackagePaths(plan.requiredPackagePaths, packageURL: source.packageURL)
-        let root = source.packageURL.standardizedFileURL
-        return HostIntegration(
-            id: integration.id,
-            entryURL: plan.entryPath.map { root.appendingPathComponent($0).standardizedFileURL },
-            resources: integration.resources.mapValues { paths in
-                paths.map { root.appendingPathComponent($0).standardizedFileURL }
-            }
+        let process = try toolProcess(launch, plan: plan, packageURL: source.packageURL.standardizedFileURL)
+        try createRequiredDirectories(of: plan, request: request)
+        return (
+            process: process,
+            runtimeTools: Self.closedListRuntimeTools(of: plan),
+            launch: ResolvedLanguageServerLaunch(
+                arguments: plan.arguments,
+                initializationOptions: plan.initializationOptions,
+                workspaceConfiguration: plan.workspaceConfiguration,
+                sessionPolicy: plan.sessionPolicy
+            )
         )
     }
 
@@ -515,6 +688,9 @@ struct MacPluginLanguageServerLaunchResolver {
         /// Runtime shipped inside the plugin package. It is the only
         /// executable the host may start for the server.
         var packagedRuntimeURL: URL?
+        /// True when the launch names a tool definition. The host then has no
+        /// executable to look up or probe; it resolves the tool at each start.
+        var launchesThroughTool = false
     }
 
     /// Probe of the server's executable. The contract forbids state
@@ -530,13 +706,15 @@ struct MacPluginLanguageServerLaunchResolver {
             versionRequirement: plan.executableVersionRequirement,
             packagedRuntimeURL: plan.packagedRuntimePath.map {
                 source.packageURL.appendingPathComponent($0).standardizedFileURL
-            }
+            },
+            launchesThroughTool: plan.toolLaunch != nil
         )
     }
 
     private func request(
         for source: DeclarativeLanguageServerLaunchSource,
-        workspaceRootURL: URL
+        workspaceRootURL: URL,
+        temporaryDirectory: URL? = nil
     ) -> DeclarativeLanguageServerLaunchRequest {
         DeclarativeLanguageServerLaunchRequest(
             pluginDirectory: source.packageURL.standardizedFileURL,
@@ -554,7 +732,8 @@ struct MacPluginLanguageServerLaunchResolver {
             projectSettings: settings.projectValues(forPlugin: source.pluginID, projectRoot: workspaceRootURL),
             // Log storage is optional unless the template requires it. Core
             // rejects a missing logDirectory only for a launch using ${logDir}.
-            logDirectory: try? logDirectory(source.pluginID)
+            logDirectory: try? logDirectory(source.pluginID),
+            temporaryDirectory: temporaryDirectory
         )
     }
 
@@ -570,6 +749,7 @@ struct MacPluginLanguageServerLaunchResolver {
             case .log: request.logDirectory
             case .state: request.stateDirectory
             case .workspaceState: request.workspaceStateDirectory
+            case .temporary: request.temporaryDirectory
             }
             guard let url else {
                 throw DeclarativePluginRejection(

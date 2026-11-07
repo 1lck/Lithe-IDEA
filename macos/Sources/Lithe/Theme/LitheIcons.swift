@@ -5,15 +5,11 @@ import SwiftUI
 /// 项目树、标签页、面包屑和 Search Everywhere 共用的图标分类。
 /// 这里是唯一的文件图标分类入口，避免视图层重复判断文件类型。
 enum LitheIconKind: Hashable {
-    // Java 符号
-    case javaClass
-    case javaInterface
-    case javaEnum
-    case javaRecord
-    case javaAnnotation
-    case javaGeneric
+    // 符号
+    case typeSymbol
+    case symbol
 
-    // 其他语言
+    // 语言
     case swiftSource
     case kotlinSource
     case rustSource
@@ -34,8 +30,6 @@ enum LitheIconKind: Hashable {
     case html
 
     // 配置与数据
-    case maven
-    case gradle
     case xml
     case properties
     case editorConfig
@@ -75,12 +69,8 @@ enum LitheIcons {
 
     /// Reused IntelliJ Platform assets; unknown file kinds use the upstream unknown icon.
     private static let ideaAssetPaths: [LitheIconKind: String] = [
-        .javaClass: "nodes/class.svg",
-        .javaInterface: "nodes/interface.svg",
-        .javaEnum: "nodes/enum.svg",
-        .javaRecord: "nodes/record.svg",
-        .javaAnnotation: "nodes/annotation.svg",
-        .javaGeneric: "fileTypes/java.svg",
+        .typeSymbol: "nodes/class.svg",
+        .symbol: "nodes/variable.svg",
         .swiftSource: "fileTypes/swiftLang.svg",
         .kotlinSource: "fileTypes/kotlin.svg",
         .rustSource: "fileTypes/rust.svg",
@@ -99,8 +89,6 @@ enum LitheIcons {
         .javaScript: "fileTypes/javaScript.svg",
         .css: "fileTypes/css.svg",
         .html: "fileTypes/html.svg",
-        .maven: "maven/mavenProject.svg",
-        .gradle: "fileTypes/gradle.svg",
         .xml: "fileTypes/xml.svg",
         .properties: "fileTypes/properties.svg",
         .editorConfig: "fileTypes/editorConfig.svg",
@@ -145,7 +133,6 @@ enum LitheIcons {
         "play.fill": "actions/execute.svg",
         "play.rectangle": "actions/execute.svg",
         "point.3.connected.trianglepath.dotted": "toolwindows/toolWindowVcs.svg",
-        "shippingbox": "maven/toolWindowMaven.svg",
         "ladybug": "toolwindows/toolWindowDebugger.svg",
         "exclamationmark.triangle": "toolwindows/toolWindowProblems.svg",
         "ellipsis": "actions/more.svg",
@@ -159,7 +146,7 @@ enum LitheIcons {
 
     /// 排除目录名：这些目录在 IDEA 里显示为橙色（构建产物）。
     private static let excludedDirectoryNames: Set<String> = [
-        "target", "build", "out", "bin", "dist", "node_modules", ".gradle", ".idea", ".settings"
+        "target", "build", "out", "bin", "dist", "node_modules", ".idea"
     ]
 
     /// 依赖锁文件按文件名识别；扩展名为 lock 的其余文件（Cargo.lock、bun.lock 等）走扩展名分支。
@@ -167,9 +154,6 @@ enum LitheIcons {
         "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "bun.lockb"
     ]
     private static let licenseFileStems: Set<String> = ["license", "licence", "copying"]
-
-    private static let resourceDirectoryNames: Set<String> = ["resources", "res", "webapp", "static"]
-    private static let sourceDirectoryNames: Set<String> = ["java", "kotlin", "scala", "groovy"]
 
     static func kind(for url: URL, isDirectory: Bool, isInsideSourceRoot: Bool = false) -> LitheIconKind {
         if isDirectory { return directoryKind(for: url, isInsideSourceRoot: isInsideSourceRoot) }
@@ -236,40 +220,19 @@ enum LitheIcons {
             : "debugger/db_set_breakpoint.svg"
     }
 
-    /// src/main/java、src/test/kotlin 之类的源码根。资源根同样按这个布局
-    /// 判断，避免把任意一个叫 resources 的目录标成资源根。
-    static func isSourceRootDirectory(_ url: URL) -> Bool {
-        let name = url.lastPathComponent.lowercased()
-        guard sourceDirectoryNames.contains(name) || resourceDirectoryNames.contains(name) else {
-            return false
-        }
-        let parent = url.deletingLastPathComponent().lastPathComponent.lowercased()
-        return parent == "main" || parent == "test"
-    }
-
+    /// 目录角色（源码根、资源根、模块、包）只来自用户标记或插件导入的构建模型，
+    /// 这里不按目录名猜测任何语言的工程布局；只有构建产物目录按名字标成排除目录。
+    /// 已知位于源码根之下、且名字是合法包段的目录显示为包。
     private static func directoryKind(for url: URL, isInsideSourceRoot: Bool) -> LitheIconKind {
         let name = url.lastPathComponent
         if excludedDirectoryNames.contains(name.lowercased()) { return .excludedFolder }
-
-        let lowercased = name.lowercased()
-        let parent = url.deletingLastPathComponent().lastPathComponent.lowercased()
-        let isStandardLayoutRoot = parent == "main" || parent == "test"
-
-        if sourceDirectoryNames.contains(lowercased), isStandardLayoutRoot {
-            return .sourceFolder
-        }
-        if resourceDirectoryNames.contains(lowercased), isStandardLayoutRoot {
-            return .resourceFolder
-        }
-        // 源码根之下、名字是合法包名的目录才是包。IDEA 的
-        // JavaDirectoryIconProvider.isValidPackage 同样要求名字合法，
-        // 所以 META-INF 这种带连字符的目录仍然是普通文件夹。
-        if isInsideSourceRoot, isValidPackageName(name) { return .packageFolder }
+        if isInsideSourceRoot, isPackageSegmentName(name) { return .packageFolder }
         return .folder
     }
 
-    /// Java 包名段：首字符是字母或下划线，其余是字母、数字或下划线。
-    static func isValidPackageName(_ name: String) -> Bool {
+    /// 包段名：首字符是字母或下划线，其余是字母、数字或下划线。带连字符或点号的
+    /// 目录（例如 META-INF）不是包，仍按普通文件夹显示和展开。
+    static func isPackageSegmentName(_ name: String) -> Bool {
         guard let first = name.unicodeScalars.first else { return false }
         guard CharacterSet.letters.contains(first) || first == "_" else { return false }
         return name.unicodeScalars.allSatisfy {
@@ -279,7 +242,6 @@ enum LitheIcons {
 
     private static func fileKind(fileName: String, pathExtension: String) -> LitheIconKind {
         let name = fileName.lowercased()
-        if name == "pom.xml" { return .maven }
         if name == ".gitignore" || name == ".gitattributes" || name == ".dockerignore" { return .gitignore }
         if name == "package.json" { return .nodePackage }
         if lockFileNames.contains(name) { return .lockFile }
@@ -289,18 +251,13 @@ enum LitheIcons {
         let stem = (name as NSString).deletingPathExtension
         if stem == "readme" { return .readme }
         if licenseFileStems.contains(stem) || stem.hasPrefix("license-") { return .license }
-        if name == ".classpath" || name == ".project" || name == ".factorypath" { return .xml }
         if name == ".editorconfig" { return .editorConfig }
         if name == "dockerfile" || name.hasPrefix("dockerfile.")
             || ["compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"].contains(name) { return .docker }
-        // build.gradle.kts 是构建脚本，扩展名 kts 会被 Kotlin 抢走。
-        if name.hasSuffix(".gradle.kts") { return .gradle }
         // .env.local、.env.production 的扩展名不是 env。
         if name == ".env" || name.hasPrefix(".env.") { return .properties }
 
         switch pathExtension.lowercased() {
-        case "java": return .javaGeneric
-        case "class", "jar": return .binary
         case "lock": return .lockFile
         case "mk", "mak": return .makefile
         case "swift": return .swiftSource
@@ -322,8 +279,7 @@ enum LitheIcons {
         case "css", "scss", "sass", "less": return .css
         case "html", "htm", "xhtml", "vue", "svelte": return .html
         case "toml": return .toml
-        case "gradle": return .gradle
-        case "xml", "xsd", "wsdl", "pom": return .xml
+        case "xml", "xsd", "wsdl": return .xml
         case "properties", "ini", "cfg", "conf", "env": return .properties
         case "yml", "yaml": return .yaml
         case "json", "json5", "jsonl", "jsonlines", "ndjson", "ldjson": return .json
@@ -337,62 +293,6 @@ enum LitheIcons {
         case "zip", "gz", "tar", "so", "dylib", "dll", "icns", "pdf", "woff", "woff2", "ttf", "otf": return .binary
         default: return .generic
         }
-    }
-
-    /// 从 Java 源码开头判断是 class / interface / enum / record / @interface。
-    /// 只看首个类型声明，读不出来就回退 .javaGeneric。
-    static func javaSymbolKind(fromSourcePrefix prefix: String) -> LitheIconKind {
-        let stripped = strippingCommentsAndStrings(prefix)
-        let pattern = #"\b(class|interface|enum|record)\s+[\p{L}_$]"#
-        guard let expression = try? NSRegularExpression(pattern: pattern) else { return .javaGeneric }
-        let range = NSRange(stripped.startIndex..<stripped.endIndex, in: stripped)
-        guard let match = expression.firstMatch(in: stripped, range: range),
-              let keywordRange = Range(match.range(at: 1), in: stripped) else { return .javaGeneric }
-
-        switch String(stripped[keywordRange]) {
-        case "interface":
-            // @interface 是注解声明，往前看一个非空字符是否为 @
-            let before = stripped[stripped.startIndex..<keywordRange.lowerBound]
-            if before.last(where: { !$0.isWhitespace }) == "@" { return .javaAnnotation }
-            return .javaInterface
-        case "enum": return .javaEnum
-        case "record": return .javaRecord
-        default: return .javaClass
-        }
-    }
-
-    /// 粗略去掉注释和字符串，避免 "class" 出现在注释里造成误判。
-    private static func strippingCommentsAndStrings(_ source: String) -> String {
-        var result = ""
-        let characters = Array(source)
-        var index = 0
-        enum State { case code, lineComment, blockComment, string, character }
-        var state = State.code
-
-        while index < characters.count {
-            let character = characters[index]
-            let next = index + 1 < characters.count ? characters[index + 1] : nil
-            switch state {
-            case .code:
-                if character == "/", next == "/" { state = .lineComment; index += 2; continue }
-                if character == "/", next == "*" { state = .blockComment; index += 2; continue }
-                if character == "\"" { state = .string; index += 1; continue }
-                if character == "'" { state = .character; index += 1; continue }
-                result.append(character)
-            case .lineComment:
-                if character == "\n" { state = .code; result.append(character) }
-            case .blockComment:
-                if character == "*", next == "/" { state = .code; index += 2; continue }
-            case .string:
-                if character == "\\" { index += 2; continue }
-                if character == "\"" { state = .code }
-            case .character:
-                if character == "\\" { index += 2; continue }
-                if character == "'" { state = .code }
-            }
-            index += 1
-        }
-        return result
     }
 
     // MARK: - 外观定义
@@ -471,38 +371,6 @@ enum LitheIcons {
     @MainActor
     static func nsImage(_ kind: LitheIconKind, size: CGFloat) -> NSImage? {
         render(key: "\(kind):\(size)", content: LitheIcon(kind: kind, size: size))
-    }
-
-    /// Renders the four IDEA Java gutter variants from relationship and direction.
-    @MainActor
-    static func implementationMarkerImage(
-        isInterface: Bool,
-        pointingDown: Bool,
-        size: CGFloat
-    ) -> NSImage? {
-        let assetPath = implementationMarkerAssetPath(
-            isInterface: isInterface,
-            pointingDown: pointingDown
-        )
-        let cacheKey = "idea:\(assetPath):\(size)"
-        if let cached = ImageCache.shared.storage[cacheKey] { return cached }
-        guard let source = ideaImage(resourcePath: assetPath),
-              let image = source.copy() as? NSImage else { return nil }
-        image.size = NSSize(width: size, height: size)
-        ImageCache.shared.storage[cacheKey] = image
-        return image
-    }
-
-    static func implementationMarkerAssetPath(
-        isInterface: Bool,
-        pointingDown: Bool
-    ) -> String {
-        switch (isInterface, pointingDown) {
-        case (true, true): "gutter/implementedMethod.svg"
-        case (true, false): "gutter/implementingMethod.svg"
-        case (false, true): "gutter/overridenMethod.svg"
-        case (false, false): "gutter/overridingMethod.svg"
-        }
     }
 
     static func appLogo(size: CGFloat = 42) -> LitheLogo {

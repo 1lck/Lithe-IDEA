@@ -76,8 +76,6 @@ package struct LanguageServerLaunchDescriptor: Hashable, Sendable {
     package let pluginID: String?
     /// See `LanguageServerExtensionConfiguration.executableVersionRequirement`.
     package let executableVersionRequirement: LanguageServerExecutableVersionRequirement?
-    /// Native host integration the provider declares, such as `jdt`.
-    package let hostIntegrationID: String?
     /// See `LanguageServerExtensionConfiguration.launchRuntimeTool`.
     package let launchRuntimeTool: String?
 
@@ -92,7 +90,6 @@ package struct LanguageServerLaunchDescriptor: Hashable, Sendable {
         launchSource: DeclarativeLanguageServerLaunchSource? = nil,
         pluginID: String? = nil,
         executableVersionRequirement: LanguageServerExecutableVersionRequirement? = nil,
-        hostIntegrationID: String? = nil,
         launchRuntimeTool: String? = nil
     ) {
         self.executableNames = executableNames
@@ -105,7 +102,6 @@ package struct LanguageServerLaunchDescriptor: Hashable, Sendable {
         self.launchSource = launchSource
         self.pluginID = pluginID ?? launchSource?.pluginID
         self.executableVersionRequirement = executableVersionRequirement
-        self.hostIntegrationID = hostIntegrationID
         self.launchRuntimeTool = launchRuntimeTool
     }
 }
@@ -217,11 +213,6 @@ package struct LanguageProviderCatalog: Sendable {
     /// Minimal fallback used only when the Rust core is not linked. The full
     /// market language catalog is registered by Rust's dedicated LSP config.
     package static let compatibilityFallback = LanguageProviderCatalog(descriptors: [
-        LanguageProviderDescriptor(
-            id: "java", displayName: "Java", fileExtensions: ["java"],
-            capabilities: [.run, .languageServer, .debugAdapter, .formatting, .testing],
-            activationPolicy: .onDemand
-        ),
         LanguageProviderDescriptor(
             id: "go", displayName: "Go", fileExtensions: ["go"],
             capabilities: [.run, .languageServer, .formatting, .testing],
@@ -446,254 +437,8 @@ package enum LanguageServerOperation: String, Equatable, Sendable {
     case semanticTokens
     case codeLens
     /// Resolving a server-owned source that has no file on disk, such as a
-    /// decompiled class behind a `jdt://` URI.
+    /// generated source behind a server-defined URI scheme.
     case virtualDocument
-    /// JDT's launchable Java classes in the session workspace, normalized by
-    /// Core into workspace-relative entries.
-    case javaEntrypoints
-    /// Java Test extension classes and methods in one source file, normalized
-    /// by Core into a typed tree.
-    case javaTestItems
-    /// JDT's launchable `main` methods in one source file, with the range of
-    /// each method name, normalized by Core.
-    case javaMainMethods
-}
-
-/// A class JDT confirmed the JVM can launch, as normalized by Core.
-///
-/// Note: 入口点归属见 .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
-package struct JavaEntrypoint: Codable, Equatable, Sendable {
-    /// Workspace-relative source path with `/` separators.
-    package let sourcePath: String
-    /// Class name as JDT reports it, possibly prefixed with `module/`.
-    package let mainClass: String
-    /// JDT project that owns the class; only a hint for resolving the launch.
-    package let projectName: String?
-
-    package init(sourcePath: String, mainClass: String, projectName: String? = nil) {
-        self.sourcePath = sourcePath
-        self.mainClass = mainClass
-        self.projectName = projectName
-    }
-}
-
-/// Core's `javaEntrypoints` answer. Whether a class is launchable is JDT's
-/// decision; Lithe never derives entry points from source text.
-package struct JavaEntrypoints: Codable, Equatable, Sendable {
-    /// A JDT result Core could not turn into an entry, with the reason.
-    package struct Diagnostic: Codable, Equatable, Sendable {
-        package let code: String
-        package let mainClass: String?
-        package let detail: String?
-    }
-
-    package let schemaVersion: Int
-    package let entries: [JavaEntrypoint]
-    package let diagnostics: [Diagnostic]
-
-    package init(schemaVersion: Int = 1, entries: [JavaEntrypoint], diagnostics: [Diagnostic] = []) {
-        self.schemaVersion = schemaVersion
-        self.entries = entries
-        self.diagnostics = diagnostics
-    }
-}
-
-/// A zero-based UTF-16 source range reported by JDT for a Java test item.
-package struct JavaTestRange: Codable, Equatable, Sendable {
-    package let startLine: Int
-    package let startUtf16Column: Int
-    package let endLine: Int
-    package let endUtf16Column: Int
-}
-
-/// One test class or method whose semantic identity comes from Java Test/JDT.
-package struct JavaTestItem: Codable, Equatable, Sendable {
-    package let id: String
-    package let label: String
-    package let fullName: String
-    package let projectName: String
-    package let kind: Int
-    package let level: Int
-    package let jdtHandler: String?
-    package let sortText: String?
-    package let range: JavaTestRange?
-    package let children: [JavaTestItem]
-
-    package init(
-        id: String,
-        label: String,
-        fullName: String,
-        projectName: String,
-        kind: Int,
-        level: Int,
-        jdtHandler: String? = nil,
-        sortText: String? = nil,
-        range: JavaTestRange? = nil,
-        children: [JavaTestItem] = []
-    ) {
-        self.id = id
-        self.label = label
-        self.fullName = fullName
-        self.projectName = projectName
-        self.kind = kind
-        self.level = level
-        self.jdtHandler = jdtHandler
-        self.sortText = sortText
-        self.range = range
-        self.children = children
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id, label, fullName, projectName, jdtHandler, sortText, range, children
-        case kind = "testKind"
-        case level = "testLevel"
-    }
-
-    package func matches(identifier: String) -> Bool {
-        id == identifier || label == identifier || fullName == identifier || jdtHandler == identifier
-    }
-}
-
-/// One `main` method JDT confirmed the JVM can launch, as normalized by Core.
-///
-/// Note: 设计见 .agents/notes/implemented/architecture/2026-09-22-editor-run-markers-and-test-outcomes.md
-package struct JavaMainMethod: Codable, Equatable, Sendable {
-    /// Matches the `mainClass` of the workspace entry point for the same file.
-    package let mainClass: String
-    package let projectName: String?
-    /// Zero-based UTF-16 range of the method name.
-    package let range: JavaTestRange
-
-    package init(mainClass: String, projectName: String? = nil, range: JavaTestRange) {
-        self.mainClass = mainClass
-        self.projectName = projectName
-        self.range = range
-    }
-}
-
-/// Core's `javaMainMethods` answer for one source file.
-package struct JavaMainMethods: Codable, Equatable, Sendable {
-    package struct Diagnostic: Codable, Equatable, Sendable {
-        package let code: String
-        package let mainClass: String?
-    }
-
-    package let schemaVersion: Int
-    package let methods: [JavaMainMethod]
-    package let diagnostics: [Diagnostic]
-
-    package init(schemaVersion: Int = 1, methods: [JavaMainMethod], diagnostics: [Diagnostic] = []) {
-        self.schemaVersion = schemaVersion
-        self.methods = methods
-        self.diagnostics = diagnostics
-    }
-}
-
-/// One IDEA-style editor gutter marker projected by Core's `java.runMarkers`.
-package struct JavaRunMarker: Codable, Equatable, Sendable {
-    package enum Kind: String, Codable, Sendable {
-        case main
-        case testClass
-        case testMethod
-    }
-
-    package enum Status: String, Codable, Sendable {
-        case none
-        case passed
-        case failed
-        case skipped
-    }
-
-    /// Zero-based line of the declaration name.
-    package let line: Int
-    /// Last line of the declaration: body end for tests, name line for `main`.
-    package let endLine: Int
-    package let kind: Kind
-    /// Menu target such as `App.main()`, `OrderTest`, or `OrderTest.creates`.
-    package let label: String
-    package let mainClass: String?
-    package let projectName: String?
-    package let testClass: String?
-    package let testMethod: String?
-    package let testItemId: String?
-    package let status: Status
-
-    package init(
-        line: Int,
-        endLine: Int,
-        kind: Kind,
-        label: String,
-        mainClass: String? = nil,
-        projectName: String? = nil,
-        testClass: String? = nil,
-        testMethod: String? = nil,
-        testItemId: String? = nil,
-        status: Status = .none
-    ) {
-        self.line = line
-        self.endLine = endLine
-        self.kind = kind
-        self.label = label
-        self.mainClass = mainClass
-        self.projectName = projectName
-        self.testClass = testClass
-        self.testMethod = testMethod
-        self.testItemId = testItemId
-        self.status = status
-    }
-
-    /// Stable identity within one projection, used by editor bridges.
-    package var id: String { "\(kind.rawValue):\(line):\(label)" }
-
-    /// The test identifier the Test workflow expects. Runs build a Maven
-    /// `-Dtest` selector (`Class#method`); debugging resolves the Java Test
-    /// item again, which matches its JDT `id` but not a parameterless name,
-    /// because JDT names methods `Class#method()` or `Class#method(Type)`.
-    package func testIdentifier(forDebugging: Bool) -> String? {
-        guard kind != .main, let testClass else { return nil }
-        if forDebugging, let testItemId { return testItemId }
-        if kind == .testMethod, let testMethod { return "\(testClass)#\(testMethod)" }
-        return testClass
-    }
-
-    /// The marker a caret line refers to, following IDEA: the innermost test
-    /// method or class whose declaration contains the line, otherwise the
-    /// `main` on that line, otherwise the file's first `main`.
-    package static func forLine(_ line: Int, in markers: [JavaRunMarker]) -> JavaRunMarker? {
-        var enclosing: JavaRunMarker?
-        for marker in markers where marker.kind != .main && marker.line <= line && line <= marker.endLine {
-            if let current = enclosing,
-               marker.line < current.line || (marker.line == current.line && marker.kind != .testMethod) {
-                continue
-            }
-            enclosing = marker
-        }
-        if let enclosing { return enclosing }
-        let mains = markers.filter { $0.kind == .main }
-        return mains.first { $0.line == line } ?? mains.first
-    }
-}
-
-/// Core's normalized Java Test discovery answer.
-package struct JavaTestItems: Codable, Equatable, Sendable {
-    package struct Diagnostic: Codable, Equatable, Sendable {
-        package let code: String
-        package let detail: String?
-    }
-
-    package let schemaVersion: Int
-    package let items: [JavaTestItem]
-    package let diagnostics: [Diagnostic]
-
-    package init(
-        schemaVersion: Int = 1,
-        items: [JavaTestItem],
-        diagnostics: [Diagnostic] = []
-    ) {
-        self.schemaVersion = schemaVersion
-        self.items = items
-        self.diagnostics = diagnostics
-    }
 }
 
 /// Server-normalized semantic tokens use zero-based UTF-16 positions.
@@ -782,18 +527,6 @@ package struct LanguageServerInfo: Equatable, Sendable {
     }
 }
 
-package struct MavenProfileProjectResult: Equatable, Sendable {
-    package let projectURI: URL
-    package let status: String
-    package let errorDetails: String?
-
-    package init(projectURI: URL, status: String, errorDetails: String? = nil) {
-        self.projectURI = projectURI
-        self.status = status
-        self.errorDetails = errorDetails
-    }
-}
-
 package struct LanguageServerTextEdit: Equatable, Sendable {
     package let range: LanguageServerRange
     package let newText: String
@@ -851,12 +584,10 @@ package protocol LanguageServerSession: AnyObject {
     /// attempt before launch or hands it to Core with the start request.
     /// Sessions that never start a declarative process ignore it.
     func observePluginStartup(_ attempt: PluginOperationAttempt)
-    var onProjectPreparation: ((ProjectPreparationSnapshot) -> Void)? { get set }
-    var onMavenProfileTask: ((String) -> Void)? { get set }
-    var onMavenProfileProject: ((MavenProfileProjectResult) -> Void)? { get set }
+    /// Called with each server notification Core forwards to the owning
+    /// plugin's backend (plan API-25).
+    var onPluginServerNotification: ((PluginServerNotification) -> Void)? { get set }
     var isRunning: Bool { get }
-    /// Packaged Java Test runner, if this JDT LS session was launched with one.
-    var javaTestRunnerURL: URL? { get }
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)? { get set }
     var onCoreLog: ((CoreLogRecord) -> Void)? { get set }
     var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)? { get set }
@@ -870,29 +601,7 @@ package protocol LanguageServerSession: AnyObject {
     var serverInfo: LanguageServerInfo? { get }
     var onServerInfoChange: ((LanguageServerInfo?) -> Void)? { get set }
     /// Start the language server for the given workspace root.
-    /// - Parameter workspaceFingerprint: An opaque digest of the workspace's
-    ///   build-system structure. When non-nil, JDT LS uses a per-fingerprint
-    ///   state directory so structural changes (add/remove module, edit root
-    ///   pom.xml) never reuse a stale project model.
-    func start(rootURL: URL, workspaceFingerprint: String?) throws
-    func start(
-        rootURL: URL,
-        workspaceFingerprint: String?,
-        mavenContext: MavenLaunchContext?
-    ) throws
-    func start(
-        rootURL: URL,
-        workspaceFingerprint: String?,
-        mavenContext: MavenLaunchContext?,
-        javaGradle: JavaGradleImportConfiguration?
-    ) throws
-    func retryMavenProfiles()
-    /// Hands a changed Maven context to the running server. A failure means the
-    /// session cannot take it and should be restarted.
-    func updateMavenConfiguration(
-        _ context: MavenLaunchContext,
-        reloadProjects: Bool
-    ) -> Result<LanguageServerMavenConfigurationUpdate, LanguageServerRuntimeFailure>
+    func start(rootURL: URL) throws
     func synchronize(fileURL: URL, text: String, languageID: String) throws
     func notifyWorkspaceFilesChanged(_ changes: [LanguageServerWorkspaceFileChange]) throws
     func closeDocument(_ fileURL: URL)
@@ -966,37 +675,28 @@ package protocol LanguageServerSession: AnyObject {
         uri: String,
         completion: @escaping (Result<String, Error>) -> Void
     ) throws
-    /// JDT's launchable classes in the session workspace, normalized by Core.
-    func javaEntrypoints(
-        completion: @escaping (Result<JavaEntrypoints, Error>) -> Void
-    ) throws
-    /// Awaited launch discovery owns cancellation of its queued Core operation.
-    func javaEntrypoints() async throws -> JavaEntrypoints
-    /// Prepares one saved source through Core's shared Java launch operation.
-    func prepareJavaLaunch(fileURL: URL, mainClass: String?) async throws -> JavaLaunchPreparation
-    /// Test classes and methods JDT reports for one source file.
-    func javaTestItems(
-        fileURL: URL,
-        completion: @escaping (Result<JavaTestItems, Error>) -> Void
-    ) throws
-    /// Launchable `main` methods JDT reports for one source file.
-    func javaMainMethods(
-        fileURL: URL,
-        completion: @escaping (Result<JavaMainMethods, Error>) -> Void
-    ) throws
-    func javaNavigationMarkers(
-        fileURL: URL,
-        completion: @escaping (Result<[JavaNavigationMarker], Error>) -> Void
-    ) throws
-    func resolveJavaNavigation(
-        fileURL: URL,
-        marker: JavaNavigationMarker,
-        completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
-    ) throws
     /// Sends a `lithe/build/*` request Core planned and returns the reply
     /// undecoded. Cancelling the task cancels the request in the process.
     func buildRequest(method: String, params: ToolingJSONValue, timeout: TimeInterval) async throws
         -> ToolingJSONValue
+    /// Sends one request of the owning plugin's backend to this server. These
+    /// two are requirements, not just extension defaults: the manager holds
+    /// sessions as `any LanguageServerSession`, and an extension-only method
+    /// is dispatched statically to the default that refuses every call.
+    func requestPluginServer(
+        pluginID: String,
+        serverID: String,
+        method: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval?
+    ) async -> Result<ToolingJSONValue, PluginHostRequestFailure>
+    /// Sends one notification of the owning plugin's backend to this server.
+    func notifyPluginServer(
+        pluginID: String,
+        serverID: String,
+        method: String,
+        params: ToolingJSONValue
+    ) async -> Result<Bool, PluginHostRequestFailure>
     /// Replaces the configuration a plugin's server reads through
     /// `workspace/configuration` and announces it; false when the session
     /// cannot take it, so the caller offers a restart instead.
@@ -1064,6 +764,30 @@ package extension LanguageServerSession {
     @discardableResult
     func updateWorkspaceConfigurationAsync(_: ToolingJSONValue) async -> WorkspaceConfigurationUpdateResult { .failed }
 
+    /// Sends one request of the owning plugin's backend to this server. Core
+    /// checks the plugin's whitelist and gates before it reaches the server.
+    func requestPluginServer(
+        pluginID _: String,
+        serverID _: String,
+        method _: String,
+        params _: ToolingJSONValue,
+        timeout _: TimeInterval?
+    ) async -> Result<ToolingJSONValue, PluginHostRequestFailure> {
+        .failure(.languageServerUnavailable)
+    }
+
+    /// Sends one notification of the owning plugin's backend to this server.
+    /// `true` when it was written; `false` when the server is not initialized
+    /// yet and reads the stored configuration with `initialized` instead.
+    func notifyPluginServer(
+        pluginID _: String,
+        serverID _: String,
+        method _: String,
+        params _: ToolingJSONValue
+    ) async -> Result<Bool, PluginHostRequestFailure> {
+        .failure(.languageServerUnavailable)
+    }
+
     func buildRequest(method _: String, params _: ToolingJSONValue, timeout _: TimeInterval) async throws
         -> ToolingJSONValue {
         throw LanguageServerRuntimeFailure(
@@ -1079,56 +803,13 @@ package extension LanguageServerSession {
     func semanticTokens(fileURL: URL, completion: @escaping (Result<LanguageServerSemanticTokens, Error>) -> Void) throws {
         completion(.success(.empty))
     }
-    var onProjectPreparation: ((ProjectPreparationSnapshot) -> Void)? {
+    var onPluginServerNotification: ((PluginServerNotification) -> Void)? {
         get { nil }
         set {}
-    }
-    var onMavenProfileTask: ((String) -> Void)? {
-        get { nil }
-        set {}
-    }
-    var onMavenProfileProject: ((MavenProfileProjectResult) -> Void)? {
-        get { nil }
-        set {}
-    }
-    func retryMavenProfiles() {}
-
-    func updateMavenConfiguration(
-        _: MavenLaunchContext,
-        reloadProjects _: Bool
-    ) -> Result<LanguageServerMavenConfigurationUpdate, LanguageServerRuntimeFailure> {
-        .failure(LanguageServerRuntimeFailure(
-            code: "unsupported",
-            message: "This language session cannot update Maven settings in place."
-        ))
-    }
-
-    func start(
-        rootURL: URL,
-        workspaceFingerprint: String?,
-        mavenContext _: MavenLaunchContext?
-    ) throws {
-        try start(rootURL: rootURL, workspaceFingerprint: workspaceFingerprint)
-    }
-
-    func start(
-        rootURL: URL,
-        workspaceFingerprint: String?,
-        mavenContext: MavenLaunchContext?,
-        javaGradle: JavaGradleImportConfiguration?
-    ) throws {
-        guard javaGradle == nil else {
-            throw LanguageServerRuntimeFailure(code: "unsupported", message: "This language session cannot apply Gradle import settings.")
-        }
-        try start(rootURL: rootURL, workspaceFingerprint: workspaceFingerprint, mavenContext: mavenContext)
     }
 }
 
 package extension LanguageServerSession {
-    func prepareJavaLaunch(fileURL _: URL, mainClass _: String?) async throws -> JavaLaunchPreparation {
-        throw LanguageServerRuntimeFailure(code: "not_supported", message: L10n.string("Java launch preparation is not supported by this runtime."))
-    }
-
     func executeReturningValue(_ command: LanguageServerCommand, fileURL: URL) async throws -> ToolingJSONValue {
         try Task.checkCancellation()
         let (stream, continuation) = AsyncThrowingStream<ToolingJSONValue, Error>.makeStream()
@@ -1180,15 +861,6 @@ package extension LanguageServerSession {
         }
     }
     var serverInfo: LanguageServerInfo? { nil }
-    func javaEntrypoints() async throws -> JavaEntrypoints {
-        try Task.checkCancellation()
-        let value: JavaEntrypoints = try await withCheckedThrowingContinuation { continuation in
-            do { try javaEntrypoints { continuation.resume(with: $0) } }
-            catch { continuation.resume(throwing: error) }
-        }
-        try Task.checkCancellation()
-        return value
-    }
     var onServerInfoChange: ((LanguageServerInfo?) -> Void)? {
         get { nil }
         set {}
@@ -1196,45 +868,6 @@ package extension LanguageServerSession {
     func closeDocument(_: URL) {}
     func notifyDocumentSaved(_: URL, text _: String) throws {}
     func notifyWorkspaceFilesChanged(_: [LanguageServerWorkspaceFileChange]) throws {}
-    func javaTestItems(
-        fileURL _: URL,
-        completion: @escaping (Result<JavaTestItems, Error>) -> Void
-    ) throws {
-        completion(.failure(LanguageServerFeatureUnavailable.javaTests))
-    }
-    func javaMainMethods(
-        fileURL _: URL,
-        completion: @escaping (Result<JavaMainMethods, Error>) -> Void
-    ) throws {
-        completion(.failure(LanguageServerFeatureUnavailable.javaMainMethods))
-    }
-    func javaNavigationMarkers(
-        fileURL _: URL,
-        completion: @escaping (Result<[JavaNavigationMarker], Error>) -> Void
-    ) throws {
-        completion(.failure(LanguageServerFeatureUnavailable.javaNavigation))
-    }
-    func resolveJavaNavigation(
-        fileURL _: URL,
-        marker _: JavaNavigationMarker,
-        completion: @escaping (Result<[LanguageServerLocation], Error>) -> Void
-    ) throws {
-        completion(.failure(LanguageServerFeatureUnavailable.javaNavigation))
-    }
-}
-
-private enum LanguageServerFeatureUnavailable: LocalizedError {
-    case javaNavigation
-    case javaTests
-    case javaMainMethods
-
-    var errorDescription: String? {
-        switch self {
-        case .javaNavigation: L10n.string("Java navigation is not supported by this language server.")
-        case .javaTests: L10n.string("Java test discovery is not supported by this language server.")
-        case .javaMainMethods: L10n.string("Java main-method discovery is not supported by this language server.")
-        }
-    }
 }
 
 @MainActor

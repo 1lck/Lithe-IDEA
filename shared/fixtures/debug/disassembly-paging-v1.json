@@ -1,0 +1,868 @@
+{
+  "version": 1,
+  "description": "debug.planDisassemblyWindow / debug.reduceDisassemblyPage: the bounded request sequence a disassembly fetch sends and the step after every adapter reply. 'rejected' is an adapter response with success=false; 'failed' is a transport failure, timeout or cancellation.",
+  "scenarios": [
+    {
+      "name": "first window drops adapter padding",
+      "plan": {
+        "direction": "around",
+        "reference": "0x19b5f2a4c",
+        "count": 96,
+        "instructionsBefore": 24
+      },
+      "steps": [
+        {
+          "request": {
+            "memoryReference": "0x19b5f2a4c",
+            "instructionOffset": -24,
+            "instructionCount": 96
+          },
+          "reply": {
+            "kind": "instructions",
+            "instructions": [
+              {
+                "address": "0x19b5f2a48",
+                "instruction": "mov x16, #0x148"
+              },
+              {
+                "address": "0x19b5f2a4c",
+                "instruction": "svc #0x80"
+              },
+              {
+                "address": "0xffffffffffffffff",
+                "instruction": ""
+              }
+            ]
+          },
+          "expected": {
+            "kind": "page",
+            "keep": [
+              0,
+              1
+            ],
+            "exhausted": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "first window refused at a negative offset retries from the instruction pointer",
+      "plan": {
+        "direction": "around",
+        "reference": "0x19b5f2a4c",
+        "count": 96,
+        "instructionsBefore": 24
+      },
+      "steps": [
+        {
+          "request": {
+            "memoryReference": "0x19b5f2a4c",
+            "instructionOffset": -24,
+            "instructionCount": 96
+          },
+          "reply": {
+            "kind": "failed",
+            "message": "negative offsets are not supported"
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x19b5f2a4c",
+            "instructionOffset": 0,
+            "instructionCount": 96
+          },
+          "reply": {
+            "kind": "instructions",
+            "instructions": [
+              {
+                "address": "0x19b5f2a4c",
+                "instruction": "svc #0x80"
+              }
+            ]
+          },
+          "expected": {
+            "kind": "page",
+            "keep": [
+              0
+            ],
+            "exhausted": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "retried first window failure is reported",
+      "plan": {
+        "direction": "around",
+        "reference": "0x10",
+        "count": 96,
+        "instructionsBefore": 24
+      },
+      "steps": [
+        {
+          "request": {
+            "memoryReference": "0x10",
+            "instructionOffset": -24,
+            "instructionCount": 96
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x10",
+            "instructionOffset": 0,
+            "instructionCount": 96
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Could not read memory"
+          },
+          "expected": {
+            "kind": "failed",
+            "message": "Could not read memory"
+          }
+        }
+      ]
+    },
+    {
+      "name": "repeated edge in another spelling exhausts the direction",
+      "plan": {
+        "direction": "before",
+        "reference": "0x19b5f2a4c",
+        "count": 64
+      },
+      "knownAddresses": [
+        "0x19b5f2a4c"
+      ],
+      "steps": [
+        {
+          "request": {
+            "memoryReference": "0x19b5f2a4c",
+            "instructionOffset": -64,
+            "instructionCount": 64
+          },
+          "reply": {
+            "kind": "instructions",
+            "instructions": [
+              {
+                "address": "0x000019b5f2a4c",
+                "instruction": "svc #0x80"
+              }
+            ]
+          },
+          "expected": {
+            "kind": "page",
+            "keep": [],
+            "exhausted": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "duplicates within a page are listed once",
+      "plan": {
+        "direction": "after",
+        "reference": "0x19b5f2a4c",
+        "count": 64
+      },
+      "knownAddresses": [
+        "0x19b5f2a4c"
+      ],
+      "steps": [
+        {
+          "request": {
+            "memoryReference": "0x19b5f2a4c",
+            "instructionOffset": 1,
+            "instructionCount": 64
+          },
+          "reply": {
+            "kind": "instructions",
+            "instructions": [
+              {
+                "address": "0x19b5f2a50",
+                "instruction": "ret"
+              },
+              {
+                "address": "0x19b5f2a50",
+                "instruction": "ret"
+              }
+            ]
+          },
+          "expected": {
+            "kind": "page",
+            "keep": [
+              0
+            ],
+            "exhausted": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "before: a refused page shrinks without skipping readable neighbours",
+      "plan": {
+        "direction": "before",
+        "reference": "0x100000014",
+        "count": 64
+      },
+      "knownAddresses": [
+        "0x100000014"
+      ],
+      "steps": [
+        {
+          "request": {
+            "memoryReference": "0x100000014",
+            "instructionOffset": -64,
+            "instructionCount": 64
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000014",
+            "instructionOffset": -32,
+            "instructionCount": 32
+          },
+          "reply": {
+            "kind": "instructions",
+            "instructions": [
+              {
+                "address": "0x100000010",
+                "instruction": "nop"
+              },
+              {
+                "address": "0xffffffffffffffff",
+                "instruction": ""
+              }
+            ]
+          },
+          "expected": {
+            "kind": "page",
+            "keep": [
+              0
+            ],
+            "exhausted": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "before: a mapping boundary ends the direction only after the known edge is verified",
+      "plan": {
+        "direction": "before",
+        "reference": "0x100000000",
+        "count": 64
+      },
+      "knownAddresses": [
+        "0x100000000"
+      ],
+      "steps": [
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -64,
+            "instructionCount": 64
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -32,
+            "instructionCount": 32
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -16,
+            "instructionCount": 16
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -8,
+            "instructionCount": 8
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -4,
+            "instructionCount": 4
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -2,
+            "instructionCount": 2
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -1,
+            "instructionCount": 1
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": 0,
+            "instructionCount": 1
+          },
+          "reply": {
+            "kind": "instructions",
+            "instructions": [
+              {
+                "address": "0x0000000100000000",
+                "instruction": "; _mh_execute_header"
+              }
+            ]
+          },
+          "expected": {
+            "kind": "page",
+            "keep": [],
+            "exhausted": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "after: a refused page shrinks without skipping readable neighbours",
+      "plan": {
+        "direction": "after",
+        "reference": "0x100000014",
+        "count": 64
+      },
+      "knownAddresses": [
+        "0x100000014"
+      ],
+      "steps": [
+        {
+          "request": {
+            "memoryReference": "0x100000014",
+            "instructionOffset": 1,
+            "instructionCount": 64
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000014",
+            "instructionOffset": 1,
+            "instructionCount": 32
+          },
+          "reply": {
+            "kind": "instructions",
+            "instructions": [
+              {
+                "address": "0x100000018",
+                "instruction": "nop"
+              },
+              {
+                "address": "0xffffffffffffffff",
+                "instruction": ""
+              }
+            ]
+          },
+          "expected": {
+            "kind": "page",
+            "keep": [
+              0
+            ],
+            "exhausted": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "after: a mapping boundary ends the direction only after the known edge is verified",
+      "plan": {
+        "direction": "after",
+        "reference": "0x100000000",
+        "count": 64
+      },
+      "knownAddresses": [
+        "0x100000000"
+      ],
+      "steps": [
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": 1,
+            "instructionCount": 64
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": 1,
+            "instructionCount": 32
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": 1,
+            "instructionCount": 16
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": 1,
+            "instructionCount": 8
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": 1,
+            "instructionCount": 4
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": 1,
+            "instructionCount": 2
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": 1,
+            "instructionCount": 1
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": 0,
+            "instructionCount": 1
+          },
+          "reply": {
+            "kind": "instructions",
+            "instructions": [
+              {
+                "address": "0x0000000100000000",
+                "instruction": "; _mh_execute_header"
+              }
+            ]
+          },
+          "expected": {
+            "kind": "page",
+            "keep": [],
+            "exhausted": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "an edge probe that does not return the edge reports the refused window",
+      "plan": {
+        "direction": "before",
+        "reference": "0x100000000",
+        "count": 64
+      },
+      "knownAddresses": [
+        "0x100000000"
+      ],
+      "steps": [
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -64,
+            "instructionCount": 64
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Could not decode the requested window"
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -32,
+            "instructionCount": 32
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Could not decode the requested window"
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -16,
+            "instructionCount": 16
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Could not decode the requested window"
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -8,
+            "instructionCount": 8
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Could not decode the requested window"
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -4,
+            "instructionCount": 4
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Could not decode the requested window"
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -2,
+            "instructionCount": 2
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Could not decode the requested window"
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -1,
+            "instructionCount": 1
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Could not decode the requested window"
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": 0,
+            "instructionCount": 1
+          },
+          "reply": {
+            "kind": "instructions",
+            "instructions": [
+              {
+                "address": "0x200000000",
+                "instruction": "nop"
+              }
+            ]
+          },
+          "expected": {
+            "kind": "failed",
+            "message": "Could not decode the requested window"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a failed edge probe is reported instead of exhausting the listing",
+      "plan": {
+        "direction": "before",
+        "reference": "0x100000000",
+        "count": 64
+      },
+      "knownAddresses": [
+        "0x100000000"
+      ],
+      "steps": [
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -64,
+            "instructionCount": 64
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -32,
+            "instructionCount": 32
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -16,
+            "instructionCount": 16
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -8,
+            "instructionCount": 8
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -4,
+            "instructionCount": 4
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -2,
+            "instructionCount": 2
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -1,
+            "instructionCount": 1
+          },
+          "reply": {
+            "kind": "rejected",
+            "message": "Unexpected error while disassembling instructions."
+          },
+          "expected": {
+            "kind": "request"
+          }
+        },
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": 0,
+            "instructionCount": 1
+          },
+          "reply": {
+            "kind": "failed",
+            "message": "The request timed out."
+          },
+          "expected": {
+            "kind": "failed",
+            "message": "The request timed out."
+          }
+        }
+      ]
+    },
+    {
+      "name": "transport failures are not mistaken for mapping boundaries",
+      "plan": {
+        "direction": "before",
+        "reference": "0x100000000",
+        "count": 64
+      },
+      "knownAddresses": [
+        "0x100000000"
+      ],
+      "steps": [
+        {
+          "request": {
+            "memoryReference": "0x100000000",
+            "instructionOffset": -64,
+            "instructionCount": 64
+          },
+          "reply": {
+            "kind": "failed",
+            "message": "The request timed out."
+          },
+          "expected": {
+            "kind": "failed",
+            "message": "The request timed out."
+          }
+        }
+      ]
+    }
+  ]
+}

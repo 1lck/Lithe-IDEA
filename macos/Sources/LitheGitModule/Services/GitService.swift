@@ -123,6 +123,12 @@ package protocol GitOperations: Sendable {
         operationID: String
     ) -> GitHistoryLocateResult?
     func closeHistoryCursor(at rootURL: URL, cursor: String) -> Bool
+    /// Runs one pure Core planner. Planners never start Git or read a
+    /// repository; `nil` means Core rejected the request.
+    func corePlan<Request: Encodable & Sendable, Response: Decodable & Sendable>(
+        _ command: GitCorePlanCommand,
+        _ request: Request
+    ) -> Response?
     func cancel(operationID: String) -> Bool
 
     func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]?
@@ -179,7 +185,7 @@ package protocol GitOperations: Sendable {
     func mergeBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
     func rebaseCurrentBranch(onto reference: GitReference, at rootURL: URL) -> GitProcessResult?
     func checkoutAndRebase(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
-    func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy) -> GitProcessResult?
+    func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy, expectedBranch: String?) -> GitProcessResult?
     /// Fast-forwards a non-current local branch from its upstream without switching HEAD.
     func updateBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
     func pullRemoteReference(
@@ -240,6 +246,10 @@ package protocol GitOperations: Sendable {
 }
 
 package extension GitOperations {
+    func corePlan<Request: Encodable & Sendable, Response: Decodable & Sendable>(
+        _ command: GitCorePlanCommand,
+        _ request: Request
+    ) -> Response? { nil }
     func workspaceStatusPlan(roots: [String], previousRoots: [String], outcomes: [GitWorkspaceStatusOutcome]) -> GitWorkspaceStatusPlan? { nil }
     func resolveFileContext(fileURL: URL, relativeTo rootURL: URL) -> GitFileContext? { nil }
     func changelistProjection(_ request: GitChangelistCoreRequest) -> GitChangelistCoreProjection? { nil }
@@ -1004,6 +1014,15 @@ package struct GitService: Sendable {
         }
     }
 
+    /// Runs a pure Core planner off the main actor.
+    func corePlan<Request: Encodable & Sendable, Response: Decodable & Sendable>(
+        _ command: GitCorePlanCommand,
+        _ request: Request,
+        operationName: String = #function
+    ) async -> Response? {
+        await read(operationName: operationName) { $0.corePlan(command, request) }
+    }
+
     func branchNamePreview(
         rawName: String,
         requireName: Bool,
@@ -1269,9 +1288,12 @@ package struct GitService: Sendable {
 
     func updateCurrentBranch(
         at repositoryRoot: URL,
-        strategy: GitPullStrategy = .ffOnly
+        strategy: GitPullStrategy,
+        expectedBranch: String?
     ) async -> CommandResult {
-        await command(at: repositoryRoot) { $0.updateCurrentBranch(at: repositoryRoot, strategy: strategy) }
+        await command(at: repositoryRoot) {
+            $0.updateCurrentBranch(at: repositoryRoot, strategy: strategy, expectedBranch: expectedBranch)
+        }
     }
 
     func updateBranch(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {

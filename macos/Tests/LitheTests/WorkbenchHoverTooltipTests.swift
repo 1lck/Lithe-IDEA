@@ -76,7 +76,7 @@ struct WorkbenchHoverTooltipTests {
 
     @Test
     func longTextWrapsWithinANarrowViewport() async throws {
-        let text = "运行选中的 Maven 生命周期阶段"
+        let text = "运行选中的 Build 生命周期阶段"
         let wide = try renderedBounds(text: text)
         let narrow = try renderedBounds(text: text, viewport: CGSize(width: 130, height: 120))
         #expect(narrow.height > wide.height)
@@ -99,7 +99,7 @@ struct WorkbenchHoverTooltipTests {
         let leftSource = CGRect(x: 4, y: 20, width: 30, height: 30)
         let rightSource = CGRect(x: 326, y: 20, width: 30, height: 30)
         let left = try renderedBounds(text: "项目", source: leftSource, placement: .trailing)
-        let right = try renderedBounds(text: "Maven", source: rightSource, placement: .leading)
+        let right = try renderedBounds(text: "Build", source: rightSource, placement: .leading)
         #expect(left.minX >= leftSource.maxX + 4)
         #expect(right.maxX <= rightSource.minX - 4)
     }

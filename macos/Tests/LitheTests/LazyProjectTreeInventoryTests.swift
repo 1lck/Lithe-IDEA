@@ -30,7 +30,7 @@ struct LazyProjectTreeInventoryTests {
         for scenario in contract.cases {
             let root = URL(fileURLWithPath: "/in-memory/roles/" + scenario.id)
             let directory = root.appendingPathComponent("archive")
-            let fixture = InventoryFixture(root: root, files: [directory.appendingPathComponent("Keep.java")], rows: [root.path: []])
+            let fixture = InventoryFixture(root: root, files: [directory.appendingPathComponent("Keep.txt")], rows: [root.path: []])
             defer { fixture.close() }
             await fixture.load()
             for step in scenario.steps {
@@ -54,7 +54,7 @@ struct LazyProjectTreeInventoryTests {
     @Test(arguments: [false, true])
     func aNewSnapshotDuringSessionRestoreDoesNotReplayTheSavedSession(fullRescan: Bool) async throws {
         let root = URL(fileURLWithPath: "/in-memory/snapshot-during-session-restore")
-        let old = root.appendingPathComponent("Old.java"), new = root.appendingPathComponent("New.java")
+        let old = root.appendingPathComponent("Old.txt"), new = root.appendingPathComponent("New.txt")
         let fixture = InventoryFixture(root: root, files: [old], rows: [root.path: []])
         fixture.sessionStore.session = WorkspaceSession(openPaths: [old.path], activePath: old.path, selectedSidebar: "project")
         let started = TestGate(), release = TestGate()
@@ -81,7 +81,7 @@ struct LazyProjectTreeInventoryTests {
     @Test(arguments: [false, true])
     func aNewerSnapshotPublishedDuringGitRefreshCannotBeFollowedByTheOldInventory(incremental: Bool) async throws {
         let root = URL(fileURLWithPath: "/in-memory/snapshot-publication-order")
-        let old = root.appendingPathComponent("Old.java"), new = root.appendingPathComponent("New.java")
+        let old = root.appendingPathComponent("Old.txt"), new = root.appendingPathComponent("New.txt")
         let fixture = InventoryFixture(root: root, files: [old], rows: [root.path: []])
         let gitStarted = TestGate(), releaseGit = TestGate()
         fixture.gitRefreshAction = { gitStarted.open(); _ = await releaseGit.waitUntilOpen() }
@@ -109,7 +109,7 @@ struct LazyProjectTreeInventoryTests {
     @Test(arguments: ["configure", "snapshot", "validate"])
     func anotherOwnersIndexingRefreshRetriesTheCurrentWorkspaceWithoutRetiringItAgain(phase: String) async {
         let root = URL(fileURLWithPath: "/in-memory/cross-owner-indexing-refresh")
-        let file = root.appendingPathComponent("Keep.java")
+        let file = root.appendingPathComponent("Keep.txt")
         let fixture = InventoryFixture(root: root, files: [file], rows: [root.path: []])
         defer { fixture.close() }
         if phase == "snapshot" {
@@ -163,7 +163,7 @@ struct LazyProjectTreeInventoryTests {
     @Test(arguments: [false, true])
     func mixedRuleChangesStillDeliverOrdinaryFileUpdates(metadata: Bool) async throws {
         let root = URL(fileURLWithPath: "/in-memory/mixed-indexing-rules")
-        let keep = root.appendingPathComponent("Keep.java")
+        let keep = root.appendingPathComponent("Keep.txt")
         let fixture = InventoryFixture(root: root, files: [keep], rows: [root.path: []])
         defer { fixture.close() }
         await fixture.load()
@@ -266,7 +266,7 @@ struct LazyProjectTreeInventoryTests {
     @Test(arguments: [false, true])
     func aCompleteIndexingRescanPublishesRecoveryEvenWhenTheFileListIsUnchanged(watcherUpdate: Bool) async throws {
         let root = URL(fileURLWithPath: "/in-memory/indexing-complete-recovery")
-        let file = root.appendingPathComponent("Keep.java")
+        let file = root.appendingPathComponent("Keep.txt")
         let fixture = InventoryFixture(root: root, files: [file], rows: [root.path: []])
         defer { fixture.close() }
         fixture.disk.setIncompleteDirectories(["unreadable"])
@@ -275,7 +275,7 @@ struct LazyProjectTreeInventoryTests {
         #expect(fixture.model.appliedSnapshot?.incompleteDirectories == ["unreadable"])
         let files: [URL]
         if watcherUpdate {
-            let added = root.appendingPathComponent("Added.java")
+            let added = root.appendingPathComponent("Added.txt")
             files = [file, added]
             fixture.disk.set(files: files, rows: [root.path: []])
             // Incomplete inventories use a full rescan. Wait for its applied
@@ -298,7 +298,7 @@ struct LazyProjectTreeInventoryTests {
 
     @Test
     func initialIndexingFailureKeepsProjectIdentityForRetryAndRefreshFailureKeepsTheTree() async {
-        let root = URL(fileURLWithPath: "/in-memory/indexing-retry"); let file = root.appendingPathComponent("Keep.java")
+        let root = URL(fileURLWithPath: "/in-memory/indexing-retry"); let file = root.appendingPathComponent("Keep.txt")
         let fixture = InventoryFixture(root: root, files: [file], rows: [root.path: []])
         defer { fixture.close() }
         fixture.disk.failNextConfiguration(.workspaceUnavailable)
@@ -322,7 +322,7 @@ struct LazyProjectTreeInventoryTests {
     func normalFolderDoesNotCreateAnIncludeExceptionButCancelExclusionDoes() async {
         let root = URL(fileURLWithPath: "/in-memory/indexing-normal-folder")
         let directory = root.appendingPathComponent("src")
-        let fixture = InventoryFixture(root: root, files: [directory.appendingPathComponent("Keep.java")], rows: [root.path: []])
+        let fixture = InventoryFixture(root: root, files: [directory.appendingPathComponent("Keep.txt")], rows: [root.path: []])
         defer { fixture.close() }
         await fixture.load()
         await fixture.model.markDirectory(directory, action: .setRole(.sources))
@@ -339,7 +339,7 @@ struct LazyProjectTreeInventoryTests {
     func stalePolicyInstallCannotOverwriteOrFailTheNextWorkspace(staleFails: Bool, reopenSameRoot: Bool) async {
         let oldRoot = URL(fileURLWithPath: "/in-memory/old-indexing")
         let nextRoot = reopenSameRoot ? oldRoot : URL(fileURLWithPath: "/in-memory/next-indexing")
-        let file = nextRoot.appendingPathComponent("Keep.java")
+        let file = nextRoot.appendingPathComponent("Keep.txt")
         let fixture = InventoryFixture(root: nextRoot, files: [file], rows: [nextRoot.path: []])
         defer { fixture.close() }
         fixture.disk.blockNextConfiguration(failing: staleFails)
@@ -372,7 +372,7 @@ struct LazyProjectTreeInventoryTests {
     @Test
     func visibilityRefreshCannotPublishAcrossSameRootReopen() async {
         let root = URL(fileURLWithPath: "/in-memory/visibility-indexing-reopen")
-        let file = root.appendingPathComponent("Keep.java")
+        let file = root.appendingPathComponent("Keep.txt")
         let fixture = InventoryFixture(root: root, files: [file], rows: [root.path: []])
         defer { fixture.close() }
         await fixture.load()
@@ -420,7 +420,7 @@ struct LazyProjectTreeInventoryTests {
     @Test
     func unsupportedWorkspaceRejectsExclusionActions() async {
         let root = URL(fileURLWithPath: "/in-memory/unsupported-indexing")
-        let file = root.appendingPathComponent("src/Keep.java")
+        let file = root.appendingPathComponent("src/Keep.txt")
         let fixture = InventoryFixture(root: root, files: [file], rows: [root.path: []])
         defer { fixture.close() }
         fixture.disk.supportsExclusions = false
@@ -437,7 +437,7 @@ struct LazyProjectTreeInventoryTests {
     func policyChangesDuringScanPublishOnlyTheLatestInventory(manualMark: Bool) async {
         let root = URL(fileURLWithPath: "/in-memory/indexing-policy-race")
         let directory = root.appendingPathComponent(manualMark ? "manual" : "ignored")
-        let file = directory.appendingPathComponent("Candidate.java")
+        let file = directory.appendingPathComponent("Candidate.txt")
         let fixture = InventoryFixture(root: root, files: [file], rows: [
             root.path: [FileNode(url: directory, isDirectory: true, children: nil)], directory.path: [],
         ])
@@ -668,12 +668,12 @@ struct LazyProjectTreeInventoryTests {
     }
 
     @Test(arguments: [false, true])
-    func compactPackageRelistingCannotOverwriteANewerRootFileChange(deletingB: Bool) async throws {
+    func compactDirectoryChainRelistingCannotOverwriteANewerRootFileChange(deletingB: Bool) async throws {
         let root = URL(fileURLWithPath: "/in-memory/lazy-tree-relisting")
         let source = root.appendingPathComponent("src")
         let package = source.appendingPathComponent("app")
-        let main = package.appendingPathComponent("Main.java")
-        let a = source.appendingPathComponent("A.java")
+        let main = package.appendingPathComponent("Main.txt")
+        let a = source.appendingPathComponent("A.txt")
         let b = root.appendingPathComponent("B.md")
         let compact = FileNode(url: package, isDirectory: true, children: nil,
                                collapsedAncestorPaths: [source.path])
@@ -835,7 +835,7 @@ private final class InventoryFixture {
 
 /// Both protocols are synchronous; only WorkspaceFeatureModel's production
 /// listing worker enters the bounded blocking gate, never the test's main actor.
-private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations, @unchecked Sendable {
+private final class InventoryDisk: WorkspaceOperations, CoreBackedWorkspaceRules, WorkspaceFileOperations, @unchecked Sendable {
     private let lock = NSLock()
     private var files: [URL]
     private var rows: [String: [FileNode]]

@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 import LitheLanguageIntelligenceModule
 import Testing
 @testable import Lithe
@@ -6,8 +7,10 @@ import Testing
 @Suite("Language feature providers")
 @MainActor
 struct LanguageFeatureProviderTests {
+    /// LSP-09: keywords belong to the language server or plugin, so the
+    /// fallback provider no longer carries a private per-language keyword table.
     @Test
-    func builtinCompletionIncludesLanguageKeywords() throws {
+    func builtinFallbackDoesNotSupplyLanguageKeywords() {
         let provider = BuiltinLanguageFeatureProvider()
         let context = LanguageFeatureRequestContext(
             fileURL: URL(fileURLWithPath: "/tmp/main.go"),
@@ -15,26 +18,25 @@ struct LanguageFeatureProviderTests {
             position: LanguageServerPosition(line: 0, utf16Column: 2),
             languageID: "go"
         )
-        var result: Result<[LanguageServerCompletionItem], Error>?
-
-        try provider.completions(in: context) { result = $0 }
-
-        let resolved = try #require(result)
-        let items = try resolved.get()
-        let item = try #require(items.first { $0.label == "func" })
-        #expect(item.detail == "Go keyword")
-        #expect(item.textEdit?.range.start.utf16Column == 0)
-        #expect(item.textEdit?.range.end.utf16Column == 2)
+        #expect(!provider.supports(.completion, in: context))
     }
 
+    /// LSP-09: overloads that share a label survive, while a lower-priority
+    /// provider's duplicate label is shadowed by the server candidate.
     @Test
-    func managerMergesHigherPriorityProviderWithBuiltinFallback() throws {
+    func managerKeepsOverloadsAndShadowsLowerPriorityLabels() throws {
         let remote = CompletionFeatureProvider(items: [
             Self.item(label: "format", detail: "LSP"),
-            Self.item(label: "func", detail: "LSP")
+            Self.item(label: "print", detail: "print(String)"),
+            Self.item(label: "print", detail: "print(int)")
+        ])
+        let fallback = CompletionFeatureProvider(id: "test.fallback", priority: .builtin, items: [
+            Self.item(label: "format", detail: "fallback"),
+            Self.item(label: "fmt", detail: "fallback")
         ])
         let manager = LanguageToolingSessionManager(
-            languageFeatureProviders: [remote]
+            policyCore: RustCoreBridge(),
+            languageFeatureProviders: [fallback, remote]
         )
         let fileURL = URL(fileURLWithPath: "/tmp/main.go")
         var result: Result<[LanguageServerCompletionItem], Error>?
@@ -46,17 +48,18 @@ struct LanguageFeatureProviderTests {
             rootURL: fileURL.deletingLastPathComponent()
         ) { result = $0 }
 
-        let resolved = try #require(result)
-        let items = try resolved.get()
-        #expect(items.first?.label == "format")
-        #expect(items.filter { $0.label == "func" }.count == 1)
-        #expect(items.contains { $0.label == "for" && $0.detail == "Go keyword" })
+        let items = try #require(result).get()
+        #expect(items.map(\.label) == ["format", "print", "print", "fmt"])
+        #expect(items.map(\.detail) == ["LSP", "print(String)", "print(int)", "fallback"])
     }
 
     @Test(arguments: [true, false])
-    func emptyProviderListPreservesRefreshStateWhenMergedWithLocalKeywords(incomplete: Bool) throws {
+    func emptyProviderListPreservesRefreshStateWhenMergedWithFallback(incomplete: Bool) throws {
         let remote = CompletionFeatureProvider(items: [], isIncomplete: incomplete)
-        let manager = LanguageToolingSessionManager(languageFeatureProviders: [remote])
+        let fallback = CompletionFeatureProvider(id: "test.fallback", priority: .builtin,
+                                                 items: [Self.item(label: "func", detail: "fallback")])
+        let manager = LanguageToolingSessionManager(policyCore: RustCoreBridge(),
+                                                    languageFeatureProviders: [remote, fallback])
         let fileURL = URL(fileURLWithPath: "/tmp/main.go")
         var result: Result<LanguageServerCompletionList, Error>?
         try manager.completionList(fileURL: fileURL, text: "f",
@@ -64,8 +67,51 @@ struct LanguageFeatureProviderTests {
             completionContext: .init(triggerKind: 3)) { result = $0 }
         let list = try #require(result).get()
         #expect(list.isIncomplete == incomplete)
-        #expect(list.items.contains { $0.label == "func" })
+        #expect(list.items.map(\.label) == ["func"])
         #expect(remote.context?.triggerKind == 3)
+    }
+
+    /// The bridge returns exactly the shared fixture responses on macOS.
+    @Test
+    func rustBridgeMatchesSharedActivationAndMergeFixtures() throws {
+        let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("shared/fixtures/lsp")
+        struct ActivationCase: Decodable {
+            struct Request: Decodable {
+                let state: LanguageServerActivationState?
+                let event: LanguageServerActivationEvent
+                let nowMs: UInt64
+            }
+            let name: String
+            let request: Request
+            let response: LanguageServerActivationOutcome
+        }
+        struct MergeCase: Decodable {
+            struct List: Decodable { let labels: [String]; let isIncomplete: Bool }
+            struct Request: Decodable { let lists: [List] }
+            struct Response: Decodable { let keep: [[Int]]; let isIncomplete: Bool }
+            let name: String
+            let request: Request
+            let response: Response
+        }
+        struct Fixture<Case: Decodable>: Decodable { let cases: [Case] }
+        let bridge = RustCoreBridge()
+        let activation = try JSONDecoder().decode(Fixture<ActivationCase>.self, from: Data(
+            contentsOf: fixtures.appendingPathComponent("activation-policy-v1.json")))
+        for entry in activation.cases {
+            let outcome = bridge.languageServerActivation(
+                state: entry.request.state, event: entry.request.event, nowMs: entry.request.nowMs)
+            #expect(try outcome.get() == entry.response, "\(entry.name)")
+        }
+        let merge = try JSONDecoder().decode(Fixture<MergeCase>.self, from: Data(
+            contentsOf: fixtures.appendingPathComponent("completion-merge-v1.json")))
+        for entry in merge.cases {
+            let selection = try bridge.mergeCompletions(
+                labels: entry.request.lists.map(\.labels), incomplete: entry.request.lists.map(\.isIncomplete)).get()
+            #expect(selection.keep == entry.response.keep, "\(entry.name)")
+            #expect(selection.isIncomplete == entry.response.isIncomplete, "\(entry.name)")
+        }
     }
 
     private static func item(label: String, detail: String) -> LanguageServerCompletionItem {
@@ -86,13 +132,16 @@ struct LanguageFeatureProviderTests {
 
 @MainActor
 private final class CompletionFeatureProvider: LanguageFeatureProvider {
-    let id = "test.remote"
-    let priority: LanguageFeatureProviderPriority = .languageServer
+    let id: String
+    let priority: LanguageFeatureProviderPriority
     private let items: [LanguageServerCompletionItem]
     private let isIncomplete: Bool
     private(set) var context: LanguageServerCompletionContext?
 
-    init(items: [LanguageServerCompletionItem], isIncomplete: Bool = false) {
+    init(id: String = "test.remote", priority: LanguageFeatureProviderPriority = .languageServer,
+         items: [LanguageServerCompletionItem], isIncomplete: Bool = false) {
+        self.id = id
+        self.priority = priority
         self.items = items
         self.isIncomplete = isIncomplete
     }

@@ -148,15 +148,26 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         }
     }
 
+    /// The snapshots Core plans for `event`; none when Core rejects the event.
+    private func plannedSnapshots(for event: LocalHistoryEvent) -> [LocalHistorySnapshotPlan] {
+        guard let plan = localHistoryOperations.planEvent(event) else {
+            logSink?.emit(AppHistoryOperationFailed(error: LocalHistoryPlanError.rejected, stage: "plan"))
+            return []
+        }
+        return plan
+    }
+
     public func recordSave(_ document: LocalHistoryDocumentSnapshot, previousText: String) {
         guard let localHistoryService else { return }
         let currentText = document.text
         let url = document.url
+        let plan = plannedSnapshots(for: .save)
         startBackgroundTask { [logSink] in
-            do { _ = try await localHistoryService.record(text: previousText, for: url, reason: .saved) }
-            catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "record")) }
-            do { _ = try await localHistoryService.record(text: currentText, for: url, reason: .saved) }
-            catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "record")) }
+            for snapshot in plan {
+                let text = snapshot.source == .beforeChange ? previousText : currentText
+                do { _ = try await localHistoryService.record(text: text, for: url, reason: snapshot.reason) }
+                catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "record")) }
+            }
         }
     }
 
@@ -164,22 +175,35 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         guard let localHistoryService else { return }
         let text = document.text
         let url = document.url
+        let plan = plannedSnapshots(for: .unsavedDiscard).filter { $0.source == .editorBuffer }
         startBackgroundTask { [logSink] in
-            do { _ = try await localHistoryService.record(text: text, for: url, reason: .unsavedDiscard) }
+            for snapshot in plan {
+                do { _ = try await localHistoryService.record(text: text, for: url, reason: snapshot.reason) }
+                catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "record")) }
+            }
+        }
+    }
+
+    /// Records `text` as the file's content before `event` changes it.
+    public func recordHistorySnapshot(
+        text: String,
+        for fileURL: URL,
+        event: LocalHistoryEvent
+    ) async {
+        for snapshot in plannedSnapshots(for: event) where snapshot.source == .beforeChange {
+            do { _ = try await localHistoryService?.record(text: text, for: fileURL, reason: snapshot.reason) }
             catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "record")) }
         }
     }
 
-    public func recordHistorySnapshot(
-        text: String,
-        for fileURL: URL,
-        reason: LocalHistoryReason
-    ) async {
-        do { _ = try await localHistoryService?.record(text: text, for: fileURL, reason: reason) }
-        catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "record")) }
+    /// Records the file's current content on disk as `event` plans.
+    private func recordFile(_ url: URL, event: LocalHistoryEvent) async {
+        for snapshot in plannedSnapshots(for: event) {
+            await localHistoryService?.recordFiles([url], reason: snapshot.reason)
+        }
     }
 
-    public func recordHistory(containedIn url: URL, reason: LocalHistoryReason) async {
+    public func recordHistory(containedIn url: URL, event: LocalHistoryEvent) async {
         guard let localHistoryService else { return }
         let files: [URL]
         if projectFilesProvider().contains(where: { $0.standardizedFileURL == url.standardizedFileURL }) {
@@ -187,7 +211,9 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         } else {
             files = projectFilesProvider().filter { urlContains(url, child: $0) }
         }
-        await localHistoryService.recordFiles(files, reason: reason)
+        for snapshot in plannedSnapshots(for: event) {
+            await localHistoryService.recordFiles(files, reason: snapshot.reason)
+        }
     }
 
     public func relocateHistory(from sourceURL: URL, to destinationURL: URL) async {
@@ -198,8 +224,11 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
     public func recordExternalChanges(_ paths: [URL]) {
         guard let localHistoryService else { return }
         let changedFiles = paths.filter { workspaceAccess.fileExists(at: $0) }
+        let plan = plannedSnapshots(for: .externalChange)
         startBackgroundTask {
-            await localHistoryService.recordFiles(changedFiles, reason: .externalChange)
+            for snapshot in plan {
+                await localHistoryService.recordFiles(changedFiles, reason: snapshot.reason)
+            }
         }
     }
 
@@ -277,15 +306,9 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
             let restoredText = try await localHistoryService.content(for: entry)
             let document = documentsProvider().first { $0.url == request.fileURL }
             if let document {
-                do { _ = try await localHistoryService.record(
-                    text: document.text,
-                    for: request.fileURL,
-                    reason: .restored
-                ) }
-            catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "record")) }
+                await recordHistorySnapshot(text: document.text, for: request.fileURL, event: .restore)
             } else {
-                do { _ = try await localHistoryService.recordFile(at: request.fileURL, reason: .restored) }
-                catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "record")) }
+                await recordFile(request.fileURL, event: .restore)
             }
             guard workspaceAccess.writeFile(
                 restoredText,
@@ -312,15 +335,9 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
             let restoredText = try await localHistoryService.content(for: entry)
             let document = documentsProvider().first { $0.url == targetURL }
             if let document {
-                do { _ = try await localHistoryService.record(
-                    text: document.text,
-                    for: targetURL,
-                    reason: .restored
-                ) }
-            catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "record")) }
+                await recordHistorySnapshot(text: document.text, for: targetURL, event: .restore)
             } else if workspaceAccess.fileExists(at: targetURL) {
-                do { _ = try await localHistoryService.recordFile(at: targetURL, reason: .restored) }
-                catch { logSink?.emit(AppHistoryOperationFailed(error: error, stage: "record")) }
+                await recordFile(targetURL, event: .restore)
             }
             guard workspaceAccess.writeFile(
                 restoredText,
@@ -362,8 +379,9 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         do {
             let historicalText = try await localHistoryService.content(for: entry)
             let currentText = try currentText(for: request.fileURL)
+            let operations = localHistoryOperations
             let rows = await UserActionContext.detached(priority: .userInitiated) {
-                LocalHistoryDiffBuilder.rows(old: historicalText, current: currentText)
+                operations.compareTexts(old: historicalText, current: currentText) ?? []
             }.value
             guard selectedLocalHistoryEntry?.id == entry.id else { return }
             localHistoryDiffRows = rows
@@ -404,8 +422,9 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         do {
             let historicalText = try await localHistoryService.content(for: entry)
             let currentText = try currentText(for: fileURL)
+            let operations = localHistoryOperations
             let rows = await UserActionContext.detached(priority: .userInitiated) {
-                LocalHistoryDiffBuilder.rows(old: historicalText, current: currentText)
+                operations.compareTexts(old: historicalText, current: currentText) ?? []
             }.value
             guard selectedProjectLocalHistoryEntry?.id == entry.id else { return }
             projectLocalHistoryDiffRows = rows
@@ -445,3 +464,6 @@ public final class ProjectHistoryFeatureModel: ObservableObject {
         return childPath == parentPath || childPath.hasPrefix(parentPath + "/")
     }
 }
+
+/// Core refused to plan a history event, so nothing is recorded for it.
+private enum LocalHistoryPlanError: Error { case rejected }

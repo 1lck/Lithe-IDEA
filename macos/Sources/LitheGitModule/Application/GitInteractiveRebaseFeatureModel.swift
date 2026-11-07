@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 
 /// Owns the editable todo plan and durable Core session; views never infer sequencer completion.
 @MainActor
@@ -34,10 +35,35 @@ package final class GitInteractiveRebaseFeatureModel: ObservableObject {
     package var isBusy: Bool { isLoading || isExecuting }
     package var steps: [GitRebaseStep] { plan.steps }
     package var outputCommitCount: Int { plan.outputCommitCount }
+    private var planTask: Task<Void, Never>?
     package var selectedStep: GitRebaseStep? { steps.first { $0.hash == selectedHash } }
-    package var validationMessage: String? { plan.validationMessage }
+    /// Core's first problem with the draft, in the user's language.
+    package var validationMessage: String? {
+        switch plan.issue?.code {
+        case "missingPrecedingCommit": L10n.string("Squash and Fixup need a preceding commit that is not dropped.")
+        case "emptyRewordMessage": L10n.string("Every Reword step needs a commit message.")
+        case "emptySquashMessage": L10n.string("Enter a Squash message or use the default combined messages.")
+        case .some: L10n.string("The commit messages in this plan are not valid.")
+        case nil: nil
+        }
+    }
     package var canStart: Bool {
-        !isBusy && preview?.allowed == true && preview?.expectedState != nil && !steps.isEmpty && validationMessage == nil
+        !isBusy && preview?.allowed == true && preview?.expectedState != nil && !steps.isEmpty
+            && plan.isPlanned && plan.issue == nil
+    }
+
+    /// Asks Core to validate the draft and derive its messages. An answer for a
+    /// draft the user has since edited is dropped.
+    private func refreshPlan() {
+        planTask?.cancel()
+        let request = plan.previewRequest
+        guard !request.steps.isEmpty else { return }
+        let requestGeneration = generation
+        planTask = Task { [weak self, service] in
+            let answer: GitRebasePlanPreview? = await service.corePlan(.rebasePlanPreview, request)
+            guard let self, !Task.isCancelled, self.generation == requestGeneration, let answer else { return }
+            self.plan.apply(answer, for: request)
+        }
     }
 
     package func begin(at root: URL, baseRevision: String) {
@@ -67,6 +93,7 @@ package final class GitInteractiveRebaseFeatureModel: ObservableObject {
             case .success(let preview):
                 self.preview = preview
                 self.plan = GitRebasePlanDraft(commits: preview.commits)
+                self.refreshPlan()
                 self.selectedHash = self.steps.first?.hash
             case .failure(let error): self.errorMessage = error.message
             }
@@ -79,21 +106,25 @@ package final class GitInteractiveRebaseFeatureModel: ObservableObject {
         guard !isBusy else { return }
         plan.setAction(action, for: hash)
         selectedHash = hash
+        refreshPlan()
     }
 
     package func setMessage(_ message: String, for hash: String) {
         guard !isBusy else { return }
         plan.setMessage(message, for: hash)
+        refreshPlan()
     }
 
     package func useDefaultSquashMessage(for hash: String) {
         guard !isBusy else { return }
         plan.useDefaultSquashMessage(for: hash)
+        refreshPlan()
     }
 
     package func move(_ hash: String, by offset: Int) {
         guard !isBusy else { return }
         plan.move(hash, by: offset)
+        refreshPlan()
     }
 
     package func start() async {
@@ -184,6 +215,8 @@ package final class GitInteractiveRebaseFeatureModel: ObservableObject {
         generation &+= 1
         previewTask?.cancel()
         previewTask = nil
+        planTask?.cancel()
+        planTask = nil
         root = nil
         baseRevision = nil
         preview = nil

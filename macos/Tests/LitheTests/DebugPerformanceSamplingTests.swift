@@ -4,33 +4,8 @@ import Testing
 @testable import Lithe
 
 @MainActor
-@Suite("JVM performance sampling", .serialized)
+@Suite("Debug performance sampling", .serialized)
 struct DebugPerformanceSamplingTests {
-    private let header = "Timestamp S0C S1C S0U S1U EC EU OC OU MC MU CCSC CCSU YGC YGCT FGC FGCT GCT\n"
-    private let row = "12.5 10 20 1 2 30 3 40 4 500 450 100 80 1 0.1 0 0 0.1\n"
-
-    @Test func jstatParsesChunksAndExcludesNonHeapCounters() throws {
-        var parser = JStatHeapParser()
-        #expect(try parser.append(String(header.prefix(15))).isEmpty)
-        #expect(try parser.append(String(header.dropFirst(15)) + String(row.prefix(9))).isEmpty)
-        let result = try parser.append(String(row.dropFirst(9)) + row)
-        #expect(result.count == 2)
-        #expect(result[0].uptime == 12.5)
-        #expect(result[0].used == 10 * 1024)
-        #expect(result[0].committed == 100 * 1024)
-    }
-
-    @Test func jstatRejectsInvalidAndUnboundedCounters() throws {
-        for invalid in ["-1", "NaN", "inf", "-", "1e100", "100000"] {
-            var parser = JStatHeapParser()
-            _ = try parser.append(header)
-            let bad = row.replacingOccurrences(of: " 1 2 30", with: " \(invalid) 2 30")
-            #expect(throws: (any Error).self) { _ = try parser.append(bad) }
-        }
-        var parser = JStatHeapParser()
-        #expect(throws: (any Error).self) { _ = try parser.append(String(repeating: "x", count: 16_385)) }
-    }
-
     @Test func collapseSwitchAndStopCancelTheirStreamsAndRejectStaleSamples() async throws {
         let sampler = ControlledPerformanceSampler()
         defer { sampler.finishAll() }
@@ -38,7 +13,7 @@ struct DebugPerformanceSamplingTests {
         defer { feature.setVisible(false) }
         let first = UUID(), second = UUID()
         for (id, pid) in [(first, Int32(101)), (second, 102)] {
-            feature.register(DebugPerformanceTarget(processID: pid, javaExecutable: id == first ? nil : URL(fileURLWithPath: "/fixture/jdk/bin/java")), sessionID: id)
+            feature.register(DebugPerformanceTarget(processID: pid), sessionID: id)
         }
         feature.select(sessionID: first, isActive: true)
         feature.setVisible(true)
@@ -74,7 +49,7 @@ struct DebugPerformanceSamplingTests {
         let feature = DebugPerformanceFeatureModel(sampler: sampler)
         defer { feature.setVisible(false) }
         let id = UUID()
-        feature.register(DebugPerformanceTarget(processID: 101, javaExecutable: URL(fileURLWithPath: "/fixture/jdk/bin/java")), sessionID: id)
+        feature.register(DebugPerformanceTarget(processID: 101), sessionID: id)
         feature.select(sessionID: id, isActive: true)
         feature.setVisible(true)
         #expect(await sampler.started[0].waitUntilOpen())
@@ -93,13 +68,13 @@ struct DebugPerformanceSamplingTests {
         #expect(!feature.isSampling)
     }
 
-    @Test func replacingTheJVMInTheSameDAPSessionClearsItsOldTimeline() async {
+    @Test func replacingTheProcessInTheSameDAPSessionClearsItsOldTimeline() async {
         let sampler = ControlledPerformanceSampler()
         defer { sampler.finishAll() }
         let feature = DebugPerformanceFeatureModel(sampler: sampler)
         defer { feature.setVisible(false) }
         let id = UUID()
-        let first = DebugPerformanceTarget(processID: 101, javaExecutable: URL(fileURLWithPath: "/fixture/jdk/bin/java"))
+        let first = DebugPerformanceTarget(processID: 101)
         feature.register(first, sessionID: id)
         feature.select(sessionID: id, isActive: true)
         feature.setVisible(true)
@@ -111,7 +86,7 @@ struct DebugPerformanceSamplingTests {
         #expect(await received.waitUntilOpen())
         feature.register(first, sessionID: id)
         #expect(sampler.streamCount == 1)
-        feature.register(DebugPerformanceTarget(processID: 102, javaExecutable: first.javaExecutable), sessionID: id)
+        feature.register(DebugPerformanceTarget(processID: 102), sessionID: id)
         #expect(feature.samples.isEmpty)
         #expect(await sampler.terminated[0].waitUntilOpen())
         #expect(await sampler.started[1].waitUntilOpen())
@@ -128,7 +103,7 @@ struct DebugPerformanceSamplingTests {
         defer { sampler.finishAll() }
         var feature: DebugPerformanceFeatureModel? = DebugPerformanceFeatureModel(sampler: sampler)
         let id = UUID()
-        feature?.register(DebugPerformanceTarget(processID: 101, javaExecutable: URL(fileURLWithPath: "/fixture/jdk/bin/java")), sessionID: id)
+        feature?.register(DebugPerformanceTarget(processID: 101), sessionID: id)
         feature?.select(sessionID: id, isActive: true)
         feature?.setVisible(true)
         #expect(await sampler.started[0].waitUntilOpen())
@@ -138,12 +113,12 @@ struct DebugPerformanceSamplingTests {
         #expect(await sampler.terminated[0].waitUntilOpen())
     }
 
-    @Test func anUnknownTargetShowsUnavailableWithoutPretendingToSample() {
+    @Test func anUnknownTargetDoesNotPretendToSample() {
         let feature = DebugPerformanceFeatureModel(sampler: nil)
         feature.select(sessionID: UUID(), isActive: true)
         feature.setVisible(true)
         #expect(!feature.isSampling)
-        #expect(feature.errorMessage != nil)
+        #expect(feature.errorMessage == nil)
         #expect(feature.samples.isEmpty)
     }
 

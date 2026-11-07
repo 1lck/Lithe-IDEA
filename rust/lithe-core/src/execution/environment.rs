@@ -4,20 +4,20 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-/// Platform-resolved homes and inherited environment for one launch step.
+/// Inherited environment and explicit overrides for one launch step.
+///
+/// Toolchain-specific variables (a runtime home, a build tool's own home) are
+/// owned by the plugin that defines the toolchain; it supplies them as literal
+/// overrides, so Core never names a tool here.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchEnvironmentRequest {
-    /// Toolchain of this step, not the later application process.
-    pub toolchain: Option<String>,
-    /// Resolved project JDK home.
-    pub java_home: Option<String>,
-    /// Resolved Maven JVM home, falling back to the project home when absent.
-    pub maven_java_home: Option<String>,
-    /// Native parent process environment; selected homes override it.
+    /// Native parent process environment; explicit overrides replace it.
     #[serde(default)]
     pub inherited: BTreeMap<String, String>,
     /// Plan bindings followed by explicit user overrides, already merged by key.
+    /// Only string values are applied: a structured binding the host could not
+    /// resolve to text has no defined value and must not reach the process.
     #[serde(default)]
     pub overrides: BTreeMap<String, Value>,
     /// Windows environment keys are case-insensitive even in a Rust map.
@@ -32,8 +32,7 @@ pub struct LaunchEnvironmentResponse {
     pub environment: BTreeMap<String, String>,
 }
 
-/// Applies inherited < selected toolchain < explicit launch overrides.
-/// Maven steps use their Maven JDK; direct Java steps retain the project JDK.
+/// Applies inherited < explicit launch overrides.
 pub fn resolve_launch_environment(request: LaunchEnvironmentRequest) -> LaunchEnvironmentResponse {
     let mut environment = BTreeMap::new();
     let mut insert = |key: String, value: String| {
@@ -47,43 +46,9 @@ pub fn resolve_launch_environment(request: LaunchEnvironmentRequest) -> LaunchEn
     for (key, value) in request.inherited {
         insert(key, value);
     }
-    let selected = if request.toolchain.as_deref() == Some("project-maven") {
-        request
-            .maven_java_home
-            .as_ref()
-            .or(request.java_home.as_ref())
-    } else if request.toolchain.as_deref() == Some("project-jdk") {
-        request.java_home.as_ref()
-    } else {
-        None
-    };
-    if let Some(home) = selected {
-        insert("JAVA_HOME".into(), home.clone());
-    }
     for (key, value) in request.overrides {
-        let resolved = if let Some(text) = value.as_str() {
-            Some(text.to_owned())
-        } else if value.get("property").and_then(Value::as_str) == Some("home") {
-            // A pre-launch Maven step may inherit its application's Java binding.
-            // The executable's role owns JAVA_HOME; literal user overrides remain
-            // authoritative. Other variables keep their explicit binding.
-            if key.eq_ignore_ascii_case("JAVA_HOME") && selected.is_some() {
-                selected.cloned()
-            } else {
-                match value.get("toolchain").and_then(Value::as_str) {
-                    Some("project-jdk") => request.java_home.clone(),
-                    Some("project-maven") => request
-                        .maven_java_home
-                        .clone()
-                        .or(request.java_home.clone()),
-                    _ => None,
-                }
-            }
-        } else {
-            None
-        };
-        if let Some(value) = resolved {
-            insert(key, value);
+        if let Some(text) = value.as_str() {
+            insert(key, text.to_owned());
         }
     }
     LaunchEnvironmentResponse { environment }
@@ -152,20 +117,24 @@ mod tests {
         }
     }
 
+    // A structured binding that reaches Core unresolved names no value, so it
+    // must be dropped rather than leak an empty or stale variable.
     #[test]
-    fn shared_launch_environment_fixtures() {
-        let cases: Value = serde_json::from_str(include_str!(
-            "../../../../shared/fixtures/execution/launch-environment-v1.json"
-        ))
+    fn overrides_replace_inherited_values_and_drop_unresolved_bindings() {
+        let request: LaunchEnvironmentRequest = serde_json::from_value(serde_json::json!({
+            "inherited": { "Path": "bin", "TOOL_A_HOME": "inherited" },
+            "overrides": {
+                "TOOL_A_HOME": "selected",
+                "TOOL_B_HOME": { "toolchain": "tool-b", "property": "home" }
+            },
+            "caseInsensitive": true
+        }))
         .unwrap();
-        for case in cases["cases"].as_array().unwrap() {
-            let request = serde_json::from_value(case["request"].clone()).unwrap();
-            assert_eq!(
-                serde_json::to_value(resolve_launch_environment(request)).unwrap(),
-                case["expected"],
-                "{}",
-                case["name"]
-            );
-        }
+        assert_eq!(
+            serde_json::to_value(resolve_launch_environment(request)).unwrap(),
+            serde_json::json!({
+                "environment": { "PATH": "bin", "TOOL_A_HOME": "selected" }
+            })
+        );
     }
 }

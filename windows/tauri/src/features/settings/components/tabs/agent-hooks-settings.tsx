@@ -8,8 +8,8 @@ import Switch from "@/ui/switch";
 import AppDialog, { showConfirmDialog } from "@/ui/dialog";
 import { AgentBrandIcon } from "@/features/agent/components/brand/agent-brand-icon";
 import {
-  hookEvents, hookMatchers, hookAgents, manageHooks, validHook,
-  type AgentHook, type HookLibrary, type HookEntry,
+  hookEvents, hookMatchers, hookAgents, manageHooks, validateHookDraft, hookDraftIssueKey,
+  type AgentHook, type HookLibrary, type HookEntry, type HookDraftValidation,
 } from "@/features/agent/services/agent-hooks";
 
 const agentTitle = (id: string) => id === "codex-acp" ? "Codex" : "Claude Code";
@@ -34,6 +34,8 @@ export function AgentHooksSettings() {
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Verdict for exactly the current draft, timeout text and library; anything else disables saving.
+  const [validation, setValidation] = useState<{ draft: AgentHook; timeout: string; library: HookLibrary; result: HookDraftValidation } | null>(null);
   const mounted = useRef(false);
   const pending = useRef(false);
   const nameInput = useRef<HTMLInputElement>(null);
@@ -48,6 +50,15 @@ export function AgentHooksSettings() {
       .finally(() => { if (current) { setBusy(false); pending.current = false; } });
     return () => { current = false; mounted.current = false; };
   }, []);
+
+  useEffect(() => {
+    if (!draft || !library) return;
+    let current = true;
+    void validateHookDraft(draft, timeout, library)
+      .then(result => { if (current) setValidation({ draft, timeout, library, result }); })
+      .catch(failure => { if (current) { setValidation(null); setError(t(failure instanceof Error ? failure.message : String(failure))); } });
+    return () => { current = false; };
+  }, [draft, timeout, library, t]);
 
   const run = async (action: "read" | "save" | "remove" | "sync", hook?: AgentHook, id?: string) => {
     if (pending.current) return;
@@ -65,8 +76,9 @@ export function AgentHooksSettings() {
     const confirmed = await showConfirmDialog(t("hooks.deleteHint"), { title: t("hooks.deleteTitle"), confirmLabel: t("hooks.delete"), cancelLabel: t("ui.cancel") });
     if (confirmed && mounted.current) await run("remove", undefined, hook.id);
   };
-  const timeoutValid = timeout === "" || (/^[0-9]+$/.test(timeout) && Number(timeout) >= 1 && Number(timeout) <= 86400);
-  const duplicate = draft && library?.hooks.some(h => h.id !== draft.id && h.name.toLowerCase() === draft.name.toLowerCase());
+  const verdict = validation && validation.draft === draft && validation.timeout === timeout && validation.library === library ? validation.result : null;
+  // An empty name or command only disables saving; other issues are shown inline.
+  const visibleIssues = verdict?.issues.filter(issue => !(issue.code === "required" && (issue.field === "name" || issue.field === "command"))) ?? [];
   const isNew = draft && !library?.hooks.some(h => h.id === draft.id);
   const filteredHooks = library?.hooks.filter(h => [h.name, h.description, h.command].some(value => value.toLowerCase().includes(query.toLowerCase())));
   return <div className="space-y-3">
@@ -99,18 +111,19 @@ export function AgentHooksSettings() {
     {draft ? <AppDialog title={t(isNew ? "hooks.newTitle" : "hooks.editTitle")} onClose={() => { if (!busy) setDraft(null); }} size="lg"
       initialFocus={nameInput} classNames={{ modal: "w-[calc(100vw-2rem)] max-w-[44rem]", header: "border-b border-border px-6 py-4", content: "p-6", footer: "border-t border-border px-6 py-4" }} footer={<>
       <Button disabled={busy} onClick={() => setDraft(null)}>{t("ui.cancel")}</Button>
-      <Button variant="accent" disabled={busy || !validHook(draft) || !timeoutValid || !!duplicate} onClick={() => void run("save", draft)}>{t(isNew ? "hooks.add" : "hooks.save")}</Button>
+      <Button variant="accent" disabled={busy || !verdict?.valid} onClick={() => { if (verdict?.valid) void run("save", { ...draft, timeoutSeconds: verdict.timeoutSeconds }); }}>{t(isNew ? "hooks.add" : "hooks.save")}</Button>
     </>}><fieldset disabled={busy} className="space-y-5">
       <HookEditorRow label={t("hooks.name")}><Input ref={nameInput} aria-label={t("hooks.name")} placeholder={t("hooks.namePlaceholder")} value={draft.name} onChange={e => update("name", e.target.value)} /><p className="mt-1 ui-text-sm text-subtle-foreground">{t("hooks.nameHint")}</p></HookEditorRow>
       <HookEditorRow label={t("hooks.descriptionLabel")}><Textarea aria-label={t("hooks.descriptionLabel")} rows={4} placeholder={t("hooks.descriptionPlaceholder")} value={draft.description} onChange={e => update("description", e.target.value)} /><p className="mt-1 ui-text-sm text-subtle-foreground">{t("hooks.descriptionHint")}</p></HookEditorRow>
       <HookEditorRow label={t("hooks.when")}><SettingsSelect aria-label={t("hooks.when")} className="w-60" value={draft.event} options={hookEvents.map(event => ({ value: event, label: t(`hooks.event.${event}`) }))} onChange={event => setDraft({ ...draft, event: event as AgentHook["event"], matcher: "all" })} /></HookEditorRow>
       {draft.event === "before-tool" || draft.event === "after-tool" ? <HookEditorRow label={t("hooks.matcher")}><SettingsSelect aria-label={t("hooks.matcher")} className="w-60" value={draft.matcher} options={hookMatchers.map(matcher => ({ value: matcher, label: t(`hooks.matcher.${matcher}`) }))} onChange={matcher => update("matcher", matcher as AgentHook["matcher"])} /></HookEditorRow> : null}
       <HookEditorRow label={t("hooks.command")}><Textarea aria-label={t("hooks.command")} className="font-mono" rows={2} value={draft.command} onChange={e => update("command", e.target.value)} /><p className="mt-1 ui-text-sm text-subtle-foreground">{t("hooks.commandHint")}</p></HookEditorRow>
-      <HookEditorRow label={t("hooks.timeout")}><Input aria-label={t("hooks.timeout")} containerClassName="max-w-52" placeholder={t("hooks.timeoutPlaceholder")} value={timeout} onChange={e => { setTimeoutText(e.target.value); update("timeoutSeconds", e.target.value === "" ? null : Number(e.target.value)); }} /><p className="mt-1 ui-text-sm text-subtle-foreground">{t("hooks.timeoutHint")}</p></HookEditorRow>
+      <HookEditorRow label={t("hooks.timeout")}><Input aria-label={t("hooks.timeout")} containerClassName="max-w-52" placeholder={t("hooks.timeoutPlaceholder")} value={timeout} onChange={e => setTimeoutText(e.target.value)} /><p className="mt-1 ui-text-sm text-subtle-foreground">{t("hooks.timeoutHint")}</p></HookEditorRow>
       <HookEditorRow label={t("hooks.agents")}><div className="flex flex-wrap gap-2">
         <Button aria-pressed={draft.agents.length === hookAgents.length} variant={draft.agents.length === hookAgents.length ? "accent" : "default"} onClick={() => update("agents", [...hookAgents])}>{t("hooks.allAgents")}</Button>
         {hookAgents.map(agent => <Button key={agent} aria-pressed={draft.agents.includes(agent)} variant={draft.agents.includes(agent) ? "accent" : "default"} onClick={() => update("agents", draft.agents.includes(agent) ? draft.agents.filter(id => id !== agent) : [...draft.agents, agent])}><AgentBrandIcon name={agentTitle(agent)} variant="brand" />{agentTitle(agent)}</Button>)}
       </div></HookEditorRow>
+      {visibleIssues.map(issue => <p key={`${issue.field}.${issue.code}`} role="alert" className="text-warning">{t(hookDraftIssueKey(issue))}</p>)}
       {error ? <p role="alert" className="text-warning">{error}</p> : null}
     </fieldset></AppDialog> : null}
   </div>;

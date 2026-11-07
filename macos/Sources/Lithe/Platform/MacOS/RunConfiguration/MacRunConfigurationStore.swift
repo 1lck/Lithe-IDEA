@@ -18,8 +18,8 @@ enum MacRunConfigurationStoreError: LocalizedError, Sendable {
     }
 }
 
-/// macOS file and migration adapter for the shared Rust run-configuration domain.
-/// It deliberately contains no merge or launch-command logic.
+/// macOS file adapter for the shared Rust run-configuration domain.
+/// It deliberately contains no merge, launch-command or language logic.
 struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable {
     private let core: RustCoreBridge
     private let documentMutator: any RunConfigurationDocumentMutating
@@ -41,53 +41,22 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         self.documentMutator = documentMutator ?? RustRunConfigurationDocumentMutator(core: core)
     }
 
-    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
-        inspect(at: projectURL, checkFingerprint: true, javaEntrypoints: nil)
-    }
-
     func inspect(
         at projectURL: URL,
         checkFingerprint: Bool,
-        javaEntrypoints: JavaEntrypoints?
+        providerRuns: [RunProviderConfiguration]?
     ) -> ProjectRunConfigurationInspection {
-        inspect(at: projectURL, checkFingerprint: checkFingerprint, javaEntrypoints: javaEntrypoints, projectOwnership: nil)
-    }
-
-    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership]) -> ProjectRunConfigurationInspection {
-        inspect(at: projectURL, checkFingerprint: false, javaEntrypoints: nil, projectOwnership: projectOwnership)
-    }
-
-    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership], providerRuns: [RunProviderConfiguration]) -> ProjectRunConfigurationInspection {
-        inspect(at: projectURL, checkFingerprint: false, javaEntrypoints: nil, projectOwnership: projectOwnership, providerRuns: providerRuns)
-    }
-
-    private func inspect(at projectURL: URL, checkFingerprint: Bool, javaEntrypoints: JavaEntrypoints?,
-                         projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration]? = nil) -> ProjectRunConfigurationInspection {
         switch core.inspectRunConfiguration(
             at: projectURL,
             checkFingerprint: checkFingerprint,
-            javaEntrypoints: javaEntrypoints,
-            projectOwnership: projectOwnership, providerRuns: providerRuns
+            providerRuns: providerRuns
         ) {
         case .success(let payload):
             return ProjectRunConfigurationInspection(
                 status: payload.status == "ready" ? .ready : .missing,
                 diagnostics: diagnostics(from: payload.diagnostics),
                 recoveryAction: payload.status == "ready" ? .none : .regenerate,
-                projectToolchain: payload.toolchain.flatMap { toolchain -> ProjectToolchainSelection? in
-                    // Generic preferences do not prove legacy defaults were migrated.
-                    guard toolchain.java != nil || toolchain.maven != nil || toolchain.pathOverrides != nil else { return nil }
-                    return
-                    ProjectToolchainSelection(
-                        javaHomePath: toolchain.java?.homePath ?? "",
-                        mavenExecutablePath: toolchain.maven?.executablePath ?? "",
-                        mavenJavaHomePath: toolchain.maven?.javaHomePath ?? "",
-                        pathOverrides: toolchain.pathOverrides ?? [:]
-                    )
-                },
-                hasSavedToolchainPathOverrides: payload.toolchain?.pathOverrides != nil,
                 requiresGeneration: payload.requiresGeneration ?? (payload.status == "missing")
-
             )
         case .failure(let error):
             return ProjectRunConfigurationInspection(
@@ -99,69 +68,23 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         }
     }
 
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
-                  projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration]) throws -> RunConfigurationGenerationResult {
-        try generateCurrent(at: projectURL, files: files, modulePaths: modulePaths, javaEntrypoints: javaEntrypoints,
-            projectOwnership: projectOwnership, providerRuns: providerRuns)
-    }
-
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
-                  projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration],
-                  models: [BuildModel], lease: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult {
-        try generateCurrent(at: projectURL, files: files, modulePaths: modulePaths, javaEntrypoints: javaEntrypoints,
-            projectOwnership: projectOwnership, providerRuns: providerRuns, models: models, lease: lease)
-    }
-
     /// Identifies the project's run entries in memory and the application cache.
-    /// The isolated legacy adapter may convert existing user Run documents.
+    /// Nothing is written into the workspace; plugins own their provider runs.
     func generate(
         at projectURL: URL,
-        files: [URL],
-        modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?,
-        projectOwnership: [RunProjectOwnership]? = nil
+        providerRuns: [RunProviderConfiguration]?,
+        lease: RunConfigurationGenerationLease
     ) throws -> RunConfigurationGenerationResult {
-        try generateCurrent(at: projectURL, files: files, modulePaths: modulePaths, javaEntrypoints: javaEntrypoints,
-            projectOwnership: projectOwnership, providerRuns: nil)
-    }
-
-    private func generateCurrent(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
-                                 projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration]?,
-                                 models: [BuildModel] = [], lease suppliedLease: RunConfigurationGenerationLease? = nil) throws -> RunConfigurationGenerationResult {
-        let lease = suppliedLease ?? RunConfigurationGenerationLease()
-        defer { if suppliedLease == nil { lease.invalidate() } }
         try lease.check()
         let root = projectURL.standardizedFileURL
         guard storage.metadata(for: root)?.isDirectory == true else { throw MacRunConfigurationStoreError.invalidProject }
-        let paths = files.compactMap { file -> String? in
-            let value = file.standardizedFileURL
-            guard value.path.hasPrefix(root.path + "/") else { return nil }
-            return String(value.path.dropFirst(root.path.count + 1))
-        }
-        let migration = MacLegacyMavenRunConfigurationMigration(storage: storage, preferences: preferences, immutableRoots: immutableRoots)
         try lease.check()
         let result = try core.generateRunConfiguration(
             at: root,
-            paths: paths,
-            modulePaths: modulePaths,
-            javaEntrypoints: javaEntrypoints,
-            projectOwnership: projectOwnership, providerRuns: providerRuns,
+            providerRuns: providerRuns,
             cacheDirectoryURL: storage.cacheDirectory()
-
         ).get()
         try lease.check()
-        let plan = try providerRuns.map { try migration.prepare(workspace: root, projects: projectOwnership ?? [], runs: $0,
-            models: models, generatedDocument: JSONEncoder().encode(result.generated), lease: lease) }
-        if let plan, !plan.writes.isEmpty {
-            let decoder = JSONDecoder()
-            let team = try plan.teamDocument.map { try decoder.decode(ToolingJSONValue.self, from: $0) }
-            let local = try plan.localDocument.map { try decoder.decode(ToolingJSONValue.self, from: $0) }
-            // Validate both prepared layers against the same generated snapshot
-            // before any user document is published. Core performs no writes.
-            _ = try core.resolveRunConfiguration(at: root, toolchainCandidates: [], teamDocument: team, localDocument: local).get()
-            try lease.check()
-            try migration.apply(plan, workspace: root, lease: lease)
-        }
         return RunConfigurationGenerationResult(entryCount: result.entryCount)
     }
 
@@ -174,9 +97,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         case .success(let value): payload = value
         case .failure(let error): throw RunConfigurationOperationFailure(message: error.userMessage)
         }
-        let argumentLists = payload.configurations.flatMap { value in
-            [value.maven?.jvmArguments ?? [], value.maven?.programArguments ?? value.args ?? []]
-        }
+        let argumentLists = payload.configurations.map { $0.args ?? [] }
         let argumentTexts: [String]
         if argumentLists.isEmpty {
             argumentTexts = []
@@ -189,33 +110,19 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             throw MacRunConfigurationStoreError.invalidConfiguration(L10n.string("Project run configuration is invalid"))
         }
         let configurations: [EffectiveRunConfiguration] = payload.configurations.enumerated().map { index, value in
-            let kind = configurationKind(value.provider)
-            let maven = value.maven
-            let java = value.extensions?.java
-            return EffectiveRunConfiguration(
+            EffectiveRunConfiguration(
                 configuration: RunConfiguration(
                     id: value.id,
                     name: value.name,
-                    kind: kind,
+                    kind: RunConfigurationKind(rawValue: value.provider) ?? .process(provider: value.provider),
                     execution: value.execution.flatMap(RunConfigurationExecution.init(rawValue:)),
-                    modulePath: (maven?.module ?? java?.module) == "." ? nil : (maven?.module ?? java?.module),
-                    mainClass: maven?.mainClass ?? java?.mainClass,
-                    sourcePath: java?.source,
-                    mavenReactorPath: maven?.reactorPath,
                     debugAdapter: value.debug?.adapter,
                     disabled: value.disabled,
-                    buildProvider: value.extensions?.build,
-                    buildProject: java?.build
+                    buildProvider: value.extensions?.build
                 ),
                 options: RunOptions(
-                    javaHomePath: java?.homePath ?? "",
                     workingDirectoryPath: (value.cwd ?? ".") == "." ? "" : (value.cwd ?? "."),
-                    vmArguments: argumentTexts[index * 2],
-                    programArguments: argumentTexts[index * 2 + 1],
-                    activeProfiles: Set(maven?.profiles ?? []),
-                    mavenSkipTests: maven?.skipTests,
-                    mavenExecutablePath: java?.mavenExecutablePath ?? "",
-                    mavenJavaHomePath: java?.mavenJavaHomePath ?? "",
+                    programArguments: argumentTexts[index],
                     environment: value.env ?? [:],
                     providerRunOptions: value.extensions?.buildRun
                 ),
@@ -225,13 +132,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         return RunConfigurationResolution(
             configurations: configurations,
             diagnostics: diagnostics(from: payload.diagnostics),
-            defaultConfigurationID: payload.defaultRunConfiguration,
-            projectToolchain: ProjectToolchainSelection(
-                javaHomePath: payload.toolchain?.java?.homePath ?? "",
-                mavenExecutablePath: payload.toolchain?.maven?.executablePath ?? "",
-                mavenJavaHomePath: payload.toolchain?.maven?.javaHomePath ?? "",
-                pathOverrides: payload.toolchain?.pathOverrides ?? [:]
-            )
+            defaultConfigurationID: payload.defaultRunConfiguration
         )
     }
 
@@ -242,42 +143,9 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         }
     }
 
-    func launchPlan(
-        at projectURL: URL,
-        configurationID: String,
-        currentFile: String?,
-        classPath: String?,
-        debugPort: Int?
-    ) throws -> SharedLaunchPlan {
-        try launchPlan(
-            at: projectURL,
-            configurationID: configurationID,
-            currentFile: currentFile,
-            classPath: classPath,
-            debugPort: debugPort,
-            mavenContext: nil
-        )
-    }
-
-    func launchPlan(
-        at projectURL: URL,
-        configurationID: String,
-        currentFile: String?,
-        classPath: String?,
-        javaLaunch: JavaDebugLaunchTarget?,
-        debugPort: Int?,
-        mavenContext: MavenLaunchContext?
-    ) throws -> SharedLaunchPlan {
+    func launchPlan(at projectURL: URL, configurationID: String) throws -> SharedLaunchPlan {
         let value: RustCoreBridge.LaunchPlanPayload
-        switch core.createLaunchPlan(
-            at: projectURL,
-            configurationID: configurationID,
-            currentFile: currentFile,
-            classPath: classPath,
-            javaLaunch: javaLaunch,
-            debugPort: debugPort,
-            mavenContext: mavenContext
-        ) {
+        switch core.createLaunchPlan(at: projectURL, configurationID: configurationID) {
         case .success(let payload): value = payload
         case .failure(let error): throw RunConfigurationOperationFailure(message: error.userMessage)
         }
@@ -291,33 +159,11 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                 message: "The launch plan names neither a toolchain nor a command."
             )
         }
-        let preLaunchSteps = try (value.preLaunchSteps ?? []).map { step -> SharedLaunchPlan.PreLaunchStep in
-            let stepExecutable: SharedLaunchPlan.Executable
-            if let toolchain = step.executable.toolchain {
-                stepExecutable = .toolchain(toolchain)
-            } else if let command = step.executable.command {
-                stepExecutable = .command(command)
-            } else {
-                throw RunConfigurationOperationFailure(
-                    message: "A launch plan pre-launch step names neither a toolchain nor a command."
-                )
-            }
-            return SharedLaunchPlan.PreLaunchStep(
-                executable: stepExecutable,
-                tool: step.executable.tool,
-                arguments: step.arguments,
-                classpath: step.classpath ?? [],
-                workingDirectory: step.workingDirectory
-            )
-        }
         return SharedLaunchPlan(
             executable: executable,
             arguments: value.arguments,
             workingDirectory: value.workingDirectory,
-            environment: value.env ?? [:],
-            preLaunchSteps: preLaunchSteps,
-            classpath: value.classpath ?? [],
-            modulepath: value.modulepath ?? []
+            environment: value.env ?? [:]
         )
     }
 
@@ -337,41 +183,6 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             options: options
         )
         try writeMutation(mutation, to: url, root: root)
-    }
-
-    func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL) throws {
-        let url = projectURL.appendingPathComponent(".lithe/run/local.json")
-        let expected = storage.fileExists(at: url) ? try storage.readData(from: url, options: []) : nil
-        try saveProjectToolchain(toolchain, at: projectURL, expecting: expected)
-    }
-
-    func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL, expecting expected: Data?) throws {
-        try Task.checkCancellation()
-        let root = projectURL.standardizedFileURL
-        let url = root.appendingPathComponent(".lithe/run/local.json")
-        let current = storage.fileExists(at: url) ? try storage.readData(from: url, options: []) : nil
-        guard current == expected else { throw ProjectRuntimeSettingsStoreError.conflict }
-        let payload = try core.updateRunConfigurationOptions(
-            at: root,
-            configurationID: "",
-            scope: .local,
-            options: RunOptions(),
-            toolchain: toolchain
-        ).get()
-        guard let data = payload.document.data(using: .utf8) else {
-            throw MacRunConfigurationStoreError.writeFailed("Invalid UTF-8 project environment data.")
-        }
-        // Settings can be saved before generation creates the normal ignore file.
-        // Protect machine paths before making the local document visible to Git.
-        try Task.checkCancellation()
-        try ensureLocalRunIgnored(at: root)
-        try validateWriteTarget(url, root: root)
-        try storage.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Task.checkCancellation()
-        guard try storage.replaceDataPreservingMetadata(data, at: url, expecting: expected) else {
-            throw ProjectRuntimeSettingsStoreError.conflict
-        }
-        MacFileWriteEventSuppression.markWritten(url)
     }
 
     /// The generic editor replaces only preferences; it must not generate any
@@ -433,7 +244,6 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
 
     func saveEditorChanges(
         _ options: RunOptions,
-        toolchain: ProjectToolchainSelection,
         configurationID: String,
         scope: RunConfigurationSaveScope,
         at projectURL: URL
@@ -444,8 +254,7 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             at: root,
             configurationID: configurationID,
             scope: scope,
-            options: options,
-            toolchain: toolchain
+            options: options
         ) {
         case .success(let value): mutation = value
         case .failure(let error):
@@ -497,56 +306,6 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         return id
     }
 
-    func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String {
-        let root = projectURL.standardizedFileURL
-        let fileName = draft.scope == .local ? "local.json" : "configurations.json"
-        let url = root.appendingPathComponent(".lithe/run/\(fileName)")
-        let mutation = try documentMutator.createConfigurationDocument(at: root, draft: draft)
-        guard let id = mutation.configurationID else {
-            throw MacRunConfigurationStoreError.invalidConfiguration(
-                "The shared core did not return a configuration ID."
-            )
-        }
-        try writeMutation(mutation, to: url, root: root)
-        return id
-    }
-
-    /// Converts the legacy per-project UserDefaults values into local-only JSON once.
-    /// Existing values are retained as a rollback source for one release cycle.
-    func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {
-        let root = projectURL.standardizedFileURL
-        let projectKey = root.path.replacingOccurrences(of: "/", with: "_")
-        let markerKey = "lithe.run-configuration-migrated.\(projectKey)"
-        if preferences.object(forKey: markerKey) as? Bool == true { return }
-        let localURL = root.appendingPathComponent(".lithe/run/local.json")
-        if !storage.fileExists(at: localURL) {
-            let document: [String: Any] = ["version": 1, "configurations": []]
-            let data = try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys, .prettyPrinted])
-            try validateWriteTarget(localURL, root: root)
-            try storage.createDirectory(at: localURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try atomicWrite(data, to: localURL, root: root)
-            for id in configurationIDs {
-                let key = "lithe.java-run-options.\(projectKey).\(id)"
-                guard let data = preferences.data(forKey: key),
-                      let options = try? JSONDecoder().decode(RunOptions.self, from: data) else { continue }
-                let mutation = try documentMutator.updateOptionsDocument(
-                    at: root,
-                    configurationID: id,
-                    scope: .local,
-                    options: options
-                )
-                try writeMutation(mutation, to: localURL, root: root)
-            }
-            try migrateLegacyToolchainsIntoServices(
-                root: root,
-                projectKey: projectKey,
-                configurationIDs: configurationIDs,
-                localURL: localURL
-            )
-        }
-        preferences.set(true, forKey: markerKey)
-    }
-
     private func atomicWrite(_ data: Data, to url: URL, root: URL) throws {
         try validateWriteTarget(url, root: root)
         if storage.fileExists(at: url),
@@ -585,59 +344,6 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             ".lithe/run/local.json",
             ".lithe/project.json"
         ].first(where: message.contains)
-    }
-
-    private func migrateLegacyToolchainsIntoServices(
-        root: URL,
-        projectKey: String,
-        configurationIDs: [String],
-        localURL: URL
-    ) throws {
-        let key = "lithe.project-runtime.\(projectKey)"
-        guard let data = preferences.data(forKey: key),
-              let settings = try? JSONDecoder().decode(ProjectRuntimeSettings.self, from: data) else { return }
-        let mavenExecutable = settings.mavenHomeSelection == .custom && !settings.mavenHomePath.isEmpty
-            ? URL(fileURLWithPath: settings.mavenHomePath).appendingPathComponent("bin/mvn").path
-            : (settings.mavenHomeSelection == .wrapper ? "./mvnw" : "")
-        guard !settings.javaHomePath.isEmpty || !mavenExecutable.isEmpty || !settings.mavenJavaHomePath.isEmpty else { return }
-        for id in configurationIDs {
-            let legacyKey = "lithe.java-run-options.\(projectKey).\(id)"
-            var options: RunOptions
-            do { options = try preferences.data(forKey: legacyKey).map { try JSONDecoder().decode(RunOptions.self, from: $0) } ?? RunOptions() }
-            catch {
-                core.coreLogSink?.emit(AppStorageMaintenanceFailed(error: error, stage: "legacy-run-options"))
-                options = RunOptions()
-            }
-            options.javaHomePath = settings.javaHomePath
-            options.mavenExecutablePath = mavenExecutable
-            options.mavenJavaHomePath = settings.mavenJavaHomePath
-            let mutation = try documentMutator.updateOptionsDocument(
-                at: root,
-                configurationID: id,
-                scope: .local,
-                options: options
-            )
-            try writeMutation(mutation, to: localURL, root: root)
-        }
-    }
-
-    private func jsonDocument(
-        at url: URL,
-        fallbackKey: String,
-        fallbackValue: Any = []
-    ) throws -> [String: Any] {
-        guard storage.fileExists(at: url) else { return ["version": 1, fallbackKey: fallbackValue] }
-        let data = try storage.readData(from: url, options: [])
-        guard let value = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw MacRunConfigurationStoreError.writeFailed("Existing local configuration is invalid.")
-        }
-        return value
-    }
-
-    private func set(_ value: String, key: String, in dictionary: inout [String: String]) {
-        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if normalized.isEmpty { dictionary.removeValue(forKey: key) }
-        else { dictionary[key] = normalized }
     }
 
     private func ensureLocalRunIgnored(at root: URL) throws {
@@ -756,19 +462,6 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         }) else { throw ProjectRuntimeSettingsStoreError.conflict }
     }
 
-    private func configurationKind(_ value: String) -> RunConfigurationKind {
-        switch value {
-        case "java.current-file": .currentFile
-        case "java.main": .javaMain
-        case "maven.module": .mavenModule
-        default:
-            if let framework = MavenFrameworkKind.allCases.first(where: { $0.provider == value }) {
-                .mavenFramework(framework)
-            } else {
-                .process(provider: value)
-            }
-        }
-    }
 }
 
 private struct PreparedRunDocumentWrite {
@@ -798,13 +491,6 @@ private struct RustRunConfigurationDocumentMutator: RunConfigurationDocumentMuta
         ).get())
     }
 
-    func createConfigurationDocument(
-        at projectURL: URL,
-        draft: RunConfigurationDraft
-    ) throws -> RunConfigurationDocumentMutation {
-        try mutation(from: core.createUserRunConfiguration(at: projectURL, draft: draft).get())
-    }
-
     private func mutation(
         from payload: RustCoreBridge.RunConfigurationMutationPayload
     ) throws -> RunConfigurationDocumentMutation {
@@ -814,13 +500,5 @@ private struct RustRunConfigurationDocumentMutator: RunConfigurationDocumentMuta
             )
         }
         return RunConfigurationDocumentMutation(configurationID: payload.id, document: data)
-    }
-}
-
-private extension JSONEncoder {
-    static var prettySorted: JSONEncoder {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return encoder
     }
 }

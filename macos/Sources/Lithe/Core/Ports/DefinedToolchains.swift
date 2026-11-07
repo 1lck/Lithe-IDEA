@@ -8,6 +8,35 @@ struct ResolvedDefinedToolchain: Sendable {
     let environment: [String: String]
     let projectCode: Bool
     let version: String?
+    /// The installation root the selection came from; the definition's `launch`
+    /// template can name it as `${home}`. Nil when the tool was chosen by executable.
+    var home: String? = nil
+    /// What this selection added to the caller's environment: the definition's exports,
+    /// plus `PATH` when the installation prepends entries. `environment` is the caller's
+    /// environment with these applied. Consumers that forward only what a tool
+    /// contributes read this instead of treating the whole environment as contributed.
+    var exports: [String: String] = [:]
+}
+
+/// The program and arguments a tool definition's `launch` template expands to for one
+/// selected installation.
+struct DefinedToolLaunch: Sendable, Equatable {
+    let executable: String
+    let arguments: [String]
+}
+
+/// Core refused to expand a `launch` template. `code` is Core's own error code, such as
+/// `plugin.toolchain.launchMismatch` when the template cannot carry what the caller supplied.
+struct DefinedToolLaunchRejection: Error, Equatable, Sendable {
+    let code: String
+    let message: String
+}
+
+/// Turns a resolved tool installation into the argv that starts it, following the
+/// definition's `launch` template, so no caller branches on a tool name.
+@MainActor
+protocol DefinedToolLaunching: AnyObject {
+    func launch(of selection: ResolvedDefinedToolchain, tool: String, arguments: [String]) throws -> DefinedToolLaunch
 }
 
 /// Installation dependencies consume version and exports; they do not invoke

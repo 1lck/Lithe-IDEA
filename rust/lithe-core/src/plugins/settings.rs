@@ -923,12 +923,12 @@ mod tests {
     #[test]
     fn page_ids_are_checked() {
         let paged = setting(json!({
-            "id": "heap", "type": "boolean", "title": "Heap", "default": true,
-            "page": {"languageID": "java"}, "section": "Language server"
+            "id": "trace", "type": "boolean", "title": "Trace", "default": true,
+            "page": {"languageID": "toml"}, "section": "Language server"
         }));
         assert!(paged.validate("settings[0]", 2).is_ok());
         let wrong = setting(json!({
-            "id": "heap", "type": "boolean", "title": "Heap", "default": true,
+            "id": "trace", "type": "boolean", "title": "Trace", "default": true,
             "page": {"languageID": "has space"}
         }));
         assert!(wrong.validate("settings[0]", 2).is_err());

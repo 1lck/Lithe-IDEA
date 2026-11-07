@@ -188,7 +188,7 @@ struct DocumentGuardedSaveTests {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        try body(directory.appendingPathComponent("A.java"), MacWorkspaceFileOperations())
+        try body(directory.appendingPathComponent("A.txt"), MacWorkspaceFileOperations())
     }
 
     @Test func externalChangeWithSameSizeAndMtimeIsNotOverwritten() throws {
@@ -227,7 +227,7 @@ struct DocumentGuardedSaveTests {
                 Issue.record("Stale window must conflict"); return
             }
             #expect(try String(contentsOf: url, encoding: .utf8) == "first")
-            #expect(try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path) == ["A.java"])
+            #expect(try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path) == ["A.txt"])
         }
     }
 

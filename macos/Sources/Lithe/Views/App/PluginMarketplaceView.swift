@@ -767,8 +767,14 @@ enum PluginMarketplacePresentation {
             PluginMarketplacePresentation.localized("Start a language server when you open files of its language", locale: locale)
         case "editor.actions":
             L10n.string("Add clickable actions beside document text")
+        case "editor.providers":
+            L10n.string("Add definitions, hovers, completions and other editor features for matching files")
         case "terminal.create":
             L10n.string("Open and manage its own native terminals, retaining bounded display history for reopening")
+        case "languageServer.request":
+            L10n.string("Send requests and commands to its language server for your project")
+        case "documents.contentProvider":
+            L10n.string("Supply the text of read-only documents it opens in the editor")
         case "keymaps.provide":
             L10n.string("Offer shortcut mappings for import")
         case "keymaps.readSelectedSources":
@@ -813,6 +819,13 @@ enum PluginMarketplacePresentation {
             return (
                 String(format: localized("%@ language server (installed on this Mac)", locale: locale), language),
                 serverDetail([program.commands.joined(separator: " | ")])
+            )
+        case .backendLanguageServer:
+            // The command line is the plugin's to choose at every start, so
+            // the approval shows who chooses it, not a fixed command.
+            return (
+                String(format: localized("%@ language server (started by the plugin)", locale: locale), language),
+                labeled("Command chosen by: %@", [program.function ?? ""])
             )
         case .runtime:
             return (

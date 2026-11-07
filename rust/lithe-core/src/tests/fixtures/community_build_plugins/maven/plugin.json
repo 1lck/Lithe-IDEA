@@ -295,11 +295,7 @@
         "mayUseNetwork": true
       },
       "sync": { "watch": [".mvn/extensions.xml", ".mvn/maven.config", "pom.xml"] },
-      "layout": { "excluded": ["target"] },
-      "languageImport": {
-        "kind": "maven",
-        "options": { "profiles": "profiles", "settingsFile": "settingsFile", "localRepository": "localRepository" }
-      }
+      "layout": { "excluded": ["target"] }
     }
   ]
 }

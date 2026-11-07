@@ -10,8 +10,7 @@
       "macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift",
       "macos/Tests/LitheTests/LanguageServerSyncBridgeTests.swift",
       "macos/Tests/LitheTests/RustLanguageServerLaunchTests.swift",
-      "rust/lithe-core/src/lsp/interface/document_uri.rs",
-      "rust/lithe-core/tests/lsp_document_uri.rs"
+      "rust/lithe-core/src/lsp/interface/document_uri.rs"
     ]
   },
   "windows": {
@@ -22,7 +21,7 @@
       "windows/tauri/src/platform/lsp-core-adapter.test.ts",
       "rust/lithe-core/src/lsp/tests.rs",
       "shared/fixtures/lsp/document-uri-v1.json",
-      "rust/lithe-core/tests/lsp_document_uri.rs"
+      "rust/lithe-core/src/lsp/interface/document_uri.rs"
     ]
   },
   "owner": "Language Intelligence",

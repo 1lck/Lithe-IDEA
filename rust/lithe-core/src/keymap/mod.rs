@@ -1,5 +1,9 @@
 //! Bounded context parsing and Core-owned truth tables for synchronous key dispatch.
 
+mod bindings;
+
+pub use bindings::{analyze_conflicts, AnalyzeConflictsRequest};
+
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 

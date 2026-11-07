@@ -30,7 +30,7 @@ function pushActiveEditorToJumpList() {
   if (activeBuffer?.type !== "editor" || !activeBuffer.path) return;
 
   const editorState = useEditorStateStore.getState();
-  useJumpListStore.getState().actions.pushEntry({
+  void useJumpListStore.getState().actions.record({
     bufferId: activeBuffer.id,
     filePath: activeBuffer.path,
     paneId: usePaneStore.getState().activePaneId,
@@ -67,15 +67,18 @@ export const useQuickOpen = () => {
     isLoadingFiles,
     isIndexing,
     rootFolderPath: loaderRootFolder,
+    nativeRootPaths,
+    workspaceId,
   } = useFileLoader(isQuickOpenVisible);
 
   const { openBufferFiles, recentFilesInResults, otherFiles } = useFileSearch(
     files,
     isSymbolMode || isWorkspaceSymbolMode ? "" : debouncedQuery,
-    null,
     {
       hasLoadedFiles,
       rootFolderPath,
+      nativeRootPaths,
+      workspaceId,
     },
   );
 

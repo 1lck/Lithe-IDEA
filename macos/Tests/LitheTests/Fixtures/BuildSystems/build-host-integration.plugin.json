@@ -23,7 +23,6 @@
     {
       "id": "maven",
       "displayName": "Maven",
-      "hostIntegration": "maven",
       "detection": {
         "markers": [
           "pom.xml"
@@ -156,7 +155,16 @@
         }
       ],
       "model": {
-        "source": "hostIntegration"
+        "source": "command",
+        "arguments": [
+          "-q",
+          "lithe:model",
+          "-Dlithe.output=${outputFile}"
+        ],
+        "output": "outputFile",
+        "decoder": "litheBuildModel",
+        "executesProjectCode": true,
+        "mayUseNetwork": true
       },
       "tasks": [
         {
@@ -315,7 +323,10 @@
           "test"
         ],
         "results": {
-          "decoder": "hostIntegration"
+          "decoder": "junitXml",
+          "reports": [
+            "target/surefire-reports/*.xml"
+          ]
         }
       },
       "diagnostics": {
@@ -336,7 +347,20 @@
         ]
       },
       "dependencies": {
-        "source": "hostIntegration"
+        "source": "command",
+        "scopes": [
+          "workspace",
+          "project"
+        ],
+        "arguments": [
+          "-q",
+          "lithe:dependencies",
+          "-Dlithe.output=${outputFile}"
+        ],
+        "output": "outputFile",
+        "decoder": "litheDependencies",
+        "executesProjectCode": true,
+        "mayUseNetwork": true
       },
       "sync": {
         "watch": [

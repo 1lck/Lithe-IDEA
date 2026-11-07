@@ -30,30 +30,19 @@ struct RunView: View {
         VStack(spacing: 0) {
             toolWindowHeader
             if (feature.configurationStatus == .ready && hasRunnableConfigurations)
-                || feature.isRunning || feature.lastExitCode != nil {
+                || feature.isRunning || feature.lastExitCode != nil || feature.hasPluginRun {
                 runToolbar
             }
-            if feature.serviceUpdateSessionID == selectedModuleSession?.id,
-               feature.serviceUpdateExecutionID == selectedModuleSession?.executionID,
-               selectedModuleSession?.isRunning == true,
-               let message = feature.serviceUpdateMessage {
-                Text(message).font(.caption).textSelection(.enabled).padding(8)
-            }
-
             if feature.hasBuildProviderRun, let error = feature.configurationSaveError {
                 LitheBanner(status: .warning, layout: .editor) { Text(verbatim: error).textSelection(.enabled) }
             }
-            if !feature.portConflicts.isEmpty {
-                portConflictBanner
-            }
-
             if let notice = configurationNotice {
                 configurationNoticeBanner(notice)
             }
 
-            if feature.configurationStatus != .ready && !feature.hasBuildProviderRun {
+            if feature.configurationStatus != .ready && !showsProviderRunOutput {
                 configurationSetupView
-            } else if !hasRunnableConfigurations || (feature.hasBuildProviderRun && selectedSessionID == nil) {
+            } else if !hasRunnableConfigurations || (showsProviderRunOutput && selectedSessionID == nil) {
                 OutputTextView(
                     output: feature.output,
                     searchRoots: feature.sourceSearchRoots,
@@ -64,6 +53,7 @@ struct RunView: View {
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
+                .pluginLinks(in: model, scope: .run, searchRoots: feature.sourceSearchRoots)
             } else {
                 RunServicesSplitView(
                     isScopeCollapsed: isConfigurationListCollapsed,
@@ -207,28 +197,10 @@ struct RunView: View {
         }
         if let diagnostic = feature.configurationDiagnostics.first(where: { $0.code == "toolchainVendorMismatch" }) {
             return (
-                runText("Different JDK vendor selected"),
+                runText("Different toolchain vendor selected"),
                 diagnostic.message,
                 "info.circle.fill"
             )
-        }
-        switch feature.javaDiscoveryStatus {
-        case .loading:
-            return (
-                runText("Waiting for the Java language service"),
-                runText("Java entries appear after the Java language service lists runnable classes."),
-                "clock.fill"
-            )
-        case .stale:
-            return (
-                runText("Refreshing Java entries"),
-                runText("Showing the previous Java entries while the Java language service prepares the project."),
-                "clock.fill"
-            )
-        case .failed(let message):
-            return (runText("Java entries could not be refreshed"), message, "exclamationmark.triangle.fill")
-        case .idle, .ready:
-            break
         }
         switch feature.generationState {
         case .projectNotReady:
@@ -271,7 +243,7 @@ struct RunView: View {
                 Button("Identify Again",
                     action: UserActionTrace.action("run.configurations.generate") { feature.requestRunConfigurationGeneration() })
             } else if feature.blockingToolchainDiagnostic != nil {
-                Button("Project · JDK & Maven") { model.showSettings(category: .project) }
+                Button("Runtime Environment") { model.showSettings(category: .toolchainEnvironment) }
             }
         }
     }
@@ -421,7 +393,7 @@ struct RunView: View {
                 .padding(.horizontal, 2)
                 .help(selectedSessionHasRun ? "Restart run" : "Run configuration")
                 .accessibilityLabel(selectedSessionHasRun ? "Restart run" : "Run configuration")
-                .disabled(feature.isLoadingProject)
+                .disabled(feature.isLoadingProject || restartsNothing)
 
                 if feature.hasBuildProviderRun && primaryOutputSelected && primaryRunMatchesSelection {
                     Button(action: UserActionTrace.action("run.provider-configuration.save") {
@@ -448,17 +420,6 @@ struct RunView: View {
                 .disabled(!selectedSessionIsRunning)
                 .help("Stop run")
                 .accessibilityLabel("Stop run")
-
-                if let session = selectedModuleSession, feature.canUpdateService(session) {
-                    Button(action: UserActionTrace.action("run.service.update") { model.updateRunningService(session) }) {
-                        Image(systemName: "bolt.fill")
-                    }
-                    .buttonStyle(runActionButtonStyle)
-                    .padding(.horizontal, 2)
-                    .disabled(feature.updatingServiceExecutionID != nil)
-                    .help("Compile changes for Spring Boot DevTools. The application context may restart.")
-                    .accessibilityLabel("Update running service")
-                }
 
                 Button(action: UserActionTrace.action("run.configurations.generate") {
                     feature.requestRunConfigurationGeneration()
@@ -522,14 +483,6 @@ struct RunView: View {
         !runnableConfigurations.isEmpty
     }
 
-    private var portConflictBanner: some View {
-        LitheBanner(status: .warning, layout: .editor) {
-            ForEach(feature.portConflicts) { conflict in
-                Text(conflict.title).lineLimit(2)
-            }
-        }
-    }
-
     private var selectedModuleSession: RunSession? {
         guard let selectedSessionID else { return nil }
         return feature.moduleSessions.first(where: { $0.id == selectedSessionID })
@@ -551,9 +504,20 @@ struct RunView: View {
         selectedSessionID == nil || selectedRunnableConfiguration?.buildProvider != nil
     }
 
+    /// A build provider's run or a plugin's run owns the primary console even when
+    /// the workspace has no generated run configurations.
+    private var showsProviderRunOutput: Bool {
+        feature.hasBuildProviderRun || feature.hasPluginRun
+    }
+
+    /// A plugin run that gave no way to start it again has nothing for Restart to do.
+    private var restartsNothing: Bool {
+        primaryOutputSelected && feature.hasPluginRun && !feature.canRestartPluginRun
+    }
+
     private var selectedSessionHasRun: Bool {
         primaryOutputSelected
-            ? primaryRunMatchesSelection && (feature.isRunning || feature.lastExitCode != nil || feature.hasBuildProviderRun)
+            ? primaryRunMatchesSelection && (feature.isRunning || feature.lastExitCode != nil || showsProviderRunOutput)
             : selectedModuleSession != nil
     }
 
@@ -583,6 +547,7 @@ struct RunView: View {
             ) { url, line, column in
                 model.openSourceLocation(url: url, line: line, column: column)
             }
+            .pluginLinks(in: model, scope: .run, searchRoots: feature.sourceSearchRoots)
         }
     }
 
@@ -861,6 +826,7 @@ struct RunView: View {
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
+                .pluginLinks(in: model, scope: .run, searchRoots: feature.sourceSearchRoots)
                 .id(configuration.id)
             }
         }
@@ -896,10 +862,6 @@ struct RunView: View {
         session: RunSession?
     ) -> some View {
         let options = feature.options(for: configuration)
-        let capabilities = configuration.effectiveCapabilities(
-            for: model.activeDocument?.url,
-            catalog: model.languageProviderCatalog
-        )
         let workingDirectory = options.workingDirectoryPath.isEmpty
             ? (model.workspaceURL?.standardizedFileURL.path ?? runText("Project root"))
             : options.workingDirectoryPath
@@ -939,45 +901,13 @@ struct RunView: View {
                             configurationLinkRow("Address", url: serviceURL)
                         }
 
-                        if let modulePath = nonEmpty(configuration.modulePath) {
-                            configurationDetailRow("Module", value: modulePath, monospaced: true)
-                        }
-                        if let mainClass = nonEmpty(configuration.mainClass) {
-                            configurationDetailRow("Main class", value: mainClass, monospaced: true)
-                        }
-                        if capabilities.contains(.javaRuntime),
-                           let javaHome = nonEmpty(options.javaHomePath) {
-                            configurationDetailRow("JDK home", value: javaHome, monospaced: true)
-                        }
-                        if configuration.kind.isMavenBacked,
-                           let mavenExecutable = nonEmpty(options.mavenExecutablePath) {
-                            configurationDetailRow("Maven", value: mavenExecutable, monospaced: true)
-                        }
-                        if configuration.kind.isMavenBacked,
-                           let mavenJavaHome = nonEmpty(options.mavenJavaHomePath) {
-                            configurationDetailRow("Maven JDK", value: mavenJavaHome, monospaced: true)
-                        }
-                        if capabilities.contains(.javaVMArguments),
-                           let vmArguments = nonEmpty(options.vmArguments) {
-                            configurationDetailRow("VM arguments", value: vmArguments, monospaced: true)
-                        }
                         if let programArguments = nonEmpty(options.programArguments) {
                             configurationDetailRow("Program arguments", value: programArguments, monospaced: true)
-                        }
-                        if capabilities.contains(.mavenProfiles), !options.activeProfiles.isEmpty {
-                            configurationDetailRow(
-                                "Active profiles",
-                                value: options.activeProfiles.sorted().joined(separator: ", "),
-                                monospaced: true
-                            )
                         }
                     }
 
                     Group {
-                        if (!capabilities.contains(.javaRuntime) || options.javaHomePath.isEmpty),
-                           (!capabilities.contains(.javaVMArguments) || options.vmArguments.isEmpty),
-                           options.programArguments.isEmpty,
-                           (!capabilities.contains(.mavenProfiles) || options.activeProfiles.isEmpty) {
+                        if options.programArguments.isEmpty {
                             configurationDetailRow("Options", value: runText("Default options"))
                         }
 

@@ -57,6 +57,20 @@ public struct DebugSessionHandle {
     }
 }
 
+/// The adapter declaration behind one debug provider, keyed by the adapter's
+/// stable registry identity rather than by whichever descriptor selected it.
+public struct DebugProviderDeclaration: Equatable, Sendable {
+    public let storageKey: String
+    public let displayName: String
+    public let behavior: DebugAdapterDeclaredBehavior
+
+    public init(storageKey: String, displayName: String, behavior: DebugAdapterDeclaredBehavior) {
+        self.storageKey = storageKey
+        self.displayName = displayName
+        self.behavior = behavior
+    }
+}
+
 /// Owns every DAP session, breakpoint projection, and debug callback.
 ///
 /// This is deliberately separate from `LanguageToolingSessionManager`: an LSP
@@ -115,6 +129,12 @@ public final class DebugAdapterSessionManager: ObservableObject {
     public var makeEndpointSession: (@MainActor (
         DebugProviderDescriptor, DebugAdapterEndpoint, URL
     ) throws -> (any DebugAdapterSession)?)?
+
+    /// What a provider's adapter declared, read without starting a session so
+    /// settings that apply to the next session can be edited first. Several
+    /// descriptors (a language default and the adapter's own qualified
+    /// identity) can share one declaration; its `storageKey` is that identity.
+    public var declarationSource: (@MainActor (DebugProviderDescriptor) -> DebugProviderDeclaration?)?
 
     /// Read at every lookup: a host that registers debug adapters while it
     /// runs hands back the current set instead of the one it started with.
@@ -178,6 +198,13 @@ public final class DebugAdapterSessionManager: ObservableObject {
     /// Reads current registrations even when an older session is still alive.
     public func provider(id: String) -> DebugProviderDescriptor? {
         providersSource().first { $0.id == id }
+    }
+
+    /// Every current registration, in the order lookups consult them.
+    public var providers: [DebugProviderDescriptor] { providersSource() }
+
+    public func declaration(forProviderID id: String) -> DebugProviderDeclaration? {
+        provider(id: id).flatMap { declarationSource?($0) }
     }
 
     @discardableResult

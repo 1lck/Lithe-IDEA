@@ -1,3 +1,4 @@
+import { planSaveBatch, reduceSaveBatch, type SaveBatchOutcome } from "../services/save-batch";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { bufferNotLoadedMessage, isBufferContentLoaded } from "../utils/buffer-load-state";
 import { isLocalDocumentPath, readDocumentFile, saveDocumentFile } from "@/platform/document-files";
@@ -10,7 +11,10 @@ import { createStore } from "zustand/vanilla";
 import { extensionRegistry } from "@/extensions/registry/extension-registry";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { emitGitChanged } from "@/features/git/events/git-events";
-import { recordLocalHistoryFile } from "@/features/local-history/api/local-history-api";
+import {
+  recordLocalHistoryFile,
+  type LocalHistoryPhase,
+} from "@/features/local-history/api/local-history-api";
 import {
   isEditorContent,
   type EditorContent,
@@ -41,12 +45,17 @@ import { trackBufferHistoryChange } from "./buffer-history-tracking";
 import { useBufferStore } from "./buffer.store";
 import { queueEditorViewContentChange } from "./view.store";
 
-async function recordLocalHistoryBeforeWrite(
+/**
+ * Records the local-history snapshots Core plans for a save. The text being replaced is
+ * recorded before the write and the saved text right after it, as macOS does.
+ */
+async function recordSaveHistory(
   path: string,
-  reason: "save" | "auto-save" | "restore",
+  event: "save" | "autoSave",
+  phase: LocalHistoryPhase,
 ): Promise<void> {
   try {
-    await recordLocalHistoryFile(path, reason);
+    await recordLocalHistoryFile(path, event, phase);
   } catch (error) {
     console.warn("Failed to record local history:", error);
   }
@@ -395,7 +404,7 @@ async function saveEditorBufferById(
     claimedSave = await claimDocumentSave(workspaceId, saveBuffer);
     if (!claimedSave) return "cancelled";
 
-    await recordLocalHistoryBeforeWrite(activeBuffer.path, "save");
+    await recordSaveHistory(activeBuffer.path, "save", "beforeChange");
     const expectedContent = saveBuffer.acknowledgedDiskContent === undefined ? saveBuffer.savedContent : saveBuffer.acknowledgedDiskContent;
     const persisted = await persistClaimedDocument(
       workspaceId,
@@ -411,6 +420,7 @@ async function saveEditorBufferById(
       return "cancelled";
     }
     await finishDocumentSave(workspaceId, claimedSave, contentToSave);
+    await recordSaveHistory(activeBuffer.path, "save", "afterChange");
 
     try {
       const { LspClient } = await import("@/features/editor/lsp/lsp-client");
@@ -468,13 +478,6 @@ async function saveEditorBufferById(
     showSaveFailure(activeBuffer.name);
     return "failed";
   }
-}
-
-function getDirtyEditorBuffers(buffers: PaneContent[]): EditorContent[] {
-  return buffers.filter(
-    (buffer): buffer is EditorContent =>
-      isEditorContent(buffer) && buffer.isDirty && !buffer.readOnly,
-  );
 }
 
 /** One queued autosave debounce, optionally continuing an in-flight write. */
@@ -727,7 +730,7 @@ export const createEditorAppStore = (
                   traceDocumentSaveCancellation(autoSaveContext, "awaited-write-not-persisted");
                   return;
                 }
-                await recordLocalHistoryBeforeWrite(target.path, "auto-save");
+                await recordSaveHistory(target.path, "autoSave", "beforeChange");
                 const expectedContent = latestBeforeSave.acknowledgedDiskContent === undefined
                   ? latestBeforeSave.savedContent
                   : latestBeforeSave.acknowledgedDiskContent;
@@ -748,6 +751,7 @@ export const createEditorAppStore = (
                   return;
                 }
                 await finishDocumentSave(workspaceId, claim, text);
+                await recordSaveHistory(target.path, "autoSave", "afterChange");
 
                 const rootFolderPath = useFileSystemStore
                   .getStore(workspaceId)
@@ -839,21 +843,24 @@ export const createEditorAppStore = (
 
         handleSaveAll: async () => {
           const bufferStore = useBufferStore.getStore(workspaceId);
-          const dirtyBufferIds = getDirtyEditorBuffers(bufferStore.getState().buffers).map(
-            (buffer) => buffer.id,
-          );
-          const saveResults = await Promise.all(
-            dirtyBufferIds.map(async (bufferId) => {
+          // Core selects the members and reduces their outcomes; the writes
+          // run concurrently here and every member is attempted.
+          const members = await planSaveBatch(bufferStore.getState().buffers);
+          const settled = await Promise.allSettled(
+            members.map(async (bufferId): Promise<SaveBatchOutcome> => {
               const result = await saveEditorBufferById(workspaceId, bufferId);
               const nextBuffer = getBufferById(bufferStore.getState().buffers, bufferId);
-              return (
-                result === "saved" &&
-                (!nextBuffer || !isEditorContent(nextBuffer) || !nextBuffer.isDirty)
-              );
+              const clean = !nextBuffer || !isEditorContent(nextBuffer) || !nextBuffer.isDirty;
+              return result === "saved" && clean ? "saved" : "failed";
             }),
           );
-
-          return saveResults.filter(Boolean).length;
+          const outcomes = settled.map((entry): SaveBatchOutcome =>
+            entry.status === "fulfilled" ? entry.value : "failed");
+          const batch = await reduceSaveBatch(members, outcomes, bufferStore.getState().buffers);
+          // A thrown save is still reported to the caller after every member ran.
+          const thrown = settled.find((entry) => entry.status === "rejected");
+          if (thrown?.status === "rejected") throw thrown.reason;
+          return batch.savedCount;
         },
 
         openQuickEdit: (params) => {

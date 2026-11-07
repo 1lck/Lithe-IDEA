@@ -1,62 +1,103 @@
 import Foundation
 import LitheCoreContracts
 
-/// Shared TOML/JSON metadata parsing plus native, ephemeral credential extraction.
+/// Shared Rust Core parsing of pasted CLI configuration plus native, ephemeral credential extraction.
+///
+/// Core returns metadata and a credential locator only; this adapter resolves the
+/// locator against the text the user pasted, so the key never crosses the Core boundary.
 struct MacAgentProviderConfigurationParser: AgentProviderConfigurationParsing {
     let core: RustCoreBridge
 
+    private struct Files: Encodable {
+        var config: String?
+        var auth: String?
+        var settings: String?
+    }
     private struct Payload: Encodable {
         let source: String
-        let configuration: String
+        let files: Files
         let allowIncomplete: Bool
     }
-    private struct Metadata: Decodable {
-        let name: String
-        let endpoint: String
-        let model: String
-        let apiProtocol: CommitMessageAPIProtocol
-        let authentication: AIProviderAuthentication
+    private struct Locator: Decodable {
+        let kind: String
+        let file: String?
+        let path: [String]?
+    }
+    private struct Response: Decodable {
+        struct Provider: Decodable {
+            let name: String
+            let endpoint: String
+            let model: String
+            let apiProtocol: CommitMessageAPIProtocol
+            let authentication: AIProviderAuthentication
+        }
+        let provider: Provider?
+        let hasCredential: Bool
+        let credential: Locator?
+        let unsupportedAuthentication: Bool
     }
 
     func parse(source: AIConfigurationSourceKind, configuration: String, authentication: String, allowIncomplete: Bool) throws -> AIConfigurationSnapshot {
         guard configuration.utf8.count <= 64 * 1024, authentication.utf8.count <= 64 * 1024 else {
             throw AgentProviderConfigurationError.invalidConfiguration
         }
-        let metadata: Metadata
+        let files: Files
+        switch source {
+        case .codex: files = Files(config: configuration, auth: authentication)
+        case .claude: files = Files(settings: configuration)
+        }
+        let response: Response?
         do {
-            metadata = try core.executeResult(command: "agent.parseProviderConfiguration", payload: Payload(
-                source: source.rawValue, configuration: configuration, allowIncomplete: allowIncomplete
+            response = try core.executeResult(command: "ai.configuration.parse", payload: Payload(
+                source: source.rawValue, files: files, allowIncomplete: allowIncomplete
             )).get()
+        } catch let error as RustCoreBridge.CoreCallError {
+            // Fixed codes only: parser diagnostics could quote a pasted credential.
+            if error.message == "AI_CONFIGURATION_SMART_QUOTES" { throw AgentProviderConfigurationError.invalidConfigurationQuotes }
+            if error.message == "AI_CONFIGURATION_INVALID_AUTHENTICATION" { throw AgentProviderConfigurationError.invalidAuthentication }
+            throw AgentProviderConfigurationError.invalidConfiguration
         } catch {
-            // Never present parser details, which could quote a pasted credential.
-            if source == .codex, configuration.contains("“") || configuration.contains("”") {
-                throw AgentProviderConfigurationError.invalidConfigurationQuotes
-            }
             throw AgentProviderConfigurationError.invalidConfiguration
         }
-        let key: String?
+        guard let response else {
+            // Strict Claude parsing reports "not configured" as no data; the editor asks for a key.
+            throw source == .claude && !allowIncomplete
+                ? AgentProviderConfigurationError.missingAPIKey
+                : AgentProviderConfigurationError.invalidConfiguration
+        }
+        guard let provider = response.provider else {
+            throw AgentProviderConfigurationError.invalidConfiguration
+        }
+        let key = Self.resolve(response.credential, files: files)
         switch source {
         case .codex:
-            let text = allowIncomplete && authentication.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "{}" : authentication
-            guard let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else {
-                throw AgentProviderConfigurationError.invalidAuthentication
-            }
-            let value = object["OPENAI_API_KEY"] ?? object["api_key"]
-            guard value is String || (allowIncomplete && value == nil) else {
-                throw AgentProviderConfigurationError.invalidAuthentication
-            }
-            key = value as? String ?? ""
+            // A saved Codex provider must carry the pasted `auth.json` key.
+            if !allowIncomplete, key == nil { throw AgentProviderConfigurationError.invalidAuthentication }
         case .claude:
-            let snapshot = MacClaudeConfigurationParser.parse(settingsData: Data(configuration.utf8),
-                credentialsData: nil, rootConfigData: nil, environment: [:])
-            if !allowIncomplete {
-                guard snapshot?.hasAPIKey == true else { throw AgentProviderConfigurationError.missingAPIKey }
+            if !allowIncomplete, key == nil { throw AgentProviderConfigurationError.missingAPIKey }
+            guard provider.authentication == .apiKey, !response.unsupportedAuthentication else {
+                throw AgentProviderConfigurationError.unsupportedProtocol
             }
-            guard metadata.authentication == .apiKey else { throw AgentProviderConfigurationError.unsupportedProtocol }
-            key = snapshot?.apiKey ?? ""
         }
-        return AIConfigurationSnapshot(source: source, providerName: metadata.name, endpoint: metadata.endpoint,
-            model: metadata.model, apiProtocol: metadata.apiProtocol, authentication: metadata.authentication,
-            reasoningEffort: nil, requiresAPIKey: true, apiKey: key)
+        return AIConfigurationSnapshot(source: source, providerName: provider.name, endpoint: provider.endpoint,
+            model: provider.model, apiProtocol: provider.apiProtocol, authentication: provider.authentication,
+            reasoningEffort: nil, requiresAPIKey: true, apiKey: key ?? "")
+    }
+
+    /// Reads the value a file locator names from the pasted JSON; draft parsing never consults the environment.
+    private static func resolve(_ locator: Locator?, files: Files) -> String? {
+        guard let locator, locator.kind == "file", let path = locator.path else { return nil }
+        let text: String?
+        switch locator.file {
+        case "auth": text = files.auth
+        case "settings": text = files.settings
+        default: text = nil
+        }
+        guard let text, var value = try? JSONSerialization.jsonObject(with: Data(text.utf8)) else { return nil }
+        for key in path {
+            guard let object = value as? [String: Any], let next = object[key] else { return nil }
+            value = next
+        }
+        return value as? String
     }
 }
