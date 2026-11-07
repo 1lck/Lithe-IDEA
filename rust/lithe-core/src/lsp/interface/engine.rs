@@ -6390,6 +6390,68 @@ mod tests {
             .collect()
     }
 
+    /// A diagnostics publish whose only purpose is to be observed: because the
+    /// reader consumes one pipe in order, its event proves that everything
+    /// written before it has been handled, so a test can assert that an earlier
+    /// message changed nothing without waiting for an arbitrary span of time.
+    fn probe_diagnostics(uri: &str, message: &str) -> Value {
+        json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": {
+                "uri": uri,
+                "version": 1,
+                "diagnostics": [{
+                    "range": {
+                        "start": { "line": 0, "character": 0 },
+                        "end": { "line": 0, "character": 1 }
+                    },
+                    "severity": 1,
+                    "message": message
+                }]
+            }
+        })
+    }
+
+    fn diagnostic_message(event: &LspRuntimeEvent) -> Option<&str> {
+        event
+            .diagnostics
+            .as_ref()
+            .and_then(|list| list.first())
+            .map(|diagnostic| diagnostic.message.as_str())
+    }
+
+    /// Waits until `reached` holds for the session's snapshot, sleeping on the
+    /// session's own event signal rather than polling, so the wait ends as
+    /// soon as the session publishes the change.
+    fn await_session(session: &RuntimeSession, reached: impl Fn(&EngineSnapshot) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let snapshot = session.snapshot().unwrap();
+            if reached(&snapshot) {
+                return;
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            assert!(
+                !remaining.is_zero(),
+                "the session stayed in {:?} instead of reaching the expected state",
+                snapshot.state
+            );
+            // A terminal session with a drained queue answers with an error;
+            // the snapshot is read once more so a change that landed with the
+            // terminal event still counts.
+            if session.wait_events(remaining).is_err() {
+                let snapshot = session.snapshot().unwrap();
+                assert!(
+                    reached(&snapshot),
+                    "the session ended in {:?} without reaching the expected state",
+                    snapshot.state
+                );
+                return;
+            }
+        }
+    }
+
     #[test]
     fn structured_logging_warnings_keep_source_stage_and_code() {
         let harness = Harness::ready();
@@ -7094,8 +7156,10 @@ mod tests {
             "id": request_id,
             "result": { "contents": "too late" }
         }));
-        thread::sleep(Duration::from_millis(50));
-        harness.poll();
+        harness
+            .server
+            .send(probe_diagnostics(uri, "after the late response"));
+        harness.await_event(|event| diagnostic_message(event) == Some("after the late response"));
         let completions = harness
             .events
             .iter()
@@ -7148,6 +7212,7 @@ mod tests {
             "id": stale_id,
             "result": { "contents": "from the dead session" }
         }));
+        // test-stability: allow(rust-real-sleep) reason: the response is written to a process whose reader thread exited with it, so no event can signal its arrival; the sleep only bounds the window in which a leak into the new session could surface, and the assertions hold without it.
         thread::sleep(Duration::from_millis(50));
         restarted.poll();
         assert_eq!(
@@ -7243,6 +7308,7 @@ mod tests {
             "id": request_id,
             "result": { "contents": "unreachable" }
         }));
+        // test-stability: allow(rust-real-sleep) reason: the session already failed because the process exited, so its reader thread is gone and no event can signal that the late response was seen; the sleep only bounds the window in which a leak could surface, and the assertions hold without it.
         thread::sleep(Duration::from_millis(50));
         harness.poll();
         assert_eq!(
@@ -7771,13 +7837,19 @@ mod tests {
         assert_eq!(harness.snapshot().diagnostic_versions[uri], 2);
 
         // Version 1 is behind the open document, so it cannot replace version 2.
+        // A probe for another document, published right after it, proves the
+        // stale publish has been handled by the time the probe is observed.
+        let probe = "file:///workspace/probe.go";
+        harness.sync(probe, "package main");
         harness.server.send(json!({
             "jsonrpc": "2.0",
             "method": "textDocument/publishDiagnostics",
             "params": { "uri": uri, "version": 1, "diagnostics": [] }
         }));
-        thread::sleep(Duration::from_millis(50));
-        harness.poll();
+        harness
+            .server
+            .send(probe_diagnostics(probe, "after the stale version"));
+        harness.await_event(|event| diagnostic_message(event) == Some("after the stale version"));
         assert_eq!(
             harness.snapshot().diagnostic_versions[uri],
             2,
@@ -8013,6 +8085,7 @@ mod tests {
         let first = split(uri, "first");
         let boundary = first.len() - 12;
         harness.server.send_raw(first[..boundary].as_bytes());
+        // test-stability: allow(rust-real-sleep) reason: anything written after the partial frame on the same pipe would complete it, so no probe can follow; only elapsed time gives the reader a chance to deliver the incomplete frame wrongly, and the assertion holds whether or not it does.
         thread::sleep(Duration::from_millis(40));
         harness.poll();
         assert!(
@@ -8157,12 +8230,9 @@ mod tests {
         let old = engine.start_server(start_request(&old_server)).unwrap();
         old_server.complete_initialize(ready_capabilities());
         let old_session = engine.session(&old.session_id).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while Instant::now() < deadline
-            && old_session.snapshot().unwrap().state != LspLifecycleState::Ready
-        {
-            thread::sleep(Duration::from_millis(2));
-        }
+        await_session(&old_session, |snapshot| {
+            snapshot.state == LspLifecycleState::Ready
+        });
         let uri = "file:///workspace/main.go";
         old_session
             .sync_document(SyncDocumentRequest {
@@ -8189,27 +8259,17 @@ mod tests {
                 }]
             }
         }));
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while Instant::now() < deadline
-            && !old_session
-                .snapshot()
-                .unwrap()
-                .diagnostic_versions
-                .contains_key(uri)
-        {
-            thread::sleep(Duration::from_millis(2));
-        }
+        await_session(&old_session, |snapshot| {
+            snapshot.diagnostic_versions.contains_key(uri)
+        });
 
         old_session.stop().unwrap();
         let shutdown = old_server.await_request("shutdown").unwrap();
         old_server.send(json!({ "jsonrpc": "2.0", "id": shutdown, "result": null }));
         old_server.exit(Some(0));
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while Instant::now() < deadline
-            && old_session.snapshot().unwrap().state != LspLifecycleState::Stopped
-        {
-            thread::sleep(Duration::from_millis(2));
-        }
+        await_session(&old_session, |snapshot| {
+            snapshot.state == LspLifecycleState::Stopped
+        });
 
         let stopped = old_session.snapshot().unwrap();
         assert_eq!(stopped.root_uri, "file:///workspace");
@@ -8504,15 +8564,20 @@ mod tests {
         let mut harness = Harness::ready();
         harness.poll();
         let session = harness.session();
+        let waiting = Arc::new(std::sync::Barrier::new(2));
         let waiter = thread::spawn({
             let session = Arc::clone(&session);
+            let waiting = Arc::clone(&waiting);
             move || {
+                waiting.wait();
                 session
                     .wait_events(Duration::from_secs(2))
                     .expect("waiting should succeed")
             }
         });
-        thread::sleep(Duration::from_millis(30));
+        // The barrier orders the stop after the waiter has reached the wait;
+        // if the stop still lands first, its queued event is returned at once.
+        waiting.wait();
         session.stop().expect("the session should stop");
         let events = waiter.join().expect("the waiter thread should finish");
         assert!(
