@@ -270,3 +270,19 @@ fn hook_draft_validation_dispatch_returns_the_shared_field_codes() {
     let response = run(command, json!({"hook": {"name": "x"}}));
     assert_eq!(response["error"]["code"], "invalid_request", "{response}");
 }
+
+#[test]
+fn attachment_retention_dispatch_follows_the_shared_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/agent/attachment-retention-v1.json"
+    ))
+    .unwrap();
+    let command = fixture["command"].as_str().unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let response = run(command, case["request"].clone());
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["data"], case["expected"], "{}", case["name"]);
+    }
+    let response = run(command, json!({"entries": []}));
+    assert_eq!(response["error"]["code"], "invalid_request", "{response}");
+}

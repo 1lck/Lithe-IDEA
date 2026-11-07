@@ -84,3 +84,26 @@ struct ProjectTreeNameOrderTests {
 func coreTreeOrder(_ rows: [FileNode]) -> [FileNode]? {
     RustWorkspaceOperations(core: RustCoreBridge()).orderedTreeSiblings(rows)
 }
+
+/// Test doubles that conform get the same Core-backed copy-name and directory-rule
+/// operations production uses, so their tests exercise Core's rules instead of a stub.
+protocol CoreBackedWorkspaceRules: WorkspaceOperations {}
+
+extension CoreBackedWorkspaceRules {
+    func copyName(for name: String, isDirectory: Bool, existing: [String], duplicate: Bool) -> String? {
+        RustWorkspaceOperations(core: RustCoreBridge())
+            .copyName(for: name, isDirectory: isDirectory, existing: existing, duplicate: duplicate)
+    }
+
+    func reduceDirectoryAction(
+        _ action: WorkspaceDirectoryAction, at path: String, rules: WorkspaceDirectoryRules
+    ) -> WorkspaceDirectoryReduction? {
+        RustWorkspaceOperations(core: RustCoreBridge()).reduceDirectoryAction(action, at: path, rules: rules)
+    }
+
+    func relocateDirectoryRules(
+        _ rules: WorkspaceDirectoryRules, moving source: String, to destination: String?
+    ) -> WorkspaceDirectoryRules? {
+        RustWorkspaceOperations(core: RustCoreBridge()).relocateDirectoryRules(rules, moving: source, to: destination)
+    }
+}

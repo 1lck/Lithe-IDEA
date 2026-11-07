@@ -75,6 +75,7 @@
 3. 开发完成提交 PR 的时候需要说清楚对应改动的功能点，哪怕是一些细小的改动也是需要包含在内的，需要确保 code reviewer 马上就可以理解这个改动是什么。PR 描述必须以 `.github/pull_request_template.md` 为骨架：最前面是关联 Issue，再选 feat / fix / docs / release 类型；只实现单一平台的 feat 必须为另一平台提交跟进 Issue；功能矩阵、统一日志系统等检查项逐项回答。`gh pr create` 带 `--body` 或 `--body-file` 时不会自动套用模板，必须先读取模板再按它填写
 4. 如果让你修复有关 CI 的流程，记得使用 gh 或者 curl 之类的去查看(优先 gh)而不是使用 Computer Use
 5. 提交 PR 时默认创建 Draft PR（`gh pr create --draft`）。Draft PR 只运行 Linux 检查，不占用 macOS 和 Windows runner。开发完成、本地验证通过、可以评审时，再用 `gh pr ready` 标记为 ready，这时才会运行完整 CI。标记为 ready 之后，把修改攒在一起再 push：每次 push 都会重新运行完整 CI，并取消上一轮还没跑完的 CI。仓库曾因 Actions 用量过高被 GitHub 判定为滥用，所以不要为了看 CI 结果而反复 push；能在本地验证的先在本地验证。
+6. 发现既有债务（无用代码、可重构之处、未沉入 Core 的逻辑）必须当次建单，不接受“先记下来、以后再改”。归类、查重、回填编号的三步做法和等价违规写法以 `develop-lithe` 第九节为准；入口文件只保留这条提醒，不复制规则细节。
 
 ## 脚本放置与分类
 

@@ -1,40 +1,38 @@
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
+import fixture from "../../../../../../shared/fixtures/keymap/modifier-gesture-v1.json";
+import { executeCoreRuleSync } from "@/core/core-rules";
+import { loadCoreRulesForTests } from "@/test-utils/core-rules";
 import { DoubleShiftGestureRecognizer } from "./double-shift-recognizer";
 
-describe("double Shift search everywhere", () => {
-  test("requires two standalone taps within the threshold", () => {
-    const recognizer = new DoubleShiftGestureRecognizer(0.35);
+// The same fixture drives the Rust tests in lithe-core-rules and lithe-core and the macOS
+// adapter test, so every host sees one gesture definition. Here it runs through the real wasm.
+beforeAll(loadCoreRulesForTests);
 
-    expect(recognizer.handleFlagsChanged(true, false, 1.0)).toBe(false);
-    expect(recognizer.handleFlagsChanged(false, false, 1.05)).toBe(false);
-    expect(recognizer.handleFlagsChanged(true, false, 1.2)).toBe(false);
-    expect(recognizer.handleFlagsChanged(false, false, 1.25)).toBe(true);
-  });
+describe("double Shift gesture (shared fixture through wasm)", () => {
+  for (const sequence of fixture.sequences) {
+    test(sequence.name, () => {
+      const recognizer = new DoubleShiftGestureRecognizer();
+      for (const [index, step] of sequence.steps.entries()) {
+        if (step.event === "keyDown") recognizer.handleKeyDown();
+        else if (step.event === "reset") recognizer.reset();
+        else {
+          const triggered = recognizer.handleFlagsChanged(
+            step.shift!,
+            step.otherModifiers!,
+            step.timestamp!,
+          );
+          expect({ step: index, triggered }).toEqual({ step: index, triggered: step.expected! });
+        }
+      }
+    });
+  }
 
-  test("rejects Shift used for uppercase typing and keys between taps", () => {
-    const recognizer = new DoubleShiftGestureRecognizer(0.35);
-
-    recognizer.handleFlagsChanged(true, false, 1.0);
-    recognizer.handleKeyDown();
-    expect(recognizer.handleFlagsChanged(false, false, 1.05)).toBe(false);
-
-    recognizer.handleFlagsChanged(true, false, 1.2);
-    recognizer.handleKeyDown();
-    expect(recognizer.handleFlagsChanged(false, false, 1.25)).toBe(false);
-
-    recognizer.handleFlagsChanged(true, false, 2.0);
-    recognizer.handleFlagsChanged(false, false, 2.05);
-    recognizer.handleKeyDown();
-    recognizer.handleFlagsChanged(true, false, 2.2);
-    expect(recognizer.handleFlagsChanged(false, false, 2.25)).toBe(false);
-  });
-
-  test("ignores a second tap after the threshold", () => {
-    const recognizer = new DoubleShiftGestureRecognizer(0.35);
-
-    recognizer.handleFlagsChanged(true, false, 1.0);
-    recognizer.handleFlagsChanged(false, false, 1.05);
-    recognizer.handleFlagsChanged(true, false, 1.5);
-    expect(recognizer.handleFlagsChanged(false, false, 1.55)).toBe(false);
+  test("malformed rule requests fail with the Core error code", () => {
+    expect(() => executeCoreRuleSync("keymap.modifierGestureStep", { event: { kind: "bogus" } })).toThrow(
+      expect.objectContaining({ code: "invalid_request" }),
+    );
+    expect(() => executeCoreRuleSync("keymap.unknown", {})).toThrow(
+      expect.objectContaining({ code: "not_supported" }),
+    );
   });
 });

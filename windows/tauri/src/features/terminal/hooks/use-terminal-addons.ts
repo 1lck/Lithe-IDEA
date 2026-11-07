@@ -8,7 +8,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import type { ILink, ILinkProvider, Terminal } from "@xterm/xterm";
 import {
-  parseTerminalFileLinks,
+  findTerminalFileLinks,
   type TerminalFileLink,
 } from "@/features/terminal/utils/terminal-file-links";
 import { writeClipboardText } from "@/utils/clipboard";
@@ -97,27 +97,27 @@ export function registerFileLinksProvider(
         return;
       }
 
-      const links = parseTerminalFileLinks(
-        line.translateToString(true),
-        options.getWorkspaceRoot(),
-      );
-      if (links.length === 0) {
-        callback(undefined);
-        return;
-      }
+      void findTerminalFileLinks(line.translateToString(true), options.getWorkspaceRoot())
+        .catch(() => [])
+        .then((links) => {
+          if (links.length === 0) {
+            callback(undefined);
+            return;
+          }
 
-      callback(
-        links.map<ILink>((link) => ({
-          range: {
-            start: { x: link.startIndex + 1, y: bufferLineNumber },
-            end: { x: link.endIndex, y: bufferLineNumber },
-          },
-          text: link.text,
-          activate: () => {
-            void options.openFile(link);
-          },
-        })),
-      );
+          callback(
+            links.map<ILink>((link) => ({
+              range: {
+                start: { x: link.startIndex + 1, y: bufferLineNumber },
+                end: { x: link.endIndex, y: bufferLineNumber },
+              },
+              text: link.text,
+              activate: () => {
+                void options.openFile(link);
+              },
+            })),
+          );
+        });
     },
   };
 

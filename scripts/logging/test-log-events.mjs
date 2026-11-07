@@ -209,9 +209,9 @@ test('generated references use catalog channel, event identity and operation', {
 test('helper production roots are gated while remote server and standalone binaries are excluded', { timeout: 5000 }, async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'lithe-helper-log-usage-'));
   try {
-    const roots = ['macos/Sources', ...['core', 'agent-host', 'git-host', 'ide-host', 'remote'].map(name => `rust/lithe-${name}/src`)];
+    const roots = ['macos/Sources', ...['core', 'core-rules', 'agent-host', 'git-host', 'ide-host', 'remote'].map(name => `rust/lithe-${name}/src`)];
     await Promise.all(roots.map(directory => mkdir(path.join(root, directory), { recursive: true })));
-    const included = ['agent-host', 'git-host', 'ide-host', 'remote'].map(name => `rust/lithe-${name}/src/production.rs`);
+    const included = ['core-rules', 'agent-host', 'git-host', 'ide-host', 'remote'].map(name => `rust/lithe-${name}/src/production.rs`);
     const excluded = ['rust/lithe-remote/src/server/worker.rs', 'rust/lithe-remote/src/bin/server.rs', 'rust/lithe-ide-host/src/bin/mcp.rs'];
     await Promise.all([...included, ...excluded].map(async file => {
       await mkdir(path.dirname(path.join(root, file)), { recursive: true });

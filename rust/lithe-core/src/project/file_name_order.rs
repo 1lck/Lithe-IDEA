@@ -130,10 +130,21 @@ pub(crate) fn compare_file_names(left: &str, right: &str) -> Ordering {
 }
 
 fn compare_utf16(left: &[u16], right: &[u16]) -> Ordering {
-    natural_compare(left, right, true)
+    natural_compare(left, right, true, true)
 }
 
-fn natural_compare(left: &[u16], right: &[u16], ignore_case: bool) -> Ordering {
+/// Compares two Git reference names with IDEA's `NaturalComparator` (`ignoreCase`, not
+/// `likeFileNames`), so `-` keeps its own code unit rank. Inputs are UTF-16 code units.
+pub(crate) fn compare_reference_names(left: &[u16], right: &[u16]) -> Ordering {
+    natural_compare(left, right, true, false)
+}
+
+fn natural_compare(
+    left: &[u16],
+    right: &[u16],
+    ignore_case: bool,
+    like_file_names: bool,
+) -> Ordering {
     let (mut i, mut j) = (0, 0);
     while i < left.len() && j < right.len() {
         let (first, second) = (left[i], right[j]);
@@ -166,7 +177,7 @@ fn natural_compare(left: &[u16], right: &[u16], ignore_case: bool) -> Ordering {
             i = end_left - 1;
             j = end_right - 1;
         } else if first != second {
-            let order = compare_name_units(first, second, ignore_case);
+            let order = compare_name_units(first, second, ignore_case, like_file_names);
             if order != Ordering::Equal {
                 return order;
             }
@@ -186,7 +197,7 @@ fn natural_compare(left: &[u16], right: &[u16], ignore_case: bool) -> Ordering {
     }
     // Names that tie while ignoring case are ordered by one case-sensitive pass.
     if ignore_case {
-        natural_compare(left, right, false)
+        natural_compare(left, right, false, like_file_names)
     } else {
         Ordering::Equal
     }
@@ -194,8 +205,15 @@ fn natural_compare(left: &[u16], right: &[u16], ignore_case: bool) -> Ordering {
 
 /// The "likeFileNames" character comparison: a `-` ranks like `_` unless the other
 /// character already is `_`, so `foo-bar` and `foo_bar` stay together (IDEA-80435).
-fn compare_name_units(first: u16, second: u16, ignore_case: bool) -> Ordering {
-    if first == DASH && second != UNDERSCORE {
+fn compare_name_units(
+    first: u16,
+    second: u16,
+    ignore_case: bool,
+    like_file_names: bool,
+) -> Ordering {
+    if !like_file_names {
+        compare_units(first, second, ignore_case)
+    } else if first == DASH && second != UNDERSCORE {
         compare_units(UNDERSCORE, second, ignore_case)
     } else if second == DASH && first != UNDERSCORE {
         compare_units(first, UNDERSCORE, ignore_case)

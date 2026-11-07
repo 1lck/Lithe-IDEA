@@ -8,6 +8,7 @@
 
 pub mod failure_log;
 
+pub mod attachment_retention;
 pub mod catalog;
 mod claude_desktop;
 mod claude_earlier_history;

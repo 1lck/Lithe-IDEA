@@ -115,11 +115,11 @@ package struct GitHistorySelection: Equatable, Sendable {
         focusedHash = hash
     }
 
-    /// Only a complete history replacement prunes missing identities; paging leaves them intact.
-    package mutating func retain(_ loadedHashes: Set<String>, fallback: String?) {
-        hashes.formIntersection(loadedHashes)
-        if hashes.isEmpty, let fallback, loadedHashes.contains(fallback) { hashes = [fallback] }
-        if focusedHash.map(loadedHashes.contains) != true { focusedHash = fallback }
-        if anchorHash.map(loadedHashes.contains) != true { anchorHash = focusedHash }
+    /// Applies Core's `git.historyWindow` reconciliation after a complete history
+    /// replacement: only identities still loaded survive, paging leaves them intact.
+    package mutating func apply(selected: [String], focused: String?, anchor: String?) {
+        hashes = Set(selected)
+        focusedHash = focused
+        anchorHash = anchor
     }
 }

@@ -27,6 +27,8 @@ struct RustLocalHistoryOperations: LocalHistoryOperations, Sendable {
     func content(at storageURL: URL, contentPath: String) -> String? { core.historyContent(storageURL: storageURL, contentPath: contentPath)?.text }
     func relocate(at storageURL: URL, sourcePath: String, destinationPath: String) -> Bool { core.historyRelocate(storageURL: storageURL, sourcePath: sourcePath, destinationPath: destinationPath) }
 
+    func planEvent(_ event: LocalHistoryEvent) -> [LocalHistorySnapshotPlan]? { core.historyPlanEvent(event) }
+
     func usage(at storageURL: URL, limitBytes: Int64?) -> LocalHistoryUsage? {
         core.historyUsage(storageURL: storageURL, limitBytes: limitBytes).map { LocalHistoryUsage(usedBytes: $0.usedBytes, limitBytes: $0.limitBytes) }
     }

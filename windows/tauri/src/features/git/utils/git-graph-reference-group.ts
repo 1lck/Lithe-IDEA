@@ -1,7 +1,8 @@
 // Adapted from macOS GitGraphReferenceGroup and IntelliJ LabelPainter.
 // Apache-2.0 attribution: macos/Resources/GitGraph/NOTICE.txt.
 import type { GitReference } from "../types/git.types";
-import { naturalCompare, type GitGraphLabel, type GitGraphLabelKind } from "./git-graph-layout";
+import type { GitGraphLabel, GitGraphLabelKind } from "../api/git-graph-projection-api";
+import { naturalCompare } from "./git-reference-name-compare";
 
 export interface GitGraphReferenceGroup {
   title: string;

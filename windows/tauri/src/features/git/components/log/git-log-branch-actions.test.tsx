@@ -3,7 +3,9 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { toast } from "sonner";
 import { LocaleProvider } from "@/i18n/locale-provider";
+import { installGitHistoryWindowStub } from "@/test-utils/git-history-window-stub";
 import { installHappyDom } from "@/test-utils/happy-dom";
+import { installGitGraphProjectionStub } from "@/test-utils/git-graph-projection-stub";
 import { useRepositoryStore } from "../../stores/git-repository.store";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import { useGitLogRevealStore } from "../../stores/git-log-reveal.store";
@@ -118,11 +120,14 @@ const controllerState = (
   ...overrides,
 });
 
+let graphStub: ReturnType<typeof installGitGraphProjectionStub>;
+
 beforeEach(() => {
   controllerSpy = spyOn(controller, "useGitLogController").mockImplementation(() =>
     controllerState(),
   );
   restoreDom = installHappyDom();
+  graphStub = installGitGraphProjectionStub();
   previousAct = globals.IS_REACT_ACT_ENVIRONMENT;
   globals.IS_REACT_ACT_ENVIRONMENT = true;
   previousRepos = useRepositoryStore.getState();
@@ -143,6 +148,7 @@ beforeEach(() => {
   useGitLogRevealStore.setState({ pending: null });
   // Keep the real action owner; stub unrelated data loading and rendering, so
   // this test exercises checkout confirmation and update dispatch without Git or layout timers.
+  spies.push(installGitHistoryWindowStub());
   spies.push(
     controllerSpy,
     spyOn(workspaceRefs, "useGitWorkspaceReferences").mockImplementation(() => ({
@@ -163,7 +169,6 @@ beforeEach(() => {
     spyOn(pullWorkflow, "useGitPullWorkflow").mockImplementation(() => ({
       isPulling: false,
       isPullLocked: false,
-      pendingPreflight: null,
       pull,
     })),
     spyOn(dialogs, "showConfirmDialog").mockImplementation(confirm),
@@ -254,7 +259,8 @@ afterEach(async () => {
     container.remove();
     if (previousAct === undefined) delete globals.IS_REACT_ACT_ENVIRONMENT;
     else globals.IS_REACT_ACT_ENVIRONMENT = previousAct;
-    restoreDom();
+    graphStub.mockRestore();
+  restoreDom();
   }
 });
 const render = async (language: "en-US" | "zh-CN" = "en-US") =>

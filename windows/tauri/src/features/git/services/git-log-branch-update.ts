@@ -1,11 +1,14 @@
 import { updateBranch } from "../api/git-branches-api";
 import { getGitPullWorkflow } from "../api/git-remotes-api";
+import { planGitBranchUpdate } from "../api/git-update-plan-api";
 import { readWorktrees } from "../api/git-worktrees-api";
 import { emitGitChanged } from "../events/git-events";
 import type { GitPullResult, GitReference } from "../types/git.types";
-import { defaultPullStrategy } from "../utils/git-pull-selection";
 
-/** IDEA updates checked-out branches in their worktree; other refs fast-forward in place. */
+/**
+ * IDEA updates checked-out branches in their worktree; other refs fast-forward in place.
+ * Core's `git.updatePlan` decides where each branch is updated and which gates apply.
+ */
 export async function updateGitLogBranch(
   repoPath: string,
   reference: GitReference,
@@ -18,21 +21,39 @@ export async function updateGitLogBranch(
   const worktrees = await readWorktrees(repoPath);
   // Repository discovery can finish after the Log has changed workspace or closed.
   if (!isActive()) return { status: "cancelled" };
-  const target = worktrees.find((worktree) => worktree.branch === reference.shortName);
-  if (target) {
-    return getGitPullWorkflow(target.path).run(target.path, {
-      // Lithe's existing default is Merge. Another worktree only fast-forwards,
-      // matching IDEA without switching the active repository or rewriting history.
-      strategy: target.is_current ? defaultPullStrategy() : "ffOnly",
-      allowStrategyPrompt: false,
-      expectedBranch: reference.fullName,
+  const route = await planGitBranchUpdate(
+    {
+      fullName: reference.fullName,
+      upstream: reference.upstreamShortName,
+      isCurrent: reference.isCurrent,
+    },
+    worktrees,
+  );
+  if (route.step === "blocked") {
+    throw new Error("The selected local branch has no upstream");
+  }
+  if (route.step === "inspect") {
+    const checkout = route.checkout ?? repoPath;
+    const isCurrentCheckout = route.checkout === null || worktrees.some(
+      (worktree) => worktree.path === route.checkout && worktree.is_current,
+    );
+    return getGitPullWorkflow(checkout).run(checkout, {
+      // Only the active worktree may ask for a strategy; another worktree
+      // never switches the active repository or rewrites history.
+      interactive: route.interactive,
+      expectedBranch: route.expectedBranch,
       validateBranch: async () => {
         if (!isActive()) return false;
-        const current = (await readWorktrees(target.path)).find((worktree) => worktree.is_current);
-        return isActive() && !!current && !current.is_detached && current.branch === reference.shortName;
+        const current = (await readWorktrees(checkout)).find((worktree) => worktree.is_current);
+        return (
+          isActive() &&
+          !!current &&
+          !current.is_detached &&
+          `refs/heads/${current.branch}` === route.expectedBranch
+        );
       },
       refresh: async () => {
-        if (!target.is_current)
+        if (!isCurrentCheckout)
           emitGitChanged({
             repoPath,
             scopes: ["history", "refs", "remotes"],
@@ -42,6 +63,7 @@ export async function updateGitLogBranch(
       },
     });
   }
+  if (route.step !== "fastForwardReference") throw new Error("Invalid Git update plan");
   try {
     await updateBranch(repoPath, reference);
     return { status: "branch-updated" };

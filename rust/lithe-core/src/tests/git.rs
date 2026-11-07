@@ -4548,6 +4548,26 @@ fn git_pull_preflight_reports_divergence_and_strategies_resolve_it() {
     assert_eq!(clean["data"]["diverged"], false);
     assert_eq!(clean["data"]["ahead"], 0);
     assert_eq!(clean["data"]["behind"], 0);
+    // Without pull.rebase or pull.ff nothing is configured, so Core defaults.
+    assert!(clean["data"]["configuredStrategy"].is_null());
+    for (key, value, expected) in [
+        ("pull.rebase", "true", "rebase"),
+        ("pull.rebase", "false", "merge"),
+        ("pull.ff", "only", "ffOnly"),
+        ("pull.ff", "false", "merge"),
+    ] {
+        // Each case starts from a clean configuration.
+        let _ = git(&work, &["config", "--unset-all", "pull.rebase"]);
+        let _ = git(&work, &["config", "--unset-all", "pull.ff"]);
+        assert!(git(&work, &["config", key, value]).status.success());
+        assert_eq!(
+            preflight()["data"]["configuredStrategy"],
+            expected,
+            "{key}={value}"
+        );
+    }
+    let _ = git(&work, &["config", "--unset-all", "pull.rebase"]);
+    let _ = git(&work, &["config", "--unset-all", "pull.ff"]);
 
     // Commit on both sides so neither can fast-forward past the other.
     fs::write(upstream.join("remote.txt"), "remote\n").expect("file should be writable");

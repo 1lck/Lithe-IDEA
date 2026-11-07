@@ -36,10 +36,10 @@ pub(super) fn prepare(
     }
     for _ in 0..128 {
         let path = next_temporary_path("argfile");
-        let lithe_legacy_java::LaunchCommandPlan::Argfile {
+        let lithe_legacy_tooling::LaunchCommandPlan::Argfile {
             arguments: shortened,
             argfile_contents,
-        } = lithe_legacy_java::plan_launch_command(executable, arguments, &path, None, version)
+        } = lithe_legacy_tooling::plan_launch_command(executable, arguments, &path, None, version)
         else {
             return Ok((arguments.to_vec(), None));
         };
@@ -76,7 +76,7 @@ fn prepare_classpath_jar(
     working_directory: &str,
     version: Option<u32>,
 ) -> Result<(Vec<String>, Option<LaunchArgumentFile>), String> {
-    use lithe_legacy_java::{
+    use lithe_legacy_tooling::{
         plan_classpath_jar_launch, ClasspathJarPlan, ClasspathJarRequest, ClasspathStyle,
     };
     let style = if cfg!(windows) {
@@ -148,7 +148,7 @@ fn next_temporary_path(extension: &str) -> PathBuf {
 fn java_feature_version(executable: &str) -> Option<u32> {
     let home = std::path::Path::new(executable).parent()?.parent()?;
     let contents = fs::read_to_string(home.join("release")).ok()?;
-    lithe_legacy_java::java_feature_version_from_release(&contents)
+    lithe_legacy_tooling::java_feature_version_from_release(&contents)
 }
 
 fn encode_argfile(text: &str) -> Result<Vec<u8>, String> {

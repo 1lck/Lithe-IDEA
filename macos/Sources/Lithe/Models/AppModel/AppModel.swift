@@ -1531,9 +1531,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         await gitFeature.continueGitOperation()
     }
 
-    func resolvePullStrategy(_ strategy: GitPullStrategy) async {
+    func resolvePullStrategy(_ strategy: GitPullStrategy, for request: GitPullStrategyRequest) async {
         guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.resolvePullStrategy(strategy)
+        await gitFeature.resolvePullStrategy(strategy, for: request)
     }
 
     func cancelPullStrategy() {

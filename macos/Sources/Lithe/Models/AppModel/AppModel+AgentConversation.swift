@@ -200,23 +200,75 @@ extension AppModel {
         }.prefix(20))
     }
 
+    /// Caches pasted images and the ledger of the ones a conversation accepted.
+    /// Both live in Caches (never the app bundle); Core decides what may be deleted.
+    private var agentPastedImageDirectory: URL {
+        services.fileStorage.cacheDirectory().appendingPathComponent("AgentPastedImages", isDirectory: true)
+    }
+
+    private var agentAcceptedAttachmentLedger: URL {
+        services.fileStorage.cacheDirectory().appendingPathComponent("AgentAcceptedAttachments.json", isDirectory: false)
+    }
+
+    private func acceptedAgentAttachmentPaths() -> [String] {
+        let storage = services.fileStorage
+        guard storage.fileExists(at: agentAcceptedAttachmentLedger),
+              let data = try? storage.readData(from: agentAcceptedAttachmentLedger, options: []),
+              let paths = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+        return paths
+    }
+
+    /// `.atomic` writes a temporary sibling and renames it over the ledger.
+    private func writeAgentAcceptedAttachmentLedger(_ paths: [String]) throws {
+        let storage = services.fileStorage
+        try storage.createDirectory(at: agentAcceptedAttachmentLedger.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try storage.writeData(try JSONEncoder().encode(paths), to: agentAcceptedAttachmentLedger, options: .atomic)
+    }
+
+    /// Remembers the cached images an accepted prompt refers to, so a later
+    /// paste never deletes an image a conversation still points at.
+    func recordAcceptedAgentAttachments(_ files: [AgentFileReference]) {
+        let storage = services.fileStorage
+        let directory = agentPastedImageDirectory.standardizedFileURL.path + "/"
+        let accepted = files.map(\.url.path).filter { $0.hasPrefix(directory) }
+        // Without a ledger the cache has not been migrated; the next paste seeds it, accepted images included.
+        guard !accepted.isEmpty, storage.fileExists(at: agentAcceptedAttachmentLedger) else { return }
+        var paths = acceptedAgentAttachmentPaths().filter { storage.fileExists(at: URL(fileURLWithPath: $0)) }
+        for path in accepted where !paths.contains(path) { paths.append(path) }
+        do {
+            try writeAgentAcceptedAttachmentLedger(paths)
+        } catch { services.logSink?.emit(AgentImagesCleanupFailed(count: 1, error: error)) }
+    }
+
     /// Stores a pasted image so it can be attached like any local file. Agents
     /// read attachments as ACP resource links, so the image must outlive the
-    /// paste; it lives in Caches (never the app bundle) and is pruned after a week.
+    /// paste; Core's retention plan keeps every image an accepted prompt references.
     func saveAgentPastedImage(_ png: Data) throws -> URL {
         let storage = services.fileStorage
-        let directory = storage.cacheDirectory().appendingPathComponent("AgentPastedImages", isDirectory: true)
+        let directory = agentPastedImageDirectory
         try storage.createDirectory(at: directory, withIntermediateDirectories: true)
-        let cutoff = Date().addingTimeInterval(-7 * 24 * 3600)
+        let entries = storage.listDirectory(at: directory).map { file in
+            RustCoreBridge.AgentAttachmentEntry(
+                path: file.path,
+                modifiedMs: storage.metadata(for: file)?.modificationDate.map { Int64($0.timeIntervalSince1970 * 1000) },
+                abandoned: false)
+        }
         var cleanupCount: Int64 = 0
         var cleanupError: (any Error)?
-        for file in storage.listDirectory(at: directory)
-        where (storage.metadata(for: file)?.modificationDate ?? .distantFuture) < cutoff {
-            do { try storage.removeItem(at: file) }
-            catch where (error as NSError).domain == NSCocoaErrorDomain && [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains((error as NSError).code) {
-                // log-exempt: 预期的缺失：过期图片已由其他清理移除
-            } catch { cleanupCount += 1; cleanupError = error }
-        }
+        do {
+            let plan = try RustCoreBridge(coreLogSink: services.logSink).agentAttachmentRetentionPlan(
+                nowMs: Int64(Date().timeIntervalSince1970 * 1000), entries: entries,
+                acceptedReferences: acceptedAgentAttachmentPaths(),
+                ledgerPresent: storage.fileExists(at: agentAcceptedAttachmentLedger))
+            // A cache that predates the ledger is seeded first; if that fails nothing is deleted.
+            if !storage.fileExists(at: agentAcceptedAttachmentLedger) { try writeAgentAcceptedAttachmentLedger(plan.seed) }
+            for decision in plan.delete {
+                do { try storage.removeItem(at: URL(fileURLWithPath: decision.path)) }
+                catch where (error as NSError).domain == NSCocoaErrorDomain && [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains((error as NSError).code) {
+                    // log-exempt: 预期的缺失：过期图片已由其他清理移除
+                } catch { cleanupCount += 1; cleanupError = error }
+            }
+        } catch { cleanupCount += 1; cleanupError = error }
         if let cleanupError { services.logSink?.emit(AgentImagesCleanupFailed(count: cleanupCount, error: cleanupError)) }
         let url = directory.appendingPathComponent(AgentPastedImage.fileName(), isDirectory: false)
         try storage.writeData(png, to: url, options: .atomic)

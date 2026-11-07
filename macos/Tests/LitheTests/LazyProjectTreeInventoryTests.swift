@@ -835,7 +835,7 @@ private final class InventoryFixture {
 
 /// Both protocols are synchronous; only WorkspaceFeatureModel's production
 /// listing worker enters the bounded blocking gate, never the test's main actor.
-private final class InventoryDisk: WorkspaceOperations, WorkspaceFileOperations, @unchecked Sendable {
+private final class InventoryDisk: WorkspaceOperations, CoreBackedWorkspaceRules, WorkspaceFileOperations, @unchecked Sendable {
     private let lock = NSLock()
     private var files: [URL]
     private var rows: [String: [FileNode]]

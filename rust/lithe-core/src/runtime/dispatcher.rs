@@ -237,6 +237,11 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
         CoreCommand::AgentHooksValidateDraft => {
             agent_response(id, parsed.payload, crate::agent::hooks::validate_draft)
         }
+        CoreCommand::AgentAttachmentsRetentionPlan => agent_response(
+            id,
+            parsed.payload,
+            crate::agent::attachments::retention_plan,
+        ),
         CoreCommand::McpParseConfiguration => {
             match crate::mcp::parse_configuration(parsed.payload) {
                 Ok(data) => CoreResponse::success(id, data),
@@ -377,6 +382,16 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
             id,
             parsed.payload,
             crate::plugins::editor_actions::decode_command,
+        ),
+        CoreCommand::PluginsHostApiDescribe => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::host_api::describe_command,
+        ),
+        CoreCommand::PluginsHostApiAuthorize => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::host_api::authorize_command,
         ),
         CoreCommand::PluginsEditorProvidersDecode => plugin_response(
             id,
@@ -589,6 +604,12 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
             parsed.payload,
             "Invalid test run outcome request",
             crate::build::resolve_test_run_outcome,
+        ),
+        CoreCommand::BuildMergeTestOutcomes => reducer_response(
+            id,
+            parsed.payload,
+            "Invalid test outcome merge request",
+            crate::build::merge_test_outcomes,
         ),
         CoreCommand::VcsDetectRoots => {
             plugin_response(id, parsed.payload, crate::vcs::vcs_detect_roots_command)
@@ -872,6 +893,31 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
             parsed.payload,
             crate::project::file_name_order::order_entries_command,
         ),
+        CoreCommand::WorkspaceRankNames => plugin_response(
+            id,
+            parsed.payload,
+            crate::project::name_ranking::rank_names_command,
+        ),
+        CoreCommand::WorkspacePlanDuplicate => plugin_response(
+            id,
+            parsed.payload,
+            crate::project::file_operations::plan_duplicate_command,
+        ),
+        CoreCommand::WorkspacePlanPaste => plugin_response(
+            id,
+            parsed.payload,
+            crate::project::file_operations::plan_paste_command,
+        ),
+        CoreCommand::WorkspaceReduceDirectoryAction => plugin_response(
+            id,
+            parsed.payload,
+            crate::project::directory_actions::reduce_command,
+        ),
+        CoreCommand::WorkspaceRelocateDirectoryRules => plugin_response(
+            id,
+            parsed.payload,
+            crate::project::directory_actions::relocate_command,
+        ),
         CoreCommand::WorkspaceRepositories => {
             match serde_json::from_value::<WorkspaceRepositoriesRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1139,6 +1185,9 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::HistoryPlanEvent => {
+            plugin_response(id, parsed.payload, crate::project::plan_event_command)
+        }
         CoreCommand::HistoryRelocate => {
             match serde_json::from_value::<HistoryRelocateRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1344,6 +1393,60 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("context result should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::KeymapAnalyzeConflicts => {
+            let result =
+                serde_json::from_value::<crate::keymap::AnalyzeConflictsRequest>(parsed.payload)
+                    .map_err(|_| {
+                        CoreError::new(ErrorCode::InvalidRequest, "Invalid keymap conflict request")
+                    })
+                    .and_then(crate::keymap::analyze_conflicts);
+            match result {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("conflict result should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::KeymapModifierGestureStep => {
+            match lithe_core_rules::execute("keymap.modifierGestureStep", parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error.into()),
+            }
+        }
+        CoreCommand::EditorWorkbenchStateReduce => {
+            match lithe_core_rules::execute("editor.workbenchState.reduce", parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error.into()),
+            }
+        }
+        CoreCommand::WorkspaceClassifyVisibility => {
+            match lithe_core_rules::execute("workspace.classifyVisibility", parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error.into()),
+            }
+        }
+        CoreCommand::WorkspaceVisibilityDefaults => {
+            match lithe_core_rules::execute("workspace.visibilityDefaults", parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error.into()),
+            }
+        }
+        CoreCommand::TerminalParseLinkTarget => {
+            let result =
+                serde_json::from_value::<crate::terminal::ParseLinkTargetsRequest>(parsed.payload)
+                    .map_err(|_| {
+                        CoreError::new(ErrorCode::InvalidRequest, "Invalid terminal link request")
+                    })
+                    .and_then(crate::terminal::parse_link_targets);
+            match result {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("terminal link result should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
@@ -2877,6 +2980,15 @@ fn execute_parsed(mut parsed: CoreRequest) -> CoreResponse {
             parsed.payload,
             crate::git::repository_color_assignments_command,
         ),
+        CoreCommand::GitUpdatePlan => {
+            plugin_response(id, parsed.payload, crate::git::update_plan_command)
+        }
+        CoreCommand::GitHistoryWindow => {
+            plugin_response(id, parsed.payload, crate::git::history_window_command)
+        }
+        CoreCommand::GitGraphProjection => {
+            plugin_response(id, parsed.payload, crate::git::graph_projection_command)
+        }
         CoreCommand::GitNormalizeChangeTargets => plugin_response(
             id,
             parsed.payload,

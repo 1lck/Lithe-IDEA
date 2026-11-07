@@ -1488,6 +1488,7 @@ dependencies = [
  "chrono",
  "comrak",
  "lithe-agent-host",
+ "lithe-core-rules",
  "lithe-git-host",
  "lithe-ide-host",
  "lithe-remote",
@@ -1510,6 +1511,14 @@ dependencies = [
  "unicode-normalization",
  "url",
  "zip",
+]
+
+[[package]]
+name = "lithe-core-rules"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

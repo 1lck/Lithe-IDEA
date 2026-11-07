@@ -1,5 +1,6 @@
 import { toast } from "sonner";
-import fixture from "../../../../../../shared/fixtures/workspace/directory-actions-v1.json";
+import rulesFixture from "../../../../../../shared/fixtures/workspace/directory-rules-v1.json";
+import * as native from "@/platform/tauri-core";
 import type { DirectoryAction } from "./directory-marks";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -17,19 +18,57 @@ beforeEach(() => {
 });
 afterEach(() => restore());
 
-test("cancelling exclusion follows Windows path identity after a case-only rename", () => {
-  markWorkspaceDirectory(["C:/workspace"], "C:/workspace/src", { kind: "setRole", role: "sources" });
-  markWorkspaceDirectory(["C:/workspace"], "C:/workspace/src", { kind: "exclude" });
-  markWorkspaceDirectory(["C:/workspace"], "C:/workspace/SRC", { kind: "cancelExclusion" });
-  expect(readDirectoryMarks("C:/workspace")).toEqual({ SRC: "sources" });
-  expect(readIndexingSettings("C:/workspace").previousRoles).toEqual({});
-  expect(readIndexingSettings("C:/workspace").includedDirectories).toEqual(["SRC"]);
-  markWorkspaceDirectory(["C:/workspace"], "C:/workspace/src", { kind: "exclude" });
-  expect(readDirectoryMarks("C:/workspace")).toEqual({ src: "excluded" });
-  expect(readIndexingSettings("C:/workspace").includedDirectories).toEqual([]);
-  markWorkspaceDirectory(["C:/workspace"], "C:/workspace/SRC/child", { kind: "cancelExclusion" });
-  expect(readIndexingSettings("C:/workspace").includedDirectories).toEqual([]);
+type Rules = { marks: Record<string, string>; includedDirectories: string[]; previousRoles: Record<string, string> };
+interface ReduceCase {
+  id: string;
+  request: { path: string; action: DirectoryAction; caseInsensitive?: boolean; rules: Partial<Rules> };
+  response: { changed: boolean; rules: Partial<Rules> };
+}
+interface RelocateCase {
+  id: string;
+  request: { source: string; destination?: string; caseInsensitive?: boolean; rules: Partial<Rules>; target?: Partial<Rules> };
+  response: { rules: Partial<Rules>; target: Partial<Rules> | null };
+}
+const reduceCases = rulesFixture.reduce as unknown as ReduceCase[];
+const relocateCases = rulesFixture.relocate as unknown as RelocateCase[];
+const emptyRules = (rules: Partial<Rules> | undefined): Rules => ({
+  marks: {}, includedDirectories: [], previousRoles: {}, ...rules,
 });
+// Requests are compared as Core reads them: omitted optional fields mean their defaults.
+const sortKeys = (value: unknown): unknown =>
+  Array.isArray(value) ? value.map(sortKeys)
+    : value && typeof value === "object"
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, sortKeys(item)]))
+      : value;
+const canonical = (command: string, request: Record<string, unknown>) => JSON.stringify(sortKeys([command, {
+  ...request,
+  caseInsensitive: request.caseInsensitive ?? false,
+  rules: emptyRules(request.rules as Partial<Rules>),
+  ...(request.target ? { target: emptyRules(request.target as Partial<Rules>) } : {}),
+}]));
+const seed = (root: string, rules: Partial<Rules>) => {
+  const full = emptyRules(rules);
+  window.localStorage.setItem(`lithe.workspace-directory-marks.${root.toLowerCase()}`, JSON.stringify({ version: 1, marks: full.marks }));
+  writeIndexingSettings(root, { gitIgnoreEnabled: false, includedDirectories: full.includedDirectories, previousRoles: full.previousRoles });
+};
+const stored = (root: string): Rules => ({
+  marks: readDirectoryMarks(root),
+  includedDirectories: readIndexingSettings(root).includedDirectories,
+  previousRoles: readIndexingSettings(root).previousRoles,
+});
+/** Replays the fixture's Core answer for the request Windows built; any other request fails. */
+const replayFixture = () => {
+  const answers = new Map<string, unknown>();
+  for (const item of reduceCases)
+    answers.set(canonical("workspace.reduceDirectoryAction", item.request), item.response);
+  for (const item of relocateCases)
+    answers.set(canonical("workspace.relocateDirectoryRules", item.request), item.response);
+  return spyOn(native, "invoke").mockImplementation((async (command: string, payload?: unknown) => {
+    const answer = answers.get(canonical(command, payload as Record<string, unknown>));
+    if (!answer) throw new Error(`Windows sent a request the fixture does not list: ${command} ${JSON.stringify(payload)}`);
+    return answer;
+  }) as typeof native.invoke);
+};
 
 test("directory mark read failures use stable classes and preserve the original data", () => {
   for (const raw of ["broken", "null", "{}", '{"version":1,"marks":[]}']) {
@@ -45,75 +84,6 @@ test("directory mark read failures use stable classes and preserve the original 
   expect(() => readDirectoryMarks("C:/workspace", failing)).toThrow(IndexingSettingsError);
 });
 
-test("directory marks migrate a renamed subtree and remove a deleted subtree", () => {
-  window.localStorage.setItem(
-    storageKey,
-    JSON.stringify({
-      version: 1,
-      marks: { src: "sources", "src/a": "package", assets: "resources" },
-    }),
-  );
-  migrateDirectoryMarks("C:/workspace", "c:\\WORKSPACE\\SRC", "C:/workspace/code");
-  expect(readDirectoryMarks("c:\\WORKSPACE\\")).toEqual({
-    code: "sources",
-    "code/a": "package",
-    assets: "resources",
-  });
-  migrateDirectoryMarks("C:/workspace", "C:/workspace/code");
-  expect(readDirectoryMarks("C:/workspace")).toEqual({ assets: "resources" });
-  expect(readDirectoryMarks("C:/other")).toEqual({});
-});
-
-test.each([
-  "wsl://Ubuntu/project",
-  "remote://host/project",
-  "/project",
-  "//wsl.localhost/Ubuntu/project",
-  "//wsl$/Ubuntu/project",
-])("directory marks preserve case-sensitive paths and workspace storage: %s", (root) => {
-  const storageKey = `lithe.workspace-directory-marks.${root}`;
-  const otherRoot = root.replace(/project$/, "Project");
-  window.localStorage.setItem(
-    storageKey,
-    JSON.stringify({
-      version: 1,
-      marks: { src: "sources", Src: "resources", "Src/a": "package" },
-    }),
-  );
-  const otherRaw = JSON.stringify({ version: 1, marks: { src: "excluded" } });
-  window.localStorage.setItem(`lithe.workspace-directory-marks.${otherRoot}`, otherRaw);
-
-  migrateDirectoryMarks(root, `${root}/src`, `${root}/new`);
-
-  expect(readDirectoryMarks(root)).toEqual({
-    new: "sources",
-    Src: "resources",
-    "Src/a": "package",
-  });
-  migrateDirectoryMarks(root, `${root}/Src`);
-  expect(readDirectoryMarks(root)).toEqual({ new: "sources" });
-  expect(readDirectoryMarks(otherRoot)).toEqual({ src: "excluded" });
-  expect(window.localStorage.getItem(`lithe.workspace-directory-marks.${otherRoot}`)).toBe(
-    otherRaw,
-  );
-});
-
-test("directory marks keep native Windows and UNC paths case-insensitive", () => {
-  const root = "//server/share/workspace";
-  window.localStorage.setItem(
-    "lithe.workspace-directory-marks.//server/share/workspace",
-    JSON.stringify({ version: 1, marks: { src: "sources", "src/a": "package" } }),
-  );
-
-  migrateDirectoryMarks(root, "\\\\SERVER\\SHARE\\WORKSPACE\\SRC", "//SERVER/SHARE/WORKSPACE/New");
-
-  expect(readDirectoryMarks(root)).toEqual({ New: "sources", "New/a": "package" });
-  expect(readDirectoryMarks("\\\\?\\UNC\\SERVER\\SHARE\\WORKSPACE\\")).toEqual({
-    New: "sources",
-    "New/a": "package",
-  });
-});
-
 test("volume-root marks keep their existing storage key", () => {
   window.localStorage.setItem(
     "lithe.workspace-directory-marks.c:",
@@ -122,9 +92,12 @@ test("volume-root marks keep their existing storage key", () => {
   expect(readDirectoryMarks("C:/")).toEqual({ src: "sources" });
 });
 
-test("corrupt storage remains intact and legal dotted directory names are accepted", () => {
+test("corrupt storage remains intact and legal dotted directory names are accepted", async () => {
   window.localStorage.setItem(storageKey, "broken");
-  expect(() => migrateDirectoryMarks("C:/workspace", "C:/workspace/src")).toThrow();
+  const invoke = spyOn(native, "invoke");
+  await expect(migrateDirectoryMarks("C:/workspace", "C:/workspace/src")).rejects.toThrow();
+  expect(invoke).not.toHaveBeenCalled();
+  invoke.mockRestore();
   expect(window.localStorage.getItem(storageKey)).toBe("broken");
   window.localStorage.setItem(
     storageKey,
@@ -138,27 +111,6 @@ test("corrupt storage remains intact and legal dotted directory names are accept
   expect(() => readDirectoryMarks("C:/workspace")).toThrow();
 });
 
-test("Git include exceptions and remembered roles follow directory moves and deletion", () => {
-  writeIndexingSettings("C:/workspace", {
-    gitIgnoreEnabled: false,
-    includedDirectories: ["src/examples", "assets"],
-    previousRoles: { "src/examples": "sources" },
-  });
-  migrateDirectoryMarks("C:/workspace", "C:/workspace/src", "C:/workspace/code");
-  expect(readIndexingSettings("C:/workspace")).toEqual({
-    gitIgnoreEnabled: false,
-    includedDirectories: ["code/examples", "assets"],
-    previousRoles: { "code/examples": "sources" },
-  });
-  migrateDirectoryMarks("C:/workspace", "C:/workspace/code");
-  expect(readIndexingSettings("C:/workspace")).toEqual({
-    gitIgnoreEnabled: false,
-    includedDirectories: ["assets"],
-    previousRoles: {},
-  });
-});
-
-
 test("indexing preferences do not overwrite marks for a similarly named workspace", () => {
   window.localStorage.setItem("lithe.workspace-directory-marks.c:/workspace.indexing", JSON.stringify({version: 1, marks: {src: "sources"}}));
   writeIndexingSettings("C:/workspace", {gitIgnoreEnabled: true, includedDirectories: [], previousRoles: {}});
@@ -166,78 +118,94 @@ test("indexing preferences do not overwrite marks for a similarly named workspac
 });
 
 
-test("added and nested roots own exclusion marks and Git include exceptions", () => {
-  const roots = ["C:/main", "D:/added", "D:/added/nested"];
-  writeIndexingSettings("C:/main", {gitIgnoreEnabled: false, includedDirectories: ["keep"], previousRoles: {}});
-  markWorkspaceDirectory(roots, "d:\\ADDED\\build", { kind: "setRole", role: "sources" });
-  markWorkspaceDirectory(roots, "d:\\ADDED\\build", { kind: "exclude" });
-  expect(readDirectoryMarks("D:/added")).toEqual({build: "excluded"});
-  expect(readIndexingSettings("D:/added").previousRoles).toEqual({build: "sources"});
-  markWorkspaceDirectory(roots, "D:/added/build", { kind: "cancelExclusion" });
-  expect(readDirectoryMarks("D:/added")).toEqual({build: "sources"});
-  expect(readIndexingSettings("D:/added").includedDirectories).toEqual(["build"]);
-  markWorkspaceDirectory(roots, "D:/added/nested/vendor", { kind: "cancelExclusion" });
-  expect(directoryMarkRoot("D:/ADDED/nested/vendor", roots)).toBe("D:/added/nested");
-  expect(readIndexingSettings("D:/added/nested").includedDirectories).toEqual(["vendor"]);
-  expect(readIndexingSettings("C:/main")).toEqual({gitIgnoreEnabled: false, includedDirectories: ["keep"], previousRoles: {}});
-  expect(readDirectoryMarks("C:/main")).toEqual({});
-  expect(() => markWorkspaceDirectory(roots, "E:/outside", { kind: "exclude" })).toThrow();
+test.each(reduceCases.map((item) => [item.id, item] as const))(
+  "reduce contract: %s",
+  async (_id, item) => {
+    const root = item.request.caseInsensitive ? "C:/contract" : "/contract";
+    seed(root, item.request.rules);
+    const invoke = replayFixture();
+    try {
+      await markWorkspaceDirectory([root], `${root}/${item.request.path}`, item.request.action);
+      expect(stored(root)).toEqual(emptyRules(item.response.rules));
+      expect(invoke).toHaveBeenCalledTimes(1);
+    } finally {
+      invoke.mockRestore();
+    }
+  },
+);
+
+test.each(relocateCases.filter((item) => !item.request.target).map((item) => [item.id, item] as const))(
+  "relocate contract: %s",
+  async (_id, item) => {
+    const request = item.request;
+    const root = request.caseInsensitive ? "C:/contract" : "/contract";
+    seed(root, request.rules);
+    const invoke = replayFixture();
+    try {
+      const destination = request.destination === undefined ? undefined
+        : request.destination === "." ? root : `${root}/${request.destination}`;
+      await migrateDirectoryMarks(root, `${root}/${request.source}`, destination);
+      expect(stored(root)).toEqual(emptyRules(item.response.rules));
+    } finally {
+      invoke.mockRestore();
+    }
+  },
+);
+
+test("a move between workspace roots sends both roots' rules and stores both results", async () => {
+  const item = relocateCases.find((entry) => entry.id === "move-across-workspace-roots")!;
+  seed("C:/main", item.request.rules);
+  seed("D:/added", item.request.target!);
+  const invoke = replayFixture();
+  try {
+    await migrateWorkspaceDirectoryMarks(["C:/main", "D:/added"], "C:/main/pkg", "D:/added/vendor/pkg");
+    expect(stored("C:/main")).toEqual(emptyRules(item.response.rules));
+    expect(stored("D:/added")).toEqual(emptyRules(item.response.target!));
+  } finally {
+    invoke.mockRestore();
+  }
 });
 
-test("normal-folder role changes do not create Git include exceptions", () => {
-  const roots = ["C:/normal"];
-  markWorkspaceDirectory(roots, "C:/normal/src", { kind: "setRole", role: "sources" });
-  markWorkspaceDirectory(roots, "C:/normal/src", { kind: "setRole", role: "plain" });
-  markWorkspaceDirectory(roots, "C:/normal/ordinary", { kind: "setRole", role: "plain" });
-  expect(readIndexingSettings(roots[0]).includedDirectories).toEqual([]);
-  markWorkspaceDirectory(roots, "C:/normal/src", { kind: "exclude" });
-  markWorkspaceDirectory(roots, "C:/normal/src", { kind: "cancelExclusion" });
-  expect(readIndexingSettings(roots[0]).includedDirectories).toEqual(["src"]);
+test("an unchanged answer writes nothing and a path outside every root is refused", async () => {
+  const blocked = reduceCases.find((entry) => entry.id === "manual-ancestor-exclusion-cannot-be-overridden")!;
+  seed("/contract", blocked.request.rules);
+  const invoke = replayFixture();
+  const changes: string[] = [];
+  const listener = (event: Event) => changes.push(event.type);
+  window.addEventListener("lithe:directory-marks-changed", listener);
+  window.addEventListener("lithe:workspace-indexing-changed", listener);
+  try {
+    await markWorkspaceDirectory(["/contract"], "/contract/vendor/lib", { kind: "cancelExclusion" });
+    expect(changes).toEqual([]);
+    await expect(markWorkspaceDirectory(["/contract"], "/elsewhere/dir", { kind: "exclude" })).rejects.toThrow();
+  } finally {
+    invoke.mockRestore();
+    window.removeEventListener("lithe:directory-marks-changed", listener);
+    window.removeEventListener("lithe:workspace-indexing-changed", listener);
+  }
 });
 
-
-test.each(["D:/added", "C:/main/nested"])("added-root marks and include exceptions follow rename and deletion: %s", (root) => {
-  const roots = ["C:/main", root];
-  markWorkspaceDirectory(roots, `${root}/src`, { kind: "setRole", role: "sources" });
-  markWorkspaceDirectory(roots, `${root}/src`, { kind: "exclude" });
-  markWorkspaceDirectory(roots, `${root}/src/examples`, { kind: "cancelExclusion" });
-  // Include exceptions cannot override a manually excluded ancestor.
-  expect(readIndexingSettings(root).includedDirectories).toEqual([]);
-  migrateWorkspaceDirectoryMarks(roots, `${root}/src`, `${root}/code`);
-  expect(readDirectoryMarks(root)).toEqual({code: "excluded"});
-  expect(readIndexingSettings(root).previousRoles).toEqual({code: "sources"});
-  markWorkspaceDirectory(roots, `${root}/code`, { kind: "cancelExclusion" });
-  expect(readDirectoryMarks(root)).toEqual({code: "sources"});
-  expect(readIndexingSettings(root).includedDirectories).toEqual(["code"]);
-  migrateWorkspaceDirectoryMarks(roots, `${root}/code`);
-  expect(readDirectoryMarks(root)).toEqual({});
-  expect(readIndexingSettings(root).includedDirectories).toEqual([]);
-  expect(readIndexingSettings(root).previousRoles).toEqual({});
-  expect(readDirectoryMarks("C:/main")).toEqual({});
+test("a destination outside the root is sent as a deletion", async () => {
+  seed("C:/main", { marks: { src: "sources" } });
+  const invoke = spyOn(native, "invoke").mockImplementation((async () => ({ rules: emptyRules({}) })) as typeof native.invoke);
+  try {
+    await migrateDirectoryMarks("C:/main", "C:/main/src", "D:/elsewhere/src");
+    expect(invoke.mock.calls[0]?.[1]).toEqual({
+      source: "src", destination: undefined, caseInsensitive: true, rules: emptyRules({ marks: { src: "sources" } }),
+    });
+    expect(readDirectoryMarks("C:/main")).toEqual({});
+  } finally {
+    invoke.mockRestore();
+  }
 });
 
-
-test.each(["D:/added", "C:/main/nested"])("moving between workspace roots preserves exclusions and exceptions: %s", (root) => {
-  const roots = ["C:/main", root];
-  markWorkspaceDirectory(roots, `${root}/src`, { kind: "setRole", role: "sources" });
-  markWorkspaceDirectory(roots, `${root}/src`, { kind: "exclude" });
-  markWorkspaceDirectory(roots, `${root}/examples`, { kind: "cancelExclusion" });
-  migrateWorkspaceDirectoryMarks(roots, `${root}/src`, "C:/main/code");
-  migrateWorkspaceDirectoryMarks(roots, `${root}/examples`, "C:/main/demos");
-  expect(readDirectoryMarks(root)).toEqual({});
-  expect(readDirectoryMarks("C:/main")).toEqual({code: "excluded"});
-  expect(readIndexingSettings("C:/main").previousRoles).toEqual({code: "sources"});
-  expect(readIndexingSettings("C:/main").includedDirectories).toEqual(["demos"]);
-  expect(readIndexingSettings(root).includedDirectories).toEqual([]);
-  markWorkspaceDirectory(roots, "C:/main/code", { kind: "cancelExclusion" });
-  expect(readDirectoryMarks("C:/main")).toEqual({code: "sources"});
-});
-
-
-test("cross-root quota failure rolls back in reverse order without publishing partial state", () => {
+test("cross-root quota failure rolls back in reverse order without publishing partial state", async () => {
   const roots = ["C:/main", "D:/added"];
-  markWorkspaceDirectory(roots, "D:/added/long-directory-name", { kind: "setRole", role: "sources" });
-  markWorkspaceDirectory(roots, "D:/added/long-directory-name", { kind: "exclude" });
+  seed("D:/added", { marks: { "long-directory-name": "excluded" }, previousRoles: { "long-directory-name": "sources" } });
+  const invoke = spyOn(native, "invoke").mockImplementation((async () => ({
+    rules: emptyRules({}),
+    target: emptyRules({ marks: { code: "excluded" }, previousRoles: { code: "sources" } }),
+  })) as typeof native.invoke);
   const keys = roots.flatMap((root) => [
     `lithe.workspace-directory-marks.${root.toLowerCase()}`,
     `lithe.workspace-indexing.${root.toLowerCase()}`,
@@ -271,11 +239,12 @@ test("cross-root quota failure rolls back in reverse order without publishing pa
     get length() { return storage.length; }, setItem,
   }});
   try {
-    expect(() => migrateWorkspaceDirectoryMarks(roots, "D:/added/long-directory-name", "C:/main/code")).toThrow();
+    await expect(migrateWorkspaceDirectoryMarks(roots, "D:/added/long-directory-name", "C:/main/code")).rejects.toThrow();
     expect(rejected).toBe(true);
     expect(keys.map((key) => storage.getItem(key))).toEqual(before);
     expect(published).toBe(0);
   } finally {
+    invoke.mockRestore();
     if (storageDescriptor) Object.defineProperty(window, "localStorage", storageDescriptor);
     else Reflect.deleteProperty(window, "localStorage");
     window.removeEventListener("lithe:directory-marks-changed", listener);
@@ -322,22 +291,6 @@ test.each(["remote://host/project", "wsl://Ubuntu/project"])("unsupported roots 
   }
 });
 
-for (const scenario of fixture.cases) {
-  test(`directory action contract: ${scenario.id}`, () => {
-    const root = "C:/role-contract";
-    for (const step of scenario.steps) {
-      markWorkspaceDirectory([root], `${root}/archive`, step.action as DirectoryAction);
-      expect(String(readDirectoryMarks(root).archive ?? "plain")).toBe(step.role);
-      expect(readIndexingSettings(root).includedDirectories).toEqual(step.included ? ["archive"] : []);
-    }
-    const before = readIndexingSettings(root);
-    writeIndexingSettings(root, {...before, gitIgnoreEnabled: false});
-    writeIndexingSettings(root, {...readIndexingSettings(root), gitIgnoreEnabled: true});
-    expect(readIndexingSettings(root)).toEqual(before);
-  });
-}
-
-
 test.each([
   ["zh-CN", "项目索引设置格式无效，原始设置已保留。"],
   ["en-US", "Project indexing settings are invalid. The saved data has been preserved."],
@@ -350,6 +303,9 @@ test.each([
   const key = indexingSettingsStorageKey(rootPath);
   window.localStorage.setItem(key, "{}");
   const error = spyOn(toast, "error").mockReturnValue(0);
+  const invoke = spyOn(native, "invoke").mockImplementation((async () => ({
+    changed: true, rules: emptyRules({ marks: { archive: "sources" } }),
+  })) as typeof native.invoke);
   let notifications = 0;
   const changed = () => notifications++;
   window.addEventListener("lithe:directory-marks-changed", changed);
@@ -367,14 +323,16 @@ test.each([
     const element = menu.contextMenuElement as import("react").ReactElement<{children: Array<import("react").ReactElement<{items: Item[]}>>}>;
     const mark = element.props.children[0]!.props.items.find((item) => item.id === "mark-directory")!.children!.find((item) => item.id === "mark-sources")!;
     mark.onClick();
+    await act(async () => {});
     expect(error.mock.calls[0]?.[1]?.description).toBe(message);
     expect(window.localStorage.getItem(key)).toBe("{}"); expect(notifications).toBe(0);
     window.localStorage.removeItem(key);
     mark.onClick();
+    await act(async () => {});
     expect(readDirectoryMarks(rootPath).archive).toBe("sources");
     expect(error).toHaveBeenCalledTimes(1); expect(notifications).toBe(1);
   } finally {
-    await act(async () => renderer.unmount()); error.mockRestore();
+    await act(async () => renderer.unmount()); error.mockRestore(); invoke.mockRestore();
     window.removeEventListener("lithe:directory-marks-changed", changed);
     environment.IS_REACT_ACT_ENVIRONMENT = previous;
   }

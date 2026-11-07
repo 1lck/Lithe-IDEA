@@ -1,5 +1,5 @@
 import type { GitReference } from "../types/git.types";
-import { naturalCompare } from "./git-graph-layout";
+import { naturalCompare } from "./git-reference-name-compare";
 import { isRemoteSymbolicReference } from "./git-log-refresh";
 
 export interface GitLogBranchFilterGroup {

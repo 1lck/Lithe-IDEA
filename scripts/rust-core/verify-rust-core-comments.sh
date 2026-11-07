@@ -3,17 +3,18 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
-SOURCE_DIR="$ROOT_DIR/rust/lithe-core/src"
+# lithe-core-rules is part of Core: it holds the rules the Windows frontend runs as wasm.
+SOURCE_DIRS=("$ROOT_DIR/rust/lithe-core/src" "$ROOT_DIR/rust/lithe-core-rules/src")
 cd "$ROOT_DIR"
 
 rust_files=()
 production_files=()
 while IFS= read -r -d '' file; do
     rust_files+=("$file")
-done < <(find "$SOURCE_DIR" -type f -name '*.rs' -print0)
+done < <(find "${SOURCE_DIRS[@]}" -type f -name '*.rs' -print0)
 while IFS= read -r -d '' file; do
     production_files+=("$file")
-done < <(find "$SOURCE_DIR" -type f -name '*.rs' \
+done < <(find "${SOURCE_DIRS[@]}" -type f -name '*.rs' \
     ! -path '*/tests/*' \
     ! -name 'tests.rs' \
     -print0)
@@ -147,10 +148,12 @@ fi
 # Let Rust understand visibility instead of treating pub items in private
 # modules as exported APIs. This covers public functions, types, variants, and
 # fields without requiring documentation for every internal helper.
-cargo rustdoc --quiet \
-    --manifest-path rust/lithe-core/Cargo.toml \
-    --lib -- \
-    -D missing_docs \
-    -D rustdoc::broken_intra_doc_links
+for manifest in rust/lithe-core/Cargo.toml rust/lithe-core-rules/Cargo.toml; do
+    cargo rustdoc --quiet \
+        --manifest-path "$manifest" \
+        --lib -- \
+        -D missing_docs \
+        -D rustdoc::broken_intra_doc_links
+done
 
 printf '%s\n' "Rust Core comment verification passed"

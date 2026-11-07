@@ -243,13 +243,13 @@ private struct SearchEverywhereContent: View {
         let value: FileSearchResult
     }
 
-    /// 按相关度降序。同分保持原顺序，避免逐字输入时行位置来回跳动。
+    /// 按 Core 在截断前算出的 `matchingDegree` 降序。同分保持原顺序，避免逐字输入时行位置来回跳动。
     private func rankedResults(_ results: [FileSearchResult]) -> [SearchItem] {
         var ranked: [RankedResult] = []
         ranked.reserveCapacity(results.count)
         for (index, value) in results.enumerated() {
             ranked.append(
-                RankedResult(index: index, score: SearchRelevance.score(value, query: query), value: value)
+                RankedResult(index: index, score: value.matchingDegree ?? 0, value: value)
             )
         }
         ranked.sort { left, right in

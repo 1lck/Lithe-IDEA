@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { GitGraphCanvas, gitGraphWidth } from "../components/log/git-graph-row";
-import { layoutGitGraph } from "../utils/git-graph-layout";
+import { graphFixtureLayout } from "@/test-utils/git-graph-projection-stub";
 import { useGitGraphPaint } from "./use-git-graph-paint";
 
 let restoreDom: () => void;
@@ -21,17 +21,7 @@ function Harness() {
   const paint = useGitGraphPaint();
   const layout = useMemo(() => {
     layoutBuilds += 1;
-    return layoutGitGraph([
-      {
-        hash: "tip",
-        shortHash: "tip",
-        parentHashes: [],
-        author: "fixture",
-        message: "tip",
-        date: "unknown",
-        decorations: "",
-      },
-    ]);
+    return graphFixtureLayout("singleCommit");
   }, []);
   return (
     <div>

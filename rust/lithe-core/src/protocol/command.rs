@@ -79,6 +79,8 @@ pub enum CoreCommand {
     AgentEditsReversePlan,
     /// Validates an unsaved Hook draft field by field (`agent.hooks.validateDraft`).
     AgentHooksValidateDraft,
+    /// Plans which pasted Agent images may be deleted (`agent.attachments.retentionPlan`).
+    AgentAttachmentsRetentionPlan,
     /// Budgets diff prefixes before crossing the native boundary (`ai.commitInputBudget`).
     AiCommitInputBudget,
     /// Plans a credential-free commit message request (`ai.planCommit`).
@@ -121,6 +123,10 @@ pub enum CoreCommand {
     PluginsDeclarativeValidate,
     /// Validates native plugin UI data with declaration identity and node budgets.
     PluginsNativeUIValidateData,
+    /// Describes the Core-owned backend host-method catalog.
+    PluginsHostApiDescribe,
+    /// Rechecks a backend host request against Core's grant rules.
+    PluginsHostApiAuthorize,
     /// Expands a declarative plugin's run template (`plugins.declarative.runPlan`).
     PluginsDeclarativeRunPlan,
     /// Lists a declarative plugin's workspace and file tests (`plugins.declarative.discoverTests`).
@@ -254,6 +260,8 @@ pub enum CoreCommand {
     BuildSyncFingerprint,
     /// Reduces a test run's termination and decoded summary to one verdict (`build.resolveTestRunOutcome`).
     BuildResolveTestRunOutcome,
+    /// Merges a run's test results into the stored history inside the host-stated scope (`build.mergeTestOutcomes`).
+    BuildMergeTestOutcomes,
     /// Detects VCS roots and registered providers of a workspace (`vcs.detectRoots`).
     VcsDetectRoots,
     /// Assigns workspace paths to detected VCS roots (`vcs.ownerOf`).
@@ -302,6 +310,16 @@ pub enum CoreCommand {
     WorkspaceListDirectories,
     /// Orders natively enumerated directory siblings (`workspace.orderEntries`).
     WorkspaceOrderEntries,
+    /// Ranks host-supplied candidate names with the shared matcher (`workspace.rankNames`).
+    WorkspaceRankNames,
+    /// Plans the name of a duplicated project item (`workspace.planDuplicate`).
+    WorkspacePlanDuplicate,
+    /// Plans the destination names of pasted project items (`workspace.planPaste`).
+    WorkspacePlanPaste,
+    /// Applies a directory role, exclusion or cancel action (`workspace.reduceDirectoryAction`).
+    WorkspaceReduceDirectoryAction,
+    /// Migrates directory rules after a move or delete (`workspace.relocateDirectoryRules`).
+    WorkspaceRelocateDirectoryRules,
     /// Filter ordinary workspace-relative event paths using shared defaults.
     WorkspaceFilterChanges,
     /// Finds Git repositories that belong to an opened workspace (`workspace.repositories`).
@@ -344,6 +362,8 @@ pub enum CoreCommand {
     HistoryContent,
     /// Moves history after a workspace path relocation (`history.relocate`).
     HistoryRelocate,
+    /// Plans which snapshots an editing event records (`history.planEvent`).
+    HistoryPlanEvent,
     /// Changes the optional label of a history snapshot (`history.rename`).
     HistoryRename,
     /// Deletes one history snapshot (`history.delete`).
@@ -372,6 +392,22 @@ pub enum CoreCommand {
     KeymapParseContext,
     /// Evaluates a precompiled shortcut context (`keymap.evaluateContext`).
     KeymapEvaluateContext,
+    /// Finds conflicts among the final layered shortcut bindings (`keymap.analyzeConflicts`).
+    KeymapAnalyzeConflicts,
+    /// Advances the double-Shift gesture recognizer by one event (`keymap.modifierGestureStep`).
+    /// The rule itself lives in `lithe-core-rules` so the Windows frontend can run it synchronously.
+    KeymapModifierGestureStep,
+    /// Applies one editor-group state transition: open, close, move, pin, preview, merge or normalize
+    /// (`editor.workbenchState.reduce`). The rule lives in `lithe-core-rules` so the Windows frontend
+    /// can run it synchronously inside store updates.
+    EditorWorkbenchStateReduce,
+    /// Classifies a batch of workspace-relative paths as hidden or visible (`workspace.classifyVisibility`).
+    /// The rule lives in `lithe-core-rules` so the Windows frontend can run it synchronously.
+    WorkspaceClassifyVisibility,
+    /// Returns the built-in hidden-path lists (`workspace.visibilityDefaults`), also from `lithe-core-rules`.
+    WorkspaceVisibilityDefaults,
+    /// Resolves terminal link candidates into file or external targets (`terminal.parseLinkTarget`).
+    TerminalParseLinkTarget,
     /// Creates one transport-neutral Debug Adapter Protocol session (`debug.createSession`).
     DebugCreateSession,
     /// Queues a launch or attach request for a debug session (`debug.launch`).
@@ -677,6 +713,12 @@ pub enum CoreCommand {
     GitBranchNamePreview,
     /// Assigns palette slots to a page of ordered repository identities.
     GitRepositoryColorAssignments,
+    /// Plans a branch Update or Pull from collected facts (`git.updatePlan`).
+    GitUpdatePlan,
+    /// Plans history refresh windows, page merges, and selection retention (`git.historyWindow`).
+    GitHistoryWindow,
+    /// Projects the commit graph's lanes, colors, routes, and labels (`git.graphProjection`).
+    GitGraphProjection,
     /// Drops targets already covered by a selected untracked summary (`git.normalizeChangeTargets`).
     GitNormalizeChangeTargets,
     /// Validates an interactive rebase draft and derives its messages (`git.rebasePlanPreview`).
@@ -773,6 +815,7 @@ impl CoreCommand {
             "agent.installCli" => Some(Self::AgentInstallCli),
             "agent.edits.reversePlan" => Some(Self::AgentEditsReversePlan),
             "agent.hooks.validateDraft" => Some(Self::AgentHooksValidateDraft),
+            "agent.attachments.retentionPlan" => Some(Self::AgentAttachmentsRetentionPlan),
             "ai.commitInputBudget" => Some(Self::AiCommitInputBudget),
             "ai.planCommit" => Some(Self::AiPlanCommit),
             "ai.decodeCommitMessage" => Some(Self::AiDecodeCommitMessage),
@@ -822,6 +865,8 @@ impl CoreCommand {
             }
             "plugins.declarative.decodeGrammar" => Some(Self::PluginsDeclarativeDecodeGrammar),
             "plugins.editorActions.decode" => Some(Self::PluginsEditorActionsDecode),
+            "plugins.hostApi.describe" => Some(Self::PluginsHostApiDescribe),
+            "plugins.hostApi.authorize" => Some(Self::PluginsHostApiAuthorize),
             "plugins.editorProviders.decode" => Some(Self::PluginsEditorProvidersDecode),
             "keymap.decodeImport" => Some(Self::KeymapDecodeImport),
             "keymap.planImportSources" => Some(Self::KeymapPlanImportSources),
@@ -872,6 +917,7 @@ impl CoreCommand {
             "build.decodeDependencies" => Some(Self::BuildDecodeDependencies),
             "build.syncFingerprint" => Some(Self::BuildSyncFingerprint),
             "build.resolveTestRunOutcome" => Some(Self::BuildResolveTestRunOutcome),
+            "build.mergeTestOutcomes" => Some(Self::BuildMergeTestOutcomes),
             "vcs.detectRoots" => Some(Self::VcsDetectRoots),
             "vcs.ownerOf" => Some(Self::VcsOwnerOf),
             "vcs.decodeReply" => Some(Self::VcsDecodeReply),
@@ -897,6 +943,11 @@ impl CoreCommand {
             "workspace.filterChanges" => Some(Self::WorkspaceFilterChanges),
             "workspace.listDirectories" => Some(Self::WorkspaceListDirectories),
             "workspace.orderEntries" => Some(Self::WorkspaceOrderEntries),
+            "workspace.rankNames" => Some(Self::WorkspaceRankNames),
+            "workspace.planDuplicate" => Some(Self::WorkspacePlanDuplicate),
+            "workspace.planPaste" => Some(Self::WorkspacePlanPaste),
+            "workspace.reduceDirectoryAction" => Some(Self::WorkspaceReduceDirectoryAction),
+            "workspace.relocateDirectoryRules" => Some(Self::WorkspaceRelocateDirectoryRules),
             "workspace.repositories" => Some(Self::WorkspaceRepositories),
             "workspace.recentProjects.reduce" => Some(Self::WorkspaceRecentProjectsReduce),
             "workspace.searchIndex.warm" => Some(Self::WorkspaceSearchIndexWarm),
@@ -918,6 +969,7 @@ impl CoreCommand {
             "history.entries" => Some(Self::HistoryEntries),
             "history.content" => Some(Self::HistoryContent),
             "history.relocate" => Some(Self::HistoryRelocate),
+            "history.planEvent" => Some(Self::HistoryPlanEvent),
             "history.rename" => Some(Self::HistoryRename),
             "history.delete" => Some(Self::HistoryDelete),
             "history.ignorePreview" => Some(Self::HistoryIgnorePreview),
@@ -932,6 +984,12 @@ impl CoreCommand {
             "markdown.render" => Some(Self::MarkdownRender),
             "keymap.parseContext" => Some(Self::KeymapParseContext),
             "keymap.evaluateContext" => Some(Self::KeymapEvaluateContext),
+            "keymap.analyzeConflicts" => Some(Self::KeymapAnalyzeConflicts),
+            "keymap.modifierGestureStep" => Some(Self::KeymapModifierGestureStep),
+            "editor.workbenchState.reduce" => Some(Self::EditorWorkbenchStateReduce),
+            "workspace.classifyVisibility" => Some(Self::WorkspaceClassifyVisibility),
+            "workspace.visibilityDefaults" => Some(Self::WorkspaceVisibilityDefaults),
+            "terminal.parseLinkTarget" => Some(Self::TerminalParseLinkTarget),
             "debug.createSession" => Some(Self::DebugCreateSession),
             "debug.launch" => Some(Self::DebugLaunch),
             "debug.steppingFilters" => Some(Self::DebugSteppingFilters),
@@ -1082,6 +1140,9 @@ impl CoreCommand {
             "git.historyLocate" => Some(Self::GitHistoryLocate),
             "git.branchNamePreview" => Some(Self::GitBranchNamePreview),
             "git.repositoryColorAssignments" => Some(Self::GitRepositoryColorAssignments),
+            "git.updatePlan" => Some(Self::GitUpdatePlan),
+            "git.historyWindow" => Some(Self::GitHistoryWindow),
+            "git.graphProjection" => Some(Self::GitGraphProjection),
             "git.normalizeChangeTargets" => Some(Self::GitNormalizeChangeTargets),
             "git.rebasePlanPreview" => Some(Self::GitRebasePlanPreview),
             "git.referenceTree" => Some(Self::GitReferenceTree),

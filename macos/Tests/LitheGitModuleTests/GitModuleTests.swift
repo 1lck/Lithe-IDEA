@@ -4686,33 +4686,160 @@ struct GitModuleTests {
         #expect(!feature.isPerformingBranchOperation)
     }
 
-    @Test
-    func nonCurrentBranchCheckedOutInAnotherWorktreeIsNotFetchedInto() async {
-        var notifications: [String] = []
-        let recorder = BranchCallRecorder()
+    /// Calls the scripted Update double saw, in order, as `kind:path[:detail]`.
+    private final class UpdateCallLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var entries: [String] = []
+        func add(_ entry: String) { lock.lock(); entries.append(entry); lock.unlock() }
+        var all: [String] { lock.lock(); defer { lock.unlock() }; return entries }
+    }
+
+    private func makeUpdateFeature(
+        log: UpdateCallLog,
+        preflight: GitPullPreflightState?,
+        worktrees: [GitWorktree] = [],
+        onNotify: @escaping @MainActor (String) -> Void
+    ) -> GitFeatureModel {
         let root = URL(fileURLWithPath: "/workspace")
         let feature = GitFeatureModel(
             service: GitService(operations: TestGitOperations(
                 snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
-                branchCallRecorder: recorder
+                pullPreflightHandler: { url in log.add("preflight:\(url.path)"); return preflight },
+                updateCurrentBranchHandler: { url, strategy, expected in
+                    log.add("pull:\(url.path):\(strategy.rawValue):\(expected ?? "-")")
+                    return GitProcessResult(arguments: ["pull"], output: "", exitCode: 0)
+                },
+                fetchAtRootHandler: { url in
+                    log.add("fetch:\(url.path)")
+                    return GitProcessResult(arguments: ["fetch"], output: "", exitCode: 0)
+                }
             )),
-            worktreesProvider: { _ in [makeTestWorktree(path: "/workspace-feature", branch: "feature/a")] }
+            worktreesProvider: { _ in worktrees }
         )
         feature.configure(
             workspaceURLProvider: { root },
             isGitLogVisibleProvider: { false },
-            notify: { notifications.append($0) },
+            notify: onNotify,
             onStateRefreshed: {}
         )
-        await feature.refreshGit()
-        // The Worktrees tab never loaded, so the published list is empty.
-        #expect(feature.gitWorktrees.isEmpty)
-        await feature.updateBranch(GitReference(fullName: "refs/heads/feature/a", shortName: "feature/a", kind: .local,
-                                                peelsToCommit: true,
-                                                isCurrent: false, upstreamShortName: "origin/feature/a", behind: 2))
+        return feature
+    }
 
-        #expect(recorder.recorded.isEmpty)
-        #expect(notifications == ["feature/a is checked out in another worktree. Update it there."])
+    private func updateReference(current: Bool, name: String = "main") -> GitReference {
+        GitReference(fullName: "refs/heads/\(name)", shortName: name, kind: .local, peelsToCommit: true,
+                     isCurrent: current, upstreamShortName: "origin/\(name)", behind: 2)
+    }
+
+    private func preflightState(
+        ahead: Int = 0, behind: Int = 2, diverged: Bool = false, dirty: Bool = false,
+        configured: GitPullStrategy? = nil
+    ) -> GitPullPreflightState {
+        GitPullPreflightState(upstream: "origin/main", ahead: ahead, behind: behind, diverged: diverged,
+                              hasLocalChanges: dirty, configuredStrategy: configured)
+    }
+
+    @Test
+    func nonCurrentBranchCheckedOutInAnotherWorktreeIsUpdatedThere() async {
+        var notifications: [String] = []
+        let log = UpdateCallLog()
+        let feature = makeUpdateFeature(
+            log: log, preflight: preflightState(),
+            worktrees: [makeTestWorktree(path: "/workspace-feature", branch: "feature/a")],
+            onNotify: { notifications.append($0) }
+        )
+        await feature.refreshGit()
+        await feature.updateBranch(updateReference(current: false, name: "feature/a"))
+
+        // Core routes the pull into the worktree that owns the branch, guarded by its identity.
+        #expect(log.all == [
+            "fetch:/workspace-feature", "preflight:/workspace-feature",
+            "pull:/workspace-feature:ffOnly:refs/heads/feature/a"
+        ])
+        #expect(feature.pendingPullStrategy == nil)
+        #expect(!feature.isPerformingBranchOperation)
+    }
+
+    @Test
+    func divergedCurrentBranchAsksForAStrategyAndRunsTheChosenOne() async {
+        let log = UpdateCallLog()
+        let feature = makeUpdateFeature(
+            log: log, preflight: preflightState(ahead: 1, diverged: true), onNotify: { _ in }
+        )
+        await feature.refreshGit()
+        await feature.updateBranch(updateReference(current: true))
+
+        #expect(log.all == ["fetch:/workspace", "preflight:/workspace"])
+        guard let request = feature.pendingPullStrategy else {
+            Issue.record("A diverged history must ask for a strategy")
+            return
+        }
+        #expect(request.expectedBranch == "refs/heads/main")
+        await feature.resolvePullStrategy(.rebase, for: request)
+
+        #expect(log.all.suffix(2) == ["preflight:/workspace", "pull:/workspace:rebase:refs/heads/main"])
+        #expect(feature.pendingPullStrategy == nil)
+    }
+
+    @Test
+    func chosenStrategyIsRefusedWhenTheHistoryMovedMeanwhile() async {
+        var notifications: [String] = []
+        let log = UpdateCallLog()
+        let seen = preflightState(ahead: 1, diverged: true)
+        let feature = makeUpdateFeature(log: log, preflight: seen, onNotify: { notifications.append($0) })
+        await feature.refreshGit()
+        await feature.updateBranch(updateReference(current: true))
+        guard let request = feature.pendingPullStrategy else {
+            Issue.record("A diverged history must ask for a strategy")
+            return
+        }
+        let moved = makeUpdateFeature(
+            log: log, preflight: preflightState(ahead: 1, behind: 3, diverged: true), onNotify: { notifications.append($0) }
+        )
+        await moved.refreshGit()
+        await moved.resolvePullStrategy(.merge, for: request)
+
+        #expect(!log.all.contains { $0.hasPrefix("pull:") })
+        #expect(notifications.last == "The branch changed while choosing a pull strategy. Review it and try again.")
+    }
+
+    @Test
+    func gitConfiguredStrategyUpdatesWithoutAsking() async {
+        let log = UpdateCallLog()
+        let feature = makeUpdateFeature(
+            log: log, preflight: preflightState(ahead: 1, diverged: true, configured: .rebase), onNotify: { _ in }
+        )
+        await feature.refreshGit()
+        await feature.updateBranch(updateReference(current: true))
+
+        #expect(log.all.last == "pull:/workspace:rebase:refs/heads/main")
+        #expect(feature.pendingPullStrategy == nil)
+    }
+
+    @Test
+    func localChangesBlockTheUpdateBeforeAnyPull() async {
+        var notifications: [String] = []
+        let log = UpdateCallLog()
+        let feature = makeUpdateFeature(
+            log: log, preflight: preflightState(dirty: true), onNotify: { notifications.append($0) }
+        )
+        await feature.refreshGit()
+        await feature.updateBranch(updateReference(current: true))
+
+        #expect(!log.all.contains { $0.hasPrefix("pull:") })
+        #expect(notifications.last == "Commit or stash local changes before pulling.")
+    }
+
+    @Test
+    func failedInspectionStopsTheUpdateInsteadOfPullingBlind() async {
+        var notifications: [String] = []
+        let log = UpdateCallLog()
+        let feature = makeUpdateFeature(log: log, preflight: nil, onNotify: { notifications.append($0) })
+        await feature.refreshGit()
+        await feature.updateBranch(updateReference(current: true))
+
+        #expect(log.all == ["fetch:/workspace", "preflight:/workspace"])
+        #expect(notifications.last == "Unable to inspect the branch.")
+        #expect(!feature.isPerformingBranchOperation)
     }
 
     @Test
@@ -6888,13 +7015,14 @@ private struct TestGitOperations: GitOperations {
         }, confirmedRoots: roots.filter { succeeded.contains($0) }, failedRoots: roots.filter { !succeeded.contains($0) })
     }
     /// Test double for `git.normalizeChangeTargets`; Core's own tests and the shared
-    /// fixture (`change-targets-v1.json`) define the real rule.
+    /// fixture (`change-targets-v1.json`) define the real rule. Every other planner
+    /// runs in the real linked Core, so these tests never mirror its rules.
     func corePlan<Request: Encodable & Sendable, Response: Decodable & Sendable>(
         _ command: GitCorePlanCommand,
         _ request: Request
     ) -> Response? {
-        guard command == .normalizeChangeTargets,
-              let data = try? JSONEncoder().encode(request),
+        if command != .normalizeChangeTargets { return GitCorePlanTestSupport.run(command, request) }
+        guard let data = try? JSONEncoder().encode(request),
               let targets = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["targets"] as? [[String: Any]]
         else { return nil }
         let indices = targets.indices.filter { index in
@@ -6971,6 +7099,9 @@ private struct TestGitOperations: GitOperations {
     private let deleteBranchResult: GitProcessResult?
     private let deleteBranchResults: GitProcessResultQueue?
     private let updateBranchResult: GitProcessResult?
+    private let pullPreflightHandler: (@Sendable (URL) -> GitPullPreflightState?)?
+    private let updateCurrentBranchHandler: (@Sendable (URL, GitPullStrategy, String?) -> GitProcessResult?)?
+    private let fetchAtRootHandler: (@Sendable (URL) -> GitProcessResult?)?
     private let branchCallRecorder: BranchCallRecorder?
     private let exportPatchHandler: (@Sendable ([String], Bool) -> Result<GitPatchExport, GitPatchFailure>)?
     private let removeWorktreeResult: GitProcessResult?
@@ -7036,6 +7167,9 @@ private struct TestGitOperations: GitOperations {
         deleteBranchResult: GitProcessResult? = nil,
         deleteBranchResults: GitProcessResultQueue? = nil,
         updateBranchResult: GitProcessResult? = nil,
+        pullPreflightHandler: (@Sendable (URL) -> GitPullPreflightState?)? = nil,
+        updateCurrentBranchHandler: (@Sendable (URL, GitPullStrategy, String?) -> GitProcessResult?)? = nil,
+        fetchAtRootHandler: (@Sendable (URL) -> GitProcessResult?)? = nil,
         branchCallRecorder: BranchCallRecorder? = nil,
         exportPatchHandler: (@Sendable ([String], Bool) -> Result<GitPatchExport, GitPatchFailure>)? = nil,
         removeWorktreeResult: GitProcessResult? = nil,
@@ -7106,6 +7240,9 @@ private struct TestGitOperations: GitOperations {
         self.deleteBranchResult = deleteBranchResult
         self.deleteBranchResults = deleteBranchResults
         self.updateBranchResult = updateBranchResult
+        self.pullPreflightHandler = pullPreflightHandler
+        self.updateCurrentBranchHandler = updateCurrentBranchHandler
+        self.fetchAtRootHandler = fetchAtRootHandler
         self.branchCallRecorder = branchCallRecorder
         self.exportPatchHandler = exportPatchHandler
         self.removeWorktreeResult = removeWorktreeResult
@@ -7343,7 +7480,9 @@ private struct TestGitOperations: GitOperations {
             exitCode: 0
         )
     }
-    func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy) -> GitProcessResult? { nil }
+    func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy, expectedBranch: String?) -> GitProcessResult? {
+        updateCurrentBranchHandler?(rootURL, strategy, expectedBranch)
+    }
     func updateBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? {
         branchCallRecorder?.record(BranchCallRecorder.Call(name: "update", reference: reference.fullName, checkout: false))
         return updateBranchResult
@@ -7359,10 +7498,13 @@ private struct TestGitOperations: GitOperations {
             exitCode: 0
         )
     }
-    func pullPreflight(at rootURL: URL) -> GitPullPreflightState? { nil }
+    func pullPreflight(at rootURL: URL) -> GitPullPreflightState? { pullPreflightHandler?(rootURL) }
     func conflictMarkerPaths(at rootURL: URL) -> [String] { [] }
     func integrationPreflight(for target: GitIntegrationTarget, operation: GitIntegrationOperation, at rootURL: URL) -> GitIntegrationPreflightState? { nil }
-    func fetch(at rootURL: URL) -> GitProcessResult? { fetchHandler?(fetchPlanValue?.options ?? GitFetchOptions(), "default-fetch-fixture") }
+    func fetch(at rootURL: URL) -> GitProcessResult? {
+        if let fetchAtRootHandler { return fetchAtRootHandler(rootURL) }
+        return fetchHandler?(fetchPlanValue?.options ?? GitFetchOptions(), "default-fetch-fixture")
+    }
     func executionSettings(_ request: GitConfigurationEdit, save: Bool) -> Result<GitExecutionSettingsSnapshot, GitFetchFailure> {
         .success(GitExecutionSettingsSnapshot(executable: nil, version: "git fixture", scope: "local", entries: [], fields: [], temporaryConfig: [],
             fetchOptions: fetchPlanValue?.options ?? GitFetchOptions(), fetchError: nil, credentialHelperEnabled: true, interactiveAuthentication: false))

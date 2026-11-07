@@ -65,7 +65,8 @@ The test windows are closed at the end of each appearance check.
 
 These runtime-generated oracles supplement the nine original fixtures pinned
 to IntelliJ source commit `36415d346b3d18a6ded90d05afb8e0a0bface9d6`
-under `LitheGitModuleTests/Fixtures/GitGraphIDEA`. See the repository's
+under `shared/fixtures/git/graph-idea`; Rust Core replays them in
+`rust/lithe-core/src/git/graph_tests.rs`. See the repository's
 `macos/Resources/GitGraph` for upstream license and attribution.
 
 The reference screenshot is reproduced from `2bedf381` through `887f49ea`,

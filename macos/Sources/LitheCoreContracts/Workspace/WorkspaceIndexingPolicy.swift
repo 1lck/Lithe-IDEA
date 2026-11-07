@@ -7,6 +7,33 @@ package enum WorkspaceDirectoryAction: Equatable, Sendable {
     case cancelExclusion
 }
 
+/// The persisted directory rules of one workspace root, exactly as Rust Core's
+/// directory rules model (`workspace.reduceDirectoryAction`) reads and returns them.
+package struct WorkspaceDirectoryRules: Codable, Equatable, Sendable {
+    package var marks: [String: WorkspaceDirectoryMark]
+    package var includedDirectories: [String]
+    package var previousRoles: [String: WorkspaceDirectoryMark]
+    package init(
+        marks: [String: WorkspaceDirectoryMark],
+        includedDirectories: [String],
+        previousRoles: [String: WorkspaceDirectoryMark]
+    ) {
+        self.marks = marks
+        self.includedDirectories = includedDirectories
+        self.previousRoles = previousRoles
+    }
+}
+
+/// Core's answer to a directory action: the full state to persist, and whether it differs.
+package struct WorkspaceDirectoryReduction: Equatable, Sendable {
+    package let changed: Bool
+    package let rules: WorkspaceDirectoryRules
+    package init(changed: Bool, rules: WorkspaceDirectoryRules) {
+        self.changed = changed
+        self.rules = rules
+    }
+}
+
 /// Stable application failures. Presentation owns translation; adapters retain diagnostics.
 package enum WorkspaceIndexingFailure: Error, Equatable, Sendable {
     case invalidSettings, readFailed, writeFailed, configureFailed, workspaceUnavailable, permissionDenied

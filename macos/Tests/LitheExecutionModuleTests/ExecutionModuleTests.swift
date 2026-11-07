@@ -430,6 +430,15 @@ struct ExecutionModuleTests {
     }
 
     @Test
+    func coverageNamingACaseWithoutItsSuiteIsRejectedAndNeverWidenedToTheProject() throws {
+        let json = try JSONSerialization.data(withJSONObject: [
+            "tests": [], "summary": ["total": 0, "passed": 0, "failed": 0, "errors": 0, "skipped": 0],
+            "success": true, "coverage": [["project": "a", "case": "kept"]],
+        ] as [String: Any])
+        #expect(throws: DecodingError.self) { try JSONDecoder().decode(BuildTestResults.self, from: json) }
+    }
+
+    @Test
     func backendTestsIgnoreCancelledRequestsThatReturnAfterReplacement() async throws {
         let service = LanguageTestService(outcomeResolver: LinkedCoreTestRunOutcome(), executableResolver: TestExecutableResolver(), processFactory: { TestStreamingProcess() })
         var observedProcesses: [Int32] = []

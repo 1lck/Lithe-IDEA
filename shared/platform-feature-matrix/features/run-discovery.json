@@ -34,7 +34,7 @@
   "windows": {
     "evidence": [
       "windows/tauri/src/features/run",
-      "windows/tauri/crates/lithe-legacy-java/src/maven/mod.rs",
+      "windows/tauri/crates/lithe-legacy-tooling/src/maven/mod.rs",
       "windows/tauri/src/features/run/components/run-configuration-browser.tsx",
       "windows/tauri/src/features/run/components/run-configuration-browser.test.tsx",
       "windows/tauri/src/features/run/components/run-configuration-list-split.tsx",

@@ -26,7 +26,9 @@ import { useKeymapStore } from "@/features/keymaps/stores/keymaps.store";
 import type { Keybinding } from "@/features/keymaps/types/keymaps.types";
 import { getEffectiveKeybindingForCommand } from "@/features/keymaps/utils/effective-keymaps";
 import { localizeKeymapCommand } from "@/features/keymaps/utils/command-localization";
+import { KeybindingConflictError } from "@/features/keymaps/utils/binding-conflicts";
 import { KeymapContextError } from "@/features/keymaps/utils/context";
+import { assertUserKeybindingsAllowed } from "@/features/keymaps/utils/save-keybinding";
 import {
   createKeybindingsExportPayload,
   getExportableUserKeybindings,
@@ -207,6 +209,10 @@ export const KeyboardSettings = () => {
           return;
         }
 
+        // Core checks the final layered bindings (imported preset included) before anything changes.
+        await assertUserKeybindingsAllowed(imported.keybindings, {
+          preset: imported.keybindingPreset,
+        });
         if (imported.keybindingPreset) {
           await updateSetting("keybindingPreset", imported.keybindingPreset);
         }
@@ -226,9 +232,18 @@ export const KeyboardSettings = () => {
       } catch (error) {
         showToast({
           message:
-            error instanceof KeymapContextError
-              ? t("keybindings.invalidWhen")
-              : t("settings.keyboard.importFailed", { error: String(error) }),
+            error instanceof KeybindingConflictError
+              ? t("keybindings.conflictsWith", {
+                  commands: error.commands
+                    .map((id) => {
+                      const other = keymapRegistry.getCommand(id);
+                      return other ? localizeKeymapCommand(other, t).title : id;
+                    })
+                    .join(", "),
+                })
+              : error instanceof KeymapContextError
+                ? t("keybindings.invalidWhen")
+                : t("settings.keyboard.importFailed", { error: String(error) }),
           type: "error",
         });
       }

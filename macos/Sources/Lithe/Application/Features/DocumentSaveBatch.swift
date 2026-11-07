@@ -26,13 +26,14 @@ enum DocumentSaveBatchCore {
         let id: String
         let dirty: Bool
         let readOnly: Bool
-        let contentSynchronized = true
+        let contentSynchronized: Bool
 
         @MainActor
         init(_ document: EditorDocument) {
             id = document.id.uuidString
             dirty = document.isDirty
             readOnly = document.isReadOnly
+            contentSynchronized = !document.needsEditorSynchronization
         }
     }
 

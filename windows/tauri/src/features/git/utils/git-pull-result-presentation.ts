@@ -14,6 +14,7 @@ export function getGitPullResultPresentation(
   switch (result.status) {
     case "duplicate":
     case "cancelled":
+    case "needs-strategy":
       return null;
     case "pulled":
       return {

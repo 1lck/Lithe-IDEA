@@ -130,6 +130,86 @@ and native compilation to 16 outstanding requests. Cache limits, teardown and
 stale-store guards belong to the window adapter. macOS has no free-form
 `when` parser and is unchanged. See `shared/fixtures/keymap/context-v1.json`.
 
+## Shortcut binding conflicts
+
+`keymap.analyzeConflicts` accepts `{platform: "macos" | "windows", layers: [{entries: [{command, key, when?, enabled?}], disabledCommands?: string[]}]}`
+with layers ordered from the lowest priority (defaults) to the highest (user
+overrides) and returns `{conflicts: [{key, when, commands}], invalid: [{command, key, code}]}`.
+Within a layer, a command's entries replace every lower layer's entries for that
+command; `disabledCommands` unbind a command from lower layers first. An entry with
+`enabled: false` is in force but unbound. Conflicts are computed over the final
+effective bindings only: two different commands with the same canonical key sequence
+and whitespace-normalised `when` clause. Binding text is case-insensitive, modifier order
+and aliases do not matter (`cmd`/`command`/`mod` follow `platform`: Command on macOS, Control on
+Windows; `meta`/`super`/`win` are always Meta; `option`/`opt` are Alt; `return` is `enter`; `esc` is
+`escape`), chords are whitespace-separated steps, a trailing `+` is the plus key, and `doubleshift`
+is the double-tap Shift gesture. Parse failures are listed in `invalid` with `empty`, `empty_key`,
+`multiple_keys`, `too_long` or `too_many_steps` and never take part in conflicts; more than
+20000 entries is `invalid_request`. Hosts reject saving a binding when a conflict contains the edited
+command. Native key-event conversion and the synchronous matching path stay in the host.
+See `shared/fixtures/keymap/binding-conflicts-v1.json`.
+
+`keymap.modifierGestureStep` accepts `{state?, event, timestamp}` and returns `{state, triggered}`. It is the
+double-Shift gesture as a pure transition: `event` is `{kind: "keyDown"}`, `{kind: "reset"}` or
+`{kind: "flags", shift, otherModifiers}`; `timestamp` is seconds on a clock the host keeps; `state` is opaque
+host-held memory (omit it for the idle state) that the host sends back with the next event. The rule lives in the
+pure crate `rust/lithe-core-rules` (no I/O, no clock) so it can run on a synchronous key path: macOS calls it
+through the C ABI, and the Windows frontend runs the same source compiled to wasm (`lithe_rules_alloc`,
+`lithe_rules_dealloc`, `lithe_rules_execute` over JSON envelopes), loaded asynchronously at startup. A malformed
+payload is `invalid_request`. Hosts only convert native events to this input and act on `triggered`; both are
+tested step by step against `shared/fixtures/keymap/modifier-gesture-v1.json`.
+
+`editor.workbenchState.reduce` accepts `{state?, action}` and returns `{state, removedGroupIds}`. `state` is
+`{groups, focusedGroup?}`; a group is `{id, members, selected?, mru?, pinned?, preview?}` (ordered members, the shown
+member, most-recent-first order, pinned members, one transient preview), which is the union of what macOS (a flat
+tab list with placements and per-group selection) and Windows (pane groups with MRU, pins and preview) track.
+`action` is tagged by `kind`: `normalize {emptyGroups?, unplaced?}`, `open {group, member, activate?}`,
+`close {group, member, emptyGroups?, selectionFallback?}`, `activate {group, member?}`,
+`move {member, from, to, before?, after?, activate?, emptyGroups?, selectionFallback?}` (with `from == to` it only
+repositions), `reorder {group, fromIndex, toIndex}`, `setPinned {group, member, pinned}`,
+`setPinnedEverywhere {member, pinned}`, `setPreview {group, member?}`, `clearPreviewEverywhere {member}` and
+`mergeGroup {from, into, activateSelected?}`. Every group an action touches leaves with unique members, a selection
+that is a member (the first one when it was missing or stale, `null` when empty), an MRU order that starts at the
+selection and lists every member once, and pins and preview that only name members; groups an action does not touch are
+returned as sent, so a host may send only the groups an action involves. `emptyGroups` is `keep` (default), `remove`
+(may leave no group) or `removeKeepingFirst`; it applies to the group a `close` or `move` emptied and to every group for
+`normalize`. `selectionFallback` is `adjacent` (default: the member that slid into the vacated position) or `first`.
+`normalize.unplaced` members no group lists join the focused group (the first group when `focusedGroup` is missing or
+stale), and `focusedGroup` moves to the first remaining group when its group was removed. Actions that name an unknown
+group or an unknown move destination change nothing. `removedGroupIds` lists removed groups in their previous order so
+hosts prune their own layout tree; split directions, ratios, pixels and dragging never reach Core. A malformed payload is
+`invalid_request`. It lives in `rust/lithe-core-rules` and is called synchronously: macOS through the C ABI, Windows
+through the wasm build inside zustand `set()`, one call per user action. Both hosts run every case of
+`shared/fixtures/editor/workbench-state-v1.json` through it.
+
+`workspace.classifyVisibility` accepts `{hiddenDirectoryNames?, hiddenFilePatterns?, entries: [{path, isDirectory?}]}`
+and returns `{hidden: boolean[], watchedDespiteHiding: boolean[]}` with one answer per entry, in request order. `path`
+is workspace-relative with `/` separators; `isDirectory` is `true` for a folder, `false` for a file and omitted when the
+host does not know (every component may then be a folder). The two lists are the user's own entries: Core adds the
+built-in folders and patterns, and a `!entry` turns a built-in off. Matching ignores case. A folder name hides the folder,
+everything below it and a file with that exact name (a linked worktree's `.git` file). `hidden` means the tree, search and
+Local History leave the path out; `watchedDespiteHiding` marks the hidden project configuration folder (`.lithe`) whose file
+events must still be delivered, except the built-in noise below it such as `.lithe/run/local.json`. Hosts send all children
+of a directory in one call. `workspace.visibilityDefaults` takes `{}` and returns the built-in lists
+(`hiddenDirectoryNames`, `hiddenFilePatterns`, `builtInPatterns`, `configurationDirectory`, `configurationPattern`) so hosts
+display them without keeping a copy. Both live in `rust/lithe-core-rules` like `keymap.modifierGestureStep`, run in wasm on
+Windows, and are tested against `shared/fixtures/workspace/visibility-v1.json`.
+
+## Terminal link targets
+
+`terminal.parseLinkTarget` accepts `{texts: string[], baseDirectory?, homeDirectory?, providerSchemes?: string[]}`
+and returns `{targets: (Target | null)[]}` with one entry per text. A target is
+`{kind: "file", path, line, column, explicit}` or `{kind: "external", url}`. Core splits a trailing
+`:line[:column]` (positive integers), decodes `file://` URIs (percent escapes, `localhost`, Windows drive
+and UNC forms), expands `~` from `homeDirectory`, and resolves relative paths against `baseDirectory`
+lexically (`.` and `..`), keeping Windows drive/UNC separators. `providerSchemes` name host file
+providers (for example `remote`, `wsl`): such URIs are returned unchanged, and under a provider
+`baseDirectory` relative and rooted POSIX paths stay inside that provider. Other `scheme://` texts and
+`mailto:` are `external`; a bare `name:12` is a file, not a scheme. `explicit` is true when the text
+itself says it is a path (separator, `~`, `file://`, provider URI or line suffix). Core never inspects
+file extensions or touches the file system: the host checks existence, owns hit regions, and opens the
+target. At most 256 texts of 4096 bytes. See `shared/fixtures/terminal/link-target-v1.json`.
+
 The Rust core is the shared application runtime for macOS SwiftUI and Windows
 React/Tauri. macOS calls the stable C ABI while the Tauri host links the Rust
 crate directly. The C ABI remains:
@@ -1265,11 +1345,16 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `network.proxyPolicy` | Normalize the stored proxy settings into the policy a network stack must apply (mode, server, credentials, exclusions) |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index; the built-in hidden names are skipped without being read, and include `node_modules`, Python virtual environments (`.venv`, `venv`), `__pycache__` and `*.pyc` files; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
 | `workspace.filterChanges` | Filter an array of workspace-relative paths, or `{ paths, hiddenFilePatterns }` whose `!` entries turn default exclusions off, against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
+| `workspace.planDuplicate` | Name the copy of one project item next to its source (`foo.txt` → `foo copy.txt`, then `foo copy 2.txt`) from the sibling names the host has seen to exist |
+| `workspace.planPaste` | Name pasted project items in one destination directory: a free name is kept, a taken one gets the copy suffix, and earlier items of the same paste count as taken |
+| `workspace.reduceDirectoryAction` | Apply "set role", "exclude" or "cancel exclusion" to a root's persisted directory rules and return the complete state to persist |
+| `workspace.relocateDirectoryRules` | Move (or drop, after a delete) the directory rule keys of a renamed, moved or deleted subtree, optionally into another workspace root's rules |
 | `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation. Children list directories first, then names in IDEA's natural file-name order (digit runs compare by value, case-insensitive, `-` next to `_`; fixture `shared/fixtures/workspace/file-name-order-v1.json`) |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
 | `workspace.recentProjects.reduce` | Apply one record, remove, pin, import, or normalize action to the recent project list and return the retained order |
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
+| `workspace.rankNames` | Pure ranking of candidate names that the platform enumerates itself (`{ query, candidates: [{ name, path? }], context: { openPaths, recentPaths }, limitPerTier? }`). Use it only for lists Core cannot index: Windows remote/WSL roots, symbol lists, navigator lists. Roots Core indexes go through `workspace.searchEverywhere`, so an inventory is never sent back to Core. Returns `matches: [{ index, degree, tier, nameMatchRanges }]` ordered by degree, open/recent tier, recency, then file-name order (fixture `shared/fixtures/search/rank-names-v1.json`) |
 | `workspace.replacePreview` | Return deterministic replacement lines and complete replacement text |
 | `workspace.replaceText` | Plan replacement against a host-captured text snapshot without writing |
 | `workspace.searchTextBatch` | Search provider-captured text snapshots using workspace matching rules |
@@ -1282,6 +1367,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `history.entries` | List valid history entries for one file or a workspace |
 | `history.content` | Read a stored history snapshot by relative storage path |
 | `history.relocate` | Move retained history for a file or directory subtree after a rename or move |
+| `history.planEvent` | Plan which snapshots an editing event (save, auto-save, restore, manual, discarded unsaved text, external change, before rename, before batch replace) records and under which reason |
 | `history.rename` | Set or clear a user-visible label on a history entry |
 | `history.delete` | Delete one history entry and its snapshot |
 | `history.ignorePreview` | Validate local history ignore rules and report which rule skips a sample path |
@@ -1453,7 +1539,10 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.comparison` | Return files changed between a reference and the working tree |
 | `git.stashes` | Return structured stash references and messages |
 | `git.checkoutPreflight` | Return local paths that would block switching to a reference |
-| `git.pullPreflight` | Report the configured upstream, ahead/behind counts, divergence, and tracked local changes without fetching |
+| `git.pullPreflight` | Report the configured upstream, ahead/behind counts, divergence, tracked local changes, and the strategy Git is configured for, without fetching |
+| `git.updatePlan` | Route a branch Update and gate a Pull from facts the host collected: blockers, strategy default, whether to ask, and the expected checkout |
+| `git.historyWindow` | Plan a history refresh window, page merge, and selection retention over commit identities |
+| `git.graphProjection` | Project a loaded history window into commit-graph lanes, color IDs, routes, print elements, and labels, optionally filtered |
 | `git.integrationPreflight` | Return local paths that block a merge, rebase, cherry-pick, or revert |
 | `git.conflictMarkers` | Return staged text files that still contain conflict markers |
 | `git.operationState` | Report an interrupted merge, rebase, cherry-pick, or revert and its conflicted paths |
@@ -1505,6 +1594,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `toolchains.candidates` | List one tool's login-shell homes and host-scanned installations with checked executables, versions or skip reasons, and the automatic-layer choice; never starts a probe |
 | `plugins.declarative.decodeGrammar` | Validate independent static editor resources (`languages` 2) |
 | `plugins.editorActions.decode` | Validate independent action registration, collection or click results |
+| `plugins.hostApi.describe` | Describe backend host methods and their required grants from Core's method table |
+| `plugins.hostApi.authorize` | Check a method, service and current session grants using Core's capability rules; the host still checks session and resource ownership |
 | `plugins.editorProviders.decode` | Validate editor provider registrations and provider function results |
 | `run.decodeStart` | Validate a plugin backend's `lithe/host/run/start` params against its manifest and the workspace, and return the normalized start with temporary-file paths substituted |
 | `debug.decodeBackendConfiguration` | Validate a plugin backend's `lithe/host/debug/start` params against its manifest and return the qualified adapter, request, label and configuration |
@@ -1538,6 +1629,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.syncFingerprint` | Digest the files a build model depends on, to tell whether it is stale |
 | `build.languageImport` | Map a build system's options to the Java language server's Maven or Gradle project import |
 | `build.resolveTestRunOutcome` | Reduce a test run's termination, selected scope and decoded summary to one tool-neutral verdict |
+| `build.mergeTestOutcomes` | Merge a run's test result ids into the stored history inside the host-stated id/prefix scope |
 | `vcs.detectRoots` | Find the VCS roots of a workspace from static markers, with registered providers, ambiguous directories, and applied mappings |
 | `vcs.ownerOf` | Assign workspace paths to the detected root that owns each |
 | `vcs.decodeReply` | Validate a VCS provider's reply and return the normalized result |
@@ -2383,6 +2475,57 @@ string or `null`, numeric `ahead` and `behind` counts, `diverged`, and
 `diverged` is true only when both counts are non-zero. `hasLocalChanges` checks
 tracked changes and excludes untracked files. A branch with no configured
 upstream returns `null`, zero counts, and false for both booleans.
+`configuredStrategy` is `"rebase"` when `pull.rebase` is true, `"ffOnly"` when
+`pull.ff` is `only`, `"merge"` when `pull.ff` or `pull.rebase` is false, and
+`null` when Git is not configured for a strategy.
+
+`git.updatePlan` is a pure planner; it never starts Git. `{ "stage": "route",
+"branch": { "fullName", "upstream", "isCurrent" }, "worktrees": [{ "path",
+"branch", "isCurrent" }] }` returns `blocked`, `fastForwardReference`, or
+`inspect` with the `checkout` worktree (or `null` for the request root), the
+`expectedBranch`, and whether the user may be asked. `{ "stage": "inspect",
+"preflight", "interactive", "explicitSource"?, "strategy"?, "confirmation"? }`
+returns `blocked` (`noUpstream`, `localChanges`, `upToDate`, `notFastForward`,
+`stateChanged`), `chooseStrategy`, or `pull` with the mode for `git.write`.
+The strategy is the user's choice, else the preflight's `configuredStrategy`,
+else `ffOnly`; a diverged history that would need `ffOnly` asks when
+`interactive` and is refused otherwise. `{ "stage": "defaultStrategy",
+"preflight", "fastForwardPossible" }` returns the strategy a Pull dialog
+preselects. `shared/fixtures/git/update-plan-v1.json` defines the rules.
+
+`git.historyWindow` is a pure planner over commit identities in display order.
+`refreshPlan` returns the first-page `limit`: with `preserveLoaded` it is at
+least the loaded count, so a refresh never shrinks a deep window. `extendPlan`
+returns the `extensionLimit` that keeps the previous tail loaded after new
+commits appeared at the head. `mergePage` returns the `append` positions of a
+page that are not yet in the window and whether `hasMore`, bounded to 5000
+commits. `reconcileSelection` returns the retained `selected` identities in
+window order plus `focused` and `anchor`, falling back to the first loaded
+commit. `shared/fixtures/git/history-window-v1.json` defines the rules.
+
+`git.graphProjection` is a pure projection of one loaded history window; it never
+starts Git. The request is `{ "commits": [{ "hash", "parentHashes", "decorations" }],
+"remoteNames"?, "repositoryCommits"?, "visibleHashes"?, "displayMode"?,
+"currentBranch"? }`: `commits` are in Git's child-before-parent order, `remoteNames`
+are the remote short names that type a bare remote-tracking decoration,
+`repositoryCommits` is the complete repository window that fixes the permanent layout
+(ignored unless it is unique and covers every scoped commit), `visibleHashes` applies
+a filter (omit it to show every commit), `displayMode` is `compact` (default) or
+`expanded`, and `currentBranch` asks for the ancestry of that local branch. Hosts call
+it once per loaded window, never per commit, and recompute the whole window when a page
+is appended or the history refreshes; lanes depend on every loaded edge, and a head
+fragment's color ID is the Java `String.hashCode` of its principal reference name, so a
+named branch keeps its color across pages. The response is `{ "version", "rows",
+"laneCount", "recommendedLaneCount", "hasMissingParents", "currentBranchHashes" }`.
+Each visible row carries `commitHash`, integer `lane` and `laneCount`, a signed
+`colorId`, `layoutIndex`, `incomingLaneColors`, `parentEdges` (`id`, `parentHash`,
+`targetLane`, `colorId`, `isMissing`, `isDotted`), typed `labels`, and
+`printElements` (the up and down half-edges with `position`, `adjacentPosition`,
+`colorId`, `isDotted`, `isMissing`, `hasArrow`, `isTerminal`, `targetHash`). Hosts own
+pixels, curves, and the mapping from a color ID to a theme color; `colorId` `0` means
+an unreferenced fragment. Requests over 20,000 commits fail with `invalid_request`.
+`shared/fixtures/git/graph-projection-v1.json` defines the rules and
+`shared/fixtures/git/graph-idea/` holds the pinned IntelliJ oracles.
 
 `git.integrationPreflight` accepts either `reference` or `gitReference` with
 `root` and `operation`, where `operation` is `merge`, `rebase`, `cherryPick`,
@@ -2658,6 +2801,8 @@ requests finish. Watcher updates refresh the retained variants.
 Agent file completion uses project visibility and leaves generated names disabled;
 only the Search Everywhere UI explicitly enables them. Directory-versus-file
 matching examples are shared in `shared/fixtures/search/exclusions.json`.
+
+`workspace.searchEverywhere` takes an optional `context: { openPaths, recentPaths }` (paths relative to `root`, `/` separators, recent first). It only breaks ties between equal file-name matches (open first, then recent by recency) and scales the returned `matchingDegree` by 1024 plus the tie-break, using the same code as `workspace.rankNames`; omit it and results are unchanged (fixture `shared/fixtures/search/search-everywhere-context-v1.json`).
 
 `workspace.searchEverywhere` uses the same query options and visibility fields,
 and additionally accepts `maxSymbolResults` and optional
@@ -5312,6 +5457,20 @@ refuses is `plugin.grammar.invalid` with the failing `field`; a language
 without static editor resources is `plugin.grammar.unavailable`. Configuration-only
 languages return `grammar:null` and require no file read. Core reads no files.
 
+`plugins.hostApi.describe` accepts `{}` and returns `{methods:[{method,service,grant,coreServed}]}`.
+`grant` is null for implicit methods, a service name for legacy aggregate grants, or the
+exact method for individual grants. `coreServed` identifies methods dispatched inside
+Core rather than by a native handler. The host admits a requested grant only when all of
+its non-Core methods have registered handlers.
+
+`plugins.hostApi.authorize` accepts `{method,service,grants}` and returns `{allowed:true}`
+or `{allowed:false,code}`. It uses Core's method catalog and capability rules; unknown or
+mismatched methods return `plugin.host.unavailable`, and missing grants return
+`plugin.host.permissionDenied`. This decision does not replace negotiated-version,
+parameter, current-session, workspace-context, or resource-ownership checks. Hosts must
+deny access if the Core call fails.
+Shared cases are in `shared/fixtures/plugins/host-api-v1.json`.
+
 `plugins.editorActions.decode` accepts `{kind:"registration",value}` or
 `{kind:"actions",value,text}` and returns `{registration}` or `{actions}`.
 Core validates literal selectors, one-based UTF-16 ranges and bounded opaque
@@ -6236,6 +6395,34 @@ workspaces. Preferences and refresh completion use distinct events to avoid writ
 The native host injects the window identity for Git/file watcher ownership, shares paths
 and releases only the last holder; window destruction also revokes late registrations.
 
+### Directory rules, copy names and history events
+
+`workspace.reduceDirectoryAction` takes `{ path, action, caseInsensitive?, rules }`, where
+`path` is workspace-relative (`.` is the root), `action` is `{ kind: "setRole", role }`,
+`{ kind: "exclude" }` or `{ kind: "cancelExclusion" }`, and `rules` is the root's persisted
+`{ marks, includedDirectories, previousRoles }`. It returns `{ changed, rules }`; hosts persist
+`rules` verbatim and skip the write when `changed` is false. Excluding remembers the replaced role in
+`previousRoles` and canceling a manual exclusion restores it. `workspace.relocateDirectoryRules`
+takes `{ source, destination?, caseInsensitive?, rules, target? }` and returns `{ rules, target }`:
+keys at or below `source` leave `rules`, reappear under `destination` (in `target` for a move across
+workspace roots) and are dropped when there is no destination. Request and response pairs are pinned
+by `shared/fixtures/workspace/directory-rules-v1.json`.
+
+`workspace.planDuplicate` takes `{ name, isDirectory, existing?, caseInsensitive? }` and returns
+`{ name }`; `workspace.planPaste` takes `{ items: [{ name, isDirectory }], existing?, caseInsensitive? }`
+and returns `{ names }`. A file name is split at its last dot, a directory name and a leading-dot name
+are not. Core never touches the file system: the host passes the names it has seen to exist, creates the
+copy without replacing anything (`FileManager.copyItem`, which refuses an existing destination, on macOS;
+`create_new` and `MoveFileEx` without replacement on Windows) and, when that fails because the name
+appeared meanwhile, adds the name to `existing` and plans again. After 512 rounds the host reports
+the stable `destination_exists` error. Cases are in `shared/fixtures/workspace/file-copy-names-v1.json`.
+
+`history.planEvent` takes `{ event }` and returns `{ snapshots: [{ source, reason }] }`. `source` says
+whose text the host records: `beforeChange` (the text an event replaces), `afterChange` (the text it
+produced) or `editorBuffer` (unsaved editor text that is discarded). A save or auto-save records
+`beforeChange` and `afterChange`, so a snapshot of the saved state exists immediately.
+Cases are in `shared/fixtures/history/event-plan-v1.json`.
+
 The directory-action sequence contract is `shared/fixtures/workspace/directory-actions-v1.json`.
 Role changes retain include exceptions, explicit exclusion deletes only its own exception,
 and canceling Git exclusion preserves the current role. Only canceling a manual exclusion
@@ -6341,6 +6528,21 @@ failures outrank the exit code, a non-zero exit outranks an empty result, and a
 zero exit with decoded results but no executed test is not a pass. Counts that
 exceed `total` are `InvalidRequest`. No tool or selector syntax is interpreted.
 Hosts localize the outcome. Cases: `shared/fixtures/build/test-run-outcome-v1.json`.
+
+### Test history merge
+
+`build.mergeTestOutcomes` takes `{ previous, incoming, scope }`: `previous` and
+`incoming` are lists of result identifiers (strings) in display and report order,
+and `scope` is `{ ids?, prefixes? }`, the identifiers the run replaces. A result is
+covered when its id equals one of `ids` or starts with one of `prefixes`; an empty
+scope covers nothing and an empty prefix is `InvalidRequest`. It returns
+`{ entries: [{ source, index }] }` with `source` `previous` or `incoming` and
+`index` the position in that input: covered history entries are dropped, the
+others stay in place, then the run's covered results follow. Incoming results
+outside the scope are discarded, and for a repeated id the later entry wins.
+Core compares strings only: hosts keep the result payloads, and the provider
+adapter builds the scope (for example turning Java nested classes `Outer$Inner`
+into the prefix `Outer$`). Cases: `shared/fixtures/build/test-outcome-merge-v1.json`.
 
 ### Variable and disassembly paging
 
@@ -6791,3 +6993,19 @@ the failure again.
 ```json
 {"ts":"2026-11-03T08:00:01.123Z","level":"WARN","event":"vcs.git.command.failed","channel":"vcs/git","op":"op-7f3a","fields":{"command":"fetch","arguments":"fetch --prune origin","repository":"<HOME>/src/app","source":"user","duration_ms":311,"exit_code":128,"stderr":"fatal: could not read from remote repository."}}
 ```
+
+`agent.attachments.retentionPlan` decides which pasted Agent images the platform may
+delete; it reads and writes no files. The payload is `{nowMs, entries, acceptedReferences,
+ledgerPresent, caseInsensitive}`: `entries` lists the platform's pasted-image cache as `{path, modifiedMs,
+abandoned}` (`modifiedMs` is Unix milliseconds and may be omitted; `abandoned` marks a
+paste that failed or was discarded before any conversation accepted it),
+`acceptedReferences` is the platform ledger of paths a conversation accepted, and
+`caseInsensitive` (Windows) compares paths without case; separators are always normalized.
+`ledgerPresent` reports only whether the ledger file exists, never whether it is empty: when it
+is missing, every non-abandoned cached image counts as accepted (the cache predates the
+ledger) and is returned in `seed`, which the platform writes atomically (temporary file, then
+rename) before deleting anything. The result is `{delete, keep, seed}`, the first two lists of `{path, reason}` in entry order. Reasons:
+`referenced` (kept, even when flagged abandoned), `recent` (kept, unreferenced and at most
+seven days old or of unknown age), `abandoned` and `expired` (deleted). The cache and the
+ledger live in the platform cache directory, never in the app bundle or install directory.
+The fixture is `shared/fixtures/agent/attachment-retention-v1.json`.

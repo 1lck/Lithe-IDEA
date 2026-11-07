@@ -1082,15 +1082,14 @@ final class AppSettings: ObservableObject {
     /// them. The legacy keys are left untouched and stop being read once the
     /// new key is saved.
     static func migratedHiddenPathPatterns(from defaults: any KeyValueStore) -> [String] {
-        let builtIn = FileVisibilityRules.default
         let directories = (defaults.stringArray(forKey: Key.legacyHiddenDirectories) ?? [])
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && !builtIn.isHiddenDirectoryName($0) }
+            .filter { !$0.isEmpty && !FileVisibilityRules.isBuiltInDirectoryName($0) }
             .map { "**/\($0)/" }
         let files = (defaults.stringArray(forKey: Key.legacyHiddenFilePatterns) ?? [])
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { pattern in
-                !pattern.isEmpty && !builtIn.hiddenFilePatterns.contains {
+                !pattern.isEmpty && !FileVisibilityRules.builtInHiddenFilePatterns.contains {
                     $0.caseInsensitiveCompare(pattern) == .orderedSame
                 }
             }

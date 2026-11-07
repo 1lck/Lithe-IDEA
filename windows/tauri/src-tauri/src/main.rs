@@ -287,6 +287,7 @@ fn main() {
                             host::clipboard_set,
                             host::clipboard_get,
                             host::clipboard_paste,
+                            host::duplicate_path,
                             host::clipboard_clear,
                             host::clipboard_sequence_number,
                             agent_clipboard::agent_clipboard_file_paths,

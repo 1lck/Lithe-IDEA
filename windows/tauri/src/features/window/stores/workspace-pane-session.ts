@@ -134,18 +134,18 @@ const hydratePaneNode = (
   };
 };
 
-const addBuffersToPaneNode = (
-  node: PaneNode,
-  paneId: string,
-  bufferIds: string[],
-  setActiveWhenEmpty: boolean,
-): PaneNode => {
+/**
+ * Appends buffers to one pane in the order given. De-duplication, the selection of an empty pane
+ * and the MRU order are not decided here: the layout goes through `restoreLayout`, which has Core
+ * normalize every group.
+ */
+const addBuffersToPaneNode = (node: PaneNode, paneId: string, bufferIds: string[]): PaneNode => {
   if (node.type === "split") {
     return {
       ...node,
       children: [
-        addBuffersToPaneNode(node.children[0], paneId, bufferIds, setActiveWhenEmpty),
-        addBuffersToPaneNode(node.children[1], paneId, bufferIds, setActiveWhenEmpty),
+        addBuffersToPaneNode(node.children[0], paneId, bufferIds),
+        addBuffersToPaneNode(node.children[1], paneId, bufferIds),
       ],
     };
   }
@@ -154,21 +154,7 @@ const addBuffersToPaneNode = (
     return node;
   }
 
-  const nextBufferIds = unique([...node.bufferIds, ...bufferIds]);
-  const shouldSetActive = setActiveWhenEmpty && !node.activeBufferId && node.bufferIds.length === 0;
-  const activeBufferId = shouldSetActive ? (bufferIds[0] ?? null) : node.activeBufferId;
-  const nextBufferIdSet = new Set(nextBufferIds);
-
-  return {
-    ...node,
-    bufferIds: nextBufferIds,
-    activeBufferId,
-    mruBufferIds: unique([
-      ...(activeBufferId ? [activeBufferId] : []),
-      ...(node.mruBufferIds ?? []),
-      ...nextBufferIds,
-    ]).filter((bufferId) => nextBufferIdSet.has(bufferId)),
-  };
+  return { ...node, bufferIds: [...node.bufferIds, ...bufferIds] };
 };
 
 const attachMissingBuffersToLayout = (
@@ -202,7 +188,7 @@ const attachMissingBuffersToLayout = (
 
   return {
     ...layout,
-    root: addBuffersToPaneNode(layout.root, targetPaneId, orderedMissingBufferIds, true),
+    root: addBuffersToPaneNode(layout.root, targetPaneId, orderedMissingBufferIds),
   };
 };
 

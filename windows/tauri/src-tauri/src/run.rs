@@ -529,7 +529,7 @@ pub async fn run_list_java_sources(root: PathBuf) -> Result<Vec<String>, String>
 
 fn list_java_sources(root: &Path) -> Result<Vec<String>, String> {
     let root = existing_directory(root)?;
-    lithe_legacy_java::list_run_java_sources(&root, MAX_JAVA_SOURCES).map_err(|error| error.message)
+    lithe_legacy_tooling::list_run_java_sources(&root, MAX_JAVA_SOURCES).map_err(|error| error.message)
 }
 
 #[tauri::command]
@@ -1419,7 +1419,7 @@ pub(crate) fn language_service_java_runtimes(
 fn java_selection_candidates(
     root: Option<&Path>,
     runtimes: &[JavaRuntime],
-) -> Vec<lithe_legacy_java::JavaSelectionCandidate> {
+) -> Vec<lithe_legacy_tooling::JavaSelectionCandidate> {
     // Resolve source identities once, not from the sorting comparator. Windows
     // path identity is case-insensitive and may be reached through a symlink.
     let key = |path: &Path| normalize_path(path).to_string_lossy().to_lowercase();
@@ -1442,7 +1442,7 @@ fn java_selection_candidates(
             } else {
                 2
             };
-            lithe_legacy_java::JavaSelectionCandidate {
+            lithe_legacy_tooling::JavaSelectionCandidate {
                 id: runtime.home_path.clone(),
                 version: runtime.version.clone(),
                 priority,
@@ -1454,13 +1454,13 @@ fn java_selection_candidates(
 fn select_project_java(
     root: Option<&Path>,
     runtimes: &[JavaRuntime],
-) -> Result<lithe_legacy_java::JavaSelection, String> {
+) -> Result<lithe_legacy_tooling::JavaSelection, String> {
     let candidates = java_selection_candidates(root, runtimes);
     let fallback_id = candidates
         .iter()
-        .min_by(|a, b| lithe_legacy_java::compare_java_candidates(a, b))
+        .min_by(|a, b| lithe_legacy_tooling::compare_java_candidates(a, b))
         .map(|candidate| candidate.id.clone());
-    lithe_legacy_java::select_java(lithe_legacy_java::JavaSelectionRequest {
+    lithe_legacy_tooling::select_java(lithe_legacy_tooling::JavaSelectionRequest {
         root: root.map(Path::to_path_buf),
         requirements: None,
         candidates,
@@ -1487,7 +1487,7 @@ fn probe_java_homes(homes: Vec<PathBuf>) -> Vec<JavaRuntime> {
         .map(|candidate| (candidate.id.clone(), candidate))
         .collect::<HashMap<_, _>>();
     java.sort_by(|left, right| {
-        lithe_legacy_java::compare_java_candidates(
+        lithe_legacy_tooling::compare_java_candidates(
             &candidates[&left.home_path],
             &candidates[&right.home_path],
         )
@@ -2937,12 +2937,12 @@ mod tests {
 
     #[test]
     fn skipped_directories_include_build_outputs() {
-        assert!(lithe_legacy_java::is_run_scan_excluded_directory("target"));
-        assert!(lithe_legacy_java::is_run_scan_excluded_directory(".git"));
-        assert!(lithe_legacy_java::is_run_scan_excluded_directory(
+        assert!(lithe_legacy_tooling::is_run_scan_excluded_directory("target"));
+        assert!(lithe_legacy_tooling::is_run_scan_excluded_directory(".git"));
+        assert!(lithe_legacy_tooling::is_run_scan_excluded_directory(
             "node_modules"
         ));
-        assert!(!lithe_legacy_java::is_run_scan_excluded_directory("src"));
+        assert!(!lithe_legacy_tooling::is_run_scan_excluded_directory("src"));
     }
 
     #[test]

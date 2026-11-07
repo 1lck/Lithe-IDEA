@@ -433,6 +433,54 @@ pub fn entries(request: HistoryEntriesRequest) -> Result<HistoryEntriesResponse,
     })
 }
 
+/// Which snapshots an editing event records (`history.planEvent`).
+///
+/// Hosts name the event and Core decides what is recorded and under which reason, so macOS
+/// and Windows save, restore and snapshot at the same moments. `source` says whose text the
+/// host supplies for the snapshot:
+///
+/// - `beforeChange`: the file's text as it was before the event changed it.
+/// - `afterChange`: the file's text once the event has completed.
+/// - `editorBuffer`: unsaved editor text that the event is about to discard.
+///
+/// Returns `{ snapshots: [{ source, reason }] }` in recording order. A save records the
+/// text it replaces and the text it writes, so a history entry exists for the saved state
+/// immediately rather than only after the next edit.
+pub(crate) fn plan_event_command(
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, CoreError> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct Request {
+        event: String,
+    }
+    let request: Request = serde_json::from_value(payload).map_err(|error| {
+        CoreError::new(ErrorCode::InvalidRequest, "Invalid history event request")
+            .with_details(error.to_string())
+    })?;
+    let plan: &[(&str, &str)] = match request.event.as_str() {
+        "save" | "autoSave" => &[("beforeChange", "saved"), ("afterChange", "saved")],
+        "restore" => &[("beforeChange", "restored")],
+        "manual" => &[("afterChange", "saved")],
+        "unsavedDiscard" => &[("editorBuffer", "unsavedDiscard")],
+        "externalChange" => &[("afterChange", "externalChange")],
+        "beforeRename" => &[("beforeChange", "beforeRename")],
+        "beforeBatchReplace" => &[("beforeChange", "beforeBatchReplace")],
+        _ => {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Unknown history event",
+            ))
+        }
+    };
+    Ok(serde_json::json!({
+        "snapshots": plan
+            .iter()
+            .map(|(source, reason)| serde_json::json!({ "source": source, "reason": reason }))
+            .collect::<Vec<_>>()
+    }))
+}
+
 /// Reads one validated snapshot content file as UTF-8.
 pub fn content(request: HistoryContentRequest) -> Result<String, CoreError> {
     let storage = storage_root(&request.storage_root)?;
@@ -1118,7 +1166,7 @@ fn monotonic_nonce() -> u128 {
         .unwrap_or_default()
 }
 
-fn is_valid_reason(value: &str) -> bool {
+pub(crate) fn is_valid_reason(value: &str) -> bool {
     matches!(
         value,
         "projectBaseline"

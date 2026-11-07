@@ -98,7 +98,8 @@ struct RustGitOperations: GitOperations, Sendable {
         amend: Bool = false,
         force: Bool = false,
         autoStash: Bool = false,
-        pushTarget: String? = nil
+        pushTarget: String? = nil,
+        expectedBranch: String? = nil
     ) -> GitProcessResult? {
         switch core.gitWriteResult(
             at: rootURL,
@@ -118,7 +119,8 @@ struct RustGitOperations: GitOperations, Sendable {
             amend: amend,
             force: force,
             autoStash: autoStash,
-            pushTarget: pushTarget
+            pushTarget: pushTarget,
+            expectedBranch: expectedBranch
         ) {
         case .success(let response):
             return makeProcessResult(response)
@@ -390,8 +392,12 @@ struct RustGitOperations: GitOperations, Sendable {
         )
     }
 
-    func updateCurrentBranch(at rootURL: URL, strategy: GitPullStrategy = .ffOnly) -> GitProcessResult? {
-        write(at: rootURL, operation: "pull", mode: strategy.rawValue)
+    func updateCurrentBranch(
+        at rootURL: URL,
+        strategy: GitPullStrategy,
+        expectedBranch: String?
+    ) -> GitProcessResult? {
+        write(at: rootURL, operation: "pull", mode: strategy.rawValue, expectedBranch: expectedBranch)
     }
 
     /// Staged files still containing conflict markers.
@@ -435,7 +441,8 @@ struct RustGitOperations: GitOperations, Sendable {
             ahead: payload.ahead,
             behind: payload.behind,
             diverged: payload.diverged,
-            hasLocalChanges: payload.hasLocalChanges
+            hasLocalChanges: payload.hasLocalChanges,
+            configuredStrategy: payload.configuredStrategy.flatMap(GitPullStrategy.init(rawValue:))
         )
     }
 

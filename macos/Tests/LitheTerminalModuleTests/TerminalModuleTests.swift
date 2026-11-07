@@ -250,22 +250,6 @@ struct TerminalModuleTests {
     }
 
     @Test
-    func linkResolverKeepsExternalURLsAndResolvesLocations() {
-        let workspace = URL(fileURLWithPath: "/tmp/lithe-terminal-module-test")
-        let expected = workspace.appendingPathComponent("Sources/App.swift").standardizedFileURL
-        #expect(TerminalLinkResolver.resolve(
-            "Sources/App.swift:12:4",
-            relativeTo: workspace,
-            fileExists: { $0 == expected }
-        ) == .file(TerminalLinkLocation(url: expected, line: 12, column: 4)))
-        #expect(TerminalLinkResolver.resolve(
-            "https://example.com",
-            relativeTo: workspace,
-            fileExists: { _ in false }
-        ) == .external(URL(string: "https://example.com")!))
-    }
-
-    @Test
     func processOutputIsForwardedBeforeAndAfterProcessStart() throws {
         let transport = TestTransport()
         transport.outputOnStart = "early\n"

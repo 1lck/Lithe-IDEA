@@ -7724,6 +7724,23 @@
       ]
     },
     {
+      "id": "coreRules.initFailed",
+      "description": "Windows UI: startup failure when the synchronous Core rules wasm module cannot be loaded",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "message": "string"
+      }
+    },
+    {
+      "id": "coreRules.notReady",
+      "description": "Windows UI: a synchronous Core rule was called before startup loaded the wasm module",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "csv.auto",
       "description": "Windows UI: csv.auto",
       "platforms": [
@@ -19135,10 +19152,15 @@
     },
     {
       "id": "git.pullResult.dirty",
-      "description": "Windows UI: git.pullResult.dirty",
+      "description": "Branch Update and Pull stop reason shown by macOS and Windows",
       "platforms": [
+        "macos",
         "windows"
-      ]
+      ],
+      "macos": {
+        "key": "Commit or stash local changes before pulling.",
+        "arguments": []
+      }
     },
     {
       "id": "git.pullResult.fetchFailed",
@@ -19159,10 +19181,15 @@
     },
     {
       "id": "git.pullResult.inspectBranchFailed",
-      "description": "Windows UI: git.pullResult.inspectBranchFailed",
+      "description": "Branch Update and Pull stop reason shown by macOS and Windows",
       "platforms": [
+        "macos",
         "windows"
-      ]
+      ],
+      "macos": {
+        "key": "Unable to inspect the branch.",
+        "arguments": []
+      }
     },
     {
       "id": "git.pullResult.mergeConflict",
@@ -19235,10 +19262,15 @@
     },
     {
       "id": "git.pullResult.stateChanged",
-      "description": "Windows UI: git.pullResult.stateChanged",
+      "description": "Branch Update and Pull stop reason shown by macOS and Windows",
       "platforms": [
+        "macos",
         "windows"
-      ]
+      ],
+      "macos": {
+        "key": "The branch changed while choosing a pull strategy. Review it and try again.",
+        "arguments": []
+      }
     },
     {
       "id": "git.pullResult.strategyRequired",

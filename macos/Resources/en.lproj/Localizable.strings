@@ -891,6 +891,7 @@
 "Commit message replaced" = "Commit message replaced";
 "Commit message: %@" = "Commit message: %@";
 "Commit messages use" = "Commit messages use";
+"Commit or stash local changes before pulling." = "Commit or stash local changes before pulling.";
 "Commit title" = "Commit title";
 "Commit version" = "Commit version";
 "Commits" = "Commits";
@@ -4241,6 +4242,7 @@
 "The active repository changed. Inspect the original repository before retrying." = "The active repository changed. Inspect the original repository before retrying.";
 "The address is invalid." = "The address is invalid.";
 "The application closed before the debug terminal could start." = "The application closed before the debug terminal could start.";
+"The branch changed while choosing a pull strategy. Review it and try again." = "The branch changed while choosing a pull strategy. Review it and try again.";
 "The branch could not be published" = "The branch could not be published";
 "The branch now contains the completed plan. Its original history remains available through the recovery reference." = "The branch now contains the completed plan. Its original history remains available through the recovery reference.";
 "The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message." = "The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message.";
@@ -4742,6 +4744,7 @@
 "UNFILED CONNECTIONS" = "UNFILED CONNECTIONS";
 "URL" = "URL";
 "Unable to create the Maven dependency plan." = "Unable to create the Maven dependency plan.";
+"Unable to inspect the branch." = "Unable to inspect the branch.";
 "Unable to parse Maven dependencies for this module." = "Unable to parse Maven dependencies for this module.";
 "Unable to read settings" = "Unable to read settings";
 "Unable to resolve Maven dependencies." = "Unable to resolve Maven dependencies.";
@@ -5253,6 +5256,9 @@
 "git.log.branchNameEmpty" = "Specify name for the new branch";
 "git.log.branchNameHead" = "HEAD is a reserved keyword";
 "git.log.olderCommitsFailed" = "Could not load older commits. Refresh history";
+"git.pullResult.dirty" = "Commit or stash local changes before pulling.";
+"git.pullResult.inspectBranchFailed" = "Unable to inspect the branch.";
+"git.pullResult.stateChanged" = "The branch changed while choosing a pull strategy. Review it and try again.";
 "git.rebasePlan.issue.emptyReword" = "Every Reword step needs a commit message.";
 "git.rebasePlan.issue.emptySquash" = "Enter a Squash message or use the default combined messages.";
 "git.rebasePlan.issue.invalidMessage" = "The commit messages in this plan are not valid.";

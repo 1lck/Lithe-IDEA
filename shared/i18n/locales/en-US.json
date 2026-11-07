@@ -957,6 +957,8 @@
     "commandPalette.searchThemes": "Search themes...",
     "commandPalette.title": "Command palette",
     "commandPalette.uploadTheme": "Upload theme",
+    "coreRules.initFailed": "Lithe could not load its built-in rules module, so it cannot start. Restart the app; if this keeps happening, reinstall Lithe. Details: {message}",
+    "coreRules.notReady": "The built-in rules module is not loaded yet.",
     "csv.auto": "Auto",
     "csv.changeDelimiter": "Change delimiter",
     "csv.comma": "Comma",

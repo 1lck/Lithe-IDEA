@@ -7,6 +7,11 @@ import {
   getGitReferences,
   locateGitCommit,
 } from "../api/git-commits-api";
+import {
+  mergeGitHistoryPage,
+  planGitHistoryExtension,
+  planGitHistoryRefreshLimit,
+} from "../api/git-history-window-api";
 import { subscribeToGitChanges } from "../events/git-events";
 import type { GitCommit, GitHistorySnapshot, GitReference } from "../types/git.types";
 import {
@@ -112,11 +117,14 @@ export function useGitLogController(
       cursor,
       loadingMore = false,
       refreshReferences = true,
+      preserveLoaded = false,
     }: {
       reference: GitReference | null;
       cursor?: string;
       loadingMore?: boolean;
       refreshReferences?: boolean;
+      /** Rebuild the already loaded window instead of resetting to the first page. */
+      preserveLoaded?: boolean;
     }) => {
       if (!repoPath || repoPathRef.current !== repoPath) return false;
 
@@ -134,7 +142,21 @@ export function useGitLogController(
       if (loadingMore) setIsLoadingMore(true);
       else setLoadState("loading");
 
+      // A refresh that keeps the loaded depth reads that many commits at once.
+      // Core owns the size; the window is replaced atomically below.
+      const previousCommits = preserveLoaded && !cursor ? historyRef.current.commits : [];
       try {
+        const pageLimit = cursor
+          ? COMMITS_PER_PAGE
+          : await planGitHistoryRefreshLimit(
+              previousCommits.length,
+              COMMITS_PER_PAGE,
+              preserveLoaded,
+            );
+        if (isStaleRequest()) {
+          if (cursor) void closeGitHistoryCursor(repoPath, cursor);
+          return false;
+        }
         const pendingPage = Promise.all([
           refreshReferences
             ? getGitReferences(repoPath, referencesOperationId)
@@ -142,7 +164,7 @@ export function useGitLogController(
           getGitHistoryPage(
             repoPath,
             cursor,
-            COMMITS_PER_PAGE,
+            pageLimit,
             pageOperationId,
             reference?.fullName,
           ),
@@ -196,31 +218,65 @@ export function useGitLogController(
           setSelectedReferenceState(resolvedReference);
         }
 
+        // New heads displace the old window downwards. Core says how far to read
+        // past the refreshed page so the old tail (and its selection) stays loaded.
+        let nextCursor = page.nextCursor ?? null;
+        let windowPage = page;
+        const extensionLimit = await planGitHistoryExtension(
+          previousCommits,
+          page.commits,
+          !!page.hasMore && !!page.nextCursor,
+        );
+        if (isStaleRequest()) {
+          if (page.nextCursor) void closeGitHistoryCursor(repoPath, page.nextCursor);
+          return false;
+        }
+        let extension: typeof page | null = null;
+        if (extensionLimit > 0 && page.nextCursor) {
+          const extensionOperationId = `${operationPrefix}-extension`;
+          activeOperationIdsRef.current.add(extensionOperationId);
+          try {
+            extension = await getGitHistoryPage(
+              repoPath,
+              page.nextCursor,
+              extensionLimit,
+              extensionOperationId,
+              resolvedReference?.fullName,
+            );
+          } finally {
+            activeOperationIdsRef.current.delete(extensionOperationId);
+          }
+          if (isStaleRequest()) {
+            if (extension?.nextCursor) void closeGitHistoryCursor(repoPath, extension.nextCursor);
+            return false;
+          }
+          if (!extension) {
+            setLoadState("failed");
+            setError(t("git.historyLoadFailed"));
+            return false;
+          }
+          windowPage = extension;
+          nextCursor = extension.nextCursor ?? null;
+        }
+
         // The caller needs to know whether a page advanced the visible history:
         // a reveal that keeps asking for older pages must stop when nothing new
         // arrives, instead of waiting for a later refresh to jump unexpectedly.
-        const loadedHashes = loadingMore
-          ? new Set(historyRef.current.commits.map((commit) => commit.hash))
-          : new Set<string>();
-        const pageAddedCommits = page.commits.some((commit) => !loadedHashes.has(commit.hash));
-        setHistory((current) => {
-          const existingHashes = loadingMore
-            ? new Set(current.commits.map((commit) => commit.hash))
-            : new Set<string>();
-          const commits = loadingMore
-            ? [
-                ...current.commits,
-                ...page.commits.filter((commit) => !existingHashes.has(commit.hash)),
-              ]
-            : page.commits;
-          return {
-            references: references?.references ?? current.references,
-            recentReferences: references?.recentReferences ?? current.recentReferences,
-            commits,
-            hasMore: page.hasMore && commits.length < MAX_COMMITS,
-          };
-        });
-        activeCursorRef.current = page.nextCursor ?? null;
+        // Core composes every window, so both products dedupe and bound it alike.
+        const base = loadingMore ? historyRef.current.commits : extension ? page.commits : [];
+        const merged = await mergeGitHistoryPage(base, windowPage.commits, windowPage.hasMore);
+        if (isStaleRequest()) {
+          if (nextCursor) void closeGitHistoryCursor(repoPath, nextCursor);
+          return false;
+        }
+        const pageAddedCommits = merged.appended > 0;
+        setHistory((current) => ({
+          references: references?.references ?? current.references,
+          recentReferences: references?.recentReferences ?? current.recentReferences,
+          commits: merged.commits,
+          hasMore: merged.hasMore,
+        }));
+        activeCursorRef.current = nextCursor;
         setLoadState("ready");
         return pageAddedCommits;
       } catch (loadError) {
@@ -323,7 +379,8 @@ export function useGitLogController(
     if (repoPathRef.current !== repoPath) return;
     cancelScheduledRefresh();
     closeActiveCursor();
-    await load({ reference: selectedReferenceRef.current });
+    // A watcher or manual refresh keeps the depth the user scrolled to.
+    await load({ reference: selectedReferenceRef.current, preserveLoaded: true });
   }, [cancelScheduledRefresh, closeActiveCursor, load, repoPath]);
 
   useEffect(() => {
@@ -402,14 +459,16 @@ export function useGitLogController(
           setError(t("git.historyLoadFailed"));
           return null;
         }
-        setHistory((current) => {
-          const loadedHashes = new Set(current.commits.map((commit) => commit.hash));
-          const commits = [
-            ...current.commits,
-            ...result.commits.filter((commit) => !loadedHashes.has(commit.hash)),
-          ];
-          return { ...current, commits, hasMore: result.hasMore && commits.length < MAX_COMMITS };
-        });
+        const merged = await mergeGitHistoryPage(
+          historyRef.current.commits,
+          result.commits,
+          result.hasMore,
+        );
+        if (isStaleRequest()) {
+          if (result.nextCursor) void closeGitHistoryCursor(repoPath, result.nextCursor);
+          return null;
+        }
+        setHistory((current) => ({ ...current, commits: merged.commits, hasMore: merged.hasMore }));
         activeCursorRef.current = result.nextCursor ?? null;
         // Core folds hex case when it matches the target; match the same way so a
         // commit reported found is always returned to the caller.

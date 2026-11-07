@@ -20,7 +20,7 @@
     "evidence": [
       "windows/tauri/src/features/maven",
       "windows/tauri/src-tauri/src/maven.rs",
-      "windows/tauri/crates/lithe-legacy-java/src/maven/dependency_tree.rs"
+      "windows/tauri/crates/lithe-legacy-tooling/src/maven/dependency_tree.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

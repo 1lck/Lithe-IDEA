@@ -371,6 +371,7 @@ final class MacPluginWorkspaceFileService: PluginWorkspaceFileAccess, @unchecked
 
         var seen: Set<String> = []
         var entries: [ListedEntry] = []
+        var candidates: [ListedEntry] = []
         try readNames(of: directory, maximum: budgets.maximumDirectoryScanEntries, cancellation: cancellation) { rawName, type in
             let name = rawName.precomposedStringWithCanonicalMapping
             guard seen.insert(name).inserted else { return }
@@ -387,12 +388,17 @@ final class MacPluginWorkspaceFileService: PluginWorkspaceFileAccess, @unchecked
             // Same omissions as the Project view: links, then hidden rules.
             guard kind != .symbolicLink else { return }
             let isDirectory = kind == .directory
-            guard !root.visibilityRules.isHidden(
-                rootURL.appendingPathComponent(relativePath(name)),
-                relativeTo: rootURL,
-                isDirectory: isDirectory
-            ) else { return }
-            entries.append(ListedEntry(key: SortKey(isDirectory: isDirectory, name: name), kind: kind))
+            candidates.append(ListedEntry(key: SortKey(isDirectory: isDirectory, name: name), kind: kind))
+        }
+        // One Core call classifies the whole directory instead of one call per entry.
+        let hidden = root.visibilityRules.hiddenFlags(
+            for: candidates.map {
+                (url: rootURL.appendingPathComponent(relativePath($0.key.name)), isDirectory: $0.key.isDirectory)
+            },
+            relativeTo: rootURL
+        )
+        for (candidate, isHidden) in zip(candidates, hidden) where !isHidden {
+            entries.append(candidate)
         }
         try cancellation.check()
         // The cursor key is ordered with the current entries, after any entry

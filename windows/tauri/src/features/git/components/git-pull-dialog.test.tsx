@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import * as native from "@/platform/tauri-core";
+import { stubGitUpdatePlan } from "@/test-utils/git-update-plan-stub";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import type { GitPullPreflight, GitPullResult, GitReference } from "../types/git.types";
@@ -61,6 +63,11 @@ beforeEach(() => {
   actGlobal.IS_REACT_ACT_ENVIRONMENT = true;
   run.mockClear();
   spies.push(
+    // Core's `git.updatePlan` picks the preselected strategy; the stub replays its fixture.
+    spyOn(native, "invoke").mockImplementation((async (command: string, payload?: unknown) => {
+      if (command !== "git.updatePlan") throw new Error(`unexpected Core command ${command}`);
+      return stubGitUpdatePlan(payload as Record<string, unknown>);
+    }) as typeof native.invoke),
     spyOn(remotesApi, "getPullPreflight").mockResolvedValue(preflight),
     spyOn(commitsApi, "getGitReferencesAtRoot").mockResolvedValue({
       references: [reference("origin/main"), reference("origin/release")],

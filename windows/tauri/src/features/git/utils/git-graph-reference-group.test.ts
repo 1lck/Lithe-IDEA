@@ -1,11 +1,16 @@
 import { expect, test } from "bun:test";
-import { parseGitDecorations } from "./git-graph-layout";
+import { stubGitGraphProjection } from "@/test-utils/git-graph-projection-stub";
 import {
   gitReferenceIconWidth,
   groupGitGraphReferences,
   shortenGitReferenceTitle,
 } from "./git-graph-reference-group";
 import type { GitReference } from "../types/git.types";
+
+/** Labels exactly as Core types a commit's decorations. */
+const parseGitDecorations = (decorations: string) =>
+  stubGitGraphProjection({ commits: [{ hash: "x", decorations }] }, { geometryFree: true }).rows[0]
+    .labels;
 
 const references: GitReference[] = [
   {

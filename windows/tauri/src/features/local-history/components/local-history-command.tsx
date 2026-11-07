@@ -185,7 +185,12 @@ function FileLocalHistoryCommandContent({
     if (label === null) return;
 
     try {
-      const entry = await recordLocalHistoryFile(targetPath, "manual", label.trim() || undefined);
+      const entry = await recordLocalHistoryFile(
+        targetPath,
+        "manual",
+        "afterChange",
+        label.trim() || undefined,
+      );
       if (!entry) {
         toast.info(t("localHistory.noChanges"));
         return;
@@ -299,7 +304,7 @@ function FileLocalHistoryCommandContent({
 
       try {
         const content = await readLocalHistoryEntry(targetPath, entry.id);
-        await recordLocalHistoryFile(targetPath, "restore");
+        await recordLocalHistoryFile(targetPath, "restore", "beforeChange");
         await writeFile(targetPath, content);
 
         const bufferStore = useBufferStore.getState();

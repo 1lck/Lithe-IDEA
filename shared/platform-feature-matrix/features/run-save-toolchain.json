@@ -6,6 +6,8 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Run",
+      "macos/Sources/Lithe/Application/Features/DocumentSaveBatch.swift",
+      "shared/fixtures/documents/save-batch-v1.json",
       "macos/Tests/LitheExecutionModuleTests/ExecutionModuleTests.swift",
       "rust/lithe-core/src/execution/configuration.rs",
       "macos/Sources/LitheExecutionModule/Services/RunService.swift",

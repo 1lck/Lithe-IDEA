@@ -10,6 +10,8 @@ pub mod editor_actions;
 pub mod editor_providers;
 pub(crate) mod executables;
 pub(crate) mod grammar;
+/// Public host-method catalog and authorization for platform dispatchers.
+pub(crate) mod host_api;
 pub(crate) mod keymap_import;
 /// Session fields of plugin-owned language servers and the launch their
 /// backend resolves.

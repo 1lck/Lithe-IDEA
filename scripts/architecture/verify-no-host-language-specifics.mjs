@@ -12,6 +12,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const SCAN_ROOTS = Object.freeze([
   "rust/lithe-core/src",
+  // Synchronous rules shared with the Windows frontend through wasm; still host Core code.
+  "rust/lithe-core-rules/src",
   "macos/Sources",
   "frontend/editor/src",
   "shared/contracts/plugins/v1",

@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  DEFAULT_HIDDEN_DIRECTORY_PATTERNS,
-  DEFAULT_HIDDEN_FILE_PATTERNS,
-} from "@/features/settings/config/default-settings";
-import {
   findRetiredSettingsKeys,
   HIDDEN_PATTERN_DEFAULTS_VERSION_KEY,
   migrateHiddenPatternDefaults,
@@ -13,7 +9,7 @@ import {
 import { defaultSettings } from "@/features/settings/config/default-settings";
 
 describe("hidden pattern default migration", () => {
-  test("replaces the former pair of empty defaults", () => {
+  test("keeps the former pair of empty defaults empty because Core owns the built-ins", () => {
     const result = migrateHiddenPatternDefaults(
       new Map<string, unknown>([
         ["hiddenFilePatterns", []],
@@ -21,10 +17,8 @@ describe("hidden pattern default migration", () => {
       ]),
     );
 
-    expect(result.entries.get("hiddenFilePatterns")).toEqual([...DEFAULT_HIDDEN_FILE_PATTERNS]);
-    expect(result.entries.get("hiddenDirectoryPatterns")).toEqual([
-      ...DEFAULT_HIDDEN_DIRECTORY_PATTERNS,
-    ]);
+    expect(result.entries.get("hiddenFilePatterns")).toEqual([]);
+    expect(result.entries.get("hiddenDirectoryPatterns")).toEqual([]);
     expect(result.entries.get(HIDDEN_PATTERN_DEFAULTS_VERSION_KEY)).toBe(1);
   });
 

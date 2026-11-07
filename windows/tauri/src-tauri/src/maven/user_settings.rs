@@ -129,7 +129,7 @@ pub(super) fn write_local_repository(
     if read_local_repository(document).is_err() {
         return Err(INVALID_ERROR.into());
     }
-    let rewritten = lithe_legacy_java::settings_with_local_repository(document, local_repository)
+    let rewritten = lithe_legacy_tooling::settings_with_local_repository(document, local_repository)
         .map_err(|error| {
         format!(
             "{INVALID_ERROR}: {}",

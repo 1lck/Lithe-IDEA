@@ -3,6 +3,7 @@ import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
+import { installGitGraphProjectionStub } from "@/test-utils/git-graph-projection-stub";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
 import type { GitCommit } from "../../types/git.types";
 
@@ -36,8 +37,11 @@ const content = ({ children }: { children?: unknown }) => (
   <div>{typeof children === "function" ? null : (children as ReactNode)}</div>
 );
 
+let graphStub: ReturnType<typeof installGitGraphProjectionStub>;
+
 beforeEach(() => {
   restoreDom = installHappyDom();
+  graphStub = installGitGraphProjectionStub({ geometryFree: true });
   previousAct = globals.IS_REACT_ACT_ENVIRONMENT;
   globals.IS_REACT_ACT_ENVIRONMENT = true;
   previousPreferences = useGitLogPreferencesStore.getState();
@@ -93,7 +97,8 @@ afterEach(async () => {
     container.remove();
     if (previousAct === undefined) delete globals.IS_REACT_ACT_ENVIRONMENT;
     else globals.IS_REACT_ACT_ENVIRONMENT = previousAct;
-    restoreDom();
+    graphStub.mockRestore();
+  restoreDom();
   }
 });
 

@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-swift run --quiet LitheGitGraphVerifier
-
+# Layout rules are verified in Rust Core (`cargo test -p lithe-core --lib git::graph`)
+# and in the macOS graph tests; this script checks the fixture repository shape.
 FIXTURE_DIR="$(scripts/git-graph/create-git-graph-fixture.sh)"
 MERGE_LINE="$(git -C "$FIXTURE_DIR" log --all --merges --format='%H %P' -1)"
 MERGE_PARENT_COUNT="$(print -r -- "$MERGE_LINE" | awk '{ print NF - 1 }')"

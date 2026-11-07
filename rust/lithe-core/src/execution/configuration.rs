@@ -406,7 +406,9 @@ fn dot() -> String {
 #[serde(rename_all = "camelCase")]
 /// Versioned requirements written separately from run configurations.
 pub struct ToolchainRequirementsDocument {
+    /// Document version the reader must accept before trusting any requirement.
     pub version: u32,
+    /// Requirement per toolchain kind, keyed by the kind the caller asks about.
     #[serde(default)]
     pub toolchains: BTreeMap<String, ToolchainRequirement>,
 }
@@ -1434,6 +1436,7 @@ fn validate_version(version: u32) -> Result<(), CoreError> {
     Ok(())
 }
 
+/// Rejects a sidecar document written for a version this Core does not read.
 pub fn validate_sidecar_version(version: u32) -> Result<(), CoreError> {
     if version != SIDECAR_VERSION {
         return Err(
@@ -2146,6 +2149,10 @@ pub fn version_satisfies(actual: &str, required: &str, minimum: bool) -> bool {
     }
 }
 
+/// Splits a version into its numeric parts, ignoring separators and suffixes.
+///
+/// An input with no digits yields an empty list, which callers treat as "not a
+/// version" rather than as zero.
 pub fn version_parts(value: &str) -> Vec<u32> {
     value
         .split(|character: char| !character.is_ascii_digit())

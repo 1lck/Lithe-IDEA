@@ -427,7 +427,7 @@ struct WorkbenchView: View {
         }
         .sheet(item: $model.pendingPullStrategy) { request in
             GitPullStrategyDialog(request: request) { strategy in
-                Task { await model.resolvePullStrategy(strategy) }
+                Task { await model.resolvePullStrategy(strategy, for: request) }
             }
             .onDisappear { model.cancelPullStrategy() }
         }

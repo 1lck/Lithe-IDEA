@@ -428,6 +428,17 @@ SwiftPM 的 `.build/`、资源 bundle 和 `.lithe-swift-toolchain` 标记登记�
 由本工作树 SwiftPM 清理管理；这些操作仅作用于构建目录，不修改已安装应用、签名
 发行基线或 Sparkle delta。
 
+Windows 前端用到的纯规则（`rust/lithe-core-rules`，例如双击 Shift 手势）会被编译成
+`windows/tauri/public/core-rules/lithe_core_rules.wasm`，由
+`scripts/windows/prepare/prepare-core-rules-wasm.mjs` 生成（需要 `rustup target add wasm32-unknown-unknown`，
+约几秒、不下载任何东西）。`dev`、`build`（因此 `desktop:build` 的 beforeBuildCommand 也包含它）、
+`ci-windows.yml` 的前端 job，以及 `release-windows.yml`、`release-preview-windows.yml` 的 Rust 目标都已接入；
+bun 测试辅助 `src/test-utils/core-rules.ts` 在产物缺失或旧于 Rust 源码时会调用同一个脚本重建。
+该产物登记为 `core-rules-wasm`，**不可跨工作树复用**：文件里没有版本、源码修订或工具链
+identity stamp，无法证明与目标工作树的 Rust 源码一致，所有校验和复制阶段都拒绝，
+每个工作树自行重建（`.gitignore` 忽略，不提交）。它是只读的打包输入，应用运行时不写入，
+不影响代码签名和 Sparkle delta。macOS 不使用 wasm，通过 lithe-core 的 FFI 调用同一份规则源码。
+
 `scripts/windows/perf/run-windows-perf.mjs` 的生产构建、本地基线和 CPU profile 写入
 `.artifacts/windows-perf/`，登记为 `windows-perf-state`，所有复用阶段均拒绝复制。这些内容
 跟随所在工作树的源码和机器，没有 identity stamp；工具在本工作树重新构建，不写 app bundle、

@@ -122,7 +122,7 @@ final class KeyboardShortcutFeatureModel: ObservableObject {
         guard Set(bindings).count == bindings.count else {
             throw KeyboardShortcutUpdateError.duplicateBinding
         }
-        if let owner = conflictingCommand(for: bindings, excluding: commandID) {
+        if let owner = try conflictingCommand(for: bindings, excluding: commandID) {
             throw KeyboardShortcutUpdateError.conflict(commandID: owner.id)
         }
 
@@ -133,13 +133,14 @@ final class KeyboardShortcutFeatureModel: ObservableObject {
 
     /// Validate a batch against its final registrations, allowing swaps without transient conflicts.
     func validateOverrides(_ proposed: [String: [KeyboardShortcutBinding]]) throws {
-        let final = registrations(for: proposed)
         for (id, bindings) in proposed {
             guard LitheCommandCatalog.command(id: id) != nil else { throw KeyboardShortcutUpdateError.unknownCommand(id) }
             guard bindings.allSatisfy(\.isAssignable), Set(bindings).count == bindings.count else { throw KeyboardShortcutUpdateError.invalidBinding }
-            guard bindings != effectiveBindings(for: id) else { continue }
-            if let owner = final.first(where: { $0.commandID != id && !Set(bindings).isDisjoint(with: $0.bindings) }) {
-                throw KeyboardShortcutUpdateError.conflict(commandID: owner.commandID)
+        }
+        let conflicts = try finalConflicts(overrides: proposed)
+        for id in proposed.keys.sorted() where proposed[id] != effectiveBindings(for: id) {
+            if let owner = conflictOwner(of: id, in: conflicts) {
+                throw KeyboardShortcutUpdateError.conflict(commandID: owner)
             }
         }
     }
@@ -169,15 +170,34 @@ final class KeyboardShortcutFeatureModel: ObservableObject {
         recordingCommandID = nil
     }
 
+    /// The first command, in catalog order, that already owns one of `bindings`.
     func conflictingCommand(
         for bindings: [KeyboardShortcutBinding],
         excluding excludedCommandID: String
-    ) -> LitheCommandDefinition? {
-        let candidates = Set(bindings)
-        guard !candidates.isEmpty else { return nil }
-        return commands.first { command in
-            command.id != excludedCommandID
-                && !candidates.isDisjoint(with: effectiveBindings(for: command.id))
+    ) throws -> LitheCommandDefinition? {
+        guard !bindings.isEmpty else { return nil }
+        var overrides = settings.keyboardShortcutOverrides
+        overrides[excludedCommandID] = bindings
+        let conflicts = try finalConflicts(overrides: overrides)
+        return conflictOwner(of: excludedCommandID, in: conflicts).flatMap(LitheCommandCatalog.command(id:))
+    }
+
+    /// Core decides what is in conflict among the final preset-plus-override bindings.
+    private func finalConflicts(
+        overrides: [String: [KeyboardShortcutBinding]]
+    ) throws -> [KeymapBindingConflict] {
+        let base = commands.map {
+            KeyboardShortcutRegistration(commandID: $0.id, bindings: settings.keyboardShortcutPreset.bindings(for: $0))
         }
+        switch RustCoreBridge().analyzeKeymapConflicts(base: base, overrides: overrides) {
+        case .success(let conflicts): return conflicts
+        case .failure: throw KeyboardShortcutUpdateError.invalidBinding
+        }
+    }
+
+    private func conflictOwner(of commandID: String, in conflicts: [KeymapBindingConflict]) -> String? {
+        let others = Set(conflicts.filter { $0.commands.contains(commandID) }.flatMap(\.commands))
+            .subtracting([commandID])
+        return commands.first { others.contains($0.id) }?.id
     }
 }

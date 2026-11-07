@@ -1216,6 +1216,80 @@ fn java_selection_rejects_ambiguous_or_invalid_host_snapshots() {
     }
 }
 
+#[test]
+fn shared_run_scan_excludes_caches_and_keeps_hidden_sources() {
+    let root = temporary_root("shared-run-scan");
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+    fs::create_dir_all(&root).unwrap();
+    let _cleanup = Cleanup(root.clone());
+    // Core scans the workspace itself: cache directories are left out, a hidden
+    // source directory stays.
+    for path in [
+        ".sources/Makefile",
+        "src/Makefile",
+        ".pytest_cache/Makefile",
+        "node_modules/Makefile",
+        "target/Makefile",
+    ] {
+        let file = root.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, "all:\n\ttrue\n").unwrap();
+    }
+    let call = |command, payload| -> Value {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "scan", "command": command, "payload": payload
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        response["data"].clone()
+    };
+    let generated = call(
+        "runConfig.generate",
+        serde_json::json!({"root": root}),
+    );
+    let inputs = generated["generated"]["generator"]["inputs"]
+        .as_object()
+        .unwrap();
+    assert!(inputs.contains_key(".sources/Makefile"));
+    assert!(inputs.contains_key("src/Makefile"));
+    assert!(!inputs.keys().any(|path| {
+        path.starts_with(".pytest_cache/")
+            || path.starts_with("node_modules/")
+            || path.starts_with("target/")
+    }));
+    let mut document = generated["generated"].clone();
+    // A persisted incomplete baseline cannot certify freshness or infer deletion,
+    // even after the previously inaccessible directory becomes readable again.
+    document["generator"]["unreadablePaths"] = serde_json::json!(["blocked"]);
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    seed_generated(&root, document.to_string());
+    for full in [false, true] {
+        let inspected = call(
+            "runConfig.inspect",
+            serde_json::json!({"root": root, "checkFingerprint": full}),
+        );
+        assert_eq!(inspected["status"], "ready");
+        assert!(inspected["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["code"] == "incompleteProjectScan"));
+        assert!(!inspected["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["code"] == "staleFingerprint"));
+    }
+}
+
 /// Saving a selector never stores an executable, generates a model, or loses local defaults.
 #[test]
 fn build_provider_configurations_persist_before_generation_and_reuse_identity() {

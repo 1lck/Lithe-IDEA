@@ -79,6 +79,8 @@ public protocol LocalHistoryOperations: Sendable {
     func entries(at workspaceURL: URL, storageURL: URL, relativePath: String?, visibilityRules: LocalHistoryVisibilityRules) -> [LocalHistoryEntryPayload]?
     func content(at storageURL: URL, contentPath: String) -> String?
     func relocate(at storageURL: URL, sourcePath: String, destinationPath: String) -> Bool
+    /// The snapshots Core records for `event` (`history.planEvent`); nil when Core rejects it.
+    func planEvent(_ event: LocalHistoryEvent) -> [LocalHistorySnapshotPlan]?
     func usage(at storageURL: URL, limitBytes: Int64?) -> LocalHistoryUsage?
     func clear(at storageURL: URL) -> Bool
     func ignorePreview(path: String?, rules: LocalHistoryVisibilityRules, workspaceURL: URL?) -> LocalHistoryIgnorePreview?

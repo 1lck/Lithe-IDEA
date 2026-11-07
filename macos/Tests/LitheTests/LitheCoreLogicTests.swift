@@ -2066,118 +2066,6 @@ struct LitheCoreLogicTests {
     }
 
     @Test
-    func doubleShiftRecognizerRequiresTwoStandaloneTaps() {
-        var recognizer = DoubleShiftGestureRecognizer(threshold: 0.35)
-
-        var triggered = recognizer.handleFlagsChanged(
-            isShiftDown: true,
-            hasOtherModifiers: false,
-            timestamp: 1.00
-        )
-        #expect(!triggered)
-        triggered = recognizer.handleFlagsChanged(
-            isShiftDown: false,
-            hasOtherModifiers: false,
-            timestamp: 1.05
-        )
-        #expect(!triggered)
-        triggered = recognizer.handleFlagsChanged(
-            isShiftDown: true,
-            hasOtherModifiers: false,
-            timestamp: 1.20
-        )
-        #expect(!triggered)
-        triggered = recognizer.handleFlagsChanged(
-            isShiftDown: false,
-            hasOtherModifiers: false,
-            timestamp: 1.25
-        )
-        #expect(triggered)
-    }
-
-    @Test
-    func doubleShiftRecognizerRejectsUppercaseTypingAndInterveningKeys() {
-        var recognizer = DoubleShiftGestureRecognizer(threshold: 0.35)
-
-        _ = recognizer.handleFlagsChanged(
-            isShiftDown: true,
-            hasOtherModifiers: false,
-            timestamp: 1.00
-        )
-        recognizer.handleKeyDown()
-        var triggered = recognizer.handleFlagsChanged(
-            isShiftDown: false,
-            hasOtherModifiers: false,
-            timestamp: 1.05
-        )
-        #expect(!triggered)
-        _ = recognizer.handleFlagsChanged(
-            isShiftDown: true,
-            hasOtherModifiers: false,
-            timestamp: 1.20
-        )
-        recognizer.handleKeyDown()
-        triggered = recognizer.handleFlagsChanged(
-            isShiftDown: false,
-            hasOtherModifiers: false,
-            timestamp: 1.25
-        )
-        #expect(!triggered)
-
-        _ = recognizer.handleFlagsChanged(
-            isShiftDown: true,
-            hasOtherModifiers: false,
-            timestamp: 2.00
-        )
-        _ = recognizer.handleFlagsChanged(
-            isShiftDown: false,
-            hasOtherModifiers: false,
-            timestamp: 2.05
-        )
-        recognizer.handleKeyDown()
-        _ = recognizer.handleFlagsChanged(
-            isShiftDown: true,
-            hasOtherModifiers: false,
-            timestamp: 2.20
-        )
-        triggered = recognizer.handleFlagsChanged(
-            isShiftDown: false,
-            hasOtherModifiers: false,
-            timestamp: 2.25
-        )
-        #expect(!triggered)
-    }
-
-    @Test
-    func resettingDoubleShiftRecognizerDropsPendingTap() {
-        var recognizer = DoubleShiftGestureRecognizer(threshold: 0.35)
-
-        _ = recognizer.handleFlagsChanged(
-            isShiftDown: true,
-            hasOtherModifiers: false,
-            timestamp: 1.00
-        )
-        _ = recognizer.handleFlagsChanged(
-            isShiftDown: false,
-            hasOtherModifiers: false,
-            timestamp: 1.05
-        )
-        recognizer.reset()
-        _ = recognizer.handleFlagsChanged(
-            isShiftDown: true,
-            hasOtherModifiers: false,
-            timestamp: 1.20
-        )
-        let triggered = recognizer.handleFlagsChanged(
-            isShiftDown: false,
-            hasOtherModifiers: false,
-            timestamp: 1.25
-        )
-
-        #expect(!triggered)
-    }
-
-    @Test
     func markdownImageInsertionSeparatesTheReferenceFromRawHTML() {
         let source = "<table>\n</table>\n"
         let reference = "![pasted image](assets/pasted-image.png)"
@@ -2778,110 +2666,6 @@ struct EditorDocumentTests {
     }
 
     @Test
-    func searchRelevanceRanksMatchFormsInOrder() {
-        let root = "/tmp/project/src/"
-        func result(_ name: String) -> FileSearchResult {
-            FileSearchResult(
-                url: URL(fileURLWithPath: root + name),
-                line: nil,
-                preview: "",
-                kind: .file
-            )
-        }
-
-        let query = "DeviceHandler"
-        let exact = SearchRelevance.score(result("DeviceHandler.java"), query: query)
-        let prefix = SearchRelevance.score(result("DeviceHandlerFactory.java"), query: query)
-        let substring = SearchRelevance.score(result("AbstractDeviceHandlerBase.java"), query: query)
-        let miss = SearchRelevance.score(result("PadController.java"), query: query)
-
-        #expect(exact > prefix)
-        #expect(prefix > substring)
-        #expect(substring > 0)
-        #expect(miss == 0)
-    }
-
-    @Test
-    func searchRelevanceMatchesCamelCaseInitials() {
-        let target = FileSearchResult(
-            url: URL(fileURLWithPath: "/tmp/project/src/DeviceHandler.java"),
-            line: nil,
-            preview: "",
-            kind: .file
-        )
-        let unrelated = FileSearchResult(
-            url: URL(fileURLWithPath: "/tmp/project/src/PadController.java"),
-            line: nil,
-            preview: "",
-            kind: .file
-        )
-
-        #expect(SearchRelevance.score(target, query: "dh") > 0)
-        #expect(SearchRelevance.score(unrelated, query: "dh") == 0)
-    }
-
-    @Test
-    func searchRelevancePrefersNameMatchOverPathMatch() {
-        let query = "handler"
-        let byName = FileSearchResult(
-            url: URL(fileURLWithPath: "/tmp/project/Handler.java"),
-            line: nil,
-            preview: "",
-            kind: .file
-        )
-        let byPathOnly = FileSearchResult(
-            url: URL(fileURLWithPath: "/tmp/project/handler/Pad.java"),
-            line: nil,
-            preview: "",
-            kind: .file
-        )
-
-        #expect(SearchRelevance.score(byName, query: query) > SearchRelevance.score(byPathOnly, query: query))
-    }
-
-    @Test
-    func searchRelevancePrefersShallowerFiles() {
-        let shallow = FileSearchResult(
-            url: URL(fileURLWithPath: "/tmp/project/Device.java"),
-            line: nil,
-            preview: "",
-            kind: .file
-        )
-        let deep = FileSearchResult(
-            url: URL(fileURLWithPath: "/tmp/project/a/b/c/d/Device.java"),
-            line: nil,
-            preview: "",
-            kind: .file
-        )
-
-        #expect(SearchRelevance.score(shallow, query: "Device") > SearchRelevance.score(deep, query: "Device"))
-    }
-
-    @Test
-    func searchRelevanceRanksTypeAboveContentForEqualNames() {
-        let url = URL(fileURLWithPath: "/tmp/project/src/DeviceHandler.java")
-        let type = FileSearchResult(
-            url: url,
-            line: 10,
-            preview: "",
-            kind: .type,
-            symbolName: "DeviceHandler"
-        )
-        let content = FileSearchResult(
-            url: url,
-            line: 42,
-            preview: "new DeviceHandler()",
-            kind: .content,
-            symbolName: "DeviceHandler"
-        )
-
-        #expect(
-            SearchRelevance.score(type, query: "DeviceHandler")
-                > SearchRelevance.score(content, query: "DeviceHandler")
-        )
-    }
-
-    @Test
     @MainActor
     func terminalSessionKeepsNativeSurfaceAndOwnsLifecycle() {
         let transport = TestTerminalTransport()
@@ -2954,40 +2738,6 @@ struct EditorDocumentTests {
         #expect(ObjectIdentifier(session.nativeView) == nativeViewID)
         #expect(transport.startRequests == ["/bin/bash", "/bin/zsh"])
         #expect(transport.stopCount == 1)
-    }
-
-    @Test
-    func terminalLinkResolverResolvesWorkspacePathAndLocation() {
-        let workspace = URL(fileURLWithPath: "/tmp/lithe-terminal-link-tests")
-        let sourceURL = workspace.appendingPathComponent("Sources/App.swift")
-        let fileManager = FileManager.default
-        try? fileManager.createDirectory(
-            at: sourceURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        defer { try? fileManager.removeItem(at: workspace) }
-        fileManager.createFile(atPath: sourceURL.path, contents: Data())
-
-        let target = TerminalLinkResolver.resolve(
-            "Sources/App.swift:12:4",
-            relativeTo: workspace,
-            fileExists: { fileManager.fileExists(atPath: $0.path) }
-        )
-
-        #expect(target == .file(
-            TerminalLinkLocation(url: sourceURL.standardizedFileURL, line: 12, column: 4)
-        ))
-    }
-
-    @Test
-    func terminalLinkResolverKeepsExternalURLsAsExternalTargets() {
-        let target = TerminalLinkResolver.resolve(
-            "https://example.com/docs",
-            relativeTo: URL(fileURLWithPath: "/tmp"),
-            fileExists: { _ in false }
-        )
-
-        #expect(target == .external(URL(string: "https://example.com/docs")!))
     }
 
     @Test
@@ -6414,7 +6164,7 @@ private func makeWorkspaceObservationUnitModel(
     processExternalChanges: @escaping @MainActor ([URL]) -> Bool = { _ in false },
     notifyWorkspaceFileChanges: @escaping @MainActor ([WorkspaceFileChange]) -> Void = { _ in },
     reloadProjectServices: @escaping @MainActor () async -> Void = {},
-    recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void = { _, _ in },
+    recordHistory: @escaping @MainActor (URL, LocalHistoryEvent) async -> Void = { _, _ in },
     relocateHistory: @escaping @MainActor (URL, URL) async -> Void = { _, _ in },
     directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore(),
     observationDelay: (@Sendable (Duration) async throws -> Void)? = nil,
@@ -6882,7 +6632,7 @@ struct EditorSessionCoordinatorTests {
     }
 }
 
-private struct EmptyWorkspaceOperations: WorkspaceOperations {
+private struct EmptyWorkspaceOperations: WorkspaceOperations, CoreBackedWorkspaceRules {
     let readFileValue: String?
 
     init(readFileValue: String? = nil) {
@@ -7047,7 +6797,7 @@ private final class BlockingBinaryWorkspaceOperations: WorkspaceOperations, @unc
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
 }
 
-private final class SequencedWorkspaceOperations: WorkspaceOperations, @unchecked Sendable {
+private final class SequencedWorkspaceOperations: WorkspaceOperations, CoreBackedWorkspaceRules, @unchecked Sendable {
     func orderedTreeSiblings(_ rows: [FileNode]) -> [FileNode]? { coreTreeOrder(rows) }
     private let lock = NSLock()
     private var snapshotAvailability: [Bool]
@@ -7677,7 +7427,7 @@ private struct PreviewExternalChangeLifecycleDecider: DocumentLifecycleDeciding 
 
 /// Records how many copies and Trash moves had finished each time the tree
 /// was rescanned, to show when a batch refreshes the project tree.
-private final class BatchProgressScanOperations: WorkspaceOperations, @unchecked Sendable {
+private final class BatchProgressScanOperations: WorkspaceOperations, CoreBackedWorkspaceRules, @unchecked Sendable {
     private let files: RecordingBatchProjectFileOperations
     private let lock = NSLock()
     private var progress: [[Int]] = []

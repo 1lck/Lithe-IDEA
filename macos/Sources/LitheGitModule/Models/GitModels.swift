@@ -1360,23 +1360,29 @@ package struct GitPullPreflightState: Sendable {
     package let behind: Int
     package let diverged: Bool
     package let hasLocalChanges: Bool
-    package init(upstream: String?, ahead: Int, behind: Int, diverged: Bool, hasLocalChanges: Bool) { self.upstream = upstream; self.ahead = ahead; self.behind = behind; self.diverged = diverged; self.hasLocalChanges = hasLocalChanges }
-
-    /// Nothing to pull, so the network call can be skipped entirely.
-    package var isUpToDate: Bool { behind == 0 && !diverged }
+    /// Strategy `pull.rebase` or `pull.ff` selects; `nil` when Git is not configured.
+    package let configuredStrategy: GitPullStrategy?
+    package init(upstream: String?, ahead: Int, behind: Int, diverged: Bool, hasLocalChanges: Bool, configuredStrategy: GitPullStrategy? = nil) { self.upstream = upstream; self.ahead = ahead; self.behind = behind; self.diverged = diverged; self.hasLocalChanges = hasLocalChanges; self.configuredStrategy = configuredStrategy }
 }
 
 /// A pull that cannot fast-forward, awaiting the user's choice of strategy.
+/// It keeps the inspection the user saw, so Core can refuse a stale answer.
 package struct GitPullStrategyRequest: Identifiable {
     package let id = UUID()
     package let upstream: String
     package let ahead: Int
     package let behind: Int
     package let hasLocalChanges: Bool
+    /// The branch being updated, the checkout the pull runs in, and the local
+    /// reference that checkout must still have.
+    package let reference: GitReference
+    package let checkoutRoot: URL
+    package let expectedBranch: String
+    package let preflight: GitPullPreflightState
 }
 
 /// How to reconcile a divergent history when pulling.
-package enum GitPullStrategy: String, Sendable {
+package enum GitPullStrategy: String, Sendable, Codable {
     /// Refuse unless the pull can fast-forward. The safe default.
     case ffOnly
     /// Join the two histories with a merge commit.

@@ -240,10 +240,17 @@ final class PluginHostSubscriptions {
 /// granted; Core checked the same, and this is the host's own check.
 @MainActor
 final class PluginHostServiceDispatcher {
-    /// Services every plugin-owned session may call without a grant.
-    /// `commands` has no methods: its notification brings the plugin's own
-    /// commands to its backend.
-    static let implicitServices: Set<String> = ["host", "subscriptions", "commands"]
+    private struct HostMethod: Decodable {
+        let method: String
+        let requiredGrant: String?
+        let coreServed: Bool
+        enum CodingKeys: String, CodingKey { case method, coreServed; case requiredGrant = "grant" }
+    }
+    private struct HostCatalog: Decodable { let methods: [HostMethod] }
+    private struct EmptyPayload: Encodable {}
+    private static let catalog: Result<HostCatalog, RustCoreBridge.CoreCallError> = RustCoreBridge().executeResult(
+        command: "plugins.hostApi.describe", payload: EmptyPayload()
+    )
 
     let contexts: PluginWorkspaceContexts
     let subscriptions = PluginHostSubscriptions()
@@ -297,22 +304,18 @@ final class PluginHostServiceDispatcher {
         Array(Set(uniqueHandlers.map(\.service))).sorted()
     }
 
-    /// Services Core answers itself. The host has no handler for them, but
-    /// the plugin is still granted them: a call between two plugins runs
-    /// inside Core, and the host only starts the callee's backend.
-    static let coreServedGrants: Set<String> = ["functions"]
-
     func supportedGrants(_ requested: [String]) -> [String] {
-        requested.filter { grant in
-            if Self.coreServedGrants.contains(grant) { return true }
-            if handlers[grant] != nil { return true }
-            let legacy: [String]
-            switch grant {
-            case "workspace": legacy = ["listContexts", "getContext", "getFolders"]
-            case "credentials": legacy = ["get", "set", "delete"]
-            default: return false
-            }
-            return legacy.allSatisfy { handlers["lithe/host/\(grant)/\($0)"] != nil }
+        let catalog: HostCatalog
+        switch Self.catalog {
+        case .success(let value): catalog = value
+        case .failure(let error):
+            logSink?.emit(AppCoreFallbackSelected(error: LogFailure(domain: "RustCore", code: error.code),
+                stage: "plugins.hostApi.describe"))
+            return []
+        }
+        return requested.filter { grant in
+            let methods = catalog.methods.filter { $0.requiredGrant == grant }
+            return !methods.isEmpty && methods.allSatisfy { $0.coreServed || handlers[$0.method] != nil }
         }
     }
 
@@ -397,12 +400,32 @@ final class PluginHostServiceDispatcher {
                 .backendExited, L10n.string("The plugin backend is no longer running.")
             ).failure)
         }
-        let legacyMethod = request.method.hasPrefix("lithe/host/credentials/")
-            || ["listContexts", "getContext", "getFolders"].map { "lithe/host/workspace/" + $0 }.contains(request.method)
-        guard Self.implicitServices.contains(request.service) || granted.contains(request.method)
-                || (legacyMethod && granted.contains(request.service)) else {
+        struct Authorization: Encodable {
+            let method: String
+            let service: String
+            let grants: [String]
+        }
+        struct Decision: Decodable { let allowed: Bool; let code: String? }
+        let outcome: Result<Decision, RustCoreBridge.CoreCallError> = RustCoreBridge().executeResult(
+            command: "plugins.hostApi.authorize",
+            payload: Authorization(method: request.method, service: request.service, grants: granted.sorted())
+        )
+        let decision: Decision
+        switch outcome {
+        case .success(let value): decision = value
+        case .failure(let error):
+            if let plugin = LogSegment(pluginID) {
+                logSink?.emit(PluginsHostRequestFailed(error: LogFailure(domain: "RustCore", code: error.code),
+                    plugin: plugin, operationID: request.id))
+            }
+            return .failure(PluginHostServiceError(.unavailable,
+                L10n.string("The plugin is not allowed to use the host service \(request.service).")
+            ).failure)
+        }
+        guard decision.allowed else {
+            let code = decision.code.flatMap(PluginHostErrorCode.init(rawValue:)) ?? .unavailable
             return .failure(PluginHostServiceError(
-                .permissionDenied, L10n.string("The plugin is not allowed to use the host service \(request.service).")
+                code, L10n.string("The plugin is not allowed to use the host service \(request.service).")
             ).failure)
         }
         let params: [String: ToolingJSONValue]

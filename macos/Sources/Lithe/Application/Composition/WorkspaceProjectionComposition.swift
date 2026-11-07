@@ -48,9 +48,9 @@ enum WorkspaceProjectionComposition {
             },
             openFile: { [weak model] url in model?.openFile(url) },
             notify: { [weak notification] message in notification?.show(message) },
-            recordHistory: { [weak model] url, reason in
+            recordHistory: { [weak model] url, event in
                 guard let feature = await model?.activateHistoryModule() else { return }
-                await feature.recordHistory(containedIn: url, reason: reason)
+                await feature.recordHistory(containedIn: url, event: event)
             },
             relocateHistory: { [weak model] source, destination in
                 guard let feature = await model?.activateHistoryModule() else { return }

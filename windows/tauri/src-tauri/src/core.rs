@@ -364,7 +364,7 @@ pub async fn core_execute(window: tauri::WebviewWindow, request: String) -> Stri
         // The legacy Java, Maven, Spring and MyBatis commands are answered by
         // the transitional crate (the Maven ones no longer exist in Core).
         // It returns None for every other command, which continues to Core.
-        if let Some(response) = lithe_legacy_java::try_execute(&request) {
+        if let Some(response) = lithe_legacy_tooling::try_execute(&request) {
             return response;
         }
         let parsed = serde_json::from_str::<serde_json::Value>(&request).ok();

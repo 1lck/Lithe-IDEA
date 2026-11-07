@@ -1016,6 +1016,20 @@ package struct BuildTestResults: Equatable, Sendable, Decodable {
         package let suite: String?
         package let testCase: String?
         private enum CodingKeys: String, CodingKey { case project, suite; case testCase = "case" }
+
+        /// The contract forbids a case without its suite (Core rejects it too),
+        /// so a scope that names one is malformed rather than guessed at.
+        package init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            project = try values.decode(String.self, forKey: .project)
+            suite = try values.decodeIfPresent(String.self, forKey: .suite)
+            testCase = try values.decodeIfPresent(String.self, forKey: .testCase)
+            if testCase != nil, suite == nil {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .testCase, in: values,
+                    debugDescription: "A coverage case requires its suite.")
+            }
+        }
     }
     package let coverage: [Coverage]?
     package struct TestCase: Equatable, Identifiable, Sendable, Codable {

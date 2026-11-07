@@ -8,6 +8,7 @@ import type {
 } from "../types/git.types";
 import { emitGitChanged } from "../events/git-events";
 import { GitPullWorkflow } from "../hooks/git-pull-workflow";
+import { planGitPullInspection } from "./git-update-plan-api";
 import { runGitRead } from "../runtime/git-read-coordinator";
 import { getBranches } from "./git-branches-api";
 import { getGitHistory } from "./git-commits-api";
@@ -206,6 +207,7 @@ export const getGitPullWorkflow = (repoPath: string): GitPullWorkflow => {
         ? pullReferenceIntoCurrent(repoPath, strategy, reference)
         : executePullChanges(repoPath, strategy, expectedBranch),
     operationState: getOperationState,
+    plan: planGitPullInspection,
   });
   pullWorkflows.set(repoPath, workflow);
   return workflow;
@@ -213,15 +215,11 @@ export const getGitPullWorkflow = (repoPath: string): GitPullWorkflow => {
 
 /**
  * Safe compatibility entry point for non-Source-Control callers. Divergence
- * cancels because only the Source Control workflow can present the choice UI.
+ * reports `needs-strategy` without pulling because only the Pull dialog can
+ * present the choice UI.
  */
 export const pullChanges = async (repoPath: string): Promise<GitRemoteActionResult> => {
   const workflow = getGitPullWorkflow(repoPath);
-  const unsubscribe = workflow.subscribe(() => {
-    if (workflow.getSnapshot().pendingPreflight) {
-      workflow.chooseStrategy(null);
-    }
-  });
   const resultPromise = workflow.run(repoPath, {
     refresh: async () => {
       const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
@@ -240,16 +238,12 @@ export const pullChanges = async (repoPath: string): Promise<GitRemoteActionResu
       ]);
     },
   });
-  try {
-    const result = await resultPromise;
-    return result.status === "pulled"
-      ? { success: true }
-      : {
-          success: false,
-          ...(result.status === "failed" && result.error ? { error: result.error } : {}),
-          pullResult: result,
-        };
-  } finally {
-    unsubscribe();
-  }
+  const result = await resultPromise;
+  return result.status === "pulled"
+    ? { success: true }
+    : {
+        success: false,
+        ...(result.status === "failed" && result.error ? { error: result.error } : {}),
+        pullResult: result,
+      };
 };
