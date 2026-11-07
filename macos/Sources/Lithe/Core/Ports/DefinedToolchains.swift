@@ -11,6 +11,11 @@ struct ResolvedDefinedToolchain: Sendable {
     /// The installation root the selection came from; the definition's `launch`
     /// template can name it as `${home}`. Nil when the tool was chosen by executable.
     var home: String? = nil
+    /// What this selection added to the caller's environment: the definition's exports,
+    /// plus `PATH` when the installation prepends entries. `environment` is the caller's
+    /// environment with these applied. Consumers that forward only what a tool
+    /// contributes read this instead of treating the whole environment as contributed.
+    var exports: [String: String] = [:]
 }
 
 /// The program and arguments a tool definition's `launch` template expands to for one
