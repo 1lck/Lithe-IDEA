@@ -1591,6 +1591,54 @@ fn debug_adapter_inside_the_language_server_has_no_process_of_its_own() {
 }
 
 #[test]
+fn debug_adapter_inside_a_backend_launched_language_server_plans_without_scratch_directories() {
+    // The server's session asks the backend with the directories of its own
+    // start; resolving the adapter must not demand them.
+    let mut manifest = fixture("language-server-backend-launch.plugin.json");
+    manifest["requires"]["debugAdapters"] = json!(1);
+    manifest["permissions"]
+        .as_array_mut()
+        .unwrap()
+        .extend([json!("debug.launch"), json!("debug.attach")]);
+    manifest["activationEvents"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("onDebug:scala"));
+    manifest["debugAdapters"] = json!([{
+        "id": "scala",
+        "displayName": "Scala Debugger",
+        "adapterID": "scala-dap",
+        "requests": ["attach"],
+        "selectors": [{ "targetKinds": ["connection"], "languageIDs": ["scala"] }],
+        "launch": {
+            "transport": "tcpLanguageServer",
+            "endpoint": { "languageID": "scala", "command": "debug-adapter-start" }
+        },
+        "configurations": {
+            "attach": { "targetBindings": { "connection": { "host": "hostName", "port": "port" } } }
+        }
+    }]);
+    let plan = language_server_launch_plan_command(json!({
+        "manifest": manifest,
+        "debugAdapterID": "scala",
+        "request": {
+            "pluginDirectory": "/plugins/scala",
+            "stateDirectory": "/state/scala",
+            "architecture": "arm64"
+        },
+    }))
+    .expect("payload is well formed");
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(plan["plan"]["launch"]["kind"], "backend");
+    assert_eq!(plan["plan"]["launch"]["function"], "metals.resolveLaunch");
+    assert!(plan["plan"].get("resolveParams").is_none());
+    assert_eq!(plan["plan"]["requiredDirectories"], json!([]));
+    let descriptor = &plan["plan"]["debugAdapter"];
+    assert_eq!(descriptor["transport"], "tcpLanguageServer");
+    assert_eq!(descriptor["endpoint"]["command"], "debug-adapter-start");
+}
+
+#[test]
 fn debug_adapter_inside_the_language_server_is_a_reviewed_program() {
     let review = crate::plugins::marketplace::install_review_command(json!({
         "manifest": fixture("debug-adapter-language-server.plugin.json"),

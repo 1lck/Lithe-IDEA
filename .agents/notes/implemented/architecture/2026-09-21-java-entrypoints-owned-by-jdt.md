@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `rust/lithe-legacy-tooling/`。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 “哪个 Java 类能运行”“哪个方法是测试”由 JDT（Eclipse 的 Java 语言服务，
@@ -252,7 +254,7 @@ JDT 尚未完成发现时，已有确认入口可沿用上次生成结果；没�
   精确运行这两个非传统命名测试并检查执行标记。
 - 真实 JDT 测试 `real_jdtls_lists_entrypoints_and_classpaths_behind_a_symbolic_link`
   通过符号链接打开工作区，要求仍然列出入口；去掉作用域解析后它会得到空列表。
-- `scripts/architecture/verify-java-semantic-ownership.mjs` 阻止已删除的本地入口/测试扫描标识符
+- `scripts/architecture/verify-no-host-language-specifics.mjs` 阻止已删除的本地入口/测试扫描标识符
   回到 Rust、macOS 或 Windows 产品源码。
 - Windows 和 macOS 打包同一份上游 `contributes.javaExtensions` bundle 列表；
   Windows CI 的独立真实 JDT 任务只在 Java/JDT 相关路径变化时运行。
@@ -291,11 +293,11 @@ JDT 尚未完成发现时，已有确认入口可沿用上次生成结果；没�
 
 ## 适用范围
 
-- `rust/lithe-core/src/languages/`
+- 已迁出：原 `rust/lithe-core/src/languages/`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `rust/lithe-legacy-tooling/`。
 - `rust/lithe-core/src/lsp/languages/`
 - `rust/lithe-core/src/execution/configuration.rs`
 - `third_party/jdtls/manifest.json`
-- `scripts/macos/prepare/prepare-jdtls.sh`
+- 已迁出：原 `scripts/macos/prepare/prepare-jdtls.sh`。Java/JDT LS/Spring 专属逻辑已从 Core 移入 Java 插件后端（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java) 的 `backend/`），Core 只保留通用能力（#1495）；Windows 过渡期副本在 `rust/lithe-legacy-tooling/`。
 - `scripts/windows/prepare/prepare-jdtls.ps1`
 - `windows/tauri/src/features/run/`
 - `windows/tauri/src/platform/lsp-core-adapter.ts`

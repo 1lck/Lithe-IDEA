@@ -64,7 +64,8 @@ struct DebugLaunchPreparationCoordinatorTests {
         let ready = await coordinator.saveDirtyDocumentIfNeeded(document)
 
         #expect(!ready)
-        #expect(notifications.messages == ["Could not save example.txt"])
+        #expect(notifications.messages == ["Could not save %@"])
+        #expect(notifications.arguments == [["example.txt"]])
     }
 
     @Test("reports a failed debug launch and reopens the debug tool window")

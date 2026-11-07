@@ -679,6 +679,24 @@ package protocol LanguageServerSession: AnyObject {
     /// undecoded. Cancelling the task cancels the request in the process.
     func buildRequest(method: String, params: ToolingJSONValue, timeout: TimeInterval) async throws
         -> ToolingJSONValue
+    /// Sends one request of the owning plugin's backend to this server. These
+    /// two are requirements, not just extension defaults: the manager holds
+    /// sessions as `any LanguageServerSession`, and an extension-only method
+    /// is dispatched statically to the default that refuses every call.
+    func requestPluginServer(
+        pluginID: String,
+        serverID: String,
+        method: String,
+        params: ToolingJSONValue,
+        timeout: TimeInterval?
+    ) async -> Result<ToolingJSONValue, PluginHostRequestFailure>
+    /// Sends one notification of the owning plugin's backend to this server.
+    func notifyPluginServer(
+        pluginID: String,
+        serverID: String,
+        method: String,
+        params: ToolingJSONValue
+    ) async -> Result<Bool, PluginHostRequestFailure>
     /// Replaces the configuration a plugin's server reads through
     /// `workspace/configuration` and announces it; false when the session
     /// cannot take it, so the caller offers a restart instead.

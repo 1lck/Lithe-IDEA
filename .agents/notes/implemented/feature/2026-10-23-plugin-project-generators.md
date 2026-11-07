@@ -29,7 +29,7 @@
 | 契约与标准答案 | 共享契约 | `shared/contracts/plugins/v1/README.md` 的 Project generators 一节，`fixtures/project-generators/project-generator.plugin.json`、`fixtures/project-generators/project-plans.json` |
 | 窗口、名称、位置、Git、空项目、启用插件提示 | macOS 宿主 | `NewProjectView`、`NewProjectFeatureModel` |
 | 执行计划：临时目录、写文件、跑命令、下载、移动到位 | macOS 宿主 | `ProjectGenerationService`（编排）+ `MacProjectGenerationPlatform`（平台操作） |
-| Java、Maven Archetype、Spring Boot 的字段、模板和步骤 | 插件 | `Plugins/mac/Official/JavaSupport/`（`plugin.json` 的 `projectGenerators`、`icons/`、`templates/`） |
+| Java、Maven Archetype、Spring Boot 的字段、模板和步骤 | 插件 | 组织插件仓库 `Lithe-IDEA/lithe-plugin-java`（`java`、`spring-boot`）与 `Lithe-IDEA/lithe-plugin-maven`（Maven Archetype），各自 `plugin.json` 的 `projectGenerators`、`icons/`、`templates/`；2026-11 起本仓库不再内置任何插件（#1495） |
 
 宿主里没有任何生成器 ID 分支。项目打开后由已有的 `build.detect` 按 markers 识别 Maven、Gradle，生成器不声明「按什么导入」。
 
@@ -171,7 +171,6 @@ pin 写失败不会让项目创建失败：项目已经生成并移动到位，�
 cargo test --manifest-path rust/Cargo.toml -p lithe-core project_generators
 ./scripts/architecture/verify-shared-contracts.sh
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'ProjectGenerationTests|ProjectToolAdaptersTests|PluginManagerTests|PluginLiveActivationTests'
-./scripts/plugins/verify-official-plugins.sh
 ./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh
 ```
 
@@ -181,7 +180,6 @@ cargo test --manifest-path rust/Cargo.toml -p lithe-core project_generators
 - `rust/lithe-core/src/plugins/declarative.rs`
 - `rust/lithe-core/src/plugins/capabilities.rs`
 - `shared/contracts/plugins/v1/`
-- `Plugins/mac/Official/JavaSupport/`
 - `macos/Sources/Lithe/Views/Workspace/NewProjectView.swift`
 - `macos/Sources/Lithe/Application/Features/NewProjectFeatureModel.swift`
 - `macos/Sources/Lithe/Services/ProjectGeneration/`

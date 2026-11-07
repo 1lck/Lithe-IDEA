@@ -44,13 +44,14 @@ final class AppModelFeatureGraph {
         self.notification = notification
         // Coordinators report user-facing failures through the notification
         // feature directly; the application shell forwards the same call.
-        let notify: @MainActor (String) -> Void = { message in
+        let notifyFormatted: @MainActor (String, [String]) -> Void = { message, arguments in
             var reference: LogRecordReference?
             if let sink = services.logSink {
                 reference = LogScope(sink: sink).emitReferenced(AppNotificationOperationRejected(operation: "language_debug_workflow", reason: "request_failed"))
             }
-            notification.show(message, logReference: reference)
+            notification.show(message, arguments: arguments, logReference: reference)
         }
+        let notify: @MainActor (String) -> Void = { notifyFormatted($0, []) }
         workbench = WorkbenchFeatureModel(layoutStore: services.workbenchLayoutStore)
         commitDraft = CommitDraftFeatureModel()
         searchSession = SearchSessionFeatureModel()
@@ -117,7 +118,7 @@ final class AppModelFeatureGraph {
         languageNavigation = LanguageNavigationCoordinator(notify: notify)
         languageEditing = LanguageEditingCoordinator(notify: notify)
         languageCapabilityPolicy = LanguageCapabilityPolicy()
-        debugLaunchPreparation = DebugLaunchPreparationCoordinator(notify: notify)
+        debugLaunchPreparation = DebugLaunchPreparationCoordinator(notify: notifyFormatted)
         debugSessionCleanup = DebugSessionCleanupCoordinator()
         languageTestWorkflow = LanguageTestWorkflowState()
         let languageServerLogs = services.logWindowLogging.map {

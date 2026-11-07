@@ -174,9 +174,12 @@ extension AppModel {
             }
             registerLanguageDependencySourceIfAvailable(support: support)
         }
-        if let snapshot = try? services.moduleRuntime.snapshot(for: .languageIntelligence),
-           snapshot.state != .active,
-           snapshot.state != .idle {
+        // The host works through the bound capability, not the module state:
+        // a plugin's language server extension activates this module as its
+        // dependency without binding it here, so an active module can still
+        // have no sessions. Binding it is what lets a restored document start
+        // its server without waiting for the user to click the tab.
+        if languageToolingSessionsIfActive == nil {
             Task { [weak self] in
                 guard let self else { return }
                 do {

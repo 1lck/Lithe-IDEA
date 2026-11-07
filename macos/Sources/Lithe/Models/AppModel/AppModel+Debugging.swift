@@ -117,6 +117,22 @@ extension AppModel {
             }
             return
         }
+        // A package that exposes debugging only as editor actions, or whose
+        // adapter never launches a file, leaves the host nothing to start: the
+        // toolbar calls its debug action.
+        if let document = activeDocument,
+           let support = runWorkflowCoordinator.languageSupportRoutingToEditorActions(
+               .debug, for: selectedConfiguration, currentFileURL: document.url,
+               hostLaunchesFiles: { [debugLaunchConfigurationResolver] in
+                   debugLaunchConfigurationResolver.launchesFiles(ofLanguage: $0)
+               }
+           ) {
+            guard await runWorkflowCoordinator.saveDirtyCurrentFileIfNeeded(
+                configuration: selectedConfiguration, document: document, saving: self
+            ), isCurrentWorkspace(identity), !Task.isCancelled else { return }
+            await startPluginEditorAction(.debug, document: document, support: support, identity: identity)
+            return
+        }
         if selectedConfiguration.usesProviderConnectionDebug {
             await startProviderServiceDebug(selectedConfiguration, identity: identity, run: runFeature)
             return

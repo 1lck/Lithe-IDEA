@@ -215,6 +215,18 @@ extension AppModel {
             break
         }
         guard case .ready(let configuration) = configurationReadiness else { return }
+        // A package that exposes running only as editor actions has no
+        // execution module to activate: the toolbar calls its run action.
+        if let document = activeDocument,
+           let support = runWorkflowCoordinator.languageSupportRoutingToEditorActions(
+               .run, for: configuration, currentFileURL: document.url, hostLaunchesFiles: { _ in false }
+           ) {
+            guard await runWorkflowCoordinator.saveDirtyCurrentFileIfNeeded(
+                configuration: configuration, document: document, saving: self
+            ), isCurrentWorkspace(identity), !Task.isCancelled else { return }
+            await startPluginEditorAction(.run, document: document, support: support, identity: identity)
+            return
+        }
         if !(await activateLanguageRunExtensionIfNeeded(
             for: configuration,
             currentFileURL: activeDocument?.url,

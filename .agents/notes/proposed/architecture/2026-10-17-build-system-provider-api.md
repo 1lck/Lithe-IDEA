@@ -2,6 +2,8 @@
 
 状态：提议中
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）；宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 Lithe 对构建工具的支持原本分散在三处：Rust Core 里写死的运行入口探测器、一整套 Maven 专用类型和工具窗口，以及只认“语言”的声明式插件契约。新增一个构建工具或构建插件（例如 Issue #10 里 Gradle 的 Loom/NeoForge 任务）都要改 Core 代码。
@@ -338,16 +340,16 @@ Core 契约部分的验收已在已实现的 Note 里完成。剩下的工作按
 - `rust/lithe-core/src/plugins/declarative.rs`
 - `rust/lithe-core/src/execution/detectors/`
 - `rust/lithe-core/src/execution/types.rs`
-- `rust/lithe-core/src/project/maven.rs`
+- 已迁出：原 `rust/lithe-core/src/project/maven.rs`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。
 - `rust/lithe-core/src/execution/configuration.rs`
 - `rust/lithe-core/src/lsp/interface/engine.rs`
 - `rust/lithe-core/src/runtime/dispatcher.rs`
 - `shared/contracts/rust-core-api.md`
-- `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeDiscovery.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Persistence/MacLegacyMavenConfigurationMigration.swift`
+- 已迁出：原 `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeDiscovery.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
+- 已迁出：原 `macos/Sources/Lithe/Platform/MacOS/Persistence/MacLegacyMavenConfigurationMigration.swift`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。
 - `macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift`
 - `macos/Sources/LitheExecutionModule/Services/StandardLanguageTestProvider.swift`
-- `macos/Sources/LitheCoreContracts/Execution/MavenContracts.swift`
+- 已迁出：原 `macos/Sources/LitheCoreContracts/Execution/MavenContracts.swift`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。
 - `macos/Sources/Lithe/Views/Run/BuildSystemToolWindowView.swift`
 - `windows/tauri/src/features/maven/`
 - `windows/tauri/src/features/run/`

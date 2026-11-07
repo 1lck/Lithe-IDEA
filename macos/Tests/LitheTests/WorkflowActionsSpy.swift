@@ -86,9 +86,11 @@ final class WorkflowActionsSpy: DebugSessionCleanupActions, RunWorkflowActions {
 @MainActor
 final class NotificationSpy {
     private(set) var messages: [String] = []
+    private(set) var arguments: [[String]] = []
 
-    func notify(_ message: String) {
+    func notify(_ message: String, arguments: [String]) {
         messages.append(message)
+        self.arguments.append(arguments)
     }
 }
 
@@ -97,7 +99,7 @@ final class NotificationSpy {
 /// extension.
 @MainActor
 func makeRunWorkflowCoordinator(
-    notify: @escaping @MainActor (String) -> Void = { _ in },
+    notify: @escaping @MainActor (String, [String]) -> Void = { _, _ in },
     onPendingActionChange: @escaping @MainActor () -> Void = {}
 ) -> RunWorkflowCoordinator {
     RunWorkflowCoordinator(

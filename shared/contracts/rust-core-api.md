@@ -5379,7 +5379,12 @@ selected runtime is refused with `plugin.launch.unavailable`. A
 plan of the plugin language server that `endpoint.languageID` names, so the
 host starts that server as for editing, then sends `workspace/executeCommand`
 with `endpoint.command` and connects to the loopback port the server answers
-with (an integer or a numeric string from 1 to 65535). Core validates every declared
+with (an integer or a numeric string from 1 to 65535). When that server's
+launch is resolved by the plugin backend (`serverProcess` 3), the plan names
+only `launch: { kind: "backend", function, timeoutMilliseconds }` with empty
+`requiredDirectories` and no `resolveParams`: the server's own session asks
+the backend with the directories of its start, so resolving the adapter needs
+no `workspaceStateDirectory`, `logDirectory` or `temporaryDirectory`. Core validates every declared
 `transport`, but a host starts only the transports it implements: the macOS host
 runs `stdio` and refuses `tcpPort` and `tcpAnnounced` before starting the
 process, with `plugin.launch.unsupportedTransport`.

@@ -9,10 +9,10 @@ import LitheCoreContracts
 /// per-call closures.
 @MainActor
 final class DebugLaunchPreparationCoordinator {
-    private let notify: @MainActor (String) -> Void
+    private let notify: @MainActor (String, [String]) -> Void
     private weak var actions: (any DebugWorkflowActions)?
 
-    init(notify: @escaping @MainActor (String) -> Void) {
+    init(notify: @escaping @MainActor (String, [String]) -> Void) {
         self.notify = notify
     }
 
@@ -30,7 +30,7 @@ final class DebugLaunchPreparationCoordinator {
             actions.recordSave(document, previousText: previousText)
             return true
         } catch {
-            notify("Could not save \(document.url.lastPathComponent)")
+            notify("Could not save %@", [document.url.lastPathComponent])
             return false
         }
     }
@@ -41,7 +41,7 @@ final class DebugLaunchPreparationCoordinator {
         errorMessage: String?
     ) -> Bool {
         guard launch() else {
-            notify(errorMessage ?? "Could not start debugging")
+            notify(errorMessage ?? "Could not start debugging", [])
             actions?.showDebugToolWindow()
             return false
         }

@@ -563,7 +563,7 @@ final class MacServiceContainer {
                     // the application's backends.
                     let backendLaunches = MacPluginBackendLaunchPreparer(
                         backends: pluginBackends, contexts: .shared, resolver: pluginLaunchResolver,
-                        tools: providerTools, runtime: runtimeService, core: rustCore,
+                        tools: providerTools, definedTools: definedToolchains, runtime: runtimeService, core: rustCore,
                         workspaceState: pluginWorkspaceState
                     )
                     let runtimeFactory = StdioLanguageProviderRuntimeFactory(
@@ -1107,7 +1107,8 @@ final class MacServiceContainer {
                         arguments: arguments,
                         adapterProviderID: entry.providerID
                     )
-                }
+                },
+                fileLaunch: { languageID in activeDebugAdapter(languageID) != nil }
             ),
             debugPortAvailabilityChecker: MacDebugPortAvailabilityChecker(),
             debugBreakpointPersistence: debugBreakpointStore,

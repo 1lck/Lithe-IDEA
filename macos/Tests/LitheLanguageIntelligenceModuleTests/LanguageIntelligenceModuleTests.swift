@@ -249,6 +249,47 @@ struct LanguageIntelligenceModuleTests {
         #expect(factory.standardRequests.isEmpty)
     }
 
+    /// A backend's call to its own server (plan API-35) must reach the session
+    /// the manager holds. The manager stores sessions as `any
+    /// LanguageServerSession`, so the two methods have to be protocol
+    /// requirements; an extension-only method is dispatched statically to the
+    /// default that refuses every call, and the backend sees "not running"
+    /// from a server that is ready.
+    @Test
+    func pluginServerCallsReachTheSessionTheManagerHolds() async throws {
+        let root = URL(fileURLWithPath: "/workspace/plugin-server", isDirectory: true)
+        let descriptor = try #require(
+            LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("main.go"))
+        )
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
+        )
+        defer { manager.stopAllLanguageServers() }
+        try manager.startLanguageServer(providerID: "go", rootURL: root)
+        session.publish(.ready)
+
+        let request = await manager.requestPluginServer(
+            pluginID: "tool", serverID: "go", method: "workspace/executeCommand", params: .null, timeout: nil
+        )
+        #expect(request == .success(.string("answered")))
+        let notification = await manager.notifyPluginServer(
+            pluginID: "tool", serverID: "go", method: "workspace/didChangeConfiguration", params: .null
+        )
+        #expect(notification == .success(true))
+        #expect(session.pluginServerRequests == [.init(pluginID: "tool", serverID: "go", method: "workspace/executeCommand")])
+        #expect(session.pluginServerNotifications == [
+            .init(pluginID: "tool", serverID: "go", method: "workspace/didChangeConfiguration"),
+        ])
+
+        let absent = await manager.requestPluginServer(
+            pluginID: "tool", serverID: "absent", method: "workspace/executeCommand", params: .null, timeout: nil
+        )
+        #expect(absent == .failure(.languageServerUnavailable))
+        #expect(session.pluginServerRequests.count == 1)
+    }
+
     /// A debugger plugin installed or removed while the app runs changes only
     /// the catalog's debug capability. The running language server keeps going;
     /// any other change to the descriptor still stops it.
@@ -832,6 +873,27 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     )] = [:]
     private var executeTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var executeValueCompletion: ((Result<ToolingJSONValue, Error>) -> Void)?
+    struct PluginServerCall: Equatable {
+        let pluginID: String
+        let serverID: String
+        let method: String
+    }
+    private(set) var pluginServerRequests: [PluginServerCall] = []
+    private(set) var pluginServerNotifications: [PluginServerCall] = []
+
+    func requestPluginServer(
+        pluginID: String, serverID: String, method: String, params _: ToolingJSONValue, timeout _: TimeInterval?
+    ) async -> Result<ToolingJSONValue, PluginHostRequestFailure> {
+        pluginServerRequests.append(PluginServerCall(pluginID: pluginID, serverID: serverID, method: method))
+        return .success(.string("answered"))
+    }
+
+    func notifyPluginServer(
+        pluginID: String, serverID: String, method: String, params _: ToolingJSONValue
+    ) async -> Result<Bool, PluginHostRequestFailure> {
+        pluginServerNotifications.append(PluginServerCall(pluginID: pluginID, serverID: serverID, method: method))
+        return .success(true)
+    }
 
     func start(rootURL _: URL) throws {
         startCallCount += 1

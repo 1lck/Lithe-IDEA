@@ -44,6 +44,11 @@ struct DebugLaunchConfigurationResolver {
     /// The launch of a language a plugin's debug adapter serves. Returns nil
     /// when no adapter serves the language.
     private let pluginLaunch: (@MainActor (_ languageID: String, _ documentURL: URL, _ workspaceURL: URL) throws -> DebugLaunchConfiguration?)?
+    /// Whether a plugin's debug adapter starts a debug session from an open
+    /// file of the language. An attach-only adapter, or one that debugs
+    /// executables and processes, answers false even though it serves the
+    /// language's sessions started elsewhere.
+    private let fileLaunch: (@MainActor (_ languageID: String) -> Bool)?
 
     private let providerConnection: (@MainActor (String, String?, UInt16) throws -> PreparedProviderConnectionDebug)?
     private let providerLaunch: (@MainActor (BuildSystemPluginSource, BuildDebugPreparation, URL, String) throws -> DebugLaunchConfiguration)?
@@ -64,11 +69,21 @@ struct DebugLaunchConfigurationResolver {
     init(
         providerConnection: (@MainActor (String, String?, UInt16) throws -> PreparedProviderConnectionDebug)? = nil,
         providerLaunch: (@MainActor (BuildSystemPluginSource, BuildDebugPreparation, URL, String) throws -> DebugLaunchConfiguration)? = nil,
-        pluginLaunch: (@MainActor (String, URL, URL) throws -> DebugLaunchConfiguration?)? = nil
+        pluginLaunch: (@MainActor (String, URL, URL) throws -> DebugLaunchConfiguration?)? = nil,
+        fileLaunch: (@MainActor (String) -> Bool)? = nil
     ) {
         self.providerConnection = providerConnection
         self.providerLaunch = providerLaunch
         self.pluginLaunch = pluginLaunch
+        self.fileLaunch = fileLaunch
+    }
+
+    /// Whether `resolve` can produce a launch for a file of `languageID`.
+    /// The Debug button asks before it falls back to the language package's
+    /// own debug action.
+    @MainActor
+    func launchesFiles(ofLanguage languageID: String) -> Bool {
+        fileLaunch?(languageID) ?? false
     }
 
     @MainActor

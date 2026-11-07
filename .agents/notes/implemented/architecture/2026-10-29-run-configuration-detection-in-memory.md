@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 以前 Lithe 识别出项目能运行的入口后，会把结果写进用户工程的
@@ -204,4 +206,4 @@ v1 文档在发布时整体转换字段形状，无关 Java 条目保留原身�
 - `windows/tauri/src/features/run/`
 - `macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacRunConfigurationStore.swift`
 - `macos/Sources/LitheExecutionModule/Services/RunService.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Persistence/MacLegacyMavenRunConfigurationMigration.swift`
+- 已迁出：原 `macos/Sources/Lithe/Platform/MacOS/Persistence/MacLegacyMavenRunConfigurationMigration.swift`。Maven 专属逻辑已从 Core 与宿主移入 Maven 插件（[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)）（#1495）。

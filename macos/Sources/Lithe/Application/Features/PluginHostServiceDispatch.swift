@@ -80,7 +80,7 @@ enum PluginHostErrorCode: String, Sendable, CaseIterable {
 
 /// A failed host service request. The message reaches the backend, so it
 /// never carries a secret or a path the plugin may not see.
-struct PluginHostServiceError: Error, Equatable, Sendable {
+struct PluginHostServiceError: LocalizedError, Equatable, Sendable {
     let code: PluginHostErrorCode
     let message: String
     /// Facts the backend may act on, such as `{ currentVersion }` of a
@@ -97,6 +97,10 @@ struct PluginHostServiceError: Error, Equatable, Sendable {
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.code == rhs.code && lhs.message == rhs.message && lhs.details == rhs.details
     }
+
+    /// The host's own wording of the refusal, so a log line names which
+    /// check failed instead of the bridged NSError's generic text.
+    var errorDescription: String? { message }
 
     var failure: PluginHostRequestFailure {
         PluginHostRequestFailure(message: message, code: code.rawValue, details: details.map { .object($0) })
@@ -415,8 +419,10 @@ final class PluginHostServiceDispatcher {
         case .success(let value): decision = value
         case .failure(let error):
             if let plugin = LogSegment(pluginID) {
-                logSink?.emit(PluginsHostRequestFailed(error: LogFailure(domain: "RustCore", code: error.code),
-                    plugin: plugin, operationID: request.id))
+                logSink?.emit(PluginsHostRequestFailed(
+                    code: PluginHostErrorCode.unavailable.rawValue, error: LogFailure(domain: "RustCore", code: error.code),
+                    method: request.method, plugin: plugin, operationID: request.id
+                ))
             }
             return .failure(PluginHostServiceError(.unavailable,
                 L10n.string("The plugin is not allowed to use the host service \(request.service).")
@@ -468,7 +474,10 @@ final class PluginHostServiceDispatcher {
         )
         let result = await handler.answer(call)
         if case .failure(let failure) = result, failure.code != .cancelled, let plugin = LogSegment(pluginID) {
-            logSink?.emit(PluginsHostRequestFailed(error: failure.logError ?? LogFailure(domain: "PluginHost", code: failure.code.rawValue), plugin: plugin, operationID: request.id))
+            logSink?.emit(PluginsHostRequestFailed(
+                code: failure.code.rawValue, error: failure.logError ?? LogFailure(domain: "PluginHost", code: failure.code.rawValue),
+                method: request.method, plugin: plugin, operationID: request.id
+            ))
         }
         return result.mapError(\.failure)
     }

@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 macOS 的 Go Support 和 PHP Support 不再是 Lithe 官方插件。它们搬到各自的社区仓库（`Lithe-IDEA/lithe-plugin-go`、`Lithe-IDEA/lithe-plugin-php`），用新 ID `io.github.lithe-idea.go-support` 和 `io.github.lithe-idea.php-support` 发布，并列在 Lithe Store 社区源里，版本从 0.1.0 开始。主仓库不再构建或发布这两个包，官方索引目前是空的。
@@ -101,5 +103,5 @@ Go/PHP 插件可以独立迭代和发布，不占用主仓库 CI，也不需要 
 - `macos/Tests/LitheTests/Fixtures/RetiredOfficialPlugins/`
 - `Plugins/mac/README.md`
 - `Plugins/marketplace/`
-- `scripts/plugins/official-plugin-releases.mjs`
-- `scripts/plugins/build-official-plugins.sh`
+- 已迁出：原 `scripts/plugins/official-plugin-releases.mjs`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
+- 已迁出：原 `scripts/plugins/build-official-plugins.sh`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。

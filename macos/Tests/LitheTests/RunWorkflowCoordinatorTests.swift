@@ -251,7 +251,8 @@ struct RunWorkflowCoordinatorTests {
         )
 
         #expect(!ready)
-        #expect(notifications.messages == ["Could not save Main.go"])
+        #expect(notifications.messages == ["Could not save %@"])
+        #expect(notifications.arguments == [["Main.go"]])
     }
 
     @Test("does not save a clean non-current-file configuration")

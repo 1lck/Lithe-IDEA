@@ -285,7 +285,10 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     lazy var runWorkflowCoordinator = RunWorkflowCoordinator(
         pluginCatalog: services.pluginCatalog,
         moduleRuntime: services.moduleRuntime,
-        notify: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "run_workflow", reason: "preparation_failed")) },
+        notify: { [weak self] message, arguments in
+            self?.showNotification(message, arguments: arguments,
+                                   logReference: self?.notificationRejection(operation: "run_workflow", reason: "preparation_failed"))
+        },
         onPendingActionChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) }
     )
     var languageCapability: LitheLanguageIntelligenceModule.LanguageIntelligenceCapability? {

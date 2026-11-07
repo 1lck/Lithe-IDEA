@@ -1196,51 +1196,23 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         case "pluginEditorActions":
             guard let model, !failed, !isReadOnlyPreview,
                   let revision = body["revision"] as? Int, revision == revisions[id],
-                  let workspace = model.pluginWebWorkspaceContext,
-                  model.services.pluginWorkspaceContexts?.contexts.contains(where: { $0.reference == workspace && $0.authority == .local }) == true,
-                  let service = model.services.pluginEditorActions, let backends = model.pluginWebBackends,
-                  document.text.utf8.count <= service.host.actionSourceBytes else { reply(["actions": []], nil); return }
+                  let collector = model.pluginEditorActionCollector,
+                  PluginEditorActionCollector.admits(document, service: collector.service) else { reply(["actions": []], nil); return }
             cancelPluginActions(for: id)
-            let registrations = service.registrations(context: workspace, filename: document.url.lastPathComponent)
+            let registrations = collector.registrations(for: document)
             let text = document.text, version = document.contentVersion, requestID = UUID(), batch = UUID().uuidString
-            let input: ToolingJSONValue = .object([
-                "document": .object(["documentID": .string(id), "version": .integer(Int(clamping: version)),
-                    "path": model.workspaceURL.flatMap { root in
-                        let prefix = root.standardizedFileURL.path + "/", path = document.url.standardizedFileURL.path
-                        return path.hasPrefix(prefix) ? .string(String(path.dropFirst(prefix.count))) : nil
-                    } ?? .null]),
-                "text": .string(text),
-            ])
+            let path = PluginEditorActionCollector.workspaceRelativePath(of: document.url, root: model.workspaceURL)
             let task = Task { @MainActor [weak self, weak document] in
                 defer {
                     if self?.pluginActionRequests[id]?.id == requestID {
                         self?.pluginActionRequests.removeValue(forKey: id)?.deadline.cancel()
                     }
                 }
-                var items: [(key: String, registration: PluginEditorActionRegistration, action: PluginEditorAction)] = []
-                let clock = ContinuousClock(), started = clock.now
-                for registration in registrations {
-                    do {
-                        try Task.checkCancellation()
-                        guard let remaining = PluginEditorActionCollectionBudget.remaining(after: started.duration(to: clock.now)) else { break }
-                        guard service.contains(registration) else { continue }
-                        let result = try await backends.invokePluginFunction(registration.functionID, params: input,
-                            ofPlugin: registration.pluginID, context: workspace, timeout: remaining, progress: { _ in })
-                        try Task.checkCancellation()
-                        let actions = try service.decode(result, text: text)
-                        guard service.contains(registration),
-                              actions.allSatisfy({ action in action.functionIDs.allSatisfy { service.contains(registration, functionID: $0) } })
-                        else { continue }
-                        for action in actions { items.append((UUID().uuidString, registration, action)) }
-                        guard items.count <= 1000 else { items = []; break }
-                    } catch {
-                        if Task.isCancelled { break }
-                        if let plugin = LogSegment(registration.pluginID) { self?.model?.services.logSink?.emit(PluginsEditorActionsFailed(error: error, plugin: plugin)) }
-                    }
-                }
+                let collected = (try? await collector.collect(documentID: id, version: version, path: path, text: text,
+                                                              registrations: registrations)) ?? []
+                let items = collected.map { (key: UUID().uuidString, registration: $0.registration, action: $0.action) }
                 guard let self, let document, !Task.isCancelled, self.isCurrent(context), document.contentVersion == version,
-                      self.pluginActionRequests[id]?.id == requestID,
-                      items.allSatisfy({ item in item.action.functionIDs.allSatisfy { service.contains(item.registration, functionID: $0) } }) else {
+                      self.pluginActionRequests[id]?.id == requestID, collector.stillRegistered(collected) else {
                     reply(["cancelled": true], nil); return
                 }
                 self.pluginActionRequests.removeValue(forKey: id)?.deadline.cancel()
@@ -1264,29 +1236,24 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                   let list = pluginActionLists[id], list.batch == body["batch"] as? String,
                   isCurrent(list.context), list.contentVersion == document.contentVersion,
                   let key = body["action"] as? String, let item = list.actions.first(where: { $0.key == key }),
-                  let service = model.services.pluginEditorActions,
+                  let collector = model.pluginEditorActionCollector,
                   let chosen = Self.chosenInvocation(of: item.action, alternativeID: body["alternative"]),
-                  service.contains(item.registration, functionID: chosen.invoke.functionID),
-                  model.pluginWebWorkspaceContext == item.registration.context,
-                  let backends = model.pluginWebBackends,
+                  collector.service.contains(item.registration, functionID: chosen.invoke.functionID),
+                  collector.workspace == item.registration.context,
                   pluginActionExecutions.count < 16 else { reply(["cancelled": true], nil); return }
             model.editorDidFocus(document)
             let operation = UUID()
-            var members: [String: ToolingJSONValue] = [
-                "documentID": .string(id), "expectedVersion": .integer(Int(clamping: list.contentVersion)),
-                "actionID": .string(item.action.id), "data": chosen.invoke.params,
-            ]
-            if let alternativeID = chosen.alternativeID { members["alternativeID"] = .string(alternativeID) }
-            let params = ToolingJSONValue.object(members)
+            let choice = PluginEditorActionChoice(
+                item: PluginEditorActionItem(registration: item.registration, action: item.action),
+                invocation: chosen.invoke, alternativeID: chosen.alternativeID)
+            let expectedVersion = list.contentVersion
             let task = Task { @MainActor [weak self] in
                 defer { self?.pluginActionExecutions[operation] = nil }
                 do {
-                    let result = try await backends.invokePluginFunction(chosen.invoke.functionID, params: params,
-                        ofPlugin: item.registration.pluginID, context: item.registration.context,
-                        timeout: .seconds(60), progress: { _ in })
-                    try Task.checkCancellation()
                     // The plugin may point at places the click led to; showing them is the host's job.
-                    if let reveal = try service.decodeReveal(result) { self?.model?.revealPluginLocations(reveal) }
+                    if let reveal = try await collector.invoke(choice, documentID: id, expectedVersion: expectedVersion) {
+                        self?.model?.revealPluginLocations(reveal)
+                    }
                     reply(["ok": true], nil)
                 } catch {
                     if Task.isCancelled { reply(["cancelled": true], nil) }

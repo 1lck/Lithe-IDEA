@@ -100,7 +100,7 @@
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib` 按 `plugin_server`、`plugin_function`、`language_server_sessions`、`content_providers`、`declarative` 过滤：会话策略、逐方法授权、启动问题与回答的往返、七类拒绝码、回收判定。
 - `scripts/macos/test/test-macos.sh --filter 'PluginLanguageServerHostServiceTests|PluginBackendLaunchTests|PluginContentProviderTests|MacPluginLanguageServerWorkspaceStateTests'`，以及 `LitheLanguageIntelligenceModuleTests` 中的 `PluginLanguageServerRelayTests`：参数边界、错误码映射、启动流程、代际丢弃、状态随进程结束、回收不触碰打开中的工作区和非目录项。测试用 Metals 与 rust-analyzer 的桩，不含 Java 词汇。
 - `scripts/macos/verify/verify-runtime-bundle-immutability.sh`：启动后包内文件不变。
-- `scripts/architecture/verify-shared-contracts.sh`、`scripts/architecture/verify-service-boundaries.sh`、`scripts/architecture/verify-java-semantic-ownership.mjs`。
+- `scripts/architecture/verify-shared-contracts.sh`、`scripts/architecture/verify-service-boundaries.sh`、`scripts/architecture/verify-no-host-language-specifics.mjs`。
 - `scripts/agent-notes/verify-agent-notes.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
 
 原生验收（安装示例插件、观察状态栏文字、用 `pgrep` 确认进程不残留）不由单元测试替代，功能矩阵按真实证据维护。

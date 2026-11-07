@@ -2,6 +2,8 @@
 
 状态：提议中
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护；宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 Java Support 已经是声明式插件，JDT LS、JDK、Lombok 和调试、测试扩展都由插件包拥有，本提案不重复做插件化。建议下一步把它从“随 Lithe.app 发行”改成“独立发布、按需安装”，让不使用 Java 的用户不再下载这部分资源。先完成安装、版本匹配拒绝和用户配置迁移，再从主安装包移除资源。现有 `jdt` 宿主集成与 Java 运行、测试、调试是分发提案的当前边界；完整领域后端迁移由 [#1495 清单](2026-10-26-maven-java-domain-plugin-migration.md)继续推进，完成后删除这些宿主专属实现。
@@ -210,10 +212,10 @@ node scripts/architecture/verify-java-semantic-ownership.mjs
 
 ## 适用范围
 
-- `Plugins/mac/Official/JavaSupport/`
+- 已迁出：原 `Plugins/mac/Official/JavaSupport/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - `Plugins/marketplace/`
-- `scripts/plugins/build-official-plugins.sh`
-- `scripts/plugins/official-plugin-releases.mjs`
+- 已迁出：原 `scripts/plugins/build-official-plugins.sh`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
+- 已迁出：原 `scripts/plugins/official-plugin-releases.mjs`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - `scripts/macos/package/package-app.sh`
 - `scripts/macos/verify/verify-macos-package.sh`
 - `scripts/resources/worktree-resources.json`
@@ -223,7 +225,7 @@ node scripts/architecture/verify-java-semantic-ownership.mjs
 - `third_party/jdk/manifest.json`
 - `macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/`
-- `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`
+- 已迁出：原 `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`。宿主侧 Java 专属代码已删除（#1495）；运行、调试、入口标记与工具链改走通用插件 API（`run/start`、`debug/start`、`editor/registerActions`、`toolDefinitions`），实现见 [lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)。
 - `macos/Sources/LithePluginPackageSigning/`
 - `rust/lithe-core/src/lsp/languages/`
 - `shared/contracts/plugins/v1/`

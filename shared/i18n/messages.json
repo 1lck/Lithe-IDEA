@@ -40571,6 +40571,22 @@
       }
     },
     {
+      "id": "native.couldNotSave",
+      "description": "Native UI: Could not save %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not save %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.couldNotSaveAccessToTheSelectedBackgroundImage",
       "description": "Native UI: Could not save access to the selected background image.",
       "platforms": [
@@ -40609,6 +40625,17 @@
       },
       "parameters": {
         "arg1": "string"
+      }
+    },
+    {
+      "id": "native.couldNotStartDebugging",
+      "description": "Native UI: Could not start debugging",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not start debugging",
+        "arguments": []
       }
     },
     {
@@ -43455,6 +43482,38 @@
       ],
       "macos": {
         "key": "%@ does not provide archived conversations.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.doesNotProvideDebugging",
+      "description": "Native UI: %@ does not provide debugging",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ does not provide debugging",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.doesNotProvideProjectExecution",
+      "description": "Native UI: %@ does not provide project execution",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ does not provide project execution",
         "arguments": [
           "arg1"
         ]
@@ -68193,6 +68252,22 @@
       }
     },
     {
+      "id": "native.returnedAnInvalidExecutionProvider",
+      "description": "Native UI: %@ returned an invalid execution provider",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ returned an invalid execution provider",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.returnedAnInvalidLanguageServerProvider",
       "description": "Native UI: %@ returned an invalid language-server provider.",
       "platforms": [
@@ -76137,6 +76212,17 @@
       ],
       "macos": {
         "key": "The field value is invalid or exceeds 1024 UTF-8 bytes.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theFileChangedWhilePreparingToStartTryAgain",
+      "description": "Native UI: The file changed while preparing to start. Try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The file changed while preparing to start. Try again.",
         "arguments": []
       }
     },

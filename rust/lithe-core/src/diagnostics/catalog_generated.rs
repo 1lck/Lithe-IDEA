@@ -1872,9 +1872,11 @@ pub static EVENTS: &[EventMetadata] = &[
         id: "plugins.host.request_failed",
         channel: "plugins/{plugin}/host",
         level: LogLevel::Error,
-        message: "Plugin host request failed",
+        message: "Plugin host request {method} failed with {code}",
         fields: &[
+            FieldMetadata { name: "code", field_type: FieldType::Token, required: true, description: "Stable plugin.host.* failure code the backend received, independent of the native error's wording", reason: None },
             FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Native host service error or stable host request failure code", reason: None },
+            FieldMetadata { name: "method", field_type: FieldType::Token, required: true, description: "Host method or plugin function the request named, e.g. lithe/host/languageServer/notify; never its params", reason: None },
             FieldMetadata { name: "plugin", field_type: FieldType::Id, required: true, description: "Validated plugin identity that owns this failed host request", reason: None },
         ],
         span: None,

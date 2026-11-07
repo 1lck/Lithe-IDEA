@@ -681,12 +681,18 @@ declaring one:
 - The host creates the directories, starts the plugin backend if it is not
   running, and calls `function` through `lithe/function/invoke` with
   `resolveParams` and the workspace `context`. A host may also send `tools`,
-  `{<toolID>: {executable, home, version}}`, the resolution of each tool it
-  could find; Core does not validate it. The macOS host does not send `tools`
-  yet, so a function must not require it: it answers `{kind: "tool"}` and
-  lets the host resolve the tool. A failed or timed-out call, or an answer
-  for a context whose generation has changed, ends this start without a
-  process.
+  `{<toolID>: {executable, home, version}}`, the resolution of each tool the
+  manifest lists in `requiresTools` that it could find; Core does not
+  validate it. The macOS host resolves each required tool as an installation
+  with the user's choice and discovery, and leaves out a tool that is
+  missing, unusable, or inside the project; `home` and `version` are present
+  when the installation has them. A function must not require `tools` or any
+  entry in it: it answers `{kind: "tool"}` and lets the host resolve the
+  tool, and treats a missing entry as "configure nothing". A backend uses
+  `tools` to point its server at the same installation the host runs, for
+  example as the default runtime of a language server whose Run goes through
+  the tool. A failed or timed-out call, or an answer for a context whose
+  generation has changed, ends this start without a process.
 - The host passes `{manifest, languageID, request, result}` to
   `plugins.languageServers.decodeLaunch`, which returns `{status: "ok", plan}`
   or a rejection. The plan is an ordinary launch plan (`launch` is `packaged`
@@ -3331,6 +3337,18 @@ workspace context:
   windows. A private process started by the plugin is not a substitute. Click executions are not cancelled by unrelated re-parsing;
   withdrawing the binding, ending its session/context or tearing down the owning
   editor cancels them. The host never retries side effects automatically.
+- Toolbar and menu Run/Debug on macOS reuse these actions for a language the
+  package declares in `languages` without an execution or debug module and
+  without the matching `hostCapabilities` entry: with a current-file Run
+  configuration the host saves the document, collects the document's actions as
+  the gutter does, and invokes the first action (ordered by range start) whose
+  icon is `run` or `run-all`; Debug invokes that action's first alternative whose
+  icon is `debug`, else the first action whose own icon is `debug`. No matching
+  action, a stale document or a withdrawn binding produces a user-visible notice
+  and nothing starts. This is only a different entry point to the plugin's own
+  function; the host still never starts code because of an icon, so the plugin
+  decides what the action does and still uses `lithe/host/run/start` or
+  `lithe/host/debug/start` to run it.
 - Registration/collection validation is shared Core command
   `plugins.editorActions.decode`; `version: 2` with the host's icons and source
   bound admits alternatives and click results (`kind: invokeResult`), and version 1

@@ -4055,11 +4055,52 @@ fn debug_adapter_launch_plan(
                 .as_ref()
                 .and_then(|endpoint| endpoint.language_id.as_deref())
                 .unwrap_or_default();
-            language_server_launch_plan(manifest, language_id, request)?
+            hosting_language_server_plan(manifest, language_id, request)?
         }
     };
     plan["debugAdapter"] = adapter.plan_descriptor(&manifest.id);
     Ok(plan)
+}
+
+/// The plan of the language server a `tcpLanguageServer` adapter runs in.
+/// The server's own session starts it; this plan only names the server the
+/// adapter belongs to. A server the backend launches (`serverProcess` 3) is
+/// asked by that session with the scratch directories of its own start, so
+/// here its plan names the function and demands no directory.
+fn hosting_language_server_plan(
+    manifest: &DeclarativePluginManifest,
+    language_id: &str,
+    request: &LanguageServerLaunchPlanRequest,
+) -> Validation<Value> {
+    let server = manifest
+        .language_servers
+        .iter()
+        .find(|server| server.language_id == language_id)
+        .ok_or_else(|| {
+            PluginRejection::new(
+                "plugin.launch.unavailable",
+                format!("The plugin does not provide a language server for {language_id}."),
+            )
+        })?;
+    match &server.process.launch {
+        LanguageServerLaunch::Backend {
+            function,
+            timeout_milliseconds,
+        } => Ok(json!({
+            "launch": {
+                "kind": "backend",
+                "function": function,
+                "timeoutMilliseconds": timeout_milliseconds
+                    .unwrap_or(language_server_sessions::RESOLVE_TIMEOUT_MILLISECONDS),
+            },
+            "arguments": [],
+            "validationArguments": [],
+            "runtimeRequirements": [],
+            "requiredDirectories": [],
+            "requiredPackagePaths": [],
+        })),
+        _ => language_server_launch_plan(manifest, language_id, request),
+    }
 }
 
 /// `debug.adapters.startArguments`: checks one start against the adapter's

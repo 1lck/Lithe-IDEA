@@ -3373,7 +3373,7 @@ public struct PluginsHostProtocolInitialized: LogEvent {
 public struct PluginsHostRequestFailed: LogEvent {
     public static let id = "plugins.host.request_failed"
     public static let level: LogLevel = .error
-    public static let messageTemplate = "Plugin host request failed"
+    public static let messageTemplate = "Plugin host request {method} failed with {code}"
     public static let ratePerMinute = 60
     public static let owner = "Lithe"
     public static let debugOnly = false
@@ -3384,11 +3384,13 @@ public struct PluginsHostRequestFailed: LogEvent {
         LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
     }
 
-    public init(`error`: any Error, `plugin`: LogSegment, operationID: String? = nil) {
+    public init(`code`: String, `error`: any Error, `method`: String, `plugin`: LogSegment, operationID: String? = nil) {
         self.operationID = operationID
         self.channel = LogChannel(.plugins, segments: [`plugin`, LogSegment("host")!])
         var _logValues: [String: LogFieldValue] = [:]
+        _logValues["code"] = .token(`code`)
         _logValues["error"] = .error(`error`)
+        _logValues["method"] = .token(`method`)
         _logValues["plugin"] = .id(`plugin`)
         self.fields = _logValues
     }

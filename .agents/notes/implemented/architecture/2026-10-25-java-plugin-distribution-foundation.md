@@ -2,6 +2,8 @@
 
 状态：已实现
 
+> 2026-11-07 更新：本文提到的部分文件已不存在。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。下文保留当时的决策与理由，路径以“适用范围”里标注的去向为准。
+
 ## 先说结论
 
 Java Support 的同一份清单现在区分两种来源：随应用发行的副本可以依靠宿主签名，用户下载安装的副本必须有 Lithe 发布者签名。两种来源使用同一插件 ID，经过校验的用户安装版本替代内置版本，不重复登记 Java 语言服务。官方发布工具能记录 ARM64、Intel 两个归档及各自哈希，并从发布标签读取对应 API 和能力声明；迁移保留启用选择并提供按需安装入口；主包只在完整双架构官方下载进入索引后移除资源。自动上架仍暂停，真实发布包按[独立分发提案](../../proposed/architecture/2026-10-24-java-support-independent-distribution.md)继续验收。
@@ -101,24 +103,24 @@ JDT LS、JDK、Lombok、Debug 和 Test 扩展保持当前锁定版本。资源�
 - `node --test scripts/plugins/official-plugin-releases.test.mjs`：双架构索引、部分归档拒绝、历史标签元数据以及上游输入变更约束。
 - `node scripts/resources/test-reuse-worktree-resources.mjs`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`：生成资源拒绝复用、发行目录只读边界。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh` 和 macOS 计时入口：相关测试必须有单项时长与 HTML/JUnit 结果。
-- `.github/workflows/release-official-plugins.yml` 用 actionlint 校验；本地组装两种架构资源，验证 JDK 原生签名和发布归档的完整性。
+- 已迁出：原 `.github/workflows/release-official-plugins.yml`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 
 上述验证不能替代正式发布者私钥签名、真实市场下载、Intel 真机及全部 Java 产品工作流。上线前继续按独立分发提案的退出条件执行，不能靠测试公钥通过就开放发布。
 
 ## 适用范围
 
-- `Plugins/mac/Official/JavaSupport/`
-- `Plugins/marketplace/official-plugins.json`
+- 已迁出：原 `Plugins/mac/Official/JavaSupport/`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
+- 已迁出：原 `Plugins/marketplace/official-plugins.json`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - `shared/contracts/plugins/v1/`
 - `rust/lithe-core/src/plugins/`
 - `macos/Sources/LitheModuleAPI/`
 - `macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`
-- `macos/Tests/LitheTests/PluginBundledPublisherTrustTests.swift`
+- 已迁出：原 `macos/Tests/LitheTests/PluginBundledPublisherTrustTests.swift`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - `macos/Tests/LitheOfficialPluginVerifier/OfficialPluginVerifier.swift`
-- `scripts/plugins/build-official-plugins.sh`
-- `scripts/plugins/official-plugin-releases.mjs`
-- `.github/workflows/release-official-plugins.yml`
+- 已迁出：原 `scripts/plugins/build-official-plugins.sh`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
+- 已迁出：原 `scripts/plugins/official-plugin-releases.mjs`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
+- 已迁出：原 `.github/workflows/release-official-plugins.yml`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
 - `scripts/resources/worktree-resources.json`
 - `scripts/resources/reuse-worktree-resources.mjs`
 - `docs/ci-builds.md`

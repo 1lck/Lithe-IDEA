@@ -1251,10 +1251,7 @@ fn shared_run_scan_excludes_caches_and_keeps_hidden_sources() {
         assert_eq!(response["ok"], true, "{response}");
         response["data"].clone()
     };
-    let generated = call(
-        "runConfig.generate",
-        serde_json::json!({"root": root}),
-    );
+    let generated = call("runConfig.generate", serde_json::json!({"root": root}));
     let inputs = generated["generated"]["generator"]["inputs"]
         .as_object()
         .unwrap();

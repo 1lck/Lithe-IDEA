@@ -27,6 +27,8 @@
 "%@ disabled" = "%@ disabled";
 "%@ does not include %@; Lithe renders those characters with %@ and the system font." = "%@ does not include %@; Lithe renders those characters with %@ and the system font.";
 "%@ does not provide archived conversations." = "%@ does not provide archived conversations.";
+"%@ does not provide debugging" = "%@ does not provide debugging";
+"%@ does not provide project execution" = "%@ does not provide project execution";
 "%@ does not support Debug yet" = "%@ does not support Debug yet";
 "%@ does not support running the current file directly. Use a project run configuration." = "%@ does not support running the current file directly. Use a project run configuration.";
 "%@ enabled" = "%@ enabled";
@@ -57,6 +59,7 @@
 "%@ provider (installed on this Mac)" = "%@ provider (installed on this Mac)";
 "%@ resolves to a program inside the project, which a language server cannot start." = "%@ resolves to a program inside the project, which a language server cannot start.";
 "%@ returned HTTP %@." = "%@ returned HTTP %@.";
+"%@ returned an invalid execution provider" = "%@ returned an invalid execution provider";
 "%@ returned an invalid language-server provider." = "%@ returned an invalid language-server provider.";
 "%@ returned an unexpected response." = "%@ returned an unexpected response.";
 "%@ sent messages too quickly, so some were not shown." = "%@ sent messages too quickly, so some were not shown.";
@@ -1112,11 +1115,13 @@
 "Could not restore local history" = "Could not restore local history";
 "Could not restore project history" = "Could not restore project history";
 "Could not restore this project history entry" = "Could not restore this project history entry";
+"Could not save %@" = "Could not save %@";
 "Could not save %@: permission denied. Check the file and parent folder permissions. Your edits are still unsaved." = "Could not save %@: permission denied. Check the file and parent folder permissions. Your edits are still unsaved.";
 "Could not save access to the selected background image." = "Could not save access to the selected background image.";
 "Could not save project indexing settings. Your previous settings remain unchanged." = "Could not save project indexing settings. Your previous settings remain unchanged.";
 "Could not save service selection" = "Could not save service selection";
 "Could not save the connections: %@" = "Could not save the connections: %@";
+"Could not start debugging" = "Could not start debugging";
 "Could not start the Java test result listener: %@" = "Could not start the Java test result listener: %@";
 "Could not start the MCP command. Check its executable and runtime." = "Could not start the MCP command. Check its executable and runtime.";
 "Could not verify the commit outcome. Review before retrying." = "Could not verify the commit outcome. Review before retrying.";
@@ -4320,6 +4325,7 @@
 "The featured MCP catalog could not be loaded." = "The featured MCP catalog could not be loaded.";
 "The field value does not match its declaration or exceeds its size limit." = "The field value does not match its declaration or exceeds its size limit.";
 "The field value is invalid or exceeds 1024 UTF-8 bytes." = "The field value is invalid or exceeds 1024 UTF-8 bytes.";
+"The file changed while preparing to start. Try again." = "The file changed while preparing to start. Try again.";
 "The file could not be decoded with the selected or detected encoding. Check its encoding or open it in an external editor." = "The file could not be decoded with the selected or detected encoding. Check its encoding or open it in an external editor.";
 "The file could not be opened as a text document." = "The file could not be opened as a text document.";
 "The file could not be read. Check its availability and try again." = "The file could not be read. Check its availability and try again.";
@@ -6338,9 +6344,11 @@
 "native.couldNotRestoreLocalHistory" = "Could not restore local history";
 "native.couldNotRestoreProjectHistory" = "Could not restore project history";
 "native.couldNotRestoreThisProjectHistoryEntry" = "Could not restore this project history entry";
+"native.couldNotSave" = "Could not save %1$@";
 "native.couldNotSaveAccessToTheSelectedBackgroundImage" = "Could not save access to the selected background image.";
 "native.couldNotSaveServiceSelection" = "Could not save service selection";
 "native.couldNotSaveTheConnections" = "Could not save the connections: %1$@";
+"native.couldNotStartDebugging" = "Could not start debugging";
 "native.couldNotStartTheJavaTestResultListener" = "Could not start the Java test result listener: %1$@";
 "native.couldNotStartTheMcpCommandCheckItsExecutableAndRuntime" = "Could not start the MCP command. Check its executable and runtime.";
 "native.couldNotVerifySavedProjectEnvironment" = "Could not verify the saved project environment settings. The previous preferences have been kept when possible.";
@@ -6579,6 +6587,8 @@
 "native.documentation" = "Documentation";
 "native.doesNotIncludeLitheRendersThoseCharactersWithAndTheSystemFont" = "%1$@ does not include %2$@; Lithe renders those characters with %3$@ and the system font.";
 "native.doesNotProvideArchivedConversations" = "%1$@ does not provide archived conversations.";
+"native.doesNotProvideDebugging" = "%1$@ does not provide debugging";
+"native.doesNotProvideProjectExecution" = "%1$@ does not provide project execution";
 "native.doesNotSupportDebugYet" = "%1$@ does not support Debug yet";
 "native.doesNotSupportRunningTheCurrentFileDirectly" = "%1$@ does not support running the current file directly. Use a project run configuration.";
 "native.donTAllow" = "Don’t Allow";
@@ -8702,6 +8712,7 @@
 "native.returnToStable" = "Return to Stable";
 "native.returnToStable.variant2" = "Return to Stable?";
 "native.returnToTheWelcomeScreen" = "Return to the Welcome screen";
+"native.returnedAnInvalidExecutionProvider" = "%1$@ returned an invalid execution provider";
 "native.returnedAnInvalidLanguageServerProvider" = "%1$@ returned an invalid language-server provider.";
 "native.returnedAnUnexpectedResponse" = "%1$@ returned an unexpected response.";
 "native.returnedHTTP" = "%1$@ returned HTTP %2$@.";
@@ -9393,6 +9404,7 @@
 "native.theFeaturedMcpCatalogCouldNotBeLoaded" = "The featured MCP catalog could not be loaded.";
 "native.theFieldValueDoesNotMatchItsDeclarationOrExceedsItsSizeLimit" = "The field value does not match its declaration or exceeds its size limit.";
 "native.theFieldValueIsInvalidOrExceeds1024UTF8Bytes" = "The field value is invalid or exceeds 1024 UTF-8 bytes.";
+"native.theFileChangedWhilePreparingToStartTryAgain" = "The file changed while preparing to start. Try again.";
 "native.theFileCouldNotBeOpenedAsATextDocument" = "The file could not be opened as a text document.";
 "native.theFileHasChangedSinceTheAgentEditOpenTheDiffAndReviewItManually" = "The file has changed since the Agent edit. Open the diff and review it manually.";
 "native.theFileHasUnsavedChangesSaveItFirstBecauseTheBrowserShowsTheSavedFile" = "The file has unsaved changes. Save it first, because the browser shows the saved file.";

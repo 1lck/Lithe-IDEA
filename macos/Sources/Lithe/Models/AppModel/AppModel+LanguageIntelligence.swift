@@ -5,6 +5,9 @@ import LitheModuleAPI
 
 extension AppModel {
     func bindLanguageIntelligenceCapability(_ capability: LanguageIntelligenceCapability) {
+        // The status bar and LSP control center read server states through this
+        // binding; without it every registered server reports "Not started".
+        languageToolingFeature.bindSessions(capability.sessions)
         bindPluginLanguageServers(capability.sessions.pluginServers)
         cacheModuleCapability(
             capability,
