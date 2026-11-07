@@ -163,13 +163,13 @@ SDK：三份官方后端 SDK（Node、Java、Rust）各自增加发现、调用�
 
 ### 六、Windows legacy crate
 
-Windows 现在还通过 Core 的命令调用 Maven 和 Java 功能，而 Windows 宿主尚未实现通用插件接口，不能直接换成插件。所以 W1 新建 `windows/tauri/crates/lithe-legacy-java`（legacy crate，意为过渡用的旧功能库，尚不存在，W1 创建），把 Core 里只有 Windows 使用的 Maven 和 Java 代码搬过去：
+Windows 现在还通过 Core 的命令调用 Maven 和 Java 功能，而 Windows 宿主尚未实现通用插件接口，不能直接换成插件。所以 W1 新建 `windows/tauri/crates/lithe-legacy-tooling`（legacy crate，意为过渡用的旧功能库，尚不存在，W1 创建），把 Core 里只有 Windows 使用的 Maven 和 Java 代码搬过去：
 
 - 入口是 `try_execute(request) -> Option<String>`，命中旧命令名就处理，否则返回 `None`。`windows/tauri/src-tauri/src/core.rs` 的 `core_execute` 在调用 `execute_for_window(..., lithe_core::execute_json)` 之前，以及 `platform.rs` 的 `platform_invoke` 在 `lithe_core::execute_json` 之前，都先调它。Windows 的 TypeScript 消费者不变。
 - W2 增加会话命令，经通用的 `lsp.request`、`lsp.updateWorkspaceConfiguration`、`lsp.waitEvents` 工作。
 - 它在 Windows 自己的目录里，不在闸门的扫描根目录内，所以不进白名单；但 Windows 的 TypeScript 和 Rust 消费文件在白名单里，每项的 `issue` 填 #1495，`removeWhen` 写明删除条件。
 
-**删除条件：** Windows 宿主实现了通用接口，并能安装 `lithe-plugin-java`。到那时整个目录删除，白名单里的 Windows 项一并删除。跟踪 Issue 草稿的标题是“Windows：用 Java 插件取代 lithe-legacy-java”，用户确认后再按 `submit-lithe-issue` Skill 提交。
+**删除条件：** Windows 宿主实现了通用接口，并能安装 `lithe-plugin-java`。到那时整个目录删除，白名单里的 Windows 项一并删除。跟踪 Issue 草稿的标题是“Windows：用 Java 插件取代 lithe-legacy-tooling”，用户确认后再按 `submit-lithe-issue` Skill 提交。
 
 代价：这段时间同一份逻辑同时存在于 Java 插件和 legacy crate。证据要求是 `cargo check --manifest-path windows/tauri/src-tauri/Cargo.toml`、Windows 单元测试和 Parallels 真机冒烟。
 

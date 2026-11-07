@@ -24,8 +24,8 @@
       "windows/tauri/src/features/spring/utils/spring-property-completion.test.ts",
       "windows/tauri/src/features/editor/engines/monaco/lsp-providers.ts",
       ".github/workflows/ci-windows.yml",
-      "windows/tauri/crates/lithe-legacy-java/src/spring.rs",
-      "windows/tauri/crates/lithe-legacy-java/src/tests/spring.rs"
+      "windows/tauri/crates/lithe-legacy-tooling/src/spring.rs",
+      "windows/tauri/crates/lithe-legacy-tooling/src/tests/spring.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

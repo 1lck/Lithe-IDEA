@@ -15,8 +15,8 @@
     "evidence": [
       "windows/tauri/src/features/mybatis",
       "windows/tauri/src/features/mybatis/utils/mybatis-index-paths.test.ts",
-      "windows/tauri/crates/lithe-legacy-java/src/mybatis.rs",
-      "windows/tauri/crates/lithe-legacy-java/src/tests/mybatis.rs"
+      "windows/tauri/crates/lithe-legacy-tooling/src/mybatis.rs",
+      "windows/tauri/crates/lithe-legacy-tooling/src/tests/mybatis.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

@@ -64,9 +64,9 @@
       "windows/tauri/src/features/run-actions/hooks/use-run-action-discovery.ts",
       "windows/tauri/src/features/run-actions/utils/run-action-discovery.ts",
       "windows/tauri/src/extensions/run/extension-run-discovery.test.ts",
-      "windows/tauri/crates/lithe-legacy-java/src/java_run_markers.rs",
-      "windows/tauri/crates/lithe-legacy-java/src/run_sources.rs",
-      "windows/tauri/crates/lithe-legacy-java/src/tests/maven.rs"
+      "windows/tauri/crates/lithe-legacy-tooling/src/java_run_markers.rs",
+      "windows/tauri/crates/lithe-legacy-tooling/src/run_sources.rs",
+      "windows/tauri/crates/lithe-legacy-tooling/src/tests/maven.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

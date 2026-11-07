@@ -49,7 +49,7 @@
       "shared/fixtures/lsp/activation-policy-v1.json",
       "windows/tauri/src/features/editor/lsp/language-server-activation-policy.ts",
       "windows/tauri/src/features/editor/lsp/language-server-activation-policy.test.ts",
-      "windows/tauri/crates/lithe-legacy-java/src/java_workspace.rs"
+      "windows/tauri/crates/lithe-legacy-tooling/src/java_workspace.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
