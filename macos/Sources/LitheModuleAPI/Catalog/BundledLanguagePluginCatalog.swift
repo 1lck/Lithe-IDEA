@@ -41,7 +41,7 @@ public struct BundledLanguagePluginSpecification: Sendable {
 }
 
 // Note: Go 与 PHP 由声明式官方插件提供，不属于内置清单，见 .agents/notes/implemented/architecture/2026-10-12-declarative-language-plugins.md
-/// Describes bundled non-Java language recognition and the process-backed
+/// Describes bundled language recognition and the process-backed
 /// features that are independently manageable as plugins. Go and PHP are
 /// official declarative packages and are therefore not duplicated here.
 public enum BundledLanguagePluginCatalog {
@@ -68,7 +68,7 @@ public enum BundledLanguagePluginCatalog {
         .init(id: "astro", displayName: "Astro", fileExtensions: ["astro"]),
         .init(id: "json", displayName: "JSON", fileExtensions: ["json", "jsonc", "json5"]),
         .init(id: "yaml", displayName: "YAML", fileExtensions: ["yml", "yaml"], executableNames: ["yaml-language-server"], arguments: ["--stdio"]),
-        .init(id: "xml", displayName: "XML", fileExtensions: ["xml", "xsd", "wsdl", "pom"]),
+        .init(id: "xml", displayName: "XML", fileExtensions: ["xml", "xsd", "wsdl"]),
         .init(id: "markdown", displayName: "Markdown", fileExtensions: ["md", "markdown", "mdx"]),
         .init(id: "sql", displayName: "SQL", fileExtensions: ["sql"]),
         .init(id: "terraform", displayName: "Terraform", fileExtensions: ["tf", "tfvars"]),

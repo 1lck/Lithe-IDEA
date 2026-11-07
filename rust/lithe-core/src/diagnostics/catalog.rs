@@ -206,23 +206,23 @@ mod tests {
     fn catalog_lookup_and_span_contract() {
         assert!(EVENTS.windows(2).all(|pair| pair[0].id < pair[1].id));
         assert!(event_by_id("not.an.event").is_none());
-        let event = event_by_id("lsp.build.execution.failed").unwrap();
-        assert_eq!(event.channel, "lsp/{server}");
+        let event = event_by_id("editor.sync.freeze.failed").unwrap();
+        assert_eq!(event.channel, "editor");
         assert_eq!(event.span, Some(SpanPhase::Failed));
         let fields = BTreeMap::from([
-            ("server".into(), json!("java")),
-            ("waiters".into(), json!(2)),
-            ("outcome".into(), json!("builder_failed")),
+            ("document".into(), json!("document-1")),
+            ("revision".into(), json!(2)),
+            ("status".into(), json!("mismatch")),
             ("duration_ms".into(), json!(311)),
-            ("error".into(), json!("build failed")),
+            ("error".into(), json!("freeze failed")),
             ("error_code".into(), json!(128)),
             ("error_domain".into(), json!("core")),
         ]);
         assert_eq!(validate_fields(event.id, &fields), Ok(()));
         for (key, value) in [
             ("duration_ms", json!(-1)),
-            ("server", json!("../bad")),
-            ("outcome", json!("fetch --token secret")),
+            ("document", json!("../bad")),
+            ("status", json!("fetch --token secret")),
         ] {
             let mut invalid = fields.clone();
             invalid.insert(key.into(), value);
@@ -248,7 +248,7 @@ mod tests {
     #[test]
     fn catalog_text_and_optional_error_are_bounded() {
         let mut fields = BTreeMap::from([
-            ("server".into(), json!("java")),
+            ("server".into(), json!("tool-a")),
             ("diagnostic".into(), json!("upstream diagnostic")),
         ]);
         assert!(validate_fields("lsp.stderr.received", &fields).is_ok());
@@ -263,7 +263,7 @@ mod tests {
         assert!(validate_fields("remote.upload.abort_failed", &fields).is_ok());
         let fields = BTreeMap::from([
             ("plugin".into(), json!("io.example")),
-            ("language".into(), json!("java")),
+            ("language".into(), json!("toml")),
             ("error".into(), json!("failed")),
         ]);
         assert_eq!(

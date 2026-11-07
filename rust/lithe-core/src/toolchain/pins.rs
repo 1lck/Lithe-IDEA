@@ -64,8 +64,10 @@ pub(crate) fn validate(document: &Value) -> Validation<()> {
     for (id, value) in legacy {
         text(&Value::String(id.clone()), "document.toolchains", 192)?;
         let field = format!("document.toolchains.{id}");
+        // The legacy key set mirrors toolchain-local-v1.schema.json so documents written
+        // by earlier releases keep validating. Legacy paths retain their original
+        // meaning; validation must not migrate or interpret them.
         let entry = object(value, &field, &["home", "executable", "javaHome"])?;
-        // Legacy paths retain their original meaning; validation must not migrate them.
         for (property, value) in entry {
             text(value, &format!("{field}.{property}"), MAX_PATH_BYTES)?;
         }

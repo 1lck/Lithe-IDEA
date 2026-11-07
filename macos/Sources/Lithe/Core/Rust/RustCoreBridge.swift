@@ -419,113 +419,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let description: String
     }
 
-    struct JavaRunMarkersPayload: Decodable, Sendable {
-        let markers: [JavaRunMarker]
-    }
-
-    struct SpringIndexPayload: Decodable, Sendable {
-        struct Property: Decodable, Sendable {
-            let name: String
-            let typeName: String?
-            let description: String?
-            let defaultValue: String?
-            let sourcePath: String?
-            let sourceLine: Int?
-            let sourceColumn: Int?
-        }
-        struct ConfigurationValue: Decodable, Sendable {
-            let key: String
-            let value: String
-            let path: String
-            let line: Int
-            let column: Int
-            let profile: String?
-            let overridesBaseValue: Bool
-            let targetPath: String?
-            let targetLine: Int?
-            let targetColumn: Int?
-        }
-        struct PropertyReference: Decodable, Sendable {
-            let key: String
-            let path: String
-            let line: Int
-            let column: Int
-        }
-        struct Diagnostic: Decodable, Sendable {
-            let path: String
-            let line: Int
-            let column: Int
-            let severity: String
-            let message: String
-        }
-        struct Bean: Decodable, Sendable {
-            let id: String
-            let name: String
-            let typeName: String
-            let path: String
-            let line: Int
-            let column: Int
-            let kind: String
-        }
-        struct Injection: Decodable, Sendable {
-            let path: String
-            let line: Int
-            let column: Int
-            let typeName: String
-            let qualifier: String?
-            let beanIds: [String]
-        }
-        struct Endpoint: Decodable, Sendable {
-            let id: String
-            let httpMethods: [String]
-            let route: String
-            let controller: String
-            let method: String
-            let path: String
-            let line: Int
-            let column: Int
-        }
-
-        let properties: [Property]
-        let values: [ConfigurationValue]
-        let propertyReferences: [PropertyReference]
-        let diagnostics: [Diagnostic]
-        let beans: [Bean]
-        let injections: [Injection]
-        let endpoints: [Endpoint]
-    }
-
-    struct MybatisIndexPayload: Decodable, Sendable {
-        struct Statement: Decodable, Sendable {
-            let id: String
-            let namespace: String
-            let statementId: String
-            let kind: String
-            let javaPath: String
-            let javaLine: Int
-            let javaColumn: Int
-            let javaEndLine: Int
-            let javaEndColumn: Int
-            let xmlPath: String
-            let xmlLine: Int
-            let xmlColumn: Int
-            let xmlEndColumn: Int
-        }
-
-        let statements: [Statement]
-    }
-
     struct RunConfigurationPayload: Codable, Sendable {
+        /// Document-level machine toolchain of the local layer: explicit
+        /// executables per generic toolchain ID and inert generic preferences.
         struct Toolchain: Codable, Sendable {
-            struct Java: Codable, Sendable { let homePath: String? }
-            struct Maven: Codable, Sendable {
-                let executablePath: String?
-                let javaHomePath: String?
-            }
-
-            let java: Java?
-            let maven: Maven?
-            var pathOverrides: [String: ProjectToolchainSelection.PathOverride]? = nil
+            var runtimeExecutablePaths: [String: String]? = nil
+            var preferences: ToolingJSONValue? = nil
         }
         struct Generator: Codable, Sendable {
             let fingerprint: String
@@ -535,35 +434,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let inputs: [String: String]?
         }
         struct Configuration: Codable, Sendable {
-            struct Maven: Codable, Sendable {
-                var reactorPath: String? = nil
-                let module: String?
-                let mainClass: String?
-                let jvmArguments: [String]?
-                let programArguments: [String]?
-                let profiles: [String]?
-                let skipTests: Bool?
-            }
-            struct Java: Codable, Sendable {
-                let homePath: String?
-                let mavenExecutablePath: String?
-                let mavenJavaHomePath: String?
-                let source: String?
-                let sourceSet: String?
-                var module: String? = nil
-                var mainClass: String? = nil
-                var build: RunBuildProjectReference? = nil
-            }
             struct Debug: Codable, Sendable {
                 let adapter: String
             }
             struct Extensions: Codable, Sendable {
-                let maven: Maven?
-                let java: Java?
                 var build: BuildProviderRunReference? = nil
                 var buildRun: BuildProviderRunOptions? = nil
                 private enum CodingKeys: String, CodingKey {
-                    case maven, java, build
+                    case build
                     case buildRun = "build-run"
                 }
             }
@@ -582,8 +460,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let extensions: Extensions?
             let disabled: Bool
             let source: String?
-
-            var maven: Maven? { extensions?.maven }
         }
 
         let version: Int
@@ -607,7 +483,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let preferredVendor: String?
             let wrapper: String?
             let version: String?
-            let java: String?
         }
         let version: Int
         let toolchains: [String: Requirement]
@@ -629,20 +504,11 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let command: String?
             let tool: String?
         }
-        struct PreLaunchStep: Codable, Sendable {
-            let executable: Executable
-            let arguments: [String]
-            let classpath: [String]?
-            let workingDirectory: String?
-        }
         let executable: Executable
         let arguments: [String]
         let workingDirectory: String
         let environment: [String: [String: String]]
         let env: [String: String]?
-        let preLaunchSteps: [PreLaunchStep]?
-        let classpath: [String]?
-        let modulepath: [String]?
     }
 
     struct RunConfigurationMutationPayload: Codable, Sendable {
@@ -653,30 +519,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     struct RunConfigurationEditorMutationPayload: Codable, Sendable {
         let localDocument: String
         let projectDocument: String?
-    }
-
-    struct JavaCodeVisionPayload: Decodable, Sendable {
-        struct Hint: Decodable, Sendable {
-            let line: Int
-            let utf16Column: Int
-            let symbol: String
-            let usageCount: Int
-        }
-
-        let hints: [Hint]
-    }
-
-    struct JavaClassNamePayload: Decodable, Sendable {
-        let className: String
-    }
-
-    struct JavaSourceDefinitionPayload: Decodable, Sendable {
-        let line: Int
-        let utf16Column: Int
-    }
-
-    struct JavaServerPortPayload: Decodable, Sendable {
-        let port: Int?
     }
 
     struct TextPayload: Decodable, Sendable {
@@ -883,48 +725,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
         func makeModel() -> LanguageServerCodeAction {
             action.makeModel()
-        }
-    }
-
-    struct JavaStructurePayload: Decodable, Sendable {
-        struct FoldRegion: Decodable, Sendable {
-            let kind: String
-            let startLine: Int
-            let endLine: Int
-            let hiddenStart: Int
-            let hiddenLength: Int
-
-            func makeModel() -> JavaFoldRegion? {
-                guard let kind = JavaFoldKind(rawValue: kind) else { return nil }
-                return JavaFoldRegion(
-                    kind: kind,
-                    startLine: startLine,
-                    endLine: endLine,
-                    hiddenRange: NSRange(location: hiddenStart, length: hiddenLength)
-                )
-            }
-        }
-
-        struct SyntaxHighlight: Decodable, Sendable {
-            let utf16Start: Int
-            let utf16Length: Int
-            let role: String
-
-            func makeModel() -> JavaSyntaxHighlight? {
-                guard utf16Start >= 0, utf16Length > 0 else { return nil }
-                return JavaSyntaxHighlight(
-                    range: NSRange(location: utf16Start, length: utf16Length),
-                    role: role
-                )
-            }
-        }
-
-        let foldRegions: [FoldRegion]
-        let syntaxHighlights: [SyntaxHighlight]
-
-        func makeFoldRegions() -> [JavaFoldRegion] { foldRegions.compactMap { $0.makeModel() } }
-        func makeSyntaxHighlights() -> [JavaSyntaxHighlight] {
-            syntaxHighlights.compactMap { $0.makeModel() }
         }
     }
 
@@ -1782,61 +1582,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let processId: Int32?
     }
 
-    private struct JdtWorkspaceKeyRequest: Encodable {
-        let workspaceRoot: String
-        let workspaceFingerprint: String?
-    }
-
-    private struct JdtWorkspaceKeyPayload: Decodable {
-        let workspaceKey: String
-    }
-
-    struct JdtBuildFileObservation: Encodable, Equatable, Sendable {
-        let path: String
-    }
-
-    private struct JdtWorkspaceFingerprintRequest: Encodable {
-        let buildFiles: [JdtBuildFileObservation]
-        let directMavenModules: [String]
-        let jdtlsVersion: String
-    }
-
-    private struct JdtWorkspaceFingerprintPayload: Decodable {
-        let workspaceFingerprint: String
-    }
-
-    struct JdtCacheEntry: Encodable, Sendable {
-        let workspaceKey: String
-        let lastModifiedUnixSeconds: UInt64
-    }
-
-    private struct JdtCacheRetentionRequest: Encodable {
-        let nowUnixSeconds: UInt64
-        let activeWorkspaceKey: String?
-        let entries: [JdtCacheEntry]
-    }
-
-    struct JdtCacheRetentionPayload: Decodable, Sendable {
-        let retentionDays: UInt64
-        let expiredWorkspaceKeys: [String]
-    }
-
-    private struct JavaWorkspacePolicyRequest: Encodable {
-        let workspacePaths: [String]
-        let changedPaths: [String]
-    }
-
-    struct JavaWorkspacePolicyPayload: Decodable, Sendable {
-        struct Change: Decodable, Sendable {
-            let path: String
-            let kind: String
-        }
-
-        let shouldStart: Bool
-        let representativeJavaPath: String?
-        let changes: [Change]
-    }
-
     /// File paths are converted by Core inside the existing LSP request. An
     /// upstream virtual URI keeps its original identity and is never rewritten.
     private enum LspDocumentURI: Encodable {
@@ -1892,13 +1637,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         /// (plan API-25), exactly as `plugins.declarative.languageServerLaunchPlan`
         /// returned it. Omitted when the plugin declares none.
         let sessionPolicy: ToolingJSONValue?
-        let runtimeExecutablePath: String?
-        let jdtlsLaunchResources: LspJdtlsLaunchResourcesRequest?
-        let cacheDirectory: String?
-        let workspaceFingerprint: String?
-        let mavenContext: MavenLaunchContext?
-        let javaGradle: JavaGradleImportConfiguration?
-        let javaRuntimes: [LspJavaRuntimeRequest]
         let initializeTimeoutMilliseconds: Int
         let requestTimeoutMilliseconds: Int
         let shutdownTimeoutMilliseconds: Int
@@ -1910,28 +1648,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let editor: PluginEditorHostOptions
     }
 
-    private struct LspJavaRuntimeRequest: Encodable {
-        let isDefault: Bool
-        let homePath: String
-        let version: String
-    }
-
-    private struct LspJdtlsLaunchResourcesRequest: Encodable {
-        let launcherJarPath: String
-        let configurationDirectory: String
-        let lombokAgentPath: String
-        let javaDebugBundlePath: String?
-        let javaExtensionBundlePaths: [String]
-    }
-
     private struct LspSessionIdentifierRequest: Encodable {
         let sessionId: String
-    }
-
-    private struct LspUpdateMavenConfigurationRequest: Encodable {
-        let sessionId: String
-        let mavenContext: MavenLaunchContext
-        let reloadProjects: Bool
     }
 
     private struct LspSyncDocumentRequest: Encodable {
@@ -1967,22 +1685,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     struct LspSyncDocumentPayload: Decodable, Sendable {
         let documentVersion: Int
         let changed: Bool
-    }
-
-    private struct JavaNavigationMarkersRequest: Encodable {
-        let sessionId: String
-        let uri: LspDocumentURI
-        let documentVersion: Int
-    }
-
-    private struct JavaResolveNavigationRequest: Encodable {
-        let sessionId: String
-        let uri: LspDocumentURI
-        let line: Int
-        let utf16Column: Int
-        let direction: String
-        let relation: String
-        let documentVersion: Int
     }
 
     private struct LspCloseDocumentRequest: Encodable {
@@ -2158,14 +1860,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let level: String?
         let message: String?
         let detail: String?
-        let mavenProfileTask: String?
-        let mavenProfileProject: MavenProfileProjectPayload?
-    }
-
-    struct MavenProfileProjectPayload: Decodable, Sendable {
-        let projectUri: URL
-        let status: String
-        let errorDetails: String?
     }
 
     struct LspRuntimeErrorPayload: Decodable, Sendable {
@@ -2178,7 +1872,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let message: String
         let underlyingMessage: String?
         let processExitCode: Int?
-        let javaBuildReport: JavaBuildReport?
         let pluginErrorCode: String?
         /// Facts of a failed plugin-server request, such as the server's own
         /// error code and message.
@@ -2190,34 +1883,18 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let version: String?
     }
 
-    private struct JavaRunMarkersRequest: Encodable {
-        let mainMethods: [JavaMainMethod]
-        let testItems: [JavaTestItem]
-        let testCases: [BuildTestResults.TestCase]
-    }
-
     private struct RunConfigurationInspectRequest: Encodable {
         let root: String
         /// Omitted means full inspection, including the input fingerprint.
         let checkFingerprint: Bool?
-        /// JDT's current answer; omitted while the Java service is not ready.
-        let javaEntrypoints: JavaEntrypoints?
-        let projectOwnership: [RunProjectOwnership]?
         let providerRuns: [RunProviderConfiguration]?
     }
     private struct RunConfigurationGenerateRequest: Encodable {
         let root: String
-        let paths: [String]
-        let modulePaths: [String]
-        /// Omitted while JDT has not answered; Core then keeps the previous
-        /// generation's Java entries.
-        let javaEntrypoints: JavaEntrypoints?
-        let projectOwnership: [RunProjectOwnership]?
         let providerRuns: [RunProviderConfiguration]?
         /// Application cache root where Core keeps the last detection for the
         /// next session; the workspace is never written.
         let cacheDirectory: String?
-
     }
     private struct RunConfigurationResolveRequest: Encodable {
         let root: String
@@ -2225,20 +1902,21 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let teamDocument: ToolingJSONValue?
         let localDocument: ToolingJSONValue?
     }
+    /// Document-level machine toolchain written by `runConfig.updateOptions`
+    /// and `runConfig.saveEditorChanges`; both maps are generic and empty
+    /// values leave the saved document untouched.
+    struct RunConfigurationToolchainRequest: Encodable {
+        var runtimeExecutablePaths: [String: String] = [:]
+        var preferences: ToolingJSONValue? = nil
+    }
     private struct RunConfigurationUpdateOptionsRequest: Encodable {
         let root: String
         let scope: String
         let configurationId: String
         let workingDirectory: String
-        let jvmArguments: String
         let arguments: String
         let environment: [String: String]
-        let mavenProfiles: [String]
-        let mavenSkipTests: Bool?
-        let javaHomePath: String
-        let mavenExecutablePath: String
-        let mavenJavaHomePath: String
-        let toolchain: ProjectToolchainSelection?
+        let toolchain: RunConfigurationToolchainRequest?
         let providerRunOptions: BuildProviderRunOptions?
     }
     private struct RunConfigurationCreateUserRequest: Encodable {
@@ -2246,65 +1924,11 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let scope: String
         let name: String
         let type: String
-        let module: String
-        let mainClass: String
         var build: BuildProviderRunReference? = nil
     }
     private struct LaunchPlanRequest: Encodable {
-        struct JavaLaunch: Encodable {
-            let mainClass: String
-            let classPaths: [String]
-            let modulePaths: [String]
-            let buildPrepared: Bool
-        }
         let root: String
         let configurationId: String
-        let currentFile: String?
-        let classPath: String?
-        let javaLaunch: JavaLaunch?
-        let debugPort: Int?
-        let mavenContext: MavenLaunchContext?
-    }
-
-    private struct JavaStructureRequest: Encodable {
-        let source: String
-        let declarationSources: [String]
-    }
-
-    private struct SpringIndexRequest: Encodable {
-        let root: String
-        let paths: [String]
-        let metadataRepositories: [String]
-        let refreshDependencyMetadata: Bool
-        let textOverrides: [String: String]
-    }
-
-    private struct MybatisIndexRequest: Encodable {
-        let root: String
-        let paths: [String]
-        let textOverrides: [String: String]
-    }
-
-    private struct JavaCodeVisionRequest: Encodable {
-        let root: String
-        let targetPath: String
-        let paths: [String]
-    }
-
-    private struct JavaClassNameRequest: Encodable {
-        let source: String
-        let simpleName: String
-    }
-
-    private struct JavaSourceDefinitionRequest: Encodable {
-        let source: String
-        let declarationName: String
-        let memberName: String?
-    }
-
-    private struct JavaServerPortRequest: Encodable {
-        let content: String
-        let fileExtension: String
     }
 
     private struct GitStatusRequest: Encodable {
@@ -2860,54 +2484,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         return response?.relocated == true
     }
 
-    /// Combines JDT main/test discovery and recorded outcomes into gutter markers.
-    func javaRunMarkers(
-        mainMethods: [JavaMainMethod],
-        testItems: [JavaTestItem],
-        testCases: [BuildTestResults.TestCase]
-    ) -> Result<JavaRunMarkersPayload, CoreCallError> {
-        executeResult(
-            command: "java.runMarkers",
-            payload: JavaRunMarkersRequest(
-                mainMethods: mainMethods,
-                testItems: testItems,
-                testCases: testCases
-            )
-        )
-    }
-
-    func selectJavaRuntime(
-        at root: URL?, candidates: [AutomaticJavaCandidate], fallbackID: String?
-    ) -> Result<AutomaticJavaSelection, CoreCallError> {
-        struct Payload: Encodable {
-            let root: String?
-            let candidates: [AutomaticJavaCandidate]
-            let fallbackId: String?
-        }
-        return executeResult(command: "runConfig.selectJava", payload: Payload(
-            root: root?.standardizedFileURL.path, candidates: candidates, fallbackId: fallbackID
-        ))
-    }
-
-    /// Snapshot selection performs no filesystem access, including for a remote project.
-    func selectJavaRuntime(
-        requirements: ToolingJSONValue, candidates: [AutomaticJavaCandidate], fallbackID: String?
-    ) -> Result<AutomaticJavaSelection, CoreCallError> {
-        struct Payload: Encodable {
-            let requirements: ToolingJSONValue
-            let candidates: [AutomaticJavaCandidate]
-            let fallbackId: String?
-        }
-        return executeResult(command: "runConfig.selectJava", payload: Payload(
-            requirements: requirements, candidates: candidates, fallbackId: fallbackID
-        ))
-    }
-
     func inspectRunConfiguration(
         at rootURL: URL,
         checkFingerprint: Bool? = nil,
-        javaEntrypoints: JavaEntrypoints? = nil,
-        projectOwnership: [RunProjectOwnership]? = nil,
         providerRuns: [RunProviderConfiguration]? = nil
     ) -> Result<RunConfigurationInspectPayload, CoreCallError> {
         executeResult(
@@ -2915,32 +2494,22 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             payload: RunConfigurationInspectRequest(
                 root: rootURL.standardizedFileURL.path,
                 checkFingerprint: checkFingerprint,
-                javaEntrypoints: javaEntrypoints,
-                projectOwnership: projectOwnership, providerRuns: providerRuns
+                providerRuns: providerRuns
             )
         )
     }
 
     func generateRunConfiguration(
         at rootURL: URL,
-        paths: [String],
-        modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints? = nil,
-        projectOwnership: [RunProjectOwnership]? = nil,
         providerRuns: [RunProviderConfiguration]? = nil,
         cacheDirectoryURL: URL? = nil
-
     ) -> Result<RunConfigurationGeneratePayload, CoreCallError> {
         executeResult(
             command: "runConfig.generate",
             payload: RunConfigurationGenerateRequest(
                 root: rootURL.standardizedFileURL.path,
-                paths: paths,
-                modulePaths: modulePaths,
-                javaEntrypoints: javaEntrypoints,
-                projectOwnership: projectOwnership, providerRuns: providerRuns,
+                providerRuns: providerRuns,
                 cacheDirectory: cacheDirectoryURL?.path
-
             )
         )
     }
@@ -2969,30 +2538,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     func createLaunchPlan(
         at rootURL: URL,
-        configurationID: String,
-        currentFile: String? = nil,
-        classPath: String? = nil,
-        javaLaunch: JavaDebugLaunchTarget? = nil,
-        debugPort: Int? = nil,
-        mavenContext: MavenLaunchContext? = nil
+        configurationID: String
     ) -> Result<LaunchPlanPayload, CoreCallError> {
         executeResult(
             command: "runConfig.createLaunchPlan",
             payload: LaunchPlanRequest(
                 root: rootURL.standardizedFileURL.path,
-                configurationId: configurationID,
-                currentFile: currentFile,
-                classPath: classPath,
-                javaLaunch: javaLaunch.map {
-                    LaunchPlanRequest.JavaLaunch(
-                        mainClass: $0.mainClass,
-                        classPaths: $0.classPaths,
-                        modulePaths: $0.modulePaths,
-                        buildPrepared: $0.buildPrepared
-                    )
-                },
-                debugPort: debugPort,
-                mavenContext: mavenContext
+                configurationId: configurationID
             )
         )
     }
@@ -3002,7 +2554,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         configurationID: String,
         scope: RunConfigurationSaveScope,
         options: RunOptions,
-        toolchain: ProjectToolchainSelection? = nil
+        toolchain: RunConfigurationToolchainRequest? = nil
     ) -> Result<RunConfigurationMutationPayload, CoreCallError> {
         executeResult(
             command: "runConfig.updateOptions",
@@ -3011,14 +2563,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 scope: scope.rawValue,
                 configurationId: configurationID,
                 workingDirectory: options.workingDirectoryPath,
-                jvmArguments: options.vmArguments,
                 arguments: options.arguments,
                 environment: options.environment,
-                mavenProfiles: options.activeProfiles.sorted(),
-                mavenSkipTests: options.mavenSkipTests,
-                javaHomePath: options.javaHomePath,
-                mavenExecutablePath: options.mavenExecutablePath,
-                mavenJavaHomePath: options.mavenJavaHomePath,
                 toolchain: toolchain,
                 providerRunOptions: options.providerRunOptions
             )
@@ -3030,7 +2576,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         configurationID: String,
         scope: RunConfigurationSaveScope,
         options: RunOptions,
-        toolchain: ProjectToolchainSelection
+        toolchain: RunConfigurationToolchainRequest = .init()
     ) -> Result<RunConfigurationEditorMutationPayload, CoreCallError> {
         executeResult(
             command: "runConfig.saveEditorChanges",
@@ -3039,14 +2585,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 scope: scope.rawValue,
                 configurationId: configurationID,
                 workingDirectory: options.workingDirectoryPath,
-                jvmArguments: options.vmArguments,
                 arguments: options.arguments,
                 environment: options.environment,
-                mavenProfiles: options.activeProfiles.sorted(),
-                mavenSkipTests: options.mavenSkipTests,
-                javaHomePath: options.javaHomePath,
-                mavenExecutablePath: options.mavenExecutablePath,
-                mavenJavaHomePath: options.mavenJavaHomePath,
                 toolchain: toolchain,
                 providerRunOptions: options.providerRunOptions
             )
@@ -3057,111 +2597,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                                              name: String) -> Result<RunConfigurationMutationPayload, CoreCallError> {
         executeResult(command: "runConfig.createUserConfiguration", payload: RunConfigurationCreateUserRequest(
             root: rootURL.standardizedFileURL.path, scope: "local", name: name, type: "buildProvider",
-            module: "", mainClass: "", build: reference))
-    }
-
-    func createUserRunConfiguration(
-        at rootURL: URL,
-        draft: RunConfigurationDraft
-    ) -> Result<RunConfigurationMutationPayload, CoreCallError> {
-        executeResult(
-            command: "runConfig.createUserConfiguration",
-            payload: RunConfigurationCreateUserRequest(
-                root: rootURL.standardizedFileURL.path,
-                scope: draft.scope.rawValue,
-                name: draft.name,
-                type: draft.kind.id,
-                module: draft.modulePath,
-                mainClass: draft.mainClass
-            )
-        )
-    }
-
-    func javaCodeVision(
-        at rootURL: URL,
-        targetPath: String,
-        paths: [String]
-    ) -> JavaCodeVisionPayload? {
-        execute(
-            command: "java.codeVision",
-            payload: JavaCodeVisionRequest(
-                root: rootURL.standardizedFileURL.path,
-                targetPath: targetPath,
-                paths: paths
-            )
-        )
-    }
-
-    func javaClassName(source: String, simpleName: String) -> JavaClassNamePayload? {
-        execute(
-            command: "java.className",
-            payload: JavaClassNameRequest(source: source, simpleName: simpleName)
-        )
-    }
-
-    func javaSourceDefinition(
-        source: String,
-        declarationName: String,
-        memberName: String?
-    ) -> JavaSourceDefinitionPayload? {
-        execute(
-            command: "java.sourceDefinition",
-            payload: JavaSourceDefinitionRequest(
-                source: source,
-                declarationName: declarationName,
-                memberName: memberName
-            )
-        )
-    }
-
-    func javaServerPort(content: String, fileExtension: String) -> JavaServerPortPayload? {
-        execute(
-            command: "java.serverPort",
-            payload: JavaServerPortRequest(content: content, fileExtension: fileExtension)
-        )
-    }
-
-    func javaStructure(source: String, declarationSources: [String] = []) -> JavaStructurePayload? {
-        execute(
-            command: "java.structure",
-            payload: JavaStructureRequest(source: source, declarationSources: declarationSources)
-        )
-    }
-
-    func springIndex(
-        at rootURL: URL,
-        paths: [String],
-        metadataRepositoryURLs: [URL] = [],
-        refreshDependencyMetadata: Bool = false,
-        textOverrides: [String: String] = [:]
-    ) -> SpringIndexPayload? {
-        execute(
-            command: "spring.index",
-            payload: SpringIndexRequest(
-                root: rootURL.standardizedFileURL.path,
-                paths: paths,
-                metadataRepositories: metadataRepositoryURLs.map {
-                    $0.standardizedFileURL.path
-                },
-                refreshDependencyMetadata: refreshDependencyMetadata,
-                textOverrides: textOverrides
-            )
-        )
-    }
-
-    func mybatisIndex(
-        at rootURL: URL,
-        paths: [String],
-        textOverrides: [String: String] = [:]
-    ) -> MybatisIndexPayload? {
-        execute(
-            command: "mybatis.index",
-            payload: MybatisIndexRequest(
-                root: rootURL.standardizedFileURL.path,
-                paths: paths,
-                textOverrides: textOverrides
-            )
-        )
+            build: reference))
     }
 
     func gitStatus(
@@ -3800,69 +3236,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     // MARK: - Language-server runtime
 
-    /// Resolves the exact JDT LS directory key used by the Rust runtime.
-    func jdtWorkspaceKey(
-        workspaceRootURL: URL,
-        workspaceFingerprint: String?
-    ) -> Result<String, CoreCallError> {
-        let result: Result<JdtWorkspaceKeyPayload, CoreCallError> = executeResult(
-            command: "lsp.jdtWorkspaceKey",
-            payload: JdtWorkspaceKeyRequest(
-                workspaceRoot: workspaceRootURL.standardizedFileURL.path,
-                workspaceFingerprint: workspaceFingerprint
-            )
-        )
-        return result.map(\.workspaceKey)
-    }
-
-    /// Reduces platform filesystem observations to the shared JDT LS
-    /// workspace-fingerprint representation owned by Rust Core.
-    func jdtWorkspaceFingerprint(
-        buildFiles: [JdtBuildFileObservation],
-        directMavenModules: [String],
-        jdtlsVersion: String
-    ) -> Result<String, CoreCallError> {
-        let result: Result<JdtWorkspaceFingerprintPayload, CoreCallError> = executeResult(
-            command: "java.jdtWorkspaceFingerprint",
-            payload: JdtWorkspaceFingerprintRequest(
-                buildFiles: buildFiles,
-                directMavenModules: directMavenModules,
-                jdtlsVersion: jdtlsVersion
-            )
-        )
-        return result.map(\.workspaceFingerprint)
-    }
-
-    /// Applies the shared retention policy to filesystem metadata collected by
-    /// a platform adapter. Rust Core selects keys but never deletes directories.
-    func jdtCacheRetention(
-        nowUnixSeconds: UInt64,
-        activeWorkspaceKey: String?,
-        entries: [JdtCacheEntry]
-    ) -> Result<JdtCacheRetentionPayload, CoreCallError> {
-        executeResult(
-            command: "java.jdtCacheRetention",
-            payload: JdtCacheRetentionRequest(
-                nowUnixSeconds: nowUnixSeconds,
-                activeWorkspaceKey: activeWorkspaceKey,
-                entries: entries
-            )
-        )
-    }
-
-    func javaWorkspacePolicy(
-        workspacePaths: [String],
-        changedPaths: [String]
-    ) -> JavaWorkspacePolicyPayload? {
-        execute(
-            command: "java.workspacePolicy",
-            payload: JavaWorkspacePolicyRequest(
-                workspacePaths: workspacePaths,
-                changedPaths: changedPaths
-            )
-        )
-    }
-
     /// Starts a language server and returns its opaque session ID. Rust spawns
     /// and owns the process; nothing about it crosses back except this ID.
     func lspStartServer(
@@ -3880,12 +3253,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         toolchainProviders: [String] = [],
         keymapImportProviders: [String] = [],
         sessionPolicy: ToolingJSONValue? = nil,
-        runtimeExecutableURL: URL? = nil,
-        jdtlsLaunchResources: JDTLSLaunchResources? = nil,
-        cacheDirectoryURL: URL? = nil,
-        workspaceFingerprint: String? = nil,
-        mavenContext: MavenLaunchContext? = nil,
-        javaGradle: JavaGradleImportConfiguration? = nil,
         initializeTimeout: TimeInterval = 30,
         requestTimeout: TimeInterval = 30,
         shutdownTimeout: TimeInterval = 2
@@ -3909,23 +3276,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 toolchainProviders: toolchainProviders.isEmpty ? nil : toolchainProviders,
                 keymapImportProviders: keymapImportProviders.isEmpty ? nil : keymapImportProviders,
                 sessionPolicy: sessionPolicy,
-                runtimeExecutablePath: runtimeExecutableURL?.standardizedFileURL.path,
-                jdtlsLaunchResources: jdtlsLaunchResources.map {
-                    LspJdtlsLaunchResourcesRequest(
-                        launcherJarPath: $0.launcherJarURL.path,
-                        configurationDirectory: $0.configurationDirectoryURL.path,
-                        lombokAgentPath: $0.lombokAgentURL.path,
-                        javaDebugBundlePath: $0.javaDebugBundleURL?.path,
-                        javaExtensionBundlePaths: $0.javaExtensionBundleURLs.map(\.path)
-                    )
-                },
-                cacheDirectory: cacheDirectoryURL?.standardizedFileURL.path,
-                workspaceFingerprint: workspaceFingerprint,
-                mavenContext: mavenContext,
-                javaGradle: javaGradle,
-                javaRuntimes: (jdtlsLaunchResources?.javaRuntimes ?? []).map {
-                    LspJavaRuntimeRequest(isDefault: $0.isDefault, homePath: $0.homePath, version: $0.version)
-                },
                 initializeTimeoutMilliseconds: Self.milliseconds(initializeTimeout),
                 requestTimeoutMilliseconds: Self.milliseconds(requestTimeout),
                 shutdownTimeoutMilliseconds: Self.milliseconds(shutdownTimeout)
@@ -3960,31 +3310,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     private struct LspUpdateWorkspaceConfigurationRequest: Encodable {
         let sessionId: String
         let configuration: ToolingJSONValue
-    }
-
-    /// Retries Maven Profile application while retaining the running JDTLS process.
-    func lspRetryMavenProfiles(sessionID: String) -> Result<Void, CoreCallError> {
-        executeVoid(
-            command: "lsp.retryMavenProfiles",
-            payload: LspSessionIdentifierRequest(sessionId: sessionID)
-        )
-    }
-
-    /// Sends a changed Maven context to a running JDTLS session. JDT LS
-    /// re-resolves in place instead of restarting on its unchanged workspace state.
-    func lspUpdateMavenConfiguration(
-        sessionID: String,
-        context: MavenLaunchContext,
-        reloadProjects: Bool
-    ) -> Result<LanguageServerMavenConfigurationUpdate, CoreCallError> {
-        executeResult(
-            command: "lsp.updateMavenConfiguration",
-            payload: LspUpdateMavenConfigurationRequest(
-                sessionId: sessionID,
-                mavenContext: context,
-                reloadProjects: reloadProjects
-            )
-        )
     }
 
     func lspSaveDocument(sessionID: String, fileURL: URL, text: String) -> Result<Bool, CoreCallError> {
@@ -4122,57 +3447,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 completionItem: completionItem.map(Self.makeCompletionItemRequest),
                 codeAction: codeAction.map(Self.makeCodeActionRequest),
                 command: command.map(Self.makeCommandRequest)
-            )
-        )
-    }
-
-    func lspPrepareJavaLaunch(
-        sessionID: String,
-        fileURL: URL,
-        mainClass: String?
-    ) -> Result<LspOperationPayload, CoreCallError> {
-        struct Request: Encodable {
-            let sessionId: String
-            let sourcePath: String
-            let mainClass: String?
-        }
-        return executeResult(command: "java.prepareLaunch", payload: Request(
-            sessionId: sessionID, sourcePath: fileURL.standardizedFileURL.resolvingSymlinksInPath().path,
-            mainClass: mainClass
-        ))
-    }
-
-    func lspJavaNavigationMarkers(
-        sessionID: String,
-        fileURL: URL,
-        documentVersion: Int
-    ) -> Result<LspOperationPayload, CoreCallError> {
-        executeResult(
-            command: "java.navigationMarkers",
-            payload: JavaNavigationMarkersRequest(
-                sessionId: sessionID,
-                uri: LspDocumentURI(fileURL),
-                documentVersion: documentVersion
-            )
-        )
-    }
-
-    func lspResolveJavaNavigation(
-        sessionID: String,
-        fileURL: URL,
-        marker: JavaNavigationMarker,
-        documentVersion: Int
-    ) -> Result<LspOperationPayload, CoreCallError> {
-        executeResult(
-            command: "java.resolveNavigation",
-            payload: JavaResolveNavigationRequest(
-                sessionId: sessionID,
-                uri: LspDocumentURI(fileURL),
-                line: marker.line,
-                utf16Column: marker.utf16Column,
-                direction: marker.direction.rawValue,
-                relation: marker.relation.rawValue,
-                documentVersion: documentVersion
             )
         )
     }
@@ -4793,8 +4067,9 @@ private extension RustCoreBridge.WorkspaceNodePayload {
 
     /// 把只含单个子目录的中间包压缩成一行（IDEA 的 Compact Middle Packages）。
     /// 规则对齐 TreeViewUtil.isEmptyMiddlePackage：唯一的子节点是目录、且当前
-    /// 目录下没有文件时才压缩。只在源码根之下压缩，src/main/java 之外的目录树
-    /// 保持原样，否则普通项目里任意的单层目录也会被合并，反而更难看懂。
+    /// 目录下没有文件时才压缩。只在源码根之下压缩，源码根之外的目录树保持
+    /// 原样，否则普通项目里任意的单层目录也会被合并，反而更难看懂。源码根
+    /// 由调用方（用户标记或插件导入的构建模型）给出，这里不按目录名猜测。
     private func makeFileNode(at rootURL: URL, insideSourceRoot: Bool, fileURLs: inout [String: URL]) -> FileNode {
         let url = path.isEmpty ? rootURL : rootURL.appendingPathComponent(path)
 
@@ -4803,8 +4078,7 @@ private extension RustCoreBridge.WorkspaceNodePayload {
             return FileNode(url: url, isDirectory: false, children: nil)
         }
 
-        let selfIsSourceRoot = LitheIcons.isSourceRootDirectory(url)
-        let childrenInsideSourceRoot = insideSourceRoot || selfIsSourceRoot
+        let childrenInsideSourceRoot = insideSourceRoot
 
         // 源码根本身不参与压缩，从它的子目录开始。
         var collapsed: [String] = []
@@ -4815,7 +4089,7 @@ private extension RustCoreBridge.WorkspaceNodePayload {
                   kids.count == 1,
                   let only = kids.first,
                   only.isDirectory,
-                  LitheIcons.isValidPackageName(only.name) {
+                  LitheIcons.isPackageSegmentName(only.name) {
                 collapsed.append(nodeURL.path)
                 node = only
                 nodeURL = rootURL.appendingPathComponent(only.path)
@@ -4833,5 +4107,3 @@ private extension RustCoreBridge.WorkspaceNodePayload {
         )
     }
 }
-
-extension RustCoreBridge: JavaRuntimeSelecting {}

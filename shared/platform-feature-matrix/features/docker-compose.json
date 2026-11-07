@@ -6,7 +6,7 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Run/RunConfigurationIcon.swift",
-      "macos/Sources/Lithe/Services/Java"
+      "macos/Sources/Lithe/Services/Runtime"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"

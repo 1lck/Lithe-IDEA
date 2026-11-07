@@ -561,7 +561,7 @@ mod tests {
 
     #[test]
     fn root_relative_paths_cannot_leave_or_alias_the_root() {
-        for valid in ["a.txt", "src/Main.java", ".svnignore", "a b/c"] {
+        for valid in ["a.txt", "src/main.rs", ".svnignore", "a b/c"] {
             assert!(is_root_relative(valid), "{valid}");
         }
         for invalid in [

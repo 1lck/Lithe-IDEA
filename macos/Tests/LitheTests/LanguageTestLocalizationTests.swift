@@ -42,15 +42,11 @@ struct LanguageTestLocalizationTests {
     }
 
     @Test
-    func testTimeoutPreservesFrameworkAndDurationAndUnknownDiagnostics() throws {
+    func unknownDiagnosticsAreNotRewritten() throws {
         let chinese = try localization(.simplifiedChinese)
         let english = try localization(.english)
-        for framework in ["Maven", "JUnit"] {
-            let message = framework + " test run timed out after 120 seconds."
-            #expect(chinese.error(message) == framework + " 测试运行在 120 秒后超时。")
-            #expect(english.error(message) == message)
-        }
-        let diagnostic = "Maven: module/pom.xml 100% complete"
+        let diagnostic = "tool-a: module/config.toml 100% complete"
         #expect(chinese.error(diagnostic) == diagnostic)
+        #expect(english.error(diagnostic) == diagnostic)
     }
 }

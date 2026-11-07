@@ -169,8 +169,7 @@
           "settings.gradle.kts"
         ]
       },
-      "layout": { "excluded": [".gradle", "build"] },
-      "languageImport": { "kind": "gradle", "options": { "offline": "offline", "gradleUserHome": "gradleUserHome" } }
+      "layout": { "excluded": [".gradle", "build"] }
     }
   ]
 }

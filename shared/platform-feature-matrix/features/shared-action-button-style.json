@@ -9,8 +9,6 @@
       "macos/Sources/Lithe/Theme/LitheTheme.swift",
       "macos/Sources/Lithe/Views/Editor/GoToLineDialog.swift",
       "macos/Tests/LitheTests/CommitActionButtonStyleTests.swift",
-      "macos/Sources/Lithe/Views/Run/JavaLaunchDecisionDialog.swift",
-      "macos/Tests/LitheTests/RunEntryPointTests.swift",
       "macos/Sources/Lithe/Views/App/PluginDetailView.swift",
       "macos/Tests/LitheTests/PluginDetailLayoutTests.swift",
       "macos/Sources/Lithe/Views/Workbench/PluginNativeToolWindowView.swift",

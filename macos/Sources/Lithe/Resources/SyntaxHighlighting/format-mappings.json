@@ -3,7 +3,7 @@
   "formats": [
     {
       "id": "properties",
-      "displayName": "Java Properties",
+      "displayName": "Properties",
       "fileExtensions": ["properties"],
       "adapter": "properties"
     },

@@ -7,29 +7,12 @@ import LitheModuleAPI
 /// history and the shared editor jump live in `AppModel+NavigationHistory`.
 ///
 /// Navigation requests are identified by an operation ID so a superseded
-/// request cannot publish its results over a newer one, and the caret-based
-/// entry points refuse to run while the Java language server is still
-/// preparing rather than reporting a spurious "not found".
+/// request cannot publish its results over a newer one.
 @MainActor
 extension AppModel {
     func goToDefinition() {
         if let document = focusedEditorDocument, let caret = editorCaret,
            caret.url.standardizedFileURL == document.url.standardizedFileURL {
-            let productLocations = productNavigationLocations(
-                for: document.url,
-                line: caret.line,
-                utf16Column: caret.utf16Column
-            )
-            if !productLocations.isEmpty {
-                presentGenericNavigationValues(
-                    productLocations,
-                    kind: .definitions,
-                    navigateToSingleResult: true,
-                    providerID: nil
-                )
-                return
-            }
-            if languageServerIsPreparing(for: document.url) { return }
             // The command asks the same plugin providers a modifier click does.
             if let pluginDefinitions = pluginDefinitionQuery(
                 for: document, line: caret.line, utf16Column: caret.utf16Column
@@ -86,9 +69,6 @@ extension AppModel {
         guard documentFeature.editorDocuments.contains(where: { $0 === document }) else {
             completion(.success(false)); return
         }
-        if !productNavigationLocations(for: document.url, line: line, utf16Column: utf16Column).isEmpty {
-            completion(.success(true)); return
-        }
         let complete = askPlugins
             ? pluginSupplementedAvailability(
                 ticket: hover, for: document, line: line, utf16Column: utf16Column, completion: completion)
@@ -114,20 +94,6 @@ extension AppModel {
             line: max(0, line),
             utf16Column: max(0, utf16Column)
         )
-        let productLocations = productNavigationLocations(
-            for: normalizedURL,
-            line: line,
-            utf16Column: utf16Column
-        )
-        if !productLocations.isEmpty {
-            presentGenericNavigationValues(
-                productLocations,
-                kind: .definitions,
-                navigateToSingleResult: true,
-                providerID: nil
-            )
-            return
-        }
         let document = openDocuments.first { $0.url.standardizedFileURL == normalizedURL }
         // Plugin providers add to the language server's answer, so both run together.
         let pluginDefinitions = askPlugins ? document.flatMap {
@@ -166,68 +132,6 @@ extension AppModel {
         )
     }
 
-    func findJavaImplementations(line: Int, utf16Column: Int, in fileURL: URL) {
-        editorCaret = EditorCaret(
-            url: fileURL.standardizedFileURL,
-            line: line,
-            utf16Column: utf16Column
-        )
-        guard languageServerFeatureIsReady(
-            .implementation,
-            unsupportedMessage: "Implementation navigation is not supported by this language server"
-        ) else { return }
-        performGenericNavigation(
-            method: "textDocument/implementation",
-            kind: .implementations,
-            navigateToSingleResult: false
-        )
-    }
-
-    func resolveJavaNavigation(_ marker: JavaImplementationMarker, in fileURL: URL) {
-        guard !languageNavigationCoordinator.state.isLoading,
-              let sessions = languageToolingSessionsIfActive,
-              let provider = languageProviderCatalog.provider(for: fileURL) else { return }
-        guard !isJavaLanguageServerPreparing(for: fileURL) else {
-            showJavaLanguageServerPreparingNotification()
-            return
-        }
-        let kind: LanguageNavigationResultKind = marker.direction == .down
-            ? .implementations
-            : .definitions
-        let operationID = languageNavigationCoordinator.begin(
-            providerID: provider.id,
-            kind: kind
-        )
-        do {
-            try sessions.resolveJavaNavigation(
-                fileURL: fileURL,
-                marker: marker.sharedMarker
-            ) { [weak self] result in
-                guard let self,
-                      self.languageNavigationCoordinator.owns(operationID) else { return }
-                switch result {
-                case .success(let locations):
-                    self.presentGenericNavigationValues(
-                        locations,
-                        kind: kind,
-                        navigateToSingleResult: true,
-                        providerID: provider.id
-                    )
-                case .failure(let error):
-                    self.languageNavigationCoordinator.fail(
-                        operationID,
-                        message: error.localizedDescription
-                    )
-                }
-            }
-        } catch {
-            languageNavigationCoordinator.fail(
-                operationID,
-                message: error.localizedDescription
-            )
-        }
-    }
-
     func navigate(to location: LanguageNavigationLocation) {
         isImplementationChooserVisible = false
         navigate(
@@ -262,19 +166,11 @@ extension AppModel {
         _ feature: LanguageServerFeatureSet,
         unsupportedMessage: String
     ) -> Bool {
-        guard let document = focusedEditorDocument, !languageServerIsPreparing(for: document.url) else { return false }
+        guard focusedEditorDocument != nil else { return false }
         guard supportsLanguageServerFeature(feature) else {
             showNotification(unsupportedMessage, logReference: notificationRejection(operation: "navigation", reason: "unsupported"))
             return false
         }
-        return true
-    }
-
-    /// Whether the language server for the file is still preparing. Tells the
-    /// user so, rather than letting navigation report a spurious "not found".
-    private func languageServerIsPreparing(for fileURL: URL) -> Bool {
-        guard isJavaLanguageServerPreparing(for: fileURL) else { return false }
-        showJavaLanguageServerPreparingNotification()
         return true
     }
 
@@ -428,22 +324,6 @@ extension AppModel {
                 providerID: providerID
             )
         }
-    }
-
-    /// Resolves mapper XML and Spring configuration jumps before LSP so a
-    /// Mapper method does not stop on its own Java declaration.
-    private func productNavigationLocations(
-        for url: URL,
-        line: Int,
-        utf16Column: Int
-    ) -> [LanguageServerLocation] {
-        let mybatisLocations = mybatisFeature.navigationLocations(
-            for: url,
-            line: line,
-            utf16Column: utf16Column
-        )
-        if !mybatisLocations.isEmpty { return mybatisLocations }
-        return springFeature.navigationLocations(for: url, line: line)
     }
 
     func presentGenericNavigationValues(

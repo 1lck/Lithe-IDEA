@@ -24,10 +24,10 @@
       "macos/Sources/Lithe/Views/Workbench/OutputTextView.swift",
       "macos/Tests/LitheTests/ConsoleInlineInputTests.swift",
       "macos/Tests/LitheTests/LitheToolWindowHoverTests.swift",
-      "macos/Tests/LitheTests/WorkbenchMavenLayoutTests.swift",
       "macos/Tests/LitheTests/CommitActionButtonStyleTests.swift",
       ".agents/notes/implemented/architecture/2026-09-13-resizable-ui-performance-boundaries.md",
-      "macos/Tests/LitheTests/LitheSplitPaneCollapseTests.swift"
+      "macos/Tests/LitheTests/LitheSplitPaneCollapseTests.swift",
+      "macos/Tests/LitheTests/WorkbenchRightPaneLayoutTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending",

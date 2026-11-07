@@ -12,7 +12,7 @@ extension RustCoreBridge {
                 "workspace.repositories", "workspace.snapshot", "workspace.listDirectories",
                 "workspace.search", "workspace.searchEverywhere", "file.read", "file.write",
                 "workspace.searchIndex.warm", "workspace.searchIndex.update", "workspace.searchIndex.invalidate",
-                "workspace.replacePreview", "runConfig.selectJava", "lsp.startServer"
+                "workspace.replacePreview", "lsp.startServer"
               ].contains(command) else { return nil }
         let encoded = try JSONEncoder().encode(payload)
         guard let object = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] else { return nil }

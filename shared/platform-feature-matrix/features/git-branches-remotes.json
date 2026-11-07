@@ -17,7 +17,6 @@
       "macos/Tests/LitheTests/BranchSwitcherPopoverBehaviorTests.swift",
       "macos/Sources/Lithe/Services/Workbench/WorkbenchLayoutStore.swift",
       "macos/Sources/Lithe/Views/Components/LitheDropdown.swift",
-      "macos/Tests/LitheTests/WorkbenchMavenLayoutTests.swift",
       "macos/Tests/LitheTests/ContextMenuCoverageTests.swift",
       "macos/Sources/Lithe/Views/Git/BranchPopupRowView.swift",
       "macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift",
@@ -46,7 +45,8 @@
       "rust/lithe-core/src/tests/git_workspace_commit.rs",
       ".agents/notes/implemented/bug-fix/2026-10-17-git-push-target-and-upstream-tracking.md",
       "shared/fixtures/git/comparison-untracked-v1.json",
-      "macos/Tests/LitheTests/GitCoreContractBridgeTests.swift"
+      "macos/Tests/LitheTests/GitCoreContractBridgeTests.swift",
+      "macos/Tests/LitheTests/WorkbenchRightPaneLayoutTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

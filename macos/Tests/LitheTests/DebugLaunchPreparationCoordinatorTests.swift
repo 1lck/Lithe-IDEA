@@ -8,7 +8,7 @@ struct DebugLaunchPreparationCoordinatorTests {
     @Test("saves a dirty debug document and records its previous text")
     func savesDirtyDocument() async {
         let document = EditorDocument(
-            url: URL(fileURLWithPath: "/workspace/Main.java"),
+            url: URL(fileURLWithPath: "/workspace/example.txt"),
             text: "before",
             modificationDate: nil
         )
@@ -29,7 +29,7 @@ struct DebugLaunchPreparationCoordinatorTests {
     @Test("skips clean debug documents")
     func skipsCleanDocument() async {
         let document = EditorDocument(
-            url: URL(fileURLWithPath: "/workspace/Main.java"),
+            url: URL(fileURLWithPath: "/workspace/example.txt"),
             text: "source",
             modificationDate: nil
         )
@@ -45,12 +45,12 @@ struct DebugLaunchPreparationCoordinatorTests {
         #expect(notifications.messages.isEmpty)
     }
 
-    /// A launch must not proceed from a source file the compiler will not see;
+    /// A launch must not proceed from a source file the build will not see;
     /// a failed save aborts instead of debugging the stale text on disk.
     @Test("aborts the launch when the dirty document cannot be saved")
     func abortsOnFailedSave() async {
         let document = EditorDocument(
-            url: URL(fileURLWithPath: "/workspace/Main.java"),
+            url: URL(fileURLWithPath: "/workspace/example.txt"),
             text: "before",
             modificationDate: nil
         )
@@ -64,13 +64,13 @@ struct DebugLaunchPreparationCoordinatorTests {
         let ready = await coordinator.saveDirtyDocumentIfNeeded(document)
 
         #expect(!ready)
-        #expect(notifications.messages == ["Could not save Main.java"])
+        #expect(notifications.messages == ["Could not save example.txt"])
     }
 
     @Test("reports a failed debug launch and reopens the debug tool window")
     func reportsFailedLaunch() {
         let configuration = DebugLaunchConfiguration(
-            name: "Main",
+            name: "example",
             request: .launch,
             arguments: [:]
         )
@@ -99,7 +99,7 @@ struct DebugLaunchPreparationCoordinatorTests {
 
         let started = coordinator.start(
             configuration: DebugLaunchConfiguration(
-                name: "Main",
+                name: "example",
                 request: .launch,
                 arguments: [:]
             ),

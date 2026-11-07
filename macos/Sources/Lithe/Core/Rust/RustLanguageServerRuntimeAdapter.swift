@@ -25,64 +25,6 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         rootURL: URL,
         workingDirectoryURL: URL,
         initializationOptions: ToolingJSONValue?,
-        runtimeExecutableURL: URL?,
-        jdtlsLaunchResources: JDTLSLaunchResources?,
-        cacheDirectoryURL: URL?,
-        workspaceFingerprint: String?,
-        initializeTimeout: TimeInterval,
-        requestTimeout: TimeInterval,
-        shutdownTimeout: TimeInterval
-    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
-        startLanguageServer(
-            providerID: providerID,
-            executableURL: executableURL,
-            arguments: arguments,
-            environment: environment,
-            rootURL: rootURL,
-            workingDirectoryURL: workingDirectoryURL,
-            initializationOptions: initializationOptions,
-            runtimeExecutableURL: runtimeExecutableURL,
-            jdtlsLaunchResources: jdtlsLaunchResources,
-            cacheDirectoryURL: cacheDirectoryURL,
-            workspaceFingerprint: workspaceFingerprint,
-            mavenContext: nil,
-            initializeTimeout: initializeTimeout,
-            requestTimeout: requestTimeout,
-            shutdownTimeout: shutdownTimeout
-        )
-    }
-
-    func startLanguageServer(
-        providerID: String, executableURL: URL, arguments: [String], environment: [String: String],
-        rootURL: URL, workingDirectoryURL: URL, initializationOptions: ToolingJSONValue?,
-        runtimeExecutableURL: URL?, jdtlsLaunchResources: JDTLSLaunchResources?, cacheDirectoryURL: URL?,
-        workspaceFingerprint: String?, mavenContext: MavenLaunchContext?,
-        initializeTimeout: TimeInterval, requestTimeout: TimeInterval, shutdownTimeout: TimeInterval
-    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
-        startLanguageServer(
-            providerID: providerID, executableURL: executableURL, arguments: arguments, environment: environment,
-            rootURL: rootURL, workingDirectoryURL: workingDirectoryURL, initializationOptions: initializationOptions,
-            runtimeExecutableURL: runtimeExecutableURL, jdtlsLaunchResources: jdtlsLaunchResources,
-            cacheDirectoryURL: cacheDirectoryURL, workspaceFingerprint: workspaceFingerprint,
-            mavenContext: mavenContext, javaGradle: nil, initializeTimeout: initializeTimeout,
-            requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
-        )
-    }
-
-    func startLanguageServer(
-        providerID: String,
-        executableURL: URL,
-        arguments: [String],
-        environment: [String: String],
-        rootURL: URL,
-        workingDirectoryURL: URL,
-        initializationOptions: ToolingJSONValue?,
-        runtimeExecutableURL: URL?,
-        jdtlsLaunchResources: JDTLSLaunchResources?,
-        cacheDirectoryURL: URL?,
-        workspaceFingerprint: String?,
-        mavenContext: MavenLaunchContext?,
-        javaGradle: JavaGradleImportConfiguration?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -95,12 +37,6 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             rootURL: rootURL,
             workingDirectoryURL: workingDirectoryURL,
             initializationOptions: initializationOptions,
-            runtimeExecutableURL: runtimeExecutableURL,
-            jdtlsLaunchResources: jdtlsLaunchResources,
-            cacheDirectoryURL: cacheDirectoryURL,
-            workspaceFingerprint: workspaceFingerprint,
-            mavenContext: mavenContext,
-            javaGradle: javaGradle,
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,
             shutdownTimeout: shutdownTimeout
@@ -115,22 +51,6 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
 
     func stopLanguageServer(sessionID: String) {
         lspStopServer(sessionID: sessionID)
-    }
-
-    func retryMavenProfiles(sessionID: String) -> Result<Void, LanguageServerRuntimeFailure> {
-        lspRetryMavenProfiles(sessionID: sessionID).map { _ in () }.mapError(Self.runtimeFailure)
-    }
-
-    func updateMavenConfiguration(
-        sessionID: String,
-        context: MavenLaunchContext,
-        reloadProjects: Bool
-    ) -> Result<LanguageServerMavenConfigurationUpdate, LanguageServerRuntimeFailure> {
-        lspUpdateMavenConfiguration(
-            sessionID: sessionID,
-            context: context,
-            reloadProjects: reloadProjects
-        ).mapError(Self.runtimeFailure)
     }
 
     func syncLanguageServerDocument(
@@ -199,44 +119,6 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             .mapError(Self.runtimeFailure)
     }
 
-    func prepareJavaLaunch(
-        sessionID: String,
-        fileURL: URL,
-        mainClass: String?
-    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
-        lspPrepareJavaLaunch(sessionID: sessionID, fileURL: fileURL, mainClass: mainClass)
-            .map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
-            .mapError(Self.runtimeFailure)
-    }
-
-    func requestJavaNavigationMarkers(
-        sessionID: String,
-        fileURL: URL,
-        documentVersion: Int
-    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
-        lspJavaNavigationMarkers(
-            sessionID: sessionID,
-            fileURL: fileURL,
-            documentVersion: documentVersion
-        ).map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
-            .mapError(Self.runtimeFailure)
-    }
-
-    func resolveJavaNavigation(
-        sessionID: String,
-        fileURL: URL,
-        marker: JavaNavigationMarker,
-        documentVersion: Int
-    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
-        lspResolveJavaNavigation(
-            sessionID: sessionID,
-            fileURL: fileURL,
-            marker: marker,
-            documentVersion: documentVersion
-        ).map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
-            .mapError(Self.runtimeFailure)
-    }
-
     func requestBuildProvider(
         sessionID: String,
         method: String,
@@ -280,8 +162,7 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         startPluginLanguageServer(
             pluginID: pluginID, providerID: providerID, executableURL: executableURL, arguments: arguments,
             environment: environment, rootURL: rootURL, initializationOptions: initializationOptions,
-            workspaceConfiguration: nil, hostServices: [], hostIntegrationLaunch: nil,
-            cacheDirectoryURL: nil, workspaceFingerprint: nil, mavenContext: nil, javaGradle: nil,
+            workspaceConfiguration: nil, hostServices: [],
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
         )
@@ -297,11 +178,6 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         initializationOptions: ToolingJSONValue?,
         workspaceConfiguration: ToolingJSONValue?,
         hostServices: [String],
-        hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?,
-        cacheDirectoryURL: URL?,
-        workspaceFingerprint: String?,
-        mavenContext: MavenLaunchContext?,
-        javaGradle: JavaGradleImportConfiguration?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -318,12 +194,6 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             workspaceConfiguration: workspaceConfiguration,
             hostServices: hostServices,
             editorOptions: .macOS,
-            runtimeExecutableURL: hostIntegrationLaunch?.runtimeExecutableURL,
-            jdtlsLaunchResources: hostIntegrationLaunch?.coreLaunch?.jdtlsLaunchResources,
-            cacheDirectoryURL: cacheDirectoryURL,
-            workspaceFingerprint: workspaceFingerprint,
-            mavenContext: mavenContext,
-            javaGradle: javaGradle,
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,
             shutdownTimeout: shutdownTimeout
@@ -343,8 +213,6 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         workspaceConfiguration: ToolingJSONValue?,
         sessionPolicy: ToolingJSONValue,
         hostServices: [String],
-        cacheDirectoryURL: URL?,
-        workspaceFingerprint: String?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -361,8 +229,6 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             workspaceConfiguration: workspaceConfiguration,
             hostServices: hostServices,
             sessionPolicy: sessionPolicy,
-            cacheDirectoryURL: cacheDirectoryURL,
-            workspaceFingerprint: workspaceFingerprint,
             initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout,
             shutdownTimeout: shutdownTimeout
@@ -587,7 +453,6 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
                         message: $0.message,
                         underlyingMessage: $0.underlyingMessage,
                         processExitCode: $0.processExitCode,
-                        javaBuildReport: $0.javaBuildReport,
                         pluginErrorCode: $0.pluginErrorCode,
                         details: $0.details
                     )
@@ -599,10 +464,6 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
                 level: event.level,
                 message: event.message,
                 detail: event.detail,
-                mavenProfileTask: event.mavenProfileTask,
-                mavenProfileProject: event.mavenProfileProject.map {
-                    MavenProfileProjectResult(projectURI: $0.projectUri, status: $0.status, errorDetails: $0.errorDetails)
-                },
                 method: event.method,
                 coreLog: event.event.flatMap { id in
                     guard let level = event.catalogLevel, let channel = event.channel, let fields = event.fields else { return nil }

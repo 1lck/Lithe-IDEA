@@ -35,6 +35,8 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
     private let runtime: any LanguageToolRuntimePort
     private let core: any LanguageServerRuntimeCore
     private let remoteLaunches: MacRemotePluginLaunchPreparer?
+    /// Resolves a provider launch that names a tool definition.
+    private let definedTools: MacDefinedToolchainResolver?
     private weak var processRegistry: (any LanguageServerProcessRegistry)?
     /// Ends the processes carrying a backend's token; `immediately` skips the
     /// graceful stop. See `MacPluginBackendProcesses`.
@@ -66,6 +68,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         core: any LanguageServerRuntimeCore,
         processRegistry: (any LanguageServerProcessRegistry)?,
         remoteLaunches: MacRemotePluginLaunchPreparer? = nil,
+        definedTools: MacDefinedToolchainResolver? = nil,
         stuckSendGrace: Duration = .seconds(2),
         endBackendProcesses: @escaping @MainActor (_ token: String, _ immediately: Bool) -> Void = { token, immediately in
             MacPluginBackendProcesses.end(
@@ -80,6 +83,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         self.runtime = runtime
         self.core = core
         self.remoteLaunches = remoteLaunches
+        self.definedTools = definedTools
         self.processRegistry = processRegistry
         self.endBackendProcesses = endBackendProcesses
         self.stuckSendGrace = stuckSendGrace
@@ -308,7 +312,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         entry: Running,
         owner: MacRemotePluginLaunchPreparer.Owner?
     ) async throws -> LanguageServerRuntimeSession {
-        var (executableURL, environment) = try await resolveExecutable(process, workspaceURL: target.workspaceURL)
+        var (executableURL, arguments, environment) = try await resolveExecutable(process, workspaceURL: target.workspaceURL)
         try Task.checkCancellation()
         guard running[target] === entry, owner?.isCurrent() != false else { throw CancellationError() }
         // Every process the backend starts inherits this token, so what it
@@ -318,7 +322,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         let session = LanguageServerRuntimeSession(
             providerID: "buildProvider:\(target.pluginID):\(target.buildSystemID)",
             executableURL: executableURL,
-            arguments: process.arguments,
+            arguments: arguments,
             environment: environment,
             initializationOptions: process.initializationOptions,
             initializeTimeout: 60,
@@ -371,7 +375,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
                 }
             }
             do {
-                try session.start(rootURL: rootURL, workspaceFingerprint: nil)
+                try session.start(rootURL: rootURL)
             } catch {
                 finish(.failure(error))
             }
@@ -380,20 +384,35 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
 
     /// A packaged file starts as it is. Commands and runtimes resolve through
     /// the build tool discovery, so the provider sees the same runtime and
-    /// `PATH` as the build system's commands.
+    /// `PATH` as the build system's commands. A tool launch resolves its
+    /// definitions and takes the command line their template expands to;
+    /// every other launch keeps the plan's arguments.
     private func resolveExecutable(
         _ process: MacPluginLanguageServerLaunchResolver.BuildProviderProcess,
         workspaceURL: URL
-    ) async throws -> (URL, [String: String]) {
+    ) async throws -> (URL, [String], [String: String]) {
         let runtimes = process.runtimeTools.map {
             BuildInvocation.RuntimeDependency(id: $0, hostManaged: true)
         }
         let invocation: BuildInvocation
         var requirement: LanguageServerExecutableVersionRequirement?
         switch process.executable {
+        case .tool(let launch):
+            guard remoteLaunches?.identity(workspaceURL) == nil, let definedTools else {
+                throw DeclarativePluginRejection(
+                    code: "plugin.launch.unavailable",
+                    message: "A build provider that names a tool definition cannot start in this workspace."
+                )
+            }
+            let command = try await definedTools.command(
+                for: launch, arguments: process.arguments, workspace: workspaceURL,
+                environment: runtime.languageToolProcessEnvironment(runtimeTools: process.runtimeTools),
+                projectCodeAllowed: process.executesProjectCode
+            )
+            return (command.executableURL, command.arguments, command.environment)
         case .file(let url):
             if remoteLaunches?.identity(workspaceURL) == nil {
-                return (url, runtime.languageToolProcessEnvironment(runtimeTools: process.runtimeTools))
+                return (url, process.arguments, runtime.languageToolProcessEnvironment(runtimeTools: process.runtimeTools))
             }
             invocation = BuildInvocation(executables: [.setting(id: "pluginPackage", path: url.path)], runtimeDependencies: runtimes)
         case .commands(let commands):
@@ -421,7 +440,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
                 return BuildVersionCheck(satisfied: check.satisfied, version: check.version)
             }
         )
-        return (resolved.executableURL, resolved.environment)
+        return (resolved.executableURL, process.arguments, resolved.environment)
     }
 
     private func prepareLaunch(_ target: BuildProviderTarget) async throws -> (

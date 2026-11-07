@@ -284,8 +284,7 @@ enum WorkbenchModuleUIComposition {
         contributions: LanguageIntelligenceModule.moduleContributions,
         actions: [
             .init(id: "language.problems.toggle", perform: { $0.toggleProblems() }),
-            .init(id: "language.references.toggle", perform: { $0.workbenchFeature.toggleVisibility(.references) }),
-            .init(id: "language.spring.toggle", perform: { $0.toggleSpringEndpoints() })
+            .init(id: "language.references.toggle", perform: { $0.workbenchFeature.toggleVisibility(.references) })
         ],
         renderers: [
             .init(
@@ -298,11 +297,7 @@ enum WorkbenchModuleUIComposition {
             .init(id: "language.references", ideaAssetPath: "expui/toolwindows/toolWindowComponents@20x20.svg",
                   isVisible: { $0.workbenchFeature.isVisible(.references) },
                   isSelected: { $0.workbenchFeature.isVisible(.references) },
-                  content: { _ in AnyView(LanguageReferencesView()) }),
-            .init(id: "language.spring", ideaAssetPath: "expui/toolwindows/toolWindowComponents@20x20.svg",
-                  isVisible: { $0.workbenchFeature.isVisible(.spring) },
-                  isSelected: { $0.workbenchFeature.isVisible(.spring) },
-                  content: { _ in AnyView(SpringEndpointsView()) })
+                  content: { _ in AnyView(LanguageReferencesView()) })
         ]
     )
 

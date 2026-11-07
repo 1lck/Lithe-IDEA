@@ -481,7 +481,7 @@ package struct BuildInvocation: Equatable, Sendable {
     package struct RuntimeDependency: Equatable, Sendable {
         package let id: String
         package let displayName: String?
-        /// `java`, `node`, and `go` follow the user's runtime settings.
+        /// Host-managed runtimes follow the user's runtime settings.
         package let hostManaged: Bool
         package let minimumVersion: String?
         package let executables: [Executable]
@@ -575,17 +575,6 @@ package protocol BuildToolResolving: AnyObject {
         workspaceURL: URL,
         checkVersion: @escaping @Sendable (_ runtime: String?, _ output: String) throws -> BuildVersionCheck
     ) async throws -> ResolvedBuildTool
-    /// Passive discovery for project import; must never probe or execute tools.
-    func languageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) -> URL?
-    /// Host discovery may require I/O; project import still never runs code.
-    func prepareLanguageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) async throws -> URL?
-}
-
-package extension BuildToolResolving {
-    func languageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) -> URL? { nil }
-    func prepareLanguageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) async throws -> URL? {
-        languageImportExecutable(invocation, workspaceURL: workspaceURL)
-    }
 }
 
 // MARK: Options
@@ -1188,27 +1177,6 @@ package struct BuildSyncState: Equatable, Sendable, Decodable {
     }
 }
 
-// MARK: Language import
-
-/// The result of `build.languageImport`; the kind is a language-server
-/// capability, independent of the plugin and build-system identifiers.
-package enum BuildLanguageImport: Equatable, Sendable, Decodable {
-    case maven(MavenLaunchContext)
-    case gradle(JavaGradleImportConfiguration)
-
-    package init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        switch try values.decode(String.self, forKey: .kind) {
-        case "maven": self = .maven(try values.decode(MavenLaunchContext.self, forKey: .mavenContext))
-        case "gradle": self = .gradle(try values.decode(JavaGradleImportConfiguration.self, forKey: .javaGradle))
-        default:
-            throw DecodingError.dataCorruptedError(forKey: .kind, in: values, debugDescription: "Unknown language import kind")
-        }
-    }
-
-    private enum CodingKeys: String, CodingKey { case kind, mavenContext, javaGradle }
-}
-
 // MARK: Core operations
 
 /// The `build.*` commands of Rust Core. Implementations throw
@@ -1227,13 +1195,6 @@ package protocol BuildSystemPlanning: Sendable {
         instanceOptions: [String: [String: [String: ToolingJSONValue]]],
         instanceDefaults: [String: [String: ToolingJSONValue]]
     ) throws -> BuildDetection
-    func languageImport(
-        _ target: BuildSystemTarget,
-        workspaceURL: URL,
-        root: String,
-        options: [String: ToolingJSONValue],
-        executableURL: URL?
-    ) throws -> BuildLanguageImport?
     func invocationPlan(
         _ target: BuildSystemTarget, root: String, settings: [String: ToolingJSONValue]
     ) throws -> BuildInvocation

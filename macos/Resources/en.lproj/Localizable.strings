@@ -196,7 +196,7 @@
 "A skill with this directory name already exists. Existing skills are never overwritten." = "A skill with this directory name already exists. Existing skills are never overwritten.";
 "A stable release installation is already in progress." = "A stable release installation is already in progress.";
 "A task %@ started before Lithe last closed unexpectedly is still running" = "A task %@ started before Lithe last closed unexpectedly is still running";
-"A terminal is busy when a program other than the shell still runs in it, such as a Spring Boot app, npm run dev or a job you sent to the background. Idle terminals always close without asking. Ending a terminal ends every program started in it." = "A terminal is busy when a program other than the shell still runs in it, such as a Spring Boot app, npm run dev or a job you sent to the background. Idle terminals always close without asking. Ending a terminal ends every program started in it.";
+"A terminal is busy when a program other than the shell still runs in it, such as a dev server, npm run dev or a job you sent to the background. Idle terminals always close without asking. Ending a terminal ends every program started in it." = "A terminal is busy when a program other than the shell still runs in it, such as a dev server, npm run dev or a job you sent to the background. Idle terminals always close without asking. Ending a terminal ends every program started in it.";
 "A terminal session is still running." = "A terminal session is still running.";
 "A test path must stay inside the current workspace." = "A test path must stay inside the current workspace.";
 "A unique filename could not be created for the image" = "A unique filename could not be created for the image";
@@ -290,7 +290,6 @@
 "Address or expression" = "Address or expression";
 "Addresses that bypass the proxy, separated by commas. Entries support wildcard domains such as *.internal.example." = "Addresses that bypass the proxy, separated by commas. Entries support wildcard domains such as *.internal.example.";
 "Adds Go language-server integration, formatting, running, and test support." = "Adds Go language-server integration, formatting, running, and test support.";
-"Adds Java language intelligence through the Eclipse JDT language server, with Lombok, debugging, and test support. Ships its own Java runtime." = "Adds Java language intelligence through the Eclipse JDT language server, with Lombok, debugging, and test support. Ships its own Java runtime.";
 "Adds language-server integration and formatting support." = "Adds language-server integration and formatting support.";
 "Adds language-server integration, formatting, running, and test support." = "Adds language-server integration, formatting, running, and test support.";
 "Adds to the pull request conversation without an approval decision." = "Adds to the pull request conversation without an approval decision.";
@@ -348,7 +347,7 @@
 "Allow Recreating File" = "Allow Recreating File";
 "Allow fast-forward" = "Allow fast-forward";
 "Allow insecure HTTP" = "Allow insecure HTTP";
-"Allow project environment and Maven configuration changes" = "Allow project environment and Maven configuration changes";
+"Allow project environment and build configuration changes" = "Allow project environment and build configuration changes";
 "Allow run, build, reload and stop (executes project code)" = "Allow run, build, reload and stop (executes project code)";
 "Allow the Agent to continue?" = "Allow the Agent to continue?";
 "Allow “%@” to open a terminal?" = "Allow “%@” to open a terminal?";
@@ -451,9 +450,7 @@
 "Authentication must be a JSON object containing an OPENAI_API_KEY string." = "Authentication must be a JSON object containing an OPENAI_API_KEY string.";
 "Author" = "Author";
 "Authorize in your browser" = "Authorize in your browser";
-"Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes, and the project-level server registration is removed. Enabled plugins can also use this project grant." = "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes, and the project-level server registration is removed. Enabled plugins can also use this project grant.";
-"Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes." = "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes.";
-"Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes. Enabled plugins can also use this project grant." = "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes. Enabled plugins can also use this project grant.";
+"Authorize this project to expose its environment, build tools, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes, and the project-level server registration is removed. Enabled plugins can also use this project grant." = "Authorize this project to expose its environment, build tools, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes, and the project-level server registration is removed. Enabled plugins can also use this project grant.";
 "Auto" = "Auto";
 "Auto-compact at" = "Auto-compact at";
 "Auto-compact must not be larger than the context length." = "Auto-compact must not be larger than the context length.";
@@ -944,7 +941,7 @@
 "Configure dependency search paths" = "Configure dependency search paths";
 "Configure editor and project behavior" = "Configure editor and project behavior";
 "Configure in Settings" = "Configure in Settings";
-"Configure project JDK and Maven…" = "Configure project JDK and Maven…";
+"Configure runtime environment…" = "Configure runtime environment…";
 "Configured" = "Configured";
 "Configured remote name" = "Configured remote name";
 "Configure…" = "Configure…";
@@ -960,12 +957,12 @@
 "Connect to Debug Adapter…" = "Connect to Debug Adapter…";
 "Connect to Running JVM" = "Connect to Running JVM";
 "Connect to Running JVM…" = "Connect to Running JVM…";
-"Connect to an already running DAP server using the active file's installed debugger. This is not a JVM JDWP or gdbserver port. No proxy or tunnel is created." = "Connect to an already running DAP server using the active file's installed debugger. This is not a JVM JDWP or gdbserver port. No proxy or tunnel is created.";
+"Connect to an already running DAP server using the active file's installed debugger. This is not a gdbserver port. No proxy or tunnel is created." = "Connect to an already running DAP server using the active file's installed debugger. This is not a gdbserver port. No proxy or tunnel is created.";
 "Connect to an external debug adapter?" = "Connect to an external debug adapter?";
 "Connect to databases, browse schemas, edit data, run SQL, and manage backups from the Database workspace." = "Connect to databases, browse schemas, edit data, run SQL, and manage backups from the Database workspace.";
 "Connect to running JVM" = "Connect to running JVM";
 "Connected" = "Connected";
-"Connected agents can change the project JDK, Maven and run configuration settings." = "Connected agents can change the project JDK, Maven and run configuration settings.";
+"Connected agents can change the project toolchain, build and run configuration settings." = "Connected agents can change the project toolchain, build and run configuration settings.";
 "Connected agents can run, build, reload and stop the project. Commands execute project code, so enable this only for projects you trust." = "Connected agents can run, build, reload and stop the project. Commands execute project code, so enable this only for projects you trust.";
 "Connected agents can use the configuration below while this project is open." = "Connected agents can use the configuration below while this project is open.";
 "Connected as @%@" = "Connected as @%@";
@@ -1002,6 +999,7 @@
 "Controls how Lithe's ordinary Fetch updates submodules." = "Controls how Lithe's ordinary Fetch updates submodules.";
 "Controls how Lithe's ordinary Fetch updates submodules. Inherit follows Git's fetch.recurseSubmodules setting." = "Controls how Lithe's ordinary Fetch updates submodules. Inherit follows Git's fetch.recurseSubmodules setting.";
 "Controls where Step Into stops. Changes apply to the next Java debug session." = "Controls where Step Into stops. Changes apply to the next Java debug session.";
+"Controls where Step Into stops. Changes apply to the next debug session of this debugger." = "Controls where Step Into stops. Changes apply to the next debug session of this debugger.";
 "Controls whether Lithe's ordinary Fetch removes stale remote branches." = "Controls whether Lithe's ordinary Fetch removes stale remote branches.";
 "Conventional Commits" = "Conventional Commits";
 "Conversation" = "Conversation";
@@ -1666,7 +1664,7 @@
 "Filter problems by severity" = "Filter problems by severity";
 "Filter results" = "Filter results";
 "Filter route, controller, or method" = "Filter route, controller, or method";
-"Filter: server:jdtls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee" = "Filter: server:jdtls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee";
+"Filter: server:gopls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee" = "Filter: server:gopls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee";
 "Find" = "Find";
 "Find Action" = "Find Action";
 "Find Action…" = "Find Action…";
@@ -1986,7 +1984,6 @@
 "Install ACP adapters, check the runtime, and manage local or custom providers." = "Install ACP adapters, check the runtime, and manage local or custom providers.";
 "Install AutoBuild" = "Install AutoBuild";
 "Install Codex CLI to discover its skills." = "Install Codex CLI to discover its skills.";
-"Install Java Support for Java, Maven and Spring templates…" = "Install Java Support for Java, Maven and Spring templates…";
 "Install Node.js and npm before installing the adapter." = "Install Node.js and npm before installing the adapter.";
 "Install PHP Support Plugin" = "Install PHP Support Plugin";
 "Install PHP Support from a signed plugin package." = "Install PHP Support from a signed plugin package.";
@@ -2066,9 +2063,6 @@
 "Java Application" = "Java Application";
 "Java Run marker request failed" = "Java Run marker request failed";
 "Java SDK" = "Java SDK";
-"Java Stepping Filters" = "Java Stepping Filters";
-"Java Stepping Filters…" = "Java Stepping Filters…";
-"Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept." = "Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept.";
 "Java entries appear after the Java language service lists runnable classes." = "Java entries appear after the Java language service lists runnable classes.";
 "Java entries could not be refreshed" = "Java entries could not be refreshed";
 "Java entry-point freshness check failed" = "Java entry-point freshness check failed";
@@ -2321,7 +2315,6 @@
 "Look Up Location" = "Look Up Location";
 "Looked in: %@" = "Looked in: %@";
 "Looking for Git…" = "Looking for Git…";
-"Looking for installed JDKs…" = "Looking for installed JDKs…";
 "Looking for installed tools…" = "Looking for installed tools…";
 "Looking up the location sends this address to ipinfo.io. Lithe does this only when you click Look Up." = "Looking up the location sends this address to ipinfo.io. Lithe does this only when you click Look Up.";
 "Low" = "Low";
@@ -2576,7 +2569,6 @@
 "No Hooks yet." = "No Hooks yet.";
 "No JDK found. Set JAVA_HOME, install a JDK, or choose a JDK directory." = "No JDK found. Set JAVA_HOME, install a JDK, or choose a JDK directory.";
 "No JDK is configured for this project." = "No JDK is configured for this project.";
-"No JDK was found. Install a JDK, then reopen this window." = "No JDK was found. Install a JDK, then reopen this window.";
 "No JVM performance samples received for 10 seconds." = "No JVM performance samples received for 10 seconds.";
 "No Java navigation results" = "No Java navigation results";
 "No Java problems" = "No Java problems";
@@ -2799,6 +2791,7 @@
 "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply." = "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply.";
 "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/`, `/*` or `/**` to hide a folder and everything in it; start with `**/` to match at any depth. A pattern without a trailing slash only hides files: `.lithe` hides a file named .lithe, not the folder.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/**` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them." = "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/`, `/*` or `/**` to hide a folder and everything in it; start with `**/` to match at any depth. A pattern without a trailing slash only hides files: `.lithe` hides a file named .lithe, not the folder.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/**` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them.";
 "One pattern per line, for example org.mockito.* or com.example.generated.*" = "One pattern per line, for example org.mockito.* or com.example.generated.*";
+"One pattern per line. The debugger defines the pattern syntax." = "One pattern per line. The debugger defines the pattern syntax.";
 "One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window." = "One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window.";
 "One sentence focused on the main change" = "One sentence focused on the main change";
 "One test: %@" = "One test: %@";
@@ -3553,7 +3546,7 @@
 "Run configuration" = "Run configuration";
 "Run configuration changed while saving. Reload and try again." = "Run configuration changed while saving. Reload and try again.";
 "Run configurations" = "Run configurations";
-"Run configurations and Maven goals started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first." = "Run configurations and Maven goals started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first.";
+"Run configurations and build tasks started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first." = "Run configurations and build tasks started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first.";
 "Run configurations are unavailable. Enable the execution module and try again." = "Run configurations are unavailable. Enable the execution module and try again.";
 "Run configurations inherit the project JDK and Maven unless overridden below." = "Run configurations inherit the project JDK and Maven unless overridden below.";
 "Run configurations may be out of date" = "Run configurations may be out of date";
@@ -3662,7 +3655,6 @@
 "Search Everywhere (Double Shift)" = "Search Everywhere (Double Shift)";
 "Search Everywhere…" = "Search Everywhere…";
 "Search Hooks" = "Search Hooks";
-"Search JDKs" = "Search JDKs";
 "Search MCP servers" = "Search MCP servers";
 "Search MCP servers — GitHub, browsers, documentation…" = "Search MCP servers — GitHub, browsers, documentation…";
 "Search Paths: %@" = "Search Paths: %@";
@@ -3960,7 +3952,7 @@
 "Source Repository" = "Source Repository";
 "Source Roots" = "Source Roots";
 "Sources Root" = "Sources Root";
-"Spaces combine conditions with AND. level>=warn includes WARN and ERROR; level:info is exact. event:, channel: and op: match prefixes. server:jdtls and key:value match field substrings. /regex/ searches messages, ignoring case; - excludes a condition. Use double quotes around values containing spaces. Channel, level and time controls also intersect with the expression. Invalid expressions keep the last valid results." = "Spaces combine conditions with AND. level>=warn includes WARN and ERROR; level:info is exact. event:, channel: and op: match prefixes. server:jdtls and key:value match field substrings. /regex/ searches messages, ignoring case; - excludes a condition. Use double quotes around values containing spaces. Channel, level and time controls also intersect with the expression. Invalid expressions keep the last valid results.";
+"Spaces combine conditions with AND. level>=warn includes WARN and ERROR; level:info is exact. event:, channel: and op: match prefixes. server:gopls and key:value match field substrings. /regex/ searches messages, ignoring case; - excludes a condition. Use double quotes around values containing spaces. Channel, level and time controls also intersect with the expression. Invalid expressions keep the last valid results." = "Spaces combine conditions with AND. level>=warn includes WARN and ERROR; level:info is exact. event:, channel: and op: match prefixes. server:gopls and key:value match field substrings. /regex/ searches messages, ignoring case; - excludes a condition. Use double quotes around values containing spaces. Channel, level and time controls also intersect with the expression. Invalid expressions keep the last valid results.";
 "Speed" = "Speed";
 "Spring Boot" = "Spring Boot";
 "Spring Endpoints" = "Spring Endpoints";
@@ -4042,6 +4034,8 @@
 "Step into" = "Step into";
 "Step out" = "Step out";
 "Step over" = "Step over";
+"Stepping Filters" = "Stepping Filters";
+"Stepping Filters…" = "Stepping Filters…";
 "Stepping by instruction" = "Stepping by instruction";
 "Sticky scroll" = "Sticky scroll";
 "Stop" = "Stop";
@@ -4335,7 +4329,6 @@
 "The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again." = "The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again.";
 "The file system that holds the home directory." = "The file system that holds the home directory.";
 "The file will be created when you save." = "The file will be created when you save.";
-"The framework did not open its JVM debug port before the deadline. Check the Run output." = "The framework did not open its JVM debug port before the deadline. Check the Run output.";
 "The function call was cancelled." = "The function call was cancelled.";
 "The generated message will replace the text currently in the editor." = "The generated message will replace the text currently in the editor.";
 "The generated title or description would replace text you already entered." = "The generated title or description would replace text you already entered.";
@@ -4563,7 +4556,7 @@
 "These overrides affect only this run configuration. Clear a path to inherit the project environment." = "These overrides affect only this run configuration. Clear a path to inherit the project environment.";
 "These processes left their terminal or tool to keep running in the background, like daemons and dev servers. Checked items end when Lithe quits; unchecked items keep running." = "These processes left their terminal or tool to keep running in the background, like daemons and dev servers. Checked items end when Lithe quits; unchecked items keep running.";
 "These programs were started in Lithe before it closed unexpectedly. Checked items are ended now; unchecked items keep running and are not tracked anymore." = "These programs were started in Lithe before it closed unexpectedly. Checked items are ended now; unchecked items keep running and are not tracked anymore.";
-"These settings apply to Lithe's own requests: the plugin marketplace, GitHub and AI providers. Terminal commands, Git, JVM dependency downloads and the built-in updater keep their own network settings; the updater always follows the system proxy. Changes apply to new requests." = "These settings apply to Lithe's own requests: the plugin marketplace, GitHub and AI providers. Terminal commands, Git, JVM dependency downloads and the built-in updater keep their own network settings; the updater always follows the system proxy. Changes apply to new requests.";
+"These settings apply to Lithe's own requests: the plugin marketplace, GitHub and AI providers. Terminal commands, Git, build tool dependency downloads and the built-in updater keep their own network settings; the updater always follows the system proxy. Changes apply to new requests." = "These settings apply to Lithe's own requests: the plugin marketplace, GitHub and AI providers. Terminal commands, Git, build tool dependency downloads and the built-in updater keep their own network settings; the updater always follows the system proxy. Changes apply to new requests.";
 "Thinking" = "Thinking";
 "Thinking level" = "Thinking level";
 "Thinking process" = "Thinking process";
@@ -5144,7 +5137,7 @@
 "debug.tcp.confirmBody" = "The debug adapter at %1$@ can access your debugging data. Plain TCP is not encrypted or authenticated. Connect only over a trusted network or a tunnel you configured.";
 "debug.tcp.confirmTitle" = "Connect to an external debug adapter?";
 "debug.tcp.declined" = "The debug adapter connection was not approved.";
-"debug.tcp.help" = "Connect to an already running DAP server using the active file's installed debugger. This is not a JVM JDWP or gdbserver port. No proxy or tunnel is created.";
+"debug.tcp.help" = "Connect to an already running DAP server using the active file's installed debugger. This is not a gdbserver port. No proxy or tunnel is created.";
 "debug.tcp.invalidArguments" = "Enter a JSON object of adapter arguments no larger than 256 KiB.";
 "debug.tcp.invalidEndpoint" = "Enter a valid debug adapter host and a port between 1 and 65535.";
 "debug.tcp.launchRequest" = "Launch Request";
@@ -5398,8 +5391,8 @@
 "logs.window.fields" = "Fields";
 "logs.window.filterChannel" = "filter channel";
 "logs.window.filterErrorAtLldLld" = "Filter error at %1$lld–%2$lld: %3$@";
-"logs.window.filterHelp" = "Spaces combine conditions with AND. level>=warn includes WARN and ERROR; level:info is exact. event:, channel: and op: match prefixes. server:jdtls and key:value match field substrings. /regex/ searches messages, ignoring case; - excludes a condition. Use double quotes around values containing spaces. Channel, level and time controls also intersect with the expression. Invalid expressions keep the last valid results.";
-"logs.window.filterServerJdtlsLevelWarnEventLspTraceReceivedRegexOpC0ffee" = "Filter: server:jdtls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee";
+"logs.window.filterHelp" = "Spaces combine conditions with AND. level>=warn includes WARN and ERROR; level:info is exact. event:, channel: and op: match prefixes. server:gopls and key:value match field substrings. /regex/ searches messages, ignoring case; - excludes a condition. Use double quotes around values containing spaces. Channel, level and time controls also intersect with the expression. Invalid expressions keep the last valid results.";
+"logs.window.filterServerJdtlsLevelWarnEventLspTraceReceivedRegexOpC0ffee" = "Filter: server:gopls  level>=warn  -event:lsp.trace.received  /regex/  op:c0ffee";
 "logs.window.followHelp" = "Live follow appends logs in their recorded order and scrolls to the latest record. The writer delivers short batches; bursts reflect real activity. Scrolling up pauses automatic scrolling while collection continues. Resume to return to the latest logs.";
 "logs.window.following" = "Following";
 "logs.window.hideThisEvent" = "Hide this event";
@@ -5463,8 +5456,7 @@
 "mac.workbench.unhide" = "Unhide";
 "macOS could not prepare the update disk image. Download the release manually and try again." = "macOS could not prepare the update disk image. Download the release manually and try again.";
 "macOS could not prepare the update disk image. Open the Release page and install it manually." = "macOS could not prepare the update disk image. Open the Release page and install it manually.";
-"macos.buildProvider.jvmDebugPortTimeout" = "The framework did not open its JVM debug port before the deadline. Check the Run output.";
-"macos.buildProvider.jvmDebugRemoteUnavailable" = "Framework service debugging is not available in remote workspaces yet.";
+"macos.buildProvider.serviceDebugRemoteUnavailable" = "Framework service debugging is not available in remote workspaces yet.";
 "macos.native.savedRunMigrationNeedsUpdate" = "Some saved run configurations cannot be migrated yet. Keep the existing files and retry after updating Lithe and its build plugin.";
 "main Java" = "main Java";
 "main resources" = "main resources";
@@ -5501,7 +5493,6 @@
 "native.aSpringBootProjectFromSpringInitializr" = "A Spring Boot project from Spring Initializr.";
 "native.aStableReleaseInstallationIsAlreadyInProgress" = "A stable release installation is already in progress.";
 "native.aTaskStartedBeforeLitheLastClosedUnexpectedlyIsStillRunning" = "A task %1$@ started before Lithe last closed unexpectedly is still running";
-"native.aTerminalIsBusyWhenAProgramOtherThanTheShellStillRunsInItSuchAsASpringBootAppNa88ac3e46a" = "A terminal is busy when a program other than the shell still runs in it, such as a Spring Boot app, npm run dev or a job you sent to the background. Idle terminals always close without asking. Ending a terminal ends every program started in it.";
 "native.aTerminalSessionIsStillRunning" = "A terminal session is still running.";
 "native.aTestPathMustStayInsideTheCurrent" = "A test path must stay inside the current workspace.";
 "native.aUniqueFilenameCouldNotBeCreatedFor" = "A unique filename could not be created for the image";
@@ -5563,7 +5554,6 @@
 "native.additions" = "Additions";
 "native.address" = "Address";
 "native.addsGoLanguageServerIntegrationFormattingRunningAndTestSupport" = "Adds Go language-server integration, formatting, running, and test support.";
-"native.addsJavaLanguageIntelligenceThroughTheEclipseJDTLanguageServerWithLombokDebuggb2eae07f8b" = "Adds Java language intelligence through the Eclipse JDT language server, with Lombok, debugging, and test support. Ships its own Java runtime.";
 "native.addsLanguageServerIntegrationAndFormattingSupport" = "Adds language-server integration and formatting support.";
 "native.addsLanguageServerIntegrationFormattingRunningAndTestSupport" = "Adds language-server integration, formatting, running, and test support.";
 "native.addsToThePullRequestConversationWithoutAnApprovalDecision" = "Adds to the pull request conversation without an approval decision.";
@@ -5643,7 +5633,6 @@
 "native.allow" = "Allow";
 "native.allowFastForward" = "Allow fast-forward";
 "native.allowInsecureHTTP" = "Allow insecure HTTP";
-"native.allowProjectEnvironmentAndMavenConfigurationChanges" = "Allow project environment and Maven configuration changes";
 "native.allowRecreatingFile" = "Allow Recreating File";
 "native.allowRunBuildReloadAndStopExecutesProjectCode" = "Allow run, build, reload and stop (executes project code)";
 "native.allowTheAgentToContinue" = "Allow the Agent to continue?";
@@ -5753,9 +5742,6 @@
 "native.authenticationMustBeAJSONObjectContainingAnOPENAIAPIKEYString" = "Authentication must be a JSON object containing an OPENAI_API_KEY string.";
 "native.author" = "Author";
 "native.authorizeInYourBrowser" = "Authorize in your browser";
-"native.authorizeThisProjectToExposeEnvironmentMavenRunConfigurationsAndOutputToConnec6e24e4763f" = "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes.";
-"native.authorizeThisProjectToExposeEnvironmentMavenRunConfigurationsAndOutputToConnecb6f617e865" = "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes. Enabled plugins can also use this project grant.";
-"native.authorizeThisProjectToExposeEnvironmentMavenRunConfigurationsAndOutputToConnece4d5e32bce" = "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes, and the project-level server registration is removed. Enabled plugins can also use this project grant.";
 "native.auto" = "Auto";
 "native.autoCompactAboveContext" = "Auto-compact must not be larger than the context length.";
 "native.autoCompactAt" = "Auto-compact at";
@@ -6210,7 +6196,7 @@
 "native.configureDependencySearchPaths" = "Configure dependency search paths";
 "native.configureEditorAndProjectBehavior" = "Configure editor and project behavior";
 "native.configureInSettings" = "Configure in Settings";
-"native.configureProjectJDKAndMaven" = "Configure project JDK and Maven…";
+"native.configureRuntimeEnvironment" = "Configure runtime environment…";
 "native.configured" = "Configured";
 "native.configuredRemoteName" = "Configured remote name";
 "native.confirmDeletion" = "Confirm deletion";
@@ -6226,7 +6212,6 @@
 "native.connectToRunningJVM2" = "Connect to Running JVM…";
 "native.connectToRunningJvm" = "Connect to Running JVM";
 "native.connected" = "Connected";
-"native.connectedAgentsCanChangeTheProjectJDKMavenAndRunConfigurationSettings" = "Connected agents can change the project JDK, Maven and run configuration settings.";
 "native.connectedAgentsCanRunBuildReloadAndStopTheProjectCommandsExecuteProjectCodeSoE6d273dab37" = "Connected agents can run, build, reload and stop the project. Commands execute project code, so enable this only for projects you trust.";
 "native.connectedAgentsCanUseTheConfigurationBelowWhileThisProjectIsOpen" = "Connected agents can use the configuration below while this project is open.";
 "native.connectedAs" = "Connected as @%1$@";
@@ -6263,6 +6248,7 @@
 "native.controlsHowLitheSOrdinaryFetchUpdatesSubmodules" = "Controls how Lithe's ordinary Fetch updates submodules.";
 "native.controlsHowLitheSOrdinaryFetchUpdatesSubmodulesInheritFollowsGitSFetchRecurseSubmodulesSetting" = "Controls how Lithe's ordinary Fetch updates submodules. Inherit follows Git's fetch.recurseSubmodules setting.";
 "native.controlsWhereStepIntoStopsChangesApplyTo" = "Controls where Step Into stops. Changes apply to the next Java debug session.";
+"native.controlsWhereStepIntoStopsNextSession" = "Controls where Step Into stops. Changes apply to the next debug session of this debugger.";
 "native.controlsWhetherLitheSOrdinaryFetchRemovesStaleRemoteBranches" = "Controls whether Lithe's ordinary Fetch removes stale remote branches.";
 "native.conventionalCommits" = "Conventional Commits";
 "native.conversation" = "Conversation";
@@ -7336,8 +7322,6 @@
 "native.javaServiceIsPreparing" = "Java service is preparing";
 "native.javaServiceIsReady" = "Java service is ready";
 "native.javaServicePreparationTimedOut" = "Java service preparation timed out";
-"native.javaSteppingFilters" = "Java Stepping Filters";
-"native.javaSteppingFilters2" = "Java Stepping Filters…";
 "native.javaTestDiscoveryIsNotSupportedByThis" = "Java test discovery is not supported by this language server.";
 "native.javaWorkspacePreparationCancelled" = "Java workspace preparation cancelled";
 "native.jdkHome" = "JDK Home";
@@ -7618,7 +7602,6 @@
 "native.lookUpLocation" = "Look Up Location";
 "native.lookedIn" = "Looked in: %1$@";
 "native.lookingForGit" = "Looking for Git…";
-"native.lookingForInstalledJDKs" = "Looking for installed JDKs…";
 "native.lookingForInstalledTools" = "Looking for installed tools…";
 "native.lookingUpTheLocationSendsThisAddressToIpinfoIoLitheDoesThisOnlyWhenYouClickLookUp" = "Looking up the location sends this address to ipinfo.io. Lithe does this only when you click Look Up.";
 "native.low" = "Low";
@@ -7923,7 +7906,6 @@
 "native.noItems" = "No items";
 "native.noJDKFoundSetJAVAHOMEInstallAJDKOrChooseAJDKDirectory" = "No JDK found. Set JAVA_HOME, install a JDK, or choose a JDK directory.";
 "native.noJDKIsConfiguredForThisProject" = "No JDK is configured for this project.";
-"native.noJDKWasFoundInstallAJDKThenReopenThisWindow" = "No JDK was found. Install a JDK, then reopen this window.";
 "native.noJVMPerformanceSamplesReceivedFor10Seconds" = "No JVM performance samples received for 10 seconds.";
 "native.noJavaNavigationResults" = "No Java navigation results";
 "native.noJavaProblems" = "No Java problems";
@@ -8080,6 +8062,7 @@
 "native.onePathPerLineRelativePathsAreResolvedFromTheWorkspace" = "One path per line. Relative paths are resolved from the workspace.";
 "native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx35941b6a99" = "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/`, `/*` or `/**` to hide a folder and everything in it; start with `**/` to match at any depth. A pattern without a trailing slash only hides files: `.lithe` hides a file named .lithe, not the folder.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/**` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe list starts with the built-in patterns. Delete one to show those files again; type it back to hide them.";
 "native.onePatternPerLineCaseInsensitivePatternsUseWildcardsASimplifiedFormOfRegularEx4f7ef7b38a" = "One pattern per line, case-insensitive. Patterns use wildcards, a simplified form of regular expressions: `*` matches any characters and `?` matches one.\nEnd a pattern with `/` or `/*` to hide a folder and everything in it; start with `**/` to match at any depth. Other patterns hide matching files.\nExamples:\n`**/dist/` — every dist folder\n`.lithe/*` — the .lithe folder in the project root\n`*.log` — all log files\n`docs/*.md` — Markdown files in docs\nThe built-in patterns below always apply.";
+"native.onePatternPerLineDebuggerDefinesSyntax" = "One pattern per line. The debugger defines the pattern syntax.";
 "native.onePatternPerLineForExampleOrgMockito" = "One pattern per line, for example org.mockito.* or com.example.generated.*";
 "native.onePatternPerLineLogCacheOnlyAffectsThisSearchEverywhereWindow" = "One pattern per line: `*.log`, `**/.*/`, `.*`, `cache/`. Only affects this Search Everywhere window.";
 "native.oneSentenceFocusedOnTheMainChange" = "One sentence focused on the main change";
@@ -8767,7 +8750,6 @@
 "native.runConfiguration.variant2" = "Run configuration";
 "native.runConfiguration.variant3" = "run configuration";
 "native.runConfigurations" = "Run configurations";
-"native.runConfigurationsAndMavenGoalsStartedInLitheTheyAlwaysStopWhenTheirProjectOrWi2085dbd360" = "Run configurations and Maven goals started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first.";
 "native.runConfigurationsAreUnavailableEnableTheExecutionModuleAndTryAgain" = "Run configurations are unavailable. Enable the execution module and try again.";
 "native.runConfigurationsInheritTheProjectJDKAndMavenUnlessOverriddenBelow" = "Run configurations inherit the project JDK and Maven unless overridden below.";
 "native.runConfigurationsMayBeOutOfDate" = "Run configurations may be out of date";
@@ -8873,7 +8855,6 @@
 "native.searchHooks" = "Search Hooks";
 "native.searchImplementations" = "Search implementations";
 "native.searchInProject" = "Search in Project";
-"native.searchJDKs" = "Search JDKs";
 "native.searchMcpServers" = "Search MCP servers";
 "native.searchMcpServersGithubBrowsersDocumentation" = "Search MCP servers — GitHub, browsers, documentation…";
 "native.searchOfficialMicrosoftAndAzureDocumentationAndCodeSamples" = "Search official Microsoft and Azure documentation and code samples.";
@@ -9200,6 +9181,8 @@
 "native.stepLldOfLld" = "Step %1$lld of %2$lld";
 "native.stepOut" = "Step out";
 "native.stepOver" = "Step over";
+"native.steppingFilters" = "Stepping Filters";
+"native.steppingFilters2" = "Stepping Filters…";
 "native.stopActiveExecution" = "Stop active execution";
 "native.stopAllServers" = "Stop All Servers";
 "native.stopAllServices" = "Stop all services";
@@ -10233,8 +10216,6 @@
 "plugin.terminal.permission" = "Open and manage its own native terminals, retaining bounded display history for reopening";
 "plugin.terminal.running" = "The plugin terminal is still running.";
 "plugin.terminal.unavailable" = "The terminal is unavailable.";
-"plugins.java.installNotice" = "Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept.";
-"plugins.java.installTemplates" = "Install Java Support for Java, Maven and Spring templates…";
 "plugins.title" = "Plugins";
 "ports %@" = "ports %@";
 "project Maven Wrapper" = "project Maven Wrapper";
@@ -10328,6 +10309,9 @@
 "settings.mac.projects" = "Projects";
 "settings.mac.restoreDefaults" = "Restore Defaults";
 "settings.mac.shortcuts" = "Keyboard shortcuts";
+"settings.mcp.allowConfigure.info" = "Connected agents can change the project toolchain, build and run configuration settings.";
+"settings.mcp.allowConfigure.title" = "Allow project environment and build configuration changes";
+"settings.mcp.info.projectAccess" = "Authorize this project to expose its environment, build tools, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes, and the project-level server registration is removed. Enabled plugins can also use this project grant.";
 "settings.network.checkFailed" = "The connection check failed.";
 "settings.network.connectionSucceeded" = "Connection succeeded in %1$@ ms.";
 "settings.network.credentialsUnavailable" = "Proxy credentials cannot be saved in this build.";
@@ -10342,7 +10326,7 @@
 "settings.network.info.password" = "Leave empty when the proxy does not require authentication. The password is stored in the Keychain, never in settings files.";
 "settings.network.info.passwordSaved" = "A password is saved for its original proxy. An empty field reuses it only when the proxy type, address, port and username match.";
 "settings.network.info.port" = "The proxy server's port, for example 7890.";
-"settings.network.info.scope" = "These settings apply to Lithe's own requests: the plugin marketplace, GitHub and AI providers. Terminal commands, Git, JVM dependency downloads and the built-in updater keep their own network settings; the updater always follows the system proxy. Changes apply to new requests.";
+"settings.network.info.scope" = "These settings apply to Lithe's own requests: the plugin marketplace, GitHub and AI providers. Terminal commands, Git, build tool dependency downloads and the built-in updater keep their own network settings; the updater always follows the system proxy. Changes apply to new requests.";
 "settings.network.info.type" = "HTTP proxies carry HTTPS requests through CONNECT. SOCKS5 tunnels every protocol and port.";
 "settings.network.info.username" = "Leave empty when the proxy does not require authentication.";
 "settings.network.mode.custom" = "Custom proxy server";
@@ -10361,6 +10345,8 @@
 "settings.network.type.socks5" = "SOCKS5";
 "settings.network.username" = "Username";
 "settings.noResults" = "No settings found";
+"settings.processTermination.info.runConfigurations" = "Run configurations and build tasks started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first.";
+"settings.processTermination.info.terminals" = "A terminal is busy when a program other than the shell still runs in it, such as a dev server, npm run dev or a job you sent to the background. Idle terminals always close without asking. Ending a terminal ends every program started in it.";
 "settings.search" = "Search settings";
 "stash restore" = "stash restore";
 "svg.preview" = "Preview";

@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -50,22 +50,4 @@ fn temporary_roots_do_not_alias_with_the_same_label_and_process_timestamp() {
     let roots: std::collections::HashSet<_> =
         (0..10_000).map(|_| temporary_root("same-label")).collect();
     assert_eq!(roots.len(), 10_000, "Each fixture must own a distinct path");
-}
-
-/// The answer JDT's `javaEntrypoints` operation gives for these sources.
-///
-/// Tests state it explicitly because Core must never derive entry points from
-/// source text; JDT decides which classes are launchable.
-pub(super) fn jdt_entrypoints(entries: &[(&str, &str)]) -> Value {
-    json!({
-        "schemaVersion": 1,
-        "entries": entries
-            .iter()
-            .map(|(source_path, main_class)| json!({
-                "sourcePath": source_path,
-                "mainClass": main_class
-            }))
-            .collect::<Vec<_>>(),
-        "diagnostics": []
-    })
 }

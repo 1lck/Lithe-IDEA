@@ -2,7 +2,7 @@
   "id": "debug-performance",
   "area": "运行与调试",
   "group": "调试器",
-  "capability": "目标JVM实时CPU与堆内存图表",
+  "capability": "调试与测试目标进程树的实时 CPU 与内存图表；JVM 堆与 JFR 录制由 Java 插件提供",
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Debug/DebugPerformancePane.swift",
@@ -10,15 +10,9 @@
       "macos/Sources/Lithe/Platform/MacOS/Debug/MacDebugPerformanceSampler.swift",
       "macos/Tests/LitheTests/DebugPerformanceChartTests.swift",
       "macos/Tests/LitheTests/DebugPerformanceSamplingTests.swift",
-      "macos/Tests/LitheTests/JVMPerformanceIntegrationTests.swift",
       ".agents/notes/implemented/feature/2026-10-14-local-jvm-performance-monitoring.md",
       "macos/Sources/Lithe/Platform/MacOS/Debug/MacProcessTreePerformanceSampler.swift",
       "macos/Tests/LitheTests/ProcessTreePerformanceTests.swift",
-      "macos/Sources/Lithe/Platform/MacOS/Debug/MacTestJVMPerformance.swift",
-      "macos/Sources/Lithe/Application/Features/TestJVMPerformanceFeatureModel.swift",
-      "macos/Sources/Lithe/Views/Language/TestJVMPerformanceView.swift",
-      "macos/Tests/LitheTests/TestJFRIntegrationTests.swift",
-      "macos/Tests/LitheTests/TestJVMPerformanceFeatureTests.swift",
       "docs/screenshots/test-panel-review"
     ],
     "implementationStatus": "implemented",

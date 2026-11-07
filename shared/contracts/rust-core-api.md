@@ -3079,29 +3079,21 @@ requests when the session disconnects. The shared compatibility cases are in
 `debug.launch` accepts an `operationId` and a language-neutral configuration
 containing `name`, request kind (`launch` or `attach`), provider arguments, and
 optional portable `steppingFilters`.
-`debug.javaTestLaunch` accepts JDT LS-owned working directory, main class,
-project, classpath, module path, VM arguments, program arguments, Java test
-framework, and a platform-owned loopback result port. JUnit placeholder ports
-are replaced deterministically. TestNG appends the packaged runner once and
-uses its selected method names. Core serializes JDT's VM and program argument
-arrays into the string fields required by Java Debug Server's DAP launch model.
-JDT LS remains responsible for resolving file,
-class, and method selections to this metadata; Core does not parse Java source
-or infer a test framework in this command. The command creates no process,
-socket, timer, or persistent session; compatibility cases live in
-`shared/fixtures/debug/java-test-launch-v1.json`.
+Test launches are not a Core command: a debug adapter plugin resolves test
+selections to launch arguments in its own backend and submits them through
+`debug.launch` like any other configuration.
 Launch submitted during initialization is retained until the initialize
-response. For Java, Core projects those filters into the adapter's `stepFilters`
-launch object unless the provider arguments already contain an explicit value.
+response. Core projects the stepping filters into the launch argument the
+adapter declared in its `stepFilters` feature unless the provider arguments
+already contain an explicit value; an adapter without that declaration never
+receives invented launch arguments.
 `debug.steppingFilters` accepts `{ adapterId, filters? }`; omission of `filters`
-returns deterministic adapter defaults, while a supplied value is trimmed,
+returns an unfiltered policy, while a supplied value is trimmed,
 sorted, de-duplicated, and validated before persistence or launch. Omitted
-fields inside a supplied value are empty or false, so future adapters never
-inherit Java policy accidentally. Java class
-patterns support `$JDK`, `$Libraries`, and adapter-compatible wildcards. Other
-adapters default to an unfiltered policy until their integration defines one.
-Java defaults include both `$JDK` and `$Libraries`, matching the IDE convention
-of collapsing platform and dependency frames while retaining project frames.
+fields inside a supplied value are empty or false, so adapters never inherit
+another adapter's policy. Adapter defaults come from the plugin's declared
+debug-adapter defaults, and class patterns are passed through to the adapter
+unchanged, so an adapter may use its own placeholder and wildcard syntax.
 The portable cases are in
 `shared/fixtures/debug/stepping-filters-v1.json`.
 

@@ -1,5 +1,5 @@
 //! Provider-owned run preparation and validation of portable launch plans.
-//! Upstream providers own build/classpath facts; Core only validates selectors,
+//! Upstream providers own build and launch facts; Core only validates selectors,
 //! bounded arguments, executable references, and workspace path containment.
 
 use super::decode::{self, Workspace};

@@ -133,12 +133,6 @@ fn is_declared_name(value: &str) -> bool {
 }
 
 impl DeclaredAdapterBehavior {
-    /// Whether the adapter declared nothing, so the engine keeps the
-    /// behaviour it had before `debugAdapters` 3.
-    pub(crate) fn is_empty(&self) -> bool {
-        self.features.is_none() && self.defaults.is_none()
-    }
-
     /// Checks names and filters; an error names the declaration field and
     /// what is wrong with it.
     pub(crate) fn check(&self) -> Result<(), (&'static str, &'static str)> {
@@ -249,7 +243,7 @@ pub struct DebugLaunchConfiguration {
 #[serde(rename_all = "camelCase")]
 /// Portable class and method filters used for stepping and stack-frame presentation.
 pub struct DebugSteppingFilters {
-    /// Adapter-neutral class-name patterns; Java also accepts `$JDK` and `$Libraries`.
+    /// Adapter-neutral class-name patterns; `$Libraries` matches frames outside the workspace.
     #[serde(default)]
     pub class_name_filters: Vec<String>,
     /// Whether compiler-generated methods should be skipped.
@@ -267,14 +261,6 @@ pub struct DebugSteppingFilters {
 }
 
 impl DebugSteppingFilters {
-    pub(crate) fn defaults_for_adapter(adapter_id: &str) -> Self {
-        if adapter_id == "java" {
-            Self::default()
-        } else {
-            Self::unfiltered()
-        }
-    }
-
     pub(crate) fn unfiltered() -> Self {
         Self {
             class_name_filters: Vec::new(),
@@ -287,48 +273,17 @@ impl DebugSteppingFilters {
 }
 
 impl Default for DebugSteppingFilters {
+    /// The Core has no adapter-specific defaults; plugins declare theirs in `debugAdapters`.
     fn default() -> Self {
-        Self {
-            class_name_filters: default_java_class_name_filters(),
-            skip_synthetics: true,
-            skip_static_initializers: true,
-            // IDEA leaves constructor skipping off by default because application
-            // initialization is often meaningful user code.
-            skip_constructors: false,
-            hide_filtered_stack_frames: true,
-        }
+        Self::unfiltered()
     }
-}
-
-fn default_java_class_name_filters() -> Vec<String> {
-    [
-        "$JDK",
-        "$Libraries",
-        "com.ibm.ws.*",
-        "com.springsource.loaded.*",
-        "com.sun.proxy.*",
-        "javassist.*",
-        "jdk.proxy*.*",
-        "junit.*",
-        "net.bytebuddy.*",
-        "net.sf.cglib.*",
-        "org.apache.webbeans.*",
-        "org.junit.*",
-        "org.mockito.*",
-        "org.springframework.aop.framework.*",
-        "org.springframework.cglib.*",
-        "org.springsource.loaded.*",
-    ]
-    .into_iter()
-    .map(str::to_string)
-    .collect()
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Returns an adapter's defaults or normalizes a native client's stepping policy.
 pub struct DebugSteppingFiltersRequest {
-    /// Stable adapter identifier, such as `java`.
+    /// Stable adapter identifier, such as `lldb`.
     pub adapter_id: String,
     /// Optional client override; omission requests the adapter defaults.
     #[serde(default)]
@@ -594,7 +549,7 @@ pub enum DebugInspectKind {
     GotoTargets,
     /// Debug Console completion proposals for the text typed so far.
     Completions,
-    /// Java Debug Server hot replacement; mutates classes in the debuggee.
+    /// Hot code replacement declared by the adapter; mutates code in the debuggee.
     RedefineClasses,
     /// Machine instructions around a memory reference, for the disassembly view.
     Disassemble,
@@ -907,7 +862,7 @@ pub enum DebugOperationFailureCode {
 )]
 /// Typed terminal data for one caller-owned debug operation.
 pub enum DebugOperationResult {
-    /// Classes actually replaced by Java Debug Server (empty means no changes).
+    /// Classes the adapter actually replaced (empty means no changes).
     RedefineClasses {
         changed_classes: Vec<String>,
     },

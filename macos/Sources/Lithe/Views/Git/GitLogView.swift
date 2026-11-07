@@ -816,7 +816,7 @@ struct GitLogView: View {
                         content: AnyView(
                             HStack(spacing: LitheTheme.Tree.iconTextGap) {
                                 LitheIDEAIcon(
-                                    resourcePath: "maven/toolWindowMaven.svg", size: LitheTheme.Tree.iconSize,
+                                    resourcePath: "expui/nodes/folder.svg", size: LitheTheme.Tree.iconSize,
                                     preservesOriginalColors: true)
                                 if let index = gitRepositoryColorIndex(for: repository.repositoryRoot) {
                                     Circle().fill(GitRepositoryColor.color(at: index)).frame(width: 8, height: 8)

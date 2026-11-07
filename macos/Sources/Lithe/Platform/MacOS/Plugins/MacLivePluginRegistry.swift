@@ -47,13 +47,12 @@ struct PluginDebugAdapterEntry {
     /// The adapter that launches a debug session for a language's open file,
     /// first package in ID order first. An adapter that only attaches, or only
     /// debugs executables and processes, is not chosen for a file.
-    /// Java keeps the host's own adapter.
     static func index(of packages: [InstalledPluginPackage]) -> [String: PluginDebugAdapterEntry] {
         var entries: [String: PluginDebugAdapterEntry] = [:]
         for plugin in packages.sorted(by: { $0.manifest.id < $1.manifest.id }) {
             for adapter in plugin.descriptor.debugAdapters {
                 let languageIDs = adapter.fileLaunchLanguageIDs
-                for languageID in languageIDs where languageID != "java" && entries[languageID] == nil {
+                for languageID in languageIDs where entries[languageID] == nil {
                     entries[languageID] = PluginDebugAdapterEntry(plugin: plugin, adapter: adapter)
                 }
             }

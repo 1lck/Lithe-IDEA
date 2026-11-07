@@ -97,12 +97,6 @@ struct LSPControlCenterContent: View {
     private func languageRow(_ descriptor: LanguageProviderDescriptor) -> some View {
         let status = serverStatus(for: descriptor)
         let isEnabled = !model.isLanguageServerDisabledInCurrentWorkspace(providerID: descriptor.id)
-        let mavenResults: [MavenProfileProjectResult]? = model.languageToolingSessionsIfActive.map {
-            Array($0.mavenProfileProjectResults.values)
-        }
-        let mavenState = descriptor.id == "java"
-            ? LSPControlCenterPresenter.mavenProfileState(mavenResults ?? [])
-            : .idle
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
@@ -113,7 +107,7 @@ struct LSPControlCenterContent: View {
                     Text(descriptor.displayName)
                         .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
-                    Text(statusDescription(for: descriptor, status: status))
+                    Text(statusDescription(status))
                         .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(status == .error ? LitheTheme.error : LitheTheme.secondaryText)
                         .lineLimit(2)
@@ -127,15 +121,6 @@ struct LSPControlCenterContent: View {
                     accessibilityLabel: LocalizedStringKey(settings.language.localizedFormat("native.inline.enableArg1LanguageServer", String(describing: descriptor.displayName)))
                 )
             }
-            if descriptor.id == "java", case .partiallyFailed = mavenState,
-               let sessions = model.languageToolingSessionsIfActive
-            {
-                Button(settings.language.localizedString("native.inline.retryMavenConfiguration")) {
-                    sessions.retryMavenProfiles(providerID: descriptor.id)
-                }
-                .buttonStyle(LitheActionButtonStyle())
-            }
-
         }
         .padding(14)
         .background(
@@ -274,23 +259,7 @@ struct LSPControlCenterContent: View {
         )
     }
 
-    private func statusDescription(
-        for descriptor: LanguageProviderDescriptor,
-        status: LSPServerStatus
-    ) -> String {
-        if descriptor.id == "java", let manager = model.languageToolingSessionsIfActive {
-            let mavenState = LSPControlCenterPresenter.mavenProfileState(
-                Array(manager.mavenProfileProjectResults.values)
-            )
-            switch mavenState {
-            case .applying:
-                return settings.language.localizedString("native.inline.languageServiceConnectedApplyingMavenConfiguration")
-            case .partiallyFailed(let failed, let total):
-                return settings.language.localizedFormat("native.inline.someModulesFailedArg1Arg2LanguageServiceRemainsAvailable", String(describing: failed), String(describing: total))
-            case .idle, .complete:
-                break
-            }
-        }
+    private func statusDescription(_ status: LSPServerStatus) -> String {
         switch status {
         case .starting: return settings.language.localizedString("native.inline.starting")
         case .initializing: return settings.language.localizedString("native.inline.initializingProjectIndex")
@@ -300,9 +269,6 @@ struct LSPControlCenterContent: View {
         case .stopped:
             return settings.language.localizedString("native.inline.startsOnDemandWhenAMatchingFileIsOpened")
         case .error:
-            if descriptor.id == "java" {
-                return settings.language.localizedString("native.inline.failedToStartCheckTheLspRuntimeJdk")
-            }
             return settings.language.localizedString("native.inline.failedToStartCheckTheLanguageServerConfiguration")
         }
     }

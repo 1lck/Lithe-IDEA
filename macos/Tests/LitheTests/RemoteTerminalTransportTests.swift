@@ -20,8 +20,8 @@ struct RemoteTerminalTransportTests {
         let host = FixtureTerminalHost()
         let (transport, renderer) = terminal(host)
         defer { transport.stop(); host.finish() }
-        let launch = TerminalProcessLaunch(title: "Run", executablePath: "/host/jdk/bin/java",
-            arguments: ["-cp", "/host/project/classes with spaces", "Main"],
+        let launch = TerminalProcessLaunch(title: "Run", executablePath: "/host/tools/bin/tool-a",
+            arguments: ["--input", "/host/project/dir with spaces", "main"],
             workingDirectory: root.appendingPathComponent("module").path)
         let pid = try await transport.startProcessAsync(launch, environment: ["TERM": "xterm-256color"])
         #expect(pid == 321)
@@ -29,7 +29,7 @@ struct RemoteTerminalTransportTests {
         #expect(renderer.view.hasRemoteProcess)
         #expect(host.requests.first?.session == "host-one")
         #expect(host.requests.first?.request.cwd == "/host/project/module")
-        #expect(host.requests.first?.request.argv == ["/host/jdk/bin/java", "-cp", "/host/project/classes with spaces", "Main"])
+        #expect(host.requests.first?.request.argv == ["/host/tools/bin/tool-a", "--input", "/host/project/dir with spaces", "main"])
         try transport.send(Data("input\n".utf8))
         #expect(await terminalEventually { !host.writes.isEmpty })
         #expect(host.writes.first == Data("input\n".utf8))

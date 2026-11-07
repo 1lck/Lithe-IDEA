@@ -43,10 +43,6 @@ final class WorkflowActionsSpy: DebugSessionCleanupActions, RunWorkflowActions {
         events.append("activate")
     }
 
-    func stopJavaTestResultServer() {
-        events.append("stop-java-result-server")
-    }
-
     func stopDebugTerminalProcesses(for debugSessionID: DebugSessionID?) {
         events.append(debugSessionID == nil ? "stop-terminals" : "stop-session-terminals")
         stoppedTerminalSessionIDs.append(debugSessionID)

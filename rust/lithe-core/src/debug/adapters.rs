@@ -81,9 +81,9 @@ const EXECUTABLE_VARIABLES: &[&str] = &[
 /// What a candidate may start with, so a lookup stays beside the user's work.
 const EXECUTABLE_ROOTS: &[&str] = &["${workspaceFolder}/", "${fileDirectory}/"];
 
-/// Runtimes a `runSelectedRuntime` launch may name: the tools Run can select
-/// a runtime for.
-const SELECTED_RUNTIME_TOOLS: &[&str] = &["java", "node", "python"];
+/// Host-known runtimes a `runSelectedRuntime` launch may name below
+/// `serverProcess` 4; any other short ID refers to a plugin tool definition.
+const SELECTED_RUNTIME_TOOLS: &[&str] = &["node", "python"];
 
 /// Target kinds a selector may match.
 const TARGET_KINDS: &[&str] = &["connection", "executable", "file", "process", "runTarget"];

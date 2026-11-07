@@ -15,8 +15,6 @@ extension RustCoreBridge: RunLaunchEnvironmentResolving {
 
     private struct LaunchEnvironmentPayload: Encodable {
         let toolchain: String?
-        let javaHome: String?
-        let mavenJavaHome: String?
         let inherited: [String: String]
         let overrides: [String: String]
     }
@@ -26,13 +24,13 @@ extension RustCoreBridge: RunLaunchEnvironmentResolving {
     }
 
     func resolveLaunchEnvironment(
-        toolchain: String?, selectedHome: String?,
+        toolchain: String?,
         inherited: [String: String], overrides: [String: String]
     ) throws -> [String: String] {
         let result: LaunchEnvironmentResult = try executeResult(
             command: "execution.resolveEnvironment",
             payload: LaunchEnvironmentPayload(
-                toolchain: toolchain, javaHome: selectedHome, mavenJavaHome: selectedHome,
+                toolchain: toolchain,
                 inherited: inherited, overrides: overrides
             )
         ).get()

@@ -94,8 +94,9 @@ test(`stdio MCP ${mode}: discovery, calls and tool failures`, {timeout:15000}, a
   const selected = await send("tools/list", params);
   assert.equal(selected.result.tools.length, exposure.macos.length);
   assert.ok(!selected.result.tools.some(tool => tool.name.startsWith("lithe_maven_")));
-  const environment = selected.result.tools.find(tool => tool.name === "lithe_environment_configure");
-  assert.deepEqual(Object.keys(environment.inputSchema.properties).sort(), ["javaHomePath", "mavenExecutablePath", "mavenJavaHomePath"].sort());
+  assert.ok(!selected.result.tools.some(tool => tool.name.startsWith("lithe_environment_")));
+  const configure = selected.result.tools.find(tool => tool.name === "lithe_build_configure");
+  assert.deepEqual(Object.keys(configure.inputSchema.properties).sort(), ["instanceID", "optionID", "value"].sort());
   descriptor.toolExposure = exposure.windows;
   await writeFile(connection, JSON.stringify(descriptor), {mode:0o600});
   const windows = await send("tools/list", params);

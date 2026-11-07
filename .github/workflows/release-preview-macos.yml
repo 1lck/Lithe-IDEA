@@ -100,9 +100,6 @@ jobs:
           cargo: "true"
           cargo-build: "true"
           cargo-build-architecture: ${{ matrix.architecture }}
-          jdtls: "true"
-          jdk: "true"
-          jdk-architecture: ${{ matrix.architecture }}
 
       - name: Import Developer ID signing identity
         env:
@@ -116,7 +113,7 @@ jobs:
             echo "Incomplete Developer ID configuration: provide the certificate or remove the optional identity and password."
             exit 1
           else
-            echo "Developer ID is not configured; the preview app will be ad-hoc signed. Official plugin packages use Lithe Ed25519 signatures."
+            echo "Developer ID is not configured; the preview app will be ad-hoc signed."
           fi
 
       - name: Build and package the preview app

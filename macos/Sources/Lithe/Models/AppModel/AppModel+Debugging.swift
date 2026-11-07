@@ -13,22 +13,6 @@ import LitheModuleAPI
 /// from the run inventory.
 @MainActor
 extension AppModel {
-    func applyDebugServiceUpdate() {
-        guard let feature = genericDebugFeatureIfActive, let identity = currentWorkspaceIdentity,
-              let updateSessionID = feature.activeSessionID else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            await feature.applyJavaServiceUpdate { target, source, root in
-                guard self.isCurrentWorkspace(identity), await self.saveAllDocuments(),
-                      self.isCurrentWorkspace(identity) else { throw CancellationError() }
-                let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
-                guard self.isCurrentWorkspace(identity), feature.activeSessionID == updateSessionID,
-                      feature.isSessionActive else { throw CancellationError() }
-                try await sessions.buildJavaServiceUpdate(target: target, fileURL: source, rootURL: root)
-            }
-        }
-    }
-
     /// The plugin of the active session declared how to apply changed code, so the host saves
     /// the open documents and asks the adapter to apply them.
     func applyDeclaredDebugCodeChanges() {
@@ -38,27 +22,6 @@ extension AppModel {
             await feature.applyDeclaredCodeChanges {
                 guard let self, self.isCurrentWorkspace(identity), await self.saveAllDocuments(),
                       self.isCurrentWorkspace(identity) else { throw CancellationError() }
-            }
-        }
-    }
-
-    func restartUpdatedDebugService() {
-        guard let feature = genericDebugFeatureIfActive, let identity = currentWorkspaceIdentity,
-              let sessionID = feature.activeSessionID else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            await feature.restartJavaService { source, root in
-                guard self.isCurrentWorkspace(identity), await self.saveAllDocuments(),
-                      self.isCurrentWorkspace(identity), feature.activeSessionID == sessionID else {
-                    throw CancellationError()
-                }
-                let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
-                let preparation = try await sessions.prepareJavaRunLaunchTarget(fileURL: source, rootURL: root)
-                switch preparation {
-                case .ready(let target): return target
-                case .buildFailed(_, let failure):
-                    throw RunConfigurationOperationFailure(message: failure.message)
-                }
             }
         }
     }
@@ -83,19 +46,10 @@ extension AppModel {
     }
 
     func startDebugging() {
-        if let target = activeTestTarget {
-            debugTest(providerID: target.providerID,
-                scope: target.scope)
-            return
-        }
         runWorkflowCoordinator.startModuleOperation { [weak self] in await self?.startDebuggingAfterActivation() }
     }
 
     func startOrRestartDebugging() {
-        if let target = activeTestTarget, target.name != genericDebugFeatureIfActive?.targetTitle {
-            startDebugging()
-            return
-        }
         guard let feature = genericDebugFeatureIfActive,
               feature.isSessionActive else {
             startDebugging()
@@ -104,12 +58,6 @@ extension AppModel {
         showDebugToolWindow()
         if feature.canRestart {
             feature.execute(.restart)
-        }
-    }
-
-    func attachJavaDebugger(host: String, port: Int) {
-        Task { [weak self] in
-            await self?.attachJavaDebuggerAfterActivation(host: host, port: port)
         }
     }
 
@@ -131,44 +79,6 @@ extension AppModel {
         return await ExternalDebugAdapterConnection.connect(
             feature: feature, fileURL: fileURL, rootURL: workspaceURL, configuration: configuration
         )
-    }
-
-    private func attachJavaDebuggerAfterActivation(host: String, port: Int) async {
-        guard let workspaceURL,
-              await activateDebugModule() != nil else { return }
-        let sourceURL = ([activeDocument?.url].compactMap { $0 } + projectFiles)
-            .map(\.standardizedFileURL)
-            .first {
-                languageProviderCatalog.provider(for: $0)?.id == "java"
-            }
-        guard let sourceURL else {
-            showNotification("Open a Java project before connecting the debugger", logReference: notificationRejection(operation: "debugging", reason: "unavailable_0"))
-            return
-        }
-        let configuration: DebugLaunchConfiguration
-        do {
-            configuration = try debugLaunchConfigurationResolver.resolveJavaAttach(
-                host: host,
-                port: port
-            )
-        } catch {
-            showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "debugging"))
-            return
-        }
-        guard let genericDebugFeature = genericDebugFeatureIfActive,
-              genericDebugFeature.start(
-                  fileURL: sourceURL,
-                  rootURL: workspaceURL,
-                  configuration: configuration
-              ) else {
-            showNotification(
-                genericDebugFeatureIfActive?.errorMessage ?? "Could not connect to the JVM",
-                logReference: notificationRejection(operation: "debug_attach", reason: "attach_failed")
-            )
-            showToolWindow(.debug)
-            return
-        }
-        showDebugToolWindow()
     }
 
     func startDebuggingAfterActivation(configuration requestedConfiguration: RunConfiguration? = nil) async {
@@ -223,23 +133,10 @@ extension AppModel {
             else { showNotification("The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.", logReference: notificationRejection(operation: "debugging", reason: "unavailable_2")) }
             return
         }
-        let activeDocumentIsLaunchable = selectedConfiguration.usesCurrentEditorFile
-            ? await isLaunchableJavaEntrypoint(activeDocument, in: workspaceURL)
-            : false
         guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
-        let configuration = runWorkflowCoordinator.debugConfiguration(
-            selected: selectedConfiguration,
-            activeDocumentIsLaunchable: activeDocumentIsLaunchable,
-            configurations: runFeature.configurations
-        )
-        runFeature.select(configuration)
-        if configuration.usesProviderConnectionDebug {
-            await startProviderServiceDebug(configuration, identity: identity, run: runFeature)
-            return
-        }
 
         let sourceResolution = runWorkflowCoordinator.resolveDebugSource(
-            configuration: configuration,
+            configuration: selectedConfiguration,
             activeDocument: activeDocument,
             projectFiles: projectFiles,
             workspaceURL: workspaceURL
@@ -250,9 +147,6 @@ extension AppModel {
             sourceURL = resolved
         case .currentFileUnavailable:
                 showNotification("Open a source file or choose a project Run configuration", logReference: notificationRejection(operation: "debugging", reason: "unavailable_3"))
-            return
-        case .javaSourceUnavailable(let name):
-            showNotification("Could not find the Java source for %@", arguments: [name], logReference: notificationRejection(operation: "debugging", reason: "unavailable_4"))
             return
         case .unsupported(let name):
             showNotification("%@ does not support Debug yet", arguments: [name], logReference: notificationRejection(operation: "debugging", reason: "unavailable_5"))
@@ -283,7 +177,6 @@ extension AppModel {
         }
         buildSystemsFeatureIfActive?.cancelDebugPreparation()
         runWorkflowCoordinator.cancelModuleOperation()
-        cancelJavaTestDebugLaunch()
         guard let feature = genericDebugFeatureIfActive else {
             stopDebugTerminalProcesses()
             return
@@ -494,53 +387,22 @@ extension AppModel {
         guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         let selectedConfiguration = runFeature.selectedConfiguration
         // Debug is the second execution mode for the Run selection. Re-apply
-        // the selection here so its project-scoped Java runtime override is
-        // active even when the Run panel was never opened in this session.
+        // the selection here so its project-scoped overrides are active even
+        // when the Run panel was never opened in this session.
         runWorkflowCoordinator.reapplySelectedConfiguration(runFeature)
         guard await featureGraph.debugLaunchPreparation.saveDirtyDocumentIfNeeded(document) else {
             return
         }
-        var javaUpdateTarget: JavaDebugLaunchTarget?
         let configuration: DebugLaunchConfiguration
         let buildInputs: UInt64?
-        let javaImport: JavaLanguageImportConfiguration?
         do {
-            if let selectedConfiguration { try await prepareCurrentProviderGeneration(configuration: selectedConfiguration, identity: identity) }
-            if let selectedConfiguration, selectedConfiguration.usesJavaProjectPreparation {
-                javaImport = try await prepareJavaBuildResources(configuration: selectedConfiguration, fileURL: fileURL, identity: identity)
-            } else { try await prepareBuildLanguageImport(); javaImport = nil }
+            try await awaitBuildSystemDetection()
             buildInputs = buildSystemsFeatureIfActive?.inputRevision
-            configuration = try await featureGraph.debugLaunchPreparation.prepare(
+            configuration = try featureGraph.debugLaunchPreparation.prepare(
                 provider: provider,
                 fileURL: fileURL,
                 workspaceURL: workspaceURL,
-                runFeature: runFeature,
-                resolver: debugLaunchConfigurationResolver,
-                portChecker: debugPortAvailabilityChecker,
-                resolveJavaTarget: { [weak self] in
-                    guard let self else { return nil }
-                    try await self.saveJavaWorkspaceForLaunch(identity: identity)
-                    let operation = self.buildSystemsFeatureIfActive?.operation?.id
-                    let sessions = try await self.languageSessionsForWorkspaceMaintenance(for: identity)
-                    let preparation: JavaLaunchPreparation
-                    if let javaImport {
-                        preparation = try await sessions.prepareJavaRunLaunchTarget(fileURL: fileURL, rootURL: workspaceURL, languageImport: javaImport, mainClass: selectedConfiguration?.mainClass)
-                    } else {
-                        preparation = try await sessions.prepareJavaRunLaunchTarget(fileURL: fileURL, rootURL: workspaceURL, mainClass: selectedConfiguration?.mainClass)
-                    }
-                    let javaRevision = sessions.javaImportRevision
-                    let target = try await self.resolveJavaLaunchPreparation(
-                        preparation,
-                        identity: identity
-                    )
-                    guard !Task.isCancelled, self.isCurrentWorkspace(identity), self.buildSystemsFeatureIfActive?.operation?.id == operation,
-                          sessions.javaImportRevision == javaRevision else { throw CancellationError() }
-                    let prepared = JavaDebugLaunchTarget(mainClass: target.mainClass, projectName: target.projectName,
-                        modulePaths: target.modulePaths, classPaths: target.classPaths,
-                        buildPrepared: selectedConfiguration?.usesJavaProjectPreparation == true)
-                    javaUpdateTarget = prepared
-                    return prepared
-                }
+                resolver: debugLaunchConfigurationResolver
             )
         // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
         } catch is CancellationError {
@@ -566,7 +428,6 @@ extension AppModel {
         ) else {
             return
         }
-        if let javaUpdateTarget { genericDebugFeature.registerJavaUpdateTarget(javaUpdateTarget) }
         showDebugToolWindow()
     }
 

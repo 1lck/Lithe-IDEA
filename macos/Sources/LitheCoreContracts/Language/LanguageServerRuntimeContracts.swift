@@ -1,25 +1,6 @@
 import Foundation
 import LitheModuleAPI
 
-/// What a running Java session was asked to do with a Maven configuration.
-///
-/// Every step runs asynchronously inside JDT LS; resolution problems arrive
-/// later as `pom.xml` diagnostics.
-package struct LanguageServerMavenConfigurationUpdate: Decodable, Equatable, Sendable {
-    /// New settings documents were sent, so JDT LS re-imports every Maven project.
-    package let settingsChanged: Bool
-    /// Settings were unchanged, so a forced project update was requested.
-    package let projectsReloaded: Bool
-    /// Changed profiles are being applied.
-    package let profilesUpdating: Bool
-
-    package init(settingsChanged: Bool, projectsReloaded: Bool, profilesUpdating: Bool) {
-        self.settingsChanged = settingsChanged
-        self.projectsReloaded = projectsReloaded
-        self.profilesUpdating = profilesUpdating
-    }
-}
-
 package struct LanguageServerRuntimeFailure: Error, Equatable, Sendable {
     package let code: String
     package let message: String
@@ -46,60 +27,6 @@ package struct LanguageServerRuntimeStart: Equatable, Sendable {
         self.sessionID = sessionID
         self.state = state
         self.processID = processID
-    }
-}
-
-/// An installed JDK the Java language service may compile projects against.
-package struct JavaLanguageServiceRuntime: Equatable, Sendable {
-    package let isDefault: Bool
-    package let homePath: String
-    /// Version reported by `java -version`, such as `25.0.4` or `1.8.0_402`.
-    package let version: String
-
-    package init(homePath: String, version: String, isDefault: Bool = false) {
-        self.isDefault = isDefault
-        self.homePath = homePath
-        self.version = version
-    }
-}
-
-package struct JDTLSLaunchResources: Equatable, Sendable {
-    package let launcherJarURL: URL
-    package let configurationDirectoryURL: URL
-    package let lombokAgentURL: URL
-    /// Ordered OSGi bundles contributed by Java tooling extensions. The Java
-    /// Debug Server remains first for compatibility with older Rust cores.
-    package let javaExtensionBundleURLs: [URL]
-    /// Standalone TestNG runner used only when a TestNG debug launch is requested.
-    package let javaTestRunnerURL: URL?
-    /// Installed JDKs, most preferred first. Without them JDT LS knows only the
-    /// JDK it runs on and cannot build a project for a newer release.
-    package let javaRuntimes: [JavaLanguageServiceRuntime]
-
-    package init(
-        launcherJarURL: URL,
-        configurationDirectoryURL: URL,
-        lombokAgentURL: URL,
-        javaDebugBundleURL: URL? = nil,
-        javaExtensionBundleURLs: [URL] = [],
-        javaTestRunnerURL: URL? = nil,
-        javaRuntimes: [JavaLanguageServiceRuntime] = []
-    ) {
-        self.javaRuntimes = javaRuntimes
-        self.launcherJarURL = launcherJarURL.standardizedFileURL
-        self.configurationDirectoryURL = configurationDirectoryURL.standardizedFileURL
-        self.lombokAgentURL = lombokAgentURL.standardizedFileURL
-        var seen = Set<String>()
-        self.javaExtensionBundleURLs = ([javaDebugBundleURL].compactMap { $0 } + javaExtensionBundleURLs)
-            .map(\.standardizedFileURL)
-            .filter { seen.insert($0.path).inserted }
-        self.javaTestRunnerURL = javaTestRunnerURL?.standardizedFileURL
-    }
-
-    package var javaDebugBundleURL: URL? {
-        javaExtensionBundleURLs.first {
-            $0.lastPathComponent.hasPrefix("com.microsoft.java.debug.plugin-")
-        }
     }
 }
 
@@ -173,45 +100,12 @@ package struct LanguageServerWorkspaceFileChange: Equatable, Sendable {
     }
 }
 
-package enum JavaNavigationDirection: String, Codable, Equatable, Sendable {
-    case up
-    case down
-}
-
-package enum JavaNavigationRelation: String, Codable, Equatable, Sendable {
-    case interface
-    case inheritance
-}
-
-package struct JavaNavigationMarker: Equatable, Sendable {
-    package let line: Int
-    package let utf16Column: Int
-    package let implementationCount: Int
-    package let direction: JavaNavigationDirection
-    package let relation: JavaNavigationRelation
-
-    package init(
-        line: Int,
-        utf16Column: Int,
-        implementationCount: Int,
-        direction: JavaNavigationDirection,
-        relation: JavaNavigationRelation
-    ) {
-        self.line = line
-        self.utf16Column = utf16Column
-        self.implementationCount = implementationCount
-        self.direction = direction
-        self.relation = relation
-    }
-}
-
 package struct LanguageServerRuntimeError: Equatable, Sendable {
     package let code: String
     package let stage: String
     package let message: String
     package let underlyingMessage: String?
     package let processExitCode: Int?
-    package let javaBuildReport: JavaBuildReport?
     /// Plugin-defined code of a failed plugin function, for the plugin's own
     /// UI only; the host never branches on it.
     package let pluginErrorCode: String?
@@ -225,7 +119,6 @@ package struct LanguageServerRuntimeError: Equatable, Sendable {
         message: String,
         underlyingMessage: String?,
         processExitCode: Int?,
-        javaBuildReport: JavaBuildReport? = nil,
         pluginErrorCode: String? = nil,
         details: ToolingJSONValue? = nil
     ) {
@@ -234,57 +127,9 @@ package struct LanguageServerRuntimeError: Equatable, Sendable {
         self.message = message
         self.underlyingMessage = underlyingMessage
         self.processExitCode = processExitCode
-        self.javaBuildReport = javaBuildReport
         self.pluginErrorCode = pluginErrorCode
         self.details = details
     }
-}
-
-package enum JavaBuildMarkerScope: String, Codable, Equatable, Sendable {
-    case launchTarget
-    case workspace
-}
-
-package enum JavaBuildRecovery: String, Codable, Equatable, Sendable {
-    case none
-    case rebuildJavaIndex
-}
-
-/// Evidence reported by Core for one terminal Java build verdict.
-package struct JavaBuildReport: Codable, Equatable, Sendable {
-    package let markerScope: JavaBuildMarkerScope
-    package let builderFailedEarlier: Bool
-    package let elapsedMilliseconds: UInt64
-    package let recovery: JavaBuildRecovery
-
-    package init(
-        markerScope: JavaBuildMarkerScope,
-        builderFailedEarlier: Bool,
-        elapsedMilliseconds: UInt64,
-        recovery: JavaBuildRecovery
-    ) {
-        self.markerScope = markerScope
-        self.builderFailedEarlier = builderFailedEarlier
-        self.elapsedMilliseconds = elapsedMilliseconds
-        self.recovery = recovery
-    }
-}
-
-package struct JavaLaunchBuildFailure: Codable, Equatable, Sendable {
-    package let code: String
-    package let message: String
-    package let report: JavaBuildReport?
-
-    package init(code: String, message: String, report: JavaBuildReport?) {
-        self.code = code
-        self.message = message
-        self.report = report
-    }
-}
-
-package enum JavaLaunchPreparation: Equatable, Sendable {
-    case ready(JavaDebugLaunchTarget)
-    case buildFailed(target: JavaDebugLaunchTarget, failure: JavaLaunchBuildFailure)
 }
 
 package struct LanguageServerRuntimeEvent: Equatable, Sendable {
@@ -292,8 +137,6 @@ package struct LanguageServerRuntimeEvent: Equatable, Sendable {
     package let coreLog: CoreLogRecord?
     package let pluginID: String?
     package let role: String?
-    package let mavenProfileTask: String?
-    package let mavenProfileProject: MavenProfileProjectResult?
     package let type: String
     package let state: String?
     package let operationID: String?
@@ -322,15 +165,11 @@ package struct LanguageServerRuntimeEvent: Equatable, Sendable {
         level: String? = nil,
         message: String? = nil,
         detail: String? = nil,
-        mavenProfileTask: String? = nil,
-        mavenProfileProject: MavenProfileProjectResult? = nil,
         method: String? = nil,
         coreLog: CoreLogRecord? = nil, pluginID: String? = nil, role: String? = nil
     ) {
         self.coreLog = coreLog; self.pluginID = pluginID; self.role = role
         self.method = method
-        self.mavenProfileTask = mavenProfileTask
-        self.mavenProfileProject = mavenProfileProject
         self.type = type
         self.state = state
         self.operationID = operationID
@@ -343,30 +182,6 @@ package struct LanguageServerRuntimeEvent: Equatable, Sendable {
         self.level = level
         self.message = message
         self.detail = detail
-    }
-}
-
-/// Core-normalized Buildship options, fixed for one Java session's lifetime.
-package struct JavaGradleImportConfiguration: Codable, Equatable, Sendable {
-    package let wrapperPresent: Bool
-    package let offline: Bool?
-    package let userHome: String?
-
-    package init(wrapperPresent: Bool, offline: Bool? = nil, userHome: String? = nil) {
-        self.wrapperPresent = wrapperPresent
-        self.offline = offline
-        self.userHome = userHome
-    }
-}
-
-/// Maven and Gradle can coexist in a workspace; each keeps its own import input.
-package struct JavaLanguageImportConfiguration: Equatable, Sendable {
-    package let mavenContext: MavenLaunchContext?
-    package let javaGradle: JavaGradleImportConfiguration?
-
-    package init(mavenContext: MavenLaunchContext? = nil, javaGradle: JavaGradleImportConfiguration? = nil) {
-        self.mavenContext = mavenContext
-        self.javaGradle = javaGradle
     }
 }
 
@@ -390,61 +205,12 @@ package protocol LanguageServerRuntimeCore: Sendable {
         rootURL: URL,
         workingDirectoryURL: URL,
         initializationOptions: ToolingJSONValue?,
-        runtimeExecutableURL: URL?,
-        jdtlsLaunchResources: JDTLSLaunchResources?,
-        cacheDirectoryURL: URL?,
-        workspaceFingerprint: String?,
-        initializeTimeout: TimeInterval,
-        requestTimeout: TimeInterval,
-        shutdownTimeout: TimeInterval
-    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
-    func startLanguageServer(
-        providerID: String,
-        executableURL: URL,
-        arguments: [String],
-        environment: [String: String],
-        rootURL: URL,
-        workingDirectoryURL: URL,
-        initializationOptions: ToolingJSONValue?,
-        runtimeExecutableURL: URL?,
-        jdtlsLaunchResources: JDTLSLaunchResources?,
-        cacheDirectoryURL: URL?,
-        workspaceFingerprint: String?,
-        mavenContext: MavenLaunchContext?,
-        initializeTimeout: TimeInterval,
-        requestTimeout: TimeInterval,
-        shutdownTimeout: TimeInterval
-    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
-
-    func startLanguageServer(
-        providerID: String,
-        executableURL: URL,
-        arguments: [String],
-        environment: [String: String],
-        rootURL: URL,
-        workingDirectoryURL: URL,
-        initializationOptions: ToolingJSONValue?,
-        runtimeExecutableURL: URL?,
-        jdtlsLaunchResources: JDTLSLaunchResources?,
-        cacheDirectoryURL: URL?,
-        workspaceFingerprint: String?,
-        mavenContext: MavenLaunchContext?,
-        javaGradle: JavaGradleImportConfiguration?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
 
     func stopLanguageServer(sessionID: String)
-    /// Retries a failed Maven profile task without restarting the server.
-    func retryMavenProfiles(sessionID: String) -> Result<Void, LanguageServerRuntimeFailure>
-    /// Sends a changed Maven context to a running Java session, or with
-    /// `reloadProjects` forces JDT LS to re-resolve its Maven projects.
-    func updateMavenConfiguration(
-        sessionID: String,
-        context: MavenLaunchContext,
-        reloadProjects: Bool
-    ) -> Result<LanguageServerMavenConfigurationUpdate, LanguageServerRuntimeFailure>
     func syncLanguageServerDocument(
         sessionID: String,
         fileURL: URL,
@@ -470,22 +236,6 @@ package protocol LanguageServerRuntimeCore: Sendable {
         completionItem: LanguageServerCompletionItem?,
         codeAction: LanguageServerCodeAction?,
         command: LanguageServerCommand?
-    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
-    func prepareJavaLaunch(
-        sessionID: String,
-        fileURL: URL,
-        mainClass: String?
-    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
-    func requestJavaNavigationMarkers(
-        sessionID: String,
-        fileURL: URL,
-        documentVersion: Int
-    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
-    func resolveJavaNavigation(
-        sessionID: String,
-        fileURL: URL,
-        marker: JavaNavigationMarker,
-        documentVersion: Int
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
     /// Sends a request of the negotiated build-provider protocol. Its
     /// completion arrives as a `requestCompleted` event with the reply under
@@ -580,11 +330,6 @@ package protocol LanguageServerRuntimeCore: Sendable {
         initializationOptions: ToolingJSONValue?,
         workspaceConfiguration: ToolingJSONValue?,
         hostServices: [String],
-        hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?,
-        cacheDirectoryURL: URL?,
-        workspaceFingerprint: String?,
-        mavenContext: MavenLaunchContext?,
-        javaGradle: JavaGradleImportConfiguration?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -604,8 +349,6 @@ package protocol LanguageServerRuntimeCore: Sendable {
         workspaceConfiguration: ToolingJSONValue?,
         sessionPolicy: ToolingJSONValue,
         hostServices: [String],
-        cacheDirectoryURL: URL?,
-        workspaceFingerprint: String?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -711,75 +454,6 @@ package extension LanguageServerRuntimeCore {
     }
 
     func requiresBackgroundLanguageServerStart(rootURL _: URL) -> Bool { false }
-
-    func startLanguageServer(
-        providerID: String, executableURL: URL, arguments: [String], environment: [String: String],
-        rootURL: URL, workingDirectoryURL: URL, initializationOptions: ToolingJSONValue?,
-        runtimeExecutableURL: URL?, jdtlsLaunchResources: JDTLSLaunchResources?, cacheDirectoryURL: URL?,
-        workspaceFingerprint: String?, mavenContext: MavenLaunchContext?, javaGradle: JavaGradleImportConfiguration?,
-        initializeTimeout: TimeInterval, requestTimeout: TimeInterval, shutdownTimeout: TimeInterval
-    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
-        guard javaGradle == nil else {
-            return .failure(LanguageServerRuntimeFailure(code: "unsupported", message: "This language runtime cannot apply Gradle import settings."))
-        }
-        return startLanguageServer(
-            providerID: providerID, executableURL: executableURL, arguments: arguments, environment: environment,
-            rootURL: rootURL, workingDirectoryURL: workingDirectoryURL, initializationOptions: initializationOptions,
-            runtimeExecutableURL: runtimeExecutableURL, jdtlsLaunchResources: jdtlsLaunchResources,
-            cacheDirectoryURL: cacheDirectoryURL, workspaceFingerprint: workspaceFingerprint, mavenContext: mavenContext,
-            initializeTimeout: initializeTimeout, requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
-        )
-    }
-
-    func retryMavenProfiles(sessionID _: String) -> Result<Void, LanguageServerRuntimeFailure> { .success(()) }
-
-    /// Runtimes without in-place Maven updates report that they cannot take
-    /// one, so callers fall back to restarting the session.
-    func updateMavenConfiguration(
-        sessionID _: String,
-        context _: MavenLaunchContext,
-        reloadProjects _: Bool
-    ) -> Result<LanguageServerMavenConfigurationUpdate, LanguageServerRuntimeFailure> {
-        .failure(LanguageServerRuntimeFailure(
-            code: "unsupported",
-            message: "This language runtime cannot update Maven settings in place."
-        ))
-    }
-
-    func startLanguageServer(
-        providerID: String,
-        executableURL: URL,
-        arguments: [String],
-        environment: [String: String],
-        rootURL: URL,
-        workingDirectoryURL: URL,
-        initializationOptions: ToolingJSONValue?,
-        runtimeExecutableURL: URL?,
-        jdtlsLaunchResources: JDTLSLaunchResources?,
-        cacheDirectoryURL: URL?,
-        workspaceFingerprint: String?,
-        mavenContext _: MavenLaunchContext?,
-        initializeTimeout: TimeInterval,
-        requestTimeout: TimeInterval,
-        shutdownTimeout: TimeInterval
-    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
-        startLanguageServer(
-            providerID: providerID,
-            executableURL: executableURL,
-            arguments: arguments,
-            environment: environment,
-            rootURL: rootURL,
-            workingDirectoryURL: workingDirectoryURL,
-            initializationOptions: initializationOptions,
-            runtimeExecutableURL: runtimeExecutableURL,
-            jdtlsLaunchResources: jdtlsLaunchResources,
-            cacheDirectoryURL: cacheDirectoryURL,
-            workspaceFingerprint: workspaceFingerprint,
-            initializeTimeout: initializeTimeout,
-            requestTimeout: requestTimeout,
-            shutdownTimeout: shutdownTimeout
-        )
-    }
 }
 
 package extension LanguageServerRuntimeCore {
@@ -788,37 +462,6 @@ package extension LanguageServerRuntimeCore {
         changes _: [LanguageServerWorkspaceFileChange]
     ) -> Result<Void, LanguageServerRuntimeFailure> {
         .success(())
-    }
-
-    func prepareJavaLaunch(
-        sessionID _: String,
-        fileURL _: URL,
-        mainClass _: String?
-    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
-        .failure(LanguageServerRuntimeFailure(code: "not_supported", message: L10n.string("Java launch preparation is not supported by this runtime.")))
-    }
-
-    func requestJavaNavigationMarkers(
-        sessionID _: String,
-        fileURL _: URL,
-        documentVersion _: Int
-    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
-        .failure(LanguageServerRuntimeFailure(
-            code: "not_supported",
-            message: "Java navigation markers are not supported by this runtime."
-        ))
-    }
-
-    func resolveJavaNavigation(
-        sessionID _: String,
-        fileURL _: URL,
-        marker _: JavaNavigationMarker,
-        documentVersion _: Int
-    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
-        .failure(LanguageServerRuntimeFailure(
-            code: "not_supported",
-            message: "Java navigation is not supported by this runtime."
-        ))
     }
 
     func requestBuildProvider(
@@ -919,8 +562,7 @@ package extension LanguageServerRuntimeCore {
         startLanguageServer(
             providerID: providerID, executableURL: executableURL, arguments: arguments, environment: environment,
             rootURL: rootURL, workingDirectoryURL: rootURL, initializationOptions: initializationOptions,
-            runtimeExecutableURL: nil, jdtlsLaunchResources: nil, cacheDirectoryURL: nil,
-            workspaceFingerprint: nil, initializeTimeout: initializeTimeout,
+            initializeTimeout: initializeTimeout,
             requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
         )
     }
@@ -939,8 +581,6 @@ package extension LanguageServerRuntimeCore {
         workspaceConfiguration _: ToolingJSONValue?,
         sessionPolicy _: ToolingJSONValue,
         hostServices: [String],
-        cacheDirectoryURL _: URL?,
-        workspaceFingerprint _: String?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -964,28 +604,10 @@ package extension LanguageServerRuntimeCore {
         initializationOptions: ToolingJSONValue?,
         workspaceConfiguration _: ToolingJSONValue?,
         hostServices: [String],
-        hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?,
-        cacheDirectoryURL: URL?,
-        workspaceFingerprint: String?,
-        mavenContext: MavenLaunchContext?,
-        javaGradle: JavaGradleImportConfiguration?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
-        if let hostIntegrationLaunch, hostServices.isEmpty {
-            return startLanguageServer(
-                providerID: providerID, executableURL: executableURL, arguments: arguments,
-                environment: environment, rootURL: rootURL, workingDirectoryURL: rootURL,
-                initializationOptions: initializationOptions,
-                runtimeExecutableURL: hostIntegrationLaunch.runtimeExecutableURL,
-                jdtlsLaunchResources: hostIntegrationLaunch.coreLaunch?.jdtlsLaunchResources,
-                cacheDirectoryURL: cacheDirectoryURL, workspaceFingerprint: workspaceFingerprint,
-                mavenContext: mavenContext, javaGradle: javaGradle,
-                initializeTimeout: initializeTimeout, requestTimeout: requestTimeout,
-                shutdownTimeout: shutdownTimeout
-            )
-        }
         return startPluginLanguageServer(
             pluginID: pluginID, providerID: providerID, executableURL: executableURL, arguments: arguments,
             environment: environment, rootURL: rootURL, initializationOptions: initializationOptions,
@@ -1283,17 +905,4 @@ package struct PluginFunctionFailure: LocalizedError, Equatable, Sendable {
 package protocol LanguageServerProcessRegistry: AnyObject {
     func registerLanguageServerProcess(pid: Int32, moduleID: ModuleID)
     func unregisterLanguageServerProcess(pid: Int32, moduleID: ModuleID)
-}
-
-/// Read-only preparation facts published by Rust; ready does not imply a successful build.
-package struct ProjectPreparationSnapshot: Codable, Equatable, Sendable {
-    package let phase: String
-    package let status: String
-    package let blocksRun: Bool
-
-    package init(phase: String, status: String, blocksRun: Bool) {
-        self.phase = phase
-        self.status = status
-        self.blocksRun = blocksRun
-    }
 }

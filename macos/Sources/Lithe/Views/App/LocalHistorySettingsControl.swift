@@ -54,7 +54,7 @@ struct LocalHistorySettingsControl: View {
                     .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.tertiaryText)
                 LitheInfoTip("Type a path inside the project to check it against the rules above as you edit them: whether local history records the file, and whether Git ignores it. Git ignore rules do not affect local history.")
-                LitheTextField(verbatim: "src/generated/Api.java", text: $testPath)
+                LitheTextField(verbatim: "src/generated/api.txt", text: $testPath)
                     .frame(maxWidth: 260)
                     .accessibilityLabel(Text("Test path"))
                 testResult

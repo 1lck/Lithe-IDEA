@@ -2,14 +2,13 @@
   "id": "plugin-project-generators",
   "area": "工作区",
   "group": "项目",
-  "capability": "新建项目窗口按 IDEA 的布局列出“新建项目”和“生成器”两组条目：空项目由宿主提供，其余条目由插件通过 projectGenerators 1 注入（随 Lithe 内置的 Java Support 直接提供 Java、Maven Archetype、Spring Boot）。名称、位置、创建 Git 仓库由宿主绘制；字段、派生默认值、显示条件和生成计划由 Rust Core 计算；先在目标目录旁的临时目录生成，完成后整体移动到位，失败或取消不留残留。条目需要的语言或构建系统插件未启用时提示一键启用，未安装时跳转插件市场搜索；所选 JDK 写入新项目的运行时设置，模板指定的文件随项目一起打开。projectGenerators 2 增加通用的工具字段（type:tool）：生成器只写工具定义 ID 和最低版本，宿主通过通用工具解析列出已安装的候选，所选工具写入新项目的工具 pin（.lithe/run/local.json），步骤可引用 ${field.<id>} 与 ${field.<id>.executable}；找不到工具时提示启用或到插件市场查找，低于最低版本的安装不可创建。只含生成器或工具定义的插件安装、更新、卸载后免重启，新建项目窗口随之刷新条目",
+  "capability": "新建项目窗口按 IDEA 的布局列出“新建项目”和“生成器”两组条目：空项目由宿主提供，其余条目由插件通过 projectGenerators 1 注入（Java、Maven Archetype、Spring Boot 条目由独立的 Java、Maven、Gradle 插件提供）。名称、位置、创建 Git 仓库由宿主绘制；字段、派生默认值、显示条件和生成计划由 Rust Core 计算；先在目标目录旁的临时目录生成，完成后整体移动到位，失败或取消不留残留。条目需要的语言或构建系统插件未启用时提示一键启用，未安装时跳转插件市场搜索；所选 JDK 写入新项目的运行时设置，模板指定的文件随项目一起打开。projectGenerators 2 增加通用的工具字段（type:tool）：生成器只写工具定义 ID 和最低版本，宿主通过通用工具解析列出已安装的候选，所选工具写入新项目的工具 pin（.lithe/run/local.json），步骤可引用 ${field.<id>} 与 ${field.<id>.executable}；找不到工具时提示启用或到插件市场查找，低于最低版本的安装不可创建。只含生成器或工具定义的插件安装、更新、卸载后免重启，新建项目窗口随之刷新条目",
   "macos": {
     "evidence": [
       "rust/lithe-core/src/project_generators/",
       "shared/contracts/plugins/v1/fixtures/project-generators/project-generator.plugin.json",
       "shared/contracts/plugins/v1/fixtures/project-generators/project-plans.json",
       "shared/contracts/plugins/v1/fixtures/project-generators/project-generator-tool-field.plugin.json",
-      "Plugins/mac/Official/JavaSupport/plugin.json",
       "macos/Sources/Lithe/Views/Workspace/NewProjectView.swift",
       "macos/Sources/Lithe/Application/Features/NewProjectFeatureModel.swift",
       "macos/Sources/Lithe/Services/ProjectGeneration/ProjectGenerationService.swift",
@@ -18,7 +17,8 @@
       "macos/Sources/Lithe/Platform/MacOS/ProjectGeneration/MacProjectToolPins.swift",
       "macos/Tests/LitheTests/ProjectGenerationTests.swift",
       "macos/Tests/LitheTests/ProjectToolAdaptersTests.swift",
-      "rust/lithe-core/src/project_generators/archive.rs"
+      "rust/lithe-core/src/project_generators/archive.rs",
+      "macos/Sources/Lithe/Models/ProjectGeneration/ProjectGenerationModels.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

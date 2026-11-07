@@ -562,7 +562,7 @@ struct EditorSettingsImportTests {
           "editor.fontSize": 16, "editor.lineHeight": 24,
           "editor.fontLigatures": true, "editor.lineNumbers": "relative",
           "editor.minimap.enabled": false, "editor.wordWrap": "on",
-          "[java]": {"editor.fontSize": 99}, "secret.token": "do-not-copy",
+          "[plaintext]": {"editor.fontSize": 99}, "secret.token": "do-not-copy",
         }
         """#.utf8)
         let (values, warnings, _) = try MacEditorSettingsImportReader.parseVSCode(data, fonts: ["Fixture Mono"])
@@ -827,7 +827,7 @@ struct EditorSettingsImportTests {
         #expect(invalid.0["tabSize"] == nil && invalid.0["insertSpaces"] == nil && invalid.0["detectIndentation"] == nil)
         let files = [
             "options/code.style.schemes.xml": "<application><component name='CodeStyleSchemeSettings'><option name='CURRENT_SCHEME_NAME' value='Mine'/></component></application>",
-            "codestyles/custom.xml": "<code_scheme name='Mine'><option name='AUTODETECT_INDENTS' value='false'/><option name='OTHER_INDENT_OPTIONS'><value><option name='TAB_SIZE' value='2'/><option name='INDENT_SIZE' value='2'/><option name='USE_TAB_CHARACTER' value='true'/></value></option><codeStyleSettings language='JAVA'><indentOptions><option name='TAB_SIZE' value='8'/></indentOptions></codeStyleSettings></code_scheme>"
+            "codestyles/custom.xml": "<code_scheme name='Mine'><option name='AUTODETECT_INDENTS' value='false'/><option name='OTHER_INDENT_OPTIONS'><value><option name='TAB_SIZE' value='2'/><option name='INDENT_SIZE' value='2'/><option name='USE_TAB_CHARACTER' value='true'/></value></option><codeStyleSettings language='TEXT'><indentOptions><option name='TAB_SIZE' value='8'/></indentOptions></codeStyleSettings></code_scheme>"
         ].mapValues { Data($0.utf8) }
         let idea = try MacEditorSettingsImportReader.parseIDEA(files, fonts: [])
         #expect(idea.0["tabSize"] == "2" && idea.0["insertSpaces"] == "false" && idea.0["detectIndentation"] == "false")
@@ -938,14 +938,14 @@ struct EditorSettingsImportTests {
         let files = [
           "options/colors.scheme.xml": "<application><component name='EditorColorsManager'><global_color_scheme name='Purple'/></component></application>",
           "colors/parent.icls": "<scheme name='Parent' version='142' parent_scheme='Darcula'><attributes><option name='DEFAULT_STRING'><value><option name='FOREGROUND' value='00FF00'/></value></option><option name='DEFAULT_LINE_COMMENT'><value><option name='FOREGROUND' value='888888'/></value></option></attributes></scheme>",
-          "colors/child.icls": "<scheme name='Purple' version='142' parent_scheme='Parent'><colors><option name='CARET_COLOR' value='FF00FF'/></colors><attributes><option name='DEFAULT_LINE_COMMENT'><value><option name='FOREGROUND' value='AA44CC'/><option name='FONT_TYPE' value='2'/></value></option><option name='JAVA_DOC_COMMENT' baseAttributes='DEFAULT_LINE_COMMENT'/><option name='METHOD_DECLARATION_ATTRIBUTES'><value><option name='FOREGROUND' value='CC88FF'/></value></option></attributes></scheme>"
+          "colors/child.icls": "<scheme name='Purple' version='142' parent_scheme='Parent'><colors><option name='CARET_COLOR' value='FF00FF'/></colors><attributes><option name='DEFAULT_LINE_COMMENT'><value><option name='FOREGROUND' value='AA44CC'/><option name='FONT_TYPE' value='2'/></value></option><option name='DEFAULT_DOC_COMMENT' baseAttributes='DEFAULT_LINE_COMMENT'/><option name='METHOD_DECLARATION_ATTRIBUTES'><value><option name='FOREGROUND' value='CC88FF'/></value></option></attributes></scheme>"
         ].mapValues { Data($0.utf8) }
         let values = try MacEditorSettingsImportReader.parseIDEA(files, fonts: []).0
         let theme = try #require(values["customTheme"].flatMap(ImportedEditorTheme.decode))
         #expect(theme.tokens["comment.line"]?.foreground == "#AA44CC")
         #expect(theme.tokens["comment.line"]?.fontStyle == "italic")
         #expect(theme.tokens["string"]?.foreground == "#00FF00")
-        #expect(theme.tokens["comment.documentation.java"]?.foreground == "#AA44CC")
+        #expect(theme.tokens["comment.documentation"]?.foreground == "#AA44CC")
         #expect(theme.tokens["method.declaration"]?.foreground == "#CC88FF")
         #expect(theme.colors["cursor"] == "#FF00FF")
         let store = ImportTestStore(), settings = AppSettings(store: ImportTestStore())

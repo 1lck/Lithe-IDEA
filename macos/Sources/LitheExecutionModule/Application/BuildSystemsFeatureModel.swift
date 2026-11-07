@@ -35,14 +35,11 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     package var hasActiveWork: Bool { service.hasActiveWork }
     package var hasBuildSystemPlugins: Bool { service.hasBuildSystemPlugins }
     package var workspaceURL: URL? { service.workspaceURL }
-    package var languageImport: JavaLanguageImportConfiguration? { service.languageImport }
+    /// True once the current workspace detection finished and normalized its options.
+    package var isDetectionSettled: Bool { service.isDetectionSettled }
     package var inputRevision: UInt64 { service.inputRevision }
-    package var onLanguageImportChanged: ((URL) -> Void)? {
-        get { service.onLanguageImportChanged }
-        set { service.onLanguageImportChanged = newValue }
-    }
-    package func prepareLanguageImport(workspaceURL: URL) async throws -> JavaLanguageImportConfiguration {
-        try await service.prepareLanguageImport(workspaceURL: workspaceURL)
+    package func awaitDetection(workspaceURL: URL) async throws {
+        try await service.awaitDetection(workspaceURL: workspaceURL)
     }
 
     package func entry(_ id: String) -> BuildSystemEntry? { service.entry(id) }
@@ -98,15 +95,14 @@ package final class BuildSystemsFeatureModel: ObservableObject {
         try await service.prepareLanguageTestModels(selectorKind: selectorKind, reference: reference, workspace: workspace)
     }
     package func prepareRunGenerationModels(workspace: URL) async throws {
-        _ = try await service.prepareLanguageImport(workspaceURL: workspace)
+        try await service.awaitDetection(workspaceURL: workspace)
         try await service.prepareLanguageTestModels(allModels: true, workspace: workspace)
-        _ = try await service.prepareLanguageImport(workspaceURL: workspace)
+        try await service.awaitDetection(workspaceURL: workspace)
     }
-    @discardableResult
     package func prepareLanguageRun(fileURL: URL, workspace: URL, purpose: String,
                                     optionOverrides: [String: ToolingJSONValue] = [:],
                                     tool: @MainActor (String) throws -> BuildProviderHints? = { _ in nil },
-                                    isCurrent: @escaping @MainActor () -> Bool) async throws -> BuildLanguageImport? {
+                                    isCurrent: @escaping @MainActor () -> Bool) async throws {
         try await service.prepareLanguageRun(fileURL: fileURL, workspace: workspace, purpose: purpose, optionOverrides: optionOverrides, tool: tool, isCurrent: isCurrent)
     }
     package func languageTestEntries(selectorKind: String, fileURL: URL?, workspace: URL) -> [BuildSystemEntry] {

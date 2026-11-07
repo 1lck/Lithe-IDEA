@@ -638,7 +638,7 @@ struct PluginWebBridgeTests {
         let pages = PluginWebPages(windows: [harness.window])
         let manager = ProjectSessionManager(settings: settings, modelFactory: {
             let container = MacServiceContainer(
-                store: store, settings: settings, javaMavenOperations: NoProjectJavaOperations(),
+                store: store, settings: settings,
                 pluginWebPageLifecycle: PluginWebPageLifecycle()
             )
             containers.append(container)
@@ -743,9 +743,8 @@ struct PluginWebBridgeTests {
             languageProviderCatalogSnapshot: base.languageProviderCatalogSnapshot,
             debugLaunchConfigurationResolver: base.debugLaunchConfigurationResolver,
             debugPortAvailabilityChecker: base.debugPortAvailabilityChecker,
-            javaTestResultServerFactory: { MacJavaTestResultServer() },
             workspaceOperations: base.workspaceOperations, documentLifecycleDecider: base.documentLifecycleDecider,
-            lineEditing: base.lineEditing, javaMavenOperations: base.javaMavenOperations,
+            lineEditing: base.lineEditing,
             markdownRenderer: base.markdownRenderer, markdownImageImporter: base.markdownImageImporter,
             store: base.store, fileStorage: base.fileStorage, fileOperations: base.fileOperations,
             agentEditRestorer: base.agentEditRestorer, binaryFileViewerRegistry: base.binaryFileViewerRegistry,

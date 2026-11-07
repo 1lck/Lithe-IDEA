@@ -41,7 +41,6 @@ enum RunConfigurationReadiness {
 enum DebugSourceResolution {
     case resolved(URL)
     case currentFileUnavailable
-    case javaSourceUnavailable(String)
     case unsupported(String)
 }
 
@@ -143,30 +142,12 @@ final class RunWorkflowCoordinator {
         runFeature.select(selected)
     }
 
-    func debugConfiguration(
-        selected: RunConfiguration,
-        activeDocumentIsLaunchable: Bool,
-        configurations: [RunConfiguration]
-    ) -> RunConfiguration {
-        DebugLaunchSourceResolver().configurationForDebug(
-            selected: selected,
-            activeDocumentIsLaunchable: activeDocumentIsLaunchable,
-            configurations: configurations
-        )
-    }
-
     func sourceURLForDebug(
         configuration: RunConfiguration,
         activeDocument: EditorDocument?,
         projectFiles: [URL],
         workspaceURL: URL
     ) -> URL? {
-        if configuration.usesCurrentEditorFile {
-            return activeDocument?.url
-        }
-        guard configuration.kind.capabilities.contains(.jdwpDebug) else {
-            return nil
-        }
         return DebugLaunchSourceResolver().resolve(
             configuration: configuration,
             activeDocumentURL: activeDocument?.url,
@@ -189,9 +170,6 @@ final class RunWorkflowCoordinator {
         ) else {
             if configuration.usesCurrentEditorFile {
                 return .currentFileUnavailable
-            }
-            if configuration.kind.capabilities.contains(.jdwpDebug) {
-                return .javaSourceUnavailable(configuration.name)
             }
             return .unsupported(configuration.name)
         }

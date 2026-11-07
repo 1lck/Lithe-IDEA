@@ -11,9 +11,32 @@ import Testing
 struct PluginDetailLayoutTests {
     @Test(arguments: [false, true])
     func settingsStayBesideTheDividerWhenTheWindowShrinks(dark: Bool) throws {
-        let descriptor = try DeclarativePluginTestSupport.officialDescriptor("JavaSupport")
+        // A language-server plugin form with one number field and one choice,
+        // the shape most plugin settings pages take.
+        var manifest = DeclarativePluginTestSupport.manifestObject(version: PluginVersion(major: 1, minor: 0, patch: 0))
+        manifest["pluginAPIVersion"] = 3
+        manifest["requires"] = ["languages": 1, "languageServers": 1, "serverProcess": 1, "settings": 2]
+        manifest["settings"] = [
+            [
+                "id": "heapMaxMB", "type": "integer", "title": "Maximum memory",
+                "description": "Upper bound of the language server's heap. Raise it for large projects.",
+                "default": 2048, "minimum": 2048, "maximum": 16384, "unit": "MB",
+                "page": ["languageID": "fixture"], "section": "Language server"
+            ],
+            [
+                "id": "logLevel", "type": "enum", "title": "Language server log level",
+                "description": "How much the language server writes to its own log.",
+                "default": "WARNING",
+                "options": [
+                    ["value": "ALL", "title": "All messages"], ["value": "INFO", "title": "Information"],
+                    ["value": "WARNING", "title": "Warnings"], ["value": "SEVERE", "title": "Errors only"]
+                ],
+                "page": ["languageID": "fixture"], "section": "Language server"
+            ]
+        ]
+        let descriptor = try DeclarativePluginTestSupport.descriptor(manifest)
         var plugin = PluginManagementSnapshot(
-            manifest: descriptor.pluginManifest, origin: .bundled, installationStatus: .installed,
+            manifest: descriptor.pluginManifest, origin: .community, installationStatus: .installed,
             isEnabled: true, isRequired: false, isRunning: false, isQuarantined: false,
             isSuppressedBySafeMode: false, requiresRestart: false, canRollback: false,
             statusMessage: "Enabled", marketplace: nil

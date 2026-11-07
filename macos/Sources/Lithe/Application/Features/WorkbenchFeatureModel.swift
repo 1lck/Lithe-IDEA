@@ -36,13 +36,12 @@ final class WorkbenchFeatureModel: ObservableObject {
         static let agent = Self(rawValue: "agent.conversation")
         static let references = Self(rawValue: "language.references")
         static let problems = Self(rawValue: "language.problems")
-        static let spring = Self(rawValue: "language.spring")
         static let run = Self(rawValue: "execution.run")
         static let tests = Self(rawValue: "execution.tests")
         static let debug = Self(rawValue: "debug.session")
         static let buildOutput = Self(rawValue: "execution.build.output")
         static let allCases: [Self] = [.project, .changes, .pullRequests, .search,
-            .gitLog, .terminal, .agent, .references, .problems, .spring, .run, .tests, .debug,
+            .gitLog, .terminal, .agent, .references, .problems, .run, .tests, .debug,
             .buildOutput]
         // Docking layouts written before contribution registration used enum case names.
         // Their windows may since have been removed, so the mapping names the
@@ -53,8 +52,7 @@ final class WorkbenchFeatureModel: ObservableObject {
                 "project": "workspace.project", "changes": "git.changes", "pullRequests": "github.pull-requests",
                 "search": "search.workspace", "database": "database.workspace", "gitLog": "git.log",
                 "terminal": "terminal.sessions", "agent": "agent.conversation", "databaseServices": "database.services",
-                "references": "language.references", "problems": "language.problems", "maven": "execution.maven",
-                "mavenOutput": "execution.maven.output", "spring": "language.spring", "run": "execution.run",
+                "references": "language.references", "problems": "language.problems", "run": "execution.run",
                 "tests": "execution.tests", "debug": "debug.session"
             ]
             return legacy[id] ?? id

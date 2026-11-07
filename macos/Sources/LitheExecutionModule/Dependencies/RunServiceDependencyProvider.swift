@@ -169,16 +169,6 @@ package struct RunServiceDependencyProvider: WorkspaceDependencyProvider {
     /// Compatibility fallback for providers without a language plugin manifest.
     /// A declared file list always takes precedence, including an empty list.
     private static let managementFileNames: [String: Set<String>] = [
-        "java": [
-            "pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle",
-            "settings.gradle.kts", "gradle.properties", "libs.versions.toml",
-            "extensions.xml"
-        ],
-        "maven": ["pom.xml", "extensions.xml"],
-        "gradle": [
-            "build.gradle", "build.gradle.kts", "settings.gradle",
-            "settings.gradle.kts", "gradle.properties", "libs.versions.toml"
-        ],
         "npm": [
             "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
             "bun.lock", "bun.lockb"

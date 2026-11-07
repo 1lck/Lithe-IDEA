@@ -25,10 +25,10 @@ struct WorkbenchFeatureModelTests {
         // Settings links may request the category that was requested before,
         // after the user navigated elsewhere inside the open window.
         let model = WorkbenchFeatureModel()
-        model.presentSettings(category: .project)
+        model.presentSettings(category: .run)
         let first = model.settingsCategoryRequest
-        model.presentSettings(category: .project)
-        #expect(model.requestedSettingsCategory == .project)
+        model.presentSettings(category: .run)
+        #expect(model.requestedSettingsCategory == .run)
         #expect(model.settingsCategoryRequest == first + 1)
         #expect(model.isSettingsPresented)
     }

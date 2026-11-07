@@ -17,7 +17,7 @@ struct TerminalExitCandidate: Equatable, Sendable {
     var recordID: String { "terminal:\(sessionID.uuidString)" }
 }
 
-/// A Run configuration or Maven goal that is still running in a project.
+/// A Run configuration or build task that is still running in a project.
 struct RunServiceExitCandidate: Equatable, Sendable {
     /// Lifecycle record ID; unique across the projects being closed.
     let id: String

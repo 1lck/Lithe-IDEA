@@ -14,17 +14,12 @@ extension AppModel {
     func loadBuildSystems(_ access: ExecutionFeatureAccess) {
         guard let feature = access.buildSystems,
               let identity = currentWorkspaceIdentity else { return }
-        feature.onLanguageImportChanged = { [weak self, weak feature] root in
-            guard let self, let feature, self.isCurrentWorkspace(identity),
-                  root == identity.url, self.buildSystemsFeatureIfActive === feature else { return }
-            self.synchronizeBuildLanguageImport(at: root)
-        }
         if feature.workspaceURL != identity.url { feature.reset(workspaceURL: identity.url) }
     }
 
-    /// Every Java workflow waits here before it can reach the synchronous
-    /// language-session API. Workspace identity includes reopen generations.
-    func prepareBuildLanguageImport() async throws {
+    /// Run, test and debug workflows wait here so they never start with
+    /// option values from before a save. Workspace identity includes reopen generations.
+    func awaitBuildSystemDetection() async throws {
         guard let identity = currentWorkspaceIdentity else { throw CancellationError() }
         guard hasAvailableBuildSystemPlugins else { return }
         guard let access = await activateExecutionModule(), isCurrentWorkspace(identity) else {
@@ -32,7 +27,7 @@ extension AppModel {
         }
         loadBuildSystems(access)
         if let feature = access.buildSystems {
-            _ = try await feature.prepareLanguageImport(workspaceURL: identity.url)
+            try await feature.awaitDetection(workspaceURL: identity.url)
         }
         try Task.checkCancellation()
         guard isCurrentWorkspace(identity) else { throw CancellationError() }
@@ -45,49 +40,6 @@ extension AppModel {
                   let snapshot = try? services.moduleRuntime.snapshot(for: id) else { return false }
             return snapshot.state != .disabled && !snapshot.isQuarantined && !snapshot.isSuppressedBySafeMode
         }
-    }
-
-    var isBuildLanguageImportPending: Bool {
-        hasAvailableBuildSystemPlugins && (
-            buildSystemsFeatureIfActive?.workspaceURL != workspaceURL?.standardizedFileURL
-                || buildSystemsFeatureIfActive?.languageImport == nil
-        )
-    }
-
-    func javaLanguageImportConfiguration(rootURL: URL) throws -> JavaLanguageImportConfiguration {
-        guard workspaceURL?.standardizedFileURL == rootURL.standardizedFileURL else { throw CancellationError() }
-        if hasAvailableBuildSystemPlugins {
-            guard let feature = buildSystemsFeatureIfActive,
-                  feature.workspaceURL == rootURL.standardizedFileURL,
-                  let configuration = feature.languageImport else {
-                throw RunConfigurationOperationFailure(message: L10n.string("Build-system language import is still preparing. Retry when project loading completes."))
-            }
-            return configuration
-        }
-        // No enabled build plugin means no Lithe build override. In particular,
-        // retiring a plugin must not revive the old Maven service's settings.
-        return JavaLanguageImportConfiguration()
-    }
-
-    private func synchronizeBuildLanguageImport(at rootURL: URL) {
-        guard let identity = currentWorkspaceIdentity, identity.url == rootURL.standardizedFileURL,
-              !languageToolingFeature.isDisabled("java"),
-              let sessions = languageToolingSessionsIfActive else { return }
-        javaLanguageServerPreparationCoordinator.synchronizeMavenConfiguration(
-            sessions: sessions,
-            workspaceURL: identity.url,
-            languageImportPreparation: { [weak self] in
-                guard let self, self.isCurrentWorkspace(identity) else { throw CancellationError() }
-                try await self.prepareBuildLanguageImport()
-                guard self.isCurrentWorkspace(identity) else { throw CancellationError() }
-            },
-            ownsWorkspace: { [weak self, weak sessions] in
-                guard let self else { return false }
-                return self.isCurrentWorkspace(identity)
-                    && !self.languageToolingFeature.isDisabled("java")
-                    && self.languageToolingSessionsIfActive === sessions
-            }
-        )
     }
 
     func handleBuildSystemFileChanges(_ changes: [WorkspaceFileChange]) {

@@ -22,7 +22,7 @@ struct LanguageServerSyncBridgeTests {
         }
         let result = core.lspSyncDocument(
             sessionID: "uri-bridge-test-missing-session",
-            fileURL: URL(fileURLWithPath: "/work/A#B?.java"), languageID: "java", text: ""
+            fileURL: URL(fileURLWithPath: "/work/A#B?.txt"), languageID: "plaintext", text: ""
         )
         switch result {
         case .success: Issue.record("A nonexistent session must not accept a document")
@@ -30,7 +30,7 @@ struct LanguageServerSyncBridgeTests {
         }
     }
 
-    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_RUN_JAVA_DEBUG_INTEGRATION"] == "1"))
+    @Test
     func incrementalPositionsReachCoreSessionLookup() throws {
         let core = RustCoreBridge()
         try #require(core.isAvailable)
@@ -38,8 +38,8 @@ struct LanguageServerSyncBridgeTests {
         // Swift encoder and Rust decoder. Bad position keys fail before lookup.
         let result = core.lspSyncDocument(
             sessionID: "sync-bridge-test-missing-session",
-            fileURL: URL(fileURLWithPath: "/in-memory/Probe.java"),
-            languageID: "java", text: "class Probe {}",
+            fileURL: URL(fileURLWithPath: "/in-memory/Probe.txt"),
+            languageID: "plaintext", text: "probe text",
             changes: [.init(start: .init(line: 1, utf16Column: 4),
                             end: .init(line: 2, utf16Column: 7), text: "😀")]
         )

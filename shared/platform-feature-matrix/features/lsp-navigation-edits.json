@@ -13,11 +13,10 @@
       "macos/Experiments/Monaco/workbench.integration.ts",
       "macos/EditorFrontend/main.ts",
       "macos/Tests/LitheTests/MonacoWorkbenchThemeTests.swift",
-      "macos/Sources/Lithe/Views/Language/JavaReferencesView.swift",
       "macos/Tests/LitheTests/ContextMenuCoverageTests.swift",
       "macos/Tests/LitheTests/AppModelSettingsChangesTests.swift",
-      "Plugins/mac/Official/JavaSupport/plugin.json",
-      "macos/Tests/LitheTests/PluginSettingsTests.swift"
+      "macos/Tests/LitheTests/PluginSettingsTests.swift",
+      "macos/Sources/Lithe/Views/Language/LanguageReferencesView.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

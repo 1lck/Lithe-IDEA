@@ -18,7 +18,7 @@ struct ProcessTerminationSettingsView: View {
             }) {
                 row(
                     "Run services",
-                    info: "Run configurations and Maven goals started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first."
+                    info: "Run configurations and build tasks started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first."
                 ) {
                     select(\.runServicesOnExit, options: RunServiceExitPolicy.allCases, label: "Run services") {
                         switch $0 {
@@ -30,7 +30,7 @@ struct ProcessTerminationSettingsView: View {
 
                 row(
                     "Terminals with running programs",
-                    info: "A terminal is busy when a program other than the shell still runs in it, such as a Spring Boot app, npm run dev or a job you sent to the background. Idle terminals always close without asking. Ending a terminal ends every program started in it."
+                    info: "A terminal is busy when a program other than the shell still runs in it, such as a dev server, npm run dev or a job you sent to the background. Idle terminals always close without asking. Ending a terminal ends every program started in it."
                 ) {
                     select(\.terminalOnQuit, options: TerminalQuitPolicy.allCases, label: "Terminals with running programs") {
                         switch $0 {

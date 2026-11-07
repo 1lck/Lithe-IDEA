@@ -43,7 +43,6 @@ package final class LanguageTestService: ObservableObject {
     private var lastBackendRun: (@MainActor () -> Void)?
     private var lastRun: LastRun?
     private let maximumOutputCharacters = 400_000
-    private static let javaTestTimeoutMilliseconds = 120_000
 
     package init(
         outcomeResolver: any TestRunOutcomeResolving,
@@ -213,7 +212,6 @@ package final class LanguageTestService: ObservableObject {
             state = .running
             timedOutOperationID = nil
             append("$ \(resolved.executableURL.lastPathComponent) \(plan.launchPlan.arguments.joined(separator: " "))\n\n")
-            let timeoutMilliseconds = Self.testTimeoutMilliseconds(for: plan.frameworkID)
             if let extensionProvider {
                 let session = extensionProvider.makeTestExecutionSession()
                 configureExtensionSession(
@@ -228,7 +226,7 @@ package final class LanguageTestService: ObservableObject {
                     arguments: plan.launchPlan.arguments,
                     workingDirectory: workingDirectory.path,
                     environment: resolved.environment,
-                    timeoutMilliseconds: timeoutMilliseconds
+                    timeoutMilliseconds: nil
                 ))
             } else {
                 let process = processFactory()
@@ -244,7 +242,7 @@ package final class LanguageTestService: ObservableObject {
                     arguments: plan.launchPlan.arguments,
                     workingDirectory: workingDirectory.path,
                     environment: resolved.environment,
-                    timeoutMilliseconds: timeoutMilliseconds
+                    timeoutMilliseconds: nil
                 ))
             }
             return true
@@ -586,13 +584,6 @@ package final class LanguageTestService: ObservableObject {
         case .file: return .suite
         case .testCase(_, _, let reference?) where reference.testCase == nil: return .suite
         case .testCase: return .case
-        }
-    }
-
-    private static func testTimeoutMilliseconds(for frameworkID: String?) -> Int? {
-        switch frameworkID {
-        case "junit": return javaTestTimeoutMilliseconds
-        default: return nil
         }
     }
 

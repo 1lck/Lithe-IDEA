@@ -14,7 +14,7 @@ fn local_option_edits_check_declarations_preserve_siblings_and_reset_to_team_val
     ))
     .unwrap();
     // Exercise a workspace option with model-owned choices as well as the
-    // fixture's instance-scoped scalars; neither system is Maven-specific.
+    // fixture's instance-scoped scalars; the storage rules do not depend on the tool.
     manifest["buildSystems"][0]["options"][1]["scope"] = json!("workspace");
     let edit = |local: &Value, root: &str, id: &str, value: Value, model: Value| {
         crate::build::build_edit_stored_option_command(json!({"manifest":manifest,"buildSystemID":"cargo","request":{

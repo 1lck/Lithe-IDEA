@@ -43,10 +43,10 @@ impl Default for Confidence {
 /// Whether a configuration runs the project itself or the external services it
 /// depends on.
 ///
-/// A Docker Compose file in a Java repository usually declares databases and
-/// caches, not the application. Both are runnable, but presenting nineteen
-/// containers beside the one Spring Boot service buries it, so hosts group
-/// infrastructure separately instead of dropping it.
+/// A Docker Compose file in an application repository usually declares
+/// databases and caches, not the application. Both are runnable, but presenting
+/// nineteen containers beside the one application service buries it, so hosts
+/// group infrastructure separately instead of dropping it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RunCategory {

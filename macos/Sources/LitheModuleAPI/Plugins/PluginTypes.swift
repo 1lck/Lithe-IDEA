@@ -530,7 +530,9 @@ public struct PluginManifest: Equatable, Codable, Sendable {
         "languages": [1, 2],
         "outputLinkMatchers": [1],
         "projectGenerators": [1, 2],
-        "serverProcess": [1, 3],
+        // 4: a runtime launch names a tool definition that the host resolves
+        // through its four layers and starts with the definition's template.
+        "serverProcess": [1, 3, 4],
         "settings": [1, 2],
         "toolDefinitions": [1],
         "toolchainProviders": [1],

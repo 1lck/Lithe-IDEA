@@ -53,19 +53,6 @@ extension AppModel {
         return access
     }
 
-    func registerJavaDependencySourceIfAvailable() {
-        guard workspaceURL != nil,
-              !languageToolingFeature.isDisabled("java"),
-              languageToolingSessionsIfActive?.activeLanguageServerIDs.contains("java") == true,
-              let provider = services.moduleRuntime.capability(.languageIntelligence)
-                as? any LanguageDependencyProviding else { return }
-        runFeatureIfActive?.registerDependencySource(languageID: "java", displayName: "Java")
-        provider.setDependencySnapshotChangeHandler { [weak self] in
-            self?.runFeatureIfActive?.syncLanguageDependencyPaths(languageID: "java")
-        }
-        runFeatureIfActive?.syncLanguageDependencyPaths(languageID: "java")
-    }
-
     func registerLanguageDependencySourceIfAvailable(support: LanguageSupportDeclaration) {
         guard support.languageServerModuleID != nil,
               !languageToolingFeature.isDisabled(support.id),
@@ -89,43 +76,7 @@ extension AppModel {
         feature.onStoppedLocation = { [weak self] url, line, column in
             self?.revealDebugLocation(url: url, line: line, column: column)
         }
-        feature.onAutomaticVariableInspectionRequest = { [weak self, weak feature] frame in
-            guard let self, let feature else { return }
-            requestAutomaticDebugVariables(for: frame, feature: feature)
-        }
         configureDebugRunInTerminalHandler(feature)
-    }
-
-    private func requestAutomaticDebugVariables(
-        for frame: DebugStackFrame,
-        feature: GenericDebugFeatureModel
-    ) {
-        guard feature.providerID == "java",
-              let sourceURL = frame.sourceURL?.standardizedFileURL,
-              let source = debugSourceText(at: sourceURL) else {
-            feature.requestAutomaticVariables([])
-            return
-        }
-        let expressions = DebugAutomaticExpressionProjection.javaExpressions(
-            forLine: max(0, frame.line - 1),
-            in: source as NSString
-        )
-        feature.requestAutomaticVariables(expressions)
-    }
-
-    private func debugSourceText(at sourceURL: URL) -> String? {
-        if let document = openDocuments.first(where: {
-            $0.url.standardizedFileURL == sourceURL
-        }) {
-            return document.text
-        }
-        guard let metadata = services.fileStorage.metadata(for: sourceURL),
-              metadata.isRegularFile,
-              let byteCount = metadata.byteCount,
-              byteCount <= 2_000_000,
-              let data = try? services.fileStorage.readData(from: sourceURL, options: []),
-              let source = String(data: data, encoding: .utf8) else { return nil }
-        return source
     }
 
     private func configureDebugRunInTerminalHandler(_ feature: GenericDebugFeatureModel) {

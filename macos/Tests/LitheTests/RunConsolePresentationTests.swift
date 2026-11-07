@@ -43,10 +43,10 @@ struct RunConsolePresentationTests {
     }
 
     @Test(arguments: [false, true])
-    func stackTraceLinksKeepNavigationAndConsoleLinkAppearance(dark: Bool) throws {
-        let result = OutputTextView.renderOutput("at demo.Main.run(Main.java:42)",
+    func sourceLocationLinksKeepNavigationAndConsoleLinkAppearance(dark: Bool) throws {
+        let result = OutputTextView.renderOutput("app/main.go:42:7: undefined: run",
             searchRoots: [URL(fileURLWithPath: "/project")],
-            fileExists: { $0.path == "/project/src/main/java/demo/Main.java" },
+            fileExists: { $0.path == "/project/app/main.go" },
             isDark: dark, theme: .lithe, fontSize: 13, usesIDEAConsoleStyle: true)
         var links = 0
         result.enumerateAttribute(.link, in: NSRange(location: 0, length: result.length)) { value, range, _ in

@@ -6,7 +6,7 @@ import SwiftUI
 
 /// 构建/运行输出的统一渲染视图:
 /// - 支持 ANSI 转义序列着色(复用终端渲染器)
-/// - Maven 错误行 `[ERROR] path:[line,col]` 与 Java 堆栈行 `at x.y.Foo.bar(Foo.java:42)` 可点击跳转源码
+/// - 通用源码位置 `path:line[:col]`、`path:[line,col]`（可带 `[ERROR]`/`[WARNING]` 级别前缀）可点击跳转；工具专属格式由插件 `outputLinks` 提供
 /// - 智能滚动:用户上翻后不强制拉底,并显示 "Jump to latest" 按钮
 /// - 右上角一键复制全部输出
 /// - 可选自动换行:调用方提供切换回调时,右键菜单附带「自动换行」勾选项
@@ -239,7 +239,7 @@ struct OutputTextView: View {
     // MARK: - 错误位置匹配
 
     private struct OutputLocation {
-        enum Kind { case error, warning, stack }
+        enum Kind { case error, warning, location }
         let range: Range<String.Index>
         let kind: Kind
         let url: URL
@@ -247,12 +247,14 @@ struct OutputTextView: View {
         let column: Int?
     }
 
-    private static let mavenExpression = try! NSRegularExpression(
-        pattern: #"\[(ERROR|WARNING)\]\s+(.+?):\[(\d+)(?:,(\d+))?\]"#
-    )
-
-    private static let stackExpression = try! NSRegularExpression(
-        pattern: #"\bat\s+([\w.$]+(?:\$[\w$]+)?)\.([\w$<>]+)\(([\w$]+\.java):(\d+)\)"#
+    /// Tool-neutral source location: a path with an extension followed by
+    /// `:line`, `:line:col` or `:[line,col]`, optionally preceded by an
+    /// `[ERROR]` / `[WARNING]` level word. The path must exist under one of the
+    /// command's roots before the token becomes a link, so hosts and ports or
+    /// version strings never turn into links. Tool-specific formats (stack
+    /// frames, test ids) are contributed by plugins through `outputLinks`.
+    private static let locationExpression = try! NSRegularExpression(
+        pattern: #"(?:\[(ERROR|WARNING)\]\s+)?((?:[A-Za-z]:)?(?:/|\.{1,2}/|~/)?[^\s:\[\]()'"<>|]*?\.\w+):\[?(\d+)(?:[,:](\d+))?\]?(?=[\s:,)\]]|$)"#
     )
 
     private static func matchLocations(
@@ -268,48 +270,29 @@ struct OutputTextView: View {
             guard let line = substring, !line.isEmpty else { return }
             let lineNSRange = NSRange(line.startIndex..<line.endIndex, in: line)
 
-            if let match = mavenExpression.firstMatch(in: line, range: lineNSRange),
-               let path = capture(match, at: 2, in: line),
-               let lineNumber = capture(match, at: 3, in: line).flatMap(Int.init) {
+            for match in locationExpression.matches(in: line, range: lineNSRange) {
+                guard let path = capture(match, at: 2, in: line),
+                      let lineNumber = capture(match, at: 3, in: line).flatMap(Int.init),
+                      let url = resolvePath(
+                          path,
+                          searchRoots: searchRoots,
+                          requiresUniqueMatch: resolvesRelativePathsUniquely,
+                          fileExists: fileExists
+                      ),
+                      let pathRange = Range(match.range(at: 2), in: line),
+                      let numberRange = Range(match.range(at: match.range(at: 4).location == NSNotFound ? 3 : 4), in: line)
+                else { continue }
                 let column = capture(match, at: 4, in: line).flatMap(Int.init)
-                guard let url = resolvePath(
-                    path,
-                    searchRoots: searchRoots,
-                    requiresUniqueMatch: resolvesRelativePathsUniquely,
-                    fileExists: fileExists
-                ) else { return }
-                let kind: OutputLocation.Kind = capture(match, at: 1, in: line) == "ERROR" ? .error : .warning
-                locations.append(OutputLocation(
-                    range: lineRange,
-                    kind: kind,
-                    url: url,
-                    line: lineNumber,
-                    column: column
-                ))
-                return
-            }
-
-            if let match = stackExpression.firstMatch(in: line, range: lineNSRange),
-               let className = capture(match, at: 1, in: line),
-               let lineNumber = capture(match, at: 4, in: line).flatMap(Int.init),
-               let url = resolveClassFile(
-                   className,
-                   searchRoots: searchRoots,
-                   requiresUniqueMatch: resolvesRelativePathsUniquely,
-                   fileExists: fileExists
-               ),
-               let fileRange = Range(match.range(at: 3), in: line),
-               let lineNumberRange = Range(match.range(at: 4), in: line) {
-                // 仅把 `Foo.java:42` 部分设为可点击链接(覆盖文件名与行号)
-                let start = text.index(lineRange.lowerBound, offsetBy: text.distance(from: line.startIndex, to: fileRange.lowerBound))
-                let end = text.index(lineRange.lowerBound, offsetBy: text.distance(from: line.startIndex, to: lineNumberRange.upperBound))
-                locations.append(OutputLocation(
-                    range: start..<end,
-                    kind: .stack,
-                    url: url,
-                    line: lineNumber,
-                    column: nil
-                ))
+                let kind: OutputLocation.Kind
+                switch capture(match, at: 1, in: line) {
+                case "ERROR": kind = .error
+                case "WARNING": kind = .warning
+                default: kind = .location
+                }
+                // Only the `path:line[:col]` token becomes the link; the level word and message stay plain.
+                let start = text.index(lineRange.lowerBound, offsetBy: text.distance(from: line.startIndex, to: pathRange.lowerBound))
+                let end = text.index(lineRange.lowerBound, offsetBy: text.distance(from: line.startIndex, to: numberRange.upperBound))
+                locations.append(OutputLocation(range: start..<end, kind: kind, url: url, line: lineNumber, column: column))
             }
         }
         return locations
@@ -340,29 +323,6 @@ struct OutputTextView: View {
             if fileExists(url) {
                 if !requiresUniqueMatch { return url }
                 if !matches.contains(where: { $0.path == url.path }) { matches.append(url) }
-            }
-        }
-        return requiresUniqueMatch && matches.count == 1 ? matches[0] : nil
-    }
-
-    /// 根据 Java 类全名(如 com.example.Foo)推断 Maven 源码路径并定位存在的文件。
-    static func resolveClassFile(
-        _ className: String,
-        searchRoots: [URL],
-        requiresUniqueMatch: Bool = false,
-        fileExists: (URL) -> Bool
-    ) -> URL? {
-        let outerClassName = className.split(separator: "$", maxSplits: 1).first.map(String.init) ?? className
-        let relativePath = outerClassName.replacingOccurrences(of: ".", with: "/") + ".java"
-        let candidates = ["src/main/java/", "src/test/java/"].map { $0 + relativePath }
-        var matches: [URL] = []
-        for root in searchRoots {
-            for candidate in candidates {
-                let url = root.appendingPathComponent(candidate).standardizedFileURL
-                if fileExists(url) {
-                    if !requiresUniqueMatch { return url }
-                    if !matches.contains(where: { $0.path == url.path }) { matches.append(url) }
-                }
             }
         }
         return requiresUniqueMatch && matches.count == 1 ? matches[0] : nil
@@ -1280,7 +1240,7 @@ final class OutputSoftWrapMenuItem: NSMenuItem {
 // MARK: - ANSI 渲染器
 
 /// 将含 ANSI 转义序列的文本解析为「干净文本 + 样式段」,再组装成 NSAttributedString。
-/// 终端、Maven 构建输出与运行输出共用。
+/// 终端、构建输出与运行输出共用。
 enum ANSIOutputRenderer {
     struct Style {
         var foreground: NSColor

@@ -5,7 +5,7 @@
   "capability": "设置“打开 Java 项目时导入”：自动、询问（通知中可选导入或先配置 Maven）、手动（打开 Java 文件、运行或重新加载 Maven 时再导入）",
   "macos": {
     "evidence": [
-      "macos/Sources/Lithe/Application/Composition/JavaLanguageServerPreparationCoordinator.swift"
+      "rust/lithe-core/src/lsp/host_policy/activation.rs"
     ],
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"

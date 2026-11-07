@@ -7,47 +7,21 @@ import Testing
 
 @MainActor
 struct LanguageIntelligenceModuleTests {
-    @Test(arguments: ["file", "method-handler", "missing"])
-    func buildTestSelectorsComeFromJdtAndRetainOpaqueFullNames(selection: String) async throws {
-        let root = URL(fileURLWithPath: "/workspace/semantic-tests")
-        let source = root.appendingPathComponent("custom-source/Unexpected.java")
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: source))
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
-        let task = Task { try await manager.javaBuildTestSelectors(fileURL: source,
-            identifier: selection == "file" ? nil : selection, rootURL: root) }
-        defer { task.cancel(); manager.stopAllLanguageServers() }
-        try await session.waitUntilStarted()
-        session.publish(.ready)
-        let request = try await session.waitForExecuteCommand()
-        #expect(request.command == "javaTestItems")
-        #expect(request.arguments == [.string(source.absoluteString)])
-        session.completeJavaTestItems(.success(JavaTestItems(items: [
-            JavaTestItem(id: "class", label: "Display class", fullName: "example.Actual$Nested", projectName: "module", kind: 0, level: 5,
-                children: [JavaTestItem(id: "method", label: "Display method", fullName: "example.Actual$Nested#works()", projectName: "module",
-                    kind: 0, level: 6, jdtHandler: "method-handler")])
-        ])))
-        if selection == "missing" { await #expect(throws: (any Error).self) { try await task.value } }
-        else { #expect(try await task.value == [selection == "file" ? "example.Actual$Nested" : "example.Actual$Nested#works()"] ) }
-    }
-
     @Test(arguments: [false, true])
     func hostStagesAreTypedOnceAndReadyTerminationRemainLegacyOnly(cancelStartup: Bool) throws {
         let root = URL(fileURLWithPath: "/workspace/stages")
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("main.go")))
         let session = WorkspaceStateLanguageServerSession()
         let recorder = TypedLogRecorder()
         var resolutionCount = 0
         let manager = LanguageToolingSessionManager(logSink: recorder, resolveLogSubject: { provider in
-            #expect(provider == "java")
+            #expect(provider == "go")
             resolutionCount += 1
-            return LogSegment("java")
-        }, runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)],
-           workspaceFingerprintProvider: { _, _ in "stage-fingerprint" },
-           workspaceStateCleaner: { _, _, _ in 2 })
+            return LogSegment("go")
+        }, runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
         defer { manager.stopAllLanguageServers() }
         let operation = UUID()
-        try manager.startLanguageServer(providerID: "java", rootURL: root, operationID: operation)
+        try manager.startLanguageServer(providerID: "go", rootURL: root, operationID: operation)
         if cancelStartup {
             session.publish(.initializing)
         } else {
@@ -57,19 +31,14 @@ struct LanguageIntelligenceModuleTests {
             session.onLog?(.info, "Language server terminated", nil, nil)
             #expect(recorder.events.count == count)
         }
-        manager.stopLanguageServer(providerID: "java")
+        manager.stopLanguageServer(providerID: "go")
         let stages = recorder.events.compactMap { $0 as? LspSessionStageChanged }
         #expect(stages.compactMap { if case .token(let value)? = $0.fields["stage"] { return value }; return nil } == ["requested", "resolving", "registered", cancelStartup ? "cancelled" : "stopping"])
-        #expect(stages.allSatisfy { $0.channel.rawValue == "lsp/java" && $0.operationID == operation.uuidString })
-        let cleaned = recorder.events.compactMap { $0 as? LspCacheCleaned }
-        #expect(cleaned.count == 1)
-        if case .int(let removed)? = cleaned.first?.fields["removed"] { #expect(removed == 2) }
-        else { Issue.record("Cache cleanup count is missing") }
-        #expect(cleaned.first?.operationID == operation.uuidString)
+        #expect(stages.allSatisfy { $0.channel.rawValue == "lsp/go" && $0.operationID == operation.uuidString })
         #expect(!recorder.events.contains { type(of: $0).id == "lsp.session.updated" || type(of: $0).id == "lsp.protocol.initialized" })
         #expect(resolutionCount == 1)
-        let terminal = CoreLogRecord(event: "lsp.session.updated", level: "DEBUG", channel: "lsp/java",
-            fields: ["server": .string("java"), "state": .string("stopped")])
+        let terminal = CoreLogRecord(event: "lsp.session.updated", level: "DEBUG", channel: "lsp/go",
+            fields: ["server": .string("go"), "state": .string("stopped")])
         session.onCoreLog?(terminal)
         #expect(recorder.coreRecords == [terminal])
     }
@@ -77,7 +46,7 @@ struct LanguageIntelligenceModuleTests {
     @Test
     func subjectResolutionFailureIsCachedAndDoesNotAffectStartup() throws {
         let root = URL(fileURLWithPath: "/workspace/log-subject-failure")
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("main.go")))
         let session = WorkspaceStateLanguageServerSession()
         let recorder = TypedLogRecorder()
         var attempts = 0
@@ -86,9 +55,9 @@ struct LanguageIntelligenceModuleTests {
             throw WorkspaceStateSessionError.unexpectedOperation
         }, runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
         defer { manager.stopAllLanguageServers() }
-        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        try manager.startLanguageServer(providerID: "go", rootURL: root)
         session.onLogIssue?(true, "startup", "requestCancelled", nil, nil)
-        manager.stopLanguageServer(providerID: "java")
+        manager.stopLanguageServer(providerID: "go")
         #expect(attempts == 1)
         #expect(recorder.events.isEmpty)
         #expect(session.startCallCount == 1)
@@ -97,15 +66,15 @@ struct LanguageIntelligenceModuleTests {
     @Test
     func coreLogCallbackPreservesFieldsWithoutLegacyBuffer() throws {
         let root = URL(fileURLWithPath: "/workspace/log-buffer")
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("main.go")))
         let session = WorkspaceStateLanguageServerSession()
         let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
         defer { manager.stopAllLanguageServers() }
         var received: [CoreLogRecord] = []
         manager.onLogEvent = { received.append($0) }
-        try manager.startLanguageServer(providerID: "java", rootURL: root)
-        let record = CoreLogRecord(event: "lsp.stderr.received", level: "WARN", channel: "lsp/java", op: "source-op",
-            fields: ["server": .string("java"), "diagnostic": .string("upstream line")])
+        try manager.startLanguageServer(providerID: "go", rootURL: root)
+        let record = CoreLogRecord(event: "lsp.stderr.received", level: "WARN", channel: "lsp/go", op: "source-op",
+            fields: ["server": .string("go"), "diagnostic": .string("upstream line")])
         session.onCoreLog?(record)
         #expect(received == [record])
         for index in 0..<105 { session.onLog?(.info, "v1 message", "projectCount=\(index)", nil) }
@@ -115,7 +84,7 @@ struct LanguageIntelligenceModuleTests {
     @Test(arguments: [false, true])
     func savesFlushCurrentEditorTextAndPropagateNotificationFailures(fails: Bool) throws {
         let root = URL(fileURLWithPath: "/workspace/save")
-        let file = root.appendingPathComponent("Main.java")
+        let file = root.appendingPathComponent("main.go")
         let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: file))
         let session = WorkspaceStateLanguageServerSession()
         let manager = LanguageToolingSessionManager(runtimes: [
@@ -125,7 +94,7 @@ struct LanguageIntelligenceModuleTests {
         // Saving with no active server must not start one.
         try manager.notifyDocumentSaved(file, text: "saved", currentText: "newer")
         #expect(session.startCallCount == 0)
-        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        try manager.startLanguageServer(providerID: "go", rootURL: root)
         session.saveError = fails ? WorkspaceStateSessionError.unexpectedOperation : nil
         if fails {
             #expect(throws: WorkspaceStateSessionError.unexpectedOperation) {
@@ -137,7 +106,7 @@ struct LanguageIntelligenceModuleTests {
         #expect(session.documentEvents == ["sync:newer", "save:saved"])
     }
 
-    @Test(arguments: ["Main.java", "main.go", "main.rs"])
+    @Test(arguments: ["main.py", "main.go", "main.rs"])
     func sessionStartupChecksCurrentPreferenceForEachWorkspace(fileName: String) throws {
         let root = URL(fileURLWithPath: "/workspace/disabled-lsp", isDirectory: true)
         let otherRoot = URL(fileURLWithPath: "/workspace/enabled-lsp", isDirectory: true)
@@ -175,299 +144,6 @@ struct LanguageIntelligenceModuleTests {
         disabled = false
         try manager.startLanguageServer(providerID: descriptor.id, rootURL: root)
         #expect(session.startCallCount == 3)
-    }
-
-    @Test
-    func disabledJavaBlocksMavenReloadTestDiscoveryAndDebugStartup() async throws {
-        let root = URL(fileURLWithPath: "/workspace/java-disabled", isDirectory: true)
-        let file = root.appendingPathComponent("MainTest.java")
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: file))
-        let session = WorkspaceStateLanguageServerSession()
-        var enabled = true
-        let manager = LanguageToolingSessionManager(
-            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)],
-            isLanguageServerEnabled: { _, _ in enabled }
-        )
-        defer { manager.stopAllLanguageServers() }
-        try manager.startLanguageServer(providerID: "java", rootURL: root)
-        #expect(session.startCallCount == 1)
-
-        enabled = false
-        manager.stopLanguageServer(providerID: "java")
-        // If the guard regresses, fail immediately at the fake start boundary
-        // instead of suspending forever waiting for a server readiness event.
-        session.startError = CancellationError()
-        let error = LanguageToolingSessionError.providerDisabled("Java")
-        await #expect(throws: error) {
-            try await manager.reloadJavaWorkspace(rootURL: root)
-        }
-        await #expect(throws: error) {
-            try await manager.discoverJavaTestItems(fileURL: file, rootURL: root)
-        }
-        await #expect(throws: error) {
-            try await manager.startJavaDebugServer(rootURL: root)
-        }
-        #expect(session.startCallCount == 1)
-        #expect(session.executedCommands.isEmpty)
-        #expect(manager.languageServerOperationIDs.isEmpty)
-
-        enabled = true
-        session.startError = nil
-        try manager.startLanguageServer(providerID: "java", rootURL: root)
-        #expect(session.startCallCount == 2)
-    }
-
-    @Test(arguments: [false, true])
-    func mavenReloadWaitsForJavaImportAndCleansUpCancellation(cancel: Bool) async throws {
-        let root = URL(fileURLWithPath: "/workspace/java-reload", isDirectory: true)
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(
-            for: root.appendingPathComponent("Main.java")
-        ))
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(
-            catalog: .compatibilityFallback,
-            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
-        )
-        let task = Task { try await manager.reloadJavaWorkspace(rootURL: root) }
-        defer { task.cancel(); manager.stopLanguageServer(providerID: "java") }
-        try await session.waitUntilStarted()
-        #expect(session.executedCommands.isEmpty)
-        if cancel {
-            task.cancel()
-            await #expect(throws: CancellationError.self) { try await task.value }
-            #expect(!session.isRunning)
-            #expect(manager.languageServerOperationIDs["java"] == nil)
-        } else {
-            session.publish(.ready)
-            try await task.value
-            #expect(session.isRunning)
-            #expect(manager.languageServerStates["java"] == .ready)
-        }
-    }
-
-    @Test
-    func mavenReloadUpdatesARunningJavaSessionInPlace() async throws {
-        // #970: restarting JDT LS reused its workspace state and skipped every
-        // project whose pom.xml had not changed, so missing artifacts stayed
-        // missing. A running session must take a forced update instead.
-        let root = URL(fileURLWithPath: "/workspace/java-reload-in-place", isDirectory: true)
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(
-            for: root.appendingPathComponent("Main.java")
-        ))
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(
-            catalog: .compatibilityFallback,
-            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
-        )
-        let context = MavenLaunchContext(
-            reactorPath: ".", profiles: [], settingsPath: "/maven/conf/settings.xml",
-            localRepositoryPath: "/repository", skipTests: false,
-            mavenExecutablePath: "/maven/bin/mvn", javaHomePath: nil
-        )
-        manager.configureJavaLanguageImportProvider { _, _ in .init(mavenContext: context) }
-        defer { manager.stopLanguageServer(providerID: "java") }
-        try manager.startLanguageServer(providerID: "java", rootURL: root)
-        session.publish(.ready)
-        session.mavenUpdateResult = .success(LanguageServerMavenConfigurationUpdate(
-            settingsChanged: false, projectsReloaded: true, profilesUpdating: false
-        ))
-
-        try await manager.reloadJavaWorkspace(rootURL: root)
-
-        #expect(session.startCallCount == 1)
-        #expect(session.stopCallCount == 0)
-        #expect(session.mavenUpdates.count == 1)
-        #expect(session.mavenUpdates.first?.context == context)
-        #expect(session.mavenUpdates.first?.reloadProjects == true)
-    }
-
-    @Test
-    func mavenReloadRestartsASessionThatCannotTakeTheUpdate() async throws {
-        let root = URL(fileURLWithPath: "/workspace/java-reload-restart", isDirectory: true)
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(
-            for: root.appendingPathComponent("Main.java")
-        ))
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(
-            catalog: .compatibilityFallback,
-            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
-        )
-        manager.configureJavaLanguageImportProvider { _, _ in
-            .init(mavenContext: MavenLaunchContext(
-                reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false,
-                mavenExecutablePath: nil, javaHomePath: nil
-            ))
-        }
-        try manager.startLanguageServer(providerID: "java", rootURL: root)
-        session.publish(.ready)
-
-        let task = Task { try await manager.reloadJavaWorkspace(rootURL: root) }
-        defer { task.cancel(); manager.stopLanguageServer(providerID: "java") }
-        // The failed update, stop, and restart run synchronously on the main
-        // actor before the reload suspends for readiness; a bounded number of
-        // yields lets the task reach that point.
-        for _ in 0..<100 where session.startCallCount < 2 { await Task.yield() }
-        try #require(session.startCallCount == 2)
-        session.publish(.ready)
-        try await task.value
-
-        #expect(session.mavenUpdates.count == 1)
-        #expect(session.stopCallCount == 1)
-        #expect(session.startCallCount == 2)
-    }
-
-    @Test
-    func pluginImportReachesJavaStartupAndMavenHotUpdateWithoutLegacyFallback() throws {
-        let root = URL(fileURLWithPath: "/workspace/import", isDirectory: true)
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
-        defer { manager.stopAllLanguageServers() }
-        let first = MavenLaunchContext(reactorPath: ".", profiles: ["first"], settingsPath: "/settings.xml", skipTests: false, mavenExecutablePath: nil, javaHomePath: nil)
-        let next = MavenLaunchContext(reactorPath: ".", profiles: ["next"], settingsPath: "/settings.xml", skipTests: false, mavenExecutablePath: nil, javaHomePath: nil)
-        var context = first
-        let gradle = JavaGradleImportConfiguration(wrapperPresent: true, offline: true, userHome: "/gradle-cache")
-        manager.configureJavaLanguageImportProvider { _, requestedRoot in
-            #expect(requestedRoot == root)
-            return JavaLanguageImportConfiguration(mavenContext: context, javaGradle: gradle)
-        }
-        try manager.startLanguageServer(providerID: "java", rootURL: root)
-        #expect(session.startedMavenContext == first)
-        #expect(session.startedGradle == gradle)
-        context = next
-        session.mavenUpdateResult = .success(.init(settingsChanged: false, projectsReloaded: false, profilesUpdating: true))
-        _ = manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false)
-        #expect(session.mavenUpdates.last?.context == next)
-        #expect(session.startCallCount == 1)
-    }
-
-    @Test
-    func removingPluginMavenImportClearsOnlySessionsThatHadMavenInputs() throws {
-        let root = URL(fileURLWithPath: "/workspace/removed-maven-import", isDirectory: true)
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
-        defer { manager.stopAllLanguageServers() }
-        let gradle = JavaGradleImportConfiguration(wrapperPresent: true, offline: false, userHome: nil)
-        let maven = MavenLaunchContext(
-            reactorPath: "nested", profiles: ["plugin"], settingsPath: "/settings.xml",
-            localRepositoryPath: "/repository", skipTests: true, mavenExecutablePath: "/maven/bin/mvn", javaHomePath: "/jdk"
-        )
-        var configuration = JavaLanguageImportConfiguration(javaGradle: gradle)
-        manager.configureJavaLanguageImportProvider { _, _ in configuration }
-        try manager.startLanguageServer(providerID: "java", rootURL: root)
-        #expect(session.startedMavenContext == nil)
-        #expect(manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false) == .noSession)
-        #expect(session.mavenUpdates.isEmpty)
-
-        // A later Maven-enabled start has Core's Maven inputs. Removing its
-        // plugin must send an empty context, including clearing machine paths.
-        manager.stopLanguageServer(providerID: "java")
-        configuration = .init(mavenContext: maven, javaGradle: gradle)
-        try manager.startLanguageServer(providerID: "java", rootURL: root)
-        configuration = .init(javaGradle: gradle)
-        let update = LanguageServerMavenConfigurationUpdate(settingsChanged: true, projectsReloaded: false, profilesUpdating: true)
-        session.mavenUpdateResult = .success(update)
-        #expect(manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false) == .updated(update))
-        #expect(session.mavenUpdates.last?.context == MavenLaunchContext(
-            reactorPath: "nested", profiles: [], settingsPath: nil, localRepositoryPath: nil,
-            skipTests: false, mavenExecutablePath: nil, javaHomePath: nil
-        ))
-        #expect(session.startCallCount == 2)
-
-        // Session ownership ends at stop: reopening as Gradle cannot inherit
-        // the previous session's eligibility for Maven clear updates.
-        manager.stopLanguageServer(providerID: "java")
-        try manager.startLanguageServer(providerID: "java", rootURL: root)
-        #expect(session.startedMavenContext == nil)
-        #expect(manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false) == .noSession)
-        #expect(session.mavenUpdates.count == 1)
-    }
-
-    @Test
-    func pendingPluginImportCannotStartJavaWithLegacyContext() throws {
-        let root = URL(fileURLWithPath: "/workspace/pending-import", isDirectory: true)
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
-        defer { manager.stopAllLanguageServers() }
-        manager.configureJavaLanguageImportProvider { _, _ in throw CancellationError() }
-        #expect(throws: CancellationError.self) { try manager.startLanguageServer(providerID: "java", rootURL: root) }
-        #expect(session.startCallCount == 0)
-    }
-
-    @Test
-    func failedPluginImportDoesNotPublishEmptySettingsAndCanLaterClearItsInputs() throws {
-        let root = URL(fileURLWithPath: "/workspace/failed-import", isDirectory: true)
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
-        defer { manager.stopAllLanguageServers() }
-        var unavailable = false
-        var configuration = JavaLanguageImportConfiguration(mavenContext: MavenLaunchContext(
-            reactorPath: "nested", profiles: ["plugin"], settingsPath: "/plugin/settings.xml",
-            localRepositoryPath: "/plugin/repository", skipTests: false,
-            mavenExecutablePath: "/plugin/maven/bin/mvn", javaHomePath: nil
-        ))
-        manager.configureJavaLanguageImportProvider { _, _ in
-            if unavailable { throw CancellationError() }
-            return configuration
-        }
-        try manager.startLanguageServer(providerID: "java", rootURL: root)
-        unavailable = true
-        guard case .failed(let failure) = manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false) else {
-            Issue.record("An unavailable current import must fail without sending replacement settings")
-            return
-        }
-        #expect(failure.code == "languageImportUnavailable")
-        #expect(session.mavenUpdates.isEmpty)
-
-        // A failed read did not revoke the old session's ownership record.
-        // Once detection confirms removal, clear every old override through the same session.
-        unavailable = false
-        configuration = JavaLanguageImportConfiguration()
-        let update = LanguageServerMavenConfigurationUpdate(settingsChanged: true, projectsReloaded: false, profilesUpdating: false)
-        session.mavenUpdateResult = .success(update)
-        #expect(manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false) == .updated(update))
-        #expect(session.mavenUpdates.count == 1)
-        #expect(session.mavenUpdates.first?.context == MavenLaunchContext(
-            reactorPath: "nested", profiles: [], settingsPath: nil, localRepositoryPath: nil,
-            skipTests: false, mavenExecutablePath: nil, javaHomePath: nil
-        ))
-    }
-
-    @Test
-    func mavenSettingsReachOnlyARunningJavaSessionOfTheSameWorkspace() throws {
-        let root = URL(fileURLWithPath: "/workspace/java-settings", isDirectory: true)
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(
-            for: root.appendingPathComponent("Main.java")
-        ))
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(
-            catalog: .compatibilityFallback,
-            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
-        )
-        manager.configureJavaLanguageImportProvider { _, _ in
-            .init(mavenContext: MavenLaunchContext(
-                reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false,
-                mavenExecutablePath: nil, javaHomePath: nil
-            ))
-        }
-        defer { manager.stopLanguageServer(providerID: "java") }
-
-        #expect(manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false) == .noSession)
-        try manager.startLanguageServer(providerID: "java", rootURL: root)
-        let update = LanguageServerMavenConfigurationUpdate(
-            settingsChanged: true, projectsReloaded: false, profilesUpdating: false
-        )
-        session.mavenUpdateResult = .success(update)
-
-        #expect(manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false) == .updated(update))
-        #expect(manager.updateJavaMavenConfiguration(
-            rootURL: URL(fileURLWithPath: "/workspace/other", isDirectory: true),
-            reloadProjects: false
-        ) == .noSession)
-        #expect(session.mavenUpdates.map(\.reloadProjects) == [false])
     }
 
     @Test
@@ -655,9 +331,9 @@ struct LanguageIntelligenceModuleTests {
     }
 
     @Test
-    func javaWorkspaceResetUsesTheFingerprintFromTheActiveSession() throws {
-        let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
+    func workspaceResetStopsTheActiveSessionBeforeResettingItsState() throws {
+        let root = URL(fileURLWithPath: "/workspace/go", isDirectory: true)
+        let source = root.appendingPathComponent("src/main.go")
         let descriptor = try #require(
             LanguageProviderCatalog.compatibilityFallback.provider(for: source)
         )
@@ -667,93 +343,32 @@ struct LanguageIntelligenceModuleTests {
             session: session
         )
         var resetRoot: URL?
-        var resetFingerprint: String?
+        var stopCountAtReset: Int?
         let manager = LanguageToolingSessionManager(
             catalog: .compatibilityFallback,
             runtimes: [runtime],
-            workspaceFingerprintProvider: { _, _ in "active-fingerprint" },
-            workspaceStateResetter: { _, rootURL, fingerprint in
+            workspaceStateResetter: { _, rootURL in
                 resetRoot = rootURL
-                resetFingerprint = fingerprint
+                stopCountAtReset = session.stopCallCount
             }
         )
 
         try manager.synchronizeLanguageServer(
             for: source,
-            text: "class Main {}",
+            text: "package main",
             rootURL: root
         )
-        try manager.rebuildWorkspaceState(providerID: "java", rootURL: root)
+        try manager.rebuildWorkspaceState(providerID: "go", rootURL: root)
 
-        #expect(session.startedFingerprint == "active-fingerprint")
         #expect(session.stopCallCount == 1)
+        #expect(stopCountAtReset == 1)
         #expect(resetRoot == root.standardizedFileURL)
-        #expect(resetFingerprint == "active-fingerprint")
-    }
-
-    @Test
-    func mavenResultsResetOnTaskStartAndRejectStoppedSessionCallbacks() throws {
-        let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
-        let source = root.appendingPathComponent("Main.java")
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: source))
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(
-            catalog: .compatibilityFallback,
-            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
-        )
-        defer { manager.stopLanguageServer(providerID: "java") }
-        try manager.synchronizeLanguageServer(for: source, text: "class Main {}", rootURL: root)
-        let failed = MavenProfileProjectResult(projectURI: URL(string: "file:///common-a")!, status: "failed")
-        session.onMavenProfileProject?(failed)
-        #expect(manager.mavenProfileProjectResults.count == 1)
-        session.onMavenProfileTask?("running")
-        #expect(manager.mavenProfileProjectResults.isEmpty)
-        session.onMavenProfileProject?(MavenProfileProjectResult(projectURI: failed.projectURI, status: "running"))
-        #expect(manager.mavenProfileProjectResults[failed.projectURI]?.status == "running")
-        let oldCallback = session.onMavenProfileProject
-        manager.stopLanguageServer(providerID: "java")
-        oldCallback?(failed)
-        #expect(manager.mavenProfileProjectResults.isEmpty)
-    }
-
-    @Test
-    func javaSessionReceivesTheCurrentMavenContext() throws {
-        let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
-        let source = root.appendingPathComponent("src/Main.java")
-        let descriptor = try #require(
-            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
-        )
-        let context = MavenLaunchContext(
-            reactorPath: ".",
-            profiles: ["dev", "enterprise"],
-            settingsPath: "/local/settings.xml",
-            skipTests: true,
-            mavenExecutablePath: "/local/maven/bin/mvn",
-            javaHomePath: "/local/jdk"
-        )
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(
-            catalog: .compatibilityFallback,
-            runtimes: [WorkspaceStateLanguageProviderRuntime(
-                descriptor: descriptor,
-                session: session
-            )]
-        )
-        manager.configureJavaLanguageImportProvider { requestedDescriptor, requestedRoot in
-            #expect(requestedDescriptor.id == "java")
-            #expect(requestedRoot == root.standardizedFileURL)
-            return .init(mavenContext: context)
-        }
-
-        try manager.startLanguageServer(providerID: "java", rootURL: root)
-
-        #expect(session.startedMavenContext == context)
     }
 
     @Test
     func languageServerLifecycleLogsAndCallbacksRetainTheOperationID() throws {
-        let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
-        let source = root.appendingPathComponent("Main.java")
+        let root = URL(fileURLWithPath: "/workspace/go", isDirectory: true)
+        let source = root.appendingPathComponent("main.go")
         let descriptor = try #require(
             LanguageProviderCatalog.compatibilityFallback.provider(for: source)
         )
@@ -768,739 +383,27 @@ struct LanguageIntelligenceModuleTests {
         let operationID = UUID()
         var callbacks: [(LanguageServerSessionState, UUID?)] = []
         manager.onLanguageServerStateChange = { providerID, state, callbackOperationID in
-            guard providerID == "java" else { return }
+            guard providerID == "go" else { return }
             callbacks.append((state, callbackOperationID))
         }
 
         try manager.startLanguageServer(
-            providerID: "java",
+            providerID: "go",
             rootURL: root,
             operationID: operationID
         )
         session.publish(.ready)
-        manager.stopLanguageServer(providerID: "java")
+        manager.stopLanguageServer(providerID: "go")
 
         #expect(callbacks.contains { $0.0 == .ready && $0.1 == operationID })
         #expect(callbacks.contains { $0.0 == .stopped && $0.1 == operationID })
-        #expect(manager.languageServerOperationIDs["java"] == nil)
-    }
-
-    @Test
-    func javaDependencySnapshotReadsResolvedJdtClasspathsWithoutBuilding() async throws {
-        let root = URL(fileURLWithPath: "/workspace/java-dependencies", isDirectory: true)
-        let module = root.appendingPathComponent("service", isDirectory: true)
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(
-            for: root.appendingPathComponent("Main.java")
-        ))
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(
-            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
-        )
-        defer { manager.stopAllLanguageServers() }
-        let (events, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
-        defer { continuation.finish() }
-        manager.onJavaDependencySnapshotChange = { continuation.yield(()) }
-
-        try manager.startLanguageServer(providerID: "java", rootURL: root)
-        session.publish(.ready)
-        #expect(session.executedCommands.isEmpty)
-        session.publishPreparation(.init(phase: "ready", status: "ready", blocksRun: false))
-        let projects = try await session.waitForExecuteCommand()
-        #expect(projects.command == "java.project.getAll")
-        session.completeExecuteReturningValue(.success(.array([
-            .string(root.absoluteString), .string(module.absoluteString),
-            .string("file:///unrelated/project")
-        ])))
-
-        let rootClasspath = try await session.waitForExecuteCommand(number: 2)
-        #expect(rootClasspath.command == "java.project.getClasspaths")
-        // JDT LS reads the options from JSON text only; an object leaves them
-        // null and the command fails inside the server.
-        #expect(rootClasspath.arguments == [
-            .string(root.absoluteString), .string(#"{"scope":"runtime"}"#)
-        ])
-        session.completeExecuteReturningValue(.success(.object([
-            "classpaths": .array([
-                .string("/external/cache/one.jar"), .string(root.appendingPathComponent("target/classes").path)
-            ]),
-            "modulepaths": .array([.string("/external/cache/two.jar")])
-        ])))
-        let moduleClasspath = try await session.waitForExecuteCommand(number: 3)
-        #expect(moduleClasspath.arguments.first == .string(module.absoluteString))
-        session.completeExecuteReturningValue(.success(.object([
-            "classpaths": .array([.string("/external/cache/one.jar"), .string("relative.jar")]),
-            "modulepaths": .array([])
-        ])))
-
-        let published = await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                for await _ in events { return true }
-                return false
-            }
-            group.addTask {
-                // test-stability: allow(swift-real-sleep) reason: this is the bounded failure deadline for the snapshot callback stream.
-                try? await Task.sleep(for: .seconds(2))
-                return false
-            }
-            let result = await group.next() ?? false
-            group.cancelAll()
-            continuation.finish()
-            return result
-        }
-        #expect(published)
-        #expect(manager.dependencySnapshot(workspaceURL: root)?.dependencyRoots.map(\.path) == [
-            "/external/cache/one.jar", "/external/cache/two.jar"
-        ])
-        #expect(manager.dependencySnapshot(workspaceURL: module) == nil)
-        #expect(session.executedCommands.count == 3)
-
-        let (updates, updatedContinuation) = AsyncStream.makeStream(
-            of: Void.self, bufferingPolicy: .bufferingNewest(1)
-        )
-        defer { updatedContinuation.finish() }
-        manager.onJavaDependencySnapshotChange = { updatedContinuation.yield(()) }
-        try manager.notifyWorkspaceFilesChanged(providerID: "java", changes: [
-            .init(fileURL: module.appendingPathComponent("pom.xml"), kind: .changed)
-        ])
-        let refreshedProjects = try await session.waitForExecuteCommand(number: 4)
-        #expect(refreshedProjects.command == "java.project.getAll")
-        session.completeExecuteReturningValue(.success(.array([.string(module.absoluteString)])))
-        let refreshedClasspath = try await session.waitForExecuteCommand(number: 5)
-        #expect(refreshedClasspath.command == "java.project.getClasspaths")
-        session.completeExecuteReturningValue(.success(.object([
-            "classpaths": .array([.string("/external/cache/updated.jar")]),
-            "modulepaths": .array([])
-        ])))
-        let updated = await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                for await _ in updates { return true }
-                return false
-            }
-            group.addTask {
-                // test-stability: allow(swift-real-sleep) reason: this bounds a missing dependency refresh callback.
-                try? await Task.sleep(for: .seconds(2))
-                return false
-            }
-            let result = await group.next() ?? false
-            group.cancelAll()
-            updatedContinuation.finish()
-            return result
-        }
-        #expect(updated)
-        #expect(manager.dependencySnapshot(workspaceURL: root)?.dependencyRoots.map(\.path) == [
-            "/external/cache/updated.jar"
-        ])
-        #expect(session.executedCommands.count == 5)
-        manager.stopLanguageServer(providerID: "java")
-        #expect(manager.dependencySnapshot(workspaceURL: root) == nil)
-    }
-
-    /// JDT reports projects and output folders at their resolved location.
-    /// A workspace opened through a symbolic link must still own them.
-    @Test
-    func javaDependencySnapshotMatchesProjectsBehindASymbolicLink() async throws {
-        let fileManager = FileManager.default
-        let scratch = fileManager.temporaryDirectory.appendingPathComponent(
-            "lithe-java-dependencies-\(UUID().uuidString)", isDirectory: true
-        )
-        defer { try? fileManager.removeItem(at: scratch) }
-        let resolvedRoot = scratch.appendingPathComponent("resolved", isDirectory: true)
-        try fileManager.createDirectory(at: resolvedRoot, withIntermediateDirectories: true)
-        let root = scratch.appendingPathComponent("link", isDirectory: true)
-        try fileManager.createSymbolicLink(at: root, withDestinationURL: resolvedRoot)
-
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(
-            for: root.appendingPathComponent("Main.java")
-        ))
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(
-            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
-        )
-        defer { manager.stopAllLanguageServers() }
-        let (events, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
-        defer { continuation.finish() }
-        manager.onJavaDependencySnapshotChange = { continuation.yield(()) }
-
-        try manager.startLanguageServer(providerID: "java", rootURL: root)
-        session.publish(.ready)
-        session.publishPreparation(.init(phase: "ready", status: "ready", blocksRun: false))
-        _ = try await session.waitForExecuteCommand()
-        session.completeExecuteReturningValue(.success(.array([.string(resolvedRoot.absoluteString)])))
-
-        let classpath = try await session.waitForExecuteCommand(number: 2)
-        #expect(classpath.command == "java.project.getClasspaths")
-        #expect(classpath.arguments.first == .string(resolvedRoot.absoluteString))
-        session.completeExecuteReturningValue(.success(.object([
-            "classpaths": .array([
-                .string("/external/cache/one.jar"),
-                .string(resolvedRoot.appendingPathComponent("target/classes").path)
-            ]),
-            "modulepaths": .array([])
-        ])))
-
-        let published = await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                for await _ in events { return true }
-                return false
-            }
-            group.addTask {
-                // test-stability: allow(swift-real-sleep) reason: this is the bounded failure deadline for the snapshot callback stream.
-                try? await Task.sleep(for: .seconds(2))
-                return false
-            }
-            let result = await group.next() ?? false
-            group.cancelAll()
-            continuation.finish()
-            return result
-        }
-        #expect(published)
-        #expect(manager.dependencySnapshot(workspaceURL: root)?.dependencyRoots.map(\.path) == [
-            "/external/cache/one.jar"
-        ])
-    }
-
-    @Test
-    func javaDebugServerWaitsForJdtlsReadyAndReturnsItsPort() async throws {
-        let root = URL(fileURLWithPath: "/workspace/java-debug", isDirectory: true)
-        let descriptor = try #require(
-            LanguageProviderCatalog.compatibilityFallback.provider(
-                for: root.appendingPathComponent("Main.java")
-            )
-        )
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(
-            catalog: .compatibilityFallback,
-            runtimes: [WorkspaceStateLanguageProviderRuntime(
-                descriptor: descriptor,
-                session: session
-            )]
-        )
-        let task = Task { try await manager.startJavaDebugServer(rootURL: root) }
-        defer { task.cancel() }
-
-        try await session.waitUntilStarted()
-        #expect(session.executedCommands.isEmpty)
-        session.publish(.ready)
-        let command = try await session.waitForExecuteCommand()
-        #expect(command.command == "vscode.java.startDebugSession")
-        #expect(command.arguments.isEmpty)
-        session.completeExecuteReturningValue(.success(.integer(5005)))
-
-        #expect(try await task.value == 5005)
-    }
-
-    @Test(arguments: ["src/main/java", "src/test/java", "custom/test-sources"], [false, true])
-    func javaDebugLaunchTargetUsesJdtlsProjectMetadataForTheCurrentFile(sourceRoot: String, run: Bool) async throws {
-        let root = URL(fileURLWithPath: "/workspace/java-debug", isDirectory: true)
-        let source = root.appendingPathComponent("service/\(sourceRoot)/example/Main.java")
-        let classPaths = sourceRoot == "src/main/java"
-            ? ["/workspace/custom/classes"]
-            : ["/workspace/custom/test-output", "/workspace/custom/classes", "/workspace/test-only.jar"]
-        let descriptor = try #require(
-            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
-        )
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(
-            catalog: .compatibilityFallback,
-            runtimes: [WorkspaceStateLanguageProviderRuntime(
-                descriptor: descriptor,
-                session: session
-            )]
-        )
-        let prepared = JavaDebugLaunchTarget(
-            mainClass: "service/example.Main", projectName: "service",
-            modulePaths: ["/workspace/modules"], classPaths: classPaths
-        )
-        session.javaLaunchResult = .success(.ready(prepared))
-        let task = Task {
-            if run {
-                guard case .ready(let target) = try await manager.prepareJavaRunLaunchTarget(fileURL: source, rootURL: root) else {
-                    throw CancellationError()
-                }
-                return target
-            }
-            return try await manager.resolveJavaDebugLaunchTarget(fileURL: source, rootURL: root)
-        }
-        defer { task.cancel() }
-
-        try await session.waitUntilStarted()
-        session.publish(.ready)
-        #expect(try await task.value == prepared)
-        #expect(session.executedCommands.map(\.command) == ["java.prepareLaunch"])
-        #expect(session.executedCommands.first?.arguments == [.string(source.path)])
-    }
-
-    @Test(arguments: ["success", "cold", "changed", "aba", "cancel", "import-success", "import-cold", "import-changed", "import-aba", "import-cancel"])
-    func javaRunUsesThePreparedImportAndRejectsChangesDuringDiscovery(mode: String) async throws {
-        let importOnly = mode.hasPrefix("import-")
-        let phase = mode.replacingOccurrences(of: "import-", with: "")
-        let root = URL(fileURLWithPath: "/workspace/run-import")
-        let source = root.appendingPathComponent("app/custom/Main.java")
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: source))
-        let session = WorkspaceStateLanguageServerSession()
-        session.mavenUpdateResult = .success(.init(settingsChanged: false, projectsReloaded: false, profilesUpdating: true))
-        session.deferredJavaLaunch = true
-        session.javaLaunchResult = .success(.ready(JavaDebugLaunchTarget(mainClass: "demo.Main", projectName: "app", classPaths: ["/current/classes"])))
-        let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
-        let baseline = MavenLaunchContext(reactorPath: ".", profiles: ["default"], settingsPath: "/settings.xml",
-            skipTests: false, mavenExecutablePath: "/default/mvn", javaHomePath: nil)
-        let prepared = MavenLaunchContext(reactorPath: "app", profiles: ["run-only"], settingsPath: "/settings.xml",
-            skipTests: false, mavenExecutablePath: "/selected/mvn", javaHomePath: nil)
-        var current = baseline
-        manager.configureJavaLanguageImportProvider { _, _ in .init(mavenContext: current) }
-        if phase != "cold" {
-            try manager.startLanguageServer(providerID: "java", rootURL: root)
-            session.publish(.ready)
-        }
-        let task = Task {
-            if importOnly {
-                try await manager.applyJavaRunImport(rootURL: root, languageImport: .init(mavenContext: prepared))
-                return JavaLaunchPreparation.ready(JavaDebugLaunchTarget(mainClass: "demo.Main", projectName: "app", classPaths: ["/current/classes"]))
-            }
-            return try await manager.prepareJavaRunLaunchTarget(fileURL: source, rootURL: root,
-                languageImport: .init(mavenContext: prepared))
-        }
-        defer { task.cancel(); session.completeExecuteReturningValue(.failure(CancellationError())); session.completeJavaEntrypoints(.failure(CancellationError())); manager.stopAllLanguageServers() }
-        if phase == "cold" { try await session.waitUntilStarted(); session.publish(.ready) }
-        _ = try await session.waitForExecuteCommand()
-        #expect((phase == "cold" ? session.startedMavenContext : session.mavenUpdates.last?.context) == prepared)
-        #expect(current == baseline)
-        let revision = manager.javaImportRevision
-        if phase == "changed" || phase == "aba" {
-            _ = manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false)
-            if phase == "aba" {
-                current = prepared
-                _ = manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false)
-            }
-            #expect(manager.javaImportRevision > revision)
-        }
-        if phase == "cancel" { task.cancel() }
-        #expect(session.executedCommands.first?.command == (importOnly ? "javaEntrypoints" : "java.prepareLaunch"))
-        if importOnly { session.completeJavaEntrypoints(.success(JavaEntrypoints(entries: []))) }
-        else { session.completeExecuteReturningValue(.success(.null)) }
-        if ["changed", "aba", "cancel"].contains(phase) {
-            await #expect(throws: CancellationError.self) { try await task.value }
-            #expect(session.executedCommands.count == 1)
-            return
-        }
-        guard case .ready(let target) = try await task.value else { Issue.record("Expected current launch metadata"); return }
-        #expect(target.classPaths == ["/current/classes"])
-        #expect(session.startCallCount == 1)
-        // Generation/discovery restores the current Build defaults rather than
-        // retaining the previous Run's temporary profile as a shadow setting.
-        let discovery = Task { try await manager.javaEntrypoints(rootURL: root) }
-        defer { discovery.cancel() }
-        _ = try await session.waitForExecuteCommand(number: 2)
-        #expect(session.mavenUpdates.last?.context == baseline)
-        session.completeJavaEntrypoints(.success(JavaEntrypoints(entries: [])))
-        #expect(try await discovery.value.entries.isEmpty)
-    }
-
-    @Test
-    func javaServiceUpdateUsesTheSameAutomaticClasspathAsLaunch() async throws {
-        let root = URL(fileURLWithPath: "/workspace/java-update", isDirectory: true)
-        let source = root.appendingPathComponent("custom/tests/MainTests.java")
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: source))
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(
-            catalog: .compatibilityFallback,
-            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
-        )
-        // An update reuses the already-running language session.
-        _ = try manager.startLanguageServer(providerID: "java", rootURL: root)
-        try await session.waitUntilStarted()
-        session.publish(.ready)
-        let target = JavaDebugLaunchTarget(
-            mainClass: "MainTests", projectName: "service",
-            modulePaths: [], classPaths: ["/workspace/custom/test-output", "/workspace/test-only.jar"]
-        )
-        let task = Task {
-            try await manager.buildJavaServiceUpdate(target: target, fileURL: source, rootURL: root)
-        }
-        defer { task.cancel() }
-        let paths = try await session.waitForExecuteCommand()
-        #expect(paths.command == "vscode.java.resolveClasspath")
-        #expect(paths.arguments == [.string("MainTests"), .string("service")])
-        session.completeExecuteReturningValue(.success(.array([
-            .array([]), .array(target.classPaths.map { .string($0) }),
-        ])))
-        let build = try await session.waitForExecuteCommand(number: 2)
-        #expect(build.command == "vscode.java.buildWorkspace")
-        session.completeExecuteReturningValue(.success(.integer(1)))
-        try await task.value
-    }
-
-    @Test
-    func javaLaunchPreservesAUsableTargetAfterOneTerminalBuildFailure() async throws {
-        let root = URL(fileURLWithPath: "/workspace/java-build-failure", isDirectory: true)
-        let source = root.appendingPathComponent("service/src/main/java/example/Main.java")
-        let descriptor = try #require(
-            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
-        )
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(
-            catalog: .compatibilityFallback,
-            runtimes: [WorkspaceStateLanguageProviderRuntime(
-                descriptor: descriptor,
-                session: session
-            )]
-        )
-        let report = JavaBuildReport(
-            markerScope: .launchTarget, builderFailedEarlier: true,
-            elapsedMilliseconds: 8, recovery: .rebuildJavaIndex
-        )
-        let target = JavaDebugLaunchTarget(
-            mainClass: "service/example.Main", projectName: "service", classPaths: ["/workspace/classes"]
-        )
-        session.javaLaunchResult = .success(.buildFailed(target: target, failure: JavaLaunchBuildFailure(
-            code: "javaBuildCompilationErrors", message: "The Java project has compilation errors.", report: report
-        )))
-        let task = Task { try await manager.prepareJavaRunLaunchTarget(fileURL: source, rootURL: root) }
-        defer { task.cancel(); session.stop() }
-        try await session.waitUntilStarted()
-        #expect(session.executedCommands.isEmpty)
-        session.publish(.ready)
-        guard case .buildFailed(let actual, let failure) = try await task.value else {
-            Issue.record("expected a continuable build failure")
-            return
-        }
-        #expect(actual == target)
-        #expect(failure.report == report)
-        #expect(session.executedCommands.map(\.command) == ["java.prepareLaunch"])
-    }
-
-    @Test
-    func javaDebugLaunchTargetDoesNotBorrowAnotherFileWhenJdtlsReportsItsPath() async throws {
-        let root = URL(fileURLWithPath: "/workspace/java-debug", isDirectory: true)
-        let source = root.appendingPathComponent("service/src/main/java/example/UserService.java")
-        let descriptor = try #require(
-            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
-        )
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(
-            catalog: .compatibilityFallback,
-            runtimes: [WorkspaceStateLanguageProviderRuntime(
-                descriptor: descriptor,
-                session: session
-            )]
-        )
-        let failure = LanguageServerRuntimeFailure(
-            code: "invalidServerResult",
-            message: "The Java language service could not identify one launch target for this source file."
-        )
-        session.javaLaunchResult = .failure(failure)
-        let task = Task { try await manager.resolveJavaDebugLaunchTarget(fileURL: source, rootURL: root) }
-        defer { task.cancel(); session.stop() }
-        try await session.waitUntilStarted()
-        session.publish(.ready)
-        await #expect(throws: LanguageServerRuntimeFailure.self) { try await task.value }
-        #expect(session.executedCommands.map(\.command) == ["java.prepareLaunch"])
-        #expect(session.executedCommands.first?.arguments == [.string(source.path)])
-    }
-
-    @Test
-    func javaTestDiscoveryProjectsSortedClassesAndMethodsForTheTestsTree() async throws {
-        let root = URL(fileURLWithPath: "/workspace/java-tests", isDirectory: true)
-        let source = root.appendingPathComponent(
-            "service/src/test/java/example/UserServiceTest.java"
-        )
-        let descriptor = try #require(
-            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
-        )
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(
-            catalog: .compatibilityFallback,
-            runtimes: [WorkspaceStateLanguageProviderRuntime(
-                descriptor: descriptor,
-                session: session
-            )]
-        )
-        let task = Task {
-            try await manager.discoverJavaTestItems(fileURL: source, rootURL: root)
-        }
-        defer { task.cancel() }
-
-        try await session.waitUntilStarted()
-        session.publish(.ready)
-        let discovery = try await session.waitForExecuteCommand()
-        #expect(discovery.command == "javaTestItems")
-        #expect(discovery.arguments == [.string(source.standardizedFileURL.absoluteString)])
-        session.completeJavaTestItems(.success(JavaTestItems(items: [
-            JavaTestItem(
-                id: "service@example.UserServiceTest",
-                label: "UserServiceTest",
-                fullName: "example.UserServiceTest",
-                projectName: "service",
-                kind: 0,
-                level: 5,
-                jdtHandler: "class-handler",
-                sortText: "002",
-                children: [
-                    JavaTestItem(
-                        id: "service@example.UserServiceTest#logsOut",
-                        label: "logsOut()",
-                        fullName: "example.UserServiceTest#logsOut()",
-                        projectName: "service",
-                        kind: 0,
-                        level: 6,
-                        jdtHandler: "logout-handler",
-                        sortText: "002"
-                    ),
-                    JavaTestItem(
-                        id: "service@example.UserServiceTest#logsIn",
-                        label: "logsIn()",
-                        fullName: "example.UserServiceTest#logsIn",
-                        projectName: "service",
-                        kind: 0,
-                        level: 6,
-                        jdtHandler: "login-handler",
-                        sortText: "001"
-                    ),
-                ]
-            ),
-            JavaTestItem(
-                id: "service@example.AccountTest",
-                label: "AccountTest",
-                fullName: "example.AccountTest",
-                projectName: "service",
-                kind: 0,
-                level: 5,
-                jdtHandler: "account-handler",
-                sortText: "001"
-            ),
-        ])))
-
-        let items = try await task.value
-        #expect(items.map(\.label) == [
-            "AccountTest", "UserServiceTest", "logsIn()", "logsOut()",
-        ])
-        #expect(items.map(\.depth) == [1, 1, 2, 2])
-        #expect(items.map(\.kind) == [.testCase, .testCase, .testCase, .testCase])
-        #expect(items.map(\.fileURL) == Array(repeating: source.standardizedFileURL, count: 4))
-        #expect(items.map(\.testIdentifier) == [
-            "example.AccountTest",
-            "example.UserServiceTest",
-            "example.UserServiceTest#logsIn",
-            "example.UserServiceTest#logsOut()",
-        ])
-        #expect(items.map(\.reportIdentity) == [
-            .init(suite: "example.AccountTest"), .init(suite: "example.UserServiceTest"),
-            .init(suite: "example.UserServiceTest", name: "logsIn"),
-            .init(suite: "example.UserServiceTest", name: "logsOut")
-        ])
-    }
-
-    @Test
-    func junitDebugTargetUsesJavaTestDiscoveryAndLaunchArguments() async throws {
-        let root = URL(fileURLWithPath: "/workspace/java-tests", isDirectory: true)
-        let source = root.appendingPathComponent(
-            "service/src/test/java/example/UserServiceTest.java"
-        )
-        let descriptor = try #require(
-            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
-        )
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(
-            catalog: .compatibilityFallback,
-            runtimes: [WorkspaceStateLanguageProviderRuntime(
-                descriptor: descriptor,
-                session: session
-            )]
-        )
-        let task = Task {
-            try await manager.resolveJavaTestDebugLaunchTarget(
-                fileURL: source,
-                rootURL: root
-            )
-        }
-        defer { task.cancel() }
-
-        try await session.waitUntilStarted()
-        session.publish(.ready)
-        let discovery = try await session.waitForExecuteCommand()
-        #expect(discovery.command == "javaTestItems")
-        #expect(discovery.arguments == [.string(source.standardizedFileURL.absoluteString)])
-        session.completeJavaTestItems(.success(JavaTestItems(items: [
-            JavaTestItem(
-                id: "service@example.UserServiceTest",
-                label: "UserServiceTest",
-                fullName: "example.UserServiceTest",
-                projectName: "service",
-                kind: 0,
-                level: 5,
-                jdtHandler: "=service/src<example{UserServiceTest.java[UserServiceTest",
-                children: [
-                    JavaTestItem(
-                        id: "service@example.UserServiceTest#logsIn",
-                        label: "logsIn()",
-                        fullName: "example.UserServiceTest#logsIn",
-                        projectName: "service",
-                        kind: 0,
-                        level: 6,
-                        jdtHandler: "=service/src<example{UserServiceTest.java[UserServiceTest~logsIn"
-                    ),
-                ]
-            ),
-        ])))
-
-        let launchCommand = try await session.waitForExecuteCommand(number: 2)
-        #expect(launchCommand.command == "vscode.java.test.junit.argument")
-        let launchRequest = try javaTestLaunchRequest(from: launchCommand)
-        #expect(launchRequest["projectName"] as? String == "service")
-        #expect(launchRequest["testLevel"] as? Int == 5)
-        #expect(launchRequest["testKind"] as? Int == 0)
-        #expect(launchRequest["testNames"] as? [String] == ["example.UserServiceTest"])
-        session.completeExecuteReturningValue(.success(.object([
-            "body": .object([
-                "workingDirectory": .string("/workspace/java-tests/service"),
-                "mainClass": .string("org.eclipse.jdt.internal.junit.runner.RemoteTestRunner"),
-                "projectName": .string("service"),
-                "classpath": .array([.string("/workspace/java-tests/service/classes")]),
-                "modulepath": .array([]),
-                "vmArguments": .array([.string("--enable-preview")]),
-                "programArguments": .array([
-                    .string("-version"), .string("3"), .string("-port"), .string("-1"),
-                ]),
-            ]),
-            "status": .integer(0),
-            "errorMessage": .null,
-        ])))
-
-        #expect(try await task.value == JavaTestDebugLaunchTarget(
-            fileURL: source,
-            name: "UserServiceTest",
-            framework: .junit,
-            workingDirectory: "/workspace/java-tests/service",
-            mainClass: "org.eclipse.jdt.internal.junit.runner.RemoteTestRunner",
-            projectName: "service",
-            classPaths: ["/workspace/java-tests/service/classes"],
-            modulePaths: [],
-            vmArguments: ["--enable-preview"],
-            programArguments: ["-version", "3", "-port", "-1"]
-        ))
-    }
-
-    @Test
-    func testngDebugTargetRetainsThePackagedRunnerAndSelectedMethod() async throws {
-        let root = URL(fileURLWithPath: "/workspace/java-tests", isDirectory: true)
-        let source = root.appendingPathComponent(
-            "service/src/test/java/example/UserServiceTest.java"
-        )
-        let descriptor = try #require(
-            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
-        )
-        let session = WorkspaceStateLanguageServerSession()
-        session.javaTestRunnerURL = URL(fileURLWithPath: "/lithe/java-test-runner.jar")
-        let manager = LanguageToolingSessionManager(
-            catalog: .compatibilityFallback,
-            runtimes: [WorkspaceStateLanguageProviderRuntime(
-                descriptor: descriptor,
-                session: session
-            )]
-        )
-        let methodID = "service@example.UserServiceTest#logsIn"
-        let task = Task {
-            try await manager.resolveJavaTestDebugLaunchTarget(
-                fileURL: source,
-                testIdentifier: methodID,
-                rootURL: root
-            )
-        }
-        defer { task.cancel() }
-
-        try await session.waitUntilStarted()
-        session.publish(.ready)
-        _ = try await session.waitForExecuteCommand()
-        session.completeJavaTestItems(.success(JavaTestItems(items: [
-            JavaTestItem(
-                id: "service@example.UserServiceTest",
-                label: "UserServiceTest",
-                fullName: "example.UserServiceTest",
-                projectName: "service",
-                kind: 2,
-                level: 5,
-                jdtHandler: "class-handler",
-                children: [
-                    JavaTestItem(
-                        id: methodID,
-                        label: "logsIn()",
-                        fullName: "example.UserServiceTest#logsIn",
-                        projectName: "service",
-                        kind: 2,
-                        level: 6,
-                        jdtHandler: "method-handler"
-                    ),
-                ]
-            ),
-        ])))
-
-        let launchCommand = try await session.waitForExecuteCommand(number: 2)
-        #expect(launchCommand.command == "vscode.java.test.junit.argument")
-        let launchRequest = try javaTestLaunchRequest(from: launchCommand)
-        #expect(launchRequest["testLevel"] as? Int == 6)
-        #expect(launchRequest["testKind"] as? Int == 2)
-        #expect(launchRequest["testNames"] as? [String] == ["example.UserServiceTest#logsIn"])
-        session.completeExecuteReturningValue(.success(.object([
-            "body": .object([
-                "workingDirectory": .string("/workspace/java-tests/service"),
-                "projectName": .string("service"),
-                "classpath": .array([.string("/workspace/java-tests/service/classes")]),
-                "modulepath": .array([]),
-                "vmArguments": .array([]),
-                "programArguments": .array([]),
-            ]),
-            "status": .integer(0),
-            "errorMessage": .null,
-        ])))
-
-        #expect(try await task.value == JavaTestDebugLaunchTarget(
-            fileURL: source,
-            name: "logsIn()",
-            framework: .testng,
-            workingDirectory: "/workspace/java-tests/service",
-            mainClass: "com.microsoft.java.test.runner.Launcher",
-            projectName: "service",
-            classPaths: ["/workspace/java-tests/service/classes"],
-            modulePaths: [],
-            vmArguments: [],
-            programArguments: [],
-            testNGRunnerPath: "/lithe/java-test-runner.jar",
-            testNGTestNames: ["example.UserServiceTest#logsIn"]
-        ))
-    }
-
-    @Test
-    func cancellingJavaDebugServerStartupReleasesTheReadyWait() async throws {
-        let root = URL(fileURLWithPath: "/workspace/java-debug-cancel", isDirectory: true)
-        let descriptor = try #require(
-            LanguageProviderCatalog.compatibilityFallback.provider(
-                for: root.appendingPathComponent("Main.java")
-            )
-        )
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(
-            catalog: .compatibilityFallback,
-            runtimes: [WorkspaceStateLanguageProviderRuntime(
-                descriptor: descriptor,
-                session: session
-            )]
-        )
-        let task = Task { try await manager.startJavaDebugServer(rootURL: root) }
-
-        try await session.waitUntilStarted()
-        task.cancel()
-
-        await #expect(throws: CancellationError.self) {
-            try await task.value
-        }
-        session.publish(.ready)
-        #expect(session.executedCommands.isEmpty)
+        #expect(manager.languageServerOperationIDs["go"] == nil)
     }
 
     @Test
     func languageServerStartTimeoutIsLoggedWithTheOperationID() throws {
-        let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
-        let source = root.appendingPathComponent("Main.java")
+        let root = URL(fileURLWithPath: "/workspace/go", isDirectory: true)
+        let source = root.appendingPathComponent("main.go")
         let descriptor = try #require(
             LanguageProviderCatalog.compatibilityFallback.provider(for: source)
         )
@@ -1522,22 +425,22 @@ struct LanguageIntelligenceModuleTests {
 
         #expect(throws: LanguageServerSessionStartError.self) {
             try manager.startLanguageServer(
-                providerID: "java",
+                providerID: "go",
                 rootURL: root,
                 operationID: operationID
             )
         }
 
-        #expect(manager.languageServerStates["java"] == .failed(timeoutFailure))
+        #expect(manager.languageServerStates["go"] == .failed(timeoutFailure))
     }
 
     /// Regression for LSP-08: macOS used a private three-attempt counter while
     /// Windows used a five-second cooldown. Both now apply Core's decision.
     @Test
     func automaticStartsApplyTheCoreActivationDecision() throws {
-        let root = URL(fileURLWithPath: "/workspace/java-activation", isDirectory: true)
+        let root = URL(fileURLWithPath: "/workspace/go-activation", isDirectory: true)
         let descriptor = try #require(
-            LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java"))
+            LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("main.go"))
         )
         let session = WorkspaceStateLanguageServerSession()
         let failure = LanguageServerSessionFailure(code: "start_failed", stage: "processStart", message: "boom")
@@ -1560,21 +463,21 @@ struct LanguageIntelligenceModuleTests {
         manager.monotonicNowMs = { now }
 
         #expect(throws: LanguageServerSessionStartError.self) {
-            try manager.startLanguageServer(providerID: "java", rootURL: root)
+            try manager.startLanguageServer(providerID: "go", rootURL: root)
         }
         now = 5999
         // A waiting decision reports the previous failure without a new process.
         let waiting = #expect(throws: LanguageServerSessionStartError.self) {
-            try manager.startLanguageServer(providerID: "java", rootURL: root)
+            try manager.startLanguageServer(providerID: "go", rootURL: root)
         }
         #expect(waiting?.failure == failure)
         #expect(session.startCallCount == 1)
 
         // An explicit stop forgets the history, so the next start sends none.
-        manager.stopLanguageServer(providerID: "java")
+        manager.stopLanguageServer(providerID: "go")
         session.startError = nil
         now = 6000
-        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        try manager.startLanguageServer(providerID: "go", rootURL: root)
         session.publish(.ready)
         #expect(session.startCallCount == 2)
 
@@ -1588,123 +491,15 @@ struct LanguageIntelligenceModuleTests {
     }
 
     @Test
-    func workspaceCacheCleanupLogsTheLanguageServerOperationID() throws {
-        let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
-        let source = root.appendingPathComponent("Main.java")
-        let descriptor = try #require(
-            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
-        )
-        let session = WorkspaceStateLanguageServerSession()
-        var cleanedFingerprint: String?
-        let manager = LanguageToolingSessionManager(
-            catalog: .compatibilityFallback,
-            runtimes: [WorkspaceStateLanguageProviderRuntime(
-                descriptor: descriptor,
-                session: session
-            )],
-            workspaceFingerprintProvider: { _, _ in "active-fingerprint" },
-            workspaceStateCleaner: { _, cleanedRoot, fingerprint in
-                #expect(cleanedRoot == root.standardizedFileURL)
-                cleanedFingerprint = fingerprint
-                return 2
-            }
-        )
-        let operationID = UUID()
-
-        try manager.startLanguageServer(
-            providerID: "java",
-            rootURL: root,
-            operationID: operationID
-        )
-
-        #expect(cleanedFingerprint == "active-fingerprint")
-    }
-
-    @Test
-    func workspaceFingerprintFailureIsLoggedAndBlocksStartup() throws {
-        let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
-        let source = root.appendingPathComponent("Main.java")
-        let descriptor = try #require(
-            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
-        )
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(
-            catalog: .compatibilityFallback,
-            runtimes: [WorkspaceStateLanguageProviderRuntime(
-                descriptor: descriptor,
-                session: session
-            )],
-            workspaceFingerprintProvider: { _, _ in
-                throw WorkspaceStateSessionError.unexpectedOperation
-            }
-        )
-        var observed: [(Bool, String, String)] = []
-        manager.onLogIssue = { _, _, warning, stage, code, _ in observed.append((warning, stage, code)) }
-        defer { manager.stopAllLanguageServers() }
-        let operationID = UUID()
-
-        #expect(throws: WorkspaceStateSessionError.self) {
-            try manager.startLanguageServer(
-                providerID: "java",
-                rootURL: root,
-                operationID: operationID
-            )
-        }
-
-        #expect(!session.isRunning)
-        #expect(manager.languageServerStates["java"] == .failed(LanguageServerSessionFailure(
-            code: "workspace_fingerprint_failed",
-            stage: "workspaceFingerprint",
-            message: WorkspaceStateSessionError.unexpectedOperation.localizedDescription
-        )))
-        #expect(observed.contains { $0.0 == false && $0.2 == "workspace_fingerprint_failed" })
-    }
-
-    @Test
-    func workspaceCacheCleanupFailureIsLoggedAndDoesNotBlockStartup() throws {
-        let root = URL(fileURLWithPath: "/workspace/java", isDirectory: true)
-        let source = root.appendingPathComponent("Main.java")
-        let descriptor = try #require(
-            LanguageProviderCatalog.compatibilityFallback.provider(for: source)
-        )
-        let session = WorkspaceStateLanguageServerSession()
-        let manager = LanguageToolingSessionManager(
-            catalog: .compatibilityFallback,
-            runtimes: [WorkspaceStateLanguageProviderRuntime(
-                descriptor: descriptor,
-                session: session
-            )],
-            workspaceFingerprintProvider: { _, _ in "active-fingerprint" },
-            workspaceStateCleaner: { _, _, _ in
-                throw WorkspaceStateSessionError.unexpectedOperation
-            }
-        )
-        var observed: [(Bool, String, String)] = []
-        manager.onLogIssue = { _, _, warning, stage, code, _ in observed.append((warning, stage, code)) }
-        defer { manager.stopAllLanguageServers() }
-        let operationID = UUID()
-
-        try manager.startLanguageServer(
-            providerID: "java",
-            rootURL: root,
-            operationID: operationID
-        )
-
-        #expect(session.isRunning)
-        #expect(session.startedFingerprint == "active-fingerprint")
-        #expect(observed.contains { $0.0 == true && $0.2 == "cacheCleanupFailed" })
-    }
-
-    @Test
     func sessionIssuesPreserveWarningStageCodeAndExitStatus() throws {
-        let root = URL(fileURLWithPath: "/workspace/java")
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
+        let root = URL(fileURLWithPath: "/workspace/go")
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("main.go")))
         let session = WorkspaceStateLanguageServerSession()
         let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
         defer { manager.stopAllLanguageServers() }
         var facts: [(Bool, String, String, Int?)] = []
         manager.onLogIssue = { _, _, warning, stage, code, exit in facts.append((warning, stage, code, exit)) }
-        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        try manager.startLanguageServer(providerID: "go", rootURL: root)
         for (warning, stage, code, exit) in [(true, "transport", "inputBlocked", nil),
             (true, "configuration", "configurationFailed", nil), (false, "initialize", "initializeTimeout", 7)] {
             session.onLogIssue?(warning, stage, code, exit, "operation-1")
@@ -1865,14 +660,14 @@ struct LanguageIntelligenceModuleTests {
     @Test
     func aHostedDebugAdapterIsRefusedForALanguageServerThePluginDoesNotOwn() async throws {
         let root = URL(fileURLWithPath: "/workspace/hosted-adapter", isDirectory: true)
-        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("main.go")))
         let session = WorkspaceStateLanguageServerSession()
         let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
         defer { manager.stopAllLanguageServers() }
 
-        await #expect(throws: LanguageToolingSessionError.languageServerNotOwnedByPlugin(languageID: "java")) {
+        await #expect(throws: LanguageToolingSessionError.languageServerNotOwnedByPlugin(languageID: "go")) {
             _ = try await manager.startHostedDebugAdapter(
-                languageID: "java", pluginID: "dev.lithe.fixture", command: "java.startDebugSession", rootURL: root
+                languageID: "go", pluginID: "dev.lithe.fixture", command: "example.start", rootURL: root
             )
         }
         #expect(session.startCallCount == 0)
@@ -2015,11 +810,7 @@ private final class WorkspaceStateLanguageProviderRuntime: LanguageProviderRunti
 
 @MainActor
 private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
-    var onProjectPreparation: ((ProjectPreparationSnapshot) -> Void)?
-    var onMavenProfileTask: ((String) -> Void)?
-    var onMavenProfileProject: ((MavenProfileProjectResult) -> Void)?
     var isRunning = false
-    var javaTestRunnerURL: URL?
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
     var onCoreLog: ((CoreLogRecord) -> Void)?
     var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)?
@@ -2029,29 +820,10 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     var onFeaturesChange: ((LanguageServerFeatureSet) -> Void)?
     var serverInfo: LanguageServerInfo?
     var onServerInfoChange: ((LanguageServerInfo?) -> Void)?
-    private(set) var startedFingerprint: String?
-    private(set) var startedMavenContext: MavenLaunchContext?
-    private(set) var startedGradle: JavaGradleImportConfiguration?
     private(set) var stopCallCount = 0
     private(set) var startCallCount = 0
     var startError: Error?
-    var javaLaunchResult: Result<JavaLaunchPreparation, Error> =
-        .failure(WorkspaceStateSessionError.unexpectedOperation)
-    var deferredJavaLaunch = false
-    func prepareJavaLaunch(fileURL: URL, mainClass: String?) async throws -> JavaLaunchPreparation {
-        try Task.checkCancellation()
-        let command = LanguageServerCommand(title: "java.prepareLaunch", command: "java.prepareLaunch",
-            arguments: [.string(fileURL.path)] + (mainClass.map { [.string($0)] } ?? []))
-        if deferredJavaLaunch { _ = try await executeReturningValue(command, fileURL: fileURL) }
-        else { recordExecutedCommand(command) }
-        try Task.checkCancellation()
-        return try javaLaunchResult.get()
-    }
     private(set) var executedCommands: [LanguageServerCommand] = []
-    /// Maven updates handed to the running session, in order.
-    private(set) var mavenUpdates: [(context: MavenLaunchContext, reloadProjects: Bool)] = []
-    var mavenUpdateResult: Result<LanguageServerMavenConfigurationUpdate, LanguageServerRuntimeFailure> =
-        .failure(LanguageServerRuntimeFailure(code: "unsupported", message: "unsupported"))
     private var startWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
     private var startTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var executeWaiters: [UUID: (
@@ -2060,53 +832,17 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     )] = [:]
     private var executeTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var executeValueCompletion: ((Result<ToolingJSONValue, Error>) -> Void)?
-    private var javaEntrypointsCompletion: ((Result<JavaEntrypoints, Error>) -> Void)?
-    private var javaTestItemsCompletion: ((Result<JavaTestItems, Error>) -> Void)?
 
-    func start(rootURL: URL, workspaceFingerprint: String?) throws {
-        try start(
-            rootURL: rootURL,
-            workspaceFingerprint: workspaceFingerprint,
-            mavenContext: nil
-        )
-    }
-
-    func start(
-        rootURL _: URL,
-        workspaceFingerprint: String?,
-        mavenContext: MavenLaunchContext?
-    ) throws {
+    func start(rootURL _: URL) throws {
         startCallCount += 1
         if let startError { throw startError }
-        startedFingerprint = workspaceFingerprint
-        startedMavenContext = mavenContext
         isRunning = true
         let waiterIDs = Array(startWaiters.keys)
         waiterIDs.forEach { finishStartWaiter($0, result: .success(())) }
     }
 
-    func start(
-        rootURL: URL, workspaceFingerprint: String?, mavenContext: MavenLaunchContext?,
-        javaGradle: JavaGradleImportConfiguration?
-    ) throws {
-        startedGradle = javaGradle
-        try start(rootURL: rootURL, workspaceFingerprint: workspaceFingerprint, mavenContext: mavenContext)
-    }
-
     func publish(_ state: LanguageServerSessionState) {
         onStateChange?(state)
-    }
-
-    func updateMavenConfiguration(
-        _ context: MavenLaunchContext,
-        reloadProjects: Bool
-    ) -> Result<LanguageServerMavenConfigurationUpdate, LanguageServerRuntimeFailure> {
-        mavenUpdates.append((context, reloadProjects))
-        return mavenUpdateResult
-    }
-
-    func publishPreparation(_ snapshot: ProjectPreparationSnapshot) {
-        onProjectPreparation?(snapshot)
     }
 
     func waitUntilStarted(timeout: Duration = .seconds(2)) async throws {
@@ -2197,18 +933,6 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
         completion?(result)
     }
 
-    func completeJavaEntrypoints(_ result: Result<JavaEntrypoints, Error>) {
-        let completion = javaEntrypointsCompletion
-        javaEntrypointsCompletion = nil
-        completion?(result)
-    }
-
-    func completeJavaTestItems(_ result: Result<JavaTestItems, Error>) {
-        let completion = javaTestItemsCompletion
-        javaTestItemsCompletion = nil
-        completion?(result)
-    }
-
     var documentEvents: [String] = []
     var saveError: Error?
     func synchronize(fileURL _: URL, text: String, languageID _: String) throws {
@@ -2294,28 +1018,6 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
         throw WorkspaceStateSessionError.unexpectedOperation
     }
 
-    func javaEntrypoints(
-        completion: @escaping (Result<JavaEntrypoints, Error>) -> Void
-    ) throws {
-        // Recorded in the command sequence so tests observe it in request order.
-        javaEntrypointsCompletion = completion
-        recordExecutedCommand(
-            LanguageServerCommand(title: "javaEntrypoints", command: "javaEntrypoints", arguments: [])
-        )
-    }
-
-    func javaTestItems(
-        fileURL: URL,
-        completion: @escaping (Result<JavaTestItems, Error>) -> Void
-    ) throws {
-        javaTestItemsCompletion = completion
-        recordExecutedCommand(LanguageServerCommand(
-            title: "javaTestItems",
-            command: "javaTestItems",
-            arguments: [.string(fileURL.standardizedFileURL.absoluteString)]
-        ))
-    }
-
     func executeReturningValue(
         _ command: LanguageServerCommand,
         fileURL _: URL,
@@ -2358,9 +1060,6 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
         let completion = executeValueCompletion
         executeValueCompletion = nil
         completion?(.failure(CancellationError()))
-        let testCompletion = javaTestItemsCompletion
-        javaTestItemsCompletion = nil
-        testCompletion?(.failure(CancellationError()))
     }
 
     private func finishStartWaiter(_ waiterID: UUID, result: Result<Void, Error>) {
@@ -2379,18 +1078,6 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
         timeoutTask?.cancel()
         waiter?.continuation.resume(with: result)
     }
-}
-
-private func javaTestLaunchRequest(
-    from command: LanguageServerCommand
-) throws -> [String: Any] {
-    guard command.arguments.count == 1,
-          case .string(let value) = command.arguments[0],
-          let data = value.data(using: .utf8),
-          let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-        throw WorkspaceStateSessionError.unexpectedOperation
-    }
-    return object
 }
 
 private enum WorkspaceStateSessionError: LocalizedError {

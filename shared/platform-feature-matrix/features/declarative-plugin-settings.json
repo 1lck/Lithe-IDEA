@@ -2,19 +2,18 @@
   "id": "declarative-plugin-settings",
   "area": "插件",
   "group": "插件管理",
-  "capability": "声明式插件可以在 plugin.json 里声明用户可调的选项（整数、枚举、布尔），在“设置 › 插件”的插件详情页里编辑，值按插件保存一份并在下次启动语言服务器时代入启动模板；Java Support 首批提供 JDT LS 最大堆内存和日志级别",
+  "capability": "声明式插件可以在 plugin.json 里声明用户可调的选项（整数、枚举、布尔），在“设置 › 插件”的插件详情页里编辑，值按插件保存一份并在下次启动语言服务器时代入启动模板；Java 插件据此声明 JDT LS 最大堆内存和日志级别",
   "macos": {
     "evidence": [
       "rust/lithe-core/src/plugins/declarative.rs",
-      "rust/lithe-core/src/lsp/languages/jdt.rs",
       "macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift",
       "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginSettingsStore.swift",
       "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLanguageServerLaunchResolver.swift",
       "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift",
       "macos/Sources/Lithe/Views/App/PluginSettingsSection.swift",
       "macos/Tests/LitheTests/PluginSettingsTests.swift",
-      "Plugins/mac/Official/JavaSupport/plugin.json",
-      "shared/contracts/plugins/v1/fixtures/languages/node-runtime.plugin.json"
+      "shared/contracts/plugins/v1/fixtures/languages/node-runtime.plugin.json",
+      "macos/Sources/Lithe/Application/Features/PluginSettingsRegistry.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

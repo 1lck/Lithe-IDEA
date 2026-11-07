@@ -13,7 +13,6 @@ protocol RunLaunchEnvironmentResolving {
 
     func resolveLaunchEnvironment(
         toolchain: String?,
-        selectedHome: String?,
         inherited: [String: String],
         overrides: [String: String]
     ) throws -> [String: String]

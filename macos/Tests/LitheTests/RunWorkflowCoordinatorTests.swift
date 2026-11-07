@@ -77,9 +77,7 @@ struct RunWorkflowCoordinatorTests {
         let configuration = RunConfiguration(
             id: RunConfiguration.currentFileID,
             name: "Current File",
-            kind: .currentFile,
-            modulePath: nil,
-            mainClass: nil
+            kind: .currentFile
         )
 
         let selected = coordinator.languageSupport(
@@ -99,9 +97,7 @@ struct RunWorkflowCoordinatorTests {
         let configuration = RunConfiguration(
             id: "java-main",
             name: "Main",
-            kind: .javaMain,
-            modulePath: nil,
-            mainClass: "Main"
+            kind: .process(provider: "fixture.main")
         )
 
         let selected = coordinator.languageSupport(
@@ -128,9 +124,7 @@ struct RunWorkflowCoordinatorTests {
         let configuration = RunConfiguration(
             id: "java-main",
             name: "Main",
-            kind: .javaMain,
-            modulePath: nil,
-            mainClass: "Main"
+            kind: .process(provider: "fixture.main")
         )
 
         coordinator.performDeferredAction(.startConfiguration(configuration))
@@ -209,9 +203,7 @@ struct RunWorkflowCoordinatorTests {
         let configuration = RunConfiguration(
             id: RunConfiguration.currentFileID,
             name: "Current File",
-            kind: .currentFile,
-            modulePath: nil,
-            mainClass: nil
+            kind: .currentFile
         )
         let document = EditorDocument(
             url: URL(fileURLWithPath: "/workspace/Main.go"),
@@ -243,9 +235,7 @@ struct RunWorkflowCoordinatorTests {
         let configuration = RunConfiguration(
             id: RunConfiguration.currentFileID,
             name: "Current File",
-            kind: .currentFile,
-            modulePath: nil,
-            mainClass: nil
+            kind: .currentFile
         )
         let document = EditorDocument(
             url: URL(fileURLWithPath: "/workspace/Main.go"),
@@ -272,9 +262,7 @@ struct RunWorkflowCoordinatorTests {
         let configuration = RunConfiguration(
             id: "java-main",
             name: "Main",
-            kind: .javaMain,
-            modulePath: nil,
-            mainClass: "Main"
+            kind: .process(provider: "fixture.main")
         )
 
         let ready = await coordinator.saveDirtyCurrentFileIfNeeded(
@@ -293,9 +281,7 @@ struct RunWorkflowCoordinatorTests {
         let configuration = RunConfiguration(
             id: "java-main",
             name: "Main",
-            kind: .javaMain,
-            modulePath: nil,
-            mainClass: "Main"
+            kind: .process(provider: "fixture.main")
         )
 
         guard case .ready(let selected) = makeRunWorkflowCoordinator().configurationReadiness(
@@ -326,9 +312,7 @@ struct RunWorkflowCoordinatorTests {
         let configuration = RunConfiguration(
             id: RunConfiguration.currentFileID,
             name: "Current File",
-            kind: .currentFile,
-            modulePath: nil,
-            mainClass: nil
+            kind: .currentFile
         )
 
         let result = makeRunWorkflowCoordinator().resolveDebugSource(
@@ -357,46 +341,6 @@ struct RunWorkflowCoordinatorTests {
             return
         }
         #expect(fileName == "Main.rb")
-    }
-
-    /// Java Support ships a language server and leaves running to the host
-    /// through its `jdt` integration. Asking for its execution module would
-    /// refuse every Java run with "does not provide project execution".
-    @Test("does not ask a package for an execution module when the host runs its language")
-    func hostRunCapabilityNeedsNoExecutionExtension() throws {
-        let java = try #require(
-            try DeclarativePluginTestSupport.officialDescriptor("JavaSupport")
-                .pluginManifest.languageSupports?.first
-        )
-        let coordinator = makeRunWorkflowCoordinator()
-        let javaMain = RunConfiguration(
-            id: "java-main",
-            name: "Main",
-            kind: .javaMain,
-            modulePath: nil,
-            mainClass: "Main"
-        )
-        let currentFile = RunConfiguration(
-            id: RunConfiguration.currentFileID,
-            name: "Current File",
-            kind: .currentFile,
-            modulePath: nil,
-            mainClass: nil
-        )
-        let supports = ["java": java, "go": makeSupport(id: "go")]
-        let required: (RunConfiguration, URL?) -> String? = { configuration, fileURL in
-            coordinator.languageSupportRequiringRunExtension(
-                for: configuration,
-                currentFileURL: fileURL,
-                languageSupportForFile: { supports[$0.pathExtension] },
-                languageSupportForProvider: { supports[$0] }
-            )?.id
-        }
-
-        #expect(required(javaMain, nil) == nil)
-        #expect(required(currentFile, URL(fileURLWithPath: "/workspace/Main.java")) == nil)
-        // A package that provides run itself is still activated.
-        #expect(required(currentFile, URL(fileURLWithPath: "/workspace/main.go")) == "go")
     }
 
     private func makeSupport(id: String) -> LanguageSupportDeclaration {

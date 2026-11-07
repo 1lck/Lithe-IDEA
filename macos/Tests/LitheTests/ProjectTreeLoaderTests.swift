@@ -121,12 +121,12 @@ struct ProjectTreeLoaderTests {
     }
 
     @Test
-    func expandingCompactedPackageReusesItsListing() throws {
+    func expandingCompactedDirectoryChainReusesItsListing() throws {
         let root = URL(fileURLWithPath: "/in-memory/lookahead")
-        let source = root.appendingPathComponent("src/main/java")
+        let source = root.appendingPathComponent("sources")
         let com = source.appendingPathComponent("com")
         let package = com.appendingPathComponent("example")
-        let file = package.appendingPathComponent("Main.java")
+        let file = package.appendingPathComponent("Main.txt")
         let cache = ProjectDirectoryListingCache()
         let generation = cache.prepare(at: root, rules: .default)
         let disk: [String: [ProjectDirectoryEntry]] = [
@@ -142,7 +142,7 @@ struct ProjectTreeLoaderTests {
             })
         }
 
-        let first = try #require(loader.childRows(of: [FileNode(url: source, isDirectory: true, children: nil)]))
+        let first = try #require(loader.childRows(of: [FileNode(url: source, isDirectory: true, children: nil, isInsideSourceRoot: true)]))
         let rows = try #require(first[source.path])
         #expect(rows.count == 1)
         #expect(rows.first?.url == package)
@@ -192,10 +192,10 @@ struct ProjectTreeLoaderTests {
 
     @Test
     func failedCompactionListingDoesNotPublishPartialRows() {
-        let source = URL(fileURLWithPath: "/in-memory/lookahead/src/main/java")
+        let source = URL(fileURLWithPath: "/in-memory/lookahead/sources")
         let loader = ProjectTreeLoader { directories in
             directories == [source] ? [source.path: [.init(url: source.appendingPathComponent("com"), isDirectory: true)]] : nil
         }
-        #expect(loader.childRows(of: [FileNode(url: source, isDirectory: true, children: nil)]) == nil)
+        #expect(loader.childRows(of: [FileNode(url: source, isDirectory: true, children: nil, isInsideSourceRoot: true)]) == nil)
     }
 }

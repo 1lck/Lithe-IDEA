@@ -7,8 +7,7 @@
     "evidence": [
       "macos/Sources/Lithe/Core/Language",
       "macos/Sources/Lithe/Services/Diagnostics",
-      "rust/lithe-core/src/lsp/interface/engine.rs",
-      "rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs"
+      "rust/lithe-core/src/lsp/interface/engine.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

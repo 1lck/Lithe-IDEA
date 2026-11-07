@@ -69,13 +69,12 @@ fn candidates(
 
 /// Arguments that make a host-managed runtime print its version and exit.
 /// Core owns them so hosts use the same probe, for build runtimes and for
-/// plugin launch runtimes alike. Java needs `-version` for
-/// Java 8 compatibility; its version is printed to stderr, which hosts must
-/// capture together with stdout before checking the declared minimum.
+/// plugin launch runtimes alike. Hosts capture stderr together with stdout
+/// before checking the declared minimum. A tool definition probes the
+/// runtimes it resolves itself, so other IDs have none.
 pub(crate) fn host_runtime_version_arguments(id: &str) -> Option<&'static [&'static str]> {
     match id {
         "go" => Some(&["version"]),
-        "java" => Some(&["-version"]),
         "node" => Some(&["--version"]),
         _ => None,
     }
@@ -97,12 +96,19 @@ fn runtime(
             .as_ref()
             .map(|probe| json!({ "arguments": probe.arguments }))
     };
+    // An implicit reference is the toolchain candidate of the tool
+    // definition with the same ID; resolving it checks `minimumVersion`.
+    let executables = if runtime.names_tool_definition() {
+        vec![json!({ "kind": "toolchain", "toolchainID": runtime.id, "root": root })]
+    } else {
+        candidates(&runtime.executables, root, platform, manifest, settings)?
+    };
     Ok(json!({
         "id": runtime.id,
         "displayName": runtime.display_name,
         "hostManaged": runtime.is_host_managed(),
         "minimumVersion": runtime.minimum_version,
-        "executables": candidates(&runtime.executables, root, platform, manifest, settings)?,
+        "executables": executables,
         "version": version,
     }))
 }
@@ -188,8 +194,17 @@ pub(crate) fn check_version(
                         format!("{} declares no runtime {id}.", build_system.display_name),
                     )
                 })?;
+            if dependency.version.is_none() && dependency.checked_by_tool_definition() {
+                return Err(PluginRejection::new(
+                    "plugin.build.unavailable",
+                    format!(
+                        "{} declares no version probe for {id}; its tool definition checks the version.",
+                        build_system.display_name
+                    ),
+                ));
+            }
             let found = if dependency.is_host_managed() {
-                reported_version(&dependency.id, &request.output)
+                reported_version(&request.output)
             } else {
                 dependency
                     .version

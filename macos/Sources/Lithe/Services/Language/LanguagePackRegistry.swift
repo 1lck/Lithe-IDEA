@@ -66,8 +66,7 @@ final class LanguagePackRegistry {
             let hostProvided = extensionRequiredProviderIDs.contains(descriptor.id)
                 ? hostCapabilities[descriptor.id] ?? []
                 : Set(LanguageHostCapability.allCases)
-            let runProvider: (any LanguageRunProvider)? = descriptor.id == "java"
-                || !hostProvided.contains(.run)
+            let runProvider: (any LanguageRunProvider)? = !hostProvided.contains(.run)
                 ? nil
                 : descriptor.capabilities.contains(.run)
                     ? StandardLanguageRunProvider(descriptor: descriptor)

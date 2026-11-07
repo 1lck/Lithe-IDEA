@@ -9,7 +9,6 @@
 //! instead of an argv plan.
 
 use super::decode::{self, join_relative};
-use super::integrations;
 use super::manifest::{
     BuildExecution, BuildSystemDeclaration, DependenciesSource, ExecutableCandidate, ModelSource,
     OutputChannel, ProviderDeclaration, RunDeclaration, Scope, TaskSource, TestFilter,
@@ -43,6 +42,20 @@ pub(crate) fn unavailable(build_system: &BuildSystemDeclaration, what: &str) -> 
     PluginRejection::new(
         "plugin.build.unavailable",
         format!("{} does not declare {what}.", build_system.display_name),
+    )
+}
+
+/// Core provides no host integration any more: the only one moved a
+/// built-in tool onto the plugin model, and that tool now ships as a plugin
+/// that decodes its own output. A declaration that still names one fails
+/// here instead of reaching tool-specific host code.
+pub(super) fn unsupported_integration(build_system: &BuildSystemDeclaration) -> PluginRejection {
+    PluginRejection::new(
+        "plugin.integration.unsupported",
+        format!(
+            "{} names no host integration this host provides.",
+            build_system.display_name
+        ),
     )
 }
 
@@ -157,7 +170,8 @@ pub(crate) struct ProviderTool {
     /// Absolute path of the executable, after the host applied wrappers,
     /// environment variables, `PATH`, and the user's override.
     pub(crate) executable: String,
-    /// Selected runtime inputs, independent of the backend process's own JDK.
+    /// Selected runtime inputs, independent of the runtime the backend
+    /// process itself runs on.
     #[serde(default)]
     pub(crate) environment: BTreeMap<String, String>,
 }
@@ -965,11 +979,7 @@ pub(crate) fn dependency_plan(
                 ),
             )
         }
-        DependenciesSource::HostIntegration => integrations::dependency_plan(
-            &context,
-            project.as_ref(),
-            request.output_file.as_deref(),
-        ),
+        DependenciesSource::HostIntegration => Err(unsupported_integration(build_system)),
         DependenciesSource::Provider { scopes } => {
             check_scope(scopes)?;
             let mut params = provider_hints(request)?;

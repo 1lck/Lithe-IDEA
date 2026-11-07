@@ -8,7 +8,7 @@ struct KeyboardShortcutTests {
     @Test
     func catalogHasStableUniqueCommandsAndConflictFreeDefaults() throws {
         let commands = LitheCommandCatalog.commands
-        #expect(commands.count == 41)
+        #expect(commands.count == 39)
         let startOrContinue = try #require(LitheCommandCatalog.command(id: "debug-start-or-continue"))
         #expect(startOrContinue.defaultBindings.isEmpty)
         #expect(LitheCommandCatalog.moduleOwner(for: startOrContinue.id) == .debug)
@@ -18,8 +18,6 @@ struct KeyboardShortcutTests {
         for preset in [KeyboardShortcutPreset.ideaClassic, .eclipse] {
             #expect(preset.bindings(for: findAction).isEmpty)
         }
-        // Build plugin windows own their actions; Maven is no longer a built-in command.
-        #expect(LitheCommandCatalog.command(id: "toggle-maven") == nil)
         #expect(Set(commands.map(\.id)).count == commands.count)
 
         let owners = commands.flatMap { command in
@@ -119,8 +117,6 @@ struct KeyboardShortcutTests {
         #expect(actionIDs.contains("navigate-forward"))
         #expect(actionIDs.contains("go-to-definition"))
         #expect(actionIDs.contains("go-to-implementation"))
-        #expect(actionIDs.contains("rebuild-java-index"))
-        #expect(actionIDs.contains("spring-endpoints"))
         #expect(actionIDs.contains("toggle-breakpoint"))
         #expect(actionIDs.contains("view-breakpoints"))
     }

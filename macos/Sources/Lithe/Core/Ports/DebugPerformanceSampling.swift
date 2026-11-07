@@ -1,9 +1,8 @@
 import Foundation
 
+/// The process whose tree is monitored with native CPU/RSS counters.
 struct DebugPerformanceTarget: Equatable, Sendable {
     let processID: Int32
-    /// nil monitors the owned process tree using native CPU/RSS counters.
-    var javaExecutable: URL? = nil
 }
 
 struct DebugPerformanceSample: Equatable, Sendable, Identifiable {

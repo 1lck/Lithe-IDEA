@@ -684,12 +684,6 @@ struct PluginManagementListContent {
                 tint: LitheTheme.accent,
                 summary: "Retired official Go plugin. Go support is now the community plugin Go Support in Lithe Store."
             )
-        case OfficialPluginCatalog.javaPluginID:
-            Presentation(
-                systemImage: "cup.and.saucer",
-                tint: LitheTheme.warning,
-                summary: "Adds Java language intelligence through the Eclipse JDT language server, with Lombok, debugging, and test support. Ships its own Java runtime."
-            )
         case OfficialPluginCatalog.phpPluginID:
             Presentation(
                 systemImage: "globe",

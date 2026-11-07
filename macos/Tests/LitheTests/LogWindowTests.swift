@@ -494,9 +494,9 @@ struct LogWindowTests {
             #expect(feature.providerID == "c++")
             #expect(applicationLogs.request == nil)
             // Opening again reuses the one tab and switches its server.
-            model.showLanguageServerLogs(providerID: "java")
+            model.showLanguageServerLogs(providerID: "example")
             #expect(model.editorTabItems.filter { $0 == .languageLogs }.count == 1)
-            #expect(feature.providerID == "java")
+            #expect(feature.providerID == "example")
             model.closeLanguageServerLogsTab()
             #expect(!model.editorTabItems.contains(.languageLogs))
         }

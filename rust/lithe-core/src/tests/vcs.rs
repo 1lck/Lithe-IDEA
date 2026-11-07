@@ -175,7 +175,7 @@ fn a_launch_plan_names_the_vcs_provider_it_starts() {
     assert_eq!(unknown["status"], "rejected", "{unknown}");
     let both = language_server_launch_plan_command(json!({
         "manifest": svn_provider(),
-        "languageID": "java",
+        "languageID": "toml",
         "vcsProviderID": "svn",
         "request": request,
     }))

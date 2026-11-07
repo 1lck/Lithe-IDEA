@@ -14,10 +14,7 @@ import LitheCoreContracts
 final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let id = UUID()
     lazy var editorSettingsImport = services.makeEditorSettingsImport(settings: settings)
-    var hasSuggestedJavaPlugin = false
     lazy var debugPerformanceFeature = DebugPerformanceFeatureModel(sampler: services.debugPerformanceSampler)
-    lazy var testPerformanceFeature = TestJVMPerformanceFeatureModel(
-        sampler: services.debugPerformanceSampler, provider: services.testJVMPerformance)
     lazy var ideCapabilities = IdeCapabilitiesFeatureModel(model: self, logSink: services.logSink)
     /// Settings › MCP: servers registered with Codex and Claude Code, created
     /// when the page is first shown.
@@ -134,8 +131,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     var isGeneratingCommitMessage: Bool { commitDraftFeature.isGenerating }
     var pendingGeneratedCommitMessage: String? { commitDraftFeature.pendingGeneratedMessage }
     var pendingRunAction: PendingRunAction? { runWorkflowCoordinator.pendingAction }
-    @Published var pendingJavaLaunchDecision: PendingJavaLaunchDecision?
-    var pendingJavaLaunchDecisionContinuation: CheckedContinuation<JavaLaunchDecisionResolution, Never>?
     @Published var debugBreakpointPresentation = DebugBreakpointPresentationState()
     @Published var isImplementationChooserVisible = false
     var languageProviderCatalog: LanguageProviderCatalog { languageToolingFeature.catalog }
@@ -153,9 +148,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         featureGraph.navigationHistory
     }
     var virtualDocumentProviderIDs: [URL: String] = [:]
-    var javaCodeVisionHints: [URL: [JavaCodeVisionHint]] {
-        javaFeature.javaCodeVisionHints
-    }
     @Published var blameVisibleURL: URL?
     private var shortcutSessionCoordinator: ShortcutSessionCoordinator?
     private var documentLanguageCoordinator: DocumentLanguageCoordinator?
@@ -175,9 +167,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var didCloseProject: (() -> Void)?
     /// Asks whether this project's Run services may stop; set by the session manager.
     private var confirmRunServicesBeforeClose: (@MainActor ([RunServiceExitCandidate]) async -> Bool)?
-    var javaTestWorkflowState: JavaTestWorkflowState {
-        featureGraph.javaTestWorkflow
-    }
     var languageNavigationCoordinator: LanguageNavigationCoordinator {
         featureGraph.languageNavigation
     }
@@ -186,6 +175,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let settings: AppSettings
     let featureGraph: AppModelFeatureGraph
     var workbenchFeature: WorkbenchFeatureModel { featureGraph.workbench }
+    var languageTestWorkflowState: LanguageTestWorkflowState { featureGraph.languageTestWorkflow }
     var workspaceSessionCoordinator: WorkspaceSessionCoordinator {
         featureGraph.workspaceSession
     }
@@ -269,7 +259,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
         onError: { [weak self] in self?.showNotification($0, logReference: self?.notificationRejection(operation: "module_activation", reason: "activation_failed")) }
     )
-    let javaLanguageServerPreparationCoordinator = JavaLanguageServerPreparationCoordinator()
     lazy var historyModuleCoordinator = HistoryModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
@@ -318,9 +307,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         cachedModuleCapability(.gitWorkspace)
     }
     var documentFeature: DocumentFeatureModel { featureGraph.document }
-    var javaFeature: JavaFeatureModel { featureGraph.java }
-    var springFeature: SpringFeatureModel { featureGraph.spring }
-    var mybatisFeature: MybatisFeatureModel { featureGraph.mybatis }
     var moduleSnapshots: [ModuleSnapshot] { services.moduleRuntime.snapshots() }
     lazy var workbenchUIRegistry: WorkbenchModuleUIRegistry = {
         do { return try WorkbenchModuleUIComposition.registry(for: services.pluginCatalog, iconResources: services.pluginUIIconResources) }
@@ -370,19 +356,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         executionCapability?.testService as? LanguageTestService
     }
     var languageDiagnostics: [URL: [LanguageServerDiagnostic]] {
-        var combined = languageToolingSessionsIfActive?.diagnostics ?? [:]
-        for (url, diagnostics) in springFeature.languageDiagnostics {
-            combined[url, default: []].append(contentsOf: diagnostics)
-        }
-        return combined
+        languageToolingSessionsIfActive?.diagnostics ?? [:]
     }
     var editorDiagnostics: [URL: [EditorDiagnostic]] {
         editorDiagnosticsStore.diagnosticsByURL
     }
     var languageSessionChromeSignature: LanguageSessionChromeSignature?
-    /// Last Maven problem set announced for the workspace, so one failure is
-    /// reported once rather than on every diagnostics refresh.
-    var announcedMavenResolutionProblems = ""
 
     var detectedCodexConfiguration: CodexConfigurationSnapshot? {
         detectedAIConfigurations.first { $0.source == .codex }
@@ -403,8 +382,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         showSettings(category: .agents)
     }
 
-    private var springFeatureObservation: AnyCancellable?
-    private var mybatisFeatureObservation: AnyCancellable?
     private var isObjectWillChangeRelayScheduled = false
     /// Whether any change waiting in the scheduled relay can affect a settings page.
     private var pendingRelayAffectsSettings = false
@@ -419,12 +396,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     /// not rebuild while the project is busy. See `SettingsModelContext`.
     let settingsChanges = ObservableObjectPublisher()
     private var languageToolingObservation: AnyCancellable?
-    /// Regenerates the Run list once JDT has prepared the project, after a
-    /// generation that could only show the previous Java entries.
-    var javaEntrypointRefreshObservation: AnyCancellable?
-    /// Compares the generated Java entries with JDT once it has prepared the
-    /// project, after a load that found it still importing.
-    var javaEntrypointFreshnessObservation: AnyCancellable?
 
     func cachedModuleCapability<Capability: AnyObject>(
         _ id: ModuleCapabilityID,
@@ -568,10 +539,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         languageToolingFeature.configureSessions { [weak self] in
             self?.languageToolingSessionsIfActive
         }
-        languageToolingFeature.registerPreparationCancellation(providerID: "java") { [weak self] in
-            self?.javaLanguageServerPreparationCoordinator.cancelMavenConfigurationSynchronization()
-            self?.cancelJavaLanguageServerPreparation()
-        }
         services.connectBuildProviderLanguageSessions? { [weak self] in
             self?.languageToolingSessionsIfActive
         }
@@ -580,7 +547,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         }
         runWorkflowCoordinator.connect(actions: self)
         featureGraph.debugLaunchPreparation.connect(actions: self)
-        featureGraph.javaTestDebugWorkflow.connect(actions: self)
         featureGraph.debugSessionCleanup.connect(actions: self)
         workbenchFeature.reconcileContributions(services.moduleRuntime.availableContributions())
         moduleSessionCoordinator = ModuleSessionCoordinator(
@@ -602,13 +568,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         }
         WorkspaceProjectionComposition.configure(model: self)
         documentLanguageCoordinator = DocumentFeatureComposition.configure(model: self)
-        springFeatureObservation = springFeature.objectWillChange.sink { [weak self] _ in
-            self?.refreshEditorDiagnosticsStore()
-            self?.scheduleObjectWillChangeRelay(affectsSettings: false)
-        }
-        mybatisFeatureObservation = mybatisFeature.objectWillChange.sink { [weak self] _ in
-            self?.scheduleObjectWillChangeRelay(affectsSettings: false)
-        }
         fileVisibilityRulesObserverID = settings.addFileVisibilityRulesObserver { [weak self] in
             guard let self else { return }
             self.workspaceFeature.updateVisibilityRules(self.settings.fileVisibilityRules)
@@ -730,7 +689,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         shortcutSessionCoordinator?.setActive(isActive)
         if !isActive {
             dismissSearchEverywhere()
-            cancelJavaLanguageServerPreparation()
         }
     }
 
@@ -750,7 +708,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         await ideCapabilities.shutdown()
         shortcutSessionCoordinator?.shutdown()
         documentLanguageCoordinator?.stop()
-        cancelJavaWorkspaceWorkflows()
         languageToolingSessionsIfActive?.stopAll()
         executionModuleCoordinator.stopTests(languageTestServiceIfActive)
         stopTerminalSessions()
@@ -791,28 +748,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         await moduleSessionCoordinator?.awaitShutdown()
     }
 
-    private func reloadJavaRuntimeServices() {
-        cancelJavaTestWorkflows()
-        debugModuleCoordinator.stopFeature(genericDebugFeatureIfActive)
-        executionModuleCoordinator.stopFeatures(
-            run: runFeatureIfActive
-        )
-        languageToolingSessionsIfActive?.stopLanguageServer(providerID: "java")
-        javaFeature.stop()
-        springFeature.reset()
-        mybatisFeature.reset()
-        if let workspaceURL {
-            if let document = activeDocument,
-               document.url.pathExtension.lowercased() == "java" {
-                activateLanguageServerIfAvailable(for: document)
-            }
-            Task { [weak self] in
-                guard let self else { return }
-                await self.loadProjectServicesForAppliedSnapshot(at: workspaceURL)
-            }
-        }
-    }
-
     var projectName: String {
         workspaceURL?.lastPathComponent ?? "Lithe"
     }
@@ -851,7 +786,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             feature: languageToolingFeature,
             sessions: languageToolingSessionsIfActive
         )
-        cancelJavaLanguageServerPreparation()
         let didStart = activateCurrentDocumentLanguageServerIfAvailable()
         showNotification(
             didStart
@@ -863,10 +797,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     func clearLanguageServerDiagnostics() {
         languageIntelligenceModuleCoordinator.clearDiagnostics(languageToolingSessionsIfActive)
         showNotification(settings.language.localizedString("native.inline.languageServerDiagnosticsCleared"))
-    }
-
-    func javaStructure(source: String, declarationSources: [String] = []) async -> JavaStructureResult? {
-        await javaFeature.structure(source: source, declarationSources: declarationSources)
     }
 
     var activeDocument: EditorDocument? {
@@ -978,7 +908,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         // every provider session before replacing the catalog or clearing the
         // document projection so no old-root documents, diagnostics, or
         // responses can survive into the next workspace.
-        cancelJavaWorkspaceWorkflows()
         languageToolingSessionsIfActive?.stopAll()
         reloadLanguageProviderCatalog(for: normalizedURL)
         stopTerminalSessions()
@@ -995,9 +924,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         debugModuleCoordinator.resetFeature(genericDebugFeatureIfActive)
         debugBreakpointPresentation.reset()
         clearLanguageNavigationProjection()
-        javaFeature.stop()
-        springFeature.reset()
-        mybatisFeature.reset()
         workspaceSessionCoordinator.resetWorkspaceFeature()
         // The popup belongs to the old project; an activation it started may never finish.
         dismissSearchEverywhere()
@@ -1038,7 +964,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         releaseRemoteWorkspace(at: workspaceURL)
         ideCapabilities.disable()
         documentLanguageCoordinator?.stop()
-        cancelJavaLanguageServerPreparation()
         beginModuleRuntimeShutdown()
         reloadLanguageProviderCatalog(for: nil)
         selectedSidebar = .project
@@ -1054,7 +979,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         gitModuleCoordinator.resetFeature(gitFeatureIfActive)
         workbenchFeature.hideAllToolWindows()
         stopTerminalSessions()
-        cancelJavaWorkspaceWorkflows()
         languageToolingSessionsIfActive?.stopAll()
         executionModuleCoordinator.resetTests(languageTestServiceIfActive)
         runtimeFeature.closeProject()
@@ -1068,9 +992,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         runWorkflowCoordinator.resetPendingAction()
         debugModuleCoordinator.resetFeature(genericDebugFeatureIfActive)
         debugBreakpointPresentation.reset()
-        javaFeature.stop()
-        springFeature.reset()
-        mybatisFeature.reset()
         editorChrome.reset()
         editorNavigationTarget = nil
         navigationHistoryFeature.reset()
@@ -1129,7 +1050,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         displayPath: String? = nil,
         allowsOutsideWorkspace: Bool = false
     ) {
-        suggestJavaPluginIfNeeded(files: [url])
         editorTabOrderFeature.repositoryDiffSelected = false
         editorNavigationTarget = nil
         // SVG remains a text document so edits, saves, and previews share one buffer.
@@ -1145,7 +1065,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func openStandaloneFile(_ url: URL) {
-        suggestJavaPluginIfNeeded(files: [url])
         workspaceSessionCoordinator.openStandaloneFile(at: url)
     }
 
@@ -1154,10 +1073,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     func runExecutable(_ url: URL) {
         guard services.fileStorage.isExecutable(at: url) else { return }
         platformUI.open(url)
-    }
-
-    func javaIconKind(for url: URL) async -> LitheIconKind? {
-        await JavaFileIconResolver.resolve(for: url, storage: services.fileStorage, logSink: services.logSink)
     }
 
     func refreshWorkspace() async {

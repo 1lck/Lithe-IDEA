@@ -18,8 +18,8 @@ struct WorkspaceLanguageServerPreferencesTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let feature = makeFeature(store: MacUserDefaultsStore(defaults: defaults))
         feature.reloadCatalog(for: workspace)
-        #expect(!feature.isDisabled("java"))
-        feature.setEnabled(false, providerID: "java")
+        #expect(!feature.isDisabled("node"))
+        feature.setEnabled(false, providerID: "node")
         feature.setEnabled(false, providerID: "go")
         feature.setEnabled(false, providerID: "rust")
         // A temporarily unavailable plugin must keep its preference so a later
@@ -29,22 +29,22 @@ struct WorkspaceLanguageServerPreferencesTests {
         let reopenedDefaults = try #require(UserDefaults(suiteName: suiteName))
         let reopened = makeFeature(store: MacUserDefaultsStore(defaults: reopenedDefaults))
         reopened.reloadCatalog(for: workspace.appendingPathComponent("child/..", isDirectory: true))
-        #expect(reopened.disabledProviderIDs == ["example-plugin-language", "go", "java", "rust"])
+        #expect(reopened.disabledProviderIDs == ["example-plugin-language", "go", "node", "rust"])
 
         reopened.reloadCatalog(for: URL(fileURLWithPath: "/example/another-project"))
         #expect(reopened.disabledProviderIDs.isEmpty)
         reopened.setEnabled(false, providerID: "python")
         reopened.reloadCatalog(for: workspace)
-        #expect(reopened.disabledProviderIDs == ["example-plugin-language", "go", "java", "rust"])
+        #expect(reopened.disabledProviderIDs == ["example-plugin-language", "go", "node", "rust"])
     }
 
-    @Test(arguments: ["java", "go", "rust"])
+    @Test(arguments: ["node", "go", "rust"])
     func reenablingPersistsBeforeMatchingDocumentsAreActivated(_ providerID: String) throws {
         let store = LanguagePreferencesTestStore()
         let feature = makeFeature(store: store)
         feature.reloadCatalog(for: workspace)
         let documentsByProvider = [
-            "java": document("Main.java"),
+            "node": document("main.js"),
             "go": document("main.go"),
             "rust": document("main.rs")
         ]
@@ -78,16 +78,16 @@ struct WorkspaceLanguageServerPreferencesTests {
         let store = LanguagePreferencesTestStore()
         let feature = makeFeature(store: store)
         feature.reloadCatalog(for: workspace)
-        feature.setEnabled(false, providerID: "java")
+        feature.setEnabled(false, providerID: "node")
 
         feature.resetWorkspaceState()
-        feature.toolConfigurationDidChange(providerID: "java")
-        #expect(feature.isDisabled("java"))
+        feature.toolConfigurationDidChange(providerID: "node")
+        #expect(feature.isDisabled("node"))
 
         feature.reloadCatalog(for: nil)
         #expect(feature.disabledProviderIDs.isEmpty)
         feature.reloadCatalog(for: workspace)
-        #expect(feature.isDisabled("java"))
+        #expect(feature.isDisabled("node"))
     }
 
     @Test
@@ -136,9 +136,9 @@ struct WorkspaceLanguageServerPreferencesTests {
         let observation = feature.objectWillChange.sink { changes += 1 }
         defer { observation.cancel() }
 
-        feature.setEnabled(false, providerID: "java")
+        feature.setEnabled(false, providerID: "node")
         #expect(changes == 1)
-        feature.setEnabled(true, providerID: "java")
+        feature.setEnabled(true, providerID: "node")
         #expect(changes == 2)
     }
 
@@ -146,48 +146,25 @@ struct WorkspaceLanguageServerPreferencesTests {
     func togglesWithoutAWorkspaceDoNotOverwritePreferences() {
         let store = LanguagePreferencesTestStore()
         let feature = makeFeature(store: store)
-        feature.setEnabled(false, providerID: "java")
+        feature.setEnabled(false, providerID: "node")
 
         #expect(feature.disabledProviderIDs.isEmpty)
         #expect(store.values.isEmpty)
     }
 
     @Test
-    func disabledJavaSkipsWorkspaceAndDocumentStartup() async {
+    func disabledLanguageSkipsDocumentStartup() async {
         let store = LanguagePreferencesTestStore()
         MacWorkspaceLanguageServerPreferencesStore(store: store)
-            .saveDisabledProviderIDs(["java"], for: workspace)
+            .saveDisabledProviderIDs(["node"], for: workspace)
         let model = makeAppModel(store: store)
-        defer { model.cancelJavaLanguageServerPreparation() }
-        // The injected workspace policy allows Java startup. Restoring the saved
-        // preference must prevent preparation even when Java files are eligible.
         model.languageToolingFeature.reloadCatalog(for: workspace)
         model.workspaceSessionCoordinator.beginWorkspace(at: workspace)
 
-        model.prepareJavaLanguageServerForWorkspaceIfNeeded(
-            at: workspace,
-            files: [workspace.appendingPathComponent("Main.java")]
-        )
-        #expect(model.javaFeature.languageServerOperationID == nil)
         #expect(model.activeNotifications.isEmpty)
-        #expect(!model.activateLanguageServerIfAvailable(for: document("Main.java")))
-        #expect(await model.javaNavigationMarkers(for: document("Main.java")) == [])
-        #expect(model.javaFeature.languageServerOperationID == nil)
+        #expect(!model.activateLanguageServerIfAvailable(for: document("main.js")))
         #expect(model.languageToolingSessionsIfActive == nil)
         #expect(model.activeNotifications.isEmpty)
-
-        // Re-enable on the same model to prove the setup reaches preparation.
-        // Cancel before the queued task runs so no JDK or real LSP is needed.
-        model.setLanguageServerEnabled(true, providerID: "java")
-        guard case .preparing(let owner) = model.javaFeature.languageServerWorkspaceState else {
-            Issue.record("Enabling Java should schedule workspace preparation")
-            await model.shutdownProjectSession()
-            return
-        }
-        let task = owner.task
-        #expect(task != nil)
-        model.cancelJavaLanguageServerPreparation()
-        await task?.value
         await model.shutdownProjectSession()
     }
 
@@ -195,15 +172,15 @@ struct WorkspaceLanguageServerPreferencesTests {
     func maintenanceSessionsReadSavedPreferencesWithoutDocumentActivation() async throws {
         let store = LanguagePreferencesTestStore()
         let preferences = MacWorkspaceLanguageServerPreferencesStore(store: store)
-        preferences.saveDisabledProviderIDs(["java"], for: workspace)
+        preferences.saveDisabledProviderIDs(["python"], for: workspace)
         let model = makeAppModel(store: store, moduleLaunchMode: .normal)
         model.languageToolingFeature.reloadCatalog(for: workspace)
         model.workspaceSessionCoordinator.beginWorkspace(at: workspace)
         do {
             let sessions = try await model.languageSessionsForWorkspaceMaintenance()
             defer { sessions.stopAllLanguageServers() }
-            #expect(throws: LanguageToolingSessionError.providerDisabled("Java")) {
-                try sessions.startLanguageServer(providerID: "java", rootURL: workspace)
+            #expect(throws: LanguageToolingSessionError.providerDisabled("Python")) {
+                try sessions.startLanguageServer(providerID: "python", rootURL: workspace)
             }
             // A language first disabled after module activation must be observed
             // by the same manager, without recreating or rebinding the module.
@@ -220,36 +197,15 @@ struct WorkspaceLanguageServerPreferencesTests {
     }
 
     @Test
-    func disablingJavaCancelsPendingPreparationAndSavesTheChoice() async {
+    func disablingALanguageSavesTheChoice() async {
         let store = LanguagePreferencesTestStore()
         let model = makeAppModel(store: store)
         model.languageToolingFeature.reloadCatalog(for: workspace)
         model.workspaceSessionCoordinator.beginWorkspace(at: workspace)
-        let owner = model.javaFeature.beginLanguageServerPreparation(
-            workspaceURL: workspace,
-            operationID: UUID()
-        )
-        var reachedStartup = false
-        JavaLanguageServerPreparationCoordinator().schedule(for: owner) {
-            guard !Task.isCancelled else { return }
-            reachedStartup = true
-        }
-        let preparationTask = owner.task
-        defer {
-            preparationTask?.cancel()
-            model.cancelJavaLanguageServerPreparation()
-        }
 
-        // The checkbox is turned off before the queued preparation gets its
-        // first turn. Cancellation must prevent it from starting a server.
-        model.setLanguageServerEnabled(false, providerID: "java")
-        #expect(preparationTask?.isCancelled == true)
-        #expect(owner.task == nil)
-        #expect(model.javaFeature.languageServerOperationID == nil)
+        model.setLanguageServerEnabled(false, providerID: "node")
         #expect(MacWorkspaceLanguageServerPreferencesStore(store: store)
-            .disabledProviderIDs(for: workspace) == ["java"])
-        await preparationTask?.value
-        #expect(!reachedStartup)
+            .disabledProviderIDs(for: workspace) == ["node"])
 
         await model.shutdownProjectSession()
     }
@@ -258,7 +214,7 @@ struct WorkspaceLanguageServerPreferencesTests {
     func cancelledActivationIsNeitherReportedNorRecordedAsAStartupFailure() throws {
         let feature = makeFeature(store: LanguagePreferencesTestStore())
         feature.reloadCatalog(for: workspace)
-        let descriptor = try #require(feature.catalog.provider(for: document("Main.java").url))
+        let descriptor = try #require(feature.catalog.provider(for: document("main.py").url))
         var notifications: [String] = []
         feature.configure(documentsProvider: { [] }, activateDocument: { _ in false }, notify: { notifications.append($0) })
 
@@ -276,7 +232,7 @@ struct WorkspaceLanguageServerPreferencesTests {
     func failureOfADisabledServerIsNotReported() throws {
         let feature = makeFeature(store: LanguagePreferencesTestStore())
         feature.reloadCatalog(for: workspace)
-        let descriptor = try #require(feature.catalog.provider(for: document("Main.java").url))
+        let descriptor = try #require(feature.catalog.provider(for: document("main.py").url))
         var notifications: [String] = []
         feature.configure(documentsProvider: { [] }, activateDocument: { _ in false }, notify: { notifications.append($0) })
 
@@ -310,31 +266,10 @@ struct WorkspaceLanguageServerPreferencesTests {
         let services = MacServiceContainer(
             store: store,
             settings: settings,
-            moduleLaunchMode: moduleLaunchMode,
-            javaMavenOperations: LanguagePreferencesJavaOperations()
+            moduleLaunchMode: moduleLaunchMode
         ).services
         return AppModel(settings: settings, services: services)
     }
-}
-
-private struct LanguagePreferencesJavaOperations: JavaMavenOperations {
-    func javaWorkspacePolicy(
-        at rootURL: URL,
-        files: [URL],
-        changedFiles: [URL]
-    ) -> JavaWorkspacePolicyResult? {
-        JavaWorkspacePolicyResult(
-            shouldStart: true,
-            representativeJavaURL: rootURL.appendingPathComponent("Main.java"),
-            changes: []
-        )
-    }
-
-    func codeVision(at rootURL: URL, targetPath: String, paths: [String]) -> [JavaCodeVisionValue] { [] }
-    func className(source: String, simpleName: String) -> String? { nil }
-    func sourceDefinition(source: String, declarationName: String, memberName: String?) -> (line: Int, utf16Column: Int)? { nil }
-    func serverPort(content: String, fileExtension: String) -> Int? { nil }
-    func structure(source: String, declarationSources: [String]) -> JavaStructureResult? { nil }
 }
 
 private struct LanguagePreferencesTestCatalogSource: LanguageProviderCatalogSource {

@@ -2,7 +2,6 @@
 
 use super::engine::LspRuntimeError;
 use crate::diagnostics::channel::{digest_segment, identity_segment, validate_segment};
-use crate::lsp::languages::jdt::MavenProfileProjectResult;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -132,30 +131,7 @@ pub(super) enum EngineLog {
     ProcessStarted,
     ProcessCleanupFailed,
     ProtocolInitialized,
-    ConfigurationCleaned,
-    ConfigurationCleanupFailed,
-    LegacyRemoved,
-    MavenSettingsForwarded,
-    MavenConfigurationUpdated,
-    MavenCancelled,
-    MavenProjectFinished,
-    MavenApplied,
-    MavenPartiallyApplied,
-    MavenApplicationStarted,
-    MavenStartFailed,
-    MavenTimedOut,
-    MavenTaskUpdated,
-    NavigationCacheHit,
-    NavigationLimited,
-    NavigationMarkerFailed,
-    NavigationResolved,
     ResponseSkipped,
-    WorkspaceProgressReceived,
-    WorkspaceWaiting,
-    WorkspaceImportFinished,
-    WorkspaceStalled,
-    BuildWaiting,
-    BuildExecution,
     ShutdownTimedOut,
     StderrReceived,
     StderrReadFailed,
@@ -209,30 +185,7 @@ impl EngineLog {
             Self::ProcessCleanupFailed => "process.cleanup_failed",
             Self::ProcessStarted => "process.started",
             Self::ProtocolInitialized => "protocol.initialized",
-            Self::ConfigurationCleaned => "configuration.cleaned",
-            Self::ConfigurationCleanupFailed => "configuration.cleanup_failed",
-            Self::LegacyRemoved => "workspace.legacy_removed",
-            Self::MavenSettingsForwarded => "maven.settings_forwarded",
-            Self::MavenConfigurationUpdated => "maven.configuration_updated",
-            Self::MavenCancelled => "maven.cancelled",
-            Self::MavenProjectFinished => "maven.project_finished",
-            Self::MavenApplied => "maven.applied",
-            Self::MavenPartiallyApplied => "maven.partially_applied",
-            Self::MavenApplicationStarted => "maven.application_started",
-            Self::MavenStartFailed => "maven.start_failed",
-            Self::MavenTimedOut => "maven.timed_out",
-            Self::MavenTaskUpdated => "maven.task_updated",
-            Self::NavigationCacheHit => "navigation.cache_hit",
-            Self::NavigationLimited => "navigation.limited",
-            Self::NavigationMarkerFailed => "navigation.marker_failed",
-            Self::NavigationResolved => "navigation.resolved",
             Self::ResponseSkipped => "response.skipped",
-            Self::WorkspaceProgressReceived => "workspace.progress_received",
-            Self::WorkspaceWaiting => "workspace.waiting",
-            Self::WorkspaceImportFinished => "workspace.import_finished",
-            Self::WorkspaceStalled => "workspace.stalled",
-            Self::BuildWaiting => "build.waiting",
-            Self::BuildExecution => "build.execution",
             Self::ShutdownTimedOut => "shutdown.timed_out",
             Self::StderrReceived => "stderr.received",
             Self::StderrReadFailed => "stderr.read_failed",
@@ -265,10 +218,7 @@ impl EngineLog {
                 );
                 copy(&mut fields, "truncated", &input, "truncated");
             }
-            Self::ProcessCleanupFailed
-            | Self::StderrReadFailed
-            | Self::ConfigurationCleanupFailed
-            | Self::MavenStartFailed => failure(&mut fields, code),
+            Self::ProcessCleanupFailed | Self::StderrReadFailed => failure(&mut fields, code),
             Self::MessageLogged | Self::MessageShown => {
                 copy(&mut fields, "diagnostic", &input, "diagnostic");
                 copy(&mut fields, "severity", &input, "severity");
@@ -293,75 +243,11 @@ impl EngineLog {
             Self::NotificationReceived => {
                 copy(&mut fields, "method", &input, "method");
             }
-            Self::SessionUpdated | Self::MavenTaskUpdated => {
+            Self::SessionUpdated => {
                 copy(&mut fields, "state", &input, "state");
-                if matches!(self, Self::SessionUpdated) && input["state"] == "failed" {
+                if input["state"] == "failed" {
                     id = identity.event("session.failed");
                     fields.insert("code".into(), json!(code));
-                }
-            }
-            Self::ConfigurationCleaned => {
-                fields.insert(
-                    "removed".into(),
-                    json!(input["removedKeys"].as_array().map_or(0, Vec::len)),
-                );
-            }
-            Self::LegacyRemoved => {
-                fields.insert(
-                    "removed_files".into(),
-                    json!(input["removedFiles"].as_array().map_or(0, Vec::len)),
-                );
-                fields.insert(
-                    "state_reset".into(),
-                    json!(input["stateReset"].as_bool().unwrap_or(false)),
-                );
-            }
-            Self::MavenSettingsForwarded => {
-                fields.insert("reason".into(), json!(code));
-            }
-            Self::MavenConfigurationUpdated => {
-                for (target, source) in [
-                    ("settings_changed", "settingsChanged"),
-                    ("projects_reloaded", "projectsReloaded"),
-                    ("profiles_updating", "profilesUpdating"),
-                ] {
-                    copy(&mut fields, target, &input, source);
-                }
-            }
-            Self::MavenApplicationStarted => {
-                copy(&mut fields, "projects", &input, "projectCount");
-            }
-            Self::MavenProjectFinished => {
-                fields.insert(
-                    "project".into(),
-                    json!(input["projectUri"].as_str().unwrap_or("<PATH>")),
-                );
-                fields.insert(
-                    "outcome".into(),
-                    json!(input["status"].as_str().unwrap_or("unknown")),
-                );
-                if error.is_some() {
-                    id = identity.event("maven.project_failed");
-                    failure(&mut fields, code);
-                }
-            }
-            Self::NavigationCacheHit
-            | Self::NavigationLimited
-            | Self::NavigationMarkerFailed
-            | Self::NavigationResolved => {
-                for name in [
-                    "document",
-                    "document_version",
-                    "duration_ms",
-                    "tasks",
-                    "limit",
-                    "code_lenses",
-                    "markers",
-                ] {
-                    copy(&mut fields, name, &input, name);
-                }
-                if matches!(self, Self::NavigationMarkerFailed) {
-                    failure(&mut fields, code);
                 }
             }
             Self::ResponseSkipped => {
@@ -373,65 +259,6 @@ impl EngineLog {
                     fields.insert("request".into(), json!(request));
                 }
             }
-            Self::WorkspaceProgressReceived => {
-                // The upstream progress phase is free text. Keep the observation
-                // structured rather than persisting status, project, or artifact text.
-                fields.insert("phase".into(), json!("import"));
-                copy(&mut fields, "completed", &input, "progressPercent");
-                if fields.contains_key("completed") {
-                    fields.insert("total".into(), json!(100));
-                }
-            }
-            Self::WorkspaceImportFinished => {
-                copy(&mut fields, "duration_ms", &input, "importMilliseconds");
-            }
-            Self::WorkspaceStalled => {
-                fields.insert(
-                    "duration_ms".into(),
-                    json!(input["idleMilliseconds"].as_u64().unwrap_or(0)),
-                );
-            }
-            Self::BuildWaiting => {
-                copy(&mut fields, "reason", &input, "reason");
-            }
-            Self::BuildExecution => {
-                id = identity.event(if input["errorCode"].as_str().is_some() {
-                    "build.execution.failed"
-                } else if input.get("outcome").is_some() {
-                    "build.execution.finished"
-                } else {
-                    "build.execution.started"
-                });
-                if let Some(code) = input["errorCode"].as_str() {
-                    failure(&mut fields, code);
-                }
-                if input.get("outcome").is_some() {
-                    fields.insert(
-                        "duration_ms".into(),
-                        json!(input["elapsedMilliseconds"].as_u64().unwrap_or(0)),
-                    );
-                }
-                fields.insert(
-                    "waiters".into(),
-                    json!(input["waiterCount"].as_u64().unwrap_or(0)),
-                );
-                for (target, source) in [
-                    ("waited_ms", "waitedMilliseconds"),
-                    ("outcome", "outcome"),
-                    ("marker_scope", "markerScope"),
-                    ("builder_failed_earlier", "builderFailedEarlier"),
-                ] {
-                    copy(&mut fields, target, &input, source);
-                }
-                if let Some(recovery) = input.get("recovery").filter(|v| !v.is_null()) {
-                    fields.insert(
-                        "recovery".into(),
-                        json!(recovery
-                            .as_bool()
-                            .unwrap_or_else(|| recovery.as_str().is_some_and(|v| v != "none"))),
-                    );
-                }
-            }
             Self::Dropped => {
                 fields.clear();
                 fields.insert("count".into(), input["count"].clone());
@@ -440,16 +267,6 @@ impl EngineLog {
             _ => {}
         }
         (id, fields)
-    }
-
-    pub(super) fn maven_project_fact(
-        identity: &SessionLogIdentity,
-        result: &MavenProfileProjectResult,
-    ) -> (String, Fields) {
-        let input = json!({"projectUri": result.project_uri, "status": result.status});
-        // State updates carry no duplicate error payload; the explicit issue event
-        // owns the failure boundary, while this entry describes the project state.
-        Self::MavenProjectFinished.fact(identity, &input, None)
     }
 
     pub(super) fn notification(method: &str, params: &Value) -> (Self, Value) {
@@ -736,7 +553,13 @@ mod tests {
     #[test]
     fn roles_route_opaque_provider_ids_without_parsing_prefixes() {
         for (role, provider, subject, plugin, expected) in [
-            (SessionRole::LanguageServer, "java", None, None, "lsp/java"),
+            (
+                SessionRole::LanguageServer,
+                "tool-a",
+                None,
+                None,
+                "lsp/tool-a",
+            ),
             (
                 SessionRole::Vcs,
                 "vcsProvider:any:thing",
@@ -795,7 +618,7 @@ mod tests {
             SessionRole::Vcs,
             SessionRole::Backend,
         ] {
-            let identity = SessionLogIdentity::new(role, "java", Some("io.plugin"), Some("git"));
+            let identity = SessionLogIdentity::new(role, "tool-a", Some("io.plugin"), Some("git"));
             let (id, fields) = EngineLog::ProcessCleanupFailed.fact(&identity, &Value::Null, None);
             crate::diagnostics::catalog::validate_fields(&id, &fields).unwrap();
             assert_eq!(fields["error_code"], "operation_failed");

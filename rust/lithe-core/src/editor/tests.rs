@@ -639,7 +639,6 @@ fn line_comment_token_maps_common_extensions_and_language_ids() {
     for (extension, expected) in [
         ("swift", "//"),
         ("Swift", "//"),
-        ("java", "//"),
         ("ts", "//"),
         ("csharp", "//"),
         ("zig", "//"),

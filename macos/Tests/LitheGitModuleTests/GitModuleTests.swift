@@ -993,14 +993,14 @@ struct GitModuleTests {
         let root = URL(fileURLWithPath: "/workspace")
         let change = GitChange(
             repositoryRoot: root,
-            path: "src/main/App.java",
+            path: "src/main/App.txt",
             originalPath: nil,
             indexStatus: "A",
             workTreeStatus: " "
         )
         let projection = GitTreeStatusProjection(changes: [change])
 
-        #expect(projection.change(relativePath: "\\src\\main\\App.java") == change)
+        #expect(projection.change(relativePath: "\\src\\main\\App.txt") == change)
         #expect(projection.kind(relativePath: "src/mai", isDirectory: true) == nil)
     }
 
@@ -1147,8 +1147,8 @@ struct GitModuleTests {
             commit,
             identity: GitIdentity(name: nil, email: "ada@example.com")
         ))
-        #expect(query.matchesPaths(["src/main/java/demo/AuthController.java"]))
-        #expect(!query.matchesPaths(["src/main/java/demo/HomeController.java"]))
+        #expect(query.matchesPaths(["src/main/example/demo/AuthController.txt"]))
+        #expect(!query.matchesPaths(["src/main/example/demo/HomeController.txt"]))
         #expect(!query.matchesNonDateMetadata(
             commit,
             identity: GitIdentity(name: "Grace Hopper", email: "grace@example.com")
@@ -1704,7 +1704,7 @@ struct GitModuleTests {
     func explicitStagingIncludesRemainingEditsWithoutChangingCheckboxSemantics(indexStatus: Character) {
         let feature = GitFeatureModel(service: GitService(operations: TestGitOperations()))
         defer { feature.reset() }
-        let change = GitChange(repositoryRoot: URL(fileURLWithPath: "/workspace"), path: "Main.java",
+        let change = GitChange(repositoryRoot: URL(fileURLWithPath: "/workspace"), path: "Main.txt",
             originalPath: nil, indexStatus: indexStatus, workTreeStatus: "M")
         #expect(feature.beginSetStaging([change], staged: true).isEmpty)
         #expect(feature.beginSetStaging([change], staged: true, includeWorkingTreeChanges: true) == [change])
@@ -5630,7 +5630,7 @@ struct GitModuleTests {
             ),
             GitChange(
                 repositoryRoot: root,
-                path: "src/UserRepository.java",
+                path: "src/UserRepository.txt",
                 originalPath: nil,
                 indexStatus: " ",
                 workTreeStatus: "D"
@@ -5646,7 +5646,7 @@ struct GitModuleTests {
         let trackedComparison = GitBranchComparison(reference: reference, files: [
             GitBranchComparisonFile(status: "M", path: "README.md"),
             GitBranchComparisonFile(status: "A", path: "qa-untracked.txt", isUntracked: true),
-            GitBranchComparisonFile(status: "D", path: "src/UserRepository.java")
+            GitBranchComparisonFile(status: "D", path: "src/UserRepository.txt")
         ])
         let service = GitService(operations: TestGitOperations(
             snapshotValue: snapshot,
@@ -5658,7 +5658,7 @@ struct GitModuleTests {
         #expect(comparison.files.map(\.path) == [
             "README.md",
             "qa-untracked.txt",
-            "src/UserRepository.java"
+            "src/UserRepository.txt"
         ])
         #expect(comparison.files.count == 3)
         #expect(comparison.files.first(where: { $0.path == "qa-untracked.txt" })?.isUntracked == true)
@@ -5748,7 +5748,7 @@ struct GitModuleTests {
             )
         ])
         let payload = GitBranchComparison(reference: source, files: [
-            GitBranchComparisonFile(status: "M", path: "src/Tracked.java")
+            GitBranchComparisonFile(status: "M", path: "src/Tracked.txt")
         ])
         let service = GitService(operations: TestGitOperations(
             snapshotValue: snapshot,
@@ -5757,7 +5757,7 @@ struct GitModuleTests {
 
         let comparison = await service.comparison(from: source, to: target, at: root)
 
-        #expect(comparison.files.map(\.path) == ["src/Tracked.java"])
+        #expect(comparison.files.map(\.path) == ["src/Tracked.txt"])
         #expect(comparison.targetReference == target)
     }
 

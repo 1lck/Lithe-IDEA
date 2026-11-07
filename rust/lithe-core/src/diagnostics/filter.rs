@@ -569,18 +569,18 @@ mod tests {
             event: "app.failed".into(),
             op: Some("ABC-12".into()),
             msg: "A failure".into(),
-            fields: [("server".into(), "JDTLS".into())].into(),
+            fields: [("server".into(), "TOOL-A".into())].into(),
         };
         for expression in [
-            "level>=inf level:wrn op:abc event:APP channel:LS server=dt /FAIL/",
-            "JDTLS",
+            "level>=inf level:wrn op:abc event:APP channel:LS server=ol /FAIL/",
+            "TOOL-A",
             "-plugin:p",
             "seq:1",
         ] {
             assert!(
                 CompiledFilter::compile(expression)
                     .unwrap()
-                    .matches(&record, "lsp/jdtls"),
+                    .matches(&record, "lsp/tool-a"),
                 "{expression}"
             );
         }
@@ -588,7 +588,7 @@ mod tests {
             assert!(
                 !CompiledFilter::compile(expression)
                     .unwrap()
-                    .matches(&record, "lsp/jdtls"),
+                    .matches(&record, "lsp/tool-a"),
                 "{expression}"
             );
         }

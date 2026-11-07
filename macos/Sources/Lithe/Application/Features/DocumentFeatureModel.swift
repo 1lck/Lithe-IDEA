@@ -83,7 +83,7 @@ enum StandaloneFileLoadState: Equatable {
     case failed(StandaloneFileOpenFailure)
 }
 
-/// Owns editor document lifecycle and persistence-facing state. Java services,
+/// Owns editor document lifecycle and persistence-facing state. Language services,
 /// local history, and UI notifications are supplied by application composition.
 @MainActor
 final class DocumentFeatureModel: ObservableObject {

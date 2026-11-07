@@ -291,13 +291,6 @@ pub(crate) fn client_feature_request_canonical(
     client_feature_request_with_document_ownership(request, true)
 }
 
-/// Allocates a feature request for a provider-owned virtual document.
-pub(crate) fn client_provider_document_feature_request_canonical(
-    request: ClientFeatureRequest,
-) -> Result<LspClientResponse, CoreError> {
-    client_feature_request_with_document_ownership(request, false)
-}
-
 fn client_feature_request_with_document_ownership(
     request: ClientFeatureRequest,
     require_open_document: bool,
@@ -1059,7 +1052,6 @@ fn validate_lsp_method(method: &str) -> Result<(), CoreError> {
         | "textDocument/codeAction"
         | "completionItem/resolve"
         | "codeAction/resolve"
-        | "java/findLinks"
         | "workspace/executeCommand" => Ok(()),
         _ => Err(CoreError::new(
             ErrorCode::NotSupported,
@@ -1159,13 +1151,6 @@ fn feature_request_params(request: &ClientFeatureRequest) -> Result<Value, CoreE
                 "This LSP request requires a completion item.",
             )
         }),
-        "java/findLinks" => Ok(json!({
-            "type": "superImplementation",
-            "position": {
-                "textDocument": text_document,
-                "position": lsp_position_json(required_position(request)?)
-            }
-        })),
         "codeAction/resolve" => request.code_action.clone().ok_or_else(|| {
             CoreError::new(
                 ErrorCode::InvalidRequest,
@@ -1385,7 +1370,6 @@ fn lsp_feature_result_for_method(method: Option<&str>, result: Option<&Value>) -
         | Some("textDocument/declaration")
         | Some("textDocument/typeDefinition")
         | Some("textDocument/implementation")
-        | Some("java/findLinks")
         | Some("textDocument/references") => Some(json!({
             "locations": parse_locations(result)
         })),

@@ -12,12 +12,10 @@ final class LanguageToolingFeatureModel: ObservableObject {
     @Published private(set) var catalog: LanguageProviderCatalog
     @Published private(set) var catalogSnapshot: LanguageProviderCatalogSnapshot
     @Published private(set) var disabledProviderIDs: Set<String> = []
-    @Published private(set) var projectPreparation: ProjectPreparationSnapshot?
     /// What plugin-owned language servers report with `setStatus`, by server ID.
     @Published private(set) var pluginServerStatuses: [String: PluginServerStatus] = [:]
     @Published private(set) var serverRuntimeSnapshot = LanguageServerRuntimeSnapshot()
     let projectUsage = LSPProjectUsageModel()
-    private var preparationObservation: AnyCancellable?
     private var statusObservation: AnyCancellable?
     private var pluginStatusObservation: AnyCancellable?
     private(set) var startupFailures: [String: String] = [:]
@@ -31,7 +29,6 @@ final class LanguageToolingFeatureModel: ObservableObject {
     private var notify: (@MainActor (String) -> Void)?
     var notifyLog: ((String, LogRecordReference?) -> Void)?
     var logSink: (any LogSink)?
-    private var preparationCancellations: [String: @MainActor () -> Void] = [:]
     private var activationEpoch = UUID()
     private var activationGenerations: [String: UUID] = [:]
     private var restartTasks: [String: Task<Void, Never>] = [:]
@@ -47,14 +44,9 @@ final class LanguageToolingFeatureModel: ObservableObject {
         ActivationToken(epoch: activationEpoch, generation: activationGenerations[providerID])
     }
 
-    func registerPreparationCancellation(providerID: String, cancel: @escaping @MainActor () -> Void) {
-        preparationCancellations[providerID] = cancel
-    }
-
     private func prepareToStop(providerID: String) {
         restartTasks.removeValue(forKey: providerID)?.cancel()
         activationGenerations[providerID] = UUID()
-        preparationCancellations[providerID]?()
     }
 
     init(
@@ -86,13 +78,10 @@ final class LanguageToolingFeatureModel: ObservableObject {
         sessionsProvider = provider
     }
 
-    func bindProjectPreparation(_ sessions: LanguageToolingSessionManager) {
+    func bindSessions(_ sessions: LanguageToolingSessionManager) {
         statusObservation = Publishers.CombineLatest(sessions.$languageServerStates, sessions.$languageServerInfos)
             .map { LanguageServerRuntimeSnapshot(states: $0, infos: $1) }
             .removeDuplicates().sink { [weak self] in self?.serverRuntimeSnapshot = $0 }
-        preparationObservation = sessions.$projectPreparation.removeDuplicates().sink { [weak self] snapshot in
-            self?.projectPreparation = snapshot
-        }
         pluginStatusObservation = sessions.$pluginServerStatuses.removeDuplicates().sink { [weak self] statuses in
             self?.pluginServerStatuses = statuses
         }
@@ -104,7 +93,6 @@ final class LanguageToolingFeatureModel: ObservableObject {
         activationEpoch = UUID()
         activationGenerations.removeAll()
         serverRuntimeSnapshot = LanguageServerRuntimeSnapshot()
-        projectPreparation = nil
         startupFailures.removeAll()
     }
 
@@ -143,7 +131,7 @@ final class LanguageToolingFeatureModel: ObservableObject {
         projectUsage.reset()
         self.workspaceURL = workspaceURL?.standardizedFileURL
         // Restore preferences before workspace restoration can activate documents
-        // or prewarm Java. Runtime resets must not erase explicit user choices.
+        // or prewarm servers. Runtime resets must not erase explicit user choices.
         disabledProviderIDs = self.workspaceURL.map { preferences.disabledProviderIDs(for: $0) } ?? []
         resetWorkspaceState()
         let snapshot = catalogSource.load(workspaceURL: workspaceURL)

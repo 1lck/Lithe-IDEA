@@ -99,7 +99,7 @@ struct ToolchainSettingsSnapshot: Equatable, Sendable {
             /// `host:system` for a definition scan, otherwise the qualified provider.
             let provider: String
             /// The scanned entry the home was found under, when the definition's home layout
-            /// adds a suffix (`jdk-21.jdk` for `jdk-21.jdk/Contents/Home`); it names the installation.
+            /// adds a suffix (`tool-21.kit` for `tool-21.kit/Contents/Home`); it names the installation.
             var location: String? = nil
         }
 

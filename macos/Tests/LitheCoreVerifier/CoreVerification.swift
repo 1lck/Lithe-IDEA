@@ -212,15 +212,15 @@ struct CoreVerification {
 
     private static func verifyDiffParser() {
         let patch = """
-        diff --git a/Example.java b/Example.java
-        --- a/Example.java
-        +++ b/Example.java
+        diff --git a/example.txt b/example.txt
+        --- a/example.txt
+        +++ b/example.txt
         @@ -1,3 +1,4 @@
-         class Example {
-        -    return 1;
-        +    return 2;
-        +    // added
-         }
+         [section]
+        -value = 1
+        +value = 2
+        +# added
+         end
         """
         let document = DiffParser.parseDocument(patch)
         require(document.hunks.count == 1, "expected one diff hunk")

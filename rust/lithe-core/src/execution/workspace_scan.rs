@@ -50,7 +50,7 @@ const EXCLUDED_DIRECTORIES: &[&str] = &[
     "Pods",
 ];
 
-/// Default pruning for automatic run discovery, fingerprints and host Java lists.
+/// Default pruning for automatic run discovery, fingerprints and host file lists.
 /// Hidden source directories are allowed unless explicitly named here.
 pub fn is_run_scan_excluded_directory(name: &str) -> bool {
     EXCLUDED_DIRECTORIES
@@ -193,11 +193,11 @@ mod tests {
             } else if path.ends_with("a-blocked") {
                 Err(io::Error::from(io::ErrorKind::PermissionDenied))
             } else {
-                Ok(vec![(path.join("Main.java"), false, false)])
+                Ok(vec![(path.join("main.txt"), false, false)])
             }
         };
         let unknown = visit_with_reader(root, None, &read, |directory| {
-            if directory.files.contains("Main.java") {
+            if directory.files.contains("main.txt") {
                 ControlFlow::Break(())
             } else {
                 ControlFlow::Continue(())
@@ -224,7 +224,7 @@ mod tests {
                     (root.join(".pytest_cache"), true, false),
                 ])
             } else if path.ends_with(".sources") {
-                Ok(vec![(path.join("Main.java"), false, false)])
+                Ok(vec![(path.join("main.txt"), false, false)])
             } else {
                 Err(io::Error::from(io::ErrorKind::PermissionDenied))
             }
@@ -234,7 +234,7 @@ mod tests {
         assert!(result
             .directories
             .iter()
-            .any(|dir| dir.files.contains("Main.java")));
+            .any(|dir| dir.files.contains("main.txt")));
         assert!(scan_with_reader(root, None, &|_| Err(io::Error::from(
             io::ErrorKind::PermissionDenied
         )))
@@ -247,14 +247,14 @@ mod tests {
             assert_eq!(path, root, "links must never be traversed");
             Ok(vec![
                 (root.join("cycle"), true, true),
-                (root.join("Main.java"), false, false),
+                (root.join("main.txt"), false, false),
             ])
         })
         .unwrap();
         assert_eq!(result.directories.len(), 1);
         assert_eq!(
             result.directories[0].files,
-            BTreeSet::from(["Main.java".into()])
+            BTreeSet::from(["main.txt".into()])
         );
     }
 }

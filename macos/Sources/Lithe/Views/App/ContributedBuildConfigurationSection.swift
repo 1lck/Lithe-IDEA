@@ -30,7 +30,7 @@ struct ContributedBuildConfigurationSection: View {
             guard let access = await model.activateExecutionModule(), let build = access.buildSystems,
                   model.isCurrentWorkspace(identity) else { return }
             do {
-                _ = try await build.prepareLanguageImport(workspaceURL: identity.url)
+                try await build.awaitDetection(workspaceURL: identity.url)
                 try Task.checkCancellation()
                 guard model.isCurrentWorkspace(identity) else { return }
                 feature = build

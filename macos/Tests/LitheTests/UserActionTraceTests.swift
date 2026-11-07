@@ -55,7 +55,7 @@ struct UserActionTraceTests {
 
     @Test
     func actionIDsAreCatalogTokensNeverTitles() {
-        #expect(UserActionTrace.normalizedID("plugin:dev.lithe.maven/run-goal") == "plugin:dev.lithe.maven/run-goal")
+        #expect(UserActionTrace.normalizedID("plugin:example-plugin/run-action") == "plugin:example-plugin/run-action")
         #expect(UserActionTrace.normalizedID("vcs.git.branch.checkout") == "vcs.git.branch.checkout")
         #expect(UserActionTrace.normalizedID("Commit 提交") == "invalid")
         #expect(UserActionTrace.normalizedID("") == "invalid")

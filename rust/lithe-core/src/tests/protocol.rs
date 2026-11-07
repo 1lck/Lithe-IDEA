@@ -203,7 +203,7 @@ fn debug_run_in_terminal_response_crosses_the_json_boundary() {
         "command": "debug.createSession",
         "payload": {
             "sessionId": session_id,
-            "adapterId": "java",
+            "adapterId": "tool-a",
             "rootPath": "/workspace",
             "supportsRunInTerminalRequest": true
         }
@@ -330,35 +330,6 @@ fn debug_breakpoint_relocation_matches_the_shared_contract_fixture() {
         });
         let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
             .expect("debug breakpoint-relocation response should be JSON");
-
-        assert_eq!(response["ok"], true, "fixture case {}", case["name"]);
-        assert_eq!(
-            response["data"], case["expected"],
-            "fixture case {}",
-            case["name"]
-        );
-    }
-}
-
-#[test]
-fn java_test_debug_launch_matches_the_shared_contract_fixture() {
-    let fixture: Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../shared/fixtures/debug/java-test-launch-v1.json"
-    )))
-    .expect("Java test debug fixture should be valid JSON");
-
-    for case in fixture["cases"]
-        .as_array()
-        .expect("Java test debug fixture should contain cases")
-    {
-        let request = serde_json::json!({
-            "id": case["name"],
-            "command": "debug.javaTestLaunch",
-            "payload": case["payload"]
-        });
-        let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
-            .expect("Java test debug response should be JSON");
 
         assert_eq!(response["ok"], true, "fixture case {}", case["name"]);
         assert_eq!(

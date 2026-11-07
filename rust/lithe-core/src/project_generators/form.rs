@@ -463,7 +463,6 @@ pub(crate) fn project_name_problem(name: &str) -> Option<FieldProblem> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::manifest::KNOWN_RUNTIMES;
     use super::*;
 
     fn generator(fields: Value) -> ProjectGeneratorDeclaration {
@@ -728,10 +727,9 @@ mod tests {
         let state = evaluate(&tool_generator(false), &form);
         assert_eq!(field(&state, "sdk").value, json!("/first"));
 
-        // Runtime fields compare the same way; the runtime is whichever one the
-        // manifest accepts, so the test names none itself.
+        // Runtime fields compare the same way; any tool-definition ID names one.
         let runtime = generator(json!([
-            {"id": "sdk", "type": "runtime", "title": "SDK", "runtime": KNOWN_RUNTIMES[0], "minimumVersion": "17.0"}
+            {"id": "sdk", "type": "runtime", "title": "SDK", "runtime": "fixture-sdk", "minimumVersion": "17.0"}
         ]));
         let mut form = input("demo", json!({}), &[]);
         form.runtimes.insert(

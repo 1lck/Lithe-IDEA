@@ -67,9 +67,6 @@ struct DebugSession {
     features: DebugAdapterFeatures,
     /// Declared filters used when a launch names none.
     default_stepping_filters: Option<DebugSteppingFilters>,
-    /// Neither features nor defaults were declared, so the engine keeps
-    /// recognizing adapters it knew before `debugAdapters` 3 by their ID.
-    undeclared: bool,
     debug_request_kind: Option<DebugRequestKind>,
     pending_launch: Option<(String, DebugLaunchConfiguration)>,
     outbound_frames: Vec<Vec<u8>>,
@@ -133,7 +130,6 @@ pub(crate) fn create_session(
         .declared
         .check()
         .map_err(|(field, message)| invalid_request(message).with_details(field.to_string()))?;
-    let undeclared = request.declared.is_empty();
     let DeclaredAdapterBehavior { features, defaults } = request.declared;
     let mut sessions = sessions_lock()?;
     if sessions.contains_key(&request.session_id) {
@@ -196,7 +192,6 @@ pub(crate) fn create_session(
         default_stepping_filters: defaults
             .and_then(|defaults| defaults.step_filters)
             .map(|filters| DebugSteppingFilters::from(&filters)),
-        undeclared,
         debug_request_kind: None,
         pending_launch: None,
         outbound_frames: Vec::new(),
@@ -270,7 +265,7 @@ pub(crate) fn stepping_filters(
     normalize_stepping_filters(
         request
             .filters
-            .unwrap_or_else(|| DebugSteppingFilters::defaults_for_adapter(&request.adapter_id)),
+            .unwrap_or_else(DebugSteppingFilters::unfiltered),
     )
 }
 
@@ -796,7 +791,6 @@ pub(crate) fn inspect(request: InspectRequest) -> Result<DebugSessionUpdate, Cor
         }
         if request.kind == DebugInspectKind::RedefineClasses
             && session.features.hot_code_replace.is_none()
-            && !(session.undeclared && session.adapter_id == "java")
         {
             return Err(invalid_request(
                 "The debug adapter does not declare hot code replacement.",
@@ -1046,39 +1040,17 @@ impl DebugSession {
     ) -> Result<(), CoreError> {
         let request_kind = configuration.request;
         let mut arguments = configuration.arguments;
-        let legacy_java = self.undeclared && self.adapter_id == "java";
         let filters = normalize_stepping_filters(
             configuration
                 .stepping_filters
                 .or_else(|| self.default_stepping_filters.clone())
-                .unwrap_or_else(|| {
-                    if self.undeclared {
-                        DebugSteppingFilters::defaults_for_adapter(&self.adapter_id)
-                    } else {
-                        DebugSteppingFilters::unfiltered()
-                    }
-                }),
+                .unwrap_or_else(DebugSteppingFilters::unfiltered),
         )?;
-        let filter_argument = match &self.features.step_filters {
-            Some(feature) => Some(feature.argument.clone()),
-            None if legacy_java => Some("stepFilters".to_string()),
-            None => None,
-        };
-        if let Some(name) = filter_argument {
-            if !arguments.contains_key(&name) {
-                arguments.insert(name, step_filter_argument(&filters));
-            }
-        }
-        if legacy_java && request_kind == DebugRequestKind::Launch {
-            // A DevTools classloader restart would discard the debugger's hot-replacement target.
-            let option = super::JAVA_DEBUG_DISABLE_DEVTOOLS_RESTART;
-            let vm_args = arguments.entry("vmArgs").or_insert_with(|| json!(""));
-            match vm_args {
-                Value::String(value) => {
-                    *value = format!("{} {}", value, option).trim().to_owned();
-                }
-                Value::Array(values) => values.push(json!(option)),
-                _ => return Err(invalid_request("Java vmArgs must be a string or an array.")),
+        // Only an adapter that declared the argument receives the filters; the
+        // engine never invents launch arguments for an undeclared adapter.
+        if let Some(feature) = &self.features.step_filters {
+            if !arguments.contains_key(&feature.argument) {
+                arguments.insert(feature.argument.clone(), step_filter_argument(&filters));
             }
         }
         self.stepping_filters = filters;
@@ -2305,7 +2277,7 @@ fn normalize_inspection(
             },
         }),
         DebugInspectKind::RedefineClasses => {
-            // Java Debug Server can return DAP success with an application-level error.
+            // An adapter may return DAP success with an application-level error.
             if let Some(message) = body
                 .get("errorMessage")
                 .and_then(Value::as_str)
@@ -2608,7 +2580,6 @@ fn stack_frame_matches_filters(
         .class_name_filters
         .iter()
         .any(|filter| match filter.as_str() {
-            "$JDK" => is_jdk_frame(name, source_path, presentation_hint),
             "$Libraries" => is_library_frame(source_path, presentation_hint, root_path),
             pattern => class_pattern_matches_frame(pattern, name, source_path),
         })
@@ -2639,61 +2610,6 @@ fn source_path_matches_pattern(source_path: &str, pattern: &str) -> bool {
     let slash_pattern = format!("*{}*", pattern.replace('.', "/"));
     let dotted_pattern = format!("*{pattern}*");
     wildcard_match(&slash_pattern, &source_path) || wildcard_match(&dotted_pattern, &source_path)
-}
-
-fn is_jdk_frame(name: &str, source_path: Option<&str>, presentation_hint: Option<&str>) -> bool {
-    if ["com.sun.", "java.", "javax.", "jdk.", "org.omg.", "sun."]
-        .iter()
-        .any(|prefix| name.starts_with(prefix))
-    {
-        return true;
-    }
-    if presentation_hint == Some("subtle") && source_path.is_none() {
-        return true;
-    }
-    let Some(source_path) = source_path else {
-        return false;
-    };
-    let source_path = source_path.replace('\\', "/");
-    if source_path.contains("/java.base/")
-        || source_path.contains("/java.desktop/")
-        || source_path.contains("/java.logging/")
-        || source_path.contains("/java.management/")
-        || source_path.contains("/java.naming/")
-        || source_path.contains("/java.net.http/")
-        || source_path.contains("/java.sql/")
-        || source_path.contains("/java.xml/")
-        || source_path.contains("/jdk.")
-    {
-        return true;
-    }
-    [
-        "java/applet",
-        "java/awt",
-        "java/beans",
-        "java/io",
-        "java/lang",
-        "java/math",
-        "java/net",
-        "java/nio",
-        "java/rmi",
-        "java/security",
-        "java/sql",
-        "java/text",
-        "java/time",
-        "java/util",
-        "javax",
-        "jdk",
-        "sun",
-        "com/sun",
-        "org/omg",
-    ]
-    .iter()
-    .any(|prefix| source_has_path_prefix(&source_path, prefix))
-}
-
-fn source_has_path_prefix(source_path: &str, prefix: &str) -> bool {
-    source_path.contains(&format!("/{prefix}/")) || source_path.contains(&format!("/{prefix}."))
 }
 
 fn is_library_frame(
@@ -3300,7 +3216,7 @@ mod tests {
 
     #[test]
     fn stack_frame_reports_adapter_served_source_references() {
-        let filters = DebugSteppingFilters::defaults_for_adapter("lldb");
+        let filters = DebugSteppingFilters::unfiltered();
         let body = json!({"stackFrames": [
             {"id": 1, "name": "main", "line": 9, "column": 1,
              "source": {"name": "main.c", "path": "/workspace/main.c"}},
@@ -3332,7 +3248,7 @@ mod tests {
             let result = normalize_inspection(
                 DebugInspectKind::RedefineClasses,
                 &case["body"],
-                &DebugSteppingFilters::defaults_for_adapter("java"),
+                &DebugSteppingFilters::unfiltered(),
                 "/workspace",
             );
             if case["failure"].as_bool() == Some(true) {
@@ -3345,8 +3261,25 @@ mod tests {
     }
 
     #[test]
-    fn hot_replace_requires_java_and_preserves_paused_state() {
-        for (id, adapter) in [("hcr-java", "java"), ("hcr-other", "python")] {
+    fn hot_replace_requires_the_declaration_and_preserves_paused_state() {
+        let hot_swapping: DeclaredAdapterBehavior = serde_json::from_value(json!({
+            "features": {
+                "hotCodeReplace": {
+                    "request": "redefineClasses",
+                    "changedField": "changedClasses",
+                    "errorField": "errorMessage"
+                }
+            }
+        }))
+        .unwrap();
+        for (id, adapter, declared) in [
+            ("hcr-declared", "hotswap", hot_swapping),
+            ("hcr-other", "python", DeclaredAdapterBehavior::default()),
+        ] {
+            let declares_hot_replace = declared
+                .features
+                .as_ref()
+                .is_some_and(|features| features.hot_code_replace.is_some());
             create_session(CreateSessionRequest {
                 session_id: id.into(),
                 adapter_id: adapter.into(),
@@ -3355,7 +3288,7 @@ mod tests {
                 supports_start_debugging_request: false,
                 disabled_capabilities: Vec::new(),
                 parent_session_id: None,
-                declared: Default::default(),
+                declared,
             })
             .unwrap();
             // The guard always removes the process-free session, including on assertion failure.
@@ -3381,12 +3314,8 @@ mod tests {
             })
             .unwrap();
             let launch_frame = decode_frame(&launched.outbound_frames[0]);
-            if adapter == "java" {
-                assert_eq!(
-                    launch_frame["arguments"]["vmArgs"],
-                    "-Xmx256m -Dspring.devtools.restart.enabled=false"
-                );
-            }
+            // Launch arguments pass through untouched for every adapter.
+            assert_eq!(launch_frame["arguments"]["vmArgs"], "-Xmx256m");
             receive_messages(
                 id,
                 vec![response_message(
@@ -3406,7 +3335,7 @@ mod tests {
             }))
             .unwrap();
             let update = inspect(request);
-            if adapter != "java" {
+            if !declares_hot_replace {
                 assert!(update.is_err());
                 continue;
             }
@@ -3474,7 +3403,7 @@ mod tests {
                             stack_frames: vec![DebugStackFrame {
                                 id: 7,
                                 name: "example.Main.run".to_string(),
-                                source_path: Some("/workspace/Main.java".to_string()),
+                                source_path: Some("/workspace/Main.c".to_string()),
                                 source_reference: None,
                                 line: 12,
                                 column: 1,
@@ -3514,7 +3443,7 @@ mod tests {
             let session_id = format!("debug-disconnect-{request_name}");
             create_session(CreateSessionRequest {
                 session_id: session_id.clone(),
-                adapter_id: "java".to_string(),
+                adapter_id: "lldb".to_string(),
                 root_path: "/workspace".to_string(),
                 supports_run_in_terminal_request: false,
                 supports_start_debugging_request: false,
@@ -3640,26 +3569,22 @@ mod tests {
     }
 
     #[test]
-    fn java_stepping_filters_are_normalized_projected_and_mark_stack_frames() {
+    fn stepping_filters_are_normalized_projected_and_mark_stack_frames() {
+        // Without a declaration there are no built-in defaults for any adapter.
         let defaults = stepping_filters(DebugSteppingFiltersRequest {
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             filters: None,
         })
         .unwrap();
-        assert!(defaults.class_name_filters.contains(&"$JDK".to_string()));
-        assert!(defaults
-            .class_name_filters
-            .contains(&"$Libraries".to_string()));
-        assert!(defaults.skip_synthetics);
-        assert!(!defaults.skip_constructors);
+        assert_eq!(defaults, DebugSteppingFilters::unfiltered());
 
         let filters = stepping_filters(DebugSteppingFiltersRequest {
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             filters: Some(DebugSteppingFilters {
                 class_name_filters: vec![
-                    " org.mockito.* ".to_string(),
-                    "$JDK".to_string(),
-                    "org.mockito.*".to_string(),
+                    " org.mocking.* ".to_string(),
+                    "lib.core.*".to_string(),
+                    "org.mocking.*".to_string(),
                     String::new(),
                 ],
                 skip_synthetics: true,
@@ -3669,10 +3594,10 @@ mod tests {
             }),
         })
         .unwrap();
-        assert_eq!(filters.class_name_filters, ["$JDK", "org.mockito.*"]);
+        assert_eq!(filters.class_name_filters, ["lib.core.*", "org.mocking.*"]);
 
         let multiline_error = stepping_filters(DebugSteppingFiltersRequest {
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             filters: Some(DebugSteppingFilters {
                 class_name_filters: vec!["example.Valid\nexample.Invalid".to_string()],
                 skip_synthetics: false,
@@ -3685,7 +3610,7 @@ mod tests {
         assert!(matches!(multiline_error.code, ErrorCode::InvalidRequest));
 
         let excessive_filter_error = stepping_filters(DebugSteppingFiltersRequest {
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             filters: Some(DebugSteppingFilters {
                 class_name_filters: (0..257)
                     .map(|index| format!("example.Type{index}"))
@@ -3702,16 +3627,19 @@ mod tests {
             ErrorCode::InvalidRequest
         ));
 
-        let session_id = "debug-java-stepping-filters";
+        let session_id = "debug-stepping-filters";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
             disabled_capabilities: Vec::new(),
             parent_session_id: None,
-            declared: Default::default(),
+            declared: serde_json::from_value(json!({
+                "features": {"stepFilters": {"argument": "stepFilters"}}
+            }))
+            .unwrap(),
         })
         .unwrap();
         launch(LaunchRequest {
@@ -3733,7 +3661,7 @@ mod tests {
         assert_eq!(launch_request["command"], "launch");
         assert_eq!(
             launch_request["arguments"]["stepFilters"]["skipClasses"],
-            json!(["$JDK", "org.mockito.*"])
+            json!(["lib.core.*", "org.mocking.*"])
         );
         assert_eq!(
             launch_request["arguments"]["stepFilters"]["skipConstructors"],
@@ -3781,9 +3709,9 @@ mod tests {
                 json!({"stackFrames": [
                     {
                         "id": 7,
-                        "name": "Method.invoke(Object,Object[])",
+                        "name": "lib.core.reflect.Method.invoke(Object,Object[])",
                         "source": {
-                            "path": "jdt://contents/java.base/java/lang/reflect/Method.class"
+                            "path": "/deps/lib/core/reflect/Method.class"
                         },
                         "line": 1,
                         "column": 1
@@ -3792,7 +3720,7 @@ mod tests {
                         "id": 8,
                         "name": "MockMethodInterceptor.intercept(Object,Method,Object[],Invoker)",
                         "source": {
-                            "path": "jdt://contents/mockito-core/org/mockito/internal/creation/bytebuddy/MockMethodInterceptor.class"
+                            "path": "/deps/mocking-core/org/mocking/internal/MockMethodInterceptor.class"
                         },
                         "line": 1,
                         "column": 1
@@ -3800,7 +3728,7 @@ mod tests {
                     {
                         "id": 9,
                         "name": "example.LoginService.authenticate",
-                        "source": {"path": "/workspace/LoginService.java"},
+                        "source": {"path": "/workspace/LoginService.c"},
                         "line": 24,
                         "column": 5
                     }
@@ -3827,14 +3755,14 @@ mod tests {
         };
         assert!(stack_frame_matches_filters(
             "Dependency.call()",
-            Some("/dependencies/example/Dependency.java"),
+            Some("/dependencies/example/Dependency.c"),
             None,
             &library_filters,
             "/workspace"
         ));
         assert!(!stack_frame_matches_filters(
             "LoginService.authenticate()",
-            Some("/workspace/LoginService.java"),
+            Some("/workspace/LoginService.c"),
             None,
             &library_filters,
             "/workspace"
@@ -3850,7 +3778,7 @@ mod tests {
         let session_id = "debug-engine-flow";
         let created = create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
@@ -3879,7 +3807,7 @@ mod tests {
         assert!(queued.outbound_frames.is_empty());
         set_breakpoints(SetBreakpointsRequest {
             session_id: session_id.to_string(),
-            source_path: "/workspace/src/Main.java".to_string(),
+            source_path: "/workspace/src/Main.c".to_string(),
             breakpoints: vec![
                 SourceBreakpoint {
                     line: 12,
@@ -4142,7 +4070,7 @@ mod tests {
         let source = fixture["sourcePath"].as_str().unwrap();
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
@@ -4511,7 +4439,7 @@ mod tests {
         let session_id = "debug-data-breakpoint";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
@@ -4636,7 +4564,7 @@ mod tests {
         let session_id = "debug-set-variable";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
@@ -4768,7 +4696,7 @@ mod tests {
         let session_id = "debug-launch-rejected-detail";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
@@ -4830,7 +4758,7 @@ mod tests {
         let session_id = "debug-cancel-operation";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
@@ -4962,7 +4890,7 @@ mod tests {
         let session_id = "debug-advanced-control";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
@@ -5066,7 +4994,7 @@ mod tests {
         let session_id = "debug-targeted-control";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
@@ -5193,7 +5121,7 @@ mod tests {
             count: None,
             expression: None,
             context: None,
-            source_path: Some("/workspace/src/Main.java".to_string()),
+            source_path: Some("/workspace/src/Main.c".to_string()),
             line: Some(20),
             column: Some(5),
             memory_reference: None,
@@ -5207,7 +5135,7 @@ mod tests {
         assert_eq!(request["command"], "gotoTargets");
         assert_eq!(
             request["arguments"]["source"]["path"],
-            "/workspace/src/Main.java"
+            "/workspace/src/Main.c"
         );
         assert_eq!(request["arguments"]["line"], 20);
         let goto_targets = receive_messages(
@@ -5215,7 +5143,7 @@ mod tests {
             vec![response_message(
                 5,
                 "gotoTargets",
-                json!({"targets": [{"id": 31, "label": "Main.java:20", "line": 20}]}),
+                json!({"targets": [{"id": 31, "label": "main.c:20", "line": 20}]}),
             )],
         );
         assert!(goto_targets.events.iter().any(|event| matches!(
@@ -5342,7 +5270,7 @@ mod tests {
         let session_id = "debug-exception-info";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
@@ -5455,7 +5383,7 @@ mod tests {
         let session_id = "debug-variable-paging";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
@@ -5555,7 +5483,7 @@ mod tests {
         let session_id = "debug-exception-info-unsupported";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
@@ -5629,7 +5557,7 @@ mod tests {
         let session_id = "debug-run-in-terminal";
         let created = create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: true,
             supports_start_debugging_request: false,
@@ -5713,7 +5641,7 @@ mod tests {
         let session_id = "debug-run-in-terminal-invalid";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: true,
             supports_start_debugging_request: false,
@@ -5750,7 +5678,7 @@ mod tests {
         let session_id = "debug-server-request";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
@@ -5794,7 +5722,7 @@ mod tests {
         let session_id = "debug-capability-snapshot";
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
@@ -5853,7 +5781,7 @@ mod tests {
     fn child_request(session_id: &str, parent: Option<&str>) -> CreateSessionRequest {
         CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
@@ -5954,7 +5882,7 @@ mod tests {
                 "stackTrace",
                 json!({"totalFrames": 3, "stackFrames": [
                     {"id": 1, "name": "main", "line": 4, "column": 2,
-                     "source": {"path": "/workspace/src/Main.java"}},
+                     "source": {"path": "/workspace/src/Main.c"}},
                     {"id": 2, "name": "decompiled", "line": 9,
                      "source": {"name": "Lib.class", "sourceReference": 77}},
                     {"id": 3, "name": "jit", "line": 5,
@@ -5978,7 +5906,7 @@ mod tests {
         assert_eq!(payload.thread_id, 11);
         assert!(matches!(
             &payload.frames[0].source,
-            Some(Source::Workspace(source)) if source.path == "src/Main.java"
+            Some(Source::Workspace(source)) if source.path == "src/Main.c"
         ));
         assert!(matches!(
             &payload.frames[1].source,
@@ -5996,7 +5924,7 @@ mod tests {
         .unwrap();
     }
 
-    /// Creates a paused Java-style session so reference-bound inspections can be issued.
+    /// Creates a paused session so reference-bound inspections can be issued.
     fn paused_session(session_id: &str) {
         paused_session_with_capabilities(session_id, json!({}));
     }
@@ -6005,7 +5933,7 @@ mod tests {
     fn paused_session_with_capabilities(session_id: &str, capabilities: Value) {
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
-            adapter_id: "java".to_string(),
+            adapter_id: "lldb".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
@@ -6433,7 +6361,7 @@ mod tests {
 
     #[test]
     fn sourceless_frames_keep_the_instruction_pointer_without_a_fake_line() {
-        let filters = DebugSteppingFilters::defaults_for_adapter("lldb");
+        let filters = DebugSteppingFilters::unfiltered();
         let body = json!({"stackFrames": [
             {"id": 1, "name": "main", "line": 9, "column": 1,
              "instructionPointerReference": "0x100003f50",
@@ -6467,7 +6395,7 @@ mod tests {
 
     #[test]
     fn registers_scope_keeps_its_presentation_hint() {
-        let filters = DebugSteppingFilters::defaults_for_adapter("lldb");
+        let filters = DebugSteppingFilters::unfiltered();
         let body = json!({"scopes": [
             {"name": "Locals", "variablesReference": 3},
             {"name": "Registers", "variablesReference": 4,
@@ -7061,28 +6989,6 @@ mod tests {
             launched["arguments"]["skipFilters"],
             json!({"skipClasses": ["mine/*"]})
         );
-    }
-
-    #[test]
-    fn a_declared_adapter_is_not_recognized_by_its_id() {
-        // Declaring behavior replaces the ID-based special cases kept for
-        // plugins that predate `debugAdapters` 3.
-        let session_id = "debug-declared-not-by-id";
-        let _guard = SessionGuard(session_id);
-        let declared = serde_json::from_value(json!({
-            "features": {"stepFilters": {"argument": "skipFilters"}}
-        }))
-        .unwrap();
-        let launched = launch_session(session_id, "java", declared, json!({}));
-
-        assert!(launched["arguments"].get("stepFilters").is_none());
-        assert!(launched["arguments"].get("vmArgs").is_none());
-        assert_eq!(
-            launched["arguments"]["skipFilters"]["skipClasses"],
-            json!([])
-        );
-        pause_session(session_id, &launched);
-        assert!(inspect(redefine_request(session_id, "apply")).is_err());
     }
 
     #[test]

@@ -5,17 +5,6 @@
       "name": "lithe_project_inspect"
     },
     {
-      "name": "lithe_environment_inspect"
-    },
-    {
-      "name": "lithe_environment_configure",
-      "arguments": [
-        "javaHomePath",
-        "mavenExecutablePath",
-        "mavenJavaHomePath"
-      ]
-    },
-    {
       "name": "lithe_run_list"
     },
     {

@@ -20,15 +20,12 @@ mod git_untracked_directories;
 mod git_workspace_commit;
 mod github;
 mod language_server_sessions;
-mod languages;
 mod marketplace_plugins;
-mod mybatis;
 mod plugins;
 mod project;
 mod project_generators;
 mod protocol;
 mod run_configuration;
-mod spring;
 pub(crate) mod support;
 mod vcs;
 

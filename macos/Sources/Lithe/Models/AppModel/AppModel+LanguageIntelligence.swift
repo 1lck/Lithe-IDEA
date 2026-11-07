@@ -1,0 +1,79 @@
+import Combine
+import Foundation
+import LitheLanguageIntelligenceModule
+import LitheModuleAPI
+
+extension AppModel {
+    func bindLanguageIntelligenceCapability(_ capability: LanguageIntelligenceCapability) {
+        bindPluginLanguageServers(capability.sessions.pluginServers)
+        cacheModuleCapability(
+            capability,
+            id: .languageIntelligence,
+            moduleID: .languageIntelligence
+        )
+        observeModuleFeature(
+            .languageIntelligence,
+            observation: capability.sessions.objectWillChange.sink { [weak self] _ in
+                self?.handleLanguageSessionChange()
+            }
+        )
+        capability.tools.onCandidatesChanged = { [weak self] providerID in
+            guard let self,
+                  self.languageToolingFeature.shouldRetryCandidate(providerID: providerID),
+                  let document = self.activeDocument,
+                  self.languageProviderCatalog.provider(for: document.url)?.id == providerID else {
+                return
+            }
+            _ = self.activateLanguageServerIfAvailable(for: document)
+        }
+    }
+
+    func languageSessionsForWorkspaceMaintenance(for expectedIdentity: WorkspaceIdentity? = nil) async throws
+        -> LanguageToolingSessionManager
+    {
+        guard let identity = expectedIdentity ?? currentWorkspaceIdentity,
+              isCurrentWorkspace(identity), !Task.isCancelled else { throw CancellationError() }
+        let sessions = try await languageIntelligenceModuleCoordinator.sessionsForMaintenance()
+        try Task.checkCancellation()
+        guard isCurrentWorkspace(identity) else { throw CancellationError() }
+        await registerPluginLanguageServers(in: sessions)
+        try Task.checkCancellation()
+        guard isCurrentWorkspace(identity) else { throw CancellationError() }
+        return sessions
+    }
+
+    /// Workspace maintenance starts a language server without an open
+    /// document, so the document path has not registered the servers that
+    /// plugins provide yet. Without this the session manager only knows the
+    /// catalog entry of the language, which has no launch of its own.
+    private func registerPluginLanguageServers(in sessions: LanguageToolingSessionManager) async {
+        let supports = services.pluginCatalog.languageSupports.values
+            .map(\.declaration)
+            .sorted { $0.id < $1.id }
+        let identity = currentWorkspaceIdentity
+        for support in supports {
+            guard !Task.isCancelled, currentWorkspaceIdentity == identity else { return }
+            guard let moduleID = support.languageServerModuleID,
+                  !languageToolingFeature.isDisabled(support.id),
+                  let snapshot = try? services.moduleRuntime.snapshot(for: moduleID),
+                  snapshot.state != .disabled else { continue }
+            let capabilityID = ModuleCapabilityID.languageServerExtension(support.id)
+            let capability: AnyObject?
+            if let active = services.moduleRuntime.capability(capabilityID) {
+                capability = active
+            } else {
+                // A module that cannot activate is reported when its server
+                // is started; it must not block the other languages.
+                capability = try? await services.moduleRuntime.activateCapability(capabilityID)
+            }
+            guard !Task.isCancelled, currentWorkspaceIdentity == identity else { return }
+            guard let provider = capability as? any LanguageServerExtensionProviding,
+                  sessions.registerLanguageServerExtension(provider, support: support) else { continue }
+            if let tools = languageServerToolsIfActive,
+               let registered = sessions.languageServerExtensionDescriptor(languageID: support.id),
+               tools.needsCandidateValidation(for: registered) {
+                await tools.refreshCandidates(for: registered)
+            }
+        }
+    }
+}

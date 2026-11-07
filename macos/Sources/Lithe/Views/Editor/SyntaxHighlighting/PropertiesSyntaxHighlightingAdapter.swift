@@ -1,6 +1,6 @@
 import AppKit
 
-/// Highlights Java properties keys, values, continuations, and line comments.
+/// Highlights `.properties` keys, values, continuations, and line comments.
 enum PropertiesSyntaxHighlightingAdapter {
     private static let numberExpression = expression(
         #"(?<![A-Za-z0-9_.-])[-+]?(?:\d[\d_]*(?:\.\d[\d_]*)?)(?![A-Za-z0-9_.-])"#

@@ -126,7 +126,7 @@ final class MacPluginDebugAdapterTransport: DebugAdapterDrainingTransport, Debug
                 throw TransportError.commandNotFound(adapterID: adapterID, commands: commands)
             }
             executableURL = url
-        case .runtime:
+        case .runtime, .tool:
             throw TransportError.unsupportedExecutable(adapterID: adapterID)
         }
         return MacProcessDebugAdapterTransport(

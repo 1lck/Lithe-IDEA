@@ -835,32 +835,3 @@ pub(crate) fn map_canonical(builder: &mut ModelBuilder<'_>, document: Value) -> 
     }
     Ok(())
 }
-
-// MARK: Host integration input
-
-/// Adds a project found by a host integration. Paths are workspace-relative.
-pub(crate) fn add_integration_project(
-    builder: &mut ModelBuilder<'_>,
-    path: String,
-    name: &str,
-    properties: BTreeMap<String, String>,
-) -> Option<usize> {
-    builder.add_project(path, name, None, None, properties)
-}
-
-pub(crate) fn add_integration_content_root(
-    builder: &mut ModelBuilder<'_>,
-    project: usize,
-    path: String,
-    kind: ContentRootKind,
-) {
-    builder.add_content_root(project, path, kind);
-}
-
-pub(crate) fn add_integration_option_value(
-    builder: &mut ModelBuilder<'_>,
-    option: &str,
-    value: &str,
-) {
-    builder.add_option_value(option, value);
-}

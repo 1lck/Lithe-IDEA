@@ -23,30 +23,6 @@ pub struct DirectoryContext {
 }
 
 impl DirectoryContext {
-    /// Captures the readable non-directory entries immediately below `path`.
-    pub fn at(root: &Path, path: &Path) -> Result<Option<Self>, CoreError> {
-        let entries = match fs::read_dir(path) {
-            Ok(entries) => entries,
-            // Detection skips a directory the host cannot list, as it does locally,
-            // but a dropped link must not pass for a project without manifests.
-            Err(error) if fs::is_transport_failure(&error) => return Err(error.into()),
-            Err(_) => return Ok(None),
-        };
-        let files = entries
-            .flatten()
-            .filter_map(|entry| {
-                let kind = entry.file_type().ok()?;
-                (!kind.is_dir()).then(|| entry.file_name().to_str().map(str::to_string))?
-            })
-            .collect();
-        Ok(Some(Self {
-            root: root.to_path_buf(),
-            path: path.to_path_buf(),
-            relative: relative_path(root, path)?,
-            files,
-        }))
-    }
-
     /// Reports whether the directory contains an entry with the exact name.
     pub fn has(&self, name: &str) -> bool {
         self.files.contains(name)

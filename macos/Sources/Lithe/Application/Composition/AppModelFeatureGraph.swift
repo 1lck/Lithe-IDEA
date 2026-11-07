@@ -28,17 +28,13 @@ final class AppModelFeatureGraph {
     let terminalPlacement: TerminalPlacementFeatureModel
     let document: DocumentFeatureModel
     let navigationHistory: NavigationHistoryFeatureModel
-    let java: JavaFeatureModel
-    let spring: SpringFeatureModel
-    let mybatis: MybatisFeatureModel
     let editorSession: EditorSessionCoordinator
-    let javaTestWorkflow: JavaTestWorkflowState
     let languageNavigation: LanguageNavigationCoordinator
     let languageEditing: LanguageEditingCoordinator
     let languageCapabilityPolicy: LanguageCapabilityPolicy
     let debugLaunchPreparation: DebugLaunchPreparationCoordinator
     let debugSessionCleanup: DebugSessionCleanupCoordinator
-    let javaTestDebugWorkflow: JavaTestDebugWorkflowCoordinator
+    let languageTestWorkflow: LanguageTestWorkflowState
     /// Nil only when the application has no log store (some tests).
     let languageServerLogs: LanguageServerLogsModel?
 
@@ -118,16 +114,12 @@ final class AppModelFeatureGraph {
             confirmHardLinkSave: { services.platformUI.confirmHardLinkSave(at: $0) }
         )
         navigationHistory = NavigationHistoryFeatureModel(logSink: services.logSink)
-        java = JavaFeatureModel(operations: services.javaMavenOperations)
-        spring = SpringFeatureModel(operations: services.javaMavenOperations)
-        mybatis = MybatisFeatureModel(operations: services.javaMavenOperations)
-        javaTestWorkflow = JavaTestWorkflowState(notify: notify)
         languageNavigation = LanguageNavigationCoordinator(notify: notify)
         languageEditing = LanguageEditingCoordinator(notify: notify)
         languageCapabilityPolicy = LanguageCapabilityPolicy()
         debugLaunchPreparation = DebugLaunchPreparationCoordinator(notify: notify)
         debugSessionCleanup = DebugSessionCleanupCoordinator()
-        javaTestDebugWorkflow = JavaTestDebugWorkflowCoordinator(notify: notify)
+        languageTestWorkflow = LanguageTestWorkflowState()
         let languageServerLogs = services.logWindowLogging.map {
             LanguageServerLogsModel(logging: $0, sink: services.logSink)
         }

@@ -711,8 +711,7 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
     func startLanguageServer(
         providerID _: String, executableURL _: URL, arguments _: [String], environment _: [String: String],
         rootURL _: URL, workingDirectoryURL _: URL, initializationOptions _: ToolingJSONValue?,
-        runtimeExecutableURL _: URL?, jdtlsLaunchResources _: JDTLSLaunchResources?, cacheDirectoryURL _: URL?,
-        workspaceFingerprint _: String?, initializeTimeout _: TimeInterval, requestTimeout _: TimeInterval,
+        initializeTimeout _: TimeInterval, requestTimeout _: TimeInterval,
         shutdownTimeout _: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
         .failure(LanguageServerRuntimeFailure(code: "unexpected", message: "A backend is plugin-owned."))

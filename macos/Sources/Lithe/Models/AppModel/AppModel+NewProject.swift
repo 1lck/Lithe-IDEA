@@ -21,11 +21,9 @@ extension AppModel {
     /// create projects.
     func makeNewProjectFeature() -> NewProjectFeatureModel? {
         guard let service = services.projectGeneration else { return nil }
-        let runtime = services.projectRuntimeService
         return NewProjectFeatureModel(environment: NewProjectEnvironment(
             sources: { [weak self] in self?.services.projectGeneratorSources?() ?? [] },
             iconResources: services.pluginUIIconResources,
-            javaRuntimes: { await runtime.discoverJavaRuntimesForNewProject() },
             service: service,
             setPluginEnabled: { [weak self] pluginID in
                 try await self?.services.pluginManager.setEnabled(true, for: pluginID)

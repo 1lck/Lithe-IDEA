@@ -95,8 +95,6 @@ struct LanguageToolEnvironmentTests {
         #expect(server.runtimeTools.isEmpty)
         #expect(server.launchRuntimeTool == "node")
 
-        let java = try DeclarativePluginTestSupport.officialDescriptor("JavaSupport")
-        #expect(java.languageServers.first?.launchRuntimeTool == "java")
         let php = try DeclarativePluginTestSupport.officialDescriptor("PhpSupport")
         #expect(php.languageServers.allSatisfy { $0.launchRuntimeTool == nil })
     }

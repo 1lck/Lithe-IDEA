@@ -34,7 +34,7 @@ enum SearchRelevance {
         guard !text.isEmpty else { return .none }
 
         // 文件名带扩展名，比较时一并考虑去扩展名的形式，让 `DeviceHandler`
-        // 精确命中 `DeviceHandler.java` 而不是降级成前缀匹配。
+        // 精确命中 `DeviceHandler.swift` 而不是降级成前缀匹配。
         let candidates = [text, (text as NSString).deletingPathExtension]
 
         for candidate in candidates {

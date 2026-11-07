@@ -293,14 +293,15 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
             arguments: plan.arguments,
             validationArguments: plan.validationArguments,
             initializationOptions: plan.initializationOptions,
-            entryPath: plan.launch.entry,
+            // A tool launch carries an absolute entry, which `toolLaunch` holds.
+            entryPath: plan.launch.kind == "tool" ? nil : plan.launch.entry,
             hostIntegration: plan.hostIntegration.map {
                 .init(id: $0.id, resources: $0.resources.mapValues(\.paths))
             },
             packagedRuntimePath: plan.launch.packagedRuntime,
             executableVersionRequirement: plan.launch.versionRequirement,
             runtimeRequirements: plan.runtimeRequirements.map {
-                .init(tool: $0.tool, minimumVersion: $0.minimumVersion)
+                .init(tool: $0.tool, minimumVersion: $0.minimumVersion, resolvesThroughDefinition: $0.kind == "tool")
             },
             requiredDirectories: try plan.requiredDirectories.map { name in
                 guard let directory = DeclarativeLanguageServerLaunchPlan.RequiredDirectory(rawValue: name) else {
@@ -323,6 +324,9 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
             }
         )
         result.workspaceConfiguration = plan.workspaceConfiguration
+        // The second step of a backend launch also says `tool`, but it names a
+        // resolved program, which `resolvedLaunch` carries instead.
+        result.toolLaunch = plan.writablePaths == nil ? plan.launch.toolLaunch : nil
         result.backendResolution = plan.backendResolution
         result.resolvedLaunch = plan.resolvedLaunch
         result.sessionPolicy = plan.sessionPolicy
@@ -596,6 +600,8 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         struct RuntimeRequirement: Decodable {
             let tool: String
             let minimumVersion: String?
+            /// `tool` when the host resolves it through a tool definition.
+            let kind: String?
         }
 
         struct Launch: Decodable {
@@ -607,6 +613,8 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
             let packagedRuntime: String?
             let minimumVersion: String?
             let versionArguments: [String]?
+            /// `tool` launches: values for `${runtimeArguments}`.
+            let runtimeArguments: [String]?
             /// `backend` launches: the function to call and its timeout.
             let function: String?
             let timeoutMilliseconds: Int?
@@ -618,6 +626,18 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
                 case "runtime": tool.map { .runtime($0) }
                 default: nil
                 }
+            }
+
+            /// A launch that names a tool definition, which `executable` leaves out.
+            var toolLaunch: DeclarativeLanguageServerLaunchPlan.ToolLaunch? {
+                guard kind == "tool", let tool, let entry else { return nil }
+                return .init(
+                    tool: tool,
+                    entry: entry,
+                    runtimeArguments: runtimeArguments ?? [],
+                    minimumVersion: minimumVersion,
+                    packagedRuntime: packagedRuntime
+                )
             }
 
             var versionRequirement: LanguageServerExecutableVersionRequirement? {

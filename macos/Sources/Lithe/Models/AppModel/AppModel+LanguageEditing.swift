@@ -6,9 +6,7 @@ import LitheModuleAPI
 /// and code actions.
 ///
 /// Each request checks the session's advertised capability first so an
-/// unsupported server is a no-op rather than a failed round trip, and Spring
-/// results are merged as a fallback where the language server has nothing to
-/// add.
+/// unsupported server is a no-op rather than a failed round trip.
 @MainActor
 extension AppModel {
     var semanticHighlightingSessionState: String {
@@ -38,11 +36,6 @@ extension AppModel {
         utf16Column: Int,
         completion: @escaping (LanguageServerHover?) -> Void
     ) {
-        if let document = requestedDocument ?? focusedEditorDocument,
-           let hover = springFeature.hover(for: document.url, line: line) {
-            completion(hover)
-            return
-        }
         guard let document = requestedDocument ?? focusedEditorDocument,
               featureGraph.languageCapabilityPolicy.supports(.hover, documentURL: document.url, sessions: languageToolingSessionsIfActive),
               let workspaceURL else {
@@ -90,19 +83,10 @@ extension AppModel {
         context: LanguageServerCompletionContext? = nil,
         completion: @escaping (LanguageServerCompletionList) -> Void
     ) {
-        guard let document = requestedDocument ?? focusedEditorDocument else {
-            completion(.init())
-            return
-        }
-        let springCompletions = springFeature.completions(
-            document: document,
-            line: line,
-            utf16Column: utf16Column
-        )
-        guard
+        guard let document = requestedDocument ?? focusedEditorDocument,
               featureGraph.languageCapabilityPolicy.supports(.completion, documentURL: document.url, sessions: languageToolingSessionsIfActive),
               let workspaceURL else {
-            completion(.init(items: springCompletions))
+            completion(.init())
             return
         }
         do {
@@ -116,12 +100,12 @@ extension AppModel {
                 rootURL: workspaceURL, completionContext: context
             ) { [weak self] result in
                 guard let self else {
-                    completion(.init(items: springCompletions))
+                    completion(.init())
                     return
                 }
                 self.featureGraph.languageEditing.handleCompletionResult(
                     result.map(\.items),
-                    fallback: springCompletions,
+                    fallback: [],
                     completion: { items in
                         completion(.init(items: items, isIncomplete: (try? result.get().isIncomplete) ?? false))
                     }
@@ -129,7 +113,7 @@ extension AppModel {
             }
         } catch {
             showNotification(error.localizedDescription, logReference: notificationFailure(error, operation: "language_editing"))
-            completion(.init(items: springCompletions))
+            completion(.init())
         }
     }
 

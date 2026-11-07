@@ -21,14 +21,12 @@ enum SettingsSearchVocabulary {
             ["Editor", "Display", "Editor tabs", "tabs", "Font", "Font size", "Search fonts", "File tree row height", "Show minimap", "Minimap", "Indentation", "Tab width", "Line spacing", "Font ligatures", "Syntax highlighting", "Editor color scheme", "Italic comments", "Colorize bracket pairs", "Line numbers", "Render whitespace", "Soft wrap", "Show indent guides", "Highlight current line", "Sticky scroll", "Smooth scrolling", "Scroll beyond last line", "Cursor style", "Cursor blinking"]
         case .keymap:
             ["Keymap", "Keyboard shortcuts", "Shortcuts", "Actions"]
-        case .project:
-            ["Project", "Java SDK", "JDK", "Project JDK", "Maven", "Maven Home", "Maven Wrapper", "Maven JDK"]
         case .toolchainEnvironment:
             ["Runtime Environment", "Tools", "Directories", "Version files", "Fixed", "Project requirements", "Global defaults", "Automatic discovery"]
         case .toolchainSources:
             ["Toolchain Sources", "Login shell", "Shell", "PATH", "Version managers", "Watched files"]
         case .run:
-            ["Run configurations", "Program arguments", "VM options", "Environment variables", "Working directory", "Services"]
+            ["Run configurations", "Program arguments", "Environment variables", "Working directory", "Services"]
         case .terminal:
             ["Terminal", "Shell", "Default shell", "Scrollback", "Terminal scrollback", "Scrollback lines"]
         case .lsp:

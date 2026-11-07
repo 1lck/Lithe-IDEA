@@ -61,7 +61,7 @@ struct AppModelSettingsChangesTests {
     func mountedLSPPageRefreshesSnapshotsWithoutNotifyingTheSettingsRoot(language: AppLanguage) async throws {
         let root = URL(fileURLWithPath: "/fixture/lsp-snapshot-updates")
         let operations = UsageSnapshotOperations(inventories: [
-            ["README"], ["README", "go.mod"], ["README", "Main.java"], ["README"]
+            ["README"], ["README", "go.mod"], ["README", "composer.json"], ["README"]
         ])
         let probe = SettingsChangesProbe(workspaceOperations: operations, language: language)
         let model = probe.model
@@ -100,7 +100,7 @@ struct AppModelSettingsChangesTests {
         // Keep the same native host mounted while the production workspace
         // feature publishes create, rename and delete inventories.
         for expectedPlugin in [nil, OfficialPluginCatalog.goPluginID.rawValue,
-                               OfficialPluginCatalog.javaPluginID.rawValue, nil] as [String?] {
+                               OfficialPluginCatalog.phpPluginID.rawValue, nil] as [String?] {
             let result = await model.workspaceFeature.rebuild(at: root, rules: .default, isCurrent: { true })
             guard case .loaded(let snapshot) = result else { Issue.record("Snapshot was not applied"); return }
             identities.insert(snapshot.id)

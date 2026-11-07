@@ -1,0 +1,420 @@
+import AppKit
+import SwiftUI
+
+struct ProblemsView: View {
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var diagnosticsStore: EditorDiagnosticsStore
+    @State private var scope = ProblemsPanelScope.file
+    @State private var toolWindowActive = false
+    @State private var previewEnabled = false
+    @State private var selectedDiagnosticID: String?
+    @State private var severityFilter = Set(DiagnosticSeverity.allCases)
+    @State private var queryResult = ProblemsQueryResult.empty
+
+    init(initialScope: ProblemsPanelScope = .file, previewEnabled: Bool = false) {
+        _scope = State(initialValue: initialScope)
+        _previewEnabled = State(initialValue: previewEnabled)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+
+            if previewEnabled, let selectedDiagnostic {
+                GeometryReader { geometry in
+                    LitheSplitPaneView(
+                        axis: .horizontal, placement: .leading,
+                        defaultSize: geometry.size.width * 0.5,
+                        minimum: 120, maximum: max(120, geometry.size.width - 120),
+                        flexibleMinimum: 120
+                    ) {
+                        listWithToolbar
+                    } flexible: {
+                        ProblemsSourcePreview(diagnostic: selectedDiagnostic) { url in
+                            await model.documentFeature.previewDocument(at: url, owner: .problems)
+                        }
+                        .id(selectedDiagnostic.fileURL)
+                    }
+                }
+            } else {
+                listWithToolbar
+            }
+        }
+        .litheWorkbenchSurface(LitheTheme.editor)
+        .task(id: queryInput) { await refreshQuery(queryInput) }
+        .background(LitheToolWindowActivityTracker(isActive: $toolWindowActive))
+        .onDisappear { model.documentFeature.discardPreviewDocuments(owner: .problems) }
+        .onChange(of: previewEnabled) { enabled in
+            if !enabled { model.documentFeature.discardPreviewDocuments(owner: .problems) }
+        }
+    }
+
+    private var listWithToolbar: some View {
+        HStack(spacing: 0) {
+            toolbar
+            problemList
+        }
+    }
+
+    private var selectedDiagnostic: EditorDiagnostic? {
+        diagnostics.first { $0.id == selectedDiagnosticID } ?? diagnostics.first
+    }
+
+    private var toolbar: some View {
+        VStack(spacing: 2) {
+            LitheMenu {
+                LitheContextMenuItem.action(
+                    "All severities",
+                    systemImage: severityFilter.count == DiagnosticSeverity.allCases.count
+                        ? "checkmark" : "circle"
+                ) {
+                    severityFilter = Set(DiagnosticSeverity.allCases)
+                }
+
+                LitheContextMenuItem.separator
+
+                for severity in DiagnosticSeverity.allCases {
+                    LitheContextMenuItem.action(
+                        severity.title, systemImage: severityFilter.contains(severity) ? "checkmark" : "circle"
+                    ) {
+                        if severityFilter.contains(severity) {
+                            severityFilter.remove(severity)
+                        } else {
+                            severityFilter.insert(severity)
+                        }
+                    }
+                }
+            } label: {
+                LitheIDEAIcon(resourcePath: "expui/general/show.svg", size: 16,
+                              fallbackSystemImage: "line.3.horizontal.decrease", preservesOriginalColors: true)
+            }
+            .litheToolbarIconButton()
+            .help("View Options")
+            .accessibilityLabel("View Options")
+
+            Button { previewEnabled.toggle() } label: {
+                LitheIDEAIcon(resourcePath: "expui/general/previewVertically.svg", size: 16,
+                              fallbackSystemImage: "rectangle.lefthalf.inset.filled", preservesOriginalColors: true)
+            }
+            .buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize, isSelected: previewEnabled))
+            .disabled(selectedDiagnostic == nil)
+            .help("Show Editor Preview")
+            .accessibilityLabel("Show Editor Preview")
+            .accessibilityValue(previewEnabled ? "On" : "Off")
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+    }
+
+    private struct ProblemRow: Identifiable {
+        let id: String
+        var file: URL?
+        var count = 0
+        var diagnostic: EditorDiagnostic?
+    }
+
+    private var problemRows: [ProblemRow] {
+        diagnosticGroups.flatMap { group in
+            [ProblemRow(id: "file:" + group.fileURL.absoluteString, file: group.fileURL, count: group.diagnostics.count)]
+                + group.diagnostics.map { ProblemRow(id: $0.id, diagnostic: $0) }
+        }
+    }
+
+    private var problemList: some View {
+        Group {
+            if diagnostics.isEmpty {
+                ProblemsEmptyState(
+                    title: scope.emptyTitle(currentFileURL: currentFileURL),
+                    details: (scope == .file && currentFileURL == nil)
+                        || severityFilter.count == DiagnosticSeverity.allCases.count
+                        ? nil : LocalizedStringKey("Problems could be filtered out")
+                )
+            } else {
+                LitheTreeList(
+                    problemRows,
+                    selection: Binding(
+                        get: { selectedDiagnostic?.id },
+                        set: { selectedDiagnosticID = $0 }),
+                    hierarchy: { .init(depth: $0.diagnostic == nil ? 0 : 1, isSelectable: $0.diagnostic != nil) },
+                    onActivate: { row in if let diagnostic = row.diagnostic { model.openDiagnostic(diagnostic) } },
+                    onClick: { row in
+                        if !previewEnabled, let diagnostic = row.diagnostic { model.openDiagnostic(diagnostic) }
+                    }
+                ) { row in
+                    if let file = row.file {
+                        fileHeader(file, count: row.count)
+                    } else if let diagnostic = row.diagnostic {
+                        diagnosticContent(diagnostic)
+                    }
+                }
+            }
+        }
+        .litheWorkbenchSurface(LitheTheme.editor)
+    }
+
+    private var currentFileURL: URL? {
+        ProblemsPanelScope.currentFileURL(in: model)
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text("Problems")
+                .font(LitheTheme.uiFont(size: 13, weight: .bold))
+                .foregroundStyle(LitheTheme.primaryText)
+                .padding(.trailing, 8)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(ProblemsPanelScope.allCases, id: \.self) { tab in
+                        Button { scope = tab } label: {
+                            HStack(spacing: 6) {
+                                Text(tab.title)
+                                if tab == scope, !diagnostics.isEmpty {
+                                    Text(String(diagnostics.count))
+                                        .foregroundStyle(LitheTheme.Tree.secondaryText)
+                                }
+                            }
+                            .font(LitheTheme.uiFont(size: 13))
+                            .foregroundStyle(LitheTheme.primaryText)
+                            .padding(.horizontal, 8)
+                            .modifier(LitheToolWindowTabStyle(isSelected: scope == tab, isActive: toolWindowActive))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.litheNoPress)
+                        .accessibilityAddTraits(scope == tab ? [.isSelected] : [])
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if errorCount > 0 {
+                severityCount(.error, count: errorCount)
+            }
+            if warningCount > 0 {
+                severityCount(.warning, count: warningCount)
+            }
+
+            LitheSidebarHideButton(title: "Problems") {
+                model.workbenchFeature.setVisibility(.problems, isVisible: false)
+            }
+        }
+        .font(LitheTheme.uiFont(size: 13))
+        .lineLimit(1)
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
+        .frame(height: 41)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
+        .overlay(alignment: .bottom) { LitheToolWindowHeaderDivider() }
+        .litheContextMenu {
+            [LitheContextMenuItem.action("Hide Problems Tool Window", systemImage: "minus") {
+                model.workbenchFeature.setVisibility(.problems, isVisible: false)
+            }]
+        }
+    }
+
+    /// Everything the shared Problems query depends on; a change reruns it.
+    private struct QueryInput: Equatable, Sendable {
+        let diagnostics: [EditorDiagnostic]
+        let severities: Set<DiagnosticSeverity>
+    }
+
+    private var queryInput: QueryInput {
+        QueryInput(
+            diagnostics: scope.diagnostics(in: diagnosticsStore.diagnosticsByURL, currentFileURL: currentFileURL),
+            severities: severityFilter
+        )
+    }
+
+    private func refreshQuery(_ input: QueryInput) async {
+        var displayPaths: [URL: String] = [:]
+        for diagnostic in input.diagnostics where displayPaths[diagnostic.fileURL] == nil {
+            displayPaths[diagnostic.fileURL] = model.relativePath(for: diagnostic.fileURL)
+        }
+        let logSink = model.services.logSink
+        let result = await Task.detached(priority: .userInitiated) {
+            ProblemsQuery.run(diagnostics: input.diagnostics, severities: input.severities,
+                              displayPaths: displayPaths, logSink: logSink)
+        }.value
+        // A newer input restarted the task; drop this obsolete result.
+        guard !Task.isCancelled else { return }
+        queryResult = result
+    }
+
+    private var diagnostics: [EditorDiagnostic] { queryResult.diagnostics }
+
+    private var errorCount: Int { queryResult.errorCount }
+
+    private var warningCount: Int { queryResult.warningCount }
+
+    private var diagnosticGroups: [ProblemsQueryResult.FileGroup] { queryResult.groups }
+
+    private func fileHeader(_ url: URL, count: Int) -> some View {
+        HStack(spacing: LitheTheme.Tree.iconTextGap) {
+            LitheIcon(kind: LitheIcons.kind(for: url, isDirectory: false),
+                      size: LitheTheme.Tree.iconSize)
+            Text(url.lastPathComponent)
+                .truncationMode(.middle)
+                .layoutPriority(1)
+            Text(model.relativePath(for: url.deletingLastPathComponent()))
+                .foregroundStyle(LitheTheme.Tree.secondaryText)
+                .truncationMode(.middle)
+            Text(String(count))
+                .foregroundStyle(LitheTheme.Tree.secondaryText)
+                .fixedSize()
+            Spacer(minLength: 0)
+        }
+        .lineLimit(1)
+        .help(model.relativePath(for: url))
+        .accessibilityElement(children: .combine)
+    }
+
+    private func diagnosticContent(_ diagnostic: EditorDiagnostic) -> some View {
+        HStack(spacing: LitheTheme.Tree.iconTextGap) {
+            severityIcon(diagnostic.severity)
+            Text(diagnostic.message.replacingOccurrences(of: "\n", with: " "))
+                .layoutPriority(1)
+            Text(":\(diagnostic.line + 1):\(diagnostic.utf16Column + 1)")
+                .foregroundStyle(LitheTheme.Tree.secondaryText)
+                .fixedSize()
+            if let source = diagnostic.source, !source.isEmpty {
+                Text(source).foregroundStyle(LitheTheme.Tree.secondaryText)
+            }
+            if let reason = diagnostic.reasonSummary {
+                Text(reason).foregroundStyle(LitheTheme.Tree.secondaryText)
+            }
+            Spacer(minLength: 0)
+        }
+        .lineLimit(1)
+        .help(diagnostic.locationTitle + "\n" + diagnostic.detailText)
+        .accessibilityLabel(diagnostic.locationTitle + ": " + diagnostic.detailText)
+    }
+
+    private func severityCount(_ severity: DiagnosticSeverity, count: Int) -> some View {
+        HStack(spacing: 4) {
+            severityIcon(severity, inspection: false)
+            Text(String(count))
+        }
+        .foregroundStyle(LitheTheme.secondaryText)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(severity.title): \(count)")
+    }
+
+    private func severityIcon(_ severity: DiagnosticSeverity, inspection: Bool = true) -> some View {
+        let resourcePath: String = switch severity {
+        case .error: inspection ? "expui/general/inspections/inspectionsError.svg" : "expui/status/error.svg"
+        case .warning: inspection ? "expui/general/inspections/inspectionsWarning.svg" : "expui/status/warning.svg"
+        case .information: "expui/status/info.svg"
+        case .hint: "expui/codeInsight/intentionBulbGrey.svg"
+        case .unknown: "expui/general/questionMark.svg"
+        }
+        return LitheIDEAIcon(
+            resourcePath: resourcePath,
+            size: LitheTheme.Tree.iconSize,
+            fallbackSystemImage: severity.systemImage,
+            preservesOriginalColors: !inspection || (severity != .error && severity != .warning)
+        )
+        .foregroundStyle(severity == .error ? LitheTheme.error : LitheTheme.warning)
+    }
+
+}
+
+/// File/Project Errors only change presentation; the workspace diagnostic store retains every file.
+enum ProblemsPanelScope: CaseIterable {
+    case file
+    case projectErrors
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .file: "File"
+        case .projectErrors: "Project Errors"
+        }
+    }
+
+    @MainActor
+    static func currentFileURL(in model: AppModel) -> URL? {
+        // Match FileEditorManager.selectedEditor, including non-text editor selection.
+        guard !model.isAgentEditorSelected, !model.isRepositoryDiffSelected,
+              model.activeEditorTerminalSession == nil,
+              model.activeMediaDocument == nil else { return nil }
+        return model.activeDocument?.url.standardizedFileURL
+    }
+
+    func diagnostics(in byURL: [URL: [EditorDiagnostic]], currentFileURL: URL?) -> [EditorDiagnostic] {
+        switch self {
+        case .file:
+            guard let currentFileURL else { return [] }
+            return byURL[currentFileURL.standardizedFileURL] ?? []
+        case .projectErrors:
+            return byURL.values.flatMap { $0 }
+        }
+    }
+
+    func emptyTitle(currentFileURL: URL?) -> LocalizedStringKey {
+        switch self {
+        case .file:
+            guard let currentFileURL else {
+                return "Open file in editor to see problems"
+            }
+            return "No problems in \(currentFileURL.lastPathComponent)"
+        case .projectErrors:
+            return "No problems"
+        }
+    }
+}
+
+struct ProblemsEmptyState: View {
+    let title: LocalizedStringKey
+    let details: LocalizedStringKey?
+    var bundle: Bundle = .main
+
+    var body: some View {
+        // Community StatusText: x=(width-textWidth)/2, y=(height-textHeight)/3.
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            VStack(spacing: 0) {
+                Text(title, bundle: bundle)
+                if let details { Text(details, bundle: bundle) }
+            }
+            .font(LitheTheme.uiFont(size: 13, weight: .regular))
+            .foregroundStyle(LitheTheme.Tree.secondaryText)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 12)
+            Spacer(minLength: 0)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+
+/// The preview shares live document text but has its own read-only Monaco presentation.
+struct ProblemsSourcePreview: View {
+    let diagnostic: EditorDiagnostic
+    let loadDocument: (URL) async -> EditorDocument?
+    @State private var document: EditorDocument?
+    @State private var isLoading = true
+    @State private var presentationID = UUID()
+
+    var body: some View {
+        Group {
+            if let document {
+                MonacoWorkbenchEditor(document: document, preview: MonacoPreviewConfiguration(
+                    line: diagnostic.line + 1, query: "", matchCase: false, wholeWord: false, regex: false,
+                    utf16Column: diagnostic.utf16Column, presentationID: presentationID))
+            } else if isLoading {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ProblemsEmptyState(title: "Could not load file preview", details: nil)
+            }
+        }
+        .litheWorkbenchSurface(LitheTheme.editor)
+        .clipped()
+        .task(id: diagnostic.fileURL) {
+            isLoading = true
+            document = nil
+            let loaded = await loadDocument(diagnostic.fileURL)
+            guard !Task.isCancelled else { return }
+            document = loaded
+            isLoading = false
+        }
+    }
+}

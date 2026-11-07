@@ -31,7 +31,7 @@ trap '[[ "${WATCHER_OWNS_INSTANCE_CLEANUP:-false}" == true ]] || cleanup_instanc
 
 mkdir -p \
     "$APP_DIR/Contents/MacOS" \
-    "$APP_DIR/Contents/Resources/OfficialPlugins" \
+    "$APP_DIR/Contents/Resources" \
     "$APP_DIR/Contents/Helpers"
 cp ".build/$TRIPLE/debug/Lithe" "$APP_DIR/Contents/MacOS/Lithe"
 for bundle_name in Lithe_Lithe.bundle SwiftTerm_SwiftTerm.bundle; do
@@ -41,13 +41,6 @@ for bundle_name in Lithe_Lithe.bundle SwiftTerm_SwiftTerm.bundle; do
         exit 1
     fi
     cp -R "$resource_bundle" "$APP_DIR/Contents/Resources/$bundle_name"
-done
-plugin_root=$(scripts/plugins/build-official-plugins.sh \
-    --bundled-only \
-    --configuration debug \
-    --triple "$TRIPLE")
-for plugin_package in "$plugin_root"/*(/N); do
-    cp -R "$plugin_package" "$APP_DIR/Contents/Resources/OfficialPlugins/${plugin_package:t}"
 done
 # Read-only remote workspace servers, uploaded to SSH hosts on connect.
 remote_server_root=$(scripts/remote/build-remote-servers.sh)

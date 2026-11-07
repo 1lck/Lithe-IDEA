@@ -15,17 +15,14 @@ struct ExecutionModuleTests {
                   providerRuns: [.init(id: "service", displayName: "Service", targetTags: ["service"], debugConfigurationType: "example", execution: .service)])])
         let operations = ProviderChoicesRunOperations(withReference: true), gate = ProviderPreparationGate(), process = TestStreamingProcess()
         let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
-        let service = RunService(runtime: TestRuntime(), process: process, processFactory: { TestStreamingProcess() },
-            fileAccess: TestRunFileAccess(directories: [root]), preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
-            runConfigurationOperations: operations, executableResolver: TestExecutableResolver(), languageProviderCatalog: .compatibilityFallback,
+        let service = RunService(process: process, processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(directories: [root]), preferences: TestRunPreferences(), runConfigurationOperations: operations, executableResolver: TestExecutableResolver(), languageProviderCatalog: .compatibilityFallback,
             languageRunProviders: .standard(catalog: .compatibilityFallback))
-        service.configureBuildLanguageImportProvider { _, _ in .init(mavenContext: .init(reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false, mavenExecutablePath: nil, javaHomePath: nil)) }
         var current = true
-        var imports = 0
         var cancelled = false
         var ended: [String] = []
         let observation = service.providerDebugEnded.sink { ended.append($0) }
-        service.configureProviderConfigurationRuns(source: { _, _ in owner }) { inputs, _, _, _, _, _, languageImport in
+        service.configureProviderConfigurationRuns(source: { _, _ in owner }) { inputs, _, _, _, _, _ in
             #expect(inputs.launchOptions.debug == .init(adapterID: "dev.adapter/remote", configurationType: "example", port: 51235))
             #expect(inputs.launchOptions.arguments == ["a b", "雪"])
             gate.entered.continuation.yield(())
@@ -33,16 +30,12 @@ struct ExecutionModuleTests {
             defer { waiter.cancel() }
             try await waiter.value
             cancelled = Task.isCancelled
-            try await languageImport(.maven(.init(reactorPath: ".", profiles: ["run-only"], settingsPath: nil, skipTests: false, mavenExecutablePath: "/test", javaHomePath: nil)))
             return try JSONDecoder().decode(BuildRunPreparation.self, from: Data(#"{"executable":{"kind":"toolchain","value":"project-maven"},"arguments":["prepared-debug"],"workingDirectory":".","environment":{}}"#.utf8))
         }
         await service.loadProject(at: root, files: [])
         let task = Task { try await service.prepareProviderDebug(operations.configurations[0], debug: { type in
             #expect(type == "example")
             return .init(adapterID: "dev.adapter/remote", configurationType: type, port: 51235)
-        }, languageImport: { value in
-            guard case .maven(let context) = value else { throw CancellationError() }
-            #expect(context.profiles == ["run-only"]); imports += 1
         }, isCurrent: { current }) }
         let feature = RunFeatureModel(service: service)
         defer { task.cancel(); gate.release.continuation.yield(()); service.reset(); observation.cancel() }
@@ -56,7 +49,7 @@ struct ExecutionModuleTests {
         gate.release.continuation.yield(())
         if outcome == "launch" {
             let operation = try await task.value
-            #expect(service.isProviderDebugActive(operation) && imports == 1)
+            #expect(service.isProviderDebugActive(operation))
             #expect(process.startRequests.first?.arguments == ["prepared-debug"])
             service.retainProviderConfigurations([])
             #expect(!service.isProviderDebugActive(operation) && !process.isRunning)
@@ -65,7 +58,7 @@ struct ExecutionModuleTests {
         } else {
             do { _ = try await task.value; Issue.record("Stale debug preparation launched") }
             catch is CancellationError { }
-            #expect(process.startRequests.isEmpty && !service.isRunning && imports == 0)
+            #expect(process.startRequests.isEmpty && !service.isRunning)
             #expect(cancelled == (outcome != "changed"))
         }
     }
@@ -80,14 +73,12 @@ struct ExecutionModuleTests {
         let started = AsyncStream<Void>.makeStream(bufferingPolicy: .unbounded)
         let first = ProviderPreparationGate(), second = ProviderPreparationGate(), replacement = ProviderPreparationGate()
         var calls: [String: Int] = [:]
-        let service = RunService(runtime: TestRuntime(), process: TestStreamingProcess(), processFactory: {
+        let service = RunService(process: TestStreamingProcess(), processFactory: {
             let process = TestStreamingProcess(); process.onStart = { started.continuation.yield(()) }; processes.append(process); return process
-        }, fileAccess: TestRunFileAccess(directories: [root]), preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
-            runConfigurationOperations: operations, executableResolver: TestExecutableResolver(), languageProviderCatalog: .compatibilityFallback,
+        }, fileAccess: TestRunFileAccess(directories: [root]), preferences: TestRunPreferences(), runConfigurationOperations: operations, executableResolver: TestExecutableResolver(), languageProviderCatalog: .compatibilityFallback,
             languageRunProviders: .standard(catalog: .compatibilityFallback))
         defer { service.reset(); first.release.continuation.yield(()); second.release.continuation.yield(()); replacement.release.continuation.yield(()); started.continuation.finish() }
-        service.configureBuildLanguageImportProvider { _, _ in .init(mavenContext: .init(reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false, mavenExecutablePath: nil, javaHomePath: nil)) }
-        service.configureProviderConfigurationRuns(source: { inputs, _ in inputs.projectPath == "second" ? secondOwner : firstOwner }) { inputs, _, _, _, current, progress, _ in
+        service.configureProviderConfigurationRuns(source: { inputs, _ in inputs.projectPath == "second" ? secondOwner : firstOwner }) { inputs, _, _, _, current, progress in
             let count = calls[inputs.projectPath, default: 0]; calls[inputs.projectPath] = count + 1
             let gate = inputs.projectPath == "second" ? second : (count == 0 ? first : replacement)
             gate.entered.continuation.yield(())
@@ -138,13 +129,12 @@ struct ExecutionModuleTests {
         let root = URL(fileURLWithPath: "/workspace", isDirectory: true), process = TestStreamingProcess()
         let started = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         process.onStart = { started.continuation.yield(()) }
-        let service = RunService(runtime: TestRuntime(), process: process, processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(directories: [root]),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(), runConfigurationOperations: operations,
+        let service = RunService(process: process, processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(directories: [root]),
+            preferences: TestRunPreferences(), runConfigurationOperations: operations,
             executableResolver: TestExecutableResolver(), languageProviderCatalog: .compatibilityFallback,
             languageRunProviders: .standard(catalog: .compatibilityFallback))
         defer { service.reset(); gate.release.continuation.yield(()); started.continuation.finish() }
-        service.configureBuildLanguageImportProvider { _, _ in .init(mavenContext: .init(reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false, mavenExecutablePath: nil, javaHomePath: nil)) }
-        service.configureProviderConfigurationRuns(source: { _, _ in firstOwner }) { inputs, _, _, _, _, _, _ in
+        service.configureProviderConfigurationRuns(source: { _, _ in firstOwner }) { inputs, _, _, _, _, _ in
             #expect(inputs.launchOptions.arguments == ["a b", "雪"])
             gate.entered.continuation.yield(())
             let waiter = Task { try await awaitSignal(gate.release.stream) }
@@ -182,38 +172,29 @@ struct ExecutionModuleTests {
         operations.staleProviderModel = true
         let primary = TestStreamingProcess()
         var created = 0
-        let service = RunService(runtime: TestRuntime(), process: primary,
+        let service = RunService(process: primary,
             processFactory: { created += 1; return TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(), runConfigurationOperations: operations,
+            preferences: TestRunPreferences(), runConfigurationOperations: operations,
             executableResolver: TestExecutableResolver(), languageProviderCatalog: .compatibilityFallback,
             languageRunProviders: .standard(catalog: .compatibilityFallback))
         defer { service.reset() }
         var pending = false
-        service.configureBuildProjectOwnership {
+        service.configureProviderRunConfigurations {
             if pending { throw CancellationError() }
             return []
         }
         await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [])
-        let configuration = try #require(service.configurations.first { $0.id == "Custom" })
+        #expect(service.configurations.contains { $0.id == "Custom" })
         #expect(service.configurationDiagnostics.contains { $0.code == "staleProviderModel" })
-        service.run(configuration: configuration, currentFileURL: nil)
-        #expect(!service.isRunning)
-        service.startConfiguration(configuration)
-        #expect(service.moduleSessions.first?.exitCode == 1)
-        service.runAllServices()
-        #expect(created == 0)
-        #expect(throws: (any Error).self) { try service.validateProviderGeneration(for: configuration) }
         operations.staleProviderModel = false
         await service.refreshProviderGeneration()
         #expect(!service.configurationDiagnostics.contains { $0.code == "staleProviderModel" })
         pending = true
         await service.refreshProviderGeneration()
         #expect(service.configurationDiagnostics.contains { $0.code == "providerModelNotReady" })
-        #expect(throws: (any Error).self) { try service.validateProviderGeneration(for: configuration) }
         pending = false
         await service.refreshProviderGeneration()
         #expect(!service.configurationDiagnostics.contains { ["staleProviderModel", "providerModelNotReady"].contains($0.code) })
-        try service.validateProviderGeneration(for: configuration)
         #expect(!operations.providerInspections.isEmpty)
         #expect(created == 0)
     }
@@ -224,14 +205,14 @@ struct ExecutionModuleTests {
         let reference = BuildProviderRunReference(pluginID: "dev.example", buildSystemID: "engine", root: ".",
             run: "serve", projectID: "opaque/project", targetID: "opaque/target", execution: .service)
         operations.providerConfiguration = RunConfiguration(id: "build.provider:generated", name: "Service", kind: .process(provider: "build.provider"),
-            execution: .service, modulePath: nil, mainClass: nil, buildProvider: reference)
-        let service = RunService(runtime: TestRuntime(), process: TestStreamingProcess(),
+            execution: .service, buildProvider: reference)
+        let service = RunService(process: TestStreamingProcess(),
             processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(), runConfigurationOperations: operations,
+            preferences: TestRunPreferences(), runConfigurationOperations: operations,
             executableResolver: TestExecutableResolver(), languageProviderCatalog: .compatibilityFallback,
             languageRunProviders: .standard(catalog: .compatibilityFallback))
         defer { service.reset() }
-        service.configureBuildProjectOwnership { [] }
+        service.configureProviderRunConfigurations { [] }
         var runs = [RunProviderConfiguration(projectPath: ".", name: "Service", reference: reference)]
         service.configureProviderRunConfigurations { runs }
         await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [])
@@ -250,12 +231,12 @@ struct ExecutionModuleTests {
     @Test(arguments: ["task", "workspace", "model", "reset", "new-generation"])
     func generationPublicationLeaseIsRevokedBeforeAnObsoleteWorkerCanPublish(change: String) async throws {
         let operations = FreshnessRecordingRunConfigurationOperations()
-        let service = RunService(runtime: TestRuntime(), process: TestStreamingProcess(),
+        let service = RunService(process: TestStreamingProcess(),
             processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(), runConfigurationOperations: operations,
+            preferences: TestRunPreferences(), runConfigurationOperations: operations,
             executableResolver: TestExecutableResolver(), languageProviderCatalog: .compatibilityFallback,
             languageRunProviders: .standard(catalog: .compatibilityFallback))
-        service.configureBuildProjectOwnership { [] }
+        service.configureProviderRunConfigurations { [] }
         service.configureProviderRunConfigurations { [] }
         let gate = InventoryInspectionGate()
         defer { service.reset(); gate.release.signal(); gate.entered.continuation.finish() }
@@ -284,12 +265,12 @@ struct ExecutionModuleTests {
     @Test(arguments: ["inputs", "workspace", "reset"])
     func lateProviderInspectionCannotReplaceNewerInputWorkspaceOrReset(change: String) async throws {
         let operations = FreshnessRecordingRunConfigurationOperations()
-        let service = RunService(runtime: TestRuntime(), process: TestStreamingProcess(),
+        let service = RunService(process: TestStreamingProcess(),
             processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(), runConfigurationOperations: operations,
+            preferences: TestRunPreferences(), runConfigurationOperations: operations,
             executableResolver: TestExecutableResolver(), languageProviderCatalog: .compatibilityFallback,
             languageRunProviders: .standard(catalog: .compatibilityFallback))
-        service.configureBuildProjectOwnership { [] }
+        service.configureProviderRunConfigurations { [] }
         let gate = InventoryInspectionGate()
         defer { service.reset(); gate.release.signal(); gate.entered.continuation.finish() }
         await service.loadProject(at: URL(fileURLWithPath: "/old"), files: [])
@@ -312,12 +293,12 @@ struct ExecutionModuleTests {
     @Test
     func providerGenerationNotificationsCoalesceBehindOneOwnedInspection() async throws {
         let operations = FreshnessRecordingRunConfigurationOperations()
-        let service = RunService(runtime: TestRuntime(), process: TestStreamingProcess(),
+        let service = RunService(process: TestStreamingProcess(),
             processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(), runConfigurationOperations: operations,
+            preferences: TestRunPreferences(), runConfigurationOperations: operations,
             executableResolver: TestExecutableResolver(), languageProviderCatalog: .compatibilityFallback,
             languageRunProviders: .standard(catalog: .compatibilityFallback))
-        service.configureBuildProjectOwnership { [] }
+        service.configureProviderRunConfigurations { [] }
         let gate = InventoryInspectionGate()
         defer { service.reset(); gate.release.signal(); gate.entered.continuation.finish() }
         await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [])
@@ -497,10 +478,8 @@ struct ExecutionModuleTests {
         await graph.projectDevelopment.loadProject(at: root, files: [root.appendingPathComponent("pom.xml")], snapshotID: UUID())
         #expect(graph.run.hasReadyInventory(for: root))
         #expect(graph.run.sourceSearchRoots == [root, root.appendingPathComponent("apps/service", isDirectory: true)])
-        #expect(graph.run.mavenProfiles.map(\.id) == ["ci", "qa"])
         models = []
         #expect(graph.run.sourceSearchRoots == [root])
-        #expect(graph.run.mavenProfiles.isEmpty)
         await graph.projectDevelopment.loadProject(at: URL(fileURLWithPath: "/other"), files: [], snapshotID: UUID())
         #expect(graph.run.sourceSearchRoots.map(\.path) == ["/other"])
     }
@@ -510,11 +489,9 @@ struct ExecutionModuleTests {
         let process = TestStreamingProcess()
         let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
         let resolver = TestExecutableResolver()
-        let service = RunService(runtime: TestRuntime(), process: process, processFactory: { TestStreamingProcess() },
+        let service = RunService(process: process, processFactory: { TestStreamingProcess() },
             fileAccess: TestRunFileAccess(directories: [root.appendingPathComponent("app", isDirectory: true)]),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
-            runConfigurationOperations: TestRunConfigurationOperations(toolchain: ProjectToolchainSelection(javaHomePath: "/fixture/jdk"),
-                rejectsResolutionWithoutGeneratedDocument: true),
+            preferences: TestRunPreferences(), runConfigurationOperations: TestRunConfigurationOperations(rejectsResolutionWithoutGeneratedDocument: true),
             executableResolver: resolver,
             languageProviderCatalog: .compatibilityFallback, languageRunProviders: .standard(catalog: .compatibilityFallback))
         defer { service.reset() }
@@ -529,7 +506,6 @@ struct ExecutionModuleTests {
         #expect(request.arguments == ["Main", "a b"])
         #expect(request.workingDirectory == "/workspace/app")
         #expect(service.primaryExecutionID == current)
-        #expect(resolver.lastOptions?.javaHomePath == "/fixture/jdk")
         #expect(service.lastConfiguration == nil)
         let received = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let observation = service.$output.sink { if $0.contains("replacement output") { received.continuation.yield(()) } }
@@ -552,10 +528,9 @@ struct ExecutionModuleTests {
         let process = TestStreamingProcess()
         process.startFailure = RunFixtureError.failed
         let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
-        let service = RunService(runtime: TestRuntime(), process: process, processFactory: { TestStreamingProcess() },
+        let service = RunService(process: process, processFactory: { TestStreamingProcess() },
             fileAccess: TestRunFileAccess(directories: invalidDirectory ? [] : [root]),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
-            runConfigurationOperations: TestRunConfigurationOperations(), executableResolver: TestExecutableResolver(),
+            preferences: TestRunPreferences(), runConfigurationOperations: TestRunConfigurationOperations(), executableResolver: TestExecutableResolver(),
             languageProviderCatalog: .compatibilityFallback, languageRunProviders: .standard(catalog: .compatibilityFallback))
         defer { service.reset() }
         let launch = try JSONDecoder().decode(BuildRunPreparation.self, from: Data(
@@ -571,11 +546,9 @@ struct ExecutionModuleTests {
         let process = TestStreamingProcess()
         let reference = BuildProviderRunReference(pluginID: "dev.example", buildSystemID: "fixture", root: ".",
             run: "application", projectID: "p", targetID: "t", userArguments: ["a b"])
-        let configuration = RunConfiguration(id: "user:provider", name: "Main", kind: .process(provider: "build.provider"),
-            modulePath: nil, mainClass: nil, buildProvider: reference)
-        let service = RunService(runtime: TestRuntime(), process: process, processFactory: { TestStreamingProcess() },
-            fileAccess: TestRunFileAccess(directories: [root]), preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
-            runConfigurationOperations: TestRunConfigurationOperations(savedProvider: reference), executableResolver: TestExecutableResolver(),
+        let configuration = RunConfiguration(id: "user:provider", name: "Main", kind: .process(provider: "build.provider"), buildProvider: reference)
+        let service = RunService(process: process, processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(directories: [root]), preferences: TestRunPreferences(), runConfigurationOperations: TestRunConfigurationOperations(savedProvider: reference), executableResolver: TestExecutableResolver(),
             languageProviderCatalog: .compatibilityFallback, languageRunProviders: .standard(catalog: .compatibilityFallback))
         defer { service.reset() }
         let launch = try JSONDecoder().decode(BuildRunPreparation.self, from: Data(
@@ -618,202 +591,6 @@ struct ExecutionModuleTests {
         #expect(!service.hasBuildProviderRun)
         #expect(service.lastConfiguration == nil)
         #expect(service.primaryExecutionID == nil)
-    }
-
-    @Test(arguments: ["services/alpha", "services/beta"])
-    func moduleRunPassesMavenContextOnlyToItsOwningReactor(reactor: String) async {
-        let configuration = RunConfiguration(
-            id: "main", name: "Main", kind: .javaMain, modulePath: ".", mainClass: "example.Main",
-            mavenReactorPath: reactor)
-        let operations = MavenContextRunOperations(configuration: configuration)
-        let graph = makeTestGraph(runOperations: operations)
-        defer { graph.run.reset() }
-        let context = MavenLaunchContext(reactorPath: "services/alpha", profiles: ["dev"],
-                                         settingsPath: "/fixture/settings.xml", skipTests: true,
-                                         mavenExecutablePath: nil, javaHomePath: nil)
-        graph.run.configureBuildLanguageImportProvider { workspace, requestedRoot in
-            #expect(workspace.path == "/workspace")
-            #expect(requestedRoot == reactor)
-            return .init(mavenContext: context)
-        }
-        await graph.run.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [])
-        #expect(graph.run.defaultConfigurationID == configuration.id)
-        graph.run.startConfiguration(configuration)
-        #expect(operations.called)
-        #expect(operations.context == (reactor == context.reactorPath ? context : nil))
-        // A failed plan remains in the existing Run output and supports a retry.
-        #expect(graph.run.moduleSessions.first?.exitCode == 1)
-    }
-
-    @Test(arguments: ["complete", "reset", "switch", "cancel"])
-    func projectLoadAwaitsToolchainProbesWithoutBlockingOrApplyingStaleResults(outcome: String) async throws {
-        let entered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        let release = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        let runtime = TestRuntime()
-        let root = URL(fileURLWithPath: "/workspace")
-        let other = URL(fileURLWithPath: "/other")
-        runtime.loadCandidates = { target in
-            if target == root {
-                entered.continuation.yield(())
-                try await awaitSignal(release.stream)
-            }
-            return []
-        }
-        let service = RunService(
-            runtime: runtime, process: TestStreamingProcess(),
-            processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
-            runConfigurationOperations: SingleRunConfigurationOperations(configuration: .currentFile, options: RunOptions()),
-            executableResolver: TestExecutableResolver(),
-            languageProviderCatalog: .compatibilityFallback,
-            languageRunProviders: .standard(catalog: .compatibilityFallback)
-        )
-        let snapshotID = UUID()
-        let loading = Task { await service.loadProject(at: root, files: [], snapshotID: snapshotID) }
-        defer {
-            loading.cancel()
-            entered.continuation.finish()
-            release.continuation.finish()
-            service.reset()
-        }
-        do {
-            try await awaitSignal(entered.stream)
-        } catch {
-            release.continuation.finish()
-            loading.cancel()
-            await loading.value
-            throw error
-        }
-        // This actor continues to run while the real load path awaits its port.
-        #expect(runtime.synchronousToolchainCalls == 0)
-        #expect(service.isLoadingProject)
-        #expect(!service.isProjectReady(for: root, snapshotID: snapshotID))
-        switch outcome {
-        case "reset": service.reset()
-        case "switch": await service.loadProject(at: other, files: [])
-        case "cancel": loading.cancel()
-        default: break
-        }
-        release.continuation.yield(())
-        await loading.value
-        switch outcome {
-        case "reset": #expect(service.projectLoadState == .idle && service.configurations == [.currentFile])
-        case "switch": #expect(service.projectLoadState == .bound(workspace: other) && !service.isLoadingProject)
-        case "cancel": #expect(service.defaultConfigurationID == nil)
-        default:
-            #expect(service.defaultConfigurationID == RunConfiguration.currentFileID)
-            #expect(service.isProjectReady(for: root, snapshotID: snapshotID))
-        }
-        #expect(runtime.synchronousToolchainCalls == 0)
-    }
-
-    @Test
-    func overlappingProjectLoadsDoNotPersistTheProvisionalCurrentFileSelection() async throws {
-        let entered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        let release = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        let runtime = TestRuntime()
-        var probes = 0
-        runtime.loadCandidates = { _ in
-            probes += 1
-            if probes == 1 {
-                entered.continuation.yield(())
-                try await awaitSignal(release.stream)
-            }
-            return []
-        }
-        let configuration = RunConfiguration(
-            id: "main", name: "Main", kind: .javaMain, modulePath: nil, mainClass: "demo.App")
-        let service = RunService(
-            runtime: runtime, process: TestStreamingProcess(),
-            processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
-            runConfigurationOperations: SelectionRunConfigurationOperations(configurations: [configuration]),
-            executableResolver: TestExecutableResolver(),
-            languageProviderCatalog: .compatibilityFallback,
-            languageRunProviders: .standard(catalog: .compatibilityFallback)
-        )
-        let root = URL(fileURLWithPath: "/workspace")
-        let snapshot = UUID()
-        let loading = Task { await service.loadProject(at: root, files: [], snapshotID: snapshot) }
-        defer {
-            loading.cancel()
-            entered.continuation.finish()
-            release.continuation.finish()
-            service.reset()
-        }
-        do {
-            try await awaitSignal(entered.stream)
-        } catch {
-            release.continuation.finish()
-            await loading.value
-            throw error
-        }
-        // An entry point must not consume the inventory before its configuration
-        // resolves. A concurrent snapshot load must not save the initial placeholder.
-        #expect(!service.isProjectReady(for: root, snapshotID: snapshot))
-        await service.loadProject(at: root, files: [], snapshotID: snapshot)
-        #expect(service.selectedConfigurationID == configuration.id)
-        #expect(service.isProjectReady(for: root, snapshotID: snapshot))
-        release.continuation.yield(())
-        await loading.value
-        #expect(service.selectedConfigurationID == configuration.id)
-        // A completed user's explicit Current File choice still survives reload.
-        service.selectedConfigurationID = RunConfiguration.currentFileID
-        await service.loadProject(at: root, files: [], snapshotID: snapshot)
-        #expect(service.selectedConfigurationID == RunConfiguration.currentFileID)
-    }
-
-    @Test
-    func configuredServerPortUsesArgumentsEnvironmentResourcesAndFrameworkDefault() async throws {
-        let root = URL(fileURLWithPath: "/workspace/service-port", isDirectory: true)
-        let properties = root.appendingPathComponent("src/main/resources/application.properties")
-        let configuration = RunConfiguration(
-            id: "spring:api",
-            name: "API",
-            kind: .springBoot,
-            modulePath: ".",
-            mainClass: "example.Application"
-        )
-
-        let argumentService = makeRunService(
-            configuration: configuration,
-            options: RunOptions(
-                vmArguments: "-Dserver.port=18081",
-                programArguments: "--server.port=18082",
-                environment: ["SERVER_PORT": "18083"]
-            ),
-            fileAccess: TestRunFileAccess(contents: [properties: "server.port=18084"]),
-            serverPortParser: FixedServerPortParser(port: 18084)
-        )
-        await argumentService.loadProject(at: root, files: [properties])
-        #expect(argumentService.configuredServerPort(for: configuration) == 18082)
-
-        let environmentService = makeRunService(
-            configuration: configuration,
-            options: RunOptions(environment: ["SERVER_PORT": "18083"]),
-            fileAccess: TestRunFileAccess(contents: [properties: "server.port=18084"]),
-            serverPortParser: FixedServerPortParser(port: 18084)
-        )
-        await environmentService.loadProject(at: root, files: [properties])
-        #expect(environmentService.configuredServerPort(for: configuration) == 18083)
-
-        let resourceService = makeRunService(
-            configuration: configuration,
-            options: RunOptions(),
-            fileAccess: TestRunFileAccess(contents: [properties: "server.port=18084"]),
-            serverPortParser: FixedServerPortParser(port: 18084)
-        )
-        await resourceService.loadProject(at: root, files: [properties])
-        #expect(resourceService.configuredServerPort(for: configuration) == 18084)
-
-        let defaultService = makeRunService(
-            configuration: configuration,
-            options: RunOptions(),
-            fileAccess: TestRunFileAccess(),
-            serverPortParser: FixedServerPortParser(port: nil)
-        )
-        await defaultService.loadProject(at: root, files: [])
-        #expect(defaultService.configuredServerPort(for: configuration) == 8080)
     }
 
     @Test
@@ -863,12 +640,10 @@ struct ExecutionModuleTests {
     func identificationBeforeProjectLoadReportsUnloadedProjectWithoutGenerating() async throws {
         let operations = RecordingRunConfigurationOperations()
         let service = RunService(
-            runtime: TestRuntime(),
             process: TestStreamingProcess(),
             processFactory: { TestStreamingProcess() },
             fileAccess: TestRunFileAccess(),
             preferences: TestRunPreferences(),
-            serverPortParser: TestServerPortParser(),
             runConfigurationOperations: operations,
             executableResolver: TestExecutableResolver(),
             languageProviderCatalog: .compatibilityFallback,
@@ -884,49 +659,15 @@ struct ExecutionModuleTests {
     }
 
     @Test
-    func serviceUpdateUsesTheRunningTargetAndDiscardsResultsAfterStop() async throws {
-        let configuration = RunConfiguration(
-            id: "service:update", name: "Service", kind: .javaMain,
-            execution: .service, modulePath: nil, mainClass: "example.Main", sourcePath: "src/Main.java"
-        )
-        let service = RunService(
-            runtime: TestRuntime(), process: TestStreamingProcess(),
-            processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
-            runConfigurationOperations: SelectionRunConfigurationOperations(configurations: [configuration]),
-            executableResolver: TestExecutableResolver(),
-            languageProviderCatalog: .compatibilityFallback,
-            languageRunProviders: .standard(catalog: .compatibilityFallback)
-        )
-        defer { service.reset() }
-        await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [])
-        let target = JavaDebugLaunchTarget(mainClass: "example.Main", projectName: "app",
-            classPaths: ["/workspace/classes", "/repository/spring-boot-devtools-3.5.0.jar"])
-        service.startConfiguration(configuration, javaLaunch: target)
-        let feature = RunFeatureModel(service: service)
-        let running = try #require(feature.moduleSessions.first)
-        #expect(feature.canUpdateService(running))
-        await feature.updateService(running) { receivedTarget, source in
-            #expect(receivedTarget == target)
-            #expect(source.path == "/workspace/src/Main.java")
-            feature.stopModule(running)
-        }
-        #expect(feature.serviceUpdateMessage == nil)
-        #expect(feature.updatingServiceExecutionID == nil)
-        #expect(!feature.canUpdateService(try #require(feature.moduleSessions.first)))
-    }
-
-    @Test
     func selectingBetweenRunningServicesSynchronizesLogIdentityAndControls() async {
-        let first = RunConfiguration(id: "service:a", name: "A", kind: .javaMain,
-                                     execution: .service, modulePath: nil, mainClass: "demo.A")
-        let second = RunConfiguration(id: "service:b", name: "B", kind: .javaMain,
-                                      execution: .service, modulePath: nil, mainClass: "demo.B")
+        let first = RunConfiguration(id: "service:a", name: "A", kind: .process(provider: "fixture"),
+                                     execution: .service)
+        let second = RunConfiguration(id: "service:b", name: "B", kind: .process(provider: "fixture"),
+                                      execution: .service)
         let service = RunService(
-            runtime: TestRuntime(), process: TestStreamingProcess(),
+            process: TestStreamingProcess(),
             processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
-            runConfigurationOperations: SelectionRunConfigurationOperations(configurations: [first, second]),
+            preferences: TestRunPreferences(), runConfigurationOperations: SelectionRunConfigurationOperations(configurations: [first, second]),
             executableResolver: TestExecutableResolver(),
             languageProviderCatalog: .compatibilityFallback,
             languageRunProviders: .standard(catalog: .compatibilityFallback)
@@ -950,73 +691,15 @@ struct ExecutionModuleTests {
         #expect(!feature.isSelectedConfigurationRunning)
     }
 
-    /// Issue #507: editing a run document changes no project input, so the
-    /// service must not re-read every input on the main actor, and the
-    /// freshness warning the load reported must stay visible.
-    @Test
-    func documentEditsKeepFreshnessWithoutRereadingProjectInputs() async {
-        let operations = FreshnessRecordingRunConfigurationOperations()
-        let service = makeFreshnessRecordingService(operations)
-        defer { service.reset() }
-        await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [])
-        #expect(service.configurationDiagnostics.map(\.code) == ["staleFingerprint"])
-
-        let created = service.createConfiguration(RunConfigurationDraft(
-            name: "Custom", kind: .javaMain, modulePath: ".", mainClass: "demo.Custom", scope: .project
-        ))
-
-        #expect(created)
-        #expect(operations.fingerprintChecks == [true, false])
-        #expect(service.configurationDiagnostics.map(\.code) == ["staleFingerprint"])
-    }
-
-    /// A main method added to an existing class is found by comparing JDT's
-    /// answer with the generated entries, once per distinct message.
-    @Test
-    func jdtFreshnessIsReportedOnceWithoutHashingInputs() async {
-        let operations = FreshnessRecordingRunConfigurationOperations()
-        operations.inputsChanged = false
-        let service = makeFreshnessRecordingService(operations)
-        defer { service.reset() }
-        await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [])
-        #expect(service.configurationDiagnostics.isEmpty)
-
-        let entrypoints = JavaEntrypoints(entries: [])
-        await service.reportJavaEntrypointFreshness(entrypoints)
-        await service.reportJavaEntrypointFreshness(entrypoints)
-
-        #expect(operations.fingerprintChecks == [true, false, false])
-        #expect(operations.comparedEntrypoints == [entrypoints, entrypoints])
-        #expect(service.configurationDiagnostics.map(\.message) == [
-            "Java entry points changed: 1 added, 0 removed",
-        ])
-    }
-
-    private func makeFreshnessRecordingService(
-        _ operations: FreshnessRecordingRunConfigurationOperations
-    ) -> RunService {
-        RunService(
-            runtime: TestRuntime(), process: TestStreamingProcess(),
-            processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
-            runConfigurationOperations: operations,
-            executableResolver: TestExecutableResolver(),
-            languageProviderCatalog: .compatibilityFallback,
-            languageRunProviders: .standard(catalog: .compatibilityFallback)
-        )
-    }
-
     /// Once the project is bound, identification must behave exactly as before.
     @Test
     func identificationAfterProjectLoadGeneratesAndClearsTheUnloadedState() async throws {
         let operations = RecordingRunConfigurationOperations()
         let service = RunService(
-            runtime: TestRuntime(),
             process: TestStreamingProcess(),
             processFactory: { TestStreamingProcess() },
             fileAccess: TestRunFileAccess(),
             preferences: TestRunPreferences(),
-            serverPortParser: TestServerPortParser(),
             runConfigurationOperations: operations,
             executableResolver: TestExecutableResolver(),
             languageProviderCatalog: .compatibilityFallback,
@@ -1055,12 +738,10 @@ struct ExecutionModuleTests {
     func generationScansTheSnapshotInventoryAndNeverAProvisionalOne() async throws {
         let operations = RecordingRunConfigurationOperations()
         let service = RunService(
-            runtime: TestRuntime(),
             process: TestStreamingProcess(),
             processFactory: { TestStreamingProcess() },
             fileAccess: TestRunFileAccess(),
             preferences: TestRunPreferences(),
-            serverPortParser: TestServerPortParser(),
             runConfigurationOperations: operations,
             executableResolver: TestExecutableResolver(),
             languageProviderCatalog: .compatibilityFallback,
@@ -1073,7 +754,7 @@ struct ExecutionModuleTests {
         await service.loadProject(at: root, files: [])
         await service.generateRunConfigurations()
         #expect(service.generationState == .projectNotReady)
-        #expect(operations.generatedInventories.isEmpty, "a provisional inventory must not be scanned")
+        #expect(operations.generateCallCount == 0, "a provisional inventory must not be scanned")
 
         await service.loadProject(
             at: root,
@@ -1084,8 +765,8 @@ struct ExecutionModuleTests {
 
         #expect(service.generationState == .succeeded(entryCount: 1))
         #expect(
-            operations.generatedInventories == [[source]],
-            "generation must scan exactly the inventory the snapshot reported"
+            operations.generateCallCount == 1,
+            "generation must run once the snapshot reported its inventory"
         )
     }
 
@@ -1097,12 +778,10 @@ struct ExecutionModuleTests {
     func unreadableConfigurationStillAllowsRegeneration() async throws {
         let operations = FailingInspectionRunConfigurationOperations()
         let service = RunService(
-            runtime: TestRuntime(),
             process: TestStreamingProcess(),
             processFactory: { TestStreamingProcess() },
             fileAccess: TestRunFileAccess(),
             preferences: TestRunPreferences(),
-            serverPortParser: TestServerPortParser(),
             runConfigurationOperations: operations,
             executableResolver: TestExecutableResolver(),
             languageProviderCatalog: .compatibilityFallback,
@@ -1125,12 +804,10 @@ struct ExecutionModuleTests {
         let builtInProcess = TestStreamingProcess()
         let extensionSession = TestLanguageExecutionSession()
         let service = RunService(
-            runtime: TestRuntime(),
             process: builtInProcess,
             processFactory: { TestStreamingProcess() },
             fileAccess: TestRunFileAccess(),
             preferences: TestRunPreferences(),
-            serverPortParser: TestServerPortParser(),
             runConfigurationOperations: TestReadyRunConfigurationOperations(),
             executableResolver: TestExecutableResolver(),
             languageProviderCatalog: .compatibilityFallback,
@@ -1168,12 +845,10 @@ struct ExecutionModuleTests {
         let builtInProcess = TestStreamingProcess()
         let extensionSession = TestLanguageExecutionSession()
         let service = RunService(
-            runtime: TestRuntime(),
             process: builtInProcess,
             processFactory: { TestStreamingProcess() },
             fileAccess: TestRunFileAccess(),
             preferences: TestRunPreferences(),
-            serverPortParser: TestServerPortParser(),
             runConfigurationOperations: TestGoProjectRunConfigurationOperations(),
             executableResolver: TestExecutableResolver(),
             languageProviderCatalog: .compatibilityFallback,
@@ -1215,14 +890,12 @@ struct ExecutionModuleTests {
     @Test
     func dependencyBrowserRequiresExplicitLanguageRegistration() async throws {
         let service = RunService(
-            runtime: TestRuntime(),
             process: TestStreamingProcess(),
             processFactory: { TestStreamingProcess() },
             fileAccess: TestRunFileAccess(contents: [
                 URL(fileURLWithPath: "/workspace/go.mod"): "module example.dev/api"
             ]),
             preferences: TestRunPreferences(),
-            serverPortParser: TestServerPortParser(),
             runConfigurationOperations: TestGoProjectRunConfigurationOperations(),
             executableResolver: TestExecutableResolver(),
             languageProviderCatalog: .compatibilityFallback,
@@ -1271,13 +944,12 @@ struct ExecutionModuleTests {
     func runConfigurationsDoNotInjectDependencySources(provider: String) async {
         let configuration = RunConfiguration(
             id: "run:\(provider)", name: provider,
-            kind: .process(provider: provider), modulePath: ".", mainClass: nil
+            kind: .process(provider: provider)
         )
         let service = makeRunService(
             configuration: configuration,
             options: RunOptions(),
-            fileAccess: TestRunFileAccess(),
-            serverPortParser: FixedServerPortParser(port: nil)
+            fileAccess: TestRunFileAccess()
         )
         defer { service.reset() }
         await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [])
@@ -1302,7 +974,6 @@ struct ExecutionModuleTests {
             languageServerModuleID: .languageServerExtension("go")
         )
         let service = RunService(
-            runtime: TestRuntime(),
             process: TestStreamingProcess(),
             processFactory: { TestStreamingProcess() },
             fileAccess: TestRunFileAccess(
@@ -1310,7 +981,6 @@ struct ExecutionModuleTests {
                 directories: [root.appendingPathComponent("vendor", isDirectory: true)]
             ),
             preferences: TestRunPreferences(),
-            serverPortParser: TestServerPortParser(),
             runConfigurationOperations: TestGoProjectRunConfigurationOperations(),
             executableResolver: TestExecutableResolver(),
             languageProviderCatalog: .compatibilityFallback,
@@ -1389,12 +1059,10 @@ struct ExecutionModuleTests {
         let store = TestWorkspaceDependencyStore()
 
         let firstService = RunService(
-            runtime: TestRuntime(),
             process: TestStreamingProcess(),
             processFactory: { TestStreamingProcess() },
             fileAccess: TestRunFileAccess(contents: [moduleFile: "module example.dev/api"]),
             preferences: TestRunPreferences(),
-            serverPortParser: TestServerPortParser(),
             runConfigurationOperations: TestGoProjectRunConfigurationOperations(),
             executableResolver: TestExecutableResolver(),
             languageProviderCatalog: .compatibilityFallback,
@@ -1411,12 +1079,10 @@ struct ExecutionModuleTests {
         #expect(store.indexes.services["language:go"] != nil)
 
         let secondService = RunService(
-            runtime: TestRuntime(),
             process: TestStreamingProcess(),
             processFactory: { TestStreamingProcess() },
             fileAccess: TestRunFileAccess(contents: [moduleFile: "module example.dev/api"]),
             preferences: TestRunPreferences(),
-            serverPortParser: TestServerPortParser(),
             runConfigurationOperations: TestGoProjectRunConfigurationOperations(),
             executableResolver: TestExecutableResolver(),
             languageProviderCatalog: .compatibilityFallback,
@@ -1500,8 +1166,8 @@ struct ExecutionModuleTests {
         let process = TestStreamingProcess()
         let service = LanguageTestService(outcomeResolver: LinkedCoreTestRunOutcome(), executableResolver: TestExecutableResolver(), processFactory: { process })
         defer { service.reset() }
-        #expect(service.run(providerID: "java", scope: .workspace, workspaceURL: root,
-                            projectFiles: [root.appendingPathComponent("build.gradle")]))
+        #expect(service.run(providerID: "go", scope: .workspace, workspaceURL: root,
+                            projectFiles: [root.appendingPathComponent("go.mod")]))
         let firstID = try #require(service.runID)
         let firstEvent = try #require(process.onStateChange)
         firstEvent(ProcessLifecycleEvent(operationID: firstID.uuidString, state: .running,
@@ -1533,43 +1199,43 @@ struct ExecutionModuleTests {
     @Test(arguments: [false, true])
     func closingOrClearingResultsKeepsEditorHistoryAndDiscoveredScopes(clearOnly: Bool) async throws {
         let root = URL(fileURLWithPath: "/workspace/results-lifecycle")
-        let first = root.appendingPathComponent("src/test/java/demo/FirstTest.java")
-        let second = root.appendingPathComponent("src/test/java/demo/SecondTest.java")
-        let files = [root.appendingPathComponent("pom.xml"), first, second,
+        let first = root.appendingPathComponent("pkg/first_test.go")
+        let second = root.appendingPathComponent("pkg/second_test.go")
+        let files = [root.appendingPathComponent("go.mod"), first, second,
             root.appendingPathComponent("package.json"), root.appendingPathComponent("sample.test.js"),
             root.appendingPathComponent("pyproject.toml"), root.appendingPathComponent("test_sample.py")]
         let report = try JSONDecoder().decode(BuildTestResults.self, from: Data(#"{"tests":[{"suite":"demo.FirstTest","case":"check","status":"passed"}],"summary":{"total":1,"passed":1,"failed":0,"errors":0,"skipped":0},"success":true}"#.utf8))
         let service = LanguageTestService(outcomeResolver: LinkedCoreTestRunOutcome(), executableResolver: TestExecutableResolver(), processFactory: { TestStreamingProcess() })
         func run(_ scope: LanguageTestScope) {
-            service.runUsingBackend(providerID: "java", scope: scope, workspaceURL: root, label: "Tests") { _, _ in
+            service.runUsingBackend(providerID: "go", scope: scope, workspaceURL: root, label: "Tests") { _, _ in
                 LanguageTestBackendResult(exitCode: 0, reports: [report])
             }
         }
         defer { service.reset() }
         service.discover(workspaceURL: root, files: files)
         let discovered = service.itemsByProviderID
-        for provider in ["java", "node", "python"] {
+        for provider in ["go", "node", "python"] {
             #expect(discovered[provider]?.contains { $0.kind == .workspace } == true)
         }
         run(.testCase(identifier: "demo.FirstTest#check", fileURL: first))
         try await awaitTestValue(service.$state, matching: { $0 == .passed })
-        let outcomes = service.testOutcomes(for: "java")
+        let outcomes = service.testOutcomes(for: "go")
         #expect(service.results?.summary.total == 1)
         #expect(outcomes.first?.suite == "demo.FirstTest")
         if clearOnly { service.clearOutput() } else { service.closeRun() }
         #expect(service.results == nil)
-        #expect(service.testOutcomes(for: "java") == outcomes, "Editor marker history must outlive the visible result")
+        #expect(service.testOutcomes(for: "go") == outcomes, "Editor marker history must outlive the visible result")
         #expect(service.itemsByProviderID == discovered)
         run(.file(second))
-        #expect(service.hasRun(providerID: "java", scope: .file(second)))
+        #expect(service.hasRun(providerID: "go", scope: .file(second)))
         run(.workspace)
-        #expect(service.hasRun(providerID: "java", scope: .workspace))
+        #expect(service.hasRun(providerID: "go", scope: .workspace))
     }
 
     @Test(arguments: [false, true])
     func closingTestRunPreservesDiscoveryAndAllowsNewRun(completed: Bool) async throws {
         let root = URL(fileURLWithPath: "/workspace/test-tab", isDirectory: true)
-        let files = [root.appendingPathComponent("build.gradle")]
+        let files = [root.appendingPathComponent("go.mod")]
         let process = TestStreamingProcess()
         let service = LanguageTestService(
             outcomeResolver: LinkedCoreTestRunOutcome(),
@@ -1580,14 +1246,14 @@ struct ExecutionModuleTests {
         service.discover(workspaceURL: root, files: files)
         let discovered = service.itemsByProviderID
         #expect(!discovered.isEmpty)
-        #expect(!service.hasRun(providerID: "java", scope: .workspace))
-        #expect(service.run(providerID: "java", scope: .workspace,
+        #expect(!service.hasRun(providerID: "go", scope: .workspace))
+        #expect(service.run(providerID: "go", scope: .workspace,
                             workspaceURL: root, projectFiles: files))
         #expect(service.activePlan != nil)
         #expect(!service.output.isEmpty)
-        #expect(service.hasRun(providerID: "java", scope: .workspace))
-        #expect(!service.hasRun(providerID: "java", scope: .file(files[0])))
-        #expect(!service.hasRun(providerID: "go", scope: .workspace))
+        #expect(service.hasRun(providerID: "go", scope: .workspace))
+        #expect(!service.hasRun(providerID: "go", scope: .file(files[0])))
+        #expect(!service.hasRun(providerID: "python", scope: .workspace))
         if completed {
             process.isRunning = false
             process.onTermination?(0)
@@ -1602,155 +1268,36 @@ struct ExecutionModuleTests {
         #expect(service.results == nil)
         #expect(service.errorMessage == nil)
         #expect(!service.canRerun)
-        #expect(!service.hasRun(providerID: "java", scope: .workspace))
+        #expect(!service.hasRun(providerID: "go", scope: .workspace))
         #expect(service.itemsByProviderID == discovered)
 
         // Closing a result must leave the discovered scopes runnable.
-        #expect(service.run(providerID: "java", scope: .workspace,
+        #expect(service.run(providerID: "go", scope: .workspace,
                             workspaceURL: root, projectFiles: files))
         #expect(service.activePlan != nil)
         #expect(service.isRunning)
     }
 
     @Test
-    func standaloneJavaCompilesWithJavacBeforeLaunchingByClassName() async throws {
-        let mainProcess = TestStreamingProcess()
-        let stepProcesses = StepProcessRecorder()
-        let outputDirectory = ".lithe/run/classes/java-main-Standalone"
-        let configuration = RunConfiguration(
-            id: "java-main:Standalone", name: "Standalone", kind: .javaMain,
-            execution: .application, modulePath: nil, mainClass: "Standalone"
-        )
-        let plan = SharedLaunchPlan(
-            executable: .toolchain("project-jdk"),
-            arguments: ["Standalone"],
-            workingDirectory: ".",
-            preLaunchSteps: [
-                SharedLaunchPlan.PreLaunchStep(
-                    executable: .toolchain("project-jdk"),
-                    tool: "javac",
-                    arguments: ["-d", outputDirectory, "Standalone.java"]
-                )
-            ],
-            classpath: [outputDirectory]
-        )
-        let service = RunService(
-            runtime: TestRuntime(), process: mainProcess,
-            processFactory: { stepProcesses.make() }, fileAccess: TestRunFileAccess(),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
-            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
-                configuration: configuration, plan: plan
-            ),
-            executableResolver: JavacAwareExecutableResolver(),
-            languageProviderCatalog: .compatibilityFallback,
-            languageRunProviders: .standard(catalog: .compatibilityFallback)
-        )
-        defer { service.reset() }
-
-        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
-        await service.loadProject(at: root, files: [])
-
-        let mainStarted = AsyncStream<Void>.makeStream()
-        mainProcess.onStart = { mainStarted.continuation.yield(()) }
-
-        service.run(configuration: configuration, currentFileURL: nil)
-
-        // The javac compile step runs first; the main process must wait for it.
-        let step = try #require(stepProcesses.processes.first)
-        let stepRequest = try #require(step.startRequests.first)
-        #expect(stepRequest.executablePath == "/test/bin/javac")
-        #expect(stepRequest.arguments == ["-d", outputDirectory, "Standalone.java"])
-        // The application entry bounds its compile step exactly like Windows.
-        #expect(stepRequest.timeoutMilliseconds == 600_000)
-        #expect(mainProcess.startRequests.isEmpty)
-
-        // A zero exit chains to the main process, which launches by class name
-        // with the compile output prepended as `-cp`.
-        step.onTermination?(0)
-        try await awaitSignal(mainStarted.stream)
-        let mainRequest = try #require(mainProcess.startRequests.first)
-        #expect(mainRequest.executablePath == "/test/bin/java")
-        #expect(mainRequest.arguments == ["-cp", outputDirectory, "Standalone"])
-        #expect(service.isRunning)
-    }
-
-    @Test
-    func mavenJavaMainValidatesTheProjectJDKInsteadOfTheMavenJDK() async throws {
-        let moduleProcess = TestStreamingProcess()
-        let configuration = RunConfiguration(
-            id: "java-main:example.Main", name: "Main", kind: .javaMain,
-            execution: .application, modulePath: "app", mainClass: "example.Main",
-            mavenReactorPath: "."
-        )
-        let plan = SharedLaunchPlan(
-            executable: .toolchain("project-jdk"),
-            arguments: ["example.Main"],
-            workingDirectory: ".",
-            classpath: ["/workspace/app/target/classes"]
-        )
-        let service = RunService(
-            runtime: TestRuntime(javaHome: URL(fileURLWithPath: "/valid/project-jdk")),
-            process: TestStreamingProcess(),
-            processFactory: { moduleProcess },
-            fileAccess: TestRunFileAccess(),
-            preferences: TestRunPreferences(),
-            serverPortParser: TestServerPortParser(),
-            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
-                configuration: configuration,
-                plan: plan,
-                options: RunOptions(
-                    javaHomePath: "/valid/project-jdk",
-                    mavenJavaHomePath: "/invalid/maven-jdk"
-                )
-            ),
-            executableResolver: TestExecutableResolver(),
-            languageProviderCatalog: .compatibilityFallback,
-            languageRunProviders: .standard(catalog: .compatibilityFallback)
-        )
-        defer { service.reset() }
-
-        await service.loadProject(
-            at: URL(fileURLWithPath: "/workspace", isDirectory: true),
-            files: []
-        )
-        service.startConfiguration(configuration, javaLaunch: JavaDebugLaunchTarget(
-            mainClass: "example.Main",
-            projectName: "app",
-            classPaths: ["/workspace/app/target/classes"]
-        ))
-
-        #expect(moduleProcess.startRequests.first?.arguments == [
-            "-cp", "/workspace/app/target/classes", "example.Main",
-        ])
-        #expect(service.moduleSessions.first?.isRunning == true)
-    }
-
-    @Test
     func stoppingTheGraphStopsServiceSessions() async throws {
         let moduleProcess = TestStreamingProcess()
         let configuration = RunConfiguration(
-            id: "java-main:example.Main", name: "Main", kind: .javaMain,
-            execution: .application, modulePath: "app", mainClass: "example.Main",
-            mavenReactorPath: "."
+            id: "fixture:main", name: "Main", kind: .process(provider: "fixture"),
+            execution: .service
         )
-        let runtime = TestRuntime(javaHome: URL(fileURLWithPath: "/valid/project-jdk"))
         let resolver = TestExecutableResolver()
         let service = RunService(
-            runtime: runtime,
             process: TestStreamingProcess(),
             processFactory: { moduleProcess },
             fileAccess: TestRunFileAccess(),
             preferences: TestRunPreferences(),
-            serverPortParser: TestServerPortParser(),
             runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
                 configuration: configuration,
                 plan: SharedLaunchPlan(
-                    executable: .toolchain("project-jdk"),
-                    arguments: ["example.Main"],
-                    workingDirectory: ".",
-                    classpath: ["/workspace/app/target/classes"]
-                ),
-                options: RunOptions(javaHomePath: "/valid/project-jdk")
+                    executable: .toolchain("fixture-runtime"),
+                    arguments: ["serve"],
+                    workingDirectory: "."
+                )
             ),
             executableResolver: resolver,
             languageProviderCatalog: .compatibilityFallback,
@@ -1772,11 +1319,7 @@ struct ExecutionModuleTests {
             at: URL(fileURLWithPath: "/workspace", isDirectory: true),
             files: []
         )
-        service.startConfiguration(configuration, javaLaunch: JavaDebugLaunchTarget(
-            mainClass: "example.Main",
-            projectName: "app",
-            classPaths: ["/workspace/app/target/classes"]
-        ))
+        service.startConfiguration(configuration)
 
         // A service session is not the "current run", yet it owns a process
         // that must keep the module awake and must end with the session.
@@ -1792,361 +1335,11 @@ struct ExecutionModuleTests {
         #expect(!graph.hasActiveExecutionWork)
     }
 
-    @Test
-    func standaloneJavaMergesCompileOutputIntoUserClasspath() async throws {
-        let mainProcess = TestStreamingProcess()
-        let stepProcesses = StepProcessRecorder()
-        let outputDirectory = ".lithe/run/classes/java-main-Standalone"
-        let configuration = RunConfiguration(
-            id: "java-main:Standalone", name: "Standalone", kind: .javaMain,
-            execution: .application, modulePath: nil, mainClass: "Standalone"
-        )
-        // The user already supplies a `-cp`; a second one would override it, so the
-        // compiled output must merge into that flag ahead of the user's entry.
-        let plan = SharedLaunchPlan(
-            executable: .toolchain("project-jdk"),
-            arguments: ["-cp", "libs/foo.jar", "Standalone"],
-            workingDirectory: ".",
-            preLaunchSteps: [
-                SharedLaunchPlan.PreLaunchStep(
-                    executable: .toolchain("project-jdk"),
-                    tool: "javac",
-                    arguments: ["-d", outputDirectory, "Standalone.java"]
-                )
-            ],
-            classpath: [outputDirectory]
-        )
-        let service = RunService(
-            runtime: TestRuntime(), process: mainProcess,
-            processFactory: { stepProcesses.make() }, fileAccess: TestRunFileAccess(),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
-            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
-                configuration: configuration, plan: plan
-            ),
-            executableResolver: JavacAwareExecutableResolver(),
-            languageProviderCatalog: .compatibilityFallback,
-            languageRunProviders: .standard(catalog: .compatibilityFallback)
-        )
-        defer { service.reset() }
-
-        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
-        await service.loadProject(at: root, files: [])
-
-        let mainStarted = AsyncStream<Void>.makeStream()
-        mainProcess.onStart = { mainStarted.continuation.yield(()) }
-
-        service.run(configuration: configuration, currentFileURL: nil)
-        let step = try #require(stepProcesses.processes.first)
-        step.onTermination?(0)
-        try await awaitSignal(mainStarted.stream)
-        let mainRequest = try #require(mainProcess.startRequests.first)
-        #expect(
-            mainRequest.arguments == ["-cp", "\(outputDirectory):libs/foo.jar", "Standalone"]
-        )
-    }
-
-    @Test
-    func standaloneJavaCompileFailureAbortsBeforeLaunchingMainProcess() async throws {
-        let mainProcess = TestStreamingProcess()
-        let stepProcesses = StepProcessRecorder()
-        let outputDirectory = ".lithe/run/classes/java-main-Standalone"
-        let configuration = RunConfiguration(
-            id: "java-main:Standalone", name: "Standalone", kind: .javaMain,
-            execution: .application, modulePath: nil, mainClass: "Standalone"
-        )
-        let plan = SharedLaunchPlan(
-            executable: .toolchain("project-jdk"),
-            arguments: ["Standalone"],
-            workingDirectory: ".",
-            preLaunchSteps: [
-                SharedLaunchPlan.PreLaunchStep(
-                    executable: .toolchain("project-jdk"),
-                    tool: "javac",
-                    arguments: ["-d", outputDirectory, "Standalone.java"]
-                )
-            ],
-            classpath: [outputDirectory]
-        )
-        let service = RunService(
-            runtime: TestRuntime(), process: mainProcess,
-            processFactory: { stepProcesses.make() }, fileAccess: TestRunFileAccess(),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
-            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
-                configuration: configuration, plan: plan
-            ),
-            executableResolver: JavacAwareExecutableResolver(),
-            languageProviderCatalog: .compatibilityFallback,
-            languageRunProviders: .standard(catalog: .compatibilityFallback)
-        )
-        defer { service.reset() }
-
-        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
-        await service.loadProject(at: root, files: [])
-        service.run(configuration: configuration, currentFileURL: nil)
-
-        let step = try #require(stepProcesses.processes.first)
-        // A non-zero compile exit aborts the run and surfaces the failure; the
-        // main process never starts.
-        step.onTermination?(1)
-        try await awaitTestValue(service.$lastExitCode, matching: { $0 == 1 })
-        #expect(mainProcess.startRequests.isEmpty)
-        #expect(!service.isRunning)
-        #expect(service.output.contains("Pre-launch step failed (exit code 1)"))
-    }
-
-    /// Issue #1133: the service entries of the Run panel go through
-    /// `startModuleSession`, so they must consume the same pre-launch steps the
-    /// application entry does. A Maven resource step also resolves and runs from
-    /// its reactor directory when the application cwd is overridden; only then
-    /// can it find the project wrapper next to the reactor POM.
-    @Test
-    func serviceSessionRunsItsPreLaunchStepFromTheReactorBeforeLaunching() async throws {
-        let recorder = SessionProcessRecorder()
-        let resourceArguments = [
-            "-B", "-ntp", "-f", "/workspace/app/pom.xml", "resources:resources",
-        ]
-        let configuration = RunConfiguration(
-            id: "service:demo", name: "demo", kind: .javaMain,
-            execution: .service, modulePath: "app", mainClass: "example.Main"
-        )
-        let plan = SharedLaunchPlan(
-            executable: .toolchain("project-jdk"),
-            arguments: ["example.Main"],
-            workingDirectory: "custom-run",
-            preLaunchSteps: [
-                SharedLaunchPlan.PreLaunchStep(
-                    executable: .toolchain("project-maven"),
-                    arguments: resourceArguments,
-                    workingDirectory: "app"
-                )
-            ],
-            classpath: ["/workspace/app/target/classes"]
-        )
-        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
-        let service = RunService(
-            runtime: TestRuntime(), process: TestStreamingProcess(),
-            processFactory: { recorder.make() },
-            // Built the same way `resolvedWorkingDirectory` builds its result,
-            // so the directory check compares equal directory URLs.
-            fileAccess: TestRunFileAccess(directories: [
-                URL(fileURLWithPath: "app", relativeTo: root).standardizedFileURL,
-                URL(fileURLWithPath: "custom-run", relativeTo: root).standardizedFileURL,
-            ]),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
-            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
-                configuration: configuration, plan: plan
-            ),
-            executableResolver: ToolNamedExecutableResolver(),
-            languageProviderCatalog: .compatibilityFallback,
-            languageRunProviders: .standard(catalog: .compatibilityFallback)
-        )
-        defer { service.reset() }
-        await service.loadProject(at: root, files: [])
-
-        service.startConfiguration(configuration)
-
-        // The resource step starts first, from the reactor directory, and the
-        // service process must wait for it.
-        let step = try #require(recorder.processes.first)
-        let stepRequest = try #require(step.startRequests.first)
-        #expect(stepRequest.executablePath == "/test/bin/project-maven")
-        #expect(stepRequest.arguments == resourceArguments)
-        let stepWorkingDirectory = try #require(stepRequest.workingDirectory)
-        #expect(stepWorkingDirectory.hasSuffix("/workspace/app"))
-        // A resource step that never finishes must fail within the same bound
-        // Windows applies instead of leaving the session running forever.
-        #expect(stepRequest.timeoutMilliseconds == 600_000)
-        #expect(recorder.processes.count == 1)
-        #expect(service.moduleSessions.first?.isRunning == true)
-
-        step.onTermination?(0)
-        try await awaitSignal(recorder.started.stream)
-        let launcher = try #require(recorder.processes.dropFirst().first)
-        let launcherRequest = try #require(launcher.startRequests.first)
-        #expect(launcherRequest.executablePath == "/test/bin/project-jdk")
-        #expect(
-            launcherRequest.arguments == ["-cp", "/workspace/app/target/classes", "example.Main"]
-        )
-        let launcherWorkingDirectory = try #require(launcherRequest.workingDirectory)
-        #expect(launcherWorkingDirectory.hasSuffix("/workspace/custom-run"))
-    }
-
-    /// Issue #1133: a failed resource step must fail the service session rather
-    /// than start the JVM against the resources it failed to update.
-    @Test
-    func serviceSessionPreLaunchFailureLeavesTheServiceFailed() async throws {
-        let recorder = SessionProcessRecorder()
-        let configuration = RunConfiguration(
-            id: "service:demo", name: "demo", kind: .javaMain,
-            execution: .service, modulePath: "app", mainClass: "example.Main"
-        )
-        let plan = SharedLaunchPlan(
-            executable: .toolchain("project-jdk"),
-            arguments: ["example.Main"],
-            workingDirectory: "app",
-            preLaunchSteps: [
-                SharedLaunchPlan.PreLaunchStep(
-                    executable: .toolchain("project-maven"),
-                    arguments: ["-B", "-ntp", "-f", "/workspace/app/pom.xml", "resources:resources"]
-                )
-            ]
-        )
-        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
-        let service = RunService(
-            runtime: TestRuntime(), process: TestStreamingProcess(),
-            processFactory: { recorder.make() }, fileAccess: TestRunFileAccess(),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
-            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
-                configuration: configuration, plan: plan
-            ),
-            executableResolver: ToolNamedExecutableResolver(),
-            languageProviderCatalog: .compatibilityFallback,
-            languageRunProviders: .standard(catalog: .compatibilityFallback)
-        )
-        defer { service.reset() }
-        await service.loadProject(at: root, files: [])
-
-        service.startConfiguration(configuration)
-        let step = try #require(recorder.processes.first)
-        step.onTermination?(1)
-
-        try await awaitTestValue(service.$moduleSessions, matching: { $0.first?.exitCode == 1 })
-        #expect(service.moduleSessions.first?.isRunning == false)
-        #expect(
-            service.moduleSessions.first?.output.contains("Pre-launch step failed (exit code 1)")
-                == true
-        )
-        #expect(recorder.processes.count == 1)
-    }
-
-    /// Issue #1133: stopping a service while its resource step is still running
-    /// cancels the step, and a termination report that arrives afterwards must
-    /// not start the JVM for the stopped session.
-    @Test
-    func stoppingAServiceCancelsItsRunningPreLaunchStep() async throws {
-        let recorder = SessionProcessRecorder()
-        let configuration = RunConfiguration(
-            id: "service:demo", name: "demo", kind: .javaMain,
-            execution: .service, modulePath: "app", mainClass: "example.Main"
-        )
-        let plan = SharedLaunchPlan(
-            executable: .toolchain("project-jdk"),
-            arguments: ["example.Main"],
-            workingDirectory: "app",
-            preLaunchSteps: [
-                SharedLaunchPlan.PreLaunchStep(
-                    executable: .toolchain("project-maven"),
-                    arguments: ["-B", "-ntp", "-f", "/workspace/app/pom.xml", "resources:resources"]
-                )
-            ]
-        )
-        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
-        let service = RunService(
-            runtime: TestRuntime(), process: TestStreamingProcess(),
-            processFactory: { recorder.make() }, fileAccess: TestRunFileAccess(),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
-            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
-                configuration: configuration, plan: plan
-            ),
-            executableResolver: ToolNamedExecutableResolver(),
-            languageProviderCatalog: .compatibilityFallback,
-            languageRunProviders: .standard(catalog: .compatibilityFallback)
-        )
-        defer { service.reset() }
-        await service.loadProject(at: root, files: [])
-
-        service.startConfiguration(configuration)
-        // Drain the step's own start signal so the later check observes only a
-        // service launch.
-        try await awaitSignal(recorder.started.stream)
-        let step = try #require(recorder.processes.first)
-        let session = try #require(service.moduleSessions.first)
-
-        service.stopModule(session)
-
-        #expect(!step.isRunning)
-        #expect(service.moduleSessions.first?.isRunning == false)
-        // The cancelled session released its operation, so a late termination
-        // report cannot start the service. The deadline makes a missing launch
-        // a bounded observation rather than a hang.
-        step.onTermination?(0)
-        await #expect(throws: TestObservationError.self) {
-            try await awaitSignal(recorder.started.stream, timeout: .milliseconds(500))
-        }
-        #expect(recorder.processes.count == 1)
-    }
-
-    /// Issue #1133 / PR review: the platform deadline must fail the session and
-    /// name that deadline. Windows reports the same wording, so a stuck Maven
-    /// resource step ends the same way on both platforms.
-    @Test
-    func servicePreLaunchDeadlineFailsTheSessionAndNamesTheDeadline() async throws {
-        let recorder = SessionProcessRecorder()
-        let configuration = RunConfiguration(
-            id: "service:demo", name: "demo", kind: .javaMain,
-            execution: .service, modulePath: "app", mainClass: "example.Main"
-        )
-        let plan = SharedLaunchPlan(
-            executable: .toolchain("project-jdk"),
-            arguments: ["example.Main"],
-            workingDirectory: "app",
-            preLaunchSteps: [
-                SharedLaunchPlan.PreLaunchStep(
-                    executable: .toolchain("project-maven"),
-                    arguments: ["-B", "-ntp", "-f", "/workspace/app/pom.xml", "resources:resources"]
-                )
-            ]
-        )
-        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
-        let service = RunService(
-            runtime: TestRuntime(), process: TestStreamingProcess(),
-            processFactory: { recorder.make() },
-            // Built the same way `resolvedWorkingDirectory` builds its result,
-            // so the reactor directory resolves instead of falling back.
-            fileAccess: TestRunFileAccess(directories: [
-                URL(fileURLWithPath: "app", relativeTo: root).standardizedFileURL,
-            ]),
-            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
-            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
-                configuration: configuration, plan: plan
-            ),
-            executableResolver: ToolNamedExecutableResolver(),
-            languageProviderCatalog: .compatibilityFallback,
-            languageRunProviders: .standard(catalog: .compatibilityFallback)
-        )
-        defer { service.reset() }
-        await service.loadProject(at: root, files: [])
-
-        service.startConfiguration(configuration)
-        let step = try #require(recorder.processes.first)
-        let stepRequest = try #require(step.startRequests.first)
-        #expect(stepRequest.timeoutMilliseconds == 600_000)
-
-        // The platform reports its deadline and then terminates the owned
-        // process, exactly as `MacStreamingProcess` does on timeout.
-        step.onStateChange?(ProcessLifecycleEvent(
-            operationID: stepRequest.operationID,
-            state: .stopping,
-            exitCode: nil,
-            message: "Process timed out"
-        ))
-        try await awaitTestValue(service.$moduleSessions, matching: {
-            $0.first?.output.contains("Pre-launch step timed out after 600 seconds.") == true
-        })
-
-        step.onTermination?(15)
-        try await awaitTestValue(service.$moduleSessions, matching: { $0.first?.exitCode == 15 })
-        #expect(service.moduleSessions.first?.isRunning == false)
-        #expect(recorder.processes.count == 1)
-    }
-
     @Test(arguments: [LanguageTestRunState.passed, .failed(exitCode: 7), .cancelled])
     func processLanguageTestsRemainIndependentFromProviderReports(expectedState: LanguageTestRunState) async throws {
-        let root = URL(fileURLWithPath: "/workspace/gradle-tests", isDirectory: true)
-        let source = root.appendingPathComponent(
-            "src/test/java/com/example/CalculatorTest.java"
-        )
-        let buildFile = root.appendingPathComponent("build.gradle")
+        let root = URL(fileURLWithPath: "/workspace/go-tests", isDirectory: true)
+        let source = root.appendingPathComponent("calc/calc_test.go")
+        let buildFile = root.appendingPathComponent("go.mod")
         let process = TestStreamingProcess()
         let service = LanguageTestService(
             outcomeResolver: LinkedCoreTestRunOutcome(),
@@ -2155,13 +1348,13 @@ struct ExecutionModuleTests {
         )
 
         #expect(service.run(
-            providerID: "java",
+            providerID: "go",
             scope: .file(source),
             workspaceURL: root,
             projectFiles: [buildFile, source]
         ))
-        #expect(service.activePlan?.frameworkID == "gradle")
-        #expect(service.activePlan?.launchPlan.arguments.contains("--no-daemon") == true)
+        #expect(service.activePlan?.frameworkID == "go")
+        #expect(service.activePlan?.launchPlan.arguments == ["test", "./calc"])
         defer { service.reset() }
 
         if expectedState == .cancelled { service.stop() }
@@ -2193,16 +1386,10 @@ struct ExecutionModuleTests {
 
 private struct SelectionRunConfigurationOperations: RunConfigurationOperations {
     let configurations: [RunConfiguration]
-    func inspect(at _: URL) -> ProjectRunConfigurationInspection {
+    func inspect(at _: URL, checkFingerprint _: Bool, providerRuns _: [RunProviderConfiguration]?) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(
-        at _: URL,
-        files _: [URL],
-        modulePaths _: [String],
-        javaEntrypoints _: JavaEntrypoints?,
-        projectOwnership _: [RunProjectOwnership]? = nil
-    ) throws -> RunConfigurationGenerationResult {
+    func generate(at _: URL, providerRuns _: [RunProviderConfiguration]?, lease _: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: configurations.count)
     }
     func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2212,67 +1399,32 @@ private struct SelectionRunConfigurationOperations: RunConfigurationOperations {
             }, diagnostics: [], defaultConfigurationID: configurations.first?.id
         )
     }
-    func launchPlan(at _: URL, configurationID: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
-        SharedLaunchPlan(executable: .toolchain("java"), arguments: [configurationID], workingDirectory: ".")
+    func launchPlan(at _: URL, configurationID: String) throws -> SharedLaunchPlan {
+        SharedLaunchPlan(executable: .toolchain("fixture-runtime"), arguments: [configurationID], workingDirectory: ".")
     }
-    func createConfiguration(_ draft: RunConfigurationDraft, at _: URL) throws -> String { draft.name }
-    func migrateLegacySettings(at _: URL, configurationIDs _: [String]) throws {}
 }
 
 /// Records how the service inspects: a full check reads every project input,
-/// so only project loads may request it (issue #507).
+/// so only project loads may request it (issue #507). Provider staleness is
+/// compared against the Provider snapshot the service hands over.
 private final class FreshnessRecordingRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
     var inputsChanged = true
     var staleProviderModel = false
     var providerInspectionGate: InventoryInspectionGate?
-    private(set) var providerInspections: [[RunProjectOwnership]] = []
+    private(set) var providerInspections: [[RunProviderConfiguration]] = []
+    var runInspections: [[RunProviderConfiguration]] { providerInspections }
     var providerConfiguration: RunConfiguration?
-    private(set) var runInspections: [[RunProviderConfiguration]] = []
     var generationGate: InventoryInspectionGate?
     private(set) var generationLeases: [RunConfigurationGenerationLease] = []
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String], javaEntrypoints: JavaEntrypoints?,
-                  projectOwnership: [RunProjectOwnership]?, providerRuns: [RunProviderConfiguration],
-                  models: [BuildModel], lease: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult {
-        generationLeases.append(lease)
-        try lease.check()
-        if let gate = generationGate {
-            gate.entered.continuation.yield(())
-            if gate.release.wait(timeout: .now() + 2) != .success { Issue.record("Generation publication gate expired") }
-        }
-        try lease.check()
-        return try generate(at: projectURL, files: files, modulePaths: modulePaths, javaEntrypoints: javaEntrypoints, projectOwnership: projectOwnership)
-    }
-    func inspectProviderGeneration(at projectURL: URL, projectOwnership: [RunProjectOwnership], providerRuns: [RunProviderConfiguration]) -> ProjectRunConfigurationInspection {
-        runInspections.append(providerRuns)
-        return inspectProviderGeneration(at: projectURL, projectOwnership: projectOwnership)
-    }
-    func inspectProviderGeneration(at _: URL, projectOwnership: [RunProjectOwnership]) -> ProjectRunConfigurationInspection {
-        providerInspections.append(projectOwnership)
-        let stale = staleProviderModel
-        if let gate = providerInspectionGate {
-            gate.entered.continuation.yield(())
-            // The synchronous port runs on RunService's utility queue; the
-            // test releases it and every assertion path has cleanup/deadline.
-            if gate.release.wait(timeout: .now() + 2) != .success { Issue.record("Provider inspection gate expired") }
-        }
-        return ProjectRunConfigurationInspection(status: .ready, diagnostics: stale
-            ? [RunConfigurationDiagnostic(configurationID: nil, code: "staleProviderModel", message: "regenerate")] : [])
-    }
     private(set) var fingerprintChecks: [Bool] = []
-    private(set) var comparedEntrypoints: [JavaEntrypoints] = []
     private let custom = RunConfiguration(
-        id: "Custom", name: "Custom", kind: .javaMain,
-        execution: .service, modulePath: nil, mainClass: "demo.Custom"
+        id: "Custom", name: "Custom", kind: .process(provider: "build.provider"),
+        execution: .service,
+        buildProvider: BuildProviderRunReference(pluginID: "dev.custom", buildSystemID: "engine", root: ".",
+            run: "serve", projectID: "custom", targetID: "custom", execution: .service)
     )
 
-    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
-        inspect(at: projectURL, checkFingerprint: true, javaEntrypoints: nil)
-    }
-    func inspect(
-        at _: URL,
-        checkFingerprint: Bool,
-        javaEntrypoints: JavaEntrypoints?
-    ) -> ProjectRunConfigurationInspection {
+    func inspect(at _: URL, checkFingerprint: Bool, providerRuns: [RunProviderConfiguration]?) -> ProjectRunConfigurationInspection {
         fingerprintChecks.append(checkFingerprint)
         var diagnostics: [RunConfigurationDiagnostic] = []
         if checkFingerprint && inputsChanged {
@@ -2281,23 +1433,29 @@ private final class FreshnessRecordingRunConfigurationOperations: RunConfigurati
                 message: "Project inputs changed: 0 added, 0 removed, 1 modified"
             ))
         }
-        if let javaEntrypoints {
-            comparedEntrypoints.append(javaEntrypoints)
-            diagnostics.append(RunConfigurationDiagnostic(
-                configurationID: nil, code: "staleFingerprint",
-                message: "Java entry points changed: 1 added, 0 removed"
-            ))
+        if let providerRuns {
+            providerInspections.append(providerRuns)
+            if let gate = providerInspectionGate {
+                gate.entered.continuation.yield(())
+                // The synchronous port runs on RunService's utility queue; the
+                // test releases it and every assertion path has cleanup/deadline.
+                if gate.release.wait(timeout: .now() + 2) != .success { Issue.record("Provider inspection gate expired") }
+            }
+            if staleProviderModel {
+                diagnostics.append(RunConfigurationDiagnostic(configurationID: nil, code: "staleProviderModel", message: "regenerate"))
+            }
         }
         return ProjectRunConfigurationInspection(status: .ready, diagnostics: diagnostics)
     }
-    func generate(
-        at _: URL,
-        files _: [URL],
-        modulePaths _: [String],
-        javaEntrypoints _: JavaEntrypoints?,
-        projectOwnership _: [RunProjectOwnership]? = nil
-    ) throws -> RunConfigurationGenerationResult {
-        RunConfigurationGenerationResult(entryCount: 1)
+    func generate(at _: URL, providerRuns _: [RunProviderConfiguration]?, lease: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult {
+        generationLeases.append(lease)
+        try lease.check()
+        if let gate = generationGate {
+            gate.entered.continuation.yield(())
+            if gate.release.wait(timeout: .now() + 2) != .success { Issue.record("Generation publication gate expired") }
+        }
+        try lease.check()
+        return RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
         RunConfigurationResolution(
@@ -2308,11 +1466,9 @@ private final class FreshnessRecordingRunConfigurationOperations: RunConfigurati
             defaultConfigurationID: nil
         )
     }
-    func launchPlan(at _: URL, configurationID: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
-        SharedLaunchPlan(executable: .toolchain("java"), arguments: [configurationID], workingDirectory: ".")
+    func launchPlan(at _: URL, configurationID: String) throws -> SharedLaunchPlan {
+        SharedLaunchPlan(executable: .toolchain("fixture-runtime"), arguments: [configurationID], workingDirectory: ".")
     }
-    func createConfiguration(_ draft: RunConfigurationDraft, at _: URL) throws -> String { draft.name }
-    func migrateLegacySettings(at _: URL, configurationIDs _: [String]) throws {}
 }
 
 /// Returns a fixed launch plan (optionally carrying pre-launch steps and a
@@ -2323,16 +1479,10 @@ private struct FixedLaunchPlanRunConfigurationOperations: RunConfigurationOperat
     let plan: SharedLaunchPlan
     var options = RunOptions()
 
-    func inspect(at _: URL) -> ProjectRunConfigurationInspection {
+    func inspect(at _: URL, checkFingerprint _: Bool, providerRuns _: [RunProviderConfiguration]?) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(
-        at _: URL,
-        files _: [URL],
-        modulePaths _: [String],
-        javaEntrypoints _: JavaEntrypoints?,
-        projectOwnership _: [RunProjectOwnership]? = nil
-    ) throws -> RunConfigurationGenerationResult {
+    func generate(at _: URL, providerRuns _: [RunProviderConfiguration]?, lease _: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2344,103 +1494,22 @@ private struct FixedLaunchPlanRunConfigurationOperations: RunConfigurationOperat
             defaultConfigurationID: configuration.id
         )
     }
-    func launchPlan(at _: URL, configurationID _: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
+    func launchPlan(at _: URL, configurationID _: String) throws -> SharedLaunchPlan {
         plan
     }
-    func createConfiguration(_ draft: RunConfigurationDraft, at _: URL) throws -> String { draft.name }
-    func migrateLegacySettings(at _: URL, configurationIDs _: [String]) throws {}
-}
-
-/// Resolves the JDK launcher to `/test/bin/java`, so the shared `resolve(step:)`
-/// default can swap the last path component to `/test/bin/javac` for a compile
-/// step that names `tool: "javac"`.
-@MainActor
-private final class JavacAwareExecutableResolver: RunExecutableResolving {
-    func resolve(_ plan: SharedLaunchPlan, projectURL: URL, options: RunOptions) throws -> ResolvedRunExecutable {
-        ResolvedRunExecutable(
-            executableURL: URL(fileURLWithPath: "/test/bin/java"),
-            environment: [:]
-        )
-    }
-    func refreshCandidates(projectURL: URL) async {}
-    func candidates(projectURL: URL) -> [ProjectToolchainCandidate] { [] }
-}
-
-/// Hands out and remembers every process the pre-launch factory creates, so a
-/// test can fire each step's termination and assert its start request.
-private final class StepProcessRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storage: [TestStreamingProcess] = []
-    var processes: [TestStreamingProcess] {
-        lock.lock(); defer { lock.unlock() }
-        return storage
-    }
-    func make() -> TestStreamingProcess {
-        let process = TestStreamingProcess()
-        lock.lock(); storage.append(process); lock.unlock()
-        return process
-    }
-}
-
-/// Hands out the processes one module session creates — the pre-launch step and
-/// then the service — and yields on every start, so a test can await the exact
-/// moment the JVM launches instead of sleeping.
-private final class SessionProcessRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storage: [TestStreamingProcess] = []
-    let started = AsyncStream<Void>.makeStream(bufferingPolicy: .unbounded)
-
-    var processes: [TestStreamingProcess] {
-        lock.lock(); defer { lock.unlock() }
-        return storage
-    }
-
-    func make() -> TestStreamingProcess {
-        let process = TestStreamingProcess()
-        let continuation = started.continuation
-        process.onStart = { continuation.yield(()) }
-        lock.lock(); storage.append(process); lock.unlock()
-        return process
-    }
-}
-
-/// Resolves a toolchain to `/test/bin/<identifier>`, so a test can tell a
-/// session's resource step apart from the service launcher it gates.
-@MainActor
-private final class ToolNamedExecutableResolver: RunExecutableResolving {
-    func resolve(
-        _ plan: SharedLaunchPlan,
-        projectURL: URL,
-        options: RunOptions
-    ) throws -> ResolvedRunExecutable {
-        let name: String
-        switch plan.executable {
-        case .toolchain(let identifier): name = identifier
-        case .command(let command): name = command
-        }
-        return ResolvedRunExecutable(
-            executableURL: URL(fileURLWithPath: "/test/bin/" + name),
-            environment: [:]
-        )
-    }
-    func refreshCandidates(projectURL: URL) async {}
-    func candidates(projectURL: URL) -> [ProjectToolchainCandidate] { [] }
 }
 
 @MainActor
 private func makeRunService(
     configuration: RunConfiguration,
     options: RunOptions,
-    fileAccess: TestRunFileAccess,
-    serverPortParser: FixedServerPortParser
+    fileAccess: TestRunFileAccess
 ) -> RunService {
     RunService(
-        runtime: TestRuntime(),
         process: TestStreamingProcess(),
         processFactory: { TestStreamingProcess() },
         fileAccess: fileAccess,
         preferences: TestRunPreferences(),
-        serverPortParser: serverPortParser,
         runConfigurationOperations: SingleRunConfigurationOperations(
             configuration: configuration,
             options: options
@@ -2480,15 +1549,12 @@ private func makeTestGraph(
     runOperations: any RunConfigurationOperations = TestRunConfigurationOperations(),
     buildSystems: BuildSystemService? = nil
 ) -> ExecutionFeatureGraph {
-    let runtime = TestRuntime()
     let resolver = TestExecutableResolver()
     let run = RunService(
-        runtime: runtime,
         process: TestStreamingProcess(),
         processFactory: { TestStreamingProcess() },
         fileAccess: TestRunFileAccess(),
         preferences: TestRunPreferences(),
-        serverPortParser: TestServerPortParser(),
         runConfigurationOperations: runOperations,
         executableResolver: resolver,
         languageProviderCatalog: .compatibilityFallback,
@@ -2552,34 +1618,6 @@ private func awaitSignal(_ stream: AsyncStream<Void>, timeout: Duration = .secon
         return result
     }
     if !received { throw TestObservationError.deadlineExceeded }
-}
-
-@MainActor
-private final class TestRuntime: RunRuntimePort {
-    var synchronousToolchainCalls = 0
-    var loadCandidates: (@MainActor (URL?) async throws -> [ProjectToolchainCandidate])?
-    func loadRunConfigurationToolchainCandidates(
-        projectRoot: URL?,
-        javaHomeOverride: String?, mavenExecutableOverride: String?
-    ) async throws -> [ProjectToolchainCandidate] {
-        try await loadCandidates?(projectRoot) ?? []
-    }
-    private let javaHome: URL?
-    private let mavenJavaHome: URL?
-
-    init(javaHome: URL? = nil, mavenJavaHome: URL? = nil) {
-        self.javaHome = javaHome
-        self.mavenJavaHome = mavenJavaHome
-    }
-
-    func setActiveServiceJavaHomePath(_ path: String) {}
-    func javaHomeURL(overridePath: String?) -> URL? { javaHome }
-    func mavenJavaHomeURL(overridePath: String?) -> URL? { mavenJavaHome }
-    func runConfigurationToolchainCandidates(
-        projectRoot: URL?,
-        javaHomeOverride: String?,
-        mavenExecutableOverride: String?
-    ) -> [ProjectToolchainCandidate] { synchronousToolchainCalls += 1; return [] }
 }
 
 private final class TestStreamingProcess: StreamingProcess, @unchecked Sendable {
@@ -2653,71 +1691,14 @@ private final class TestRunPreferences: RunPreferenceStore {
     func setString(_ value: String, forKey key: String) {}
 }
 
-private struct TestServerPortParser: RunServerPortParsing {
-    func serverPort(content: String, fileExtension: String) -> Int? { nil }
-}
-
-private struct FixedServerPortParser: RunServerPortParsing {
-    let port: Int?
-    func serverPort(content _: String, fileExtension _: String) -> Int? { port }
-}
-
-final class MavenContextRunOperations: RunConfigurationOperations, @unchecked Sendable {
-    let configuration: RunConfiguration
-    private let lock = NSLock()
-    private var recordedContext: MavenLaunchContext?
-    private var didCall = false
-    private var recordedCallCount = 0
-    var context: MavenLaunchContext? { lock.lock(); defer { lock.unlock() }; return recordedContext }
-    var called: Bool { lock.lock(); defer { lock.unlock() }; return didCall }
-    var callCount: Int { lock.lock(); defer { lock.unlock() }; return recordedCallCount }
-    init(configuration: RunConfiguration) { self.configuration = configuration }
-    func inspect(at _: URL) -> ProjectRunConfigurationInspection {
-        ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
-    }
-    func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
-        RunConfigurationResolution(configurations: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions())],
-                                   diagnostics: [], defaultConfigurationID: configuration.id)
-    }
-    func generate(
-        at _: URL,
-        files _: [URL],
-        modulePaths _: [String],
-        javaEntrypoints _: JavaEntrypoints?,
-        projectOwnership _: [RunProjectOwnership]? = nil
-    ) throws -> RunConfigurationGenerationResult {
-        RunConfigurationGenerationResult(entryCount: 1)
-    }
-    func launchPlan(at _: URL, configurationID _: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
-        throw RunConfigurationOperationFailure(message: "Expected the context-aware launch boundary")
-    }
-    func launchPlan(at _: URL, configurationID _: String, currentFile _: String?, classPath _: String?, debugPort _: Int?,
-                    mavenContext: MavenLaunchContext?) throws -> SharedLaunchPlan {
-        lock.lock()
-        recordedContext = mavenContext
-        didCall = true
-        recordedCallCount += 1
-        lock.unlock()
-        throw RunConfigurationOperationFailure(message: "Fixture launch failure")
-    }
-    func createConfiguration(_ draft: RunConfigurationDraft, at _: URL) throws -> String { draft.name }
-    func migrateLegacySettings(at _: URL, configurationIDs _: [String]) throws {}
-}
-
 private struct SingleRunConfigurationOperations: RunConfigurationOperations {
     let configuration: RunConfiguration
     let options: RunOptions
 
-    func inspect(at _: URL) -> ProjectRunConfigurationInspection {
+    func inspect(at _: URL, checkFingerprint _: Bool, providerRuns _: [RunProviderConfiguration]?) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(
-        at _: URL,
-        files _: [URL],
-        modulePaths _: [String],
-        javaEntrypoints _: JavaEntrypoints?,
-        projectOwnership _: [RunProjectOwnership]? = nil
-    ) throws -> RunConfigurationGenerationResult {
+    func generate(at _: URL, providerRuns _: [RunProviderConfiguration]?, lease _: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2727,17 +1708,9 @@ private struct SingleRunConfigurationOperations: RunConfigurationOperations {
             defaultConfigurationID: configuration.id
         )
     }
-    func launchPlan(
-        at _: URL,
-        configurationID _: String,
-        currentFile _: String?,
-        classPath _: String?,
-        debugPort _: Int?
-    ) throws -> SharedLaunchPlan {
+    func launchPlan(at _: URL, configurationID _: String) throws -> SharedLaunchPlan {
         throw RunConfigurationOperationFailure(message: "Not required by the port resolution test")
     }
-    func createConfiguration(_ draft: RunConfigurationDraft, at _: URL) throws -> String { draft.name }
-    func migrateLegacySettings(at _: URL, configurationIDs _: [String]) throws {}
 }
 
 @MainActor
@@ -2759,7 +1732,6 @@ private final class InventoryInspectionGate: Sendable {
 }
 
 private struct TestRunConfigurationOperations: RunConfigurationOperations {
-    var toolchain = ProjectToolchainSelection()
     var rejectsResolutionWithoutGeneratedDocument = false
     var savedProvider: BuildProviderRunReference? = nil
     func saveBuildProviderConfiguration(_ reference: BuildProviderRunReference, name: String, at projectURL: URL) throws -> String {
@@ -2767,64 +1739,46 @@ private struct TestRunConfigurationOperations: RunConfigurationOperations {
         return "user:provider"
     }
     var inspectionGate: InventoryInspectionGate? = nil
-    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
+    func inspect(at projectURL: URL, checkFingerprint _: Bool, providerRuns _: [RunProviderConfiguration]?) -> ProjectRunConfigurationInspection {
         if let inspectionGate {
             inspectionGate.entered.continuation.yield(())
             if inspectionGate.release.wait(timeout: .now() + 2) != .success {
                 Issue.record("Run inspection was not released before its deadline")
             }
         }
-        return ProjectRunConfigurationInspection(status: .missing, diagnostics: [],
-            projectToolchain: toolchain == ProjectToolchainSelection() ? nil : toolchain)
+        return ProjectRunConfigurationInspection(status: .missing, diagnostics: [])
     }
-    func generate(
-        at projectURL: URL,
-        files: [URL],
-        modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?,
-        projectOwnership: [RunProjectOwnership]? = nil
-    ) throws -> RunConfigurationGenerationResult {
+    func generate(at projectURL: URL, providerRuns _: [RunProviderConfiguration]?, lease _: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 0)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
         if rejectsResolutionWithoutGeneratedDocument { throw RunFixtureError.failed }
         if let savedProvider {
-            let configuration = RunConfiguration(id: "user:provider", name: "Main", kind: .process(provider: "build.provider"),
-                modulePath: nil, mainClass: nil, buildProvider: savedProvider)
+            let configuration = RunConfiguration(id: "user:provider", name: "Main", kind: .process(provider: "build.provider"), buildProvider: savedProvider)
             return RunConfigurationResolution(configurations: [.init(configuration: configuration, options: RunOptions())],
                 diagnostics: [], defaultConfigurationID: nil)
         }
-        return RunConfigurationResolution(configurations: [], diagnostics: [], defaultConfigurationID: nil, projectToolchain: toolchain)
+        return RunConfigurationResolution(configurations: [], diagnostics: [], defaultConfigurationID: nil)
     }
-    func launchPlan(at projectURL: URL, configurationID: String, currentFile: String?, classPath: String?, debugPort: Int?) throws -> SharedLaunchPlan {
+    func launchPlan(at projectURL: URL, configurationID: String) throws -> SharedLaunchPlan {
         throw RunConfigurationOperationFailure(message: "Unavailable in lifecycle test")
     }
-    func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
-    func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
 }
 
 /// Records the file inventory each generation attempt was given, so a test can
 /// prove both that a pending workspace never reaches the store and that a ready
 /// one is scanned with the complete inventory.
 private final class RecordingRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
-    private(set) var generatedInventories: [[URL]] = []
+    private(set) var generateCallCount = 0
 
-    var generateCallCount: Int { generatedInventories.count }
-
-    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
+    func inspect(at projectURL: URL, checkFingerprint _: Bool, providerRuns _: [RunProviderConfiguration]?) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(
-            status: generatedInventories.isEmpty ? .missing : .ready,
+            status: generateCallCount == 0 ? .missing : .ready,
             diagnostics: []
         )
     }
-    func generate(
-        at projectURL: URL,
-        files: [URL],
-        modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?,
-        projectOwnership: [RunProjectOwnership]? = nil
-    ) throws -> RunConfigurationGenerationResult {
-        generatedInventories.append(files)
+    func generate(at projectURL: URL, providerRuns _: [RunProviderConfiguration]?, lease _: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult {
+        generateCallCount += 1
         return RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2837,52 +1791,36 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
             defaultConfigurationID: RunConfiguration.currentFileID
         )
     }
-    func launchPlan(at projectURL: URL, configurationID: String, currentFile: String?, classPath: String?, debugPort: Int?) throws -> SharedLaunchPlan {
+    func launchPlan(at projectURL: URL, configurationID: String) throws -> SharedLaunchPlan {
         throw RunConfigurationOperationFailure(message: "Unavailable in identification test")
     }
-    func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
-    func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
 }
 
 /// Reports an unreadable configuration so a test can observe the failed state.
 private struct FailingInspectionRunConfigurationOperations: RunConfigurationOperations {
-    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
+    func inspect(at projectURL: URL, checkFingerprint _: Bool, providerRuns _: [RunProviderConfiguration]?) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(
             status: .invalid("configurations.json is invalid"),
             diagnostics: [],
             recoveryAction: .editConfiguration
         )
     }
-    func generate(
-        at projectURL: URL,
-        files: [URL],
-        modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?,
-        projectOwnership: [RunProjectOwnership]? = nil
-    ) throws -> RunConfigurationGenerationResult {
+    func generate(at projectURL: URL, providerRuns _: [RunProviderConfiguration]?, lease _: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 0)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
         RunConfigurationResolution(configurations: [], diagnostics: [], defaultConfigurationID: nil)
     }
-    func launchPlan(at projectURL: URL, configurationID: String, currentFile: String?, classPath: String?, debugPort: Int?) throws -> SharedLaunchPlan {
+    func launchPlan(at projectURL: URL, configurationID: String) throws -> SharedLaunchPlan {
         throw RunConfigurationOperationFailure(message: "Unavailable in inspection test")
     }
-    func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
-    func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
 }
 
 private struct TestReadyRunConfigurationOperations: RunConfigurationOperations {
-    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
+    func inspect(at projectURL: URL, checkFingerprint _: Bool, providerRuns _: [RunProviderConfiguration]?) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(
-        at projectURL: URL,
-        files: [URL],
-        modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?,
-        projectOwnership: [RunProjectOwnership]? = nil
-    ) throws -> RunConfigurationGenerationResult {
+    func generate(at projectURL: URL, providerRuns _: [RunProviderConfiguration]?, lease _: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2895,11 +1833,9 @@ private struct TestReadyRunConfigurationOperations: RunConfigurationOperations {
             defaultConfigurationID: RunConfiguration.currentFileID
         )
     }
-    func launchPlan(at projectURL: URL, configurationID: String, currentFile: String?, classPath: String?, debugPort: Int?) throws -> SharedLaunchPlan {
+    func launchPlan(at projectURL: URL, configurationID: String) throws -> SharedLaunchPlan {
         throw RunConfigurationOperationFailure(message: "The extension must supply this launch plan")
     }
-    func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
-    func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
 }
 
 private struct TestGoProjectRunConfigurationOperations: RunConfigurationOperations {
@@ -2907,21 +1843,13 @@ private struct TestGoProjectRunConfigurationOperations: RunConfigurationOperatio
         id: "go:api",
         name: "Go API",
         kind: .process(provider: "go.main"),
-        execution: .application,
-        modulePath: "cmd/api",
-        mainClass: nil
+        execution: .application
     )
 
-    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
+    func inspect(at projectURL: URL, checkFingerprint _: Bool, providerRuns _: [RunProviderConfiguration]?) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(
-        at projectURL: URL,
-        files: [URL],
-        modulePaths: [String],
-        javaEntrypoints: JavaEntrypoints?,
-        projectOwnership: [RunProjectOwnership]? = nil
-    ) throws -> RunConfigurationGenerationResult {
+    func generate(at projectURL: URL, providerRuns _: [RunProviderConfiguration]?, lease _: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2934,15 +1862,13 @@ private struct TestGoProjectRunConfigurationOperations: RunConfigurationOperatio
             defaultConfigurationID: configuration.id
         )
     }
-    func launchPlan(at projectURL: URL, configurationID: String, currentFile: String?, classPath: String?, debugPort: Int?) throws -> SharedLaunchPlan {
+    func launchPlan(at projectURL: URL, configurationID: String) throws -> SharedLaunchPlan {
         SharedLaunchPlan(
             executable: .toolchain("project-go"),
             arguments: ["run", "./cmd/api"],
             workingDirectory: "."
         )
     }
-    func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String { draft.name }
-    func migrateLegacySettings(at projectURL: URL, configurationIDs: [String]) throws {}
 }
 
 @MainActor
@@ -3035,10 +1961,10 @@ private final class TestLanguageExecutionSession: LanguageExecutionSession {
 private struct ProviderChoicesRunOperations: RunConfigurationOperations {
     var withReference = true
     var configurations: [RunConfiguration] { ["first", "second"].map { id in RunConfiguration(id: id, name: id,
-        kind: withReference ? .process(provider: "build.provider") : .mavenFramework(.quarkus), execution: .service, modulePath: id, mainClass: nil, mavenReactorPath: withReference ? nil : ".",
-        buildProvider: withReference ? .init(pluginID: "dev.first", buildSystemID: "maven", root: ".", run: "service", projectID: id, targetID: "service", execution: .service) : nil) } }
-    func inspect(at _: URL) -> ProjectRunConfigurationInspection { .init(status: .ready, diagnostics: []) }
-    func generate(at _: URL, files _: [URL], modulePaths _: [String], javaEntrypoints _: JavaEntrypoints?, projectOwnership _: [RunProjectOwnership]?) throws -> RunConfigurationGenerationResult { .init(entryCount: 2) }
+        kind: .process(provider: "build.provider"), execution: .service,
+        buildProvider: .init(pluginID: "dev.first", buildSystemID: "maven", root: ".", run: "service", projectID: id, targetID: "service", execution: .service)) } }
+    func inspect(at _: URL, checkFingerprint _: Bool, providerRuns _: [RunProviderConfiguration]?) -> ProjectRunConfigurationInspection { .init(status: .ready, diagnostics: []) }
+    func generate(at _: URL, providerRuns _: [RunProviderConfiguration]?, lease _: RunConfigurationGenerationLease) throws -> RunConfigurationGenerationResult { .init(entryCount: 2) }
     func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
         .init(configurations: configurations.map { .init(configuration: $0, options: RunOptions()) }, diagnostics: [], defaultConfigurationID: configurations.first?.id)
     }
@@ -3047,12 +1973,10 @@ private struct ProviderChoicesRunOperations: RunConfigurationOperations {
               launchOptions: .init(execution: .service, arguments: ["a b", "雪"]),
               reference: withReference ? .init(pluginID: "dev.first", buildSystemID: "maven", root: ".", run: "service", projectID: configurationID, targetID: "service", execution: .service) : nil)
     }
-    func launchPlan(at _: URL, configurationID _: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
-        Issue.record("Provider-owned Maven service reached the legacy Core goal planner")
+    func launchPlan(at _: URL, configurationID _: String) throws -> SharedLaunchPlan {
+        Issue.record("Provider-owned service reached the Core launch planner")
         throw RunFixtureError.failed
     }
-    func createConfiguration(_ draft: RunConfigurationDraft, at _: URL) throws -> String { draft.name }
-    func migrateLegacySettings(at _: URL, configurationIDs _: [String]) throws {}
 }
 
 @MainActor

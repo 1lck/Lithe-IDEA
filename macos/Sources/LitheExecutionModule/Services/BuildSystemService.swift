@@ -144,19 +144,15 @@ package final class BuildSystemService: ObservableObject {
         let revision: Int
     }
     package private(set) var workspaceURL: URL?
-    /// Nil while detection is pending. An empty value means no plugin import.
-    @Published package private(set) var languageImport: JavaLanguageImportConfiguration? {
+    /// False while detection is pending; true once the current detection has
+    /// finished and normalized the stored options.
+    @Published package private(set) var isDetectionSettled = false {
         didSet { runGenerationInputsChanged.send() }
     }
-    private var languageImportsByRoot: [String: JavaLanguageImportConfiguration] = [:]
-    private var languageImportsByEntryID: [String: BuildLanguageImport] = [:] {
-        didSet { runGenerationInputsChanged.send() }
-    }
-    package var onLanguageImportChanged: ((URL) -> Void)?
-    private var languageImportFailure: String?
+    private var detectionFailure: String?
     private var detectionID: UUID?
-    private var importWaiters: [UUID: CheckedContinuation<JavaLanguageImportConfiguration, Error>] = [:]
-    private var importTimeouts: [UUID: Task<Void, Never>] = [:]
+    private var detectionWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
+    private var detectionTimeouts: [UUID: Task<Void, Never>] = [:]
 
     private let planner: any BuildSystemPlanning
     private let tools: any BuildToolResolving
@@ -341,9 +337,6 @@ package final class BuildSystemService: ObservableObject {
             dependencyRevisions[affected.id, default: 0] += 1
         }
         invalidateProducerConfiguration(buildSystemID: buildSystemID)
-        // The selected path can stay the same while its native content changes.
-        // Language import must re-read that source before its next project sync.
-        onLanguageImportChanged?(workspaceURL)
     }
 
     // MARK: Workspace
@@ -381,16 +374,14 @@ package final class BuildSystemService: ObservableObject {
         detectionTask?.cancel()
         let detectionID = UUID()
         self.detectionID = detectionID
-        languageImport = nil
-        languageImportsByRoot = [:]
-        languageImportsByEntryID = [:]
-        languageImportFailure = nil
+        isDetectionSettled = false
+        detectionFailure = nil
         let sources = sources()
         guard !sources.isEmpty else {
             entries = []
             issues = []
             isDetecting = false
-            publishLanguageImport(JavaLanguageImportConfiguration(), workspaceURL: workspaceURL)
+            settleDetection()
             return
         }
         isDetecting = true
@@ -425,7 +416,7 @@ package final class BuildSystemService: ObservableObject {
         } catch {
             entries = []
             isDetecting = false
-            failLanguageImport(error)
+            failDetection(error)
             return
         }
         let previous = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
@@ -463,7 +454,7 @@ package final class BuildSystemService: ObservableObject {
                 } catch {
                     self.entries = []
                     self.issues = []
-                    self.failLanguageImport(error)
+                    self.failDetection(error)
                     return
                 }
                 let current = Dictionary(uniqueKeysWithValues: self.entries.map { ($0.id, $0) })
@@ -496,75 +487,20 @@ package final class BuildSystemService: ObservableObject {
                 }
                 if publishedBefore != self.entries.filter({ $0.declaration.sharesModel }) { self.invalidateModelInputs() }
                 self.issues = detected.issues
-                let inputs: [LanguageImportInput]
                 do {
                     try self.persistDroppedOptions()
                     try self.restoreSavedChoices(workspaceURL: workspaceURL)
-                    inputs = try self.entries.map { entry in
-                        LanguageImportInput(
-                            entry: entry,
-                            options: try self.storedOptions(for: entry, workspaceURL: workspaceURL)
-                        )
-                    }
                 } catch {
                     self.entries = []
-                    self.failLanguageImport(error)
+                    self.failDetection(error)
                     return
                 }
-                // Discovery is passive: importing a project cannot execute a
-                // wrapper or probe the build tool before user confirmation.
-                let normalized = await Task.detached(priority: .userInitiated) {
-                    Result { try Self.languageImports(planner: planner, workspaceURL: workspaceURL, inputs: inputs) }
-                }.value
-                guard self.generation == generation, self.detectionID == detectionID,
-                      !Task.isCancelled else { return }
-                switch normalized {
-                case .success(let imports):
-                    var executables: [String: URL] = [:]
-                    for input in inputs {
-                        guard case .maven? = imports[input.entry.id],
-                              let invocation = try? planner.invocationPlan(
-                                input.entry.target, root: input.entry.instance.root,
-                                settings: self.settings(input.entry.source.pluginID)
-                              )
-                        else { continue }
-                        do {
-                            executables[input.entry.id] = try await self.tools.prepareLanguageImportExecutable(invocation, workspaceURL: workspaceURL)
-                        } catch {
-                            guard self.generation == generation, self.detectionID == detectionID,
-                                  !Task.isCancelled else { return }
-                            self.failLanguageImport(error)
-                            return
-                        }
-                        guard self.generation == generation, self.detectionID == detectionID,
-                              !Task.isCancelled else { return }
-                    }
-                    let withExecutables = executables
-                    let configured = await Task.detached(priority: .userInitiated) {
-                        Result {
-                            try Self.languageImports(
-                                planner: planner, workspaceURL: workspaceURL, inputs: inputs,
-                                executables: withExecutables, initial: imports
-                            )
-                        }
-                    }.value
-                    guard self.generation == generation, self.detectionID == detectionID,
-                          !Task.isCancelled else { return }
-                    switch configured {
-                    case .success(let values):
-                        self.languageImportsByEntryID = values
-                        self.languageImportsByRoot = Dictionary(uniqueKeysWithValues: Set(inputs.map { $0.entry.instance.root }).map { root in
-                            (root, Self.workspaceImport(inputs: inputs.filter { $0.entry.instance.root == root }, imports: values))
-                        })
-                        self.publishLanguageImport(Self.workspaceImport(inputs: inputs, imports: values), workspaceURL: workspaceURL)
-                    case .failure(let error): self.failLanguageImport(error)
-                    }
-                case .failure(let error): self.failLanguageImport(error)
-                }
+                self.settleDetection()
             case .failure(let error):
                 self.entries = []
                 self.issues = [error.localizedDescription]
-                self.failLanguageImport(error)
+                self.detectionFailure = error.localizedDescription
+                self.finishDetectionWaiters(.failure(error))
             }
         }
     }
@@ -644,13 +580,11 @@ package final class BuildSystemService: ObservableObject {
         providerConfigurationRevision += 1
         if providerRunID != nil { stopRun() }
         // Reject the old input immediately; consumers wait for the coalesced
-        // detection instead of starting Java with pre-save import settings.
+        // detection instead of starting with pre-save option values.
         detectionTask?.cancel(); detectionTask = nil
         detectionID = nil
-        languageImport = nil
-        languageImportsByRoot = [:]
-        languageImportsByEntryID = [:]
-        languageImportFailure = nil
+        isDetectionSettled = false
+        detectionFailure = nil
         isDetecting = false
         redetectTask?.cancel()
         let waitForRedetection = waitForRedetection
@@ -663,26 +597,7 @@ package final class BuildSystemService: ObservableObject {
         }
     }
 
-    // MARK: Language import
-
-    /// Only current, complete upstream projects reach the generator. An empty
-    /// snapshot is authoritative when no build provider is enabled.
-    package func runProjectOwnership() throws -> [RunProjectOwnership] {
-        guard workspaceURL != nil, languageImport != nil else { throw CancellationError() }
-        return try entries.filter { $0.instance.modelSource != nil && languageImportsByEntryID[$0.id] != nil }.flatMap { entry in
-            guard entry.modelState == .loaded, !entry.isReloadRequired, let model = entry.model, !model.truncated else {
-                throw BuildSystemServiceError(L10n.string("Load the current build model and enable its provider before running this configuration."))
-            }
-            return model.projects.map { project in
-                return RunProjectOwnership(path: project.path, build: RunBuildProjectReference(
-                    pluginID: entry.instance.pluginID, buildSystemID: entry.instance.buildSystemID,
-                    root: entry.instance.root, projectID: project.id),
-                    contentRoots: model.contentRoots.filter { $0.projectID == project.id && ["source", "testSource", "generatedSource", "generatedTestSource"].contains($0.kind) }
-                        .map { RunProjectOwnership.SourceRoot(path: $0.path, kind: $0.kind) },
-                    name: project.name, minimumJavaVersion: project.properties["java.minimumVersion"])
-            }
-        }
-    }
+    // MARK: Detection
 
     /// Run discovery is language-neutral and never reads provider-specific properties.
     package func providerRunConfigurations() throws -> [RunProviderConfiguration] {
@@ -715,133 +630,52 @@ package final class BuildSystemService: ObservableObject {
         return configurations
     }
 
-    /// Run preparation uses the same accepted options as Java import, scoped to
-    /// its recorded build root. Pending detection must never reuse an old root.
-    package func languageImport(workspaceURL: URL, root: String?) throws -> JavaLanguageImportConfiguration {
-        guard self.workspaceURL == workspaceURL.standardizedFileURL else { throw CancellationError() }
-        if let languageImportFailure { throw BuildSystemServiceError(languageImportFailure) }
-        guard let languageImport else {
-            throw BuildSystemServiceError(L10n.string("Build-system language import is still preparing. Retry when project loading completes."))
-        }
-        guard let root else { return languageImport }
-        return languageImportsByRoot[root] ?? JavaLanguageImportConfiguration()
-    }
-
-    /// Routes only an exact current model identity; names and directory guesses
-    /// cannot select another plugin's language preparation inputs.
-    package func languageImport(workspaceURL: URL, project: RunBuildProjectReference) throws -> JavaLanguageImportConfiguration {
-        guard self.workspaceURL == workspaceURL.standardizedFileURL, languageImportFailure == nil,
-              languageImport != nil else { throw CancellationError() }
-        let current = sources()
-        let matches = entries.filter { entry in
-            entry.instance.pluginID == project.pluginID && entry.instance.buildSystemID == project.buildSystemID
-                && entry.instance.root == project.root && current.contains(entry.source)
-                && entry.modelState == .loaded && !entry.isReloadRequired && entry.model?.truncated == false
-                && entry.model?.projects.contains(where: { $0.id == project.projectID }) == true
-        }
-        guard matches.count == 1, let entry = matches.first, let imported = languageImportsByEntryID[entry.id] else { throw CancellationError() }
-        switch imported {
-        case .maven(let value): return JavaLanguageImportConfiguration(mavenContext: value)
-        case .gradle(let value): return JavaLanguageImportConfiguration(javaGradle: value)
-        }
-    }
-
     /// Waits for the current detection, including option normalization. A
     /// cancelled waiter never cancels detection shared by other consumers.
-    package func prepareLanguageImport(workspaceURL: URL) async throws -> JavaLanguageImportConfiguration {
+    package func awaitDetection(workspaceURL: URL) async throws {
         guard self.workspaceURL == workspaceURL.standardizedFileURL else { throw CancellationError() }
-        if let languageImport { return languageImport }
-        if let languageImportFailure { throw BuildSystemServiceError(languageImportFailure) }
+        if isDetectionSettled { return }
+        if let detectionFailure { throw BuildSystemServiceError(detectionFailure) }
         let id = UUID()
-        return try await withTaskCancellationHandler {
+        try await withTaskCancellationHandler {
             try Task.checkCancellation()
-            return try await withCheckedThrowingContinuation { continuation in
-                importWaiters[id] = continuation
-                importTimeouts[id] = Task { @MainActor [weak self] in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                detectionWaiters[id] = continuation
+                detectionTimeouts[id] = Task { @MainActor [weak self] in
                     // log-exempt: 用户取消：调用方取消等待或替换旧任务时结束延迟，不代表操作失败
                     try? await Task.sleep(for: .seconds(30))
                     guard !Task.isCancelled else { return }
-                    self?.finishImportWaiter(id, result: .failure(BuildSystemServiceError(
+                    self?.finishDetectionWaiter(id, result: .failure(BuildSystemServiceError(
                         L10n.string("Build-system language import preparation timed out. Retry project loading.")
                     )))
                 }
             }
         } onCancel: {
             Task { @MainActor [weak self] in
-                self?.finishImportWaiter(id, result: .failure(CancellationError()))
+                self?.finishDetectionWaiter(id, result: .failure(CancellationError()))
             }
         }
     }
 
-    private func publishLanguageImport(_ value: JavaLanguageImportConfiguration, workspaceURL: URL) {
-        languageImport = value
-        languageImportFailure = nil
-        finishImportWaiters(.success(value))
-        onLanguageImportChanged?(workspaceURL)
+    private func settleDetection() {
+        detectionFailure = nil
+        isDetectionSettled = true
+        finishDetectionWaiters(.success(()))
     }
 
-    private func failLanguageImport(_ error: Error) {
-        languageImportFailure = error.localizedDescription
+    private func failDetection(_ error: Error) {
+        detectionFailure = error.localizedDescription
         issues.append(error.localizedDescription)
-        finishImportWaiters(.failure(error))
+        finishDetectionWaiters(.failure(error))
     }
 
-    private func finishImportWaiter(_ id: UUID, result: Result<JavaLanguageImportConfiguration, Error>) {
-        importTimeouts.removeValue(forKey: id)?.cancel()
-        importWaiters.removeValue(forKey: id)?.resume(with: result)
+    private func finishDetectionWaiter(_ id: UUID, result: Result<Void, Error>) {
+        detectionTimeouts.removeValue(forKey: id)?.cancel()
+        detectionWaiters.removeValue(forKey: id)?.resume(with: result)
     }
 
-    private func finishImportWaiters(_ result: Result<JavaLanguageImportConfiguration, Error>) {
-        for id in Array(importWaiters.keys) { finishImportWaiter(id, result: result) }
-    }
-
-    private struct LanguageImportInput: Sendable {
-        let entry: BuildSystemEntry
-        let options: [String: ToolingJSONValue]
-    }
-
-    nonisolated private static func languageImports(
-        planner: any BuildSystemPlanning, workspaceURL: URL, inputs: [LanguageImportInput],
-        executables: [String: URL] = [:], initial: [String: BuildLanguageImport]? = nil
-    ) throws -> [String: BuildLanguageImport] {
-        var imports = initial ?? [:]
-        for input in inputs {
-            try Task.checkCancellation()
-            if initial != nil && executables[input.entry.id] == nil { continue }
-            let resolution = try planner.resolveOptions(
-                input.entry.target, options: input.options, modelValues: input.entry.model?.optionValues
-            )
-            imports[input.entry.id] = try planner.languageImport(
-                input.entry.target, workspaceURL: workspaceURL, root: input.entry.instance.root,
-                options: effectiveOptionValues(resolution, stored: input.options),
-                executableURL: executables[input.entry.id]
-            )
-        }
-        return imports
-    }
-
-    /// JDT accepts one context of each kind. Prefer the workspace root, then
-    /// the shallowest instance, with stable path/ID ordering for ties. Never
-    /// combine Profiles or machine paths from unrelated reactors.
-    nonisolated private static func workspaceImport(
-        inputs: [LanguageImportInput], imports: [String: BuildLanguageImport]
-    ) -> JavaLanguageImportConfiguration {
-        let ordered = inputs.sorted {
-            let left = $0.entry.instance, right = $1.entry.instance
-            let leftDepth = left.root == "." ? 0 : left.root.split(separator: "/").count
-            let rightDepth = right.root == "." ? 0 : right.root.split(separator: "/").count
-            return (leftDepth, left.root, left.id, left.pluginID) < (rightDepth, right.root, right.id, right.pluginID)
-        }
-        var maven: MavenLaunchContext?
-        var gradle: JavaGradleImportConfiguration?
-        for input in ordered {
-            switch imports[input.entry.id] {
-            case .maven(let context)?: if maven == nil { maven = context }
-            case .gradle(let context)?: if gradle == nil { gradle = context }
-            case nil: break
-            }
-        }
-        return JavaLanguageImportConfiguration(mavenContext: maven, javaGradle: gradle)
+    private func finishDetectionWaiters(_ result: Result<Void, Error>) {
+        for id in Array(detectionWaiters.keys) { finishDetectionWaiter(id, result: result) }
     }
 
     // MARK: Model
@@ -857,7 +691,7 @@ package final class BuildSystemService: ObservableObject {
         let configurationRevision = providerConfigurationRevision
         let sourcesRevision = fileRevision
         let ids = entries.filter { entry in
-            if allModels { return entry.instance.modelSource != nil && languageImportsByEntryID[entry.id] != nil }
+            if allModels { return entry.instance.modelSource != nil }
             if let reference { return entry.instance.pluginID == reference.pluginID && entry.instance.buildSystemID == reference.buildSystemID && entry.instance.root == reference.root }
             if let preparationPurpose { return entry.declaration.tasks.contains { $0.preparation?.purpose == preparationPurpose } }
             return selectorKind.map(entry.declaration.testSelectorKinds.contains) ?? entry.declaration.tasks.contains { taskIDs.contains($0.id) }
@@ -947,7 +781,7 @@ package final class BuildSystemService: ObservableObject {
                 do { try self.refreshOptions(buildSystemID: entry.instance.buildSystemID) }
                 catch {
                     self.entries = []
-                    self.failLanguageImport(error)
+                    self.failDetection(error)
                     return
                 }
                 // Model-provided choices may remove an import option even
@@ -1078,7 +912,7 @@ package final class BuildSystemService: ObservableObject {
         let launchOptions = declaration.execution == .application ? nil : BuildLaunchOptions(
             execution: declaration.execution, arguments: request.userArguments)
         let origin = configuration ?? RunConfiguration(id: "build:" + entryID + ":" + request.run + ":" + request.targetID,
-            name: title, kind: .process(provider: "build.provider"), execution: declaration.execution == .service ? .service : (declaration.execution == .task ? .task : .application), modulePath: nil, mainClass: nil,
+            name: title, kind: .process(provider: "build.provider"), execution: declaration.execution == .service ? .service : (declaration.execution == .task ? .task : .application),
             buildProvider: BuildProviderRunReference(pluginID: entry.instance.pluginID, buildSystemID: entry.instance.buildSystemID,
                 root: entry.instance.root, run: request.run, projectID: request.projectID, targetID: request.targetID,
                 userArguments: request.userArguments, execution: declaration.execution == .application ? nil : declaration.execution))
@@ -1170,8 +1004,7 @@ package final class BuildSystemService: ObservableObject {
     /// Independent service preparations share provider sessions, never the single Build task slot.
     package func prepareConfigurationRun(inputs: ProviderLaunchInputs, instanceRoot: String, workspace: URL,
         tool: BuildProviderHints, isCurrent: @escaping @MainActor @Sendable () -> Bool,
-        progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void,
-        onLanguageImport: @escaping @MainActor (BuildLanguageImport) async throws -> Void = { _ in }) async throws -> BuildRunPreparation {
+        progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> BuildRunPreparation {
         guard workspace.standardizedFileURL == workspaceURL, let providers else { throw CancellationError() }
         let candidates = entries.filter { $0.instance.root == instanceRoot && $0.instance.buildSystemID == inputs.buildSystemID
             && (inputs.reference == nil || inputs.reference?.pluginID == $0.instance.pluginID)
@@ -1242,15 +1075,6 @@ package final class BuildSystemService: ObservableObject {
                 && (inputs.reference == nil || $0.id == inputs.reference?.run)
                 && ($0.targetTags.isEmpty || !Set($0.targetTags).isDisjoint(with: selected.tags)) }
             guard runs.count == 1, let run = runs.first else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
-            if inputs.launchOptions.debug != nil {
-                let resolution = try planner.resolveOptions(entry.target, options: context.options, modelValues: model.optionValues)
-                if let imported = try planner.languageImport(entry.target, workspaceURL: workspace, root: context.root,
-                    options: Self.effectiveOptionValues(resolution, stored: context.options), executableURL: launchTool.toolExecutable) {
-                    guard valid() else { throw CancellationError() }
-                    try await onLanguageImport(imported)
-                }
-                guard valid() else { throw CancellationError() }
-            }
             let opaqueArguments = inputs.opaqueReferenceArguments
             let launchOptions = opaqueArguments == nil ? inputs.launchOptions : nil
             let request = try planner.prepareRunPlan(entry.target, context: context, run: run.id, project: BuildSelection(project: project),
@@ -1346,7 +1170,6 @@ package final class BuildSystemService: ObservableObject {
     /// Runs a declared task, or a model task through its template.
     @discardableResult
     package func runTask(_ entryID: String, request: BuildTaskRequest, title: String,
-                         onLanguageImport: (@MainActor (BuildLanguageImport?) -> Void)? = nil,
                          selectFromModel: (@MainActor (BuildModel) throws -> BuildTaskRequest)? = nil) -> UUID? {
         guard let workspaceURL, let entry = entry(entryID) else { return nil }
         return startRun(entryID, title: title) { service, run in
@@ -1360,10 +1183,6 @@ package final class BuildSystemService: ObservableObject {
             }
             let context = BuildPlanContext(root: base.root, options: proposed, pluginDirectory: base.pluginDirectory,
                 workspaceStateDirectory: base.workspaceStateDirectory, modelInputs: base.modelInputs)
-            if let onLanguageImport {
-                onLanguageImport(try service.planner.languageImport(entry.target, workspaceURL: workspaceURL,
-                    root: context.root, options: context.options, executableURL: request.tool?.toolExecutable))
-            }
             var selectedRequest = request
             if let selectFromModel {
                 let model: BuildModel
@@ -1507,12 +1326,10 @@ package final class BuildSystemService: ObservableObject {
         detectionTask?.cancel(); detectionTask = nil
         detectionID = nil
         redetectTask?.cancel(); redetectTask = nil
-        languageImport = nil
-        languageImportsByRoot = [:]
-        languageImportsByEntryID = [:]
-        languageImportFailure = nil
+        isDetectionSettled = false
+        detectionFailure = nil
         isDetecting = false
-        finishImportWaiters(.failure(CancellationError()))
+        finishDetectionWaiters(.failure(CancellationError()))
         stopRun()
         testDiscoveries = [:]
         discoverySnapshots = [:]

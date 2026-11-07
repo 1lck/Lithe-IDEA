@@ -216,7 +216,7 @@ mod tests {
     fn name_matches_the_reported_idea_word_fragments() {
         for name in [
             "Name.swift",
-            "NamedColorUtil.java",
+            "NamedColorUtil.txt",
             "NativeMenu",
             "navigation-menu.tsx",
             "native-menu-accelerators.ts",

@@ -118,11 +118,11 @@ struct DebugVariableJSONSnapshotTests {
     @Test func featureSnapshotPreservesTreeStateAndRejectsResumedFrames() async throws {
         let session = SnapshotSession()
         session.pages = [100: [variable("request", reference: 1)], 1: [variable("count", "42", "int")]]
-        let manager = DebugAdapterSessionManager(providers: [DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])]) { _, _ in session }
+        let manager = DebugAdapterSessionManager(providers: [DebugProviderDescriptor(id: "tool-a", displayName: "Tool A", fileExtensions: ["txt"])]) { _, _ in session }
         let feature = GenericDebugFeatureModel(paging: LinkedCoreDebugPaging(), sessions: manager)
         defer { feature.reset(); session.request = nil; session.pending = nil }
         let root = URL(fileURLWithPath: "/snapshot-fixture")
-        #expect(feature.start(fileURL: root.appendingPathComponent("Main.java"), rootURL: root,
+        #expect(feature.start(fileURL: root.appendingPathComponent("Main.txt"), rootURL: root,
                               configuration: DebugLaunchConfiguration(name: "Snapshot", request: .launch, arguments: [:])))
         session.state = .paused
         session.onStateChange?(.paused)

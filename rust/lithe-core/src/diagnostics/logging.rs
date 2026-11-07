@@ -33,7 +33,7 @@ pub const MAX_LOG_EXPORT_BYTES: usize = 10 * 1024 * 1024;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogEventRequest {
-    /// Stable subsystem scope such as language.java; never a path.
+    /// Stable subsystem scope such as language.rust; never a path.
     pub scope: String,
     /// Human-readable lifecycle fact; credentials are scrubbed before persistence.
     pub message: String,
@@ -48,7 +48,7 @@ pub struct LogEventRequest {
 pub struct PreparedLogEvent {
     /// One fixed routing domain from LOG_CATEGORIES.
     pub category: String,
-    /// Stable subsystem scope such as language.java; never a path.
+    /// Stable subsystem scope such as language.rust; never a path.
     pub scope: String,
     /// Human-readable lifecycle fact; credentials are scrubbed before persistence.
     pub message: String,
@@ -62,7 +62,7 @@ pub fn log_category(scope: &str) -> &'static str {
     let prefix = scope.split(['.', ':', '/', '[']).next().unwrap_or("");
     match prefix {
         "lsp" | "language" | "editor" | "index" => "language",
-        "run" | "debug" | "build" | "maven" | "gradle" => "run",
+        "run" | "debug" | "build" => "run",
         "git" | "vcs" => "git",
         "plugin" | "plugins" | "module" => "plugins",
         "perf" | "performance" | "memory" | "fps" => "performance",
@@ -379,7 +379,7 @@ mod tests {
     fn scrubs_nested_secrets_before_json_escaping_and_bounds_arrays() {
         let event = prepare_log_event(
             serde_json::from_value(json!({
-                "scope":"language.java", "message":"started", "fields":{
+                "scope":"language.rust", "message":"started", "fields":{
                     "context":{"password":"fake-password","items":[{"accessToken":"fake-token"}]},
                     "sourceContent":"private source", "operationID":"operation-1"
                 }

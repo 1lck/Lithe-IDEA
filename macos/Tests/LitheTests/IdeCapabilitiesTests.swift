@@ -11,59 +11,7 @@ import SwiftUI
 @MainActor
 struct IdeCapabilitiesTests {
     @Test
-    func environmentUsesCanonicalSettingsWithoutActivatingLegacyProjectLoading() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("agent-toolchains-" + UUID().uuidString)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try Data("<broken-pom".utf8).write(to: root.appendingPathComponent("pom.xml"))
-        let suite = "agent-toolchains-" + UUID().uuidString
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let preferences = MacUserDefaultsStore(defaults: defaults)
-        let store = MacProjectRuntimeSettingsStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: preferences)
-        let legacyKey = MacProjectRuntimeSettingsStore.preferencesKey(root)
-        preferences.set(try JSONSerialization.data(withJSONObject: ["mavenSettingsPath": "/fixture/legacy-settings.xml",
-            "mavenLocalRepositoryPath": "/fixture/legacy-repository"]), forKey: legacyKey)
-        let service = ProjectRuntimeService(runtimeLocator: ProjectRuntimeSettingsTestLocator(), settingsStore: store)
-        let runtime = RuntimeSettingsFeatureModel(service: service)
-        runtime.openProject(at: root)
-        defer { runtime.closeProject() }
-        runtime.prepare(workspaceName: "Fixture", workspaceURL: root, files: [])
-        let actions = CapabilityActionsFixture(root: root)
-        actions.runtime = runtime
-        actions.transport.validateWithCore = true
-        let feature = IdeCapabilitiesFeatureModel(model: actions)
-        feature.allowConfigure = true
-        try await WorkbenchTestScope.withCleanup({ await feature.shutdown() }) { _ in
-            feature.enable()
-            let result = await feature.call("lithe_environment_configure", arguments: ["javaHomePath": "/fixture/agent-jdk"])
-            #expect(result["error"] == nil)
-            #expect((result["settings"] as? [String: String])?["javaHomePath"] == "/fixture/agent-jdk")
-            #expect((result["settings"] as? [String: String])?["settingsPath"] == nil)
-            #expect(try store.load(at: root, migrateLegacy: false).settings.javaHomePath == "/fixture/agent-jdk")
-            let retainedBytes = try #require(preferences.data(forKey: legacyKey))
-            let retained = try #require(JSONSerialization.jsonObject(with: retainedBytes) as? [String: Any])
-            #expect(retained["mavenSettingsPath"] as? String == "/fixture/legacy-settings.xml")
-            #expect(retained["mavenLocalRepositoryPath"] as? String == "/fixture/legacy-repository")
-            #expect(actions.activationCount == 0)
-            #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/maven/config.json").path))
-            runtime.updateSettings { $0.javaHomePath = "/fixture/open-draft" }
-            let busy = await feature.call("lithe_environment_configure", arguments: ["javaHomePath": "/fixture/rejected-jdk"])
-            #expect((busy["error"] as? [String: Any])?["code"] as? String == "BUSY")
-            #expect(runtime.settings.javaHomePath == "/fixture/open-draft")
-            #expect(try store.load(at: root, migrateLegacy: false).settings.javaHomePath == "/fixture/agent-jdk")
-            runtime.cancelChanges()
-            let local = root.appendingPathComponent(".lithe/run/local.json")
-            let invalid = Data("{invalid".utf8)
-            try invalid.write(to: local)
-            let failed = await feature.call("lithe_environment_inspect", arguments: [:])
-            #expect((failed["error"] as? [String: Any])?["code"] as? String == "OPERATION_FAILED")
-            #expect(try Data(contentsOf: local) == invalid)
-        }
-    }
-
-    @Test
-    func exposedToolsMatchTheNativeWorkflowInventoryAndRejectRetiredMavenCalls() async throws {
+    func exposedToolsMatchTheNativeWorkflowInventoryAndRejectRetiredCalls() async throws {
         let root = DeclarativePluginTestSupport.repositoryRoot
         let fixture = try #require(JSONSerialization.jsonObject(with: Data(contentsOf:
             root.appendingPathComponent("shared/fixtures/ide-api/host-tool-exposure.json"))) as? [String: Any])
@@ -76,13 +24,12 @@ struct IdeCapabilitiesTests {
         feature.allowConfigure = true
         feature.allowExecute = true
         feature.enable()
-        #expect(actions.transport.openedExposure.count == 13)
-        for name in ["lithe_maven_inspect", "lithe_maven_configure", "lithe_maven_reload", "lithe_maven_execute"] {
+        #expect(actions.transport.openedExposure.count == 11)
+        for name in ["lithe_maven_inspect", "lithe_maven_configure", "lithe_maven_reload", "lithe_maven_execute",
+                     "lithe_environment_inspect", "lithe_environment_configure"] {
             let result = await feature.call(name, arguments: [:])
             #expect((result["error"] as? [String: Any])?["code"] as? String == "NOT_SUPPORTED")
         }
-        let invalid = await feature.call("lithe_environment_configure", arguments: ["settingsPath": "/fixture/settings.xml"])
-        #expect((invalid["error"] as? [String: Any])?["code"] as? String == "INVALID_ARGUMENTS")
         #expect(actions.activationCount == 0)
         await feature.shutdown()
     }
@@ -153,7 +100,7 @@ struct IdeCapabilitiesTests {
             providers: provider, sources: { [source] })
         defer { provider.release.open(); build.stop() }
         build.reset(workspaceURL: fixture.root)
-        _ = try await build.prepareLanguageImport(workspaceURL: fixture.root)
+        try await build.awaitDetection(workspaceURL: fixture.root)
         let entry = try #require(build.entries.first)
         let actions = CapabilityActionsFixture(root: fixture.root)
         let access = fixture.execution
@@ -210,105 +157,6 @@ struct IdeCapabilitiesTests {
         await feature.shutdown()
     }
 
-    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_STAGE_D_MAVEN_PACKAGE"] != nil,
-                   "Requires an explicit Maven development package and installed tool paths"))
-    func agentBuildEntryRunsARealMavenModuleAndRetainsItsOutput() async throws {
-        let environment = ProcessInfo.processInfo.environment
-        let package = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_D_MAVEN_PACKAGE"]))
-        let reactor = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_D_MAVEN_FIXTURE"]))
-        let java = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_D_JAVA"]))
-        let maven = URL(fileURLWithPath: try #require(environment["LITHE_STAGE_D_MAVEN"]))
-        let fixture = try ProviderCapabilityExecutionFixture()
-        defer { fixture.remove() }
-        try FileManager.default.copyItem(at: reactor, to: fixture.root.appendingPathComponent("nested"))
-        let before = try MacNativeBuildProviderIntegrationTests.inventory(package)
-        let core = RustCoreBridge()
-        let declarations = RustDeclarativePluginOperations(core: core)
-        let descriptor = try declarations.validate(manifest: Data(contentsOf: package.appendingPathComponent("plugin.json")))
-        let source = BuildSystemPluginSource(pluginID: descriptor.id.rawValue, manifest: descriptor.normalizedManifest,
-            packageURL: package, buildSystems: descriptor.buildSystems)
-        let released = TestGate()
-        let runtime = ExplicitProviderRuntime(java: java, environment: environment)
-        let directories = MacPluginStateDirectories(rootURL: fixture.root.appendingPathComponent("state"))
-        let sessions = MacBuildProviderSessions(
-            launchResolver: MacPluginLanguageServerLaunchResolver(planner: declarations, directories: directories,
-                settings: InMemoryPluginSettings()), tools: runtime, versionChecker: declarations, runtime: runtime,
-            core: core, processRegistry: nil, endBackendProcesses: { token, _ in
-                MacPluginBackendProcesses.end(token: token, gracePeriod: 0)
-                released.open()
-            })
-        let suite = "native-build-agent-" + UUID().uuidString
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let options = MacBuildOptionsStore(store: MacUserDefaultsStore(defaults: defaults))
-        let settings = fixture.root.appendingPathComponent("settings.xml")
-        try Data("<settings/>".utf8).write(to: settings)
-        try options.setOptions(["profiles": .array([.string("ci")]), "settingsFile": .string(settings.path)],
-            workspaceURL: fixture.root, buildSystemID: "maven")
-        let build = BuildSystemService(planner: RustBuildSystemOperations(core: core),
-            tools: CapabilityBuildToolsFixture(executable: maven), optionsStore: options,
-            stateLocator: MacBuildSystemStateLocator(directories: directories, fileStorage: MacFileStorage()),
-            runner: CapabilityBuildRunnerFixture(), providers: sessions, sources: { [source] })
-        defer { build.stop() }
-        let actions = CapabilityActionsFixture(root: fixture.root)
-        let access = fixture.execution
-        actions.execution = ExecutionFeatureAccess(runFeature: access.runFeature,
-            tests: access.tests, projectDevelopment: access.projectDevelopment, buildSystems: BuildSystemsFeatureModel(service: build))
-        let feature = IdeCapabilitiesFeatureModel(model: actions)
-        feature.allowExecute = true
-        feature.allowConfigure = true
-        feature.enable()
-        let result: Result<Void, Error>
-        do {
-            build.reset(workspaceURL: fixture.root)
-            _ = try await build.prepareLanguageImport(workspaceURL: fixture.root)
-            let entry = try #require(build.entries.first)
-            let configured = await feature.call("lithe_build_configure", arguments: ["instanceID": entry.id,
-                "optionID": "skipTests", "value": true])
-            #expect(configured["saved"] as? Bool == true)
-            #expect((configured["option"] as? [String: Any])?["value"] as? Bool == true)
-            #expect(try options.instanceOptions(workspaceURL: fixture.root, buildSystemID: "maven")[entry.instance.root]?["skipTests"] == .bool(true))
-            #expect(try options.options(workspaceURL: fixture.root, buildSystemID: "maven")["skipTests"] == nil)
-            let invalid = await feature.call("lithe_build_configure", arguments: ["instanceID": entry.id,
-                "optionID": "skipTests", "value": "invalid"])
-            #expect(invalid["error"] != nil)
-            #expect(try options.instanceOptions(workspaceURL: fixture.root, buildSystemID: "maven")[entry.instance.root]?["skipTests"] == .bool(true))
-            let loaded = TestGate()
-            let modelObservation = build.$entries.sink { entries in
-                if entries.contains(where: { $0.id == entry.id && $0.modelState == .loaded }) { loaded.open() }
-            }
-            defer { modelObservation.cancel() }
-            let reload = await feature.call("lithe_build_reload", arguments: ["instanceID": entry.id])
-            #expect(reload["reloadRequested"] as? Bool == true)
-            try #require(await loaded.waitUntilOpen(timeout: .seconds(60)))
-            let inspect = await feature.call("lithe_build_inspect", arguments: [:])
-            let projects = try #require((inspect["instances"] as? [[String: Any]])?.first?["projects"] as? [[String: String]])
-            let projectID = try #require(projects.first { $0["name"] == "core" }?["id"])
-            let finished = TestGate()
-            let operationObservation = build.runEnded.sink { _ in finished.open() }
-            defer { operationObservation.cancel() }
-            let start = await feature.call("lithe_build_execute", arguments: ["instanceID": entry.id,
-                "taskID": "compile", "projectID": projectID])
-            let id = try #require(start["operationID"] as? String)
-            try #require(await finished.waitUntilOpen(timeout: .seconds(60)))
-            let output = await feature.call("lithe_operation_output", arguments: ["operationID": id])
-            #expect(output["state"] as? String == "completed")
-            #expect(output["exitCode"] as? Int32 == 0)
-            #expect((output["output"] as? String)?.contains("BUILD SUCCESS") == true)
-            #expect(FileManager.default.fileExists(atPath: fixture.root.appendingPathComponent(
-                "nested/core/target/classes/demo/core/Greeter.class").path))
-            let stop = await feature.call("lithe_operation_stop", arguments: ["operationID": id])
-            #expect(stop["stopRequested"] as? Bool == true)
-            #expect(build.operation?.state == .succeeded)
-            result = .success(())
-        } catch { result = .failure(error) }
-        await feature.shutdown()
-        build.stop()
-        #expect(await released.waitUntilOpen(timeout: .seconds(5)))
-        #expect(try MacNativeBuildProviderIntegrationTests.inventory(package) == before)
-        try result.get()
-    }
-
     @Test
     func revokedAndReplacedWorkspacesCannotReachProductActions() async {
         let actions = CapabilityActionsFixture()
@@ -319,7 +167,7 @@ struct IdeCapabilitiesTests {
         let inspected = await feature.call("lithe_project_inspect", arguments: [:])
         #expect(inspected["name"] as? String == "Fixture")
         actions.currentWorkspaceIdentity = WorkspaceIdentity(url: actions.root, generation: 2)
-        let stale = await feature.call("lithe_environment_configure", arguments: ["javaHomePath": ""])
+        let stale = await feature.call("lithe_run_list", arguments: [:])
         #expect((stale["error"] as? [String: String])?["code"] == "WORKSPACE_CLOSED")
         #expect(actions.activationCount == 0)
         await feature.shutdown()
@@ -332,7 +180,7 @@ struct IdeCapabilitiesTests {
         actions.transport.validation = ["ok": false, "error": ["code": "PERMISSION_DENIED"]]
         let feature = IdeCapabilitiesFeatureModel(model: actions)
         feature.enable()
-        let result = await feature.call("lithe_build_execute", arguments: ["instanceID": "maven@.", "taskID": "verify"])
+        let result = await feature.call("lithe_build_execute", arguments: ["instanceID": "example@.", "taskID": "verify"])
         #expect((result["error"] as? [String: String])?["code"] == "PERMISSION_DENIED")
         #expect(actions.activationCount == 0)
         await feature.shutdown()
@@ -354,7 +202,7 @@ struct IdeCapabilitiesTests {
         let fixture = try ProviderCapabilityExecutionFixture(execution: .service)
         defer { fixture.remove() }
         let entered = TestGate(), release = TestGate(), launched = TestGate()
-        fixture.run.configureProviderConfigurationRuns { inputs, _, _, _, _, _, _ in
+        fixture.run.configureProviderConfigurationRuns { inputs, _, _, _, _, _ in
             #expect(inputs.reference == fixture.reference)
             entered.open()
             guard await release.waitUntilOpen(timeout: .seconds(5)) else { throw CancellationError() }
@@ -511,11 +359,8 @@ private final class CapabilityActionsFixture: IdeCapabilityActions {
     var execution: ExecutionFeatureAccess?
     var startConfiguration: ((RunConfiguration) -> Void)?
     var currentWorkspaceIdentity: WorkspaceIdentity?
-    var runtime: RuntimeSettingsFeatureModel?
-    var runtimeFeature: RuntimeSettingsFeatureModel {
-        guard let runtime else { preconditionFailure("Authorization tests must not inspect runtimes") }
-        return runtime
-    }
+    // IdeCapabilityActions still declares this requirement; no capability reads it any more.
+    var runtimeFeature: RuntimeSettingsFeatureModel { preconditionFailure("Capability tests never inspect runtimes") }
     var ideHostTransport: (any IdeHostTransport)? { transport }
     init(root: URL = URL(fileURLWithPath: "/fixture/project")) {
         self.root = root
@@ -551,11 +396,10 @@ private final class ProviderCapabilityExecutionFixture {
             let preferences = CapabilityPreferencesFixture()
             let store = MacRunConfigurationStore(core: core, storage: MacFileStorage(), preferences: preferences)
             configurationID = try store.saveBuildProviderConfiguration(reference, name: "Main", at: root)
-            let runtime = CapabilityRuntimeFixture()
             let resolver = CapabilityExecutableFixture()
-            run = RunService(runtime: runtime, process: process, processFactory: { CapabilityProcessFixture() },
+            run = RunService(process: process, processFactory: { CapabilityProcessFixture() },
                 fileAccess: MacRunFileAccess(storage: MacFileStorage()), preferences: preferences,
-                serverPortParser: CapabilityPortParserFixture(), runConfigurationOperations: store,
+                runConfigurationOperations: store,
                 executableResolver: resolver, languageProviderCatalog: .compatibilityFallback,
                 languageRunProviders: .standard(catalog: .compatibilityFallback))
             let runFeature = RunFeatureModel(service: run)
@@ -587,17 +431,6 @@ private final class CapabilityProcessFixture: StreamingProcess, @unchecked Senda
 }
 
 @MainActor
-private final class CapabilityRuntimeFixture: RunRuntimePort {
-    func setActiveServiceJavaHomePath(_ path: String) {}
-    func javaHomeURL(overridePath: String?) -> URL? { nil }
-    func mavenJavaHomeURL(overridePath: String?) -> URL? { nil }
-    func runConfigurationToolchainCandidates(projectRoot: URL?,
-        javaHomeOverride: String?, mavenExecutableOverride: String?) -> [ProjectToolchainCandidate] { [] }
-    func loadRunConfigurationToolchainCandidates(projectRoot: URL?,
-        javaHomeOverride: String?, mavenExecutableOverride: String?) async throws -> [ProjectToolchainCandidate] { [] }
-}
-
-@MainActor
 private final class CapabilityExecutableFixture: RunExecutableResolving {
     func resolve(_ plan: SharedLaunchPlan, projectURL: URL, options: RunOptions) throws -> ResolvedRunExecutable {
         ResolvedRunExecutable(executableURL: URL(fileURLWithPath: "/fixture/launcher"), environment: [:])
@@ -614,9 +447,6 @@ private final class CapabilityPreferencesFixture: KeyValueStore, RunPreferenceSt
     nonisolated func setString(_ value: String, forKey key: String) {}
 }
 
-private struct CapabilityPortParserFixture: RunServerPortParsing {
-    func serverPort(content: String, fileExtension: String) -> Int? { nil }
-}
 
 private struct CapabilityBuildError: Error {}
 

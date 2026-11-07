@@ -13,7 +13,7 @@ import LitheExecutionModule
 
 /// Saving and local-history recording for an open editor document.
 ///
-/// Run, Debug, and Java test launches all persist a dirty document before
+/// Run, Debug, and language test launches all persist a dirty document before
 /// starting, and each records the previous text so the save is undoable from
 /// Local History.
 @MainActor
@@ -40,7 +40,7 @@ protocol RunWorkflowActions: EditorDocumentSaving {
     func restartSelectedRun()
 }
 
-/// Application operations the debug and Java test launch workflows call back
+/// Application operations the debug and language test launch workflows call back
 /// into.
 ///
 /// A failed launch reopens the Debug tool window so the adapter's own output
@@ -59,6 +59,5 @@ protocol DebugWorkflowActions: EditorDocumentSaving {
 @MainActor
 protocol DebugSessionCleanupActions: DebugWorkflowActions {
     func activateApplication()
-    func stopJavaTestResultServer()
     func stopDebugTerminalProcesses(for debugSessionID: DebugSessionID?)
 }

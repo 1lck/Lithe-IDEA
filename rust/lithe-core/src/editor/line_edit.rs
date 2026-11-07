@@ -137,9 +137,9 @@ pub fn line_comment_token(request: LineCommentTokenRequest) -> LineCommentToken 
 fn lookup_line_comment_token(identifier: &str) -> Option<&'static str> {
     match identifier {
         // C family and other double-slash languages
-        "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hxx" | "java" | "kt" | "kts" | "swift"
-        | "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "go" | "rs" | "cs" | "csharp" | "php"
-        | "dart" | "scala" | "groovy" | "m" | "mm" | "zig" | "javascript" | "javascriptreact"
+        "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hxx" | "kt" | "kts" | "swift" | "js"
+        | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "go" | "rs" | "cs" | "csharp" | "php" | "dart"
+        | "scala" | "groovy" | "m" | "mm" | "zig" | "javascript" | "javascriptreact"
         | "typescript" | "typescriptreact" | "kotlin" | "rust" => Some("//"),
         // Hash languages
         "py" | "python" | "rb" | "ruby" | "sh" | "bash" | "zsh" | "shell" | "yml" | "yaml"

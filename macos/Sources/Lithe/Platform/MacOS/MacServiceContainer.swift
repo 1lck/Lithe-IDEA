@@ -89,7 +89,6 @@ final class MacServiceContainer {
         moduleLaunchMode: ModuleLaunchMode = .normal,
         moduleStore providedModuleStore: MacModuleConfigurationStore? = nil,
         workspaceOperations providedWorkspaceOperations: (any WorkspaceOperations)? = nil,
-        javaMavenOperations providedJavaMavenOperations: (any JavaMavenOperations)? = nil,
         runConfigurationOperations providedRunConfigurationOperations: (any RunConfigurationOperations)? = nil,
         gitWatchContextProvider providedGitWatchContextProvider: (any GitWatchContextProviding)? = nil,
         runExecutableResolver providedRunExecutableResolver: (any RunExecutableResolving)? = nil,
@@ -114,14 +113,6 @@ final class MacServiceContainer {
         // Declarative plugins have no process of their own to report their
         // contributions; the host reports each attempt through Core.
         let pluginOperations = PluginOperationReporter(record: { rustCore.recordPluginOperation($0) })
-        let mavenRepositoryURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".m2/repository", isDirectory: true)
-        let gradleRepositoryURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".gradle/caches/modules-2/files-2.1", isDirectory: true)
-        let javaMavenOperations = providedJavaMavenOperations ?? RustJavaMavenOperations(
-            core: rustCore,
-            metadataRepositoryURLs: [mavenRepositoryURL, gradleRepositoryURL]
-        )
         let fileStorage = MacFileStorage(logSink: logSink)
         // One proxy-aware session factory per process: LitheApp creates it so
         // the rollback downloader outside this container shares the policy,
@@ -391,33 +382,12 @@ final class MacServiceContainer {
         }
         let runtimeService = ProjectRuntimeService(
             runtimeLocator: MacRuntimeLocator(),
-            settingsStore: MacProjectRuntimeSettingsStore(core: rustCore, storage: fileStorage, preferences: store),
             toolDiscovery: MacRuntimeToolDiscovery(),
-            javaSelector: rustCore,
             workspaceRuntime: { root in
                 guard let binding = remoteWorkspaces.binding(forRoot: root) else { return nil }
                 let locator = MacRemoteRuntimeLocator(binding: binding, host: remoteOperations)
                 return (locator, locator)
             }
-        )
-        let languageServerCacheDirectory = fileStorage.cacheDirectory()
-            .appendingPathComponent("Lithe/language-servers", isDirectory: true)
-        // Native integrations a plugin's language server may name in its
-        // manifest. Each one owns everything specific to its server; the code
-        // below only routes by the declared ID.
-        let languageServerHostIntegrations = MacLanguageServerHostIntegrations([
-            MacJdtHostIntegration(
-                launchResolver: pluginLaunchResolver,
-                runtimeService: runtimeService,
-                workspaceState: MacJdtWorkspaceState(
-                    core: rustCore,
-                    cacheDirectoryURL: languageServerCacheDirectory
-                ), logSink: logSink
-            )
-        ])
-        languageServerHostIntegrations.pluginsDidLoad(
-            pluginStartup.registeredPlugins,
-            installed: pluginStartup.scanSucceeded ? pluginStartup.installedPlugins : nil
         )
         // Provider processes of plugin build systems, one per plugin, build
         // system, and workspace. Created eagerly so the language sessions
@@ -434,7 +404,8 @@ final class MacServiceContainer {
             runtime: runtimeService,
             core: rustCore,
             processRegistry: processRegistry,
-            remoteLaunches: remotePluginLaunches
+            remoteLaunches: remotePluginLaunches,
+            definedTools: definedToolchains
         )
         // Provider processes of plugin VCS providers, one per plugin, VCS,
         // and workspace; one starts on the first request for a detected root.
@@ -445,7 +416,8 @@ final class MacServiceContainer {
             runtime: runtimeService,
             core: rustCore,
             processRegistry: processRegistry,
-            remoteLaunches: remotePluginLaunches
+            remoteLaunches: remotePluginLaunches,
+            definedTools: definedToolchains
         )
         // Plugin backends, one per plugin for the whole application: the
         // first project window creates them, and every window registers the
@@ -521,7 +493,8 @@ final class MacServiceContainer {
                     return (moduleStore.enabledState(for: module.id) ?? (module.defaultState == .enabled))
                         && !moduleStore.isQuarantined(module.id)
                 },
-                hostDispatcher: hostDispatcher
+                hostDispatcher: hostDispatcher,
+                definedTools: definedToolchains
             )
             sessions.editorActions = editorActions
             runHost.backends = sessions
@@ -597,11 +570,9 @@ final class MacServiceContainer {
                         runtimeService: runtimeService,
                         languageServerCore: rustCore,
                         languageServerExecutableResolver: { tools.executableURL(for: $0) },
-                        hostIntegrationResolver: { languageServerHostIntegrations.launch(for: $0) },
                         languageServerLaunchResolver: { source, rootURL in
                             try pluginLaunchResolver.resolve(source, workspaceRootURL: rootURL)
                         },
-                        languageServerCacheDirectory: languageServerCacheDirectory,
                         workspaceSessionFactory: { descriptor, root in
                             LanguageServerRuntimeSession(providerID: descriptor.launchSource?.languageID ?? "remote",
                                 executableURL: root, arguments: [], environment: [:], prepareProcess: { workspace in
@@ -611,6 +582,27 @@ final class MacServiceContainer {
                         },
                         backendLaunchPreparer: { source, root in
                             try await backendLaunches.prepare(source, workspaceURL: root)
+                        },
+                        // A server whose launch names a tool definition: the
+                        // definition's template places the entry, the runtime
+                        // arguments and the plan's arguments.
+                        toolLaunchPreparer: { source, root in
+                            let resolved = try pluginLaunchResolver.resolveToolLaunch(source, workspaceRootURL: root)
+                            let command = try await definedToolchains.command(
+                                for: resolved.process, arguments: resolved.launch.arguments, workspace: root,
+                                environment: runtimeService.languageToolProcessEnvironment(runtimeTools: resolved.runtimeTools),
+                                projectCodeAllowed: false
+                            )
+                            return PreparedLanguageServerProcess(
+                                executableURL: command.executableURL, environment: command.environment,
+                                launch: ResolvedLanguageServerLaunch(
+                                    arguments: command.arguments,
+                                    initializationOptions: resolved.launch.initializationOptions,
+                                    workspaceConfiguration: resolved.launch.workspaceConfiguration,
+                                    sessionPolicy: resolved.launch.sessionPolicy
+                                ),
+                                core: rustCore, release: {}
+                            )
                         },
                         processRegistry: processRegistry
                     )
@@ -639,35 +631,14 @@ final class MacServiceContainer {
                             !workspaceLanguageServerPreferences.disabledProviderIDs(for: workspaceURL)
                                 .contains(providerID)
                         },
-                        workspaceFingerprintProvider: { descriptor, workspaceRootURL in
-                            if remoteWorkspaces.contains(workspaceRootURL) { return nil }
-                            return try languageServerHostIntegrations.workspaceFingerprint(
-                                for: descriptor,
-                                workspaceRootURL: workspaceRootURL
-                            )
-                        },
-                        workspaceStateResetter: { descriptor, workspaceRootURL, fingerprint in
-                            guard !remoteWorkspaces.contains(workspaceRootURL) else { throw CocoaError(.featureUnsupported) }
-                            // A server without a native integration keeps its
-                            // state where the host created it for the plugin.
-                            if let launch = descriptor.languageServerLaunch, launch.hostIntegrationID == nil,
-                               let source = launch.launchSource {
-                                try pluginWorkspaceState.reset(source, workspaceRootURL: workspaceRootURL)
-                                return
+                        workspaceStateResetter: { descriptor, workspaceRootURL in
+                            // A plugin's server keeps its state where the host
+                            // created it for the plugin; remote state is not ours.
+                            guard !remoteWorkspaces.contains(workspaceRootURL),
+                                  let source = descriptor.languageServerLaunch?.launchSource else {
+                                throw CocoaError(.featureUnsupported)
                             }
-                            try languageServerHostIntegrations.resetWorkspaceState(
-                                for: descriptor,
-                                workspaceRootURL: workspaceRootURL,
-                                fingerprint: fingerprint
-                            )
-                        },
-                        workspaceStateCleaner: { descriptor, workspaceRootURL, fingerprint in
-                            if remoteWorkspaces.contains(workspaceRootURL) { return 0 }
-                            return try languageServerHostIntegrations.pruneWorkspaceState(
-                                for: descriptor,
-                                workspaceRootURL: workspaceRootURL,
-                                fingerprint: fingerprint
-                            )
+                            try pluginWorkspaceState.reset(source, workspaceRootURL: workspaceRootURL)
                         }
                     )
                     sessions.onLogEvent = { record in logSink?.emit(record) }
@@ -694,20 +665,17 @@ final class MacServiceContainer {
                     )
                     let runService = RunService(
                         logSink: logSink,
-                        runtime: runtimeService,
                         process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution, logSink: logSink),
                         processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution, logSink: logSink) },
                         fileAccess: MacRunFileAccess(storage: fileStorage),
                         preferences: MacRunPreferenceStore(store: store),
-                        serverPortParser: javaMavenOperations,
                         runConfigurationOperations: providedRunConfigurationOperations ?? runConfigurationStore,
                         executableResolver: executableResolver,
                         languageProviderCatalog: languagePackRegistry.catalog,
                         languageRunProviders: languagePackRegistry.runProviders,
                         extensionRequiredLanguageIDs: runExtensionLanguageIDs,
                         languageSupports: installedLanguageSupports,
-                        dependencyStore: MacWorkspaceDependencyStore(storage: fileStorage),
-                        javaLaunchArgumentPreparer: rustCore
+                        dependencyStore: MacWorkspaceDependencyStore(storage: fileStorage)
                     )
                     let buildSystemPlugins = pluginStartup.registeredPlugins.filter { !$0.descriptor.buildSystems.isEmpty }
                     let buildSystems = buildSystemPlugins.isEmpty ? nil : BuildSystemService(
@@ -772,9 +740,7 @@ final class MacServiceContainer {
                         buildSystems: buildSystems
                     )
                     graph.run.configureLanguageDependencyProvider { languageID, workspace, serviceID in
-                        let capabilityID: ModuleCapabilityID = languageID == "java"
-                            ? .languageIntelligence : .languageServerExtension(languageID)
-                        guard let provider = moduleRuntime.capability(capabilityID)
+                        guard let provider = moduleRuntime.capability(.languageServerExtension(languageID))
                             as? any LanguageDependencyProviding else { return nil }
                         return provider.dependencySnapshot(workspaceURL: workspace, serviceID: serviceID)
                     }
@@ -783,30 +749,6 @@ final class MacServiceContainer {
             })
             try moduleRegistry.register(ModuleFactory(manifest: DebugModule.moduleManifest, contributions: DebugModule.moduleContributions) {
                 DebugModule(makeGraph: {
-                    let debugFactories: [String: () -> (any DebugAdapterSession)?] = [
-                        "java": {
-                            CoreDebugAdapterProtocolSession(
-                                adapterID: "java",
-                                logSink: logSink,
-                                transport: MacHostedPortDebugAdapterTransport(
-                                    portResolver: { rootURL in
-                                        guard let capability = try await moduleRuntime
-                                            .activateCapability(.languageIntelligence)
-                                            as? LanguageIntelligenceCapability else {
-                                            throw MacHostedPortDebugAdapterTransport.TransportError
-                                                .languageIntelligenceUnavailable
-                                        }
-                                        return try await capability.sessions.startJavaDebugServer(
-                                            rootURL: rootURL
-                                        )
-                                    },
-                                    core: rustCore, logSink: logSink
-                                ),
-                                core: rustCore,
-                                deadlineScheduler: MacDebugOperationDeadlineScheduler()
-                            )
-                        }
-                    ]
                     let adapterSessions = DebugAdapterSessionManager(
                         providersSource: {
                             let languages = debugProviderCache.providers()
@@ -816,7 +758,6 @@ final class MacServiceContainer {
                             return languages + qualified
                         },
                         makeSession: { descriptor, _ in
-                            if let factory = debugFactories[descriptor.id] { return factory() }
                             guard let entry = activeDebugAdapter(descriptor.id) else { return nil }
                             let pluginID = entry.plugin.descriptor.id.rawValue
                             let session = CoreDebugAdapterProtocolSession(
@@ -886,16 +827,25 @@ final class MacServiceContainer {
                             return session
                         }
                     )
+                    adapterSessions.declarationSource = { descriptor in
+                        guard let entry = activeDebugAdapter(descriptor.id) else { return nil }
+                        return DebugProviderDeclaration(
+                            storageKey: entry.providerID,
+                            displayName: entry.adapter.displayName,
+                            behavior: entry.adapter.declaredBehavior
+                        )
+                    }
                     adapterSessions.makeEndpointSession = { descriptor, endpoint, _ in
-                        let entry = activeDebugAdapter(descriptor.id)
-                        guard descriptor.id == "java" || entry != nil else { return nil }
+                        // Only a declared adapter names the DAP adapterID and
+                        // behavior an external endpoint session speaks.
+                        guard let entry = activeDebugAdapter(descriptor.id) else { return nil }
                         let session = CoreDebugAdapterProtocolSession(
-                            adapterID: entry?.adapter.adapterID ?? "java",
+                            adapterID: entry.adapter.adapterID,
                             logSink: logSink,
-                            consoleCommands: entry?.adapter.consoleCommands ?? [],
-                            consoleCommandPrefix: entry?.adapter.consoleCommandPrefix,
-                            disabledCapabilities: entry?.adapter.disabledCapabilities ?? [],
-                            declaredBehavior: entry?.adapter.declaredBehavior ?? .none,
+                            consoleCommands: entry.adapter.consoleCommands,
+                            consoleCommandPrefix: entry.adapter.consoleCommandPrefix,
+                            disabledCapabilities: entry.adapter.disabledCapabilities,
+                            declaredBehavior: entry.adapter.declaredBehavior,
                             transport: try MacExternalDebugAdapterTransport.make(
                                 endpoint: endpoint,
                                 validate: { endpoint in
@@ -918,9 +868,7 @@ final class MacServiceContainer {
                             initializationTimeoutMilliseconds:
                                 try rustCore.debugTransportPolicy().initializationMilliseconds
                         )
-                        if let entry {
-                            debugAdapterSessionsBox.record(session, pluginID: entry.plugin.descriptor.id.rawValue)
-                        }
+                        debugAdapterSessionsBox.record(session, pluginID: entry.plugin.descriptor.id.rawValue)
                         return session
                     }
                     debugAdapterSessionsBox.manager = adapterSessions
@@ -1116,7 +1064,6 @@ final class MacServiceContainer {
             workspaceLanguageServerPreferences: workspaceLanguageServerPreferences,
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
             debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver(
-                javaTestLaunchResolver: rustCore,
                 providerConnection: { configurationType, adapterID, port in
                     try MacBuildConnectionDebugResolver(planner: declarativePluginOperations,
                         entries: qualifiedDebugAdapters, generation: { liveSnapshotBox.snapshot.generation })
@@ -1126,9 +1073,6 @@ final class MacServiceContainer {
                     try MacBuildDebugLaunchResolver(planner: declarativePluginOperations,
                         entry: { qualifiedDebugAdapters()[$0] }, generation: { liveSnapshotBox.snapshot.generation })
                         .resolve(source: source, preparation: preparation, workspaceURL: workspaceURL, title: title)
-                },
-                javaExecutablePath: { [runtimeService] runtime in
-                    runtimeService.javaExecutableURL(forDebugging: runtime)?.path
                 },
                 pluginLaunch: { languageID, documentURL, workspaceURL in
                     guard let entry = activeDebugAdapter(languageID) else { return nil }
@@ -1166,12 +1110,10 @@ final class MacServiceContainer {
                 }
             ),
             debugPortAvailabilityChecker: MacDebugPortAvailabilityChecker(),
-            javaTestResultServerFactory: { MacJavaTestResultServer() },
             debugBreakpointPersistence: debugBreakpointStore,
             workspaceOperations: workspaceOperations,
             documentLifecycleDecider: RustDocumentLifecycleDecider(core: rustCore),
             lineEditing: RustLineEditing(core: rustCore),
-            javaMavenOperations: javaMavenOperations,
             markdownRenderer: markdownRenderer,
             markdownImageImporter: markdownImageImporter,
             store: store,
@@ -1205,8 +1147,7 @@ final class MacServiceContainer {
             directoryWatcherFactory: MacDirectoryWatcherFactory(registry: remoteWorkspaces, transport: remoteTransport, logSink: logSink),
             platformUI: platformUI,
             shortcutDetectorFactory: MacShortcutDetectorFactory(),
-            debugPerformanceSampler: MacDebugPerformanceSampler(processRegistry: processRegistry, logSink: logSink),
-            testJVMPerformance: MacTestJVMPerformance(processRegistry: processRegistry, logSink: logSink)
+            debugPerformanceSampler: MacDebugPerformanceSampler()
         )
         services.logWindowLogging = applicationLogging as? any LogWindowLogging
         diagnosticsExportService.environmentProvider = { [weak pluginManager] in
@@ -1382,9 +1323,6 @@ final class MacServiceContainer {
                 case .failure(let failure): failure.message
                 }
             },
-            recordJavaHome: { root, home in
-                try await runtimeService.presetJavaHome(home, for: root)
-            },
             saveToolPin: { root, pin in
                 try await MacProjectToolPins.save(pin, in: root, using: toolchainPreferences)
             }
@@ -1519,7 +1457,7 @@ final class MacServiceContainer {
                 // Plugin API 2 arguments are templates: Rust Core expands them
                 // when the server starts. API 1 arguments stay literal and
                 // keep the launch path they have always used.
-                let launchSource = server.expandsLaunchTemplates
+                var launchSource = server.expandsLaunchTemplates
                     ? DeclarativeLanguageServerLaunchSource(
                         pluginID: descriptor.id.rawValue,
                         languageID: server.languageID,
@@ -1534,6 +1472,9 @@ final class MacServiceContainer {
                 let probe = launchSource.map {
                     (try? launchResolver?.executableProbe(for: $0)) ?? .init()
                 } ?? .init(validationArguments: server.validationArguments)
+                // A launch that names a tool definition resolves the tool only
+                // when the server starts, for its workspace root.
+                launchSource?.launchesThroughTool = probe.launchesThroughTool
                 let configuration = LanguageServerExtensionConfiguration(
                     languageID: server.languageID,
                     displayName: languageNames[server.languageID] ?? server.languageID,
@@ -1551,7 +1492,6 @@ final class MacServiceContainer {
                     launchSource: launchSource,
                     pluginID: descriptor.id.rawValue,
                     executableVersionRequirement: probe.versionRequirement,
-                    hostIntegrationID: server.hostIntegrationID,
                     launchRuntimeTool: server.launchRuntimeTool
                 )
                 return ModuleFactory(manifest: manifest) {

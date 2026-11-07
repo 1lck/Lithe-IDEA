@@ -120,7 +120,6 @@ public enum BuiltInModuleCatalog {
         .languageIntelligence: [
             ModuleContribution(id: "language.problems", kind: .toolWindow, title: "Problems", icon: "exclamationmark.triangle", order: 300, actionID: "language.problems.toggle", rendererID: "language.problems"),
             ModuleContribution(id: "language.references", kind: .toolWindow, title: "Usages", order: 310, actionID: "language.references.toggle", rendererID: "language.references"),
-            ModuleContribution(id: "language.spring", kind: .toolWindow, title: "Spring Endpoints", order: 320, actionID: "language.spring.toggle", rendererID: "language.spring"),
             ModuleContribution(id: "language.settings", kind: .settings, title: "Language Servers", icon: "server.rack")
         ],
         .localHistory: [
@@ -241,20 +240,8 @@ public enum OfficialPluginCatalog {
 
     public static let phpPluginID = PluginID("dev.lithe.plugin.php-support")
     public static let goPluginID = PluginID("dev.lithe.plugin.go-support")
-    public static let javaPluginID = PluginID("dev.lithe.plugin.java-support")
 
     public static let entries: [Entry] = [
-        Entry(
-            id: javaPluginID,
-            displayName: "Java Support",
-            signatureRequirement: .publisherPackage,
-            bundledSignatureRequirement: .sameTeamAsHost,
-            distribution: .download,
-            languageID: "java",
-            languageDisplayName: "Java",
-            fileExtensions: ["java"],
-            projectFileNames: ["pom.xml", "build.gradle", "build.gradle.kts"]
-        ),
         Entry(
             id: goPluginID,
             displayName: "Go Support",

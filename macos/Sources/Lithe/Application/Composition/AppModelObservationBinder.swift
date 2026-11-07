@@ -18,7 +18,6 @@ final class AppModelObservationBinder {
             graph.terminalPlacement.objectWillChange,
             graph.document.objectWillChange,
             graph.media.objectWillChange,
-            graph.java.objectWillChange,
             graph.notification.objectWillChange,
             graph.workbench.objectWillChange,
             graph.searchSession.objectWillChange,

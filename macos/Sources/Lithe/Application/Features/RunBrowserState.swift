@@ -70,11 +70,11 @@ struct RunBrowserState {
         checkedIDs.formIntersection(configurations.filter { !$0.usesCurrentEditorFile }.map(\.id))
     }
 
-    /// Group by the provider's presentation family; all JVM entry points share
-    /// Java while unfamiliar providers keep their own visible group.
+    /// Group by provider; the host knows no language families, so a plugin
+    /// that wants several providers shown together gives them one provider ID.
     static func groups(for configurations: [RunConfiguration]) -> [ApplicationGroup] {
         let grouped = Dictionary(grouping: configurations.filter { !$0.usesCurrentEditorFile }) {
-            $0.kind.capabilities.contains(.javaRuntime) ? "java" : $0.kind.providerID
+            $0.kind.providerID
         }
         return grouped.map { id, configurations in
             let sorted = configurations.sorted {
@@ -84,8 +84,8 @@ struct RunBrowserState {
             let kind = sorted[0].kind
             return ApplicationGroup(
                 id: id,
-                title: id == "java" ? "Java" : kind.title,
-                iconKind: id == "java" ? .javaMain : kind,
+                title: kind.title,
+                iconKind: kind,
                 configurations: sorted
             )
         }.sorted {

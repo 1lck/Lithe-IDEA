@@ -66,6 +66,15 @@ package typealias BackendLanguageServerLaunchPreparer = @MainActor (
     URL
 ) async throws -> PreparedLanguageServerProcess
 
+/// Resolves, for one workspace root, a server whose launch names a tool
+/// definition (`serverProcess` 4). The host resolves the tool and expands
+/// the definition's template with the plugin's entry and arguments, so the
+/// executable is known only when the session starts.
+package typealias ToolLanguageServerLaunchPreparer = @MainActor (
+    DeclarativeLanguageServerLaunchSource,
+    URL
+) async throws -> PreparedLanguageServerProcess
+
 @MainActor
 package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
     package let descriptor: LanguageProviderDescriptor
@@ -73,11 +82,10 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
     private let languageServerLaunch: LanguageServerLaunchDescriptor?
     private let languageServerCore: any LanguageServerRuntimeCore
     private let languageServerExecutableResolver: ((LanguageProviderDescriptor) -> URL?)?
-    private let hostIntegrationResolver: LanguageServerHostIntegrationResolver?
     private let languageServerLaunchResolver: LanguageServerLaunchResolver?
-    private let languageServerCacheDirectory: URL?
     private let workspaceSessionFactory: WorkspaceLanguageServerSessionFactory?
     private let backendLaunchPreparer: BackendLanguageServerLaunchPreparer?
+    private let toolLaunchPreparer: ToolLanguageServerLaunchPreparer?
     private weak var processRegistry: (any LanguageServerProcessRegistry)?
     private let moduleID: ModuleID
     private var runtimeUnavailableMessage: String?
@@ -98,11 +106,10 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         languageServerLaunch: LanguageServerLaunchDescriptor? = nil,
         languageServerCore: any LanguageServerRuntimeCore,
         languageServerExecutableResolver: ((LanguageProviderDescriptor) -> URL?)? = nil,
-        hostIntegrationResolver: LanguageServerHostIntegrationResolver? = nil,
         languageServerLaunchResolver: LanguageServerLaunchResolver? = nil,
-        languageServerCacheDirectory: URL? = nil,
         workspaceSessionFactory: WorkspaceLanguageServerSessionFactory? = nil,
         backendLaunchPreparer: BackendLanguageServerLaunchPreparer? = nil,
+        toolLaunchPreparer: ToolLanguageServerLaunchPreparer? = nil,
         processRegistry: (any LanguageServerProcessRegistry)? = nil,
         moduleID: ModuleID = .languageIntelligence
     ) {
@@ -111,11 +118,10 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         self.languageServerLaunch = languageServerLaunch
         self.languageServerCore = languageServerCore
         self.languageServerExecutableResolver = languageServerExecutableResolver
-        self.hostIntegrationResolver = hostIntegrationResolver
         self.languageServerLaunchResolver = languageServerLaunchResolver
-        self.languageServerCacheDirectory = languageServerCacheDirectory
         self.workspaceSessionFactory = workspaceSessionFactory
         self.backendLaunchPreparer = backendLaunchPreparer
+        self.toolLaunchPreparer = toolLaunchPreparer
         self.processRegistry = processRegistry
         self.moduleID = moduleID
     }
@@ -125,6 +131,9 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         guard let languageServerLaunch else { return nil }
         if let source = languageServerLaunch.launchSource, source.resolvesLaunchWithBackend {
             return makeBackendLaunchedSession(source)
+        }
+        if let source = languageServerLaunch.launchSource, source.launchesThroughTool {
+            return makeToolLaunchedSession(source, launch: languageServerLaunch)
         }
         let executableURL = if let languageServerExecutableResolver {
             languageServerExecutableResolver(descriptor)
@@ -136,23 +145,12 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
             }).first
         }
         guard let executableURL else { return nil }
-        let hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?
-        switch hostIntegrationResolver?(descriptor) {
-        case nil:
-            hostIntegrationLaunch = nil
-        case .available(let launch):
-            hostIntegrationLaunch = launch
-        case .unavailable(let message):
-            runtimeUnavailableMessage = message
-            return nil
-        }
         var environment = runtimeService.languageToolProcessEnvironment(
             runtimeTools: languageServerLaunch.runtimeTools
         )
-        // A host integration owns the environment of its server. Any other
-        // server started by a runtime gets the runtime selected above, not
+        // A server started by a runtime gets the runtime selected above, not
         // another one the inherited PATH may list first.
-        if let tool = languageServerLaunch.launchRuntimeTool, hostIntegrationLaunch == nil {
+        if let tool = languageServerLaunch.launchRuntimeTool {
             environment = LanguageToolEnvironment.exportingRuntime(
                 tool: tool,
                 executableURL: executableURL,
@@ -179,8 +177,6 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
             environment: environment,
             initializationOptions: languageServerLaunch.initializationOptions,
             launchResolver: launchResolver,
-            hostIntegrationLaunch: hostIntegrationLaunch,
-            cacheDirectoryURL: languageServerCacheDirectory,
             core: languageServerCore,
             processRegistry: processRegistry,
             moduleID: moduleID,
@@ -192,8 +188,10 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         if languageServerCore.requiresBackgroundLanguageServerStart(rootURL: rootURL),
            let workspaceSessionFactory, let languageServerLaunch {
             // A remote workspace is prepared from the package on the remote
-            // host, which has no backend to answer the launch question.
-            if languageServerLaunch.launchSource?.resolvesLaunchWithBackend == true {
+            // host, which has no backend to answer the launch question and
+            // no tool definitions to resolve a tool launch with.
+            if let source = languageServerLaunch.launchSource,
+               source.resolvesLaunchWithBackend || source.launchesThroughTool {
                 runtimeUnavailableMessage = L10n.string(
                     "\(descriptor.displayName) cannot start in a remote workspace yet."
                 )
@@ -230,6 +228,43 @@ package final class StdioLanguageProviderRuntime: LanguageProviderRuntime {
         )
     }
 
+    /// The session of a server whose launch names a tool definition. The
+    /// tool resolves only for a workspace root, so the session starts with a
+    /// placeholder that `prepareProcess` replaces on every start. The
+    /// configured environment still wins over the resolved one.
+    private func makeToolLaunchedSession(
+        _ source: DeclarativeLanguageServerLaunchSource,
+        launch languageServerLaunch: LanguageServerLaunchDescriptor
+    ) -> (any LanguageServerSession)? {
+        guard let toolLaunchPreparer else {
+            runtimeUnavailableMessage = L10n.string(
+                "\(descriptor.displayName) needs a launch this build of Lithe cannot resolve."
+            )
+            return nil
+        }
+        let configured = languageServerLaunch.environment
+        return LanguageServerRuntimeSession(
+            providerID: descriptor.id,
+            executableURL: source.packageURL,
+            arguments: [],
+            environment: [:],
+            prepareProcess: { rootURL in
+                let prepared = try await toolLaunchPreparer(source, rootURL)
+                var environment = prepared.environment
+                environment.merge(configured) { _, configured in configured }
+                return PreparedLanguageServerProcess(
+                    executableURL: prepared.executableURL, environment: environment, launch: prepared.launch,
+                    core: prepared.core, release: prepared.release
+                )
+            },
+            core: languageServerCore,
+            processRegistry: processRegistry,
+            moduleID: moduleID,
+            pluginID: source.pluginID,
+            role: .languageServer
+        )
+    }
+
 }
 
 @MainActor
@@ -237,11 +272,10 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
     private let runtimeService: any LanguageToolRuntimePort
     private let languageServerCore: any LanguageServerRuntimeCore
     private let languageServerExecutableResolver: ((LanguageProviderDescriptor) -> URL?)?
-    private let hostIntegrationResolver: LanguageServerHostIntegrationResolver?
     private let languageServerLaunchResolver: LanguageServerLaunchResolver?
-    private let languageServerCacheDirectory: URL?
     private let workspaceSessionFactory: WorkspaceLanguageServerSessionFactory?
     private let backendLaunchPreparer: BackendLanguageServerLaunchPreparer?
+    private let toolLaunchPreparer: ToolLanguageServerLaunchPreparer?
     private weak var processRegistry: (any LanguageServerProcessRegistry)?
     private let moduleID: ModuleID
 
@@ -249,22 +283,20 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
         runtimeService: any LanguageToolRuntimePort,
         languageServerCore: any LanguageServerRuntimeCore,
         languageServerExecutableResolver: ((LanguageProviderDescriptor) -> URL?)? = nil,
-        hostIntegrationResolver: LanguageServerHostIntegrationResolver? = nil,
         languageServerLaunchResolver: LanguageServerLaunchResolver? = nil,
-        languageServerCacheDirectory: URL? = nil,
         workspaceSessionFactory: WorkspaceLanguageServerSessionFactory? = nil,
         backendLaunchPreparer: BackendLanguageServerLaunchPreparer? = nil,
+        toolLaunchPreparer: ToolLanguageServerLaunchPreparer? = nil,
         processRegistry: (any LanguageServerProcessRegistry)? = nil,
         moduleID: ModuleID = .languageIntelligence
     ) {
         self.runtimeService = runtimeService
         self.languageServerCore = languageServerCore
         self.languageServerExecutableResolver = languageServerExecutableResolver
-        self.hostIntegrationResolver = hostIntegrationResolver
         self.languageServerLaunchResolver = languageServerLaunchResolver
-        self.languageServerCacheDirectory = languageServerCacheDirectory
         self.workspaceSessionFactory = workspaceSessionFactory
         self.backendLaunchPreparer = backendLaunchPreparer
+        self.toolLaunchPreparer = toolLaunchPreparer
         self.processRegistry = processRegistry
         self.moduleID = moduleID
     }
@@ -282,11 +314,10 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
             languageServerLaunch: languageServerLaunch,
             languageServerCore: languageServerCore,
             languageServerExecutableResolver: languageServerExecutableResolver,
-            hostIntegrationResolver: hostIntegrationResolver,
             languageServerLaunchResolver: languageServerLaunchResolver,
-            languageServerCacheDirectory: languageServerCacheDirectory,
             workspaceSessionFactory: workspaceSessionFactory,
             backendLaunchPreparer: backendLaunchPreparer,
+            toolLaunchPreparer: toolLaunchPreparer,
             processRegistry: processRegistry,
             moduleID: moduleID
         )
@@ -303,11 +334,10 @@ package final class StdioLanguageProviderRuntimeFactory: LanguageProviderRuntime
             languageServerLaunch: languageServerLaunch,
             languageServerCore: languageServerCore,
             languageServerExecutableResolver: languageServerExecutableResolver,
-            hostIntegrationResolver: hostIntegrationResolver,
             languageServerLaunchResolver: languageServerLaunchResolver,
-            languageServerCacheDirectory: languageServerCacheDirectory,
             workspaceSessionFactory: workspaceSessionFactory,
             backendLaunchPreparer: backendLaunchPreparer,
+            toolLaunchPreparer: toolLaunchPreparer,
             processRegistry: processRegistry,
             moduleID: ownerModuleID
         )

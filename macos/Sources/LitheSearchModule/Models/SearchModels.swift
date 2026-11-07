@@ -9,7 +9,7 @@ public struct ProjectSearchOptions: Hashable, Sendable {
     public var regularExpression = false
     /// 替换时让结果沿用命中处的大小写形态（fooBar/FooBar/FOOBAR）。
     public var preserveCase = false
-    /// 逗号分隔的 glob 掩码，如 `*.java, *.kt`；为空表示不过滤。
+    /// 逗号分隔的 glob 掩码，如 `*.swift, *.toml`；为空表示不过滤。
     public var fileMask = ""
 
     public static let `default` = ProjectSearchOptions()

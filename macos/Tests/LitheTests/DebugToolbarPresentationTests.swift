@@ -11,10 +11,10 @@ struct DebugToolbarPresentationTests {
     func mainToolbarUsesPauseAndResumeOnlyForTheSelectedDebugTarget() {
         for state in [DebugAdapterState.idle, .initializing, .ready, .launching, .running, .paused, .terminated, .failed] {
             let control = DebugToolbarPresentation.mainToolbarControl(state: state,
-                debugTarget: "CalculatorTest.addsPositiveNumbers", selectedTarget: "CalculatorTest.addsPositiveNumbers")
+                debugTarget: "example-suite.case-a", selectedTarget: "example-suite.case-a")
             #expect(control == (state == .paused ? .resume : state == .running ? .pause : nil))
             #expect(DebugToolbarPresentation.mainToolbarControl(state: state,
-                debugTarget: "CalculatorTest.addsPositiveNumbers", selectedTarget: "RunDemo") == nil)
+                debugTarget: "example-suite.case-a", selectedTarget: "other-target") == nil)
         }
         #expect(DebugToolbarPresentation.mainToolbarControl(state: .paused, debugTarget: nil, selectedTarget: nil) == nil)
         #expect(DebugToolbarPresentation.ideaAssetPath(for: .resume) == "expui/run/resume.svg")
@@ -22,44 +22,12 @@ struct DebugToolbarPresentationTests {
     }
 
     @Test
-    func sourceNameToggleRemovesOnlyAnExactDuplicateClassSuffix() {
-        let source = URL(fileURLWithPath: "/demo/UserService.java")
-        let frame = DebugStackFrame(id: 1, name: "findUser:42, UserService", sourceURL: source, line: 42, column: 1)
-        #expect(DebugToolbarPresentation.stackFrameLabel(frame, showsSourceName: true) == "findUser:42")
-        #expect(DebugToolbarPresentation.stackFrameLabel(frame, showsSourceName: false) == frame.name)
-        for name in ["findUser:42, UserService$Inner", "findUser:42, OtherService", "example.UserService.findUser", ", UserService"] {
-            let other = DebugStackFrame(id: 2, name: name, sourceURL: source, line: 42, column: 1)
-            #expect(DebugToolbarPresentation.stackFrameLabel(other, showsSourceName: true) == name)
-        }
-        let unknown = DebugStackFrame(id: 3, name: frame.name, sourceURL: nil, line: 42, column: 1)
-        #expect(DebugToolbarPresentation.stackFrameLabel(unknown, showsSourceName: true) == frame.name)
-    }
-
-    @MainActor
-    @Test
-    func qualifiedMethodsWithMultipleParametersRetainMethodHighlighting() throws {
-        let frame = DebugStackFrame(id: 1, name: "example.UserService.findUser(java.lang.String, int):42, UserService",
-            sourceURL: URL(fileURLWithPath: "/demo/UserService.java"), line: 42, column: 1)
-        let text = DebugToolbarPresentation.stackFrameText(frame, showsSourceName: true, isDark: true)
-        let range = try #require(text.range(of: "findUser"))
-        let palette = SyntaxHighlightingColorConfiguration.bundled.palette(formatID: "java",
-            base: CodeEditorPalette(isDark: true, theme: LitheTheme.activeTheme))
-        #expect(text[range].foregroundColor == Color(nsColor: palette.functionCall))
-        #expect(String(text.characters).hasSuffix(":42"))
-    }
-
-    @MainActor
-    @Test(arguments: [false, true])
-    func stackMethodsUseTheConfiguredJavaSyntaxColor(isDark: Bool) {
-        let frame = DebugStackFrame(id: 1, name: "findUser:42, UserService",
-            sourceURL: URL(fileURLWithPath: "/demo/UserService.java"), line: 42, column: 1)
-        let text = DebugToolbarPresentation.stackFrameText(frame, showsSourceName: true, isDark: isDark)
-        #expect(String(text.characters) == "findUser:42")
-        let end = text.characters.index(text.startIndex, offsetBy: "findUser".count)
-        let palette = SyntaxHighlightingColorConfiguration.bundled.palette(formatID: "java",
-            base: CodeEditorPalette(isDark: isDark, theme: LitheTheme.activeTheme))
-        #expect(text[text.startIndex..<end].foregroundColor == Color(nsColor: palette.functionCall))
-        #expect(text.runs.count > 1, "Method, punctuation and line number retain separate syntax attributes")
+    func stackFrameTextKeepsTheAdapterProvidedFrameName() {
+        let frame = DebugStackFrame(id: 1, name: "run:42, ExampleModule",
+            sourceURL: URL(fileURLWithPath: "/demo/example.txt"), line: 42, column: 1)
+        #expect(String(DebugToolbarPresentation.stackFrameText(frame).characters) == frame.name)
+        let unknown = DebugStackFrame(id: 2, name: frame.name, sourceURL: nil, line: 42, column: 1)
+        #expect(String(DebugToolbarPresentation.stackFrameText(unknown).characters) == frame.name)
     }
 
     @Test

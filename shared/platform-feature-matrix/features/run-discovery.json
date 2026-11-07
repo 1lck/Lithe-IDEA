@@ -8,9 +8,6 @@
       "macos/Sources/Lithe/Views/Run",
       "macos/Tests/LitheTests/RunConsolePresentationTests.swift",
       "shared/fixtures/run-configuration",
-      "rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs",
-      "macos/Tests/LitheTests/RealJavaDebugIntegrationTests.swift",
-      "macos/Tests/LitheTests/RunEntryPointTests.swift",
       "macos/Sources/LitheExecutionModule/Services/RunService.swift",
       "macos/Tests/LitheExecutionModuleTests/ExecutionModuleTests.swift",
       "rust/lithe-core/src/execution/workspace_scan.rs",
@@ -23,16 +20,11 @@
       "macos/Tests/LitheExecutionModuleTests/BuildSystemServiceTests.swift",
       "rust/lithe-core/src/execution/provider_run_options.rs",
       "shared/fixtures/run-configuration/build-provider-options.json",
-      "macos/Sources/Lithe/Platform/MacOS/Persistence/MacLegacyMavenRunConfigurationMigration.swift",
-      "macos/Tests/LitheTests/MacLegacyMavenRunConfigurationMigrationTests.swift",
       "shared/fixtures/run-configuration/build-provider-stable-identities.json",
       "shared/fixtures/run-configuration/argument-text.json",
       "macos/Sources/LitheCoreContracts/Execution/RunConfigurationContracts.swift",
       "macos/Sources/Lithe/Services/Debug/DebugLaunchSourceResolver.swift",
       "macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift",
-      "rust/lithe-core/src/lsp/languages/java_entrypoints.rs",
-      "macos/Sources/Lithe/Models/AppModel/AppModel+JavaRunMarkers.swift",
-      "macos/Tests/LitheTests/JavaLanguageServerRuntimeTests.swift",
       "rust/lithe-core/src/execution/context_selection.rs",
       "shared/fixtures/run-configuration/context-selection.json"
     ],
@@ -43,9 +35,6 @@
     "evidence": [
       "windows/tauri/src/features/run",
       "windows/tauri/crates/lithe-legacy-java/src/maven/mod.rs",
-      "rust/lithe-core/src/execution/detectors/maven.rs",
-      "rust/lithe-core/src/languages/text.rs",
-      "rust/lithe-core/src/languages/java.rs",
       "windows/tauri/src/features/run/components/run-configuration-browser.tsx",
       "windows/tauri/src/features/run/components/run-configuration-browser.test.tsx",
       "windows/tauri/src/features/run/components/run-configuration-list-split.tsx",
@@ -74,7 +63,10 @@
       "shared/fixtures/run-configuration/context-selection.json",
       "windows/tauri/src/features/run-actions/hooks/use-run-action-discovery.ts",
       "windows/tauri/src/features/run-actions/utils/run-action-discovery.ts",
-      "windows/tauri/src/extensions/run/extension-run-discovery.test.ts"
+      "windows/tauri/src/extensions/run/extension-run-discovery.test.ts",
+      "windows/tauri/crates/lithe-legacy-java/src/java_run_markers.rs",
+      "windows/tauri/crates/lithe-legacy-java/src/run_sources.rs",
+      "windows/tauri/crates/lithe-legacy-java/src/tests/maven.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

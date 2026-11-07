@@ -74,31 +74,6 @@ struct PluginManagementPresentationTests {
         ])
     }
 
-    /// Java's run and test support is still Lithe's own JDT integration, so the
-    /// Features tab says so. Debug is declared by the plugin's own
-    /// `debugAdapters` entry, so it is listed as plugin-provided instead.
-    @Test
-    func javaFeaturesIncludeHostIntegratedCapabilities() throws {
-        let java = try DeclarativePluginTestSupport.officialDescriptor("JavaSupport")
-
-        let capabilities = PluginCapability.capabilities(of: java.pluginManifest, descriptor: java)
-        let kinds = Set(capabilities.map(\.kind))
-
-        #expect(kinds.isSuperset(of: [.language, .languageServer, .run, .test, .debug]))
-        let server = try #require(capabilities.first { $0.kind == .languageServer && $0.subject == "java" })
-        if case .runtimeServer(let tool, let packagedRuntime) = server.detail {
-            #expect(tool == "java")
-            #expect(packagedRuntime)
-        } else {
-            Issue.record("Expected the Java server to run on the packaged runtime, got \(server.detail)")
-        }
-        for capability in capabilities where [.run, .test].contains(capability.kind) {
-            #expect(capability.detail == .hostIntegration)
-        }
-        let debug = try #require(capabilities.first { $0.kind == .debug && $0.subject == "java" })
-        #expect(debug.detail == .none)
-    }
-
     @Test
     func installedListFiltersByCapabilityStateAndQuery() throws {
         let descriptor = try DeclarativePluginTestSupport.descriptor(

@@ -69,7 +69,7 @@ struct MonacoWorkbenchSessionLifetimeTests {
     @Test func readOnlyPreviewRejectsRunActionsAtTheNativeBoundary() {
         let main = MonacoWorkbenchSession.forModel(UUID())
         let preview = MonacoWorkbenchSession.forModel(UUID(), documentID: UUID(), previewID: UUID())
-        for message in ["javaRunMarkerAction", "pluginEditorAction", "pluginEditorProviderCommand", "format", "rename",
+        for message in ["pluginEditorAction", "pluginEditorProviderCommand", "format", "rename",
                         "executeCodeAction", "setBlameVisibility"] {
             #expect(main.allowsMessage(message))
             #expect(!preview.allowsMessage(message))
@@ -80,8 +80,8 @@ struct MonacoWorkbenchSessionLifetimeTests {
 
     @Test func independentPreviewKeepsMainDocumentAndSynchronizationOwner() throws {
         let project = UUID(), previewID = UUID()
-        let document = EditorDocument(url: URL(fileURLWithPath: "/fixture/Problems.java"),
-                                      text: "class Problems {}", modificationDate: nil)
+        let document = EditorDocument(url: URL(fileURLWithPath: "/fixture/Problems.txt"),
+                                      text: "problems", modificationDate: nil)
         let main = MonacoWorkbenchSession.forModel(project, documentID: document.id)
         main.register(document)
         let owner = try #require(document.editorSynchronizationOwnerID)

@@ -9,8 +9,8 @@ import Foundation
 /// The environment of the user's interactive login shell, for an app started from
 /// Finder or the Dock.
 ///
-/// launchd gives such an app only `/usr/bin:/bin:/usr/sbin:/sbin`, so Maven, JDKs,
-/// Node.js and Gradle installed through Homebrew, mise, SDKMAN, asdf or fnm are
+/// launchd gives such an app only `/usr/bin:/bin:/usr/sbin:/sbin`, so tools such as
+/// Node.js and Python installed through Homebrew, mise, SDKMAN, asdf or fnm are
 /// invisible to discovery and to every child process. Patching each tool's lookup
 /// fixed one tool at a time; reading the shell once fixes all of them.
 ///

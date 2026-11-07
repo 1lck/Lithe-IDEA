@@ -102,16 +102,13 @@ final class AppServices {
     let workspaceLanguageServerPreferences: any WorkspaceLanguageServerPreferencesStoring
     let debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver
     let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
-    let javaTestDebugLaunchService: JavaTestDebugLaunchService
     let debugPerformanceSampler: (any DebugPerformanceSampling)?
-    let testJVMPerformance: (any TestJVMPerformanceProviding)?
     let debugBreakpointPersistence: (any DebugBreakpointPersisting)?
     let workspaceOperations: any WorkspaceOperations
     let documentLifecycleDecider: any DocumentLifecycleDeciding
     /// Deterministic line-level editing transforms shared with Windows; the
     /// editor view applies the results through its native text engine.
     let lineEditing: any EditorLineEditing
-    let javaMavenOperations: any JavaMavenOperations
     let markdownRenderer: any MarkdownRendering
     let markdownImageImporter: any MarkdownImageImporting
     let store: any KeyValueStore
@@ -163,12 +160,10 @@ final class AppServices {
         languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot? = nil,
         debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver? = nil,
         debugPortAvailabilityChecker: (any DebugPortAvailabilityChecking)? = nil,
-        javaTestResultServerFactory: @escaping @MainActor () -> any JavaTestResultServing,
         debugBreakpointPersistence: (any DebugBreakpointPersisting)? = nil,
         workspaceOperations: any WorkspaceOperations,
         documentLifecycleDecider: any DocumentLifecycleDeciding,
         lineEditing: any EditorLineEditing,
-        javaMavenOperations: any JavaMavenOperations,
         markdownRenderer: any MarkdownRendering,
         markdownImageImporter: any MarkdownImageImporting,
         store: any KeyValueStore,
@@ -197,11 +192,9 @@ final class AppServices {
         directoryWatcherFactory: any DirectoryWatcherFactory,
         platformUI: any PlatformUI,
         shortcutDetectorFactory: any ShortcutDetectorFactory,
-        debugPerformanceSampler: (any DebugPerformanceSampling)? = nil,
-        testJVMPerformance: (any TestJVMPerformanceProviding)? = nil
+        debugPerformanceSampler: (any DebugPerformanceSampling)? = nil
     ) {
         self.debugPerformanceSampler = debugPerformanceSampler
-        self.testJVMPerformance = testJVMPerformance
         self.moduleRuntime = moduleRuntime
         self.pluginManager = pluginManager
         self.pluginMarketplace = pluginMarketplace
@@ -220,15 +213,10 @@ final class AppServices {
             ?? DebugLaunchConfigurationResolver()
         self.debugPortAvailabilityChecker = debugPortAvailabilityChecker
             ?? AlwaysAvailableDebugPortChecker()
-        self.javaTestDebugLaunchService = JavaTestDebugLaunchService(
-            configurationResolver: self.debugLaunchConfigurationResolver,
-            resultServerFactory: javaTestResultServerFactory
-        )
         self.debugBreakpointPersistence = debugBreakpointPersistence
         self.workspaceOperations = workspaceOperations
         self.documentLifecycleDecider = documentLifecycleDecider
         self.lineEditing = lineEditing
-        self.javaMavenOperations = javaMavenOperations
         self.markdownRenderer = markdownRenderer
         self.markdownImageImporter = markdownImageImporter
         self.store = store
