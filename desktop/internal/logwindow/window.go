@@ -12,6 +12,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/monogrid"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/sysinfo"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/flex"
@@ -88,6 +89,26 @@ func (c *Controller) Open(application *app.Application) error {
 			}
 			return dir, err
 		}
+	}
+	if opts.SaveFile == nil {
+		opts.SaveFile = func(suggested string) (string, error) {
+			path, err := app.SaveFile(app.SaveFileOptions{
+				Title:            c.text().Logs.ExportLabel,
+				SuggestedName:    suggested,
+				DefaultExtension: "zip",
+				Filters:          []app.FileFilter{{Name: "ZIP", Pattern: "*.zip"}},
+			})
+			if errors.Is(err, app.ErrCanceled) {
+				return "", nil
+			}
+			return path, err
+		}
+	}
+	if opts.CacheDirectory == nil {
+		opts.CacheDirectory = os.UserCacheDir
+	}
+	if opts.System == nil {
+		opts.System = sysinfo.Current
 	}
 	w.model = NewModel(opts)
 	win, err := application.OpenWindow(w.config(), nil)
@@ -260,8 +281,10 @@ func (w *window) config() app.Config {
 	}
 }
 
-// closed stops the model once the native window is gone.
+// closed stops the model once the native window is gone. The export sheet goes first, so
+// what it staged is removed.
 func (w *window) closed() {
+	w.model.dismissExport()
 	w.model.close()
 	c := w.ctrl
 	c.mu.Lock()
@@ -334,6 +357,7 @@ func (w *window) paint(canvas *ui.Canvas, size ui.Size) {
 		})
 		w.drawMenus(f)
 		w.drawDialogs(f)
+		w.drawExportSheet(f, bounds)
 	})
 	w.bodyHeight = w.bodyBox.Rect().Height
 	w.lastFilter = w.filter.Text()
@@ -646,6 +670,9 @@ func (w *window) onKey(event ui.KeyEvent) ui.EventResult {
 		w.closeMenu()
 		return ui.EventResult{Handled: true, Repaint: true}
 	}
+	if w.model.export.presented {
+		return w.exportKey(event)
+	}
 	if w.dialog != dialogNone || w.editing {
 		return ui.EventResult{}
 	}
@@ -653,9 +680,13 @@ func (w *window) onKey(event ui.KeyEvent) ui.EventResult {
 }
 
 // onShortcut handles the window's command shortcuts: ⌘F focuses the filter, ⌘C copies the
-// selected records and ⌘W closes the window.
+// selected records and ⌘W closes the window. While a dialog or the export sheet is open, only
+// ⌘W works.
 func (w *window) onShortcut(event ui.KeyEvent) ui.EventResult {
 	if event.Release || event.Modifiers != ui.ModifierMeta {
+		return ui.EventResult{}
+	}
+	if (w.dialog != dialogNone || w.model.export.presented) && event.Text != "w" {
 		return ui.EventResult{}
 	}
 	switch event.Text {
@@ -696,7 +727,10 @@ type buttonOptions struct {
 	active, recording bool
 	// fullWidth stretches the button across its container, its label at the start.
 	fullWidth bool
-	disabled  bool
+	// proportional draws the title in the system font rather than the monospaced one, as the
+	// macOS client's LogButtonStyle(monospaced: false) does.
+	proportional bool
+	disabled     bool
 	// height is the button's height; zero is 28.
 	height float32
 	// hint is the tooltip; label is what assistive technology reads, the title when empty.
@@ -741,7 +775,11 @@ func (w *window) button(f *flex.Frame, id ui.ID, symbol, title string, o buttonO
 		if symbol != "" {
 			w.mono(f, symbol, 12, color)
 		}
-		if title != "" {
+		switch {
+		case title == "":
+		case o.proportional:
+			f.Text(title).FontSize(12).Color(color).Ellipsis()
+		default:
 			w.mono(f, title, 12, color).Ellipsis()
 		}
 	})

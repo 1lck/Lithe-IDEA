@@ -210,7 +210,7 @@ func (w *window) toolbarItems(f *flex.Frame) []toolbarItem {
 	addMenu(menuTimeRange, toolbarRangeID, logs.TimeRange, w.rangeLabel(), buttonOptions{})
 	addMenu(menuSaved, toolbarSavedID, "★", logs.SavedFilters, buttonOptions{})
 	addMenu(menuColumns, toolbarColumnsID, "▦", logs.Columns, buttonOptions{})
-	addButton(toolbarExportID, "⇩", logs.Export, buttonOptions{disabled: true, hint: w.text.Welcome.Unavailable, label: logs.ExportLabel}, func() {})
+	addButton(toolbarExportID, "⇩", logs.Export, buttonOptions{label: logs.ExportLabel}, w.openExport)
 	addButton(toolbarCollapseID, "⇊", logs.CollapseRepeats, buttonOptions{active: m.prefs.Collapse}, m.toggleCollapse)
 	addButton(toolbarTimeID, "⏱", w.timeModeTitle(), buttonOptions{}, m.cycleTime)
 	followSymbol, followTitle := "❚❚", logs.Paused

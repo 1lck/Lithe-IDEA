@@ -558,8 +558,8 @@ func (w *window) drawDetailTraceRow(f *flex.Frame, i int, record core.LogRecord,
 
 // drawDetailActions is the column of actions on the record, and under it the note that
 // redacted values are masked. Every action needs a selected record, and tracing the
-// operation one with an operation. The export of a diagnostics bundle has no counterpart in
-// this client yet, so its button is drawn dimmed.
+// operation one with an operation. Exporting a bundle opens the same sheet as the toolbar's
+// Export, as in the macOS client.
 func (w *window) drawDetailActions(f *flex.Frame, record core.LogRecord, selected bool) {
 	m := w.text.Logs
 	action := func(id ui.ID, symbol, title string, disabled bool) bool {
@@ -584,7 +584,9 @@ func (w *window) drawDetailActions(f *flex.Frame, record core.LogRecord, selecte
 		if action(detailsRevealID, "↗", m.RevealInFinder, !selected) {
 			w.revealRecord()
 		}
-		action(detailsExportID, "⇩", m.ExportBundle, true)
+		if action(detailsExportID, "⇩", m.ExportBundle, !selected) {
+			w.openExport()
+		}
 
 		cw, ch := f.Canvas().CellSize(detailsNoteSize)
 		cols := int((detailsActionsWidth - 2*detailsActionsPad) / cw)

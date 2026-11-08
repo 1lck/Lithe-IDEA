@@ -30,6 +30,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logstore"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/sysinfo"
 )
 
 // Source is the log store the window reads. *logstore.Store implements it.
@@ -45,6 +46,7 @@ type Source interface {
 	DefaultDirectory() string
 	ClearLogs() error
 	ConfigureDiagnostics(enabled bool)
+	Collect(ctx context.Context, q logstore.ExportQuery) (logstore.Export, error)
 }
 
 // Kernel is what the window asks the kernel directly. *core.Client implements it.
@@ -52,6 +54,8 @@ type Kernel interface {
 	ParseLogFilter(ctx context.Context, expression string) (core.LogFilter, error)
 	ComposeLogFilter(ctx context.Context, expression string, term core.LogFilterTerm) (string, error)
 	FormatLogRecords(ctx context.Context, lines []string, format string, environment *core.LogEnvironment) (string, error)
+	RedactText(ctx context.Context, text string) (string, error)
+	BuildDiagnosticsManifest(ctx context.Context, environment core.DiagnosticsEnvironment, files []core.DiagnosticsFile, generatedAt int64) (core.DiagnosticsManifest, error)
 }
 
 const (
@@ -105,6 +109,13 @@ type windowQuery struct {
 
 func defaultQuery() windowQuery {
 	return windowQuery{Session: sessionCurrent, ChannelPrefixes: []string{}, Levels: slices.Clone(allLevels)}
+}
+
+// clone is a copy of q that shares no slice with it.
+func (q windowQuery) clone() windowQuery {
+	q.ChannelPrefixes = slices.Clone(q.ChannelPrefixes)
+	q.Levels = slices.Clone(q.Levels)
+	return q
 }
 
 // bookmark is a saved filter.
@@ -234,6 +245,15 @@ type Options struct {
 	Clipboard       func(text string) error
 	Reveal          func(path string) error
 	ChooseDirectory func(current string) (string, error)
+	// SaveFile asks where to save a diagnostic bundle, suggesting a file name; an empty
+	// path is a cancelled choice. Nil cannot export.
+	SaveFile func(suggested string) (string, error)
+	// CacheDirectory is the platform's cache directory, where an export stages its
+	// evidence. Nil cannot export.
+	CacheDirectory func() (string, error)
+	// System describes the machine for a bundle's manifest, measuring the free space of
+	// volume; nil records nothing about it.
+	System func(volume string) sysinfo.Snapshot
 	// Wake asks the window to drain the mailbox; nil is for tests, which drain themselves.
 	Wake func()
 }
@@ -311,6 +331,11 @@ type Model struct {
 
 	usedBytes int64
 	busy      bool
+
+	export exportState
+	// staging maps the export's staging directories to whether a task holds one; guarded by
+	// mu, as closing the window removes those no task holds.
+	staging map[string]bool
 
 	dirty      bool
 	rows       []displayRow
@@ -426,6 +451,7 @@ func (m *Model) close() {
 	m.closed = true
 	m.pending = nil
 	m.mu.Unlock()
+	m.removeUnheldStaging()
 }
 
 // query is the user's query with the clear watermarks.

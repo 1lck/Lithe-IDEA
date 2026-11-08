@@ -250,6 +250,11 @@ type LogQuery struct {
 	// Since and Until are inclusive RFC 3339 bounds.
 	Since string `json:"since,omitempty"`
 	Until string `json:"until,omitempty"`
+	// FilterSince and FilterUntil are a second pair of inclusive RFC 3339 bounds the kernel
+	// intersects with Since and Until: an export of a time range keeps the window's own range
+	// on top of it.
+	FilterSince string `json:"filterSince,omitempty"`
+	FilterUntil string `json:"filterUntil,omitempty"`
 	// AfterSequences hides records at or below a session's watermark; session-relative
 	// sources use the empty key.
 	AfterSequences map[string]uint64 `json:"afterSequences,omitempty"`

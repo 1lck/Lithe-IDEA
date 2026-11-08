@@ -390,6 +390,39 @@ type LogMessages struct {
 	ShowOnlyChannel       string
 	TraceThisOperation    string
 	CopyFieldValue        string
+
+	// ExportDialog is the sheet that packs logs into a diagnostic bundle. Its title is
+	// ExportLabel; its Cancel, Retry and Reveal in Finder buttons and the All channels choice
+	// are the window's.
+	ExportDialog LogExportMessages
+}
+
+// LogExportMessages are the export sheet's words.
+type LogExportMessages struct {
+	Subtitle string
+	// Range, Channels, Privacy and Contents head the sheet's sections.
+	Range              string
+	CurrentSession     string
+	RecentSessions     string
+	RecentSessionsHint string
+	Last24Hours        string
+	Channels           string
+	CurrentFilter      string
+	Privacy            string
+	RedactionNote      string
+	Environment        string
+	// EnvironmentHint lists what the environment summary holds; osName is the system's
+	// name, such as macOS.
+	EnvironmentHint func(osName string) string
+	Contents        string
+	Packing         string
+	// SavedTo reports where the bundle was written.
+	SavedTo func(path string) string
+	// Size is the footer's estimate, for example "≈ 1.2 MB · 4 files".
+	Size          func(size string, count int) string
+	Export        string
+	PrepareFailed string
+	ExportFailed  string
 }
 
 // LogFilterMessages explain the kernel's filter syntax error codes.
