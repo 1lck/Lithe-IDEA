@@ -23,8 +23,11 @@ const (
 	treeIcon = 14
 	// treePad is the room before the first level of the tree.
 	treePad = 8
-	// treeEventListFailed is the log event of a directory the kernel could not list.
-	treeEventListFailed = "workspace.tree.list_failed"
+	// treeEventSkipped is the log event of a folder the kernel could not list, so the tree
+	// lacks its children, and treeSkippedLevel the level the kernel's event catalog declares
+	// for it.
+	treeEventSkipped = "app.workspace.directory_skipped"
+	treeSkippedLevel = core.LevelWarn
 )
 
 // The identities of the project tree's controls: the list scrolls, and treeRows.At(n) is the
@@ -119,10 +122,8 @@ func (a *App) listTree(p *project, paths ...string) {
 		return func(a *App) {
 			t := &p.tree
 			if err != nil {
-				fields := logwindow.ErrorFields(err)
-				fields["count"] = len(paths)
-				a.emit(core.LevelWarn, treeEventListFailed, fields)
 				for _, path := range paths {
+					a.emit(treeSkippedLevel, treeEventSkipped, treeSkippedFields(path, err))
 					if n := t.find(path); n != nil {
 						n.loading, n.expanded = false, false
 						if n == t.root {
@@ -151,6 +152,17 @@ func (a *App) listTree(p *project, paths ...string) {
 			}
 		}
 	})
+}
+
+// treeSkippedFields are the fields of app.workspace.directory_skipped for the folder at the
+// workspace-relative path, where "" is the root, which the event names ".".
+func treeSkippedFields(path string, err error) map[string]any {
+	fields := logwindow.ErrorFields(err)
+	if path == "" {
+		path = "."
+	}
+	fields["path"] = path
+	return fields
 }
 
 // toggleFolder expands a collapsed folder, listing it the first time, and collapses an

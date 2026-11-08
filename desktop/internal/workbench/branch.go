@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
 )
@@ -166,7 +165,7 @@ func (a *App) runBranchWrite(p *project, operation string, failed func(reason st
 			b.busy = false
 			if err != nil {
 				a.notify(failed(err.Error()))
-				a.gitWriteFailed(operation, err)
+				a.gitOperationFailed(operation, err)
 				return
 			}
 			p.git = gitState{loaded: true, status: status}
@@ -198,7 +197,7 @@ func (a *App) checkoutBranch(p *project, r core.GitReference) {
 			b.busy = false
 			if err != nil {
 				a.notify(a.text.Branch.CheckoutFailed(err.Error()))
-				a.gitWriteFailed("git_checkout", err)
+				a.gitOperationFailed("git_checkout", err)
 				return
 			}
 			if len(blocking) > 0 {
@@ -292,9 +291,7 @@ func (a *App) previewBranchName(p *project, raw string, require bool) core.Branc
 	if err != nil {
 		// The kernel could not clean the name; the typed text stands, and the submit tells
 		// the user what Git says.
-		fields := logwindow.ErrorFields(err)
-		fields["operation"] = "git_branch_name_preview"
-		a.emit(core.LevelWarn, "app.notification.operation_failed", fields)
+		a.gitOperationFailed("git_branch_name_preview", err)
 		return core.BranchNamePreview{TypingCleanedName: raw, CleanedName: strings.TrimSpace(raw)}
 	}
 	return preview

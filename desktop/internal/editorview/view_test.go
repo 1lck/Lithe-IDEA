@@ -129,6 +129,33 @@ func TestMarkSavedClearsDirty(t *testing.T) {
 	}
 }
 
+// TestRevisionCountsEveryChange checks that edits, undo and redo each move the revision a
+// failed save is logged with, and that saving does not.
+func TestRevisionCountsEveryChange(t *testing.T) {
+	v := newTestView(t, "x")
+	if v.Revision() != 0 {
+		t.Fatalf("a view just read is at revision %d", v.Revision())
+	}
+	v.typeText("y")
+	typed := v.Revision()
+	if typed == 0 {
+		t.Fatal("typing did not change the revision")
+	}
+	_, text := v.Text()
+	v.MarkSaved(text)
+	if v.Revision() != typed {
+		t.Fatalf("saving moved the revision from %d to %d", typed, v.Revision())
+	}
+	v.Undo()
+	if v.Revision() != typed+1 {
+		t.Fatalf("after undo the revision is %d, want %d", v.Revision(), typed+1)
+	}
+	v.Redo()
+	if v.Revision() != typed+2 {
+		t.Fatalf("after redo the revision is %d, want %d", v.Revision(), typed+2)
+	}
+}
+
 func TestCellsCountTabsAndWideCharacters(t *testing.T) {
 	cases := []struct {
 		line string

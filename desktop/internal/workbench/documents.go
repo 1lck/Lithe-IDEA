@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -30,9 +31,13 @@ const (
 	// documentDirty is the side of the dot a tab shows while its file has unsaved changes.
 	documentDirty = 6
 
-	// The log events of a file that could not be opened or saved.
+	// The log events of a file that could not be opened or saved, the level the kernel's event
+	// catalog declares for both, and the stage a save fails at. The log store drops an event
+	// whose level or fields differ from its declaration.
 	documentEventOpenFailed = "editor.document.open_failed"
 	documentEventSaveFailed = "editor.document.save_failed"
+	documentFailedLevel     = core.LevelError
+	documentSaveStage       = "write"
 )
 
 // The identities of the open files' controls. Each is a scope whose At(n) is the control of
@@ -155,9 +160,7 @@ func (a *App) openFile(p *project, path string) {
 		return func(a *App) {
 			delete(p.docs.opening, path)
 			if err != nil {
-				fields := logwindow.ErrorFields(err)
-				fields["extension"] = filepath.Ext(path)
-				a.emit(core.LevelWarn, documentEventOpenFailed, fields)
+				a.emit(documentFailedLevel, documentEventOpenFailed, documentOpenFields(err))
 				a.notify(a.text.Editor.OpenFailed(name, a.documentReason(err)))
 				return
 			}
@@ -184,6 +187,29 @@ func readDocument(path string) ([]byte, error) {
 		return nil, errNotText
 	}
 	return data, nil
+}
+
+// documentOpenFields are the fields of editor.document.open_failed: the error, and the
+// catalog's token for why the file was not opened.
+func documentOpenFields(err error) map[string]any {
+	fields := logwindow.ErrorFields(err)
+	fields["reason"] = documentOpenReason(err)
+	return fields
+}
+
+// documentOpenReason is the token for why a file could not be opened.
+func documentOpenReason(err error) string {
+	switch {
+	case errors.Is(err, errNotText):
+		return "not_text"
+	case errors.Is(err, errTooLarge):
+		return "too_large"
+	case errors.Is(err, fs.ErrNotExist):
+		return "not_found"
+	case errors.Is(err, fs.ErrPermission):
+		return "permission_denied"
+	}
+	return "read_failed"
 }
 
 // documentReason is the words for why a file could not be opened or saved: the editor's own
@@ -284,12 +310,12 @@ func (a *App) saveDocument(p *project, id int) {
 		return
 	}
 	data, text := d.view.Text()
-	path, name := d.path, d.name
+	path, name, revision := d.path, d.name, d.view.Revision()
 	a.background(p, 0, func(context.Context) func(*App) {
 		err := writeDocument(path, data)
 		return func(a *App) {
 			if err != nil {
-				a.saveFailed(name, path, err)
+				a.saveFailed(id, revision, name, err)
 				return
 			}
 			if d := p.docs.find(id); d != nil {
@@ -308,12 +334,21 @@ func writeDocument(path string, data []byte) error {
 	return os.WriteFile(path, data, mode)
 }
 
-// saveFailed logs and shows that the file name could not be saved.
-func (a *App) saveFailed(name, path string, err error) {
-	fields := logwindow.ErrorFields(err)
-	fields["extension"] = filepath.Ext(path)
-	a.emit(core.LevelWarn, documentEventSaveFailed, fields)
+// saveFailed logs that document id could not be saved at revision and shows that the file
+// name was not saved.
+func (a *App) saveFailed(id, revision int, name string, err error) {
+	a.emit(documentFailedLevel, documentEventSaveFailed, documentSaveFields(id, revision, err))
 	a.notify(a.text.Editor.SaveFailed(name, a.documentReason(err)))
+}
+
+// documentSaveFields are the fields of editor.document.save_failed for document id, whose
+// text was at revision when it was written.
+func documentSaveFields(id, revision int, err error) map[string]any {
+	fields := logwindow.ErrorFields(err)
+	fields["document"] = strconv.Itoa(id)
+	fields["revision"] = revision
+	fields["stage"] = documentSaveStage
+	return fields
 }
 
 // closeDocument saves document id if it has changes and removes its tab; the group shows
@@ -327,7 +362,7 @@ func (a *App) closeDocument(p *project, id int) {
 	if d.view.Dirty() {
 		data, text := d.view.Text()
 		if err := writeDocument(d.path, data); err != nil {
-			a.saveFailed(d.name, d.path, err)
+			a.saveFailed(d.id, d.view.Revision(), d.name, err)
 			return
 		}
 		d.view.MarkSaved(text)
@@ -360,7 +395,7 @@ func (a *App) closeDocuments(p *project) {
 		if d.view.Dirty() {
 			data, _ := d.view.Text()
 			if err := writeDocument(d.path, data); err != nil {
-				a.saveFailed(d.name, d.path, err)
+				a.saveFailed(d.id, d.view.Revision(), d.name, err)
 			}
 		}
 		d.view.Close()

@@ -87,6 +87,9 @@ type View struct {
 	// from it.
 	saved rope.Rope
 	dirty bool
+	// revision counts the changes to the text since the file was read, undo and redo
+	// included.
+	revision int
 	// anchor and caret are the ends of the selection; they are equal when nothing is
 	// selected. goal is the column, in cells, that up and down keep to; -1 is the caret's.
 	anchor, caret int
@@ -179,6 +182,10 @@ func (v *View) Dirty() bool { return v.dirty }
 func (v *View) compare() {
 	v.dirty = !v.text.Same(v.saved) && (v.text.Len() != v.saved.Len() || !bytes.Equal(v.text.Bytes(), v.saved.Bytes()))
 }
+
+// Revision counts the changes made to the text since the file was read, undo and redo
+// included, so a failed save can be told apart from a later one.
+func (v *View) Revision() int { return v.revision }
 
 // Text is the document's current content, and the rope it was taken from for MarkSaved.
 func (v *View) Text() ([]byte, rope.Rope) { return v.text.Bytes(), v.text }
@@ -322,6 +329,7 @@ func (v *View) edit(start, end int, text []byte, kind editKind) {
 	v.redo = v.redo[:0]
 	firstLine, oldLast, oldCount := v.text.LineOf(start), v.text.LineOf(end), v.text.LineCount()
 	v.text = v.text.Replace(start, end, text)
+	v.revision++
 	v.hl.Edit(v.text, start, end, start+len(text))
 	v.spliceRows(firstLine, oldLast, v.text.LineOf(start+len(text)), oldCount)
 	v.anchor, v.caret = start+len(text), start+len(text)
@@ -342,6 +350,7 @@ func (v *View) snapshot() snapshot {
 // restore makes s the view's text and selection.
 func (v *View) restore(s snapshot) {
 	v.text = s.text
+	v.revision++
 	v.hl.SetText(s.text)
 	v.forgetRows()
 	v.anchor, v.caret = s.anchor, s.caret

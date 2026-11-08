@@ -327,7 +327,7 @@ func (a *App) commitFinished(p *project, session core.WorkspaceCommitSession) {
 		a.notify(a.text.Commit.Done)
 	default:
 		a.notify(a.text.Commit.NeedsAttention)
-		a.gitWriteFailed("git_commit", incompleteRun(session))
+		a.gitOperationFailed("git_commit", incompleteRun(session))
 	}
 	if session.Succeeded {
 		c.editor = text.NewEditor("")
@@ -362,14 +362,26 @@ func (a *App) dismissResults(p *project) { p.commit.attempt = nil }
 // commitFailed reports a commit the kernel refused or could not run.
 func (a *App) commitFailed(err error) {
 	a.notify(a.text.Commit.Failed(err.Error()))
-	a.gitWriteFailed("git_commit", err)
+	a.gitOperationFailed("git_commit", err)
 }
 
-// gitWriteFailed logs a Git change that failed.
-func (a *App) gitWriteFailed(operation string, err error) {
+// The log event of a Git operation that failed, and the level the kernel's event catalog
+// declares for it.
+const (
+	operationFailedEvent = "app.notification.operation_failed"
+	operationFailedLevel = core.LevelError
+)
+
+// gitOperationFailed logs a Git operation that failed.
+func (a *App) gitOperationFailed(operation string, err error) {
+	a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields(operation, err))
+}
+
+// operationFailedFields are the fields of app.notification.operation_failed.
+func operationFailedFields(operation string, err error) map[string]any {
 	fields := logwindow.ErrorFields(err)
 	fields["operation"] = operation
-	a.emit(core.LevelError, "app.notification.operation_failed", fields)
+	return fields
 }
 
 // stageChange stages or unstages one change, as a click on its checkbox asks: a change with
@@ -465,11 +477,11 @@ func (a *App) stagingDone(p *project, stage bool, err error) {
 	}
 	if stage {
 		a.notify(a.text.Commit.StageFailed(err.Error()))
-		a.gitWriteFailed("git_stage", err)
+		a.gitOperationFailed("git_stage", err)
 		return
 	}
 	a.notify(a.text.Commit.UnstageFailed(err.Error()))
-	a.gitWriteFailed("git_unstage", err)
+	a.gitOperationFailed("git_unstage", err)
 }
 
 // refreshChanges reads the project's status again.
