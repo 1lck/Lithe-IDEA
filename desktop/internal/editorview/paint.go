@@ -19,6 +19,9 @@ const (
 	barMin   = float32(24)
 	// prepareMargin is how many lines past the screen the highlighter colors ahead.
 	prepareMargin = 50
+	// chunkWidth is the most points one label of a line spans. Even at a display scale of
+	// four its texture stays well inside the renderer's 16384 pixels.
+	chunkWidth = float32(2048)
 )
 
 // Paint draws the view into area: the line numbers, the band of the caret's line, the
@@ -137,19 +140,48 @@ func (v *View) paintSelection(canvas *ui.Canvas, line int, text string, start in
 // paintLine draws the text of line in its tokens' colors. Tabs become spaces to the next tab
 // stop, and every character that is not ASCII is a run of its own at its own cell, so a wide
 // or fallback glyph never moves the text after it off its column.
+//
+// The line is cut into labels of chunkCells columns on a fixed grid, and only the chunks that
+// reach into the view are drawn. A label becomes one texture, and the renderer refuses a
+// texture wider than its limit (16384 pixels on macOS) and stops the window, so one label per
+// line would end the app on the single line of a minified JSON file. The grid is fixed, so a
+// chunk's text stays the same while the view scrolls sideways and its texture is kept.
 func (v *View) paintLine(canvas *ui.Canvas, line int, text string, y float32) {
 	if text == "" {
 		return
 	}
+	chunk := v.chunkCells()
+	from, to := v.visibleCells()
+	from = from / chunk * chunk
+	to = ((max(to, 1)-1)/chunk + 1) * chunk
 	v.tokens = v.hl.Line(v.tokens[:0], line)
 	v.runs = v.runs[:0]
 	v.display = v.display[:0]
 	defaultStyle := v.theme.Default()
+	textStyle := ui.TextStyle{Size: fontSize, Color: uiColor(defaultStyle.Foreground), Mono: true}
 	token := 0
 	cells := 0
 	run := -1
 	runASCII := false
+	// label is the first column of the chunk being gathered, and labelEnd the column after
+	// its last character.
+	label, labelEnd := -1, 0
 	for i, r := range text {
+		width := runeCells(r, cells)
+		if width == 0 {
+			continue
+		}
+		if cells+width <= from {
+			cells += width
+			continue
+		}
+		if cells >= to {
+			break
+		}
+		if start := cells / chunk * chunk; start != label {
+			v.paintChunk(canvas, label, labelEnd, y, textStyle)
+			label, run = start, -1
+		}
 		for token+1 < len(v.tokens) && int(v.tokens[token+1].Start) <= i {
 			token++
 		}
@@ -163,15 +195,12 @@ func (v *View) paintLine(canvas *ui.Canvas, line int, text string, y float32) {
 			weight = ui.WeightBold
 		}
 		italic := style.Font&syntax.Italic != 0
-		width := runeCells(r, cells)
-		if width == 0 {
-			continue
-		}
 		ascii := r < 0x80
 		if r == '\t' || r < 0x20 {
 			r = ' '
 		}
-		if ascii && runASCII && run >= 0 && int(v.runs[run].Column+v.runs[run].Cells) == cells &&
+		column := cells - label
+		if ascii && runASCII && run >= 0 && int(v.runs[run].Column+v.runs[run].Cells) == column &&
 			v.runs[run].Color == color && v.runs[run].Weight == weight && v.runs[run].Italic == italic {
 			for range width {
 				v.display = append(v.display, byte(r))
@@ -179,6 +208,7 @@ func (v *View) paintLine(canvas *ui.Canvas, line int, text string, y float32) {
 			v.runs[run].Bytes += int32(width)
 			v.runs[run].Cells += int32(width)
 			cells += width
+			labelEnd = cells
 			continue
 		}
 		before := len(v.display)
@@ -190,20 +220,42 @@ func (v *View) paintLine(canvas *ui.Canvas, line int, text string, y float32) {
 			v.display = utf8.AppendRune(v.display, r)
 		}
 		v.runs = append(v.runs, ui.TextRun{
-			Column: int32(cells), Bytes: int32(len(v.display) - before), Cells: int32(width),
+			Column: int32(column), Bytes: int32(len(v.display) - before), Cells: int32(width),
 			Color: color, Weight: weight, Italic: italic, Underline: style.Font&syntax.Underline != 0,
 			Strike: style.Font&syntax.Strikethrough != 0,
 		})
 		run, runASCII = len(v.runs)-1, ascii
 		cells += width
+		labelEnd = cells
 	}
+	v.paintChunk(canvas, label, labelEnd, y, textStyle)
+}
+
+// paintChunk draws the runs gathered for the chunk of a line from column start to column end
+// as one label, and empties them for the next chunk.
+func (v *View) paintChunk(canvas *ui.Canvas, start, end int, y float32, style ui.TextStyle) {
 	if len(v.runs) == 0 {
 		return
 	}
-	textStyle := ui.TextStyle{Size: fontSize, Color: uiColor(defaultStyle.Foreground), Mono: true}
-	width := float32(math.Ceil(float64(float32(cells)*v.cellW))) + 1
-	rect := ui.Rect{X: v.textLeft - v.scrollX, Y: y + (v.lineH-v.cellH)/2, Width: width, Height: v.cellH}
-	canvas.LabelRuns(string(v.display), rect, textStyle, v.cellW, v.runs)
+	width := float32(math.Ceil(float64(float32(end-start)*v.cellW))) + 1
+	rect := ui.Rect{X: v.textLeft + float32(start)*v.cellW - v.scrollX, Y: y + (v.lineH-v.cellH)/2, Width: width, Height: v.cellH}
+	canvas.LabelRuns(string(v.display), rect, style, v.cellW, v.runs)
+	v.runs = v.runs[:0]
+	v.display = v.display[:0]
+}
+
+// chunkCells is how many columns one label of a line holds: as many as fit in chunkWidth.
+func (v *View) chunkCells() int {
+	return max(int(chunkWidth/v.cellW), 1)
+}
+
+// visibleCells is the range of columns, from the first to the one after the last, that the
+// view shows of a line at its sideways scroll. It starts textPad early, because the text
+// scrolled left shows in the pad between the gutter and textLeft.
+func (v *View) visibleCells() (int, int) {
+	left := v.scrollX - textPad
+	right := v.scrollX + v.area.X + v.area.Width - v.textLeft
+	return max(int(left/v.cellW), 0), max(int(math.Ceil(float64(right/v.cellW))), 0)
 }
 
 // caretPoint is the top left corner of the caret.
