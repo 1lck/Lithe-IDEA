@@ -475,6 +475,7 @@ func (a *App) paintTerminal(canvas *ui.Canvas) {
 			return
 		}
 		if d := g.doc; d != nil {
+			d.view.SetWrap(a.softWrap)
 			d.view.Paint(canvas, rect, editorLook)
 			hit := docViews.At(d.id)
 			if canvas.Focused() == hit {

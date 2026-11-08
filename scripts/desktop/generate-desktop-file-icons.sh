@@ -6,8 +6,9 @@
 # draw colored strokes, and the Viva icon compiler keeps the colors of filled shapes only, so
 # each SVG first goes through picosvg, which turns every stroke into a filled outline of the same
 # color. picosvg drops the fill of a path that relied on the SVG default (black), so the script
-# writes that default back. A file named <name>_dark.svg is renamed <name>-dark.svg, which the
-# compiler turns into the Go name <Name>Dark.
+# writes that default back. Every underscore of a file name becomes a hyphen, which the compiler
+# reads as a word break: <name>_dark.svg becomes the Go name <Name>Dark, and the IntelliJ name
+# db_set_breakpoint.svg becomes DbSetBreakpoint.
 #
 # To add or change an icon, edit svg/ and run this script again; do not edit icons.go by hand.
 # picosvg is installed at the pinned PICOSVG_VERSION into a virtual environment in a fresh
@@ -18,7 +19,7 @@ set -euo pipefail
 
 ROOT_DIR="${0:A:h:h:h}"
 PICOSVG_VERSION="0.22.3"
-VIVA_VERSION="v0.4.0"
+VIVA_VERSION="v0.5.1-0.20261108113640-16ca40bd07ab"
 ICON_DIR="$ROOT_DIR/desktop/internal/fileicons"
 OUT_FILE="$ICON_DIR/icons.go"
 NOTICE_FILE="$ICON_DIR/NOTICE"
@@ -32,7 +33,7 @@ python3 -m venv "$TMP_DIR/venv"
 mkdir "$TMP_DIR/svg"
 for source in "$ICON_DIR"/svg/*.svg; do
     name="${source:t}"
-    name="${name/_dark.svg/-dark.svg}"
+    name="${name//_/-}"
     # picosvg runs from the temporary directory so it never reads from the repository's.
     (cd "$TMP_DIR" && "$TMP_DIR/venv/bin/picosvg" "$source") > "$TMP_DIR/$name.pico"
     sed -E '/<path /{/ fill=/!s/<path /<path fill="#000000" /;}' "$TMP_DIR/$name.pico" > "$TMP_DIR/svg/$name"

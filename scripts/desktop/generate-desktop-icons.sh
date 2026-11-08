@@ -14,7 +14,7 @@ set -euo pipefail
 
 ROOT_DIR="${0:A:h:h:h}"
 LUCIDE_VERSION="0.469.0"
-VIVA_VERSION="v0.4.0"
+VIVA_VERSION="v0.5.1-0.20261108113640-16ca40bd07ab"
 ICONS=(
     folder folder-open folder-tree file file-text file-code chevron-down chevron-right
     git-commit-horizontal git-branch list-tree search square-terminal circle-alert play bug
@@ -22,7 +22,7 @@ ICONS=(
     server lock lock-open check circle-check cpu activity minus history layout-grid
     chevron-left chevron-up chevrons-up-down chevrons-down-up arrow-down-left arrow-left-right
     trash-2 cloud-download locate tag cloud ellipsis-vertical panel-right eye eye-off clock
-    arrow-up-down arrow-down-to-line circle-x loader-circle
+    arrow-up-down arrow-down-to-line circle-x loader-circle wrap-text
 )
 
 RAW_URL="https://raw.githubusercontent.com/lucide-icons/lucide/$LUCIDE_VERSION"

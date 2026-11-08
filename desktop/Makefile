@@ -3,10 +3,11 @@
 # scripts/desktop/desktop-go.sh, which first builds the pinned Lithe-core-rust library and points
 # cgo at it; a plain go build or go test does not link.
 #
-#   make run                    debug build, then start the client in the foreground
+#   make build                  dev-tagged development build; the Dock icon shows Dev
+#   make run | dev              dev-tagged development build, then start (Dock badge: Dev)
 #   make test                   all tests
 #   make check                  gofmt, vet and tests, as Desktop CI runs them
-#   make package                release core and the host formats in dist/desktop/<os>-<arch>/
+#   make package                untagged release build and host formats in dist/desktop/<os>-<arch>/
 #   make package ARCH=amd64 NO_SIGN=1
 #   make release NO_SIGN=1      macOS arm64+amd64, Windows amd64, or the Linux host architecture
 #
@@ -25,14 +26,14 @@ PACKAGE_FLAGS = --arch $(ARCH) $(if $(FORMAT),--format $(FORMAT)) $(if $(NO_SIGN
 .PHONY: help core build run dev test vet fmt fmt-check check version package release clean
 
 help:
-	@echo "make run | dev     debug build and start the client"
-	@echo "make build         debug build into .artifacts/desktop/bin/lithe"
+	@echo "make run | dev     dev-tagged development build and start (Dock badge: Dev)"
+	@echo "make build         dev-tagged development build (Dock badge: Dev)"
 	@echo "make core          build and stage the debug Lithe-core-rust library only"
 	@echo "make test | vet    go test or go vet of every package"
 	@echo "make version       print the version in viva.toml"
 	@echo "make fmt           gofmt -w every file; make fmt-check only lists them"
 	@echo "make check         fmt-check, vet and test"
-	@echo "make package       host formats in dist/desktop/<os>-<arch>/ (ARCH, FORMAT, NO_SIGN=1)"
+	@echo "make package       untagged release build in dist/desktop/<os>-<arch>/ (no Dev badge; ARCH, FORMAT, NO_SIGN=1)"
 	@echo "make release       macOS arm64+amd64, Windows amd64, or the Linux host architecture"
 	@echo "make clean         remove the client builds and packages (the core cache stays)"
 
@@ -40,16 +41,18 @@ core:
 	$(SCRIPTS)/build-desktop-core.sh --debug
 
 build:
-	$(SCRIPTS)/desktop-go.sh build -o $(BIN) ./cmd/lithe
+	$(SCRIPTS)/desktop-go.sh build -tags dev -o $(BIN) ./cmd/lithe
 
 run dev: build
 	$(BIN)
 
 test:
 	$(SCRIPTS)/desktop-go.sh test ./...
+	$(SCRIPTS)/desktop-go.sh test -tags dev ./internal/buildinfo
 
 vet:
 	$(SCRIPTS)/desktop-go.sh vet ./...
+	$(SCRIPTS)/desktop-go.sh vet -tags dev ./...
 
 fmt:
 	gofmt -w .

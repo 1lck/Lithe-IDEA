@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/appicon"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/monogrid"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/sysinfo"
@@ -263,6 +264,7 @@ type window struct {
 func (w *window) config() app.Config {
 	return app.Config{
 		Title:          w.ctrl.text().Logs.Logs,
+		Icon:           appicon.Window(),
 		Width:          1100,
 		Height:         720,
 		MinWidth:       900,

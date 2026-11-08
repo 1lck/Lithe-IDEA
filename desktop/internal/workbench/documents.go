@@ -36,12 +36,14 @@ const (
 )
 
 // The identities of the open files' controls. Each is a scope whose At(n) is the control of
-// the document with id n: docTabs its tab, docClose its tab's close button and docViews its
-// text, which holds the keyboard focus.
+// the document with id n: docTabs its tab, docClose its tab's close button, docViews its
+// text, which holds the keyboard focus, and docWrap the soft wrap switch at the end of the
+// strip of the group that shows it.
 var (
 	docTabs  = tree.Sub(shellPage, tree.Name("document-tabs"))
 	docClose = tree.Sub(shellPage, tree.Name("document-close"))
 	docViews = tree.Sub(shellPage, tree.Name("document-views"))
+	docWrap  = tree.Sub(shellPage, tree.Name("document-soft-wrap"))
 )
 
 // errNotText and errTooLarge are why a file is not opened, besides the system's errors.

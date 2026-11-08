@@ -4,9 +4,10 @@ import "fmt"
 
 var chinese = Messages{
 	App: AppMessages{
-		Name:    "Lithe",
-		Version: func(version string) string { return "版本 " + version },
-		Core:    func(version string) string { return "内核 " + version },
+		Name:     "Lithe",
+		Version:  func(version string) string { return "版本 " + version },
+		Core:     func(version string) string { return "内核 " + version },
+		DevBadge: "Dev",
 	},
 	Welcome: WelcomeMessages{
 		Projects:          "项目",
@@ -97,6 +98,7 @@ var chinese = Messages{
 		RecentFiles:      "最近文件",
 		DropFiles:        "将文件拖到此处打开",
 		CloseTab:         "关闭标签页",
+		SoftWrap:         "自动换行",
 		OpenFailed:       func(name, reason string) string { return "无法打开 " + name + "：" + reason },
 		SaveFailed:       func(name, reason string) string { return "无法保存 " + name + "：" + reason },
 		NotText:          "不是文本文件",

@@ -1,13 +1,14 @@
 // Package monogrid puts the characters of monospaced labels on the cell grid they were
 // laid out on.
 //
-// Viva v0.4.0 lays a Mono text out at Canvas.MonoCellSize a character: 0.6 of the size,
-// rounded to whole device pixels. Its macOS renderer draws a plain Mono label at the font's
-// own advance instead (0.618 of the size for SF Mono), so a line ran past its box and lost
-// its last character on a 2x display, and left a gap after it at 1x, where the cell
-// rounds up. A line with runs (Canvas.LabelRuns) is drawn glyph by glyph on its cells, as a
-// terminal row is. Snap turns the plain Mono labels of a frame into such lines once flex
-// has painted them. It can go once Viva places a plain Mono label on the grid as well.
+// Viva lays a Mono text out at Canvas.MonoCellSize a character: the font's own advance,
+// rounded to whole device pixels (v0.4.0 took 0.6 of the size, further still from SF Mono's
+// 0.618). A plain Mono label has no cell width, so the renderer draws it at the unrounded
+// advance, and a line drifts off the cells it was laid out on: it runs past its box and loses
+// its last character, or leaves a gap after it, and a column of numbers right-aligned by
+// width does not line up. A line with runs (Canvas.LabelRuns) is drawn glyph by glyph on its
+// cells, as a terminal row is. Snap turns the plain Mono labels of a frame into such lines
+// once flex has painted them. It can go once Viva places a plain Mono label on the grid too.
 package monogrid
 
 import (

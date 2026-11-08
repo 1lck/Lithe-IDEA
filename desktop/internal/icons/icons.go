@@ -1398,6 +1398,28 @@ var Trash2 = ui.Icon{
 	},
 }
 
+// wrap-text is a compiled vector icon.
+var WrapText = ui.Icon{
+	ViewBox: 24.0,
+	Stroke:  2.0,
+	Cap:     ui.CapRound,
+	Join:    ui.JoinRound,
+	Commands: []ui.PathCommand{
+		ui.MoveTo(3.0, 6.0),
+		ui.LineTo(21.0, 6.0),
+		ui.MoveTo(3.0, 12.0),
+		ui.LineTo(18.0, 12.0),
+		ui.CubicTo(19.6569, 12.0, 21.0, 13.3431, 21.0, 15.0),
+		ui.CubicTo(21.0, 16.6569, 19.6569, 18.0, 18.0, 18.0),
+		ui.LineTo(14.0, 18.0),
+		ui.MoveTo(16.0, 16.0),
+		ui.LineTo(14.0, 18.0),
+		ui.LineTo(16.0, 20.0),
+		ui.MoveTo(3.0, 18.0),
+		ui.LineTo(10.0, 18.0),
+	},
+}
+
 // x is a compiled vector icon.
 var X = ui.Icon{
 	ViewBox: 24.0,

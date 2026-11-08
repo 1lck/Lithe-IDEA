@@ -15,6 +15,18 @@ client's NOTICE.txt records their source paths and revisions, chiefly:
   plugins/kotlin/base/resources/resources/org/jetbrains/kotlin/idea/icons/expui/wizard/nodejs.
 - folder.svg and excludeRoot.svg: platform/icons/src/expui/nodes/ (revision
   e8d21e84ee23f99ae7237fbb4530ff2e7c3b47c5).
+- class.svg, sourceRoot.svg, resourcesRoot.svg, moduleJava.svg, and package.svg (and their
+  _dark siblings): platform/icons/src/expui/nodes/ (revision
+  e8d21e84ee23f99ae7237fbb4530ff2e7c3b47c5), from the same batch as folder.svg and
+  excludeRoot.svg.
+- variable.svg: the previous client's nodes/variable.svg, an IntelliJ Community New UI node
+  icon with a 2000-2023 JetBrains copyright header; the previous NOTICE.txt did not record its
+  source revision. The same-named icon is present at platform/icons/src/expui/nodes/variable.svg
+  in revision c7f91397daa3a961b4e78bc634fe467a0a7d9ade.
+- db_set_breakpoint.svg, db_verified_breakpoint.svg, db_disabled_breakpoint.svg, and
+  db_muted_breakpoint.svg (and their _dark siblings): IntelliJ Community classic debugger icons
+  from platform/icons/src/debugger/ in the previous client's debugger/ assets (copyright headers
+  2000-2021 JetBrains); the previous NOTICE.txt did not record their source revision.
 
 license.svg and makefile.svg (and their _dark siblings) are original Lithe icons,
 because the Community set has no LICENSE or Makefile glyph; they follow the Lithe
@@ -26,4 +38,5 @@ logos.
 Modification: icons.go is not the SVGs themselves. scripts/desktop/generate-desktop-file-icons.sh
 rewrites each SVG into filled paths only (its strokes become outlines of the same color)
 with picosvg and compiles the result into ui.Icon values. The SVG sources in svg/ are
-unmodified.
+unmodified. The generator changes underscores in SVG filenames to hyphens when deriving Go
+names, so db_set_breakpoint.svg is exposed as DbSetBreakpoint.

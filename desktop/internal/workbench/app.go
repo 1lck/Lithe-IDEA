@@ -23,6 +23,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/appicon"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
@@ -181,6 +183,10 @@ type App struct {
 	// term is what the frame being painted declared for the terminals, and the gesture that
 	// drags a terminal's tab (see terminal.go and tabdrag.go).
 	term terminalUI
+	// softWrap says the open files wrap their long lines at the width of their group instead
+	// of scrolling sideways. The switch at the end of each group's strip of tabs turns it on
+	// and off for every file at once; it lasts until the client quits.
+	softWrap bool
 	// fields answers Config.TextInput for the window's text fields; the terminal's grid is
 	// told apart from them in textInput.
 	fields func(app.TextInputContext) *app.TextInput
@@ -265,8 +271,14 @@ func (a *App) Run() error {
 	// is opened by the application.
 	err := app.RunApplication(func(application *app.Application) error {
 		a.application = application
-		_, err := application.OpenWindow(a.Config(), nil)
-		return err
+		if _, err := application.OpenWindow(a.Config(), nil); err != nil {
+			return err
+		}
+		// Development builds mark the Dock icon without changing the product name in the UI.
+		if buildinfo.Development {
+			application.SetDockBadge(a.text.App.DevBadge)
+		}
+		return nil
 	})
 	a.closeProject()
 	a.wait()
@@ -282,6 +294,7 @@ func (a *App) Config() app.Config {
 		&a.branch.search, &a.branch.name, &a.branch.revision)
 	return app.Config{
 		Title:          a.text.App.Name,
+		Icon:           appicon.Window(),
 		Width:          1280,
 		Height:         800,
 		MinWidth:       900,

@@ -4,9 +4,10 @@ import "fmt"
 
 var english = Messages{
 	App: AppMessages{
-		Name:    "Lithe",
-		Version: func(version string) string { return "Version " + version },
-		Core:    func(version string) string { return "Core " + version },
+		Name:     "Lithe",
+		Version:  func(version string) string { return "Version " + version },
+		Core:     func(version string) string { return "Core " + version },
+		DevBadge: "Dev",
 	},
 	Welcome: WelcomeMessages{
 		Projects:          "Projects",
@@ -97,6 +98,7 @@ var english = Messages{
 		RecentFiles:      "Recent Files",
 		DropFiles:        "Drop files here to open them",
 		CloseTab:         "Close Tab",
+		SoftWrap:         "Soft Wrap",
 		OpenFailed:       func(name, reason string) string { return "Could not open " + name + ": " + reason },
 		SaveFailed:       func(name, reason string) string { return "Could not save " + name + ": " + reason },
 		NotText:          "it is not a text file",

@@ -108,6 +108,18 @@ type View struct {
 	themeDark bool
 	themeFG   ui.Color
 
+	// wrap says soft wrapping is on, and wrapCols is the columns the last paint wrapped the text
+	// at, 0 when it did not. wraps keeps every line's rows at wrapCols and rowStart where each
+	// line's first row is, one more than the lines; rowsDirty says rowStart is behind wraps.
+	// rowCache keeps the rows of the lines painted lately. See wrap.go.
+	wrap      bool
+	wrapCols  int
+	wraps     []lineWrap
+	rowStart  []int32
+	rowsDirty bool
+	rowCache  map[int][]wrapRow
+	rowBuf    []wrapRow
+
 	// scroll and scrollX are how far the text is scrolled, in pixels.
 	scroll, scrollX float32
 	// reveal asks the next paint to scroll the caret into view.
@@ -134,6 +146,8 @@ type View struct {
 	tokens  []syntax.Token
 	runs    []ui.TextRun
 	display []byte
+	// numbers is the line numbers a paint puts in the gutter once the text is drawn.
+	numbers []gutterNumber
 }
 
 // New makes the view of a document.
@@ -234,8 +248,16 @@ func cellsOf(line string, col int) int {
 // columnAt is the byte column of line whose cell holds cells, rounding to the nearer edge of
 // the character under it.
 func columnAt(line string, cells float32) int {
-	at := 0
-	for i, r := range line {
+	return columnIn(line, 0, len(line), 0, cells)
+}
+
+// columnIn is columnAt for the part of line from byte from to byte to, where from is startCells
+// columns into the line; cells counts from the line's start too. It is to when cells lies past
+// the part.
+func columnIn(line string, from, to, startCells int, cells float32) int {
+	at := startCells
+	for i, r := range line[from:to] {
+		i += from
 		if r == '\r' && i == len(line)-1 {
 			return i
 		}
@@ -245,7 +267,7 @@ func columnAt(line string, cells float32) int {
 		}
 		at += w
 	}
-	return len(line)
+	return to
 }
 
 // runeCells is how many cells r takes when it starts at column at.
@@ -298,9 +320,10 @@ func (v *View) edit(start, end int, text []byte, kind editKind) {
 		}
 	}
 	v.redo = v.redo[:0]
-	firstLine := v.text.LineOf(start)
+	firstLine, oldLast, oldCount := v.text.LineOf(start), v.text.LineOf(end), v.text.LineCount()
 	v.text = v.text.Replace(start, end, text)
 	v.hl.Edit(v.text, start, end, start+len(text))
+	v.spliceRows(firstLine, oldLast, v.text.LineOf(start+len(text)), oldCount)
 	v.anchor, v.caret = start+len(text), start+len(text)
 	v.lastKind, v.lastEnd = kind, v.caret
 	if kind == editDeleting {
@@ -320,6 +343,7 @@ func (v *View) snapshot() snapshot {
 func (v *View) restore(s snapshot) {
 	v.text = s.text
 	v.hl.SetText(s.text)
+	v.forgetRows()
 	v.anchor, v.caret = s.anchor, s.caret
 	v.lastKind = editOther
 	v.widest = max(v.widest, v.scanWidest(0, v.text.LineCount()-1))
@@ -532,12 +556,12 @@ func (v *View) leadingSpace(line int) string {
 	return string(v.text.AppendRange(nil, start, at))
 }
 
-// verticalTarget is the offset on line nearest the goal column.
-func (v *View) verticalTarget(line int) int {
+// verticalTarget is the offset on row nearest the goal column, counted from the row's start.
+func (v *View) verticalTarget(row int) int {
 	if v.goal < 0 {
-		l := v.text.LineOf(v.caret)
-		v.goal = cellsOf(v.text.Line(l), v.caret-v.text.LineStart(l))
+		line, text, rows, k := v.caretPlace()
+		v.goal = cellsOf(text, v.caret-v.text.LineStart(line)) - rows[k].cells
 	}
-	text := v.text.Line(line)
-	return v.text.LineStart(line) + columnAt(text, float32(v.goal))
+	line, sub := v.rowLine(row)
+	return v.text.LineStart(line) + v.columnOnRow(line, sub, float32(v.goal))
 }

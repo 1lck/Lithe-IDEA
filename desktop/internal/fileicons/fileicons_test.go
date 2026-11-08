@@ -151,3 +151,126 @@ func TestForFileUsesDarkVariant(t *testing.T) {
 		}
 	}
 }
+
+func TestForDirectoryMark(t *testing.T) {
+	if MarkPlain != 0 {
+		t.Errorf("MarkPlain = %d, want zero value", MarkPlain)
+	}
+	cases := []struct {
+		name      string
+		mark      DirectoryMark
+		lightIcon *ui.Icon
+		darkIcon  *ui.Icon
+	}{
+		{"plain", MarkPlain, &Folder, &FolderDark},
+		{"sources", MarkSources, &SourceRoot, &SourceRootDark},
+		{"resources", MarkResources, &ResourcesRoot, &ResourcesRootDark},
+		{"excluded", MarkExcluded, &ExcludeRoot, &ExcludeRootDark},
+		{"module", MarkModule, &ModuleJava, &ModuleJavaDark},
+		{"package", MarkPackage, &Package, &PackageDark},
+		{"unknown", DirectoryMark(255), &Folder, &FolderDark},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			requireGeneratedIcon(t, ForDirectoryMark(test.mark, false), test.lightIcon)
+			requireGeneratedIcon(t, ForDirectoryMark(test.mark, true), test.darkIcon)
+		})
+	}
+}
+
+func TestForSourceDirectory(t *testing.T) {
+	cases := []struct {
+		label     string
+		directory string
+		lightIcon *ui.Icon
+		darkIcon  *ui.Icon
+	}{
+		{"com", "com", &Package, &PackageDark},
+		{"_internal", "_internal", &Package, &PackageDark},
+		{"v2", "v2", &Package, &PackageDark},
+		{"中文", "中文", &Package, &PackageDark},
+		{"META-INF", "META-INF", &Folder, &FolderDark},
+		{"1abc", "1abc", &Folder, &FolderDark},
+		{"my-lib", "my-lib", &Folder, &FolderDark},
+		{"a.b", "a.b", &Folder, &FolderDark},
+		{"empty", "", &Folder, &FolderDark},
+		{"build", "build", &ExcludeRoot, &ExcludeRootDark},
+		{"target", "target", &ExcludeRoot, &ExcludeRootDark},
+	}
+	for _, test := range cases {
+		t.Run(test.label, func(t *testing.T) {
+			requireGeneratedIcon(t, ForSourceDirectory(test.directory, false), test.lightIcon)
+			requireGeneratedIcon(t, ForSourceDirectory(test.directory, true), test.darkIcon)
+		})
+	}
+}
+
+func TestIsPackageSegmentName(t *testing.T) {
+	cases := []struct {
+		label string
+		name  string
+		want  bool
+	}{
+		{"com", "com", true},
+		{"_internal", "_internal", true},
+		{"v2", "v2", true},
+		{"中文", "中文", true},
+		{"META-INF", "META-INF", false},
+		{"1abc", "1abc", false},
+		{"my-lib", "my-lib", false},
+		{"a.b", "a.b", false},
+		{"empty", "", false},
+		{"build", "build", true},
+		{"target", "target", true},
+	}
+	for _, test := range cases {
+		t.Run(test.label, func(t *testing.T) {
+			if got := IsPackageSegmentName(test.name); got != test.want {
+				t.Errorf("IsPackageSegmentName(%q) = %v, want %v", test.name, got, test.want)
+			}
+		})
+	}
+}
+
+func TestForTypeUsesClassVariants(t *testing.T) {
+	requireGeneratedIcon(t, ForType(false), &Class)
+	requireGeneratedIcon(t, ForType(true), &ClassDark)
+}
+
+func TestForSymbolUsesVariableWithoutDarkVariant(t *testing.T) {
+	requireGeneratedIcon(t, ForSymbol(false), &Variable)
+	requireGeneratedIcon(t, ForSymbol(true), &Variable)
+}
+
+func TestForBreakpoint(t *testing.T) {
+	cases := []struct {
+		name      string
+		enabled   bool
+		verified  bool
+		muted     bool
+		lightIcon *ui.Icon
+		darkIcon  *ui.Icon
+	}{
+		{"disabled-unverified", false, false, false, &DbDisabledBreakpoint, &DbDisabledBreakpointDark},
+		{"muted-disabled-unverified", false, false, true, &DbMutedBreakpoint, &DbMutedBreakpointDark},
+		{"disabled-verified", false, true, false, &DbDisabledBreakpoint, &DbDisabledBreakpointDark},
+		{"muted-disabled-verified", false, true, true, &DbMutedBreakpoint, &DbMutedBreakpointDark},
+		{"enabled-unverified", true, false, false, &DbSetBreakpoint, &DbSetBreakpointDark},
+		{"muted-enabled-unverified", true, false, true, &DbMutedBreakpoint, &DbMutedBreakpointDark},
+		{"enabled-verified", true, true, false, &DbVerifiedBreakpoint, &DbVerifiedBreakpointDark},
+		{"muted-enabled-verified", true, true, true, &DbMutedBreakpoint, &DbMutedBreakpointDark},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			requireGeneratedIcon(t, ForBreakpoint(test.enabled, test.verified, test.muted, false), test.lightIcon)
+			requireGeneratedIcon(t, ForBreakpoint(test.enabled, test.verified, test.muted, true), test.darkIcon)
+		})
+	}
+}
+
+func requireGeneratedIcon(t *testing.T, got ui.Icon, want *ui.Icon) {
+	t.Helper()
+	if len(got.Layers) == 0 || len(want.Layers) == 0 || &got.Layers[0] != &want.Layers[0] {
+		t.Errorf("got icon with %d layers; want generated asset with %d layers", len(got.Layers), len(want.Layers))
+	}
+}

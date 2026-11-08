@@ -2,6 +2,7 @@ package editorview
 
 import (
 	"math"
+	"sort"
 	"strconv"
 	"unicode/utf8"
 
@@ -19,9 +20,9 @@ const (
 	barMin   = float32(24)
 	// prepareMargin is how many lines past the screen the highlighter colors ahead.
 	prepareMargin = 50
-	// chunkWidth is the most points one label of a line spans. Even at a display scale of
+	// labelWidth is the most points one label of a line spans. Even at a display scale of
 	// four its texture stays well inside the renderer's 16384 pixels.
-	chunkWidth = float32(2048)
+	labelWidth = float32(2048)
 )
 
 // Paint draws the view into area: the line numbers, the band of the caret's line, the
@@ -43,6 +44,12 @@ func (v *View) Paint(canvas *ui.Canvas, area ui.Rect, look Look) {
 	v.textLeft = area.X + gutter + textPad
 	v.painted = true
 	v.focused = canvas.Focused() == v.cfg.HitID
+	cols := 0
+	if v.wrap {
+		// A cell is kept free at the right edge for the caret after a full row.
+		cols = max(int((area.X+area.Width-v.textLeft-cellW)/cellW), 1)
+	}
+	v.setWrapCols(cols)
 	if v.reveal {
 		v.revealCaret()
 		v.reveal = false
@@ -52,26 +59,59 @@ func (v *View) Paint(canvas *ui.Canvas, area ui.Rect, look Look) {
 	canvas.Fill(area, look.Background)
 	canvas.HitWithOptions(v.cfg.HitID, area, v.cfg.Label, ui.HitOptions{Role: ui.RoleTerminal, Cursor: ui.PointerCursorText})
 
-	first := min(int(v.scroll/v.lineH), lines-1)
-	last := min(int((v.scroll+area.Height)/v.lineH), lines-1)
-	v.hl.Prepare(max(first-prepareMargin, 0), min(last+prepareMargin, lines-1))
+	rows := v.rowCount()
+	firstRow := min(int(v.scroll/v.lineH), rows-1)
+	lastRow := min(int((v.scroll+area.Height)/v.lineH), rows-1)
+	firstLine, firstSub := v.rowLine(firstRow)
+	lastLine, _ := v.rowLine(lastRow)
+	v.hl.Prepare(max(firstLine-prepareMargin, 0), min(lastLine+prepareMargin, lines-1))
 
 	selStart, selEnd := v.Selection()
 	caretLine := v.text.LineOf(v.caret)
 	textArea := ui.Rect{X: area.X + gutter, Y: area.Y, Width: area.Width - gutter, Height: area.Height}
+	bottom := area.Y + area.Height
+	v.numbers = v.numbers[:0]
 	canvas.Clip(textArea)
-	for line := first; line <= last; line++ {
-		y := area.Y + float32(line)*v.lineH - v.scroll
-		row := ui.Rect{X: textArea.X, Y: y, Width: textArea.Width, Height: v.lineH}
-		if line == caretLine && selStart == selEnd {
-			canvas.Fill(row, look.CurrentLine)
-		}
+	top := area.Y + float32(firstRow-firstSub)*v.lineH - v.scroll
+	for line := firstLine; line <= lastLine; line++ {
 		text := v.text.Line(line)
-		start := v.text.LineStart(line)
-		if selStart != selEnd {
-			v.paintSelection(canvas, line, text, start, y, selStart, selEnd, look)
+		wraps := v.rowsOf(line, text)
+		if top+v.lineH > area.Y {
+			v.numbers = append(v.numbers, gutterNumber{line: line, y: top})
 		}
-		v.paintLine(canvas, line, text, y)
+		if line == caretLine && selStart == selEnd {
+			canvas.Fill(ui.Rect{X: textArea.X, Y: top, Width: textArea.Width, Height: float32(len(wraps)) * v.lineH}, look.CurrentLine)
+		}
+		selFrom, selTo := v.selectionCells(line, text, selStart, selEnd)
+		v.tokens = v.hl.Line(v.tokens[:0], line)
+		for k, row := range wraps {
+			y := top + float32(k)*v.lineH
+			if y+v.lineH <= area.Y {
+				continue
+			}
+			if y >= bottom {
+				break
+			}
+			// A wrapped row shows its own columns, moved to the left edge; an unwrapped line
+			// shows the columns scrolled into view.
+			from, to, shift := row.cells, math.MaxInt, row.cells
+			if k+1 < len(wraps) {
+				to = wraps[k+1].cells
+			}
+			if !v.wrapping() {
+				from, to = v.visibleCells()
+			}
+			lo, hi := selFrom, selTo
+			if v.wrapping() {
+				lo, hi = max(lo, row.cells), min(hi, to)
+			}
+			if hi > lo {
+				left := v.textLeft + float32(lo-shift)*v.cellW - v.scrollX
+				canvas.Fill(ui.Rect{X: left, Y: y, Width: float32(hi-lo) * v.cellW, Height: v.lineH}, look.Selection)
+			}
+			v.paintRow(canvas, text, row, from, to, shift, y)
+		}
+		top += float32(len(wraps)) * v.lineH
 	}
 	if v.focused && !v.preedit.Composing && v.blinkOn(canvas) {
 		x, y := v.caretPoint()
@@ -79,17 +119,34 @@ func (v *View) Paint(canvas *ui.Canvas, area ui.Rect, look Look) {
 	}
 	canvas.Unclip()
 
-	// The numbers go over the gutter last, so text scrolled sideways never shows under them.
+	// The numbers go over the gutter last, so text scrolled sideways never shows under them, and
+	// inside a clip of their own, so a number scrolled half out of the view never shows over what
+	// is above or below it. Each is a line on the cell grid with its right edge on the gutter's,
+	// as the text is, so their digits stay in columns: a label aligned by its width would be
+	// measured at the font's own advance, not the grid's, and drift off it.
+	canvas.Clip(ui.Rect{X: area.X, Y: area.Y, Width: gutter, Height: area.Height})
 	style := ui.TextStyle{Size: fontSize, Color: look.Subtle, Mono: true}
-	for line := first; line <= last; line++ {
-		y := area.Y + float32(line)*v.lineH - v.scroll + (v.lineH-cellH)/2
+	right := area.X + gutter - gutterPad
+	for _, number := range v.numbers {
+		v.display = strconv.AppendInt(v.display[:0], int64(number.line+1), 10)
+		n := len(v.display)
 		style.Color = look.Subtle
-		if line == caretLine {
+		if number.line == caretLine {
 			style.Color = look.Foreground
 		}
-		canvas.LabelAligned(strconv.Itoa(line+1), ui.Rect{X: area.X, Y: y, Width: gutter - gutterPad, Height: cellH}, style, ui.AlignEnd)
+		run := [1]ui.TextRun{{Bytes: int32(n), Cells: int32(n), Color: style.Color}}
+		rect := ui.Rect{X: right - float32(n)*cellW, Y: number.y + (v.lineH-cellH)/2, Width: float32(n)*cellW + 1, Height: cellH}
+		canvas.LabelRuns(string(v.display), rect, style, cellW, run[:])
 	}
+	v.display = v.display[:0]
+	canvas.Unclip()
 	v.paintScrollbars(canvas, textArea, look)
+}
+
+// gutterNumber is a line number to paint: the line, and the top of its first row.
+type gutterNumber struct {
+	line int
+	y    float32
 }
 
 // applyLook rebuilds the syntax theme when the light or dark look or the plain text color
@@ -118,55 +175,57 @@ func uiColor(c syntax.Color) ui.Color {
 	return ui.Color{Red: float32(c>>16&0xff) / 255, Green: float32(c>>8&0xff) / 255, Blue: float32(c&0xff) / 255, Alpha: 1}
 }
 
-// paintSelection fills the selected part of line; a line the selection runs past also gets its
-// line break selected, one cell wide.
-func (v *View) paintSelection(canvas *ui.Canvas, line int, text string, start int, y float32, selStart, selEnd int, look Look) {
+// selectionCells is the columns of line, whose text is text, that the selection from selStart
+// to selEnd covers; a line the selection runs past also gets its line break selected, one cell
+// wide. Both are 0 when the selection misses the line.
+func (v *View) selectionCells(line int, text string, selStart, selEnd int) (int, int) {
+	start := v.text.LineStart(line)
 	end := start + len(text)
-	if selEnd < start || selStart > end {
-		return
+	if selStart == selEnd || selEnd < start || selStart > end {
+		return 0, 0
 	}
 	from := cellsOf(text, max(selStart-start, 0))
 	to := cellsOf(text, min(selEnd-start, len(text)))
 	if selEnd > end {
 		to++
 	}
-	if to <= from {
-		return
-	}
-	left := v.textLeft + float32(from)*v.cellW - v.scrollX
-	canvas.Fill(ui.Rect{X: left, Y: y, Width: float32(to-from) * v.cellW, Height: v.lineH}, look.Selection)
+	return from, to
 }
 
-// paintLine draws the text of line in its tokens' colors. Tabs become spaces to the next tab
-// stop, and every character that is not ASCII is a run of its own at its own cell, so a wide
-// or fallback glyph never moves the text after it off its column.
+// paintRow draws the columns from to to of a row of a line, whose text is text, in its tokens'
+// colors, which v.tokens holds; the row starts at row and is drawn shift columns to the left.
+// Tabs become spaces to the next tab stop, and every character that is not ASCII is a run of
+// its own at its own cell, so a wide or fallback glyph never moves the text after it off its
+// column.
 //
-// The line is cut into labels of chunkCells columns on a fixed grid, and only the chunks that
-// reach into the view are drawn. A label becomes one texture, and the renderer refuses a
-// texture wider than its limit (16384 pixels on macOS) and stops the window, so one label per
-// line would end the app on the single line of a minified JSON file. The grid is fixed, so a
-// chunk's text stays the same while the view scrolls sideways and its texture is kept.
-func (v *View) paintLine(canvas *ui.Canvas, line int, text string, y float32) {
-	if text == "" {
+// Only the columns the view shows are drawn, as one label that starts at the first of them,
+// the way Viva's own code editor draws a row. A label becomes one texture, and the renderer
+// refuses a texture wider than its limit (16384 pixels on macOS) and stops the window, so a
+// label holding a whole line ended the app on the single line of a minified JSON file. The
+// label must also never start left of the window: Viva's painter moved a label that starts at
+// a negative x to x 0 and kept its width, which drew the text over the text after it. The
+// first visible column starts at most a cell before the gutter's edge, so the label starts
+// inside the window. A view wider than labelWidth draws its columns as several labels side by
+// side, each starting where the one before it ended.
+func (v *View) paintRow(canvas *ui.Canvas, text string, row wrapRow, from, to, shift int, y float32) {
+	if row.at >= len(text) {
 		return
 	}
-	chunk := v.chunkCells()
-	from, to := v.visibleCells()
-	from = from / chunk * chunk
-	to = ((max(to, 1)-1)/chunk + 1) * chunk
-	v.tokens = v.hl.Line(v.tokens[:0], line)
+	limit := v.labelCells()
 	v.runs = v.runs[:0]
 	v.display = v.display[:0]
 	defaultStyle := v.theme.Default()
 	textStyle := ui.TextStyle{Size: fontSize, Color: uiColor(defaultStyle.Foreground), Mono: true}
-	token := 0
-	cells := 0
+	// token is the last token that starts at or before the row.
+	token := max(sort.Search(len(v.tokens), func(i int) bool { return int(v.tokens[i].Start) > row.at })-1, 0)
+	cells := row.cells
 	run := -1
 	runASCII := false
-	// label is the first column of the chunk being gathered, and labelEnd the column after
-	// its last character.
+	// label is the first column of the label being gathered, and labelEnd the column after its
+	// last character.
 	label, labelEnd := -1, 0
-	for i, r := range text {
+	for i, r := range text[row.at:] {
+		i += row.at
 		width := runeCells(r, cells)
 		if width == 0 {
 			continue
@@ -178,9 +237,15 @@ func (v *View) paintLine(canvas *ui.Canvas, line int, text string, y float32) {
 		if cells >= to {
 			break
 		}
-		if start := cells / chunk * chunk; start != label {
-			v.paintChunk(canvas, label, labelEnd, y, textStyle)
-			label, run = start, -1
+		// A tab that starts before the first visible column shows only its spaces from there,
+		// so the label still starts at that column.
+		if r == '\t' && cells < from {
+			width -= from - cells
+			cells = from
+		}
+		if label < 0 || cells+width-label > limit {
+			v.paintLabel(canvas, label, labelEnd, shift, y, textStyle)
+			label, run = cells, -1
 		}
 		for token+1 < len(v.tokens) && int(v.tokens[token+1].Start) <= i {
 			token++
@@ -228,25 +293,26 @@ func (v *View) paintLine(canvas *ui.Canvas, line int, text string, y float32) {
 		cells += width
 		labelEnd = cells
 	}
-	v.paintChunk(canvas, label, labelEnd, y, textStyle)
+	v.paintLabel(canvas, label, labelEnd, shift, y, textStyle)
 }
 
-// paintChunk draws the runs gathered for the chunk of a line from column start to column end
-// as one label, and empties them for the next chunk.
-func (v *View) paintChunk(canvas *ui.Canvas, start, end int, y float32, style ui.TextStyle) {
+// paintLabel draws the runs gathered for a row from column start to column end as one label,
+// shift columns to the left, and empties them for the next label.
+func (v *View) paintLabel(canvas *ui.Canvas, start, end, shift int, y float32, style ui.TextStyle) {
 	if len(v.runs) == 0 {
 		return
 	}
 	width := float32(math.Ceil(float64(float32(end-start)*v.cellW))) + 1
-	rect := ui.Rect{X: v.textLeft + float32(start)*v.cellW - v.scrollX, Y: y + (v.lineH-v.cellH)/2, Width: width, Height: v.cellH}
+	rect := ui.Rect{X: v.textLeft + float32(start-shift)*v.cellW - v.scrollX, Y: y + (v.lineH-v.cellH)/2, Width: width, Height: v.cellH}
 	canvas.LabelRuns(string(v.display), rect, style, v.cellW, v.runs)
 	v.runs = v.runs[:0]
 	v.display = v.display[:0]
 }
 
-// chunkCells is how many columns one label of a line holds: as many as fit in chunkWidth.
-func (v *View) chunkCells() int {
-	return max(int(chunkWidth/v.cellW), 1)
+// labelCells is how many columns one label of a line holds at most: as many as fit in
+// labelWidth.
+func (v *View) labelCells() int {
+	return max(int(labelWidth/v.cellW), 1)
 }
 
 // visibleCells is the range of columns, from the first to the one after the last, that the
@@ -260,9 +326,9 @@ func (v *View) visibleCells() (int, int) {
 
 // caretPoint is the top left corner of the caret.
 func (v *View) caretPoint() (float32, float32) {
-	line := v.text.LineOf(v.caret)
-	cells := cellsOf(v.text.Line(line), v.caret-v.text.LineStart(line))
-	return v.textLeft + float32(cells)*v.cellW - v.scrollX, v.area.Y + float32(line)*v.lineH - v.scroll
+	line, text, rows, k := v.caretPlace()
+	cells := cellsOf(text, v.caret-v.text.LineStart(line)) - rows[k].cells
+	return v.textLeft + float32(cells)*v.cellW - v.scrollX, v.area.Y + float32(v.lineRow(line)+k)*v.lineH - v.scroll
 }
 
 // blinkOn says whether the caret shows in this frame, and asks for the frame that turns it
@@ -277,17 +343,20 @@ func (v *View) blinkOn(canvas *ui.Canvas) bool {
 	return phase%2 == 0
 }
 
-// revealCaret scrolls the least that brings the caret's line and column into view.
+// revealCaret scrolls the least that brings the caret's row and column into view.
 func (v *View) revealCaret() {
-	line := v.text.LineOf(v.caret)
-	top := float32(line) * v.lineH
+	line, text, _, k := v.caretPlace()
+	top := float32(v.lineRow(line)+k) * v.lineH
 	if top < v.scroll {
 		v.scroll = top
 	} else if bottom := top + v.lineH; bottom > v.scroll+v.area.Height {
 		v.scroll = bottom - v.area.Height
 	}
+	if v.wrapping() {
+		return
+	}
 	width := v.area.X + v.area.Width - v.textLeft
-	x := float32(cellsOf(v.text.Line(line), v.caret-v.text.LineStart(line))) * v.cellW
+	x := float32(cellsOf(text, v.caret-v.text.LineStart(line))) * v.cellW
 	margin := 4 * v.cellW
 	if x < v.scrollX {
 		v.scrollX = max(x-margin, 0)
@@ -296,24 +365,30 @@ func (v *View) revealCaret() {
 	}
 }
 
-// clampScroll keeps the scroll in range: the last line can scroll up to the top, as editors
-// allow, and the text sideways as far as its widest line.
+// clampScroll keeps the scroll in range: the last row can scroll up to the top, as editors
+// allow, and the text sideways as far as its widest line, and not at all while it wraps.
 func (v *View) clampScroll() {
-	maxY := max(float32(v.text.LineCount()-1)*v.lineH, 0)
+	maxY := max(float32(v.rowCount()-1)*v.lineH, 0)
 	v.scroll = min(max(v.scroll, 0), maxY)
 	width := v.area.X + v.area.Width - v.textLeft
 	maxX := max(float32(v.widest+4)*v.cellW-width, 0)
+	if v.wrapping() {
+		maxX = 0
+	}
 	v.scrollX = min(max(v.scrollX, 0), maxX)
 }
 
 // paintScrollbars draws the thumbs of the scrollbars over the text's right and bottom edges
 // when there is more to scroll to.
 func (v *View) paintScrollbars(canvas *ui.Canvas, area ui.Rect, look Look) {
-	content := float32(v.text.LineCount()-1)*v.lineH + area.Height
+	content := float32(v.rowCount()-1)*v.lineH + area.Height
 	if content > area.Height+0.5 {
 		length := max(area.Height*area.Height/content, barMin)
 		y := area.Y + (area.Height-length)*(v.scroll/(content-area.Height))
 		canvas.Rounded(ui.Rect{X: area.X + area.Width - barWidth - 2, Y: y, Width: barWidth, Height: length}, barWidth/2, look.Scrollbar)
+	}
+	if v.wrapping() {
+		return
 	}
 	width := v.area.X + v.area.Width - v.textLeft
 	contentX := float32(v.widest+4) * v.cellW

@@ -28,6 +28,8 @@ type AppMessages struct {
 	Version func(version string) string
 	// Core is the core library line in the settings, for example "Core 0.1.0".
 	Core func(version string) string
+	// DevBadge is the mark a development build puts on the application's Dock icon.
+	DevBadge string
 }
 
 // WelcomeMessages are the start screen's words.
@@ -143,6 +145,9 @@ type EditorMessages struct {
 	DropFiles        string
 	// CloseTab names the close button of a file's tab.
 	CloseTab string
+	// SoftWrap names the button at the end of the tab bar that wraps long lines at the
+	// editor's width instead of scrolling them sideways.
+	SoftWrap string
 	// OpenFailed and SaveFailed say a file could not be read or written, and why.
 	OpenFailed func(name, reason string) string
 	SaveFailed func(name, reason string) string

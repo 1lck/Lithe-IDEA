@@ -1,6 +1,7 @@
 package settingswindow
 
 import (
+	"github.com/1lck/Lithe-IDEA/desktop/internal/appicon"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/app"
@@ -161,6 +162,7 @@ func newWindow(c *Controller, current Values) *window {
 func (w *window) config() app.Config {
 	return app.Config{
 		Title:          w.ctrl.text().Settings.Title,
+		Icon:           appicon.Window(),
 		Width:          windowWidth,
 		Height:         windowHeight,
 		MinWidth:       windowMinWidth,

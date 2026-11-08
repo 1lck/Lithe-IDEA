@@ -3,7 +3,7 @@
 #
 # Usage: scripts/desktop/package-desktop.sh [--arch arm64|amd64] [--format LIST] [--out DIR] [--no-sign]
 #
-# Viva v0.4.0 builds the program from desktop/viva.toml, embeds that manifest and applies Windows
+# Viva builds the program from desktop/viva.toml, embeds that manifest and applies Windows
 # resources and signing. It must receive desktop-go.sh's cgo environment so the packaged client
 # links the staged core. The output defaults to dist/desktop/<os>-<arch>/; only the exact package
 # names for this version, OS and architecture are replaced.
@@ -19,7 +19,7 @@ native_path() {
     fi
 }
 
-VIVA_VERSION="v0.4.0"
+VIVA_VERSION="v0.5.1-0.20261108113640-16ca40bd07ab"
 GOOS="$(go env GOOS)"
 GOHOSTOS="$(go env GOHOSTOS)"
 if [[ "$GOOS" != "$GOHOSTOS" ]]; then

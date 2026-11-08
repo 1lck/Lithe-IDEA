@@ -3,6 +3,8 @@ package workbench
 import (
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 )
 
 // Sizes of the editor's tab groups and of the places a dragged tab can land in.
@@ -421,24 +423,57 @@ func (a *App) drawEditorNode(f *flex.Frame, n *splitNode) flex.Box {
 // drawEditorGroup declares one group of the editor: a strip of its terminals' tabs over a
 // body that the selected terminal is painted into after the frame is laid out (see
 // paintTerminal). The group is recorded for the drag, which aims at the strip and the body.
+// A group that shows an open file ends its strip with the soft wrap switch.
 func (a *App) drawEditorGroup(f *flex.Frame, id string) flex.Box {
 	u := &a.term
 	decl := groupDecl{id: id}
+	decl.selected = a.project.terms.selected(id)
+	decl.doc = a.project.selectedDocument(id)
 	group := f.Column().Background(a.colors.Editor).Clip()
 	group.Children(func() {
 		decl.strip = f.Row().FillWidth().Height(panelHeaderHeight).Shrink(0).Items(flex.Center).
 			Gap(chromeGap).PadX(chromeGap).Background(a.colors.Panel).Clip()
 		decl.stripSet = true
 		decl.strip.Children(func() {
-			decl.tabs = a.drawTerminalChips(f, id)
+			// The tabs fill the strip and give up their room before the switch does, so it
+			// stays at the strip's end however many files are open.
+			f.Row().Fill().Items(flex.Center).Gap(chromeGap).Clip().Children(func() {
+				decl.tabs = a.drawTerminalChips(f, id)
+			})
+			if decl.doc != nil {
+				a.drawSoftWrapSwitch(f, decl.doc.id)
+			}
 		})
 		decl.body = f.Row().Fill()
 		decl.bodySet = true
 	})
-	decl.selected = a.project.terms.selected(id)
-	decl.doc = a.project.selectedDocument(id)
 	u.groups = append(u.groups, decl)
 	return group
+}
+
+// drawSoftWrapSwitch declares the switch that turns soft wrapping of the open files on and
+// off, at the end of the strip of the group that shows document doc. It looks pressed while
+// wrapping is on. The click takes effect in this frame's paint, which sets every view it
+// paints to the new state.
+func (a *App) drawSoftWrapSwitch(f *flex.Frame, doc int) {
+	on := a.softWrap
+	button := f.Row().Size(shellHideSize, shellHideSize).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
+		HitWith(docWrap.At(doc), a.text.Editor.SoftWrap, ui.HitOptions{Role: ui.RoleSwitch, Checked: on, Cursor: ui.PointerCursorHand}).
+		Pressed(flex.Look{}.Background(a.colors.Active))
+	icon := a.colors.Subtle
+	if on {
+		button = button.Background(a.colors.Active)
+		icon = a.colors.Text
+	} else {
+		button = button.Hover(flex.Look{}.Background(a.colors.Hover))
+	}
+	button.Children(func() {
+		f.Icon(icons.WrapText).Size(shellIconSize, shellIconSize).Color(icon).
+			StateFrom(button).Hover(flex.Look{}.Color(a.colors.Text))
+	})
+	if button.Clicked() {
+		a.softWrap = !on
+	}
 }
 
 // declareEmptyEditor records the box of the editor while it has no group, which is the area

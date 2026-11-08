@@ -116,23 +116,20 @@ func (v *View) Key(event ui.KeyEvent) (ui.EventResult, bool) {
 		default:
 			v.moveTo(v.nextRune(v.caret), extend)
 		}
+	// Up and down go by rows, so they step through a wrapped line row by row.
 	case ui.KeyUp:
-		switch {
-		case edge:
-			v.moveTo(0, extend)
-		case line == 0:
+		switch row := v.caretRow(); {
+		case edge || row == 0:
 			v.moveTo(0, extend)
 		default:
-			v.vertical(line-1, extend)
+			v.vertical(row-1, extend)
 		}
 	case ui.KeyDown:
-		switch {
-		case edge:
-			v.moveTo(v.text.Len(), extend)
-		case line >= v.text.LineCount()-1:
+		switch row := v.caretRow(); {
+		case edge || row >= v.rowCount()-1:
 			v.moveTo(v.text.Len(), extend)
 		default:
-			v.vertical(line+1, extend)
+			v.vertical(row+1, extend)
 		}
 	case ui.KeyHome:
 		v.moveTo(v.homeOf(line), extend)
@@ -143,8 +140,9 @@ func (v *View) Key(event ui.KeyEvent) (ui.EventResult, bool) {
 		if event.Key == ui.KeyPageUp {
 			rows = -rows
 		}
-		target := min(max(line+rows, 0), v.text.LineCount()-1)
-		v.scroll += float32(target-line) * v.lineH
+		row := v.caretRow()
+		target := min(max(row+rows, 0), v.rowCount()-1)
+		v.scroll += float32(target-row) * v.lineH
 		v.vertical(target, extend)
 	case ui.KeyBackspace:
 		switch {
@@ -189,9 +187,9 @@ func (v *View) Key(event ui.KeyEvent) (ui.EventResult, bool) {
 	return handled, true
 }
 
-// vertical moves the caret to line, keeping to the column it aimed at before.
-func (v *View) vertical(line int, extend bool) {
-	target := v.verticalTarget(line)
+// vertical moves the caret to row, keeping to the column it aimed at before.
+func (v *View) vertical(row int, extend bool) {
+	target := v.verticalTarget(row)
 	goal := v.goal
 	v.moveTo(target, extend)
 	v.goal = goal
@@ -416,13 +414,11 @@ func (v *View) dragSelect(offset int) {
 
 // offsetAt is the offset of the character edge nearest the point (x, y).
 func (v *View) offsetAt(x, y float32) int {
-	line := int((y - v.area.Y + v.scroll) / max(v.lineH, 1))
-	if y < v.area.Y+0 && line < 0 {
-		line = 0
-	}
-	line = min(max(line, 0), v.text.LineCount()-1)
+	row := int((y - v.area.Y + v.scroll) / max(v.lineH, 1))
+	row = min(max(row, 0), v.rowCount()-1)
+	line, sub := v.rowLine(row)
 	cells := (x - v.textLeft + v.scrollX) / max(v.cellW, 1)
-	return v.text.LineStart(line) + columnAt(v.text.Line(line), max(cells, 0))
+	return v.text.LineStart(line) + v.columnOnRow(line, sub, max(cells, 0))
 }
 
 // Scroll scrolls the text with the wheel or the trackpad: up and down, and sideways with a
