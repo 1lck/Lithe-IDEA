@@ -1,9 +1,9 @@
 package textmate
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"sort"
 	"strconv"
@@ -16,153 +16,429 @@ import (
 
 // RawGrammar is a TextMate grammar as its JSON file has it. Only what tokenizing reads is
 // kept; injections are not supported.
+//
+// A grammar is read the way the kernel validates a plugin's grammar (plugins/grammar.rs in
+// Lithe-core-rust), so that the rules the editor runs are the rules the kernel checked: keys
+// match exactly, where encoding/json alone would also take a key that differs in case, such as
+// a "Patterns" the kernel ignores as a note; a repeated key takes its last value; and keys the
+// engine does not read are notes.
 type RawGrammar struct {
-	ScopeName  string              `json:"scopeName"`
-	Name       string              `json:"name"`
-	FileTypes  []string            `json:"fileTypes"`
-	Patterns   []*RawRule          `json:"patterns"`
-	Repository map[string]*RawRule `json:"repository"`
+	ScopeName  string
+	Name       string
+	Patterns   []*RawRule
+	Repository map[string]*RawRule
 }
 
 // RawRule is one rule of a RawGrammar.
 type RawRule struct {
-	Include             string              `json:"include"`
-	Name                string              `json:"name"`
-	ContentName         string              `json:"contentName"`
-	Match               string              `json:"match"`
-	Begin               string              `json:"begin"`
-	End                 string              `json:"end"`
-	While               string              `json:"while"`
-	Captures            RawCaptures         `json:"captures"`
-	BeginCaptures       RawCaptures         `json:"beginCaptures"`
-	EndCaptures         RawCaptures         `json:"endCaptures"`
-	WhileCaptures       RawCaptures         `json:"whileCaptures"`
-	Patterns            []*RawRule          `json:"patterns"`
-	Repository          map[string]*RawRule `json:"repository"`
-	ApplyEndPatternLast flag                `json:"applyEndPatternLast"`
+	Include             string
+	Name                string
+	ContentName         string
+	Match               string
+	Begin               string
+	End                 string
+	While               string
+	Captures            RawCaptures
+	BeginCaptures       RawCaptures
+	EndCaptures         RawCaptures
+	WhileCaptures       RawCaptures
+	Patterns            []*RawRule
+	Repository          map[string]*RawRule
+	ApplyEndPatternLast flag
 }
+
+// MaxCaptureGroup is the highest capture group a rule may name, as the kernel bounds it. The
+// compiler sizes a pattern's capture table by its highest group, so a rule for a higher group
+// is ignored rather than allowed to make that table large.
+const MaxCaptureGroup = 4096
 
 // RawCaptures are the rules of a rule's capture groups by group number. Grammars write them
 // as an object keyed by the number; an array is read by position.
 type RawCaptures map[int]*RawRule
 
-// UnmarshalJSON reads captures written as an object or as an array.
-func (c *RawCaptures) UnmarshalJSON(data []byte) error {
-	data = bytes.TrimSpace(data)
-	captures := RawCaptures{}
-	if len(data) > 0 && data[0] == '[' {
-		var list []*RawRule
-		if err := json.Unmarshal(data, &list); err != nil {
-			return err
-		}
-		for i, rule := range list {
-			if rule != nil {
-				captures[i] = rule
-			}
-		}
-		*c = captures
-		return nil
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	for key, value := range object {
-		number, err := strconv.Atoi(key)
-		if err != nil || number < 0 {
-			// vscode-textmate's own location field and the like.
-			continue
-		}
-		var rule RawRule
-		if err := json.Unmarshal(value, &rule); err != nil {
-			return err
-		}
-		captures[number] = &rule
-	}
-	*c = captures
-	return nil
-}
-
 // flag is a boolean a grammar may write as true, 1 or "1".
 type flag bool
 
-// UnmarshalJSON reads a boolean, a number or a string as a flag.
-func (f *flag) UnmarshalJSON(data []byte) error {
-	switch strings.Trim(string(bytes.TrimSpace(data)), `"`) {
-	case "", "0", "false", "null":
-		*f = false
-	default:
-		*f = true
-	}
-	return nil
-}
-
 // ParseGrammar reads a TextMate grammar in JSON.
+//
+// The JSON is decoded once into generic values and the grammar is then read from them by
+// exact key, which is both faster than decoding into the structs and free of encoding/json's
+// case-insensitive key matching. A value of the wrong type is an error, as decoding into the
+// structs would make it; a pattern or capture written as null is left out.
 func ParseGrammar(data []byte) (*RawGrammar, error) {
-	var grammar RawGrammar
-	if err := json.Unmarshal(data, &grammar); err != nil {
+	var value any
+	if err := json.Unmarshal(data, &value); err != nil {
 		return nil, fmt.Errorf("textmate grammar: %w", err)
+	}
+	object, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("textmate grammar: not a JSON object")
+	}
+	var d decoder
+	grammar := &RawGrammar{
+		ScopeName:  d.string("scopeName", object["scopeName"]),
+		Name:       d.string("name", object["name"]),
+		Patterns:   d.patterns("patterns", object["patterns"]),
+		Repository: d.repository("repository", object["repository"]),
+	}
+	if d.err != nil {
+		return nil, fmt.Errorf("textmate grammar: %w", d.err)
 	}
 	if grammar.ScopeName == "" {
 		return nil, fmt.Errorf("textmate grammar: no scopeName")
 	}
-	return &grammar, nil
+	return grammar, nil
+}
+
+// decoder reads a grammar from its generic JSON values, keeping the first error it meets.
+type decoder struct {
+	// path is where the value being read sits, for errors; it is formatted only on failure.
+	path []step
+	err  error
+}
+
+// step is one key of a path, with the index into its array when index is not negative.
+type step struct {
+	key   string
+	index int
+}
+
+func (d *decoder) push(key string, index int) { d.path = append(d.path, step{key, index}) }
+
+func (d *decoder) pop() { d.path = d.path[:len(d.path)-1] }
+
+// fail records that the value at key, or at the current path when key is empty, is not want.
+func (d *decoder) fail(key, want string) {
+	if d.err != nil {
+		return
+	}
+	steps := d.path
+	if key != "" {
+		steps = append(steps[:len(steps):len(steps)], step{key, -1})
+	}
+	var path strings.Builder
+	for _, s := range steps {
+		if path.Len() > 0 {
+			path.WriteByte('.')
+		}
+		path.WriteString(s.key)
+		if s.index >= 0 {
+			fmt.Fprintf(&path, "[%d]", s.index)
+		}
+	}
+	d.err = fmt.Errorf("%s: want %s", path.String(), want)
+}
+
+// string reads the string value at key; null is "".
+func (d *decoder) string(key string, value any) string {
+	if value == nil {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		d.fail(key, "a string")
+	}
+	return text
+}
+
+// readFlag reads true, a non-zero number, or a string other than "", "0" and "false" as true.
+func readFlag(value any) flag {
+	switch value := value.(type) {
+	case bool:
+		return flag(value)
+	case float64:
+		return value != 0
+	case string:
+		return value != "" && value != "0" && value != "false"
+	}
+	return false
+}
+
+// rule reads the rule at key, or at key[index] when index is not negative.
+func (d *decoder) rule(value any, key string, index int) *RawRule {
+	if value == nil {
+		return nil
+	}
+	object, ok := value.(map[string]any)
+	if !ok {
+		d.push(key, index)
+		d.fail("", "an object")
+		d.pop()
+		return nil
+	}
+	d.push(key, index)
+	// One pass over the rule's few keys is cheaper than a lookup for each key a rule may have.
+	rule := &RawRule{}
+	for name, entry := range object {
+		switch name {
+		case "include":
+			rule.Include = d.string(name, entry)
+		case "name":
+			rule.Name = d.string(name, entry)
+		case "contentName":
+			rule.ContentName = d.string(name, entry)
+		case "match":
+			rule.Match = d.string(name, entry)
+		case "begin":
+			rule.Begin = d.string(name, entry)
+		case "end":
+			rule.End = d.string(name, entry)
+		case "while":
+			rule.While = d.string(name, entry)
+		case "captures":
+			rule.Captures = d.captures(name, entry)
+		case "beginCaptures":
+			rule.BeginCaptures = d.captures(name, entry)
+		case "endCaptures":
+			rule.EndCaptures = d.captures(name, entry)
+		case "whileCaptures":
+			rule.WhileCaptures = d.captures(name, entry)
+		case "patterns":
+			rule.Patterns = d.patterns(name, entry)
+		case "repository":
+			rule.Repository = d.repository(name, entry)
+		case "applyEndPatternLast":
+			rule.ApplyEndPatternLast = readFlag(entry)
+		}
+	}
+	d.pop()
+	return rule
+}
+
+// patterns reads the list of rules at key, leaving out those written as null.
+func (d *decoder) patterns(key string, value any) []*RawRule {
+	if value == nil {
+		return nil
+	}
+	list, ok := value.([]any)
+	if !ok {
+		d.fail(key, "an array")
+		return nil
+	}
+	rules := make([]*RawRule, 0, len(list))
+	for i, item := range list {
+		if rule := d.rule(item, key, i); rule != nil {
+			rules = append(rules, rule)
+		}
+	}
+	return rules
+}
+
+// repository reads the rules by name at key.
+func (d *decoder) repository(key string, value any) map[string]*RawRule {
+	if value == nil {
+		return nil
+	}
+	entries, ok := value.(map[string]any)
+	if !ok {
+		d.fail(key, "an object")
+		return nil
+	}
+	repository := make(map[string]*RawRule, len(entries))
+	d.push(key, -1)
+	for name, entry := range entries {
+		if rule := d.rule(entry, name, -1); rule != nil {
+			repository[name] = rule
+		}
+	}
+	d.pop()
+	return repository
+}
+
+// captures reads captures written as an object or as an array. An object key is a group
+// number as strconv.Atoi reads it, with an optional sign; a key that is not a number or is
+// negative is a note, such as vscode-textmate's own location field. When keys such as "1" and
+// "01" name the same group, the one written as the number itself wins, and otherwise the key
+// that sorts last, so the result never depends on the order keys are visited in. A rule
+// written as null, and a rule for a group above MaxCaptureGroup, are left out.
+func (d *decoder) captures(key string, value any) RawCaptures {
+	if value == nil {
+		return nil
+	}
+	captures := RawCaptures{}
+	switch groups := value.(type) {
+	case []any:
+		for i, item := range groups[:min(len(groups), MaxCaptureGroup+1)] {
+			if rule := d.rule(item, key, i); rule != nil {
+				captures[i] = rule
+			}
+		}
+	case map[string]any:
+		type group struct {
+			key       string
+			number    int
+			canonical bool
+		}
+		keys := make([]group, 0, len(groups))
+		for name := range groups {
+			number, err := strconv.Atoi(name)
+			if err != nil || number < 0 || number > MaxCaptureGroup {
+				continue
+			}
+			keys = append(keys, group{name, number, strconv.Itoa(number) == name})
+		}
+		// The key that wins a group is read last.
+		sort.Slice(keys, func(i, j int) bool {
+			a, b := keys[i], keys[j]
+			if a.canonical != b.canonical {
+				return b.canonical
+			}
+			return a.key < b.key
+		})
+		d.push(key, -1)
+		for _, g := range keys {
+			if rule := d.rule(groups[g.key], g.key, -1); rule != nil {
+				captures[g.number] = rule
+			} else {
+				delete(captures, g.number)
+			}
+		}
+		d.pop()
+	default:
+		d.fail(key, "an object or an array")
+		return nil
+	}
+	return captures
 }
 
 // Registry holds the grammars one editor knows, so that a grammar can include another by its
 // scope name. It is safe for concurrent use.
+//
+// A grammar is compiled when it is first asked for, and a grammar it includes only when
+// tokenizing first reaches the include, so that opening Markdown does not read the grammar of
+// every language a fenced block could hold. A compiled grammar resolves its includes against
+// the grammars registered when it was compiled: adding or removing a grammar never changes
+// what a grammar compiled before runs, and Grammar compiles anew after such a change.
 type Registry struct {
-	mu       sync.Mutex
-	raw      map[string]*RawGrammar
+	mu sync.Mutex
+	// added are the grammars Add registered by scope, in front of the library's. The map is
+	// replaced, never changed, so compiled grammars can keep the one they were compiled with.
+	added    map[string]*RawGrammar
 	compiled map[string]*Grammar
+	library  *library
+}
+
+// library is the grammars a lazy registry loads, each read once and kept.
+type library struct {
+	has  func(scope string) bool
+	load func(scope string) *RawGrammar
+
+	mu     sync.Mutex
+	loaded map[string]*RawGrammar
+}
+
+// get returns the grammar of scope, loading it on first use.
+func (l *library) get(scope string) *RawGrammar {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if raw, ok := l.loaded[scope]; ok {
+		return raw
+	}
+	var raw *RawGrammar
+	if l.has(scope) {
+		raw = l.load(scope)
+	}
+	l.loaded[scope] = raw
+	return raw
 }
 
 // NewRegistry returns an empty registry.
-func NewRegistry() *Registry {
-	return &Registry{raw: map[string]*RawGrammar{}, compiled: map[string]*Grammar{}}
+func NewRegistry() *Registry { return NewLazyRegistry(nil, nil) }
+
+// NewLazyRegistry returns a registry that also knows the grammars of a library: has says,
+// without reading anything, whether load has a grammar for a scope, and load reads it, at most
+// once for each scope. Grammars added take precedence over the library's. Both functions may
+// be called from any goroutine and must not call the registry; nil functions make an empty
+// library.
+func NewLazyRegistry(has func(scope string) bool, load func(scope string) *RawGrammar) *Registry {
+	r := &Registry{added: map[string]*RawGrammar{}, compiled: map[string]*Grammar{}}
+	if has != nil && load != nil {
+		r.library = &library{has: has, load: load, loaded: map[string]*RawGrammar{}}
+	}
+	return r
 }
 
 // Add registers grammar under its scope name, in place of a grammar registered there before.
-// Grammars compiled before keep working with what they included; Grammar compiles them anew.
+// Grammars compiled before keep working with what they could include; Grammar compiles them
+// anew.
 func (r *Registry) Add(grammar *RawGrammar) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.raw[grammar.ScopeName] = grammar
+	added := maps.Clone(r.added)
+	added[grammar.ScopeName] = grammar
+	r.added = added
 	clear(r.compiled)
 }
 
-// Remove unregisters the grammar of scope.
+// Remove unregisters the grammar Add registered for scope, which leaves the library's grammar
+// of scope, if any.
 func (r *Registry) Remove(scope string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.raw, scope)
+	added := maps.Clone(r.added)
+	delete(added, scope)
+	r.added = added
 	clear(r.compiled)
 }
 
-// Grammar returns the compiled grammar of scope, compiling it and what it includes on first
-// use, or false when no grammar has that scope.
+// Grammar returns the compiled grammar of scope, compiling it on first use, or false when no
+// grammar has that scope. The grammars it includes are compiled when tokenizing reaches them.
 func (r *Registry) Grammar(scope string) (*Grammar, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if g, ok := r.compiled[scope]; ok {
 		return g, true
 	}
-	raw, ok := r.raw[scope]
-	if !ok {
+	source := &grammarSource{added: r.added, library: r.library}
+	raw := source.raw(scope)
+	if raw == nil {
 		return nil, false
 	}
-	g := compileGrammar(raw, func(scope string) *RawGrammar { return r.raw[scope] })
+	g := compileGrammar(raw, source)
 	r.compiled[scope] = g
 	return g, true
 }
 
-// Grammar is a compiled TextMate grammar. Its rules are fixed once compiled; patterns are
-// compiled to regular expressions on first use. It is safe for concurrent use.
+// grammarSource is what one compiled grammar resolves includes of other grammars against: the
+// grammars added when it was compiled, then the library.
+type grammarSource struct {
+	added   map[string]*RawGrammar
+	library *library
+}
+
+// has says whether a grammar has scope, without reading it.
+func (s *grammarSource) has(scope string) bool {
+	if _, ok := s.added[scope]; ok {
+		return true
+	}
+	return s.library != nil && s.library.has(scope)
+}
+
+// raw returns the grammar of scope, or nil when there is none.
+func (s *grammarSource) raw(scope string) *RawGrammar {
+	if raw, ok := s.added[scope]; ok {
+		return raw
+	}
+	if s.library == nil {
+		return nil
+	}
+	return s.library.get(scope)
+}
+
+// Grammar is a compiled TextMate grammar. Its rules are compiled once: those of the grammars
+// it includes when tokenizing first reaches the include, and patterns to regular expressions
+// on first use. It is safe for concurrent use.
 type Grammar struct {
 	scopeName string
-	// rules are the grammar's rules by id; rules[0] is unused.
-	rules []*rule
+	// rules are the grammar's rules by id; rules[0] is unused. Compiling an included grammar
+	// publishes a longer list that starts with the same rules, so a reader loads the list for
+	// each use rather than keep it.
+	rules atomic.Pointer[[]*rule]
 	root  int
+
+	// compileMu guards compiler, which compiles included grammars when they are reached.
+	compileMu sync.Mutex
+	compiler  *compiler
 
 	scopesMu sync.Mutex
 	scopes   map[scopeKey]*ScopeStack
@@ -172,6 +448,9 @@ type Grammar struct {
 	errorsMu sync.Mutex
 	errors   []error
 }
+
+// rule returns the rule with id.
+func (g *Grammar) rule(id int) *rule { return (*g.rules.Load())[id] }
 
 // ScopeName is the grammar's scope, such as source.java.
 func (g *Grammar) ScopeName() string { return g.scopeName }
@@ -207,6 +486,9 @@ const (
 	// beginWhileRule spans from its begin pattern for as long as each following line starts
 	// with its while pattern.
 	beginWhileRule
+	// externalRule stands in a rule's patterns for an include of a grammar not compiled yet.
+	// Collecting the patterns compiles that grammar and collects the rule the include names.
+	externalRule
 )
 
 // Scanner ids that stand for a rule's own end and while patterns rather than a rule.
@@ -227,6 +509,14 @@ type rule struct {
 	// missingPatterns says some of the rule's patterns include what does not exist.
 	missingPatterns     bool
 	applyEndPatternLast bool
+
+	// include is what an externalRule includes, as a grammar wrote it, and base is the rule
+	// $base names in the included grammar.
+	include string
+	base    *RawRule
+	// target is the rule an externalRule's include names once compiled, or -1 when it names
+	// nothing; 0 means not compiled yet. Grammar.compileMu guards it.
+	target int
 
 	scanOnce sync.Once
 	// entries are the patterns that start something inside the rule, in priority order.
@@ -399,7 +689,7 @@ func (r *rule) scanner(g *Grammar) []entry {
 			g.collect(r, &out, visiting)
 		} else {
 			for _, id := range r.patterns {
-				g.collect(g.rules[id], &out, visiting)
+				g.collect(g.rule(id), &out, visiting)
 			}
 		}
 		r.entries = out
@@ -415,16 +705,32 @@ func (g *Grammar) collect(r *rule, out *[]entry, visiting map[int]bool) {
 		*out = append(*out, entry{rule: r.id, pat: r.match})
 	case beginEndRule, beginWhileRule:
 		*out = append(*out, entry{rule: r.id, pat: r.begin})
+	case externalRule:
+		if id := g.resolve(r); id > 0 {
+			g.collect(g.rule(id), out, visiting)
+		}
 	default:
 		if visiting[r.id] {
 			return
 		}
 		visiting[r.id] = true
 		for _, id := range r.patterns {
-			g.collect(g.rules[id], out, visiting)
+			g.collect(g.rule(id), out, visiting)
 		}
 		delete(visiting, r.id)
 	}
+}
+
+// resolve compiles what the externalRule r includes, the first time it is asked, and returns
+// the id of the rule the include names, or -1 when it names nothing.
+func (g *Grammar) resolve(r *rule) int {
+	g.compileMu.Lock()
+	defer g.compileMu.Unlock()
+	if r.target == 0 {
+		r.target = g.compiler.include(r.include, &repo{base: r.base}, false)
+		g.compiler.publish()
+	}
+	return r.target
 }
 
 // repo is the repository rules of one grammar resolve "#name" includes in: a nested
@@ -445,24 +751,44 @@ func (r *repo) lookup(key string) *RawRule {
 	return nil
 }
 
-// compiler builds one Grammar from raw grammars, as vscode-textmate's RuleFactory does.
+// compiler builds one Grammar from raw grammars, as vscode-textmate's RuleFactory does. It
+// compiles the rules a grammar reaches without including another grammar; an include of a
+// grammar not compiled yet becomes an externalRule, which compiles that grammar when the
+// tokenizer first collects it. vscode-textmate leaves out a rule all of whose patterns include
+// what does not exist; an externalRule is kept as long as its grammar exists, even when the
+// rule the include names after a "#" turns out not to.
 type compiler struct {
 	g      *Grammar
-	lookup func(scope string) *RawGrammar
+	source *grammarSource
+	// rules are the rules compiled so far by id; Grammar.rules is what was last published.
+	rules []*rule
 	// ids are the compiled rules by the raw rule they came from.
 	ids map[*RawRule]int
 	// included are the repositories of the grammars included by scope.
 	included map[string]*repo
+	// deferred are the externalRules by what they include.
+	deferred map[externalKey]int
 	top      *repo
 }
 
-func compileGrammar(raw *RawGrammar, lookup func(string) *RawGrammar) *Grammar {
-	g := &Grammar{scopeName: raw.ScopeName, rules: []*rule{nil}, scopes: map[scopeKey]*ScopeStack{}}
-	c := &compiler{g: g, lookup: lookup, ids: map[*RawRule]int{}, included: map[string]*repo{}}
+// externalKey is an include of another grammar and the rule $base names in it.
+type externalKey struct {
+	include string
+	base    *RawRule
+}
+
+func compileGrammar(raw *RawGrammar, source *grammarSource) *Grammar {
+	g := &Grammar{scopeName: raw.ScopeName, scopes: map[scopeKey]*ScopeStack{}}
+	c := &compiler{
+		g: g, source: source, rules: []*rule{nil}, ids: map[*RawRule]int{},
+		included: map[string]*repo{}, deferred: map[externalKey]int{},
+	}
+	g.compiler = c
 	c.top = c.grammarRepo(raw, nil)
 	c.included[raw.ScopeName] = c.top
 	g.root = c.ruleID(c.top.self, c.top)
-	rootName := g.rules[g.root].name.text
+	c.publish()
+	rootName := c.rules[g.root].name.text
 	if rootName == "" {
 		rootName = "unknown"
 	}
@@ -481,12 +807,19 @@ func (c *compiler) grammarRepo(raw *RawGrammar, base *RawRule) *repo {
 	return &repo{entries: raw.Repository, self: self, base: base}
 }
 
+// publish makes the rules compiled so far visible to tokenizers. Rules are only ever appended
+// after the published ones, so a reader of an earlier list never sees one change.
+func (c *compiler) publish() {
+	rules := c.rules
+	c.g.rules.Store(&rules)
+}
+
 // external returns the repository of the grammar of scope, or nil when it is not registered.
 func (c *compiler) external(scope string, from *repo) *repo {
 	if r, ok := c.included[scope]; ok {
 		return r
 	}
-	raw := c.lookup(scope)
+	raw := c.source.raw(scope)
 	if raw == nil {
 		return nil
 	}
@@ -501,8 +834,8 @@ func (c *compiler) ruleID(desc *RawRule, rp *repo) int {
 	if id, ok := c.ids[desc]; ok {
 		return id
 	}
-	id := len(c.g.rules)
-	c.g.rules = append(c.g.rules, nil)
+	id := len(c.rules)
+	c.rules = append(c.rules, nil)
 	c.ids[desc] = id
 	r := &rule{id: id, name: newName(desc.Name), contentName: newName(desc.ContentName)}
 	switch {
@@ -536,7 +869,7 @@ func (c *compiler) ruleID(desc *RawRule, rp *repo) int {
 		r.endCaptures = c.captures(firstCaptures(desc.EndCaptures, desc.Captures), rp)
 		r.patterns, r.missingPatterns = c.patterns(desc.Patterns, rp)
 	}
-	c.g.rules[id] = r
+	c.rules[id] = r
 	return id
 }
 
@@ -578,14 +911,14 @@ func (c *compiler) patterns(list []*RawRule, rp *repo) ([]int, bool) {
 		if desc.Include == "" {
 			id = c.ruleID(desc, rp)
 		} else {
-			id = c.include(desc.Include, rp)
+			id = c.include(desc.Include, rp, true)
 		}
 		if id < 0 {
 			continue
 		}
 		// A rule all of whose patterns are missing would match nothing; vscode-textmate
 		// drops it. A rule still being compiled is part of a cycle and is kept.
-		if r := c.g.rules[id]; r != nil && r.kind != matchRule && r.missingPatterns && len(r.patterns) == 0 {
+		if r := c.rules[id]; r != nil && r.kind != matchRule && r.kind != externalRule && r.missingPatterns && len(r.patterns) == 0 {
 			continue
 		}
 		ids = append(ids, id)
@@ -594,8 +927,9 @@ func (c *compiler) patterns(list []*RawRule, rp *repo) ([]int, bool) {
 }
 
 // include resolves one include: $self, $base, #name, a scope, or scope#name. It returns -1
-// when the include refers to nothing.
-func (c *compiler) include(include string, rp *repo) int {
+// when the include refers to nothing. When deferExternal is set, an include of a grammar that exists
+// but is not compiled yet returns an externalRule instead of compiling that grammar.
+func (c *compiler) include(include string, rp *repo, deferExternal bool) int {
 	switch include {
 	case "$self":
 		return c.ruleID(rp.self, rp)
@@ -609,6 +943,12 @@ func (c *compiler) include(include string, rp *repo) int {
 		}
 		return -1
 	}
+	if _, compiled := c.included[scope]; !compiled && deferExternal {
+		if !c.source.has(scope) {
+			return -1
+		}
+		return c.externalRule(include, rp.base)
+	}
 	external := c.external(scope, rp)
 	if external == nil {
 		return -1
@@ -620,4 +960,16 @@ func (c *compiler) include(include string, rp *repo) int {
 		return c.ruleID(desc, external)
 	}
 	return -1
+}
+
+// externalRule returns the externalRule of include with base, making it on first use.
+func (c *compiler) externalRule(include string, base *RawRule) int {
+	key := externalKey{include, base}
+	if id, ok := c.deferred[key]; ok {
+		return id
+	}
+	id := len(c.rules)
+	c.rules = append(c.rules, &rule{id: id, kind: externalRule, include: include, base: base})
+	c.deferred[key] = id
+	return id
 }

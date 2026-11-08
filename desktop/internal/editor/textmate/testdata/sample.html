@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Sample &amp; test</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body { margin: 0; font-family: "Inter", sans-serif; }
+    .card > h1:hover, #main::before {
+      color: #3a7bd5;
+      padding: 4px 1.5em;
+      background: url("bg.png") no-repeat;
+    }
+    @media (max-width: 600px) { .card { display: none !important; } }
+  </style>
+</head>
+<body class="page" data-id='42'>
+  <!-- A comment -->
+  <main id="main">
+    <h1 class="title">Hello</h1>
+    <p>Text with <a href="https://example.com" target="_blank">a link</a> and &copy; 2026.</p>
+    <img src="a.png" alt="A picture" width=100>
+    <br/>
+    <button type="button" onclick="greet('you')" disabled>Greet</button>
+  </main>
+  <script>
+    function greet(name) {
+      const message = `Hello, ${name}!`;
+      document.querySelector(".title").textContent = message;
+      return message.length > 3;
+    }
+  </script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

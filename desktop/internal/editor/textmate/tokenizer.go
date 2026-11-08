@@ -335,7 +335,7 @@ func (t *Tokenizer) tokenizeText(s *text, first bool, pos int, stack *StateStack
 		advanced := caps[0].end > pos
 		if id == endRuleID {
 			// The end of the innermost rule: pop it.
-			popped := t.g.rules[stack.rule]
+			popped := t.g.rule(stack.rule)
 			t.produce(stack.content, caps[0].start)
 			stack = stack.withContent(stack.names)
 			t.captures(s, first, stack, popped.endCaptures, caps)
@@ -351,7 +351,7 @@ func (t *Tokenizer) tokenizeText(s *text, first bool, pos int, stack *StateStack
 				return stack, false
 			}
 		} else {
-			r := t.g.rules[id]
+			r := t.g.rule(id)
 			t.produce(stack.content, caps[0].start)
 			before := stack
 			names := t.g.pushScopes(stack.content, r.name.resolve(s.runes, caps))
@@ -404,13 +404,13 @@ func (t *Tokenizer) checkWhileConditions(s *text, first bool, pos int, stack *St
 	}
 	var whiles []*StateStack
 	for node := stack; node != nil; node = node.parent {
-		if t.g.rules[node.rule].kind == beginWhileRule {
+		if t.g.rule(node.rule).kind == beginWhileRule {
 			whiles = append(whiles, node)
 		}
 	}
 	for i := len(whiles) - 1; i >= 0; i-- {
 		node := whiles[i]
-		r := t.g.rules[node.rule]
+		r := t.g.rule(node.rule)
 		p := r.while
 		if node.hasEndRule {
 			p = r.resolvedPattern(r.while, node.endRule)
@@ -435,7 +435,7 @@ func (t *Tokenizer) checkWhileConditions(s *text, first bool, pos int, stack *St
 // matchRule finds the leftmost match in s from pos among the patterns of the innermost rule
 // of stack, its end pattern included, and returns the rule it starts and its groups.
 func (t *Tokenizer) matchRule(s *text, first bool, pos int, stack *StateStack, anchor int) (int, []span) {
-	r := t.g.rules[stack.rule]
+	r := t.g.rule(stack.rule)
 	entries := r.scanner(t.g)
 	if r.kind != beginEndRule {
 		return t.search(s, pos, first, pos == anchor, entries, entry{}, false)

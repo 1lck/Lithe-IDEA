@@ -19,15 +19,14 @@ if (!packages) {
   process.exit(2);
 }
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const grammarDir = path.join(root, "desktop/internal/editor/syntax/grammars");
 const testdata = path.join(root, "desktop/internal/editor/textmate/testdata");
-// The same samples and scopes as TestMatchesVSCodeTextMate.
-const samples = {
-  "Sample.java": "source.java",
-  "Makefile": "source.makefile",
-  "CMakeLists.txt": "source.cmake",
-  "build.gradle": "source.groovy",
-};
+// The bundled grammars and those only the tests use, as in bundledRegistry.
+const grammarDirs = [
+  path.join(root, "desktop/internal/editor/syntax/grammars"),
+  path.join(testdata, "grammars"),
+];
+// Each sample file and the scope of the grammar that tokenizes it, as TestMatchesVSCodeTextMate reads them.
+const samples = JSON.parse(fs.readFileSync(path.join(testdata, "samples.json"), "utf8"));
 
 const require = createRequire(path.join(path.resolve(packages), "package.json"));
 const vsctm = require("vscode-textmate");
@@ -35,9 +34,11 @@ const onig = require("vscode-oniguruma");
 await onig.loadWASM(fs.readFileSync(require.resolve("vscode-oniguruma/release/onig.wasm")).buffer);
 
 const grammars = {};
-for (const file of fs.readdirSync(grammarDir).filter((name) => name.endsWith(".tmLanguage.json"))) {
-  const text = fs.readFileSync(path.join(grammarDir, file), "utf8");
-  grammars[JSON.parse(text).scopeName] = { text, file: path.join(grammarDir, file) };
+for (const dir of grammarDirs) {
+  for (const file of fs.readdirSync(dir).filter((name) => name.endsWith(".tmLanguage.json"))) {
+    const text = fs.readFileSync(path.join(dir, file), "utf8");
+    grammars[JSON.parse(text).scopeName] = { text, file: path.join(dir, file) };
+  }
 }
 const registry = new vsctm.Registry({
   onigLib: Promise.resolve({
