@@ -17,22 +17,22 @@ import (
 // each.
 //
 // Left Bottom and Bottom Left are two zones, and so are Right Bottom and Bottom Right.
-// The first of each pair is the group under the top group of its stripe, whose tool
-// window opens in the lower half of the column beside the editor; the second is the group
-// packed at the bottom of the stripe, whose tool window opens in the left or right half of
-// the bottom area.
+// The first of each pair is the split group packed near the bottom of its stripe, directly
+// above the bottom group, and opens in the lower half of the column beside the editor. The
+// second is the bottom group packed at the stripe's end and opens in a half of the bottom
+// area.
 type zone uint8
 
 const (
 	// zoneLeftTop is the upper group of the left stripe.
 	zoneLeftTop zone = iota
-	// zoneLeftBottom is the group of the left stripe directly under zoneLeftTop.
+	// zoneLeftBottom is the left stripe's split group, above its bottom group.
 	zoneLeftBottom
 	// zoneBottomLeft is the group packed at the bottom of the left stripe.
 	zoneBottomLeft
 	// zoneRightTop is the upper group of the right stripe.
 	zoneRightTop
-	// zoneRightBottom is the group of the right stripe directly under zoneRightTop.
+	// zoneRightBottom is the right stripe's split group, above its bottom group.
 	zoneRightBottom
 	// zoneBottomRight is the group packed at the bottom of the right stripe.
 	zoneBottomRight

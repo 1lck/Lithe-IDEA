@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/vivaui/viva/ui"
 )
 
@@ -31,6 +32,36 @@ const (
 	dragGhostOffset = 12
 	dragGhostMargin = 4
 	dragGhostRadius = 7
+	// dragGhostBorderWidth is the stroke used by the legacy title and status ghosts and by
+	// the snapped stripe ghost.
+	dragGhostBorderWidth = 1
+	// dragSnappedGhostSize is the side of the stripe ghost, which fits the activity button
+	// column without leaving its stripe.
+	dragSnappedGhostSize = chromeToolButton
+	// dragSnappedGhostIconInset centers the usual stripe icon inside its snapped button.
+	dragSnappedGhostIconInset = (dragSnappedGhostSize - chromeIconSize) / 2
+	// dragFloatingGhostSize, dragFloatingGhostRadius, and dragFloatingGhostBorderWidth size
+	// the detached image to match the previous client's floating tool button.
+	dragFloatingGhostSize        = 30
+	dragFloatingGhostRadius      = 6
+	dragFloatingGhostBorderWidth = 1
+	// dragFloatingGhostIconInset centers the usual stripe icon inside the detached image.
+	dragFloatingGhostIconInset = (dragFloatingGhostSize - chromeIconSize) / 2
+	// dragFloatingGhostOpacity is applied to the detached image's surface and icon.
+	dragFloatingGhostOpacity = 0.85
+	// These are the rounded square's border and fill colors in the two workbench themes.
+	dragFloatingGhostDarkRGB  uint32 = 0x40434A
+	dragFloatingGhostLightRGB uint32 = 0xDDDFE4
+	// These colors tint the pane under a detached drop preview in dark and light themes.
+	dragPreviewDarkRGB  uint32 = 0x366ACF
+	dragPreviewLightRGB uint32 = 0xA0BDF8
+	// dragPreviewAlpha is the preview fill's 77/255 opacity.
+	dragPreviewAlpha float32 = 77.0 / 255.0
+	// The detached preview label uses a 12 point font, eight pixels of padding and six
+	// pixel corners so it stays readable over the pane highlight.
+	dragPreviewLabelFontSize = 12
+	dragPreviewLabelPadding  = 8
+	dragPreviewLabelRadius   = 6
 )
 
 // dragState is the gesture that moves a rearrangeable button. The zero value is no
@@ -40,9 +71,16 @@ type dragState struct {
 	// says the pointer then moved far enough for the press to be a drag.
 	pressed, active bool
 	item            int
+	// sourceZone stays fixed for the gesture so a detached drop keeps source-anchor
+	// priority. snappedStripe can change when a detached drag returns to either stripe.
+	sourceZone    zone
+	snappedStripe stripeSide
+	phase         dragPhase
 	// startX and startY are where the press began and x and y where the pointer is now.
 	startX, startY float32
 	x, y           float32
+	// grab is the press point inside the source button, retained by both stripe ghosts.
+	grab ui.Point
 	// target is where the button would land if it were dropped now; hasTarget is false
 	// while the pointer is somewhere a button of its surface cannot go.
 	target    dragTarget
@@ -59,6 +97,8 @@ type dragTarget struct {
 	before string
 	// mark is the insertion line, in window coordinates.
 	mark ui.Rect
+	// preview is the dock pane rectangle highlighted while a tool button is detached.
+	preview ui.Rect
 }
 
 // dragPointer follows a press on a rearrangeable button. It leaves the press alone until
@@ -75,7 +115,14 @@ func (a *App) dragPointer(event ui.PointerEvent) (ui.EventResult, bool) {
 			return ui.EventResult{}, false
 		}
 		if i, ok := event.Target.In(chromeButtons); ok && i < len(catalog) {
-			*d = dragState{pressed: true, item: i, startX: event.X, startY: event.Y}
+			button := a.chrome.rects[i]
+			source := a.chrome.zoneOf(i)
+			side, _ := stripeForZone(source)
+			*d = dragState{
+				pressed: true, item: i, sourceZone: source, snappedStripe: side,
+				startX: event.X, startY: event.Y,
+				grab: ui.Point{X: event.X - button.X, Y: event.Y - button.Y},
+			}
 		}
 		// The button under the pointer still gets its press.
 		return ui.EventResult{}, false
@@ -92,7 +139,13 @@ func (a *App) dragPointer(event ui.PointerEvent) (ui.EventResult, bool) {
 			d.active = true
 		}
 		d.x, d.y, d.viewport = event.X, event.Y, event.Viewport
-		d.target, d.hasTarget = a.dragLocate(d.item, event.X, event.Y, event.Viewport)
+		point := ui.Point{X: event.X, Y: event.Y}
+		if d.sourceZone.surface() == surfaceStripes {
+			d.phase, d.snappedStripe = dragPhaseAt(d.phase, d.snappedStripe, point, dragStripeRects(ui.Rect{
+				Width: event.Viewport.Width, Height: event.Viewport.Height,
+			}))
+		}
+		d.target, d.hasTarget = a.dragLocate(d.item, d.sourceZone, point, event.Viewport, d.phase, d.snappedStripe)
 		return ui.EventResult{Handled: true, Repaint: true}, true
 
 	case ui.PointerUp:
@@ -102,8 +155,15 @@ func (a *App) dragPointer(event ui.PointerEvent) (ui.EventResult, bool) {
 		}
 		// The place is worked out again at the release: the last move may be older than
 		// the release by a frame in which the layout changed.
-		item := d.item
-		target, ok := a.dragLocate(item, event.X, event.Y, event.Viewport)
+		item, source := d.item, d.sourceZone
+		phase, snappedStripe := d.phase, d.snappedStripe
+		point := ui.Point{X: event.X, Y: event.Y}
+		if source.surface() == surfaceStripes {
+			phase, snappedStripe = dragPhaseAt(phase, snappedStripe, point, dragStripeRects(ui.Rect{
+				Width: event.Viewport.Width, Height: event.Viewport.Height,
+			}))
+		}
+		target, ok := a.dragLocate(item, source, point, event.Viewport, phase, snappedStripe)
 		*d = dragState{}
 		if ok {
 			a.reduceChrome(core.MoveChrome(catalog[item].id, zoneNames[target.zone], target.before))
@@ -131,79 +191,57 @@ func (a *App) cancelDrag() bool {
 // draggingToolButton reports that a button of the tool stripes is being dragged, which is
 // when the stripes show every zone as a place to drop it (see drawStripe).
 func (a *App) draggingToolButton() bool {
-	return a.drag.active && a.chrome.zoneOf(a.drag.item).surface() == surfaceStripes
+	return a.drag.active && a.drag.sourceZone.surface() == surfaceStripes
 }
 
-// dragLocate finds where dropping catalog item item at (x, y) would put it. A button
-// never leaves its surface: a stripe button lands in one of the six stripe zones, a
-// title bar button in the title bar and a status bar button in the status bar, so
-// anywhere else there is no place and the drop is cancelled. viewport is the window's
-// size, which is where the right stripe and the status bar are.
-func (a *App) dragLocate(item int, x, y float32, viewport ui.Size) (dragTarget, bool) {
+// dragLocate finds where dropping item at point would put it. Tool buttons use their
+// snapped stripe or detached dock geometry; title and status items keep their existing
+// bar-only targets. A point outside the window never produces a target.
+func (a *App) dragLocate(item int, source zone, point ui.Point, viewport ui.Size, phase dragPhase, snapped stripeSide) (dragTarget, bool) {
 	var target dragTarget
-	if x < 0 || y < 0 || x >= viewport.Width || y >= viewport.Height {
+	if point.X < 0 || point.Y < 0 || point.X >= viewport.Width || point.Y >= viewport.Height {
 		return target, false
 	}
-	switch a.chrome.zoneOf(item).surface() {
+	switch source.surface() {
 	case surfaceTitle:
-		if y >= titleBarHeight {
+		if point.Y >= titleBarHeight {
 			return target, false
 		}
 		target.zone = zoneTitle
 	case surfaceStatus:
-		if y < viewport.Height-statusBarHeight {
+		if point.Y < viewport.Height-statusBarHeight {
 			return target, false
 		}
 		target.zone = zoneStatus
 	default:
-		z, ok := a.dragStripeZone(x, y, viewport)
-		if !ok {
-			return target, false
+		if phase == dragSnapped {
+			zones := stripeZones(snapped)
+			stripes := dragStripeRects(ui.Rect{Width: viewport.Width, Height: viewport.Height})
+			z, ok := dragStripeZoneAt(point, stripes[snapped], snapped,
+				a.chrome.zoneRects[zones[0]], a.chrome.zoneRects[zones[1]], a.chrome.zoneRects[zones[2]])
+			if !ok {
+				return target, false
+			}
+			target.zone = z
+		} else {
+			return a.dragDetachedTarget(item, source, point, viewport)
 		}
-		target.zone = z
 	}
-	target.before, target.mark = a.dragInsertion(item, target.zone, x, y)
+	target.before, target.mark = a.dragInsertion(item, target.zone, point.X, point.Y)
 	return target, true
 }
 
-// dragStripeZone is the zone of a stripe at (x, y): the stripe is the one the pointer is
-// over, and the zone one of the three it has, from the top down: the top zone, the split
-// zone under it and the bottom zone.
-//
-// The zones are told apart by where the last frame laid them out. The top and the split
-// zone are as high as their buttons, one button at least while a button is dragged (see
-// drawStripe), and the bottom zone takes the rest of the stripe. So the pointer is in the
-// top zone until the top zone ends, and in the split zone until it ends too, with half a
-// button of room past it because the buttons of the bottom zone are packed at the far end
-// and the empty room between would otherwise belong to no zone a person aims for.
-// Anywhere below that is the bottom zone. Before the stripe has been laid out, the
-// stripe is split in half between the top and the bottom zone.
-func (a *App) dragStripeZone(x, y float32, viewport ui.Size) (zone, bool) {
-	if y < titleBarHeight || y >= viewport.Height-statusBarHeight {
-		return 0, false
+// dragDetachedTarget finds a button or dock area under a floating tool drag and adds the
+// insertion line in that zone's stripe.
+func (a *App) dragDetachedTarget(item int, source zone, point ui.Point, viewport ui.Size) (dragTarget, bool) {
+	z, preview, ok := dragDockTargetAt(
+		point, item, source, a.dragDockButtons(item), a.dragDockAnchors(viewport),
+	)
+	if !ok {
+		return dragTarget{}, false
 	}
-	top, split, end := zoneLeftTop, zoneLeftBottom, zoneBottomLeft
-	switch {
-	case x < stripeWidth:
-	case x >= viewport.Width-stripeWidth:
-		top, split, end = zoneRightTop, zoneRightBottom, zoneBottomRight
-	default:
-		return 0, false
-	}
-	topRect, splitRect, endRect := a.chrome.zoneRects[top], a.chrome.zoneRects[split], a.chrome.zoneRects[end]
-	if topRect.Height <= 0 && splitRect.Height <= 0 && endRect.Height <= 0 {
-		if y < titleBarHeight+(viewport.Height-titleBarHeight-statusBarHeight)/2 {
-			return top, true
-		}
-		return end, true
-	}
-	switch {
-	case y < topRect.Y+topRect.Height:
-		return top, true
-	case y < splitRect.Y+splitRect.Height+chromeToolButton/2:
-		return split, true
-	}
-	return end, true
+	before, mark := a.dragInsertion(item, z, point.X, point.Y)
+	return dragTarget{zone: z, before: before, mark: mark, preview: preview}, true
 }
 
 // dragInsertion finds where in zone z the dragged button would stand for a pointer at
@@ -223,7 +261,7 @@ func (a *App) dragInsertion(item int, z zone, x, y float32) (string, ui.Rect) {
 	if vertical {
 		position = zr.Y + dragMarkLead
 		if z == zoneBottomLeft || z == zoneBottomRight {
-			// The bottom zone of a stripe packs its buttons at its bottom.
+			// The empty bottom group sits at the stripe's end, so its mark belongs there.
 			position = zr.Y + zr.Height - dragMarkLead - dragMark
 		}
 	}
@@ -251,11 +289,11 @@ func (a *App) dragInsertion(item int, z zone, x, y float32) (string, ui.Rect) {
 	return before, ui.Rect{X: position, Y: zr.Y + dragMarkInset, Width: dragMark, Height: zr.Height - 2*dragMarkInset}
 }
 
-// paintDrag paints the gesture on top of the frame, as motty does: every zone the
-// button may go to is lightly tinted, the zone it would land in more strongly, the
-// insertion line is drawn in the accent color, and a small copy of the button follows
-// the pointer below and to the right of it, so it never hides the line. The source
-// button stays where it is, dimmed (see chromeBox).
+// paintDrag paints the gesture above the frame: stripe zones stay tinted, detached dock
+// targets show their pane preview and localized title, and the insertion line marks the
+// position in the target zone. A snapped stripe ghost stays in its button column, while a
+// detached ghost follows the pointer with its original grab point. The source button stays
+// where it is, dimmed (see chromeBox).
 func (a *App) paintDrag(canvas *ui.Canvas) {
 	d := &a.drag
 	if !d.active {
@@ -263,7 +301,7 @@ func (a *App) paintDrag(canvas *ui.Canvas) {
 	}
 	canvas.PushLayer(dragLayer)
 	defer canvas.PopLayer()
-	surface := a.chrome.zoneOf(d.item).surface()
+	surface := d.sourceZone.surface()
 	for z := range a.chrome.zoneRects {
 		if zone(z).surface() != surface {
 			continue
@@ -276,12 +314,99 @@ func (a *App) paintDrag(canvas *ui.Canvas) {
 			canvas.Rounded(r.Inset(ui.All(-dragZoneOutset)), dragZoneRadius, a.colors.Accent.WithAlpha(tint))
 		}
 	}
+	if surface == surfaceStripes && d.phase == dragDetached && d.hasTarget {
+		a.paintDetachedDropPreview(canvas, d.target)
+	}
 	if d.hasTarget {
 		canvas.Rounded(d.target.mark, dragMark/2, a.colors.Accent)
 	}
 
-	// The copy is an icon in a small square, or the button's own width when it shows
-	// words, kept inside the window.
+	if surface == surfaceStripes {
+		if d.phase == dragDetached {
+			a.paintDetachedToolGhost(canvas, d)
+		} else {
+			a.paintSnappedToolGhost(canvas, d)
+		}
+		return
+	}
+	a.paintLegacyDragGhost(canvas, d)
+}
+
+// paintSnappedToolGhost keeps the button over its stripe and preserves the press point
+// inside the icon as the pointer moves vertically.
+func (a *App) paintSnappedToolGhost(canvas *ui.Canvas, d *dragState) {
+	column := a.dragStripeColumn(d.snappedStripe)
+	ghost := snappedToolGhostRect(
+		ui.Point{X: d.x, Y: d.y}, d.grab, column,
+		ui.Rect{Width: d.viewport.Width, Height: d.viewport.Height},
+	)
+	canvas.RoundedBorder(ghost, dragGhostRadius, dragGhostBorderWidth, a.colors.Accent, a.colors.Editor)
+	if icon := catalog[d.item].icon; icon != nil {
+		canvas.DrawIcon(*icon, ghost.Inset(ui.All(dragSnappedGhostIconInset)), a.colors.Text)
+	}
+}
+
+// dragStripeColumn returns a laid out button column for side, falling back to the stripe
+// bounds before the first drag frame has given empty zones a rectangle.
+func (a *App) dragStripeColumn(side stripeSide) ui.Rect {
+	for _, z := range stripeZones(side) {
+		if column := a.chrome.zoneRects[z]; column.Width > 0 {
+			return column
+		}
+	}
+	return dragStripeRects(ui.Rect{Width: a.drag.viewport.Width, Height: a.drag.viewport.Height})[side]
+}
+
+// paintDetachedToolGhost draws the detached icon in the previous client's rounded square
+// with the original pointer-to-button grab offset and theme-specific surface color.
+func (a *App) paintDetachedToolGhost(canvas *ui.Canvas, d *dragState) {
+	ghost := detachedToolGhostRect(ui.Point{X: d.x, Y: d.y}, d.grab)
+	color := ui.RGB24(dragFloatingGhostLightRGB)
+	if a.colors.Dark {
+		color = ui.RGB24(dragFloatingGhostDarkRGB)
+	}
+	color = color.WithAlpha(dragFloatingGhostOpacity)
+	canvas.RoundedBorder(ghost, dragFloatingGhostRadius, dragFloatingGhostBorderWidth, color, color)
+	if icon := catalog[d.item].icon; icon != nil {
+		canvas.DrawIcon(*icon, ghost.Inset(ui.All(dragFloatingGhostIconInset)), a.colors.Text.WithAlpha(dragFloatingGhostOpacity))
+	}
+}
+
+// paintDetachedDropPreview highlights the pane a floating tool button would open in and
+// labels it with the destination name from the typed language catalog.
+func (a *App) paintDetachedDropPreview(canvas *ui.Canvas, target dragTarget) {
+	previewColor := ui.RGB24(dragPreviewLightRGB)
+	if a.colors.Dark {
+		previewColor = ui.RGB24(dragPreviewDarkRGB)
+	}
+	canvas.Fill(target.preview, previewColor.WithAlpha(dragPreviewAlpha))
+
+	title := dockMoveTitle(a.text, target.zone)
+	if title == "" {
+		return
+	}
+	labelWidth := min(
+		canvas.TextWidthWeight(title, dragPreviewLabelFontSize, ui.WeightRegular)+2*dragPreviewLabelPadding,
+		target.preview.Width,
+	)
+	labelHeight := min(
+		float32(dragPreviewLabelFontSize+2*dragPreviewLabelPadding),
+		target.preview.Height,
+	)
+	label := ui.Rect{
+		X:     target.preview.X + (target.preview.Width-labelWidth)/2,
+		Y:     target.preview.Y + (target.preview.Height-labelHeight)/2,
+		Width: labelWidth, Height: labelHeight,
+	}
+	canvas.Rounded(label, dragPreviewLabelRadius, a.colors.Editor)
+	canvas.LabelCenter(title, label, ui.TextStyle{
+		Size: dragPreviewLabelFontSize, Weight: ui.WeightRegular, Color: a.colors.Text,
+	})
+}
+
+// paintLegacyDragGhost keeps title and status drags on their original below-right ghost,
+// because those bars do not detach into the workbench.
+func (a *App) paintLegacyDragGhost(canvas *ui.Canvas, d *dragState) {
 	icon := catalog[d.item].icon
 	text := a.dragGhostText(d.item)
 	ghost := ui.Rect{X: d.x + dragGhostOffset, Y: d.y + dragGhostOffset, Width: dragGhostSize, Height: dragGhostSize}
@@ -293,7 +418,7 @@ func (a *App) paintDrag(canvas *ui.Canvas) {
 		ghost.X = max(min(ghost.X, d.viewport.Width-ghost.Width-dragGhostMargin), 0)
 		ghost.Y = max(min(ghost.Y, d.viewport.Height-ghost.Height-dragGhostMargin), 0)
 	}
-	canvas.RoundedBorder(ghost, dragGhostRadius, 1, a.colors.Accent, a.colors.Editor)
+	canvas.RoundedBorder(ghost, dragGhostRadius, dragGhostBorderWidth, a.colors.Accent, a.colors.Editor)
 
 	style := ui.TextStyle{Size: a.theme.Metrics.FontSizeS, Weight: ui.WeightRegular, Color: a.colors.Text}
 	switch {
@@ -317,6 +442,25 @@ func (a *App) paintDrag(canvas *ui.Canvas) {
 	case text != "":
 		canvas.LabelCenter(text, ghost, style)
 	}
+}
+
+// dockMoveTitle returns the translated title shown over a detached drop preview.
+func dockMoveTitle(messages *i18n.Messages, z zone) string {
+	switch z {
+	case zoneLeftTop:
+		return messages.Dock.MoveLeftTop
+	case zoneLeftBottom:
+		return messages.Dock.MoveLeftBottom
+	case zoneBottomLeft:
+		return messages.Dock.MoveBottomLeft
+	case zoneRightTop:
+		return messages.Dock.MoveRightTop
+	case zoneRightBottom:
+		return messages.Dock.MoveRightBottom
+	case zoneBottomRight:
+		return messages.Dock.MoveBottomRight
+	}
+	return ""
 }
 
 // dragGhostText is the words the ghost of catalog item item shows beside or instead of

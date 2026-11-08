@@ -77,6 +77,14 @@ var chinese = Messages{
 		Background:    "背景",
 		DragHint:      "可拖动到其他位置",
 	},
+	Dock: DockMessages{
+		MoveLeftTop:     "移到左侧上方",
+		MoveLeftBottom:  "移到左侧下方",
+		MoveBottomLeft:  "移到底部左侧",
+		MoveRightTop:    "移到右侧上方",
+		MoveRightBottom: "移到右侧下方",
+		MoveBottomRight: "移到底部右侧",
+	},
 	Panel: PanelMessages{
 		Hide:        "隐藏",
 		Placeholder: "此工具窗口将在后续版本接入",

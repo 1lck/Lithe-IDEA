@@ -77,6 +77,14 @@ var english = Messages{
 		Background:    "Background",
 		DragHint:      "Drag to move elsewhere",
 	},
+	Dock: DockMessages{
+		MoveLeftTop:     "Move to Left Top",
+		MoveLeftBottom:  "Move to Left Bottom",
+		MoveBottomLeft:  "Move to Bottom Left",
+		MoveRightTop:    "Move to Right Top",
+		MoveRightBottom: "Move to Right Bottom",
+		MoveBottomRight: "Move to Bottom Right",
+	},
 	Panel: PanelMessages{
 		Hide:        "Hide",
 		Placeholder: "This tool window is connected in a later version",

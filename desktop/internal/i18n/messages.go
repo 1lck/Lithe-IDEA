@@ -7,6 +7,7 @@ type Messages struct {
 	Welcome  WelcomeMessages
 	Title    TitleMessages
 	Tools    ToolMessages
+	Dock     DockMessages
 	Panel    PanelMessages
 	Editor   EditorMessages
 	Project  ProjectMessages
@@ -112,6 +113,16 @@ type ToolMessages struct {
 	Background    string
 	// DragHint tells assistive technology that a toolbar item can be dragged elsewhere.
 	DragHint string
+}
+
+// DockMessages are the titles shown in a tool window's detached drop preview.
+type DockMessages struct {
+	MoveLeftTop     string
+	MoveLeftBottom  string
+	MoveBottomLeft  string
+	MoveRightTop    string
+	MoveRightBottom string
+	MoveBottomRight string
 }
 
 // PanelMessages are the words every tool window shares.

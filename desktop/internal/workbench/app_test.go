@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
@@ -18,11 +19,17 @@ import (
 // status with the answer the test chose.
 type testKernel struct {
 	*core.Client
-	status core.GitStatus
+	status        core.GitStatus
+	chromeActions []core.ChromeAction
 }
 
 func (k *testKernel) GitStatus(context.Context, string) (core.GitStatus, error) {
 	return k.status, nil
+}
+
+func (k *testKernel) ReduceChromeLayout(ctx context.Context, catalog []core.ChromeItem, state core.ChromeLayout, action core.ChromeAction) (core.ChromeLayout, bool, error) {
+	k.chromeActions = append(k.chromeActions, action)
+	return k.Client.ReduceChromeLayout(ctx, catalog, state, action)
 }
 
 // harness is a window driven without a screen.
@@ -37,6 +44,12 @@ type harness struct {
 // window's clock is the driver's virtual time, so the frame counter never depends on how
 // fast the test runs.
 func newHarness(t *testing.T, kernel Kernel) *harness {
+	return newHarnessWithLanguages(t, kernel, []string{"zh-Hans"})
+}
+
+// newHarnessWithLanguages makes a window whose language is chosen by the test and paints
+// its first frame without opening a native window.
+func newHarnessWithLanguages(t *testing.T, kernel Kernel, languages []string) *harness {
 	t.Helper()
 	dir := t.TempDir()
 	// An explicit theme keeps New from asking the system for its appearance, which
@@ -49,7 +62,7 @@ func newHarness(t *testing.T, kernel Kernel) *harness {
 	h.app = New(Options{
 		Kernel:    kernel,
 		Store:     h.store,
-		Languages: []string{"zh-Hans"},
+		Languages: languages,
 		Now: func() time.Time {
 			if h.driver == nil {
 				return start
@@ -140,9 +153,8 @@ func TestWorkbenchDefaultLayout(t *testing.T) {
 	}})
 	h.open(t.TempDir())
 
-	// The two zones under the top ones of each stripe, which open in the lower half of a
-	// column, start empty: the buttons that used to sit in the stripe's lower group are the
-	// bottom zones now.
+	// The split zones above the bottom groups start empty: the buttons at the end of each
+	// stripe open in the bottom area instead.
 	want := map[zone][]string{
 		zoneLeftTop:     {itemProject, itemCommit, itemStructure, itemFind},
 		zoneLeftBottom:  nil,
@@ -201,9 +213,9 @@ func TestDragToolButtonToAnotherStripeZone(t *testing.T) {
 	}
 }
 
-// TestDragToolButtonToEmptySplitZone drags a button into the zone under the top one of
-// the left stripe. That zone is empty and takes no room at rest, so it only exists as a
-// place to drop while a tool button is being dragged.
+// TestDragToolButtonToEmptySplitZone drags a button into the split group near the bottom
+// of the left stripe. That zone is empty and takes no room at rest, so it only exists as
+// a place to drop while a tool button is being dragged.
 func TestDragToolButtonToEmptySplitZone(t *testing.T) {
 	h := newHarness(t, &testKernel{Client: core.NewClient()})
 	h.open(t.TempDir())
@@ -235,6 +247,263 @@ func TestDragToolButtonToEmptySplitZone(t *testing.T) {
 	}
 	if r := h.app.chrome.zoneRects[zoneLeftBottom]; r.Height < chromeToolButton {
 		t.Fatalf("the left bottom zone is %v high with a button in it, want at least a button", r.Height)
+	}
+}
+
+func TestStripeZonesKeepTheSplitGroupAboveTheBottomGroup(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.open(t.TempDir())
+
+	from := center(h.button(itemCommit))
+	if err := h.driver.Press(from.X, from.Y, ui.PointerButtonPrimary); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Move(from.X, from.Y+2*dragThreshold); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+
+	stripes := dragStripeRects(ui.Rect{Width: float32(h.driver.Snapshot().Width), Height: float32(h.driver.Snapshot().Height)})
+	cases := []struct {
+		name            string
+		side            stripeSide
+		top, split, end zone
+	}{
+		{name: "left", side: stripeLeft, top: zoneLeftTop, split: zoneLeftBottom, end: zoneBottomLeft},
+		{name: "right", side: stripeRight, top: zoneRightTop, split: zoneRightBottom, end: zoneBottomRight},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stripe := stripes[tc.side]
+			top := h.app.chrome.zoneRects[tc.top]
+			split := h.app.chrome.zoneRects[tc.split]
+			end := h.app.chrome.zoneRects[tc.end]
+			topBottom := top.Y + top.Height
+			if topBottom >= split.Y {
+				t.Fatalf("%s split group starts at %v after the top group ends at %v, want flexible space between them", tc.name, split.Y, topBottom)
+			}
+			if split.Height < chromeToolButton || end.Height < chromeToolButton {
+				t.Fatalf("%s split and bottom groups are %v and %v high during a drag, want at least one button each", tc.name, split.Height, end.Height)
+			}
+			if split.Y+split.Height != end.Y {
+				t.Fatalf("%s split group ends at %v and bottom group starts at %v, want them adjacent", tc.name, split.Y+split.Height, end.Y)
+			}
+			if end.Y+end.Height > stripe.Y+stripe.Height {
+				t.Fatalf("%s bottom group ends at %v beyond the stripe end %v", tc.name, end.Y+end.Height, stripe.Y+stripe.Height)
+			}
+			for _, primitive := range h.driver.Snapshot().Primitives {
+				bounds := primitive.Bounds
+				if bounds.Height == 1 && bounds.Width > 1 && bounds.X >= stripe.X && bounds.X+bounds.Width <= stripe.X+stripe.Width && bounds.Y >= topBottom && bounds.Y <= split.Y {
+					t.Errorf("%s stripe has a horizontal separator at %v in the flexible space", tc.name, bounds)
+				}
+			}
+		})
+	}
+	h.app.cancelDrag()
+}
+
+func TestSnappedStripeDragReordersAndLocksTheGhostToItsColumn(t *testing.T) {
+	kernel := &testKernel{Client: core.NewClient()}
+	h := newHarness(t, kernel)
+	h.open(t.TempDir())
+	kernel.chromeActions = nil
+
+	from := center(h.button(itemAssistant))
+	targetButton := h.button(itemNotifications)
+	to := ui.Point{X: from.X, Y: targetButton.Y + dragThreshold}
+	if err := h.driver.Press(from.X, from.Y, ui.PointerButtonPrimary); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Move(to.X, to.Y); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+
+	if h.app.drag.phase != dragSnapped || h.app.drag.snappedStripe != stripeRight {
+		t.Fatalf("drag phase and stripe = %v and %v, want snapped on the right", h.app.drag.phase, h.app.drag.snappedStripe)
+	}
+	if !h.app.drag.hasTarget || h.app.drag.target.zone != zoneRightTop || h.app.drag.target.before != itemNotifications {
+		t.Fatalf("snapped target = %+v, has target %v; want right top before %q", h.app.drag.target, h.app.drag.hasTarget, itemNotifications)
+	}
+	column := h.app.chrome.zoneRects[zoneRightTop]
+	wantX := column.X + (column.Width-dragSnappedGhostSize)/2
+	foundGhost := false
+	for _, primitive := range h.driver.Snapshot().Primitives {
+		bounds := primitive.Bounds
+		if primitive.Layer == dragLayer && bounds.Width == dragSnappedGhostSize && bounds.Height == dragSnappedGhostSize && primitive.Color == h.app.colors.Accent {
+			foundGhost = true
+			if bounds.X != wantX {
+				t.Errorf("snapped ghost x = %v, want button-column x %v", bounds.X, wantX)
+			}
+		}
+	}
+	if !foundGhost {
+		t.Fatal("the snapped drag has no 32 by 32 accent-bordered ghost on the drag layer")
+	}
+
+	if err := h.driver.Release(to.X, to.Y, ui.PointerButtonPrimary); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	wantAction := core.MoveChrome(itemAssistant, core.ZoneRightTop, itemNotifications)
+	if len(kernel.chromeActions) != 1 || kernel.chromeActions[0] != wantAction {
+		t.Fatalf("chrome actions = %v, want one MoveChrome to right top before %q", kernel.chromeActions, itemNotifications)
+	}
+}
+
+func TestDetachedStripeDragTargetsDockAreasAndOtherStripeButtons(t *testing.T) {
+	cases := []struct {
+		name   string
+		point  func(*harness) ui.Point
+		zone   zone
+		before string
+	}{
+		{
+			name: "right lower half",
+			point: func(h *harness) ui.Point {
+				area := h.app.dragDockAnchors(ui.Size{Width: 1280, Height: 800})[dockAnchorRight].area
+				return ui.Point{X: area.X + area.Width/2, Y: area.Y + 3*area.Height/4}
+			},
+			zone: zoneRightBottom,
+		},
+		{
+			name: "bottom right half",
+			point: func(h *harness) ui.Point {
+				area := h.app.dragDockAnchors(ui.Size{Width: 1280, Height: 800})[dockAnchorBottom].area
+				return ui.Point{X: area.X + 3*area.Width/4, Y: h.button(itemUpdates).Y + dragThreshold}
+			},
+			zone: zoneBottomRight, before: itemUpdates,
+		},
+		{
+			name: "upper left area",
+			point: func(h *harness) ui.Point {
+				area := h.app.dragDockAnchors(ui.Size{Width: 1280, Height: 800})[dockAnchorLeft].area
+				return ui.Point{X: area.X + area.Width/2, Y: area.Y + dragMarkLead}
+			},
+			zone: zoneLeftTop, before: itemProject,
+		},
+		{
+			name: "other stripe button",
+			point: func(h *harness) ui.Point {
+				button := h.button(itemCommit)
+				return ui.Point{X: button.X + button.Width/2, Y: button.Y + dragThreshold}
+			},
+			zone: zoneLeftTop, before: itemCommit,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			kernel := &testKernel{Client: core.NewClient()}
+			h := newHarness(t, kernel)
+			h.open(t.TempDir())
+			kernel.chromeActions = nil
+
+			from := center(h.button(itemAssistant))
+			stripes := dragStripeRects(ui.Rect{Width: 1280, Height: 800})
+			detached := ui.Point{X: stripes[stripeRight].X - dragDetachDistance - 1, Y: from.Y}
+			if err := h.driver.Press(from.X, from.Y, ui.PointerButtonPrimary); err != nil {
+				t.Fatal(err)
+			}
+			if err := h.driver.Move(detached.X, detached.Y); err != nil {
+				t.Fatal(err)
+			}
+			if h.app.drag.phase != dragDetached {
+				t.Fatalf("phase after pulling past the right stripe = %v, want detached", h.app.drag.phase)
+			}
+
+			to := tc.point(h)
+			if err := h.driver.Move(to.X, to.Y); err != nil {
+				t.Fatal(err)
+			}
+			if err := h.driver.Release(to.X, to.Y, ui.PointerButtonPrimary); err != nil {
+				t.Fatal(err)
+			}
+			h.settle()
+
+			wantAction := core.MoveChrome(itemAssistant, zoneNames[tc.zone], tc.before)
+			if len(kernel.chromeActions) != 1 || kernel.chromeActions[0] != wantAction {
+				t.Fatalf("chrome actions = %v, want one MoveChrome to zone %d before %q", kernel.chromeActions, tc.zone, tc.before)
+			}
+			if got := h.app.chrome.zoneOf(catalogIndex[itemAssistant]); got != tc.zone {
+				t.Fatalf("assistant is in zone %d after release, want zone %d", got, tc.zone)
+			}
+		})
+	}
+}
+
+func TestDetachedStripeDragWithoutATargetDoesNotCommit(t *testing.T) {
+	kernel := &testKernel{Client: core.NewClient()}
+	h := newHarness(t, kernel)
+	h.open(t.TempDir())
+	kernel.chromeActions = nil
+
+	from := center(h.button(itemAssistant))
+	stripes := dragStripeRects(ui.Rect{Width: 1280, Height: 800})
+	detached := ui.Point{X: stripes[stripeRight].X - dragDetachDistance - 1, Y: from.Y}
+	main := h.app.layout.main.Rect()
+	noTarget := ui.Point{X: main.X + main.Width/2, Y: main.Y + main.Height/4}
+	if err := h.driver.Press(from.X, from.Y, ui.PointerButtonPrimary); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Move(detached.X, detached.Y); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Move(noTarget.X, noTarget.Y); err != nil {
+		t.Fatal(err)
+	}
+	if h.app.drag.phase != dragDetached || h.app.drag.hasTarget {
+		t.Fatalf("phase and target at the editor center = %v and %v, want detached without a target", h.app.drag.phase, h.app.drag.hasTarget)
+	}
+	if err := h.driver.Release(noTarget.X, noTarget.Y, ui.PointerButtonPrimary); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+
+	if len(kernel.chromeActions) != 0 {
+		t.Fatalf("chrome actions = %v, want no committed move", kernel.chromeActions)
+	}
+	if got := h.app.chrome.zoneOf(catalogIndex[itemAssistant]); got != zoneRightTop {
+		t.Fatalf("assistant is in zone %d after a targetless release, want the source zone", got)
+	}
+}
+
+func TestDetachedDropPreviewUsesTheLocalizedDockTitle(t *testing.T) {
+	for _, language := range []i18n.Language{i18n.English, i18n.Chinese} {
+		t.Run(language.Code(), func(t *testing.T) {
+			h := newHarnessWithLanguages(t, &testKernel{Client: core.NewClient()}, []string{language.Code()})
+			h.open(t.TempDir())
+			from := center(h.button(itemAssistant))
+			stripes := dragStripeRects(ui.Rect{Width: 1280, Height: 800})
+			detached := ui.Point{X: stripes[stripeRight].X - dragDetachDistance - 1, Y: from.Y}
+			area := h.app.dragDockAnchors(ui.Size{Width: 1280, Height: 800})[dockAnchorRight].area
+			to := ui.Point{X: area.X + area.Width/2, Y: area.Y + 3*area.Height/4}
+			if err := h.driver.Press(from.X, from.Y, ui.PointerButtonPrimary); err != nil {
+				t.Fatal(err)
+			}
+			if err := h.driver.Move(detached.X, detached.Y); err != nil {
+				t.Fatal(err)
+			}
+			if err := h.driver.Move(to.X, to.Y); err != nil {
+				t.Fatal(err)
+			}
+			h.settle()
+
+			if !h.app.drag.hasTarget || h.app.drag.phase != dragDetached || h.app.drag.target.zone != zoneRightBottom {
+				t.Fatalf("detached target = %+v, phase %v, has target %v; want the right bottom dock zone", h.app.drag.target, h.app.drag.phase, h.app.drag.hasTarget)
+			}
+			wantTitle := h.app.text.Dock.MoveRightBottom
+			found := false
+			for _, label := range h.driver.Snapshot().Labels {
+				if label.Value == wantTitle {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("detached preview does not show the exact %s title %q", language.Code(), wantTitle)
+			}
+			h.app.cancelDrag()
+		})
 	}
 }
 

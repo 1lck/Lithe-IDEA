@@ -296,19 +296,15 @@ func (a *App) drawChromeTitleButton(f *flex.Frame, i int) bool {
 }
 
 // drawStripe is the column of tool buttons at one side of the workbench. Each stripe
-// has three zones, one per tool window anchor: the top zone, whose buttons open from the
-// top down; under it, after a separator line, the split zone, which is the lower half of
-// the stripe's column of tool windows; and the bottom zone, whose buttons are packed at
-// the bottom of the stripe. The top and the split zone are as high as their buttons and
-// the bottom zone takes the rest, so the bottom zone stays where it is however many
-// buttons the other two have. All three are declared even when empty, because an empty
-// zone is still a place a button can be dropped.
+// stacks its top group first, leaves flexible space, then packs the split group directly
+// above the bottom group at the stripe's end. The split group opens in the lower half of
+// the side column; the bottom group opens in a half of the bottom area. All three zones
+// are declared even when empty, because an empty zone is still a place a button can be
+// dropped.
 //
-// The separator tells the top zone from the split zone, and so is only drawn when it
-// separates something: when the split zone has buttons, or while a tool button is
-// dragged and the empty split zone is shown as a place to drop it. For the same reason
-// a dragged tool button gives every zone of the stripe at least the height of a button,
-// so that an empty zone is a target that can be seen and hit.
+// While a tool button is dragged, every zone gets at least the height of a button, so an
+// empty zone remains visible and can be hit. No separator is needed between the top and
+// split groups: the flexible space makes their placement clear.
 func (a *App) drawStripe(f *flex.Frame, left bool) {
 	top, split, end := zoneLeftTop, zoneLeftBottom, zoneBottomLeft
 	if !left {
@@ -318,19 +314,14 @@ func (a *App) drawStripe(f *flex.Frame, left bool) {
 	// As in the title bar, a click is acted on once the stripe is declared.
 	clicked := -1
 	f.Column().Width(stripeWidth).FillHeight().Shrink(0).Background(a.colors.Chrome).Pad(chromeGap).Children(func() {
-		if i := a.drawChromeStripeZone(f, top, false, dragging); i >= 0 {
+		if i := a.drawChromeStripeZone(f, top, dragging); i >= 0 {
 			clicked = i
 		}
-		if dragging || len(a.chrome.items[split]) > 0 {
-			// Inset like the line that marks where a dragged button would land, so the two
-			// read as lines of the same width.
-			f.Row().FillWidth().Height(1).Shrink(0).Background(a.colors.Line).
-				MarginSides(chromeGap, dragMarkInset, chromeGap, dragMarkInset)
-		}
-		if i := a.drawChromeStripeZone(f, split, false, dragging); i >= 0 {
+		f.Spacer()
+		if i := a.drawChromeStripeZone(f, split, dragging); i >= 0 {
 			clicked = i
 		}
-		if i := a.drawChromeStripeZone(f, end, true, dragging); i >= 0 {
+		if i := a.drawChromeStripeZone(f, end, dragging); i >= 0 {
 			clicked = i
 		}
 		// The line on the editor's side is out of the flow, so the buttons sit in the
@@ -348,17 +339,13 @@ func (a *App) drawStripe(f *flex.Frame, left bool) {
 }
 
 // drawChromeStripeZone declares one zone of a stripe and returns the catalog index of
-// the button clicked in it, or -1. A zone is as high as its buttons, except the one
-// that packs them at its end: that one takes the room the others leave and keeps its
-// buttons at the bottom of it. While a tool button is dragged, dragging is set and
-// every zone is at least one button high, which makes an empty zone a place the button
-// can be dropped.
-func (a *App) drawChromeStripeZone(f *flex.Frame, z zone, packEnd, dragging bool) int {
+// the button clicked in it, or -1. Each zone is as high as its buttons; the spacer in
+// drawStripe pushes the split and bottom groups to the stripe's end. While a tool button
+// is dragged, every zone is at least one button high, which makes an empty zone a place
+// the button can be dropped.
+func (a *App) drawChromeStripeZone(f *flex.Frame, z zone, dragging bool) int {
 	clicked := -1
 	column := f.Column().Gap(chromeGap)
-	if packEnd {
-		column = column.Grow(1).Justify(flex.End)
-	}
 	if dragging {
 		column = column.MinHeight(chromeToolButton)
 	}
