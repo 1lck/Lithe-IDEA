@@ -122,6 +122,9 @@ func (a *App) onScroll(event ui.ScrollEvent) ui.EventResult {
 		a.project.commit.layout.ScrollBy(event.DeltaY)
 		return ui.EventResult{Handled: true, Repaint: true}
 	}
+	if result, ok := a.treeScroll(event); ok {
+		return result
+	}
 	return a.view.Wheel(event)
 }
 

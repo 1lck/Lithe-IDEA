@@ -65,6 +65,7 @@ type Kernel interface {
 	GitRenameBranch(ctx context.Context, root string, branch core.GitReference, name string) error
 	GitDeleteBranch(ctx context.Context, root string, branch core.GitReference) (core.GitBranchDeletion, error)
 	GitBranchNamePreview(ctx context.Context, request core.BranchNameRequest) (core.BranchNamePreview, error)
+	ListDirectories(ctx context.Context, root string, paths []string) ([]core.DirectoryListing, error)
 }
 
 // Options configure a window.
@@ -131,6 +132,8 @@ type project struct {
 	// docs are the project's open files. Each is a tab in a group of the editor area, next
 	// to the terminals that were moved there.
 	docs documentSet
+	// tree is the Project tool window's tree of the project folder.
+	tree fileTree
 }
 
 // App is the state of the window.
@@ -390,6 +393,7 @@ func (a *App) paint(canvas *ui.Canvas, size ui.Size) {
 	// Like the commit rows, the terminal is painted into a box of the frame that was just
 	// laid out, under the menus and the dragged button.
 	a.paintTerminal(canvas)
+	a.captureTree(canvas)
 	// The menus and the dragged buttons and tabs float above everything Draw painted.
 	a.paintChromeMenus(canvas, bounds)
 	a.paintDrag(canvas)
@@ -470,6 +474,9 @@ func (a *App) onKey(event ui.KeyEvent) ui.EventResult {
 	}
 	if event.Release {
 		return ui.EventResult{}
+	}
+	if r := a.treeKey(event); r.Handled {
+		return r
 	}
 	if r := a.commitKey(event); r.Handled {
 		return r
