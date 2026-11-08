@@ -27,9 +27,8 @@ native_path() {
 }
 
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
-# The head of Lithe-IDEA/Lithe-core-rust#1 (workbench.chromeLayout.reduce), which is not merged
-# into main yet; move the pin to the merge commit once it is.
-PINNED_CORE_REVISION="7e6d83651ba9fc944c1e5505596eac83ac75f2bd"
+# The merge of Lithe-IDEA/Lithe-core-rust#1 (workbench.chromeLayout.reduce) into main.
+PINNED_CORE_REVISION="b085d0866d45ba76cfef1450d61e820b22ddc6e7"
 PROFILE="debug"
 while [[ $# -gt 0 ]]; do
     case "$1" in
