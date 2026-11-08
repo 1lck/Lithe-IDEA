@@ -11,11 +11,6 @@ import (
 	"github.com/vivaui/viva/ui"
 )
 
-// appVersion is the version the sidebar shows under the name. It is a variable, not a
-// constant, because the linker can only overwrite variables: release builds stamp it
-// with -ldflags "-X github.com/1lck/Lithe-IDEA/desktop/internal/workbench.appVersion=1.2.3".
-var appVersion = "0.1.0-dev"
-
 // The identities of the start screen's controls.
 var (
 	welcomeSearch      = tree.ID(welcomePage, "search")
@@ -142,7 +137,7 @@ func (a *App) drawWelcome(f *flex.Frame) {
 func (a *App) drawWelcomeSidebar(f *flex.Frame) {
 	w := &a.welcome
 	if w.versionFor != a.text {
-		w.version, w.versionFor = a.text.App.Version(appVersion), a.text
+		w.version, w.versionFor = a.text.App.Version(a.version), a.text
 	}
 	f.Column().Width(welcomeSidebarWidth).Shrink(0).Background(a.colors.Panel).Children(func() {
 		// The system's window buttons sit in this strip, so it stays empty; it only has

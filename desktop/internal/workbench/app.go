@@ -82,7 +82,8 @@ type Options struct {
 	// LogKernel parses filters and formats copied records for the log window; it is
 	// required with Logs.
 	LogKernel logwindow.Kernel
-	// Version is the client's version, written into the environment of copied records.
+	// Version is the client's version: the start screen and the settings window show it, and
+	// copied records carry it in their environment.
 	Version string
 }
 
@@ -182,6 +183,8 @@ type App struct {
 	// when the window was made without a log.
 	logSink LogSink
 	logs    *logwindow.Controller
+	// version is Options.Version.
+	version string
 	// shared is what the log window reads from its own thread: the language and the look
 	// of the frame last painted.
 	shared struct {
@@ -215,6 +218,7 @@ func New(options Options) *App {
 	if _, err := a.store.Load(settingsFile, &a.settings); err != nil {
 		a.settings = settings{}
 	}
+	a.version = options.Version
 	a.text = i18n.For(a.language())
 	a.theme, a.colors = look(a.settings.Theme)
 	a.shared.text.Store(a.text)

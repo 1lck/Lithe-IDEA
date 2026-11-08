@@ -1,0 +1,94 @@
+name: Desktop CI
+
+on:
+  pull_request:
+    # ready_for_review runs the macOS lane that drafts defer.
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches:
+      - preview
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Every main commit gets its own group; a PR push cancels the run it replaces.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  linux:
+    name: Format and script tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache: false
+
+      - name: Check gofmt
+        working-directory: desktop
+        run: make fmt-check
+
+      - name: Check shell script syntax
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zsh
+          bash -n scripts/ci/desktop-release/resolve-release-version.sh
+          for script in scripts/desktop/*.sh scripts/ci/desktop-release/package-release.sh; do
+            zsh -n "$script"
+          done
+
+      - name: Run script tests
+        run: |
+          node --test \
+            scripts/release/notes/test-validate-stable-release-notes.mjs \
+            scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs
+
+  macos:
+    name: Vet and test on macOS
+    # Draft PRs run only the Linux lane; marking the PR ready runs this one.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: macos-26
+    # A cold build of the pinned core takes most of this.
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+
+      - name: Set up Rust
+        id: rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore the core build
+        uses: actions/cache@v6
+        with:
+          # The pinned revision lives in build-desktop-core.sh, so its hash keys the checkout and
+          # target directory; cargo rebuilds whatever a different toolchain invalidates.
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .artifacts/desktop/lithe-core-rust
+          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-debug-${{ hashFiles('scripts/desktop/build-desktop-core.sh') }}
+          restore-keys: |
+            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-debug-
+
+      - name: Vet and test
+        working-directory: desktop
+        run: make check

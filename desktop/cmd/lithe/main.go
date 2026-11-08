@@ -13,8 +13,10 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/workbench"
 )
 
-// version is the client's version, written into every log file header. Release builds set
-// it with -ldflags "-X main.version=<version>".
+// version is the client's version: the start screen and the settings window show it, and
+// every log file header carries it. make build and scripts/desktop/package-desktop.sh set it
+// to the version in viva.toml with -ldflags "-X main.version=<version>"; a plain go build
+// keeps 0.0.0.
 var version = "0.0.0"
 
 func main() {

@@ -1,0 +1,22 @@
+# How viva package bundles the Lithe desktop client. scripts/desktop/package-desktop.sh (make
+# package) builds the program with the Lithe-core-rust library linked in and hands it to
+# viva package --program, so this file only describes the bundle around it.
+#
+# [app] version is the client's version. The Desktop Release workflow refuses a tag that does
+# not match it, so a release changes it here first.
+[app]
+name = "Lithe Desktop"
+# A separate identity from the SwiftUI client (app.lithe.desktop), so both can be installed
+# while this client grows.
+id = "app.lithe.viva"
+version = "0.7.0"
+executable = "lithe"
+package = "./cmd/lithe"
+# The full-bleed square of the SwiftUI client's icon; viva package shapes it into the macOS tile.
+icon = "assets/icon.png"
+
+[mac]
+# scripts/desktop/desktop-go.sh builds the program and the core for macOS 13.0.
+min_system = "13.0"
+category = "public.app-category.developer-tools"
+copyright = "Copyright 2026 Lithe contributors"

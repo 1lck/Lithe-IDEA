@@ -17,7 +17,7 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		// tell once the user has picked a look: then it reports that pick.
 		SystemDark:     func() bool { return app.SystemAppearance() == app.AppearanceDark },
 		SystemLanguage: a.systemLanguage,
-		Version:        appVersion,
+		Version:        a.version,
 		// OK arrives on the settings window's thread, and the settings belong to the
 		// workbench's, so the draft is queued and applied there.
 		Apply: func(values settingswindow.Values) {

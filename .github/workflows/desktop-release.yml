@@ -1,0 +1,159 @@
+name: Desktop Release
+
+# Releases the Viva desktop client (desktop/). Its tags are desktop-vMAJOR.MINOR.PATCH, apart
+# from the v* tags of the SwiftUI and Tauri clients, and each release is a GitHub prerelease, so
+# the "latest release" those clients' updaters read still points at one of theirs.
+on:
+  push:
+    tags:
+      - "desktop-v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, for example 0.7.0; it must equal the version in desktop/viva.toml"
+        required: true
+        type: string
+      publish:
+        description: "Publish the release after the packages are verified (off for a preflight)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Resolve release version
+    if: github.actor == github.repository_owner || contains(format(',{0},', vars.LITHE_RELEASE_ACTOR), format(',{0},', github.actor))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Resolve the version and check the manifest and release notes
+        id: version
+        env:
+          REQUESTED_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+        run: bash scripts/ci/desktop-release/resolve-release-version.sh "$REQUESTED_VERSION"
+
+  build:
+    name: Package ${{ matrix.arch }}
+    needs: prepare
+    runs-on: macos-26
+    # A cold release build of the core for one architecture takes about half of this.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            rust-target: aarch64-apple-darwin
+          - arch: amd64
+            rust-target: x86_64-apple-darwin
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+
+      - name: Set up Rust
+        id: rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Restore the core build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .artifacts/desktop/lithe-core-rust
+          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-${{ matrix.rust-target }}-${{ hashFiles('scripts/desktop/build-desktop-core.sh') }}
+          restore-keys: |
+            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-${{ matrix.rust-target }}-
+
+      - name: Package and verify
+        env:
+          # viva package imports the certificate into a temporary keychain and signs with it.
+          APPLE_CERTIFICATE: ${{ secrets.MACOS_SIGNING_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+          DESKTOP_ARCH: ${{ matrix.arch }}
+          DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+        run: zsh scripts/ci/desktop-release/package-release.sh "$DESKTOP_ARCH" "$DESKTOP_VERSION"
+
+      - name: Upload the packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.arch }}
+          path: |
+            dist/desktop/${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-darwin-${{ matrix.arch }}.zip
+            dist/desktop/${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-darwin-${{ matrix.arch }}.zip.sha256
+            dist/desktop/${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-darwin-${{ matrix.arch }}.dmg
+            dist/desktop/${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-darwin-${{ matrix.arch }}.dmg.sha256
+          if-no-files-found: error
+
+  publish:
+    name: Publish the prerelease
+    if: github.event_name != 'workflow_dispatch' || inputs.publish
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Download the packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify the checksums
+        working-directory: dist
+        run: |
+          for checksum in *.sha256; do
+            shasum -a 256 -c "$checksum"
+          done
+
+      - name: Create or update the GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          release_args=(
+            --repo "$GITHUB_REPOSITORY"
+            --title "Lithe Desktop $DESKTOP_VERSION"
+            --notes-file "docs/releases/$RELEASE_TAG.md"
+            --prerelease
+          )
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" "${release_args[@]}" || \
+              gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null
+          fi
+          gh release edit "$RELEASE_TAG" "${release_args[@]}"
+          gh release upload "$RELEASE_TAG" dist/*.zip dist/*.dmg dist/*.sha256 \
+            --repo "$GITHUB_REPOSITORY" --clobber

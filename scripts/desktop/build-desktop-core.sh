@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Builds the Lithe-core-rust static library that the Viva desktop client (desktop/) links, and
-# stages exactly what cgo needs under .artifacts/desktop/lithe-core/<profile>/:
+# stages exactly what cgo needs under .artifacts/desktop/lithe-core/<rust target>/<profile>/:
 #
 #   include/lithe_core.h     the C ABI header of that core revision
 #   lib/liblithe_core.a      the static library only, so the linker never picks a dylib
@@ -9,9 +9,13 @@
 #
 # The core is the pinned Lithe-core-rust revision below, checked out into
 # .artifacts/desktop/lithe-core-rust/source. LITHE_CORE_RUST_DIR points the build at a local
-# checkout instead (for a core change that has not been merged yet). Everything written here is
-# build state of this worktree: nothing is shared between worktrees and nothing reaches an app
-# bundle at runtime.
+# checkout instead (for a core change that has not been merged yet). LITHE_CORE_TARGET names the
+# Rust target to build for (x86_64-apple-darwin on an Apple silicon Mac, for example); it defaults
+# to the host, and a different target must be installed with rustup first. Everything written
+# here is build state of this worktree: nothing is shared between worktrees and nothing reaches an
+# app bundle at runtime.
+#
+# The staging directory is the only line written to standard output, so a caller can read it.
 set -euo pipefail
 
 ROOT_DIR="${0:A:h:h:h}"
@@ -28,10 +32,17 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+HOST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
+RUST_TARGET="${LITHE_CORE_TARGET:-$HOST_TARGET}"
 ARTIFACTS_DIR="$ROOT_DIR/.artifacts/desktop"
-STAGE_DIR="$ARTIFACTS_DIR/lithe-core/$PROFILE"
+STAGE_DIR="$ARTIFACTS_DIR/lithe-core/$RUST_TARGET/$PROFILE"
 export CARGO_TARGET_DIR="$ARTIFACTS_DIR/lithe-core-rust/target"
 export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
+# The release profile of Lithe-core-rust sets strip = true. On macOS that also strips the
+# proc-macro dylibs cargo builds for the host, and rustc then reports "can't find crate" for
+# tokio_macros and futures_macro. Build scripts and proc macros are never shipped, so they are
+# left unstripped; the static library is still built with the profile as the core defines it.
+export CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP="${CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP:-false}"
 
 if [[ -n "${LITHE_CORE_RUST_DIR:-}" ]]; then
     CORE_DIR="${LITHE_CORE_RUST_DIR:A}"
@@ -41,11 +52,11 @@ else
     CORE_DIR="$ARTIFACTS_DIR/lithe-core-rust/source"
     if [[ ! -d "$CORE_DIR/.git" ]]; then
         mkdir -p "${CORE_DIR:h}"
-        git clone --filter=blob:none --no-checkout "$PINNED_CORE_REPOSITORY" "$CORE_DIR"
+        git clone --filter=blob:none --no-checkout "$PINNED_CORE_REPOSITORY" "$CORE_DIR" >&2
     fi
     if [[ "$(git -C "$CORE_DIR" rev-parse HEAD 2>/dev/null || true)" != "$PINNED_CORE_REVISION" ]]; then
-        git -C "$CORE_DIR" fetch --filter=blob:none origin "$PINNED_CORE_REVISION"
-        git -C "$CORE_DIR" checkout --detach --force "$PINNED_CORE_REVISION"
+        git -C "$CORE_DIR" fetch --filter=blob:none origin "$PINNED_CORE_REVISION" >&2
+        git -C "$CORE_DIR" checkout --detach --force "$PINNED_CORE_REVISION" >&2
     fi
 fi
 MANIFEST="$CORE_DIR/rust/Cargo.toml"
@@ -59,8 +70,6 @@ CORE_DIRTY="clean"
 if [[ -n "$(git -C "$CORE_DIR" status --porcelain --untracked-files=normal -- rust)" ]]; then
     CORE_DIRTY="dirty"
 fi
-RUST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
-
 # rustc prints the native libraries only when it links the archive. The list is written to a
 # file that survives up-to-date builds; when it is missing the crate is cleaned so rustc runs.
 mkdir -p "$STAGE_DIR/include" "$STAGE_DIR/lib"
@@ -69,17 +78,24 @@ PROFILE_ARGS=()
 if [[ "$PROFILE" == "release" ]]; then
     PROFILE_ARGS=(--release)
 fi
+# Cargo puts a build for an explicit --target below target/<triple>/, so the host keeps its
+# usual target/<profile>/ directory and the cache of earlier host builds.
+LIBRARY_DIR="$CARGO_TARGET_DIR/$PROFILE"
+if [[ "$RUST_TARGET" != "$HOST_TARGET" ]]; then
+    PROFILE_ARGS+=(--target "$RUST_TARGET")
+    LIBRARY_DIR="$CARGO_TARGET_DIR/$RUST_TARGET/$PROFILE"
+fi
 if [[ ! -s "$NATIVE_LIBS_FILE" ]]; then
-    cargo clean --manifest-path "$MANIFEST" -p lithe-core "${PROFILE_ARGS[@]}"
+    cargo clean --manifest-path "$MANIFEST" -p lithe-core "${PROFILE_ARGS[@]}" >&2
 fi
 cargo rustc --manifest-path "$MANIFEST" -p lithe-core --lib --crate-type staticlib "${PROFILE_ARGS[@]}" \
-    -- --print "native-static-libs=$NATIVE_LIBS_FILE"
+    -- --print "native-static-libs=$NATIVE_LIBS_FILE" >&2
 if [[ ! -s "$NATIVE_LIBS_FILE" ]]; then
     print -u2 -- "rustc did not report the native libraries of liblithe_core.a."
     exit 1
 fi
 
-install -m 0644 "$CARGO_TARGET_DIR/$PROFILE/liblithe_core.a" "$STAGE_DIR/lib/liblithe_core.a"
+install -m 0644 "$LIBRARY_DIR/liblithe_core.a" "$STAGE_DIR/lib/liblithe_core.a"
 install -m 0644 "$CORE_DIR/rust/lithe-core/include/lithe_core.h" "$STAGE_DIR/include/lithe_core.h"
 {
     print -r -- "core-revision=$CORE_REVISION"
