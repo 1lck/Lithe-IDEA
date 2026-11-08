@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "idleWarningMilliseconds": 45000,
+  "absoluteTimeoutMilliseconds": 600000,
+  "cases": [
+    {
+      "name": "quiet Maven import eventually becomes ready",
+      "steps": [
+        {
+          "atMilliseconds": 0,
+          "action": "progress",
+          "percentage": 23
+        },
+        {
+          "atMilliseconds": 46000,
+          "action": "poll",
+          "warning": true,
+          "timeout": false
+        },
+        {
+          "atMilliseconds": 60000,
+          "action": "poll",
+          "warning": false,
+          "timeout": false
+        },
+        {
+          "atMilliseconds": 90000,
+          "action": "ready"
+        },
+        {
+          "atMilliseconds": 601000,
+          "action": "poll",
+          "warning": false,
+          "timeout": false
+        }
+      ]
+    },
+    {
+      "name": "quiet Maven import reaches the absolute deadline",
+      "steps": [
+        {
+          "atMilliseconds": 46000,
+          "action": "poll",
+          "warning": true,
+          "timeout": false
+        },
+        {
+          "atMilliseconds": 600000,
+          "action": "poll",
+          "warning": false,
+          "timeout": true,
+          "classification": "noProgressStall"
+        }
+      ]
+    },
+    {
+      "name": "progress never extends the absolute deadline",
+      "steps": [
+        {
+          "atMilliseconds": 599000,
+          "action": "progress",
+          "percentage": 99
+        },
+        {
+          "atMilliseconds": 600000,
+          "action": "poll",
+          "warning": false,
+          "timeout": true,
+          "classification": "projectImportActive"
+        }
+      ]
+    }
+  ]
+}

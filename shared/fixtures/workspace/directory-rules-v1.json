@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "reduce": [
+    {
+      "id": "exclude-remembers-the-role",
+      "request": {"path": "src", "action": {"kind": "exclude"},
+        "rules": {"marks": {"src": "sources"}, "includedDirectories": ["src"], "previousRoles": {}}},
+      "response": {"changed": true,
+        "rules": {"marks": {"src": "excluded"}, "includedDirectories": [], "previousRoles": {"src": "sources"}}}
+    },
+    {
+      "id": "cancel-restores-the-remembered-role",
+      "request": {"path": "src", "action": {"kind": "cancelExclusion"},
+        "rules": {"marks": {"src": "excluded"}, "includedDirectories": [], "previousRoles": {"src": "sources"}}},
+      "response": {"changed": true,
+        "rules": {"marks": {"src": "sources"}, "includedDirectories": ["src"], "previousRoles": {}}}
+    },
+    {
+      "id": "cancel-without-a-remembered-role-clears-the-mark",
+      "request": {"path": "build", "action": {"kind": "cancelExclusion"},
+        "rules": {"marks": {"build": "excluded"}, "includedDirectories": [], "previousRoles": {}}},
+      "response": {"changed": true,
+        "rules": {"marks": {}, "includedDirectories": ["build"], "previousRoles": {}}}
+    },
+    {
+      "id": "cancel-git-exclusion-keeps-the-current-role",
+      "request": {"path": "gen", "action": {"kind": "cancelExclusion"},
+        "rules": {"marks": {"gen": "resources"}, "includedDirectories": [], "previousRoles": {"gen": "sources"}}},
+      "response": {"changed": true,
+        "rules": {"marks": {"gen": "resources"}, "includedDirectories": ["gen"], "previousRoles": {}}}
+    },
+    {
+      "id": "manual-ancestor-exclusion-cannot-be-overridden",
+      "request": {"path": "vendor/lib", "action": {"kind": "cancelExclusion"},
+        "rules": {"marks": {"vendor": "excluded"}, "includedDirectories": [], "previousRoles": {}}},
+      "response": {"changed": false,
+        "rules": {"marks": {"vendor": "excluded"}, "includedDirectories": [], "previousRoles": {}}}
+    },
+    {
+      "id": "workspace-root-exclusion-blocks-descendants",
+      "request": {"path": "src", "action": {"kind": "cancelExclusion"},
+        "rules": {"marks": {".": "excluded"}, "includedDirectories": [], "previousRoles": {}}},
+      "response": {"changed": false,
+        "rules": {"marks": {".": "excluded"}, "includedDirectories": [], "previousRoles": {}}}
+    },
+    {
+      "id": "setting-a-role-keeps-the-include-exception",
+      "request": {"path": "gen", "action": {"kind": "setRole", "role": "sources"},
+        "rules": {"marks": {}, "includedDirectories": ["gen"], "previousRoles": {}}},
+      "response": {"changed": true,
+        "rules": {"marks": {"gen": "sources"}, "includedDirectories": ["gen"], "previousRoles": {}}}
+    },
+    {
+      "id": "setting-the-same-role-changes-nothing",
+      "request": {"path": "gen", "action": {"kind": "setRole", "role": "sources"},
+        "rules": {"marks": {"gen": "sources"}, "includedDirectories": [], "previousRoles": {}}},
+      "response": {"changed": false,
+        "rules": {"marks": {"gen": "sources"}, "includedDirectories": [], "previousRoles": {}}}
+    },
+    {
+      "id": "case-insensitive-paths-name-one-directory",
+      "request": {"path": "SRC", "caseInsensitive": true, "action": {"kind": "cancelExclusion"},
+        "rules": {"marks": {"src": "excluded"}, "includedDirectories": [], "previousRoles": {"src": "package"}}},
+      "response": {"changed": true,
+        "rules": {"marks": {"SRC": "package"}, "includedDirectories": ["SRC"], "previousRoles": {}}}
+    },
+    {
+      "id": "case-sensitive-paths-are-distinct",
+      "request": {"path": "SRC", "action": {"kind": "exclude"},
+        "rules": {"marks": {"src": "sources"}, "includedDirectories": ["src"], "previousRoles": {}}},
+      "response": {"changed": true,
+        "rules": {"marks": {"SRC": "excluded", "src": "sources"}, "includedDirectories": ["src"], "previousRoles": {}}}
+    }
+  ],
+  "relocate": [
+    {
+      "id": "rename-moves-the-subtree",
+      "request": {"source": "src", "destination": "lib",
+        "rules": {"marks": {"src": "sources", "src/main": "module", "srcs": "plain"},
+          "includedDirectories": ["src/gen", "other"], "previousRoles": {"src/old": "resources"}}},
+      "response": {"rules": {"marks": {"lib": "sources", "lib/main": "module", "srcs": "plain"},
+          "includedDirectories": ["other", "lib/gen"], "previousRoles": {"lib/old": "resources"}}, "target": null}
+    },
+    {
+      "id": "delete-drops-the-subtree",
+      "request": {"source": "src",
+        "rules": {"marks": {"src": "sources", "src/main": "module", "lib": "plain"},
+          "includedDirectories": ["src/gen"], "previousRoles": {"src": "plain"}}},
+      "response": {"rules": {"marks": {"lib": "plain"}, "includedDirectories": [], "previousRoles": {}}, "target": null}
+    },
+    {
+      "id": "case-insensitive-source-match",
+      "request": {"source": "Src", "destination": "lib", "caseInsensitive": true,
+        "rules": {"marks": {"src/main": "module"}, "includedDirectories": [], "previousRoles": {}}},
+      "response": {"rules": {"marks": {"lib/main": "module"}, "includedDirectories": [], "previousRoles": {}}, "target": null}
+    },
+    {
+      "id": "move-to-the-workspace-root",
+      "request": {"source": "a/b", "destination": ".",
+        "rules": {"marks": {"a/b": "sources", "a/b/c": "module"}, "includedDirectories": [], "previousRoles": {}}},
+      "response": {"rules": {"marks": {".": "sources", "c": "module"}, "includedDirectories": [], "previousRoles": {}}, "target": null}
+    },
+    {
+      "id": "move-across-workspace-roots",
+      "request": {"source": "pkg", "destination": "vendor/pkg", "caseInsensitive": true,
+        "rules": {"marks": {"pkg": "package", "keep": "plain"}, "includedDirectories": ["pkg/gen"], "previousRoles": {"pkg": "sources"}},
+        "target": {"marks": {"vendor": "plain"}, "includedDirectories": ["vendor/pkg/gen"], "previousRoles": {}}},
+      "response": {"rules": {"marks": {"keep": "plain"}, "includedDirectories": [], "previousRoles": {}},
+        "target": {"marks": {"vendor": "plain", "vendor/pkg": "package"}, "includedDirectories": ["vendor/pkg/gen"], "previousRoles": {"vendor/pkg": "sources"}}}
+    }
+  ],
+  "invalid": [
+    {"command": "workspace.reduceDirectoryAction", "request": {"path": "../x", "action": {"kind": "exclude"}, "rules": {}}},
+    {"command": "workspace.reduceDirectoryAction", "request": {"path": "x", "action": {"kind": "setRole", "role": "excluded"}, "rules": {}}},
+    {"command": "workspace.reduceDirectoryAction", "request": {"path": "x", "action": {"kind": "exclude"}, "rules": {"marks": {"y": "bogus"}}}},
+    {"command": "workspace.relocateDirectoryRules", "request": {"source": "x", "rules": {}, "target": {}}}
+  ]
+}

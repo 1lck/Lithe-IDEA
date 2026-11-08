@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "parameters": { "rows": "unsignedInteger", "elapsed": "integer" },
+  "macos": { "formats": { "rows": "llu", "elapsed": "d" } },
+  "arguments": ["rows", "elapsed"],
+  "template": "{rows} rows affected in {elapsed} ms",
+  "nativeTemplate": "%1$llu rows affected in %2$d ms",
+  "unsignedValue": "18446744073709551615",
+  "integerValue": 2147483647,
+  "expected": "18446744073709551615 rows affected in 2147483647 ms"
+}

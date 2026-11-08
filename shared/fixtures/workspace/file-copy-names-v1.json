@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "duplicate": [
+    {"id": "file-with-extension", "request": {"name": "foo.txt", "isDirectory": false, "existing": ["foo.txt"]}, "name": "foo copy.txt"},
+    {"id": "second-copy", "request": {"name": "foo.txt", "isDirectory": false, "existing": ["foo.txt", "foo copy.txt"]}, "name": "foo copy 2.txt"},
+    {"id": "gap-is-reused", "request": {"name": "foo.txt", "isDirectory": false, "existing": ["foo.txt", "foo copy 2.txt"]}, "name": "foo copy.txt"},
+    {"id": "only-last-extension", "request": {"name": "archive.tar.gz", "isDirectory": false, "existing": ["archive.tar.gz"]}, "name": "archive.tar copy.gz"},
+    {"id": "no-extension", "request": {"name": "Makefile", "isDirectory": false}, "name": "Makefile copy"},
+    {"id": "leading-dot-is-not-an-extension", "request": {"name": ".gitignore", "isDirectory": false}, "name": ".gitignore copy"},
+    {"id": "trailing-dot-is-not-an-extension", "request": {"name": "name.", "isDirectory": false}, "name": "name. copy"},
+    {"id": "directory-never-splits", "request": {"name": "my.pkg", "isDirectory": true}, "name": "my.pkg copy"},
+    {"id": "case-sensitive-volume", "request": {"name": "a.txt", "isDirectory": false, "existing": ["A COPY.txt"]}, "name": "a copy.txt"},
+    {"id": "case-insensitive-volume", "request": {"name": "a.txt", "isDirectory": false, "existing": ["A COPY.TXT"], "caseInsensitive": true}, "name": "a copy 2.txt"},
+    {"id": "unicode-name", "request": {"name": "报告.md", "isDirectory": false, "existing": ["报告 copy.md"]}, "name": "报告 copy 2.md"}
+  ],
+  "paste": [
+    {"id": "free-name-is-kept", "request": {"items": [{"name": "a.txt", "isDirectory": false}], "existing": ["b.txt"]}, "names": ["a.txt"]},
+    {"id": "taken-name-gets-a-suffix", "request": {"items": [{"name": "a.txt", "isDirectory": false}], "existing": ["a.txt"]}, "names": ["a copy.txt"]},
+    {"id": "same-name-twice-in-one-paste", "request": {"items": [{"name": "a.txt", "isDirectory": false}, {"name": "a.txt", "isDirectory": false}], "existing": []}, "names": ["a.txt", "a copy.txt"]},
+    {"id": "later-item-avoids-earlier-suffix", "request": {"items": [{"name": "a.txt", "isDirectory": false}, {"name": "a copy.txt", "isDirectory": false}], "existing": ["a.txt"]}, "names": ["a copy.txt", "a copy copy.txt"]},
+    {"id": "case-insensitive-paste", "request": {"items": [{"name": "Readme.MD", "isDirectory": false}], "existing": ["readme.md"], "caseInsensitive": true}, "names": ["Readme copy.MD"]},
+    {"id": "directory-paste", "request": {"items": [{"name": "src.v2", "isDirectory": true}], "existing": ["src.v2", "src.v2 copy"]}, "names": ["src.v2 copy 2"]}
+  ],
+  "invalidNames": ["", ".", "..", "a/b", "a\\b"]
+}

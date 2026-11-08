@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "defaultChannel": "stable",
+  "developmentDefaultChannel": "autobuild",
+  "rollingTag": "AutoBuild",
+  "rollingRequiresAcknowledgement": true,
+  "rollingReleaseURL": "https://github.com/1lck/Lithe-IDEA/releases/tag/AutoBuild",
+  "cases": [
+    { "installed": "stable", "selected": "stable", "fullInstallation": false, "windowsMethod": "tauri" },
+    { "installed": "stable", "selected": "autobuild", "fullInstallation": true, "windowsMethod": "release-page" },
+    { "installed": "autobuild", "selected": "stable", "fullInstallation": true, "windowsMethod": "release-page" },
+    { "installed": "autobuild", "selected": "autobuild", "fullInstallation": false, "windowsMethod": "release-page" }
+  ],
+  "invalidPreferences": [null, "", "preview", "AutoBuild", "nightly", "https://example.com/feed"]
+}

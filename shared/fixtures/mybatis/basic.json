@@ -1,0 +1,25 @@
+{
+  "name": "MyBatis mapper XML navigation index",
+  "request": {
+    "command": "mybatis.index",
+    "payload": {
+      "root": "/fixture/workspace",
+      "paths": [
+        "src/main/java/example/UserMapper.java",
+        "src/main/resources/mapper/UserMapper.xml"
+      ],
+      "textOverrides": {
+        "src/main/resources/mapper/UserMapper.xml": "<mapper namespace=\"example.UserMapper\"><select id=\"selectById\">SELECT 1</select></mapper>"
+      }
+    }
+  },
+  "expected": {
+    "statement": {
+      "namespace": "example.UserMapper",
+      "statementId": "selectById",
+      "kind": "select",
+      "javaPath": "src/main/java/example/UserMapper.java",
+      "xmlPath": "src/main/resources/mapper/UserMapper.xml"
+    }
+  }
+}

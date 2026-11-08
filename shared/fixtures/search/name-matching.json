@@ -1,0 +1,11 @@
+{
+  "query": "name",
+  "cases": [
+    { "path": ".build/checkouts/Name.swift", "ranges": [{ "start": 0, "length": 4 }] },
+    { "path": "rust/target/debug/build/named_entities.rs", "ranges": [{ "start": 0, "length": 4 }] },
+    { "path": "src/NativeMenu.ts", "ranges": [{ "start": 0, "length": 2 }, { "start": 6, "length": 2 }] },
+    { "path": "src/navigation-menu.tsx", "ranges": [{ "start": 0, "length": 2 }, { "start": 11, "length": 2 }] },
+    { "path": "src/native-menu-accelerators.ts", "ranges": [{ "start": 0, "length": 2 }, { "start": 7, "length": 2 }] },
+    { "path": "src/\ud83d\ude00Name.swift", "ranges": [{ "start": 2, "length": 4 }] }
+  ]
+}

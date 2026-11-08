@@ -1,0 +1,324 @@
+{
+  "version": 1,
+  "description": "Core-owned commit-review blocks (git.planDiffBlocks) and Git-default stageable hunks for complete-file diffs (git.diff). Patches are real Git output; expected write patches are what Core applies with git apply --cached (include/exclude) or git apply (rollback).",
+  "blockCases": [
+    {
+      "name": "unstaged insertion and replacement stay separate blocks",
+      "worktree": {
+        "status": "M",
+        "patch": "diff --git a/file.txt b/file.txt\nindex 9405325..94836e8 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,5 +1,6 @@\n a\n+new\n b\n c\n-d\n+D\n e\n"
+      },
+      "index": null,
+      "blocks": [
+        {
+          "id": "line-2",
+          "checked": false,
+          "indeterminate": false,
+          "canToggle": true,
+          "canRollback": true,
+          "include": "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1,4 +1,5 @@\n a\n+new\n b\n c\n d\n",
+          "exclude": null,
+          "rollback": "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1,5 +1,4 @@\n a\n-new\n b\n c\n D\n"
+        },
+        {
+          "id": "line-5",
+          "checked": false,
+          "indeterminate": false,
+          "canToggle": true,
+          "canRollback": true,
+          "include": "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1,5 +1,5 @@\n a\n b\n c\n-d\n+D\n e\n",
+          "exclude": null,
+          "rollback": "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -2,5 +2,5 @@\n new\n b\n c\n-D\n+d\n e\n"
+        }
+      ]
+    },
+    {
+      "name": "an earlier staged insertion shifts the next block's index span",
+      "worktree": {
+        "status": "M",
+        "patch": "diff --git a/file.txt b/file.txt\nindex 9405325..94836e8 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,5 +1,6 @@\n a\n+new\n b\n c\n-d\n+D\n e\n"
+      },
+      "index": {
+        "status": "M",
+        "patch": "diff --git a/file.txt b/file.txt\nindex 9405325..6d3092f 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,5 +1,6 @@\n a\n+new\n b\n c\n d\n e\n"
+      },
+      "blocks": [
+        {
+          "id": "line-2",
+          "checked": true,
+          "indeterminate": false,
+          "canToggle": true,
+          "canRollback": false,
+          "include": null,
+          "exclude": "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1,5 +1,4 @@\n a\n-new\n b\n c\n d\n",
+          "rollback": null
+        },
+        {
+          "id": "line-5",
+          "checked": false,
+          "indeterminate": false,
+          "canToggle": true,
+          "canRollback": true,
+          "include": "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -2,5 +2,5 @@\n new\n b\n c\n-d\n+D\n e\n",
+          "exclude": null,
+          "rollback": "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -2,5 +2,5 @@\n new\n b\n c\n-D\n+d\n e\n"
+        }
+      ]
+    },
+    {
+      "name": "index content that is neither HEAD nor worktree is partial",
+      "worktree": {
+        "status": "M",
+        "patch": "diff --git a/file.txt b/file.txt\nindex de98044..3b6f40a 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,3 +1,3 @@\n a\n-b\n+B2\n c\n"
+      },
+      "index": {
+        "status": "M",
+        "patch": "diff --git a/file.txt b/file.txt\nindex de98044..f4ea702 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,3 +1,3 @@\n a\n-b\n+B1\n c\n"
+      },
+      "blocks": [
+        {
+          "id": "line-2",
+          "checked": false,
+          "indeterminate": true,
+          "canToggle": true,
+          "canRollback": true,
+          "include": "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1,3 +1,3 @@\n a\n-B1\n+B2\n c\n",
+          "exclude": "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1,3 +1,3 @@\n a\n-B1\n+b\n c\n",
+          "rollback": "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1,3 +1,3 @@\n a\n-B2\n+B1\n c\n"
+        }
+      ]
+    },
+    {
+      "name": "a CRLF-only edit is a writable block with its original bytes",
+      "worktree": {
+        "status": "M",
+        "patch": "diff --git a/file.txt b/file.txt\nindex 422c2b7..4565b4d 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,2 +1,2 @@\n-a\n+a\r\n b\n"
+      },
+      "index": null,
+      "blocks": [
+        {
+          "id": "line-1",
+          "checked": false,
+          "indeterminate": false,
+          "canToggle": true,
+          "canRollback": true,
+          "include": "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1,2 +1,2 @@\n-a\n+a\r\n b\n",
+          "exclude": null,
+          "rollback": "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1,2 +1,2 @@\n-a\r\n+a\n b\n"
+        }
+      ]
+    },
+    {
+      "name": "a missing final newline is kept on both sides",
+      "worktree": {
+        "status": "M",
+        "patch": "diff --git a/file.txt b/file.txt\nindex 0a207c0..817f660 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,2 +1,2 @@\n a\n-b\n\\ No newline at end of file\n+c\n\\ No newline at end of file\n"
+      },
+      "index": null,
+      "blocks": [
+        {
+          "id": "line-2",
+          "checked": false,
+          "indeterminate": false,
+          "canToggle": true,
+          "canRollback": true,
+          "include": "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1,2 +1,2 @@\n a\n-b\n\\ No newline at end of file\n+c\n\\ No newline at end of file\n",
+          "exclude": null,
+          "rollback": "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1,2 +1,2 @@\n a\n-c\n\\ No newline at end of file\n+b\n\\ No newline at end of file\n"
+        }
+      ]
+    },
+    {
+      "name": "a staged insertion at a replacement boundary blocks writes",
+      "worktree": {
+        "status": "M",
+        "patch": "diff --git a/file.txt b/file.txt\nindex de98044..7be73ce 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n"
+      },
+      "index": {
+        "status": "M",
+        "patch": "diff --git a/file.txt b/file.txt\nindex de98044..5eff2a3 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,3 +1,4 @@\n a\n+X\n b\n c\n"
+      },
+      "blocks": [
+        {
+          "id": "line-2",
+          "checked": false,
+          "indeterminate": true,
+          "canToggle": false,
+          "canRollback": false
+        }
+      ]
+    },
+    {
+      "name": "a new file toggles as a whole",
+      "worktree": {
+        "status": "A",
+        "patch": "diff --git a/file.txt b/file.txt\nnew file mode 100644\nindex 0000000..814f4a4\n--- /dev/null\n+++ b/file.txt\n@@ -0,0 +1,2 @@\n+one\n+two\n"
+      },
+      "index": null,
+      "blocks": [
+        {
+          "id": "line-1",
+          "checked": false,
+          "indeterminate": false,
+          "canToggle": true,
+          "canRollback": false,
+          "wholeFile": true,
+          "include": null,
+          "exclude": null,
+          "rollback": null
+        }
+      ]
+    },
+    {
+      "name": "decoded output with replaced bytes is read-only",
+      "worktree": {
+        "status": "M",
+        "patch": "diff --git a/file.txt b/file.txt\nindex 9405325..94836e8 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,5 +1,6 @@\n a\n+new\n b\n c\n-d\n+D\n e\n"
+      },
+      "index": null,
+      "writable": false,
+      "blocks": [
+        {
+          "id": "line-2",
+          "checked": false,
+          "indeterminate": false,
+          "canToggle": false,
+          "canRollback": false
+        },
+        {
+          "id": "line-5",
+          "checked": false,
+          "indeterminate": false,
+          "canToggle": false,
+          "canRollback": false
+        }
+      ]
+    },
+    {
+      "name": "unsafe worktree attributes keep inclusion but block rollback",
+      "worktree": {
+        "status": "M",
+        "patch": "diff --git a/file.txt b/file.txt\nindex 9405325..94836e8 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,5 +1,6 @@\n a\n+new\n b\n c\n-d\n+D\n e\n"
+      },
+      "index": null,
+      "rollbackSafe": false,
+      "blocks": [
+        {
+          "id": "line-2",
+          "checked": false,
+          "indeterminate": false,
+          "canToggle": true,
+          "canRollback": false
+        },
+        {
+          "id": "line-5",
+          "checked": false,
+          "indeterminate": false,
+          "canToggle": true,
+          "canRollback": false
+        }
+      ]
+    },
+    {
+      "name": "an index review only excludes",
+      "worktree": {
+        "status": "M",
+        "patch": "diff --git a/file.txt b/file.txt\nindex 9405325..6d3092f 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,5 +1,6 @@\n a\n+new\n b\n c\n d\n e\n"
+      },
+      "index": {
+        "status": "M",
+        "patch": "diff --git a/file.txt b/file.txt\nindex 9405325..6d3092f 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,5 +1,6 @@\n a\n+new\n b\n c\n d\n e\n"
+      },
+      "blocks": [
+        {
+          "id": "line-2",
+          "checked": true,
+          "indeterminate": false,
+          "canToggle": true,
+          "canRollback": false,
+          "include": null,
+          "exclude": "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1,5 +1,4 @@\n a\n-new\n b\n c\n d\n",
+          "rollback": null
+        }
+      ]
+    },
+    {
+      "name": "a renamed file only supports whole-file actions",
+      "worktree": {
+        "status": "R",
+        "patch": "diff --git a/file.txt b/file.txt\nindex 9405325..94836e8 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,5 +1,6 @@\n a\n+new\n b\n c\n-d\n+D\n e\n"
+      },
+      "index": null,
+      "blocks": null
+    }
+  ],
+  "hunkCases": [
+    {
+      "name": "distant changes split like git diff -U3 and nearby changes share a hunk",
+      "patch": "diff --git a/file.txt b/file.txt\nindex bab081f..95bcc4e 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,40 +1,40 @@\n line 1\n line 2\n line 3\n line 4\n line 5\n-line 6\n+first\n line 7\n line 8\n line 9\n line 10\n line 11\n line 12\n line 13\n line 14\n line 15\n line 16\n line 17\n line 18\n line 19\n-line 20\n+second\n line 21\n line 22\n line 23\n line 24\n line 25\n line 26\n line 27\n line 28\n line 29\n line 30\n line 31\n line 32\n line 33\n-line 34\n+third\n line 35\n line 36\n-line 37\n+fourth\n line 38\n line 39\n line 40\n",
+      "hunks": [
+        {
+          "id": "hunk-0",
+          "header": "@@ -3,7 +3,7 @@",
+          "lineStart": 3,
+          "lineEnd": 11,
+          "patch": "diff --git a/file.txt b/file.txt\nindex bab081f..95bcc4e 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -3,7 +3,7 @@\n line 3\n line 4\n line 5\n-line 6\n+first\n line 7\n line 8\n line 9\n"
+        },
+        {
+          "id": "hunk-1",
+          "header": "@@ -17,7 +17,7 @@",
+          "lineStart": 18,
+          "lineEnd": 26,
+          "patch": "diff --git a/file.txt b/file.txt\nindex bab081f..95bcc4e 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -17,7 +17,7 @@\n line 17\n line 18\n line 19\n-line 20\n+second\n line 21\n line 22\n line 23\n"
+        },
+        {
+          "id": "hunk-2",
+          "header": "@@ -31,10 +31,10 @@",
+          "lineStart": 33,
+          "lineEnd": 45,
+          "patch": "diff --git a/file.txt b/file.txt\nindex bab081f..95bcc4e 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -31,10 +31,10 @@\n line 31\n line 32\n line 33\n-line 34\n+third\n line 35\n line 36\n-line 37\n+fourth\n line 38\n line 39\n line 40\n"
+        }
+      ]
+    },
+    {
+      "name": "end-of-file markers stay attached to their lines",
+      "patch": "diff --git a/file.txt b/file.txt\nindex a5d34a2..3d60a4b 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,11 +1,11 @@\n-a\n+A\n b\n c\n d\n e\n f\n g\n h\n i\n j\n-k\n\\ No newline at end of file\n+K\n\\ No newline at end of file\n",
+      "hunks": [
+        {
+          "id": "hunk-0",
+          "header": "@@ -1,4 +1,4 @@",
+          "lineStart": 1,
+          "lineEnd": 6,
+          "patch": "diff --git a/file.txt b/file.txt\nindex a5d34a2..3d60a4b 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -1,4 +1,4 @@\n-a\n+A\n b\n c\n d\n"
+        },
+        {
+          "id": "hunk-1",
+          "header": "@@ -8,4 +8,4 @@",
+          "lineStart": 9,
+          "lineEnd": 14,
+          "patch": "diff --git a/file.txt b/file.txt\nindex a5d34a2..3d60a4b 100644\n--- a/file.txt\n+++ b/file.txt\n@@ -8,4 +8,4 @@\n h\n i\n j\n-k\n\\ No newline at end of file\n+K\n\\ No newline at end of file\n"
+        }
+      ]
+    },
+    {
+      "name": "a section with two hunks is not split",
+      "patch": "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-a\n+b\n@@ -9 +9 @@\n-c\n+d\n",
+      "hunks": null
+    }
+  ],
+  "wholeFileWriteCases": [
+    {
+      "name": "whole-file inclusion is bound to the planned token",
+      "head": "a\nb\nc\n",
+      "worktree": "a\nB\nc\n",
+      "movedWorktree": "a\nB\nc\nlater\n",
+      "staleError": "GIT_DIFF_BLOCK_STALE",
+      "actions": [
+        "includeFile",
+        "excludeFile"
+      ],
+      "indexAfterInclude": "a\nB\nc\nlater\n",
+      "indexAfterExclude": "a\nb\nc\n"
+    }
+  ]
+}

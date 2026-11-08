@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "nested reactor module lifecycle with local settings",
+      "context": {
+        "version": 1,
+        "reactorPath": "projects/demo",
+        "profiles": ["qa", "dev", "dev"],
+        "settingsPath": "/Users/example/.m2/settings.xml",
+        "localRepositoryPath": "/Users/example/.m2/custom-repository",
+        "skipTests": true,
+        "mavenExecutablePath": "/opt/apache-maven/bin/mvn",
+        "javaHomePath": "/Library/Java/JavaVirtualMachines/example/Contents/Home"
+      },
+      "module": "service-api",
+      "goals": ["verify"],
+      "expected": {
+        "version": 1,
+        "executable": { "toolchain": "project-maven" },
+        "arguments": [
+          "-B",
+          "-ntp",
+          "-P",
+          "dev,qa",
+          "-s",
+          "/Users/example/.m2/settings.xml",
+          "-Dmaven.repo.local=/Users/example/.m2/custom-repository",
+          "-pl",
+          "service-api",
+          "-am",
+          "-DskipTests",
+          "verify"
+        ],
+        "workingDirectory": "projects/demo",
+        "configurationFingerprint": "sha256:0e84a43d287c8e889ff15740114e8de0d719cbf3ca6b6ce3530b97e164770f4a"
+      }
+    },
+    {
+      "name": "root reactor custom goal preserves maven config behavior",
+      "context": {
+        "version": 1,
+        "reactorPath": ".",
+        "profiles": [],
+        "skipTests": false
+      },
+      "module": null,
+      "goals": ["spring-boot:run"],
+      "expected": {
+        "version": 1,
+        "executable": { "toolchain": "project-maven" },
+        "arguments": ["-B", "-ntp", "spring-boot:run"],
+        "workingDirectory": ".",
+        "configurationFingerprint": "sha256:65a5de6ae2a3135ad844ed30ba8558865f97a6696654a83d3d1d8544cc63380f"
+      }
+    },
+    {
+      "name": "custom goal keeps property and quiet arguments as argv",
+      "context": {
+        "version": 1,
+        "reactorPath": ".",
+        "profiles": [],
+        "skipTests": false
+      },
+      "module": null,
+      "goals": [
+        "help:evaluate",
+        "-Dexpression=fixture.config",
+        "-q",
+        "-DforceStdout"
+      ],
+      "expected": {
+        "version": 1,
+        "executable": { "toolchain": "project-maven" },
+        "arguments": [
+          "-B",
+          "-ntp",
+          "help:evaluate",
+          "-Dexpression=fixture.config",
+          "-q",
+          "-DforceStdout"
+        ],
+        "workingDirectory": ".",
+        "configurationFingerprint": "sha256:65a5de6ae2a3135ad844ed30ba8558865f97a6696654a83d3d1d8544cc63380f"
+      }
+    }
+  ]
+}

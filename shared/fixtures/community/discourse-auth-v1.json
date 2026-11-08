@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "begin": {
+    "command": "community.discourse.auth.begin",
+    "payload": {
+      "origin": "https://linux.do",
+      "clientId": "app.lithe.linux-do",
+      "applicationName": "Lithe",
+      "authRedirect": "lithe://auth/linux-do",
+      "scopes": ["read", "session_info"]
+    },
+    "expected": {
+      "authorizationPath": "/user-api-key/new",
+      "padding": "oaep",
+      "scopes": "read,session_info"
+    }
+  },
+  "complete": {
+    "command": "community.discourse.auth.complete",
+    "payloadFields": ["flowId", "callbackUrl"],
+    "responseFields": ["apiVersion", "userApiKey"]
+  },
+  "authenticatedCommands": [
+    "community.discourse.auth.revoke",
+    "community.discourse.categories",
+    "community.discourse.search",
+    "community.discourse.topic",
+    "community.discourse.topics"
+  ],
+  "limits": {
+    "requestTimeoutSeconds": 30,
+    "responseBytes": 5242880
+  }
+}

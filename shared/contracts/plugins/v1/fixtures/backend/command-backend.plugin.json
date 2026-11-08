@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.workspacebackend",
+  "displayName": "Workspace Backend",
+  "version": "1.0.0",
+  "pluginAPIVersion": 3,
+  "requires": {
+    "backend": 2,
+    "serverProcess": 1,
+    "ui": 4
+  },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "backend.launch",
+    "workspace.metadata",
+    "ui.contribute",
+    "documents.read",
+    "editor.edit"
+  ],
+  "activationEvents": [
+    "onCommand:dev.lithe.fixture.workspacebackend.transform"
+  ],
+  "languages": [],
+  "backend": {
+    "launch": {
+      "kind": "packaged",
+      "path": "bin/backend"
+    },
+    "arguments": [
+      "--state",
+      "${stateDir}"
+    ]
+  },
+  "ui": {
+    "toolWindows": [],
+    "commands": [
+      {
+        "id": "dev.lithe.fixture.workspacebackend.transform",
+        "title": "Transform selection",
+        "placements": [
+          "commandPalette"
+        ]
+      }
+    ]
+  }
+}

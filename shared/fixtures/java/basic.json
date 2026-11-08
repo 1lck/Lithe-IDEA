@@ -1,0 +1,21 @@
+{
+  "name": "Java structure",
+  "requests": [
+    {
+      "command": "java.structure",
+      "payload": {
+        "source": "import a.A;\nimport b.B;\ninterface Service { String call(String value); }\n"
+      },
+      "expected": {
+        "foldKind": "imports",
+        "syntaxRoles": [
+          "functionDeclaration",
+          "keyword",
+          "parameter",
+          "punctuation",
+          "type"
+        ]
+      }
+    }
+  ]
+}

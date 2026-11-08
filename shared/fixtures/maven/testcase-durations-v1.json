@@ -1,0 +1,72 @@
+{
+  "xml": "<testsuite name=\"demo.DurationTest\">\n<testcase classname=\"demo.DurationTest\" name=\"fast\" time=\"0.010\"/>\n<testcase classname=\"demo.DurationTest\" name=\"slow\" time=\"0.125\"/>\n<testcase classname=\"demo.DurationTest\" name=\"repeat[1]\" time=\"0.020\"/>\n<testcase classname=\"demo.DurationTest\" name=\"repeat[2]\" time=\"0.030\"/>\n<testcase classname=\"demo.DurationTest\" name=\"missing\"/>\n<testcase classname=\"demo.DurationTest\" name=\"partial[1]\" time=\"0.005\"/>\n<testcase classname=\"demo.DurationTest\" name=\"partial[2]\"/>\n<testcase classname=\"demo.DurationTest\" name=\"invalid\" time=\"NaN\"/>\n<testcase classname=\"demo.DurationTest\" name=\"negative\" time=\"-1\"/>\n<testcase classname=\"demo.DurationTest\" name=\"overflow\" time=\"1e100\"/>\n<testcase classname=\"demo.DurationTest\" name=\"zero\" time=\"0\"/>\n</testsuite>",
+  "expected": [
+    {
+      "className": "demo.DurationTest",
+      "method": "fast",
+      "status": "passed",
+      "message": null,
+      "invocations": 1,
+      "durationMillis": 10
+    },
+    {
+      "className": "demo.DurationTest",
+      "method": "invalid",
+      "status": "passed",
+      "message": null,
+      "invocations": 1
+    },
+    {
+      "className": "demo.DurationTest",
+      "method": "missing",
+      "status": "passed",
+      "message": null,
+      "invocations": 1
+    },
+    {
+      "className": "demo.DurationTest",
+      "method": "negative",
+      "status": "passed",
+      "message": null,
+      "invocations": 1
+    },
+    {
+      "className": "demo.DurationTest",
+      "method": "overflow",
+      "status": "passed",
+      "message": null,
+      "invocations": 1
+    },
+    {
+      "className": "demo.DurationTest",
+      "method": "partial",
+      "status": "passed",
+      "message": null,
+      "invocations": 2
+    },
+    {
+      "className": "demo.DurationTest",
+      "method": "repeat",
+      "status": "passed",
+      "message": null,
+      "invocations": 2,
+      "durationMillis": 50
+    },
+    {
+      "className": "demo.DurationTest",
+      "method": "slow",
+      "status": "passed",
+      "message": null,
+      "invocations": 1,
+      "durationMillis": 125
+    },
+    {
+      "className": "demo.DurationTest",
+      "method": "zero",
+      "status": "passed",
+      "message": null,
+      "invocations": 1,
+      "durationMillis": 0
+    }
+  ]
+}

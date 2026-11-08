@@ -65,7 +65,7 @@ var chinese = Messages{
 		Project:       "项目",
 		Commit:        "提交",
 		Structure:     "结构",
-		Find:          "查找",
+		Find:          Shared(Chinese, "search.search"),
 		Git:           "Git",
 		Terminal:      "终端",
 		Problems:      "问题",

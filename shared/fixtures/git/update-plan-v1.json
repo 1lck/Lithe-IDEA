@@ -1,0 +1,625 @@
+{
+  "description": "git.updatePlan routes a branch Update and gates every pull. Hosts fetch and run git.pullPreflight for the returned checkout, ask only on chooseStrategy, and re-inspect before sending the confirmation.",
+  "cases": [
+    {
+      "name": "current branch is inspected in its own worktree and may ask",
+      "request": {
+        "stage": "route",
+        "branch": {
+          "fullName": "refs/heads/main",
+          "upstream": "origin/main",
+          "isCurrent": true
+        },
+        "worktrees": [
+          {
+            "path": "/repo",
+            "branch": "refs/heads/main",
+            "isCurrent": true
+          },
+          {
+            "path": "/repo-feature",
+            "branch": "refs/heads/feature",
+            "isCurrent": false
+          },
+          {
+            "path": "/repo-detached",
+            "branch": null,
+            "isCurrent": false
+          }
+        ]
+      },
+      "plan": {
+        "step": "inspect",
+        "checkout": "/repo",
+        "expectedBranch": "refs/heads/main",
+        "upstream": "origin/main",
+        "interactive": true
+      }
+    },
+    {
+      "name": "current branch without listed worktrees uses the request root",
+      "request": {
+        "stage": "route",
+        "branch": {
+          "fullName": "refs/heads/main",
+          "upstream": "origin/main",
+          "isCurrent": true
+        },
+        "worktrees": []
+      },
+      "plan": {
+        "step": "inspect",
+        "checkout": null,
+        "expectedBranch": "refs/heads/main",
+        "upstream": "origin/main",
+        "interactive": true
+      }
+    },
+    {
+      "name": "a branch checked out in another worktree is pulled there without asking",
+      "request": {
+        "stage": "route",
+        "branch": {
+          "fullName": "refs/heads/feature",
+          "upstream": "origin/feature",
+          "isCurrent": false
+        },
+        "worktrees": [
+          {
+            "path": "/repo",
+            "branch": "refs/heads/main",
+            "isCurrent": true
+          },
+          {
+            "path": "/repo-feature",
+            "branch": "refs/heads/feature",
+            "isCurrent": false
+          },
+          {
+            "path": "/repo-detached",
+            "branch": null,
+            "isCurrent": false
+          }
+        ]
+      },
+      "plan": {
+        "step": "inspect",
+        "checkout": "/repo-feature",
+        "expectedBranch": "refs/heads/feature",
+        "upstream": "origin/feature",
+        "interactive": false
+      }
+    },
+    {
+      "name": "an unchecked-out branch fast-forwards in place",
+      "request": {
+        "stage": "route",
+        "branch": {
+          "fullName": "refs/heads/release",
+          "upstream": "origin/release",
+          "isCurrent": false
+        },
+        "worktrees": [
+          {
+            "path": "/repo",
+            "branch": "refs/heads/main",
+            "isCurrent": true
+          },
+          {
+            "path": "/repo-feature",
+            "branch": "refs/heads/feature",
+            "isCurrent": false
+          },
+          {
+            "path": "/repo-detached",
+            "branch": null,
+            "isCurrent": false
+          }
+        ]
+      },
+      "plan": {
+        "step": "fastForwardReference",
+        "expectedBranch": "refs/heads/release"
+      }
+    },
+    {
+      "name": "no upstream blocks before any network call",
+      "request": {
+        "stage": "route",
+        "branch": {
+          "fullName": "refs/heads/main",
+          "upstream": null,
+          "isCurrent": true
+        },
+        "worktrees": [
+          {
+            "path": "/repo",
+            "branch": "refs/heads/main",
+            "isCurrent": true
+          },
+          {
+            "path": "/repo-feature",
+            "branch": "refs/heads/feature",
+            "isCurrent": false
+          },
+          {
+            "path": "/repo-detached",
+            "branch": null,
+            "isCurrent": false
+          }
+        ]
+      },
+      "plan": {
+        "step": "blocked",
+        "blocker": "noUpstream"
+      }
+    },
+    {
+      "name": "behind only fast-forwards by default",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 0,
+          "behind": 2,
+          "diverged": false,
+          "hasLocalChanges": false
+        },
+        "interactive": true
+      },
+      "plan": {
+        "step": "pull",
+        "strategy": "ffOnly"
+      }
+    },
+    {
+      "name": "diverged current branch asks for a strategy",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 1,
+          "behind": 2,
+          "diverged": true,
+          "hasLocalChanges": false
+        },
+        "interactive": true
+      },
+      "plan": {
+        "step": "chooseStrategy"
+      }
+    },
+    {
+      "name": "diverged branch in another worktree cannot fast-forward",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 1,
+          "behind": 2,
+          "diverged": true,
+          "hasLocalChanges": false
+        },
+        "interactive": false
+      },
+      "plan": {
+        "step": "blocked",
+        "blocker": "notFastForward"
+      }
+    },
+    {
+      "name": "tracked local changes block the pull",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 0,
+          "behind": 2,
+          "diverged": false,
+          "hasLocalChanges": true
+        },
+        "interactive": true
+      },
+      "plan": {
+        "step": "blocked",
+        "blocker": "localChanges"
+      }
+    },
+    {
+      "name": "nothing new upstream",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 3,
+          "behind": 0,
+          "diverged": false,
+          "hasLocalChanges": false
+        },
+        "interactive": true
+      },
+      "plan": {
+        "step": "blocked",
+        "blocker": "upToDate"
+      }
+    },
+    {
+      "name": "inspected checkout without upstream",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": null,
+          "ahead": 0,
+          "behind": 0,
+          "diverged": false,
+          "hasLocalChanges": false
+        },
+        "interactive": true
+      },
+      "plan": {
+        "step": "blocked",
+        "blocker": "noUpstream"
+      }
+    },
+    {
+      "name": "confirmed strategy runs when the history is unchanged",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 1,
+          "behind": 2,
+          "diverged": true,
+          "hasLocalChanges": false
+        },
+        "interactive": true,
+        "confirmation": {
+          "strategy": "rebase",
+          "preflight": {
+            "upstream": "origin/main",
+            "ahead": 1,
+            "behind": 2,
+            "diverged": true,
+            "hasLocalChanges": false
+          }
+        }
+      },
+      "plan": {
+        "step": "pull",
+        "strategy": "rebase"
+      }
+    },
+    {
+      "name": "confirmed strategy stops when the history moved",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 1,
+          "behind": 3,
+          "diverged": true,
+          "hasLocalChanges": false
+        },
+        "interactive": true,
+        "confirmation": {
+          "strategy": "merge",
+          "preflight": {
+            "upstream": "origin/main",
+            "ahead": 1,
+            "behind": 2,
+            "diverged": true,
+            "hasLocalChanges": false
+          }
+        }
+      },
+      "plan": {
+        "step": "blocked",
+        "blocker": "stateChanged"
+      }
+    },
+    {
+      "name": "confirmed strategy still refuses new local changes",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 1,
+          "behind": 2,
+          "diverged": true,
+          "hasLocalChanges": true
+        },
+        "interactive": true,
+        "confirmation": {
+          "strategy": "merge",
+          "preflight": {
+            "upstream": "origin/main",
+            "ahead": 1,
+            "behind": 2,
+            "diverged": true,
+            "hasLocalChanges": false
+          }
+        }
+      },
+      "plan": {
+        "step": "blocked",
+        "blocker": "localChanges"
+      }
+    },
+    {
+      "name": "a chosen merge does not ask again",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 1,
+          "behind": 2,
+          "diverged": true,
+          "hasLocalChanges": false
+        },
+        "interactive": true,
+        "strategy": "merge"
+      },
+      "plan": {
+        "step": "pull",
+        "strategy": "merge"
+      }
+    },
+    {
+      "name": "an explicit source ignores upstream and up-to-date gates",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": null,
+          "ahead": 0,
+          "behind": 0,
+          "diverged": false,
+          "hasLocalChanges": false
+        },
+        "interactive": true,
+        "explicitSource": true,
+        "strategy": "rebase"
+      },
+      "plan": {
+        "step": "pull",
+        "strategy": "rebase"
+      }
+    },
+    {
+      "name": "Git configured for rebase pulls with rebase without asking",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 1,
+          "behind": 2,
+          "diverged": true,
+          "hasLocalChanges": false,
+          "configuredStrategy": "rebase"
+        },
+        "interactive": true
+      },
+      "plan": {
+        "step": "pull",
+        "strategy": "rebase"
+      }
+    },
+    {
+      "name": "Git configured for merge pulls with merge without asking",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 1,
+          "behind": 2,
+          "diverged": true,
+          "hasLocalChanges": false,
+          "configuredStrategy": "merge"
+        },
+        "interactive": false
+      },
+      "plan": {
+        "step": "pull",
+        "strategy": "merge"
+      }
+    },
+    {
+      "name": "Git configured for fast-forward only still asks when diverged",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 1,
+          "behind": 2,
+          "diverged": true,
+          "hasLocalChanges": false,
+          "configuredStrategy": "ffOnly"
+        },
+        "interactive": true
+      },
+      "plan": {
+        "step": "chooseStrategy"
+      }
+    },
+    {
+      "name": "Git configured for fast-forward only fast-forwards a linear history",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 0,
+          "behind": 2,
+          "diverged": false,
+          "hasLocalChanges": false,
+          "configuredStrategy": "ffOnly"
+        },
+        "interactive": true
+      },
+      "plan": {
+        "step": "pull",
+        "strategy": "ffOnly"
+      }
+    },
+    {
+      "name": "the user's choice wins over Git configuration",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 1,
+          "behind": 2,
+          "diverged": true,
+          "hasLocalChanges": false,
+          "configuredStrategy": "rebase"
+        },
+        "interactive": true,
+        "strategy": "merge"
+      },
+      "plan": {
+        "step": "pull",
+        "strategy": "merge"
+      }
+    },
+    {
+      "name": "configured strategy still honors local changes",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 1,
+          "behind": 2,
+          "diverged": true,
+          "hasLocalChanges": true,
+          "configuredStrategy": "rebase"
+        },
+        "interactive": true
+      },
+      "plan": {
+        "step": "blocked",
+        "blocker": "localChanges"
+      }
+    },
+    {
+      "name": "dialog default is fast-forward when the source allows it",
+      "request": {
+        "stage": "defaultStrategy",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 0,
+          "behind": 2,
+          "diverged": false,
+          "hasLocalChanges": false
+        },
+        "fastForwardPossible": true
+      },
+      "plan": {
+        "step": "defaultStrategy",
+        "strategy": "ffOnly"
+      }
+    },
+    {
+      "name": "dialog default falls back to merge when fast-forward is impossible",
+      "request": {
+        "stage": "defaultStrategy",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 1,
+          "behind": 2,
+          "diverged": true,
+          "hasLocalChanges": false
+        },
+        "fastForwardPossible": false
+      },
+      "plan": {
+        "step": "defaultStrategy",
+        "strategy": "merge"
+      }
+    },
+    {
+      "name": "dialog default follows Git configuration",
+      "request": {
+        "stage": "defaultStrategy",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 0,
+          "behind": 2,
+          "diverged": false,
+          "hasLocalChanges": false,
+          "configuredStrategy": "rebase"
+        },
+        "fastForwardPossible": true
+      },
+      "plan": {
+        "step": "defaultStrategy",
+        "strategy": "rebase"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "short branch name",
+      "request": {
+        "stage": "route",
+        "branch": {
+          "fullName": "main",
+          "upstream": "origin/main",
+          "isCurrent": true
+        },
+        "worktrees": []
+      }
+    },
+    {
+      "name": "fast-forward is not a confirmation",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 1,
+          "behind": 2,
+          "diverged": true,
+          "hasLocalChanges": false
+        },
+        "interactive": true,
+        "confirmation": {
+          "strategy": "ffOnly",
+          "preflight": {
+            "upstream": "origin/main",
+            "ahead": 1,
+            "behind": 2,
+            "diverged": true,
+            "hasLocalChanges": false
+          }
+        }
+      }
+    },
+    {
+      "name": "background updates cannot be confirmed",
+      "request": {
+        "stage": "inspect",
+        "preflight": {
+          "upstream": "origin/main",
+          "ahead": 1,
+          "behind": 2,
+          "diverged": true,
+          "hasLocalChanges": false
+        },
+        "interactive": false,
+        "confirmation": {
+          "strategy": "merge",
+          "preflight": {
+            "upstream": "origin/main",
+            "ahead": 1,
+            "behind": 2,
+            "diverged": true,
+            "hasLocalChanges": false
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown stage",
+      "request": {
+        "stage": "execute"
+      }
+    }
+  ]
+}

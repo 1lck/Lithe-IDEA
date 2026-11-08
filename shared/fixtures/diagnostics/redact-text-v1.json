@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "bearer authorization header",
+      "request": {
+        "command": "diagnostics.redactText",
+        "payload": { "text": "Authorization: Bearer abc123def456" }
+      },
+      "expected": { "redacted": "Authorization=<redacted>" }
+    },
+    {
+      "name": "sensitive query parameter",
+      "request": {
+        "command": "diagnostics.redactText",
+        "payload": { "text": "https://api.example.com/x?token=abc&user=me" }
+      },
+      "expected": {
+        "redacted": "https://api.example.com/x?token=<redacted>&user=me"
+      }
+    },
+    {
+      "name": "quoted value containing spaces",
+      "request": {
+        "command": "diagnostics.redactText",
+        "payload": { "text": "password=\"hunter two\"" }
+      },
+      "expected": { "redacted": "password=<redacted>" }
+    },
+    {
+      "name": "json style sensitive field",
+      "request": {
+        "command": "diagnostics.redactText",
+        "payload": { "text": "{\"password\": \"hunter2\"}" }
+      },
+      "expected": { "redacted": "{\"password=<redacted>}" }
+    },
+    {
+      "name": "macOS home directory path",
+      "request": {
+        "command": "diagnostics.redactText",
+        "payload": { "text": "/Users/example/src/website/file.log" }
+      },
+      "expected": { "redacted": "<HOME>/src/website/file.log" }
+    },
+    {
+      "name": "windows home directory path",
+      "request": {
+        "command": "diagnostics.redactText",
+        "payload": { "text": "C:\\Users\\example\\AppData\\lithe.log" }
+      },
+      "expected": { "redacted": "<HOME>\\AppData\\lithe.log" }
+    },
+    {
+      "name": "unrelated text is unchanged",
+      "request": {
+        "command": "diagnostics.redactText",
+        "payload": { "text": "plain diagnostic line with no secrets" }
+      },
+      "expected": { "redacted": "plain diagnostic line with no secrets" }
+    }
+  ]
+}

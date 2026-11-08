@@ -77,6 +77,28 @@ func newHarnessWithLanguages(t *testing.T, kernel Kernel, languages []string) *h
 	h.driver = driver
 	t.Cleanup(func() {
 		h.app.closeProject()
+		deadline := time.NewTimer(8 * time.Second)
+		defer deadline.Stop()
+		for h.app.project != nil && h.app.closingProject {
+			select {
+			case <-driver.Wakes():
+				if err := driver.Pump(); err != nil {
+					t.Errorf("cleanup pump: %v", err)
+					goto dispose
+				}
+			case <-deadline.C:
+				t.Error("project cleanup did not finish before its deadline")
+				goto dispose
+			}
+		}
+	dispose:
+		if p := h.app.project; p != nil {
+			p.cancel()
+			h.app.releaseProjectSearch(p)
+			h.app.closeDocuments(p)
+			h.app.closeTerminals(p)
+			h.app.project = nil
+		}
 		h.app.wait()
 		driver.Close()
 	})
@@ -754,5 +776,19 @@ func TestSettingsButtonOpensItsMenu(t *testing.T) {
 	}
 	if h.app.notice != "" {
 		t.Fatalf("notice = %q, want none", h.app.notice)
+	}
+}
+
+func TestMarketplaceWidthPersistsWithOtherSettings(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	h.app.setLanguage("zh-Hans")
+	h.app.setMarketplaceWidth(420)
+	var saved settings
+	found, err := h.store.Load(settingsFile, &saved)
+	if err != nil || !found {
+		t.Fatalf("load saved settings: found=%v err=%v", found, err)
+	}
+	if saved.MarketplaceWidth != 420 || saved.Language != "zh-Hans" || saved.Theme != themeDark {
+		t.Fatalf("saved settings lost values: %+v", saved)
 	}
 }

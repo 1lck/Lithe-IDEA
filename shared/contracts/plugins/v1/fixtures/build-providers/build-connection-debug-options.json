@@ -1,0 +1,46 @@
+{
+  "format": "litheBuildRunOptions",
+  "version": 1,
+  "launchOptions": {
+    "execution": "service",
+    "runtimeArguments": [
+      "-Dmessage=hello world",
+      "-Dquote=\"value\"",
+      "-Dpath=C:\\Users\\example"
+    ],
+    "arguments": [
+      "--message=hello world",
+      "雪",
+      ""
+    ],
+    "environment": {
+      "EXAMPLE": "hello world"
+    },
+    "workingDirectory": "tools",
+    "entrypoint": "example.Main",
+    "debug": {
+      "adapterID": "dev.lithe.plugin.java-support/java",
+      "configurationType": "java",
+      "target": {
+        "kind": "connection",
+        "host": "127.0.0.1",
+        "port": 51235
+      }
+    }
+  },
+  "result": {
+    "executable": {
+      "kind": "command",
+      "value": "engine"
+    },
+    "arguments": [
+      "serve",
+      "--root",
+      "app"
+    ],
+    "workingDirectory": "tools",
+    "environment": {
+      "EXAMPLE": "hello world"
+    }
+  }
+}

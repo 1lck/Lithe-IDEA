@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "description": "Each case edits plugins[0] of index.json (Zig Support) and states the code reported for that entry when validated from a third-party source on darwin-arm64. Edits use JSON Pointer paths relative to the entry; `set` replaces or adds a value and `remove` deletes it.",
+  "cases": [
+    { "name": "unknown entry field", "edits": [{ "op": "set", "path": "/downloads", "value": [] }], "expectedCode": "plugin.index.invalid" },
+    { "name": "missing license", "edits": [{ "op": "remove", "path": "/license" }], "expectedCode": "plugin.index.invalid" },
+    { "name": "official namespace from a third party", "edits": [{ "op": "set", "path": "/id", "value": "dev.lithe.plugin.zig" }], "expectedCode": "plugin.index.officialNamespace" },
+    { "name": "repository is not a GitHub repository root", "edits": [{ "op": "set", "path": "/repository", "value": "https://github.com/example/lithe-zig/tree/main" }], "expectedCode": "plugin.index.invalid" },
+    { "name": "download from another repository", "edits": [{ "op": "set", "path": "/versions/1/downloads/0/downloadURL", "value": "https://github.com/attacker/lithe-zig/releases/download/v2.0.0/zig.zip" }], "expectedCode": "plugin.index.invalid" },
+    { "name": "download is not a release asset", "edits": [{ "op": "set", "path": "/versions/1/downloads/0/downloadURL", "value": "https://github.com/example/lithe-zig/archive/refs/heads/main.zip" }], "expectedCode": "plugin.index.invalid" },
+    { "name": "plain http download", "edits": [{ "op": "set", "path": "/versions/1/downloads/0/downloadURL", "value": "http://github.com/example/lithe-zig/releases/download/v2.0.0/zig.zip" }], "expectedCode": "plugin.index.invalid" },
+    { "name": "download is not a zip archive", "edits": [{ "op": "set", "path": "/versions/1/downloads/0/downloadURL", "value": "https://github.com/example/lithe-zig/releases/download/v2.0.0/zig.tar.gz" }], "expectedCode": "plugin.index.invalid" },
+    { "name": "uppercase checksum", "edits": [{ "op": "set", "path": "/versions/1/downloads/0/sha256", "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }], "expectedCode": "plugin.index.invalid" },
+    { "name": "short checksum", "edits": [{ "op": "set", "path": "/versions/1/downloads/0/sha256", "value": "abc" }], "expectedCode": "plugin.index.invalid" },
+    { "name": "platform listed twice in one version", "edits": [{ "op": "set", "path": "/versions/1/downloads/1/platforms", "value": ["darwin-arm64"] }], "expectedCode": "plugin.index.invalid" },
+    { "name": "malformed platform", "edits": [{ "op": "set", "path": "/versions/1/downloads/0/platforms", "value": ["macOS"] }], "expectedCode": "plugin.index.invalid" },
+    { "name": "duplicate version", "edits": [{ "op": "set", "path": "/versions/0/version", "value": "2.0.0" }], "expectedCode": "plugin.index.invalid" },
+    { "name": "non-semantic version", "edits": [{ "op": "set", "path": "/versions/0/version", "value": "1.9" }], "expectedCode": "plugin.index.invalid" },
+    { "name": "invalid release date", "edits": [{ "op": "set", "path": "/versions/0/releaseDate", "value": "2026-13-01" }], "expectedCode": "plugin.index.invalid" },
+    { "name": "no versions", "edits": [{ "op": "set", "path": "/versions", "value": [] }], "expectedCode": "plugin.index.invalid" },
+    { "name": "icon outside the plugin repository", "edits": [{ "op": "set", "path": "/icon", "value": "https://raw.githubusercontent.com/attacker/x/main/icon.png" }], "expectedCode": "plugin.index.invalid" },
+    { "name": "homepage with embedded credentials", "edits": [{ "op": "set", "path": "/homepage", "value": "https://user:secret@example.com" }], "expectedCode": "plugin.index.invalid" },
+    { "name": "tag with whitespace", "edits": [{ "op": "set", "path": "/tags", "value": ["two words"] }], "expectedCode": "plugin.index.invalid" },
+    { "name": "localized description with a malformed language tag", "edits": [{ "op": "set", "path": "/localizedDescriptions", "value": { "Chinese": "Zig 语言服务器集成。" } }], "expectedCode": "plugin.index.invalid" },
+    { "name": "empty localized description", "edits": [{ "op": "set", "path": "/localizedDescriptions", "value": { "zh-Hans": " " } }], "expectedCode": "plugin.index.invalid" },
+    { "name": "requires below plugin API 3", "edits": [{ "op": "set", "path": "/versions/0/requires", "value": { "languages": 1 } }], "expectedCode": "plugin.index.invalid" },
+    { "name": "plugin API 3 version without requires", "edits": [{ "op": "set", "path": "/versions/0/pluginAPIVersion", "value": 3 }], "expectedCode": "plugin.index.invalid" },
+    { "name": "capability version is not a positive integer", "edits": [{ "op": "set", "path": "/versions/0/pluginAPIVersion", "value": 3 }, { "op": "set", "path": "/versions/0/requires", "value": { "languages": 0 } }], "expectedCode": "plugin.index.invalid" }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "references": [
+    {
+      "fullName": "refs/heads/feature/recent",
+      "shortName": "feature/recent",
+      "kind": "local",
+      "peelsToCommit": true,
+      "isCurrent": true,
+      "upstreamShortName": null,
+      "ahead": 0,
+      "behind": 0
+    },
+    {
+      "fullName": "refs/heads/main",
+      "shortName": "main",
+      "kind": "local",
+      "peelsToCommit": true,
+      "isCurrent": false,
+      "upstreamShortName": "origin/main",
+      "ahead": 2,
+      "behind": 1
+    }
+  ],
+  "recentReferences": [
+    {
+      "fullName": "refs/heads/feature/recent",
+      "shortName": "feature/recent",
+      "kind": "local",
+      "peelsToCommit": true,
+      "isCurrent": true,
+      "upstreamShortName": null,
+      "ahead": 0,
+      "behind": 0
+    },
+    {
+      "fullName": "refs/heads/main",
+      "shortName": "main",
+      "kind": "local",
+      "peelsToCommit": true,
+      "isCurrent": false,
+      "upstreamShortName": "origin/main",
+      "ahead": 2,
+      "behind": 1
+    }
+  ],
+  "commits": [
+    {
+      "hash": "0123456789abcdef0123456789abcdef01234567",
+      "shortHash": "0123456",
+      "parentHashes": [],
+      "authorName": "Lithe Test",
+      "authorEmail": "test@example.invalid",
+      "date": "2026/08/30 12:00",
+      "dateUtcOffsetMinutes": 480,
+      "subject": "Initial commit",
+      "decorations": "HEAD -> feature/recent"
+    }
+  ],
+  "hasMore": false,
+  "userName": "Lithe Test",
+  "userEmail": "test@example.invalid"
+}

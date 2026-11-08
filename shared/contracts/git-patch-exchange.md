@@ -1,0 +1,117 @@
+# Git Patch Exchange
+
+The `git.patchExport`, `git.patchPreview`, and `git.patchApply` commands provide
+the same external patch semantics to both products. Native file selection,
+strict UTF-8 decoding/encoding, atomic file saves, and window presentation stay
+in platform adapters. The representative wire shapes are in
+[`patch-exchange-v1.json`](../fixtures/git/patch-exchange-v1.json).
+
+## Export
+
+`git.patchExport` accepts `root`, `source`, optional `paths` (empty means all
+working files), and optional `baseRevision` / `targetRevision`. Paths are literal,
+repository-relative identities. Sources are:
+
+- `workingTree`: the final selected files relative to HEAD, including selected
+  untracked files. Core prepares an isolated index; the real index and working
+  files are unchanged. Same-path staged and unstaged changes become one net diff.
+- `staged`: the current index relative to HEAD.
+- `unstaged`: tracked working files relative to the current index.
+- `commits`: the resolved `baseRevision` tree to the resolved `targetRevision`
+  tree. Both revisions are required; they need not be adjacent or on one branch.
+
+An `unstaged` export may opt into `includeUntracked: true` (default false).
+Core copies the real index, snapshots its tree as the baseline, and stages the
+selected working files only in that disposable copy. The resulting single patch
+includes tracked edits and untracked additions relative to the index. A file
+removed from the index but retained or recreated on disk is an addition even if
+it still exists in HEAD. This is the working layer used by Windows Shelf;
+combining a HEAD-based `workingTree` patch with an `unstaged` patch loses this
+distinction. The option is rejected for other sources. Omission preserves every
+existing source's behavior, including macOS consumers.
+
+For file selection, pass `metadataOnly: true` to enumerate the same source's
+sorted counts and rename paths using Git's NUL-delimited statistics. The result
+has `patch: ""` and `byteLength: 0`; its files remain available even if an actual
+export would exceed 32 MiB or contain non-UTF-8 text. Hosts discover files first,
+then request patch contents only for the selected paths. Export failures must
+leave the selection editable. Omission or false preserves normal export behavior.
+
+The response contains exact `patch` text, sorted `files`, and UTF-8 `byteLength`.
+Each file has `path`, nullable `originalPath`, and nullable `additions` /
+`deletions` (null for binary line counts). An empty export returns an empty patch
+and file list. The host explains that there are no changes instead of silently
+saving an empty patch.
+
+Core pins binary encoding, disables external diff/textconv/color, and emits
+standard `a/` and `b/` prefixes independently of the user's display settings.
+Binary files use Git binary patch encoding. Plain-text patches containing
+non-UTF-8 bytes are explicitly rejected: hosts must never replace invalid bytes
+with Unicode replacement characters. The maximum exchanged patch is 32 MiB.
+
+## Preview and Apply
+
+`git.patchPreview` accepts `root`, `patch`, and `target` (`worktree` or
+`indexAndWorktree`). It reads Git's file summary and runs a **forward** `git apply
+--check`, returning `applicable`, sorted `files`, `diagnostic`, UTF-8 `byteLength`,
+and nullable `expectedState`. No files are modified. Malformed or unsafe paths,
+empty patches, and active merge/rebase/cherry-pick/revert operations are rejected.
+An applicability failure returns `applicable: false` and no execution token.
+
+For read-only saved-change browsing, `git.patchPreview` also accepts optional
+`metadataOnly: true` (default `false`). This validates patch size and paths and
+returns the Git-parsed file summary without inspecting applicability, reading
+working-file state, or rejecting an ongoing merge/rebase. It always returns
+`applicable: false` and `expectedState: null`; the result cannot authorize Apply.
+Normal preview and application semantics are unchanged.
+
+`git.patchApply` accepts those same inputs plus the exact `expectedState` from
+the preview. Core binds the token to patch content, destination mode, repository,
+HEAD/branch, raw index bytes (including entry flags), and working-file content.
+The exact patch destinations are read even when `assume-unchanged`,
+`skip-worktree`, or ignore rules hide changes from Git's normal diff. Paths may
+not traverse symbolic-link directories; unsupported directory/gitlink targets
+are reported rather than silently omitted. Changes since preview require a
+new preview. The final Git invocation checks applicability again and does not use
+`--reject`, automatic whitespace repair, `--3way`, or `--unsafe-paths`.
+
+The command returns the existing `GitCommandResponse`, retaining forward-check
+and apply invocations, stderr, exit status, and structured errors. Hosts refresh
+repository state after any execution attempt and report actual errors; they must
+not equate successful process launch with successful patch application.
+
+`worktree` leaves staging unchanged; `indexAndWorktree` requires Git's normal
+index/working-copy consistency and applies to both. Neither mode creates a
+commit. Normal patches do not encode the exporter's former staged/unstaged split.
+Filesystem I/O failure or external concurrent processes remain possible; do not
+advertise a global transaction or automatic rollback of unrelated edits.
+
+The older `git.apply` Shelf modes retain their existing behavior. In particular,
+`worktreeCheck` and `restoreIndexCheck` remain reverse checks for Shelf retry
+detection and are not aliases for the new forward preview.
+
+## Shelf capture, cleanup, and restoration
+
+`git.shelf` shares the two-layer Shelf workflow between hosts. `capture` returns
+`stagedPatch`, `workingPatch`, and sorted `paths`; the working patch is exported
+relative to the real index with untracked files included. An unresolved index
+conflict fails capture. Platforms own the existing versioned record and must
+persist the complete capture before beginning cleanup.
+
+`plan` with `phase: clean` or `restore` returns the ordered `layers` array in
+[`shelf-v1.json`](../fixtures/git/shelf-v1.json). Before every step the host must
+check its workspace lifetime and unsaved-buffer policy. Each `clean` step takes
+the saved `snapshot` and a `layer`; Core reviews a reverse patch, verifies the
+captured layers against a fresh snapshot, and applies only while the review token
+still matches. A changed snapshot fails with `SHELF_CHANGED`. The first step
+verifies both layers even if the working patch is empty; the second requires the
+saved staged layer and an unchanged clean worktree layer. Index conflict checks
+and capture must not refresh the real index.
+
+Each `restore` step applies the saved layer and, on failure, uses a read-only
+reverse check to recognize a layer completed by a previous attempt. The staged
+retry check examines the index independently of the worktree. Hosts delete the
+record only after every step succeeds; they retain it on partial failure,
+cancellation, or deletion failure. The token protects the reviewed Git state,
+but external processes and filesystem failures can still interrupt a workflow;
+this is not a global transaction or rollback of concurrent unrelated work.

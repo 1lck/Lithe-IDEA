@@ -1,0 +1,409 @@
+{
+  "version": 1,
+  "description": "Shared accounting of observed model calls. The Host attaches `statistics` to each `modelCall` event; desktop products merge contributions in event order: counters add, reasoningTokens adds over calls that report it, and a present context replaces the previous one.",
+  "cases": [
+    {
+      "name": "failedNonStreamingStepIsNotANonStreamingAnswer",
+      "description": "HTTP 500 counts as a failed step, never as a non-streaming answer; Windows previously counted it.",
+      "events": [
+        {
+          "sessionId": "session-1",
+          "call": {
+            "api": "responses",
+            "status": 500,
+            "streaming": false,
+            "durationMs": 40
+          },
+          "statistics": {
+            "requests": 1,
+            "steps": 1,
+            "failedSteps": 1,
+            "nonStreamingSteps": 0,
+            "durationMs": 40,
+            "inputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "outputTokens": 0,
+            "callsWithUsage": 0,
+            "firstTokenMs": 0,
+            "firstTokenCount": 0,
+            "generationMs": 0,
+            "generatedTokens": 0
+          }
+        },
+        {
+          "sessionId": "session-1",
+          "call": {
+            "api": "responses",
+            "status": 200,
+            "streaming": false,
+            "durationMs": 3000,
+            "usage": {
+              "inputTokens": 500,
+              "cacheReadTokens": 0,
+              "cacheWriteTokens": 0,
+              "outputTokens": 300,
+              "reasoningTokens": 100
+            }
+          },
+          "statistics": {
+            "requests": 1,
+            "steps": 1,
+            "failedSteps": 0,
+            "nonStreamingSteps": 1,
+            "durationMs": 3000,
+            "inputTokens": 500,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "outputTokens": 300,
+            "reasoningTokens": 100,
+            "callsWithUsage": 1,
+            "firstTokenMs": 0,
+            "firstTokenCount": 0,
+            "generationMs": 0,
+            "generatedTokens": 0
+          }
+        }
+      ],
+      "total": {
+        "requests": 2,
+        "steps": 2,
+        "failedSteps": 1,
+        "nonStreamingSteps": 1,
+        "durationMs": 3040,
+        "inputTokens": 500,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "outputTokens": 300,
+        "reasoningTokens": 100,
+        "callsWithUsage": 1,
+        "firstTokenMs": 0,
+        "firstTokenCount": 0,
+        "generationMs": 0,
+        "generatedTokens": 0
+      }
+    },
+    {
+      "name": "auxiliaryAndToollessRequestsKeepTheMainContext",
+      "description": "An auxiliary title request and an unrecognized tool-less background request spend tokens but never replace the current context; Windows previously showed the last request's composition.",
+      "events": [
+        {
+          "sessionId": "session-1",
+          "call": {
+            "api": "anthropicMessages",
+            "status": 200,
+            "streaming": true,
+            "firstTokenMs": 100,
+            "durationMs": 1000,
+            "usage": {
+              "inputTokens": 100,
+              "cacheReadTokens": 900,
+              "cacheWriteTokens": 0,
+              "outputTokens": 50
+            },
+            "context": {
+              "systemPromptTokens": 10,
+              "toolTokens": 20,
+              "mcpToolTokens": 0,
+              "messageTokens": 70,
+              "toolCount": 12,
+              "mcpToolCount": 0,
+              "scaledToUsage": true
+            }
+          },
+          "statistics": {
+            "requests": 1,
+            "steps": 1,
+            "failedSteps": 0,
+            "nonStreamingSteps": 0,
+            "durationMs": 1000,
+            "inputTokens": 100,
+            "cacheReadTokens": 900,
+            "cacheWriteTokens": 0,
+            "outputTokens": 50,
+            "callsWithUsage": 1,
+            "firstTokenMs": 100,
+            "firstTokenCount": 1,
+            "generationMs": 900,
+            "generatedTokens": 50,
+            "context": {
+              "systemPromptTokens": 10,
+              "toolTokens": 20,
+              "mcpToolTokens": 0,
+              "messageTokens": 70,
+              "toolCount": 12,
+              "mcpToolCount": 0,
+              "scaledToUsage": true
+            }
+          }
+        },
+        {
+          "sessionId": "session-1",
+          "call": {
+            "api": "anthropicMessages",
+            "status": 200,
+            "streaming": true,
+            "firstTokenMs": 1900,
+            "durationMs": 2000,
+            "usage": {
+              "inputTokens": 30,
+              "cacheReadTokens": 0,
+              "cacheWriteTokens": 0,
+              "outputTokens": 20
+            },
+            "context": {
+              "systemPromptTokens": 5,
+              "toolTokens": 0,
+              "mcpToolTokens": 0,
+              "messageTokens": 300,
+              "toolCount": 0,
+              "mcpToolCount": 0,
+              "scaledToUsage": true
+            },
+            "auxiliary": true
+          },
+          "statistics": {
+            "requests": 1,
+            "steps": 0,
+            "failedSteps": 0,
+            "nonStreamingSteps": 0,
+            "durationMs": 0,
+            "inputTokens": 30,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "outputTokens": 20,
+            "callsWithUsage": 1,
+            "firstTokenMs": 0,
+            "firstTokenCount": 0,
+            "generationMs": 0,
+            "generatedTokens": 0
+          }
+        },
+        {
+          "sessionId": "session-1",
+          "call": {
+            "api": "anthropicMessages",
+            "status": 200,
+            "streaming": false,
+            "durationMs": 200,
+            "context": {
+              "systemPromptTokens": 1,
+              "toolTokens": 0,
+              "mcpToolTokens": 0,
+              "messageTokens": 40,
+              "toolCount": 0,
+              "mcpToolCount": 0,
+              "scaledToUsage": false
+            }
+          },
+          "statistics": {
+            "requests": 1,
+            "steps": 1,
+            "failedSteps": 0,
+            "nonStreamingSteps": 1,
+            "durationMs": 200,
+            "inputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "outputTokens": 0,
+            "callsWithUsage": 0,
+            "firstTokenMs": 0,
+            "firstTokenCount": 0,
+            "generationMs": 0,
+            "generatedTokens": 0
+          }
+        }
+      ],
+      "total": {
+        "requests": 3,
+        "steps": 2,
+        "failedSteps": 0,
+        "nonStreamingSteps": 1,
+        "durationMs": 1200,
+        "inputTokens": 130,
+        "cacheReadTokens": 900,
+        "cacheWriteTokens": 0,
+        "outputTokens": 70,
+        "callsWithUsage": 2,
+        "firstTokenMs": 100,
+        "firstTokenCount": 1,
+        "generationMs": 900,
+        "generatedTokens": 50,
+        "context": {
+          "systemPromptTokens": 10,
+          "toolTokens": 20,
+          "mcpToolTokens": 0,
+          "messageTokens": 70,
+          "toolCount": 12,
+          "mcpToolCount": 0,
+          "scaledToUsage": true
+        }
+      }
+    },
+    {
+      "name": "toollessAgentRefreshesContextFromEveryStep",
+      "description": "An Agent that never sends tools keeps its composition current instead of freezing the first one.",
+      "events": [
+        {
+          "sessionId": "session-1",
+          "call": {
+            "api": "chatCompletions",
+            "status": 200,
+            "streaming": true,
+            "durationMs": 500,
+            "context": {
+              "systemPromptTokens": 0,
+              "toolTokens": 0,
+              "mcpToolTokens": 0,
+              "messageTokens": 1000,
+              "toolCount": 0,
+              "mcpToolCount": 0,
+              "scaledToUsage": false
+            }
+          },
+          "statistics": {
+            "requests": 1,
+            "steps": 1,
+            "failedSteps": 0,
+            "nonStreamingSteps": 0,
+            "durationMs": 500,
+            "inputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "outputTokens": 0,
+            "callsWithUsage": 0,
+            "firstTokenMs": 0,
+            "firstTokenCount": 0,
+            "generationMs": 0,
+            "generatedTokens": 0,
+            "context": {
+              "systemPromptTokens": 0,
+              "toolTokens": 0,
+              "mcpToolTokens": 0,
+              "messageTokens": 1000,
+              "toolCount": 0,
+              "mcpToolCount": 0,
+              "scaledToUsage": false
+            }
+          }
+        },
+        {
+          "sessionId": "session-1",
+          "call": {
+            "api": "chatCompletions",
+            "status": 200,
+            "streaming": false,
+            "durationMs": 300,
+            "context": {
+              "systemPromptTokens": 0,
+              "toolTokens": 0,
+              "mcpToolTokens": 0,
+              "messageTokens": 5000,
+              "toolCount": 0,
+              "mcpToolCount": 0,
+              "scaledToUsage": false
+            }
+          },
+          "statistics": {
+            "requests": 1,
+            "steps": 1,
+            "failedSteps": 0,
+            "nonStreamingSteps": 1,
+            "durationMs": 300,
+            "inputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "outputTokens": 0,
+            "callsWithUsage": 0,
+            "firstTokenMs": 0,
+            "firstTokenCount": 0,
+            "generationMs": 0,
+            "generatedTokens": 0,
+            "context": {
+              "systemPromptTokens": 0,
+              "toolTokens": 0,
+              "mcpToolTokens": 0,
+              "messageTokens": 5000,
+              "toolCount": 0,
+              "mcpToolCount": 0,
+              "scaledToUsage": false
+            }
+          }
+        }
+      ],
+      "total": {
+        "requests": 2,
+        "steps": 2,
+        "failedSteps": 0,
+        "nonStreamingSteps": 1,
+        "durationMs": 800,
+        "inputTokens": 0,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "outputTokens": 0,
+        "callsWithUsage": 0,
+        "firstTokenMs": 0,
+        "firstTokenCount": 0,
+        "generationMs": 0,
+        "generatedTokens": 0,
+        "context": {
+          "systemPromptTokens": 0,
+          "toolTokens": 0,
+          "mcpToolTokens": 0,
+          "messageTokens": 5000,
+          "toolCount": 0,
+          "mcpToolCount": 0,
+          "scaledToUsage": false
+        }
+      }
+    },
+    {
+      "name": "streamWithoutUsageMeasuresLatencyOnly",
+      "description": "A stream without provider counters reports first-token latency but no generation speed, and leaves the token sums a lower bound.",
+      "events": [
+        {
+          "sessionId": "session-1",
+          "call": {
+            "api": "responses",
+            "status": 200,
+            "streaming": true,
+            "firstTokenMs": 300,
+            "durationMs": 900
+          },
+          "statistics": {
+            "requests": 1,
+            "steps": 1,
+            "failedSteps": 0,
+            "nonStreamingSteps": 0,
+            "durationMs": 900,
+            "inputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "outputTokens": 0,
+            "callsWithUsage": 0,
+            "firstTokenMs": 300,
+            "firstTokenCount": 1,
+            "generationMs": 0,
+            "generatedTokens": 0
+          }
+        }
+      ],
+      "total": {
+        "requests": 1,
+        "steps": 1,
+        "failedSteps": 0,
+        "nonStreamingSteps": 0,
+        "durationMs": 900,
+        "inputTokens": 0,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "outputTokens": 0,
+        "callsWithUsage": 0,
+        "firstTokenMs": 300,
+        "firstTokenCount": 1,
+        "generationMs": 0,
+        "generatedTokens": 0
+      }
+    }
+  ]
+}

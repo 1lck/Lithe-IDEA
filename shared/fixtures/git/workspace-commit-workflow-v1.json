@@ -1,0 +1,156 @@
+{
+  "request": {
+    "repositories": [
+      {
+        "id": "A",
+        "root": "/workspace/A"
+      },
+      {
+        "id": "A/B",
+        "root": "/workspace/A/B"
+      }
+    ],
+    "message": "commit",
+    "amend": false,
+    "push": true,
+    "includeParentReferences": true
+  },
+  "states": {
+    "A": {
+      "head": "initial",
+      "branch": "refs/heads/main",
+      "indexEntries": "",
+      "gitlinks": [
+        {
+          "path": "B",
+          "revision": "initial"
+        }
+      ],
+      "stagedPaths": [],
+      "conflictedPaths": []
+    },
+    "A/B": {
+      "head": "initial",
+      "branch": "refs/heads/main",
+      "indexEntries": "hello.ts",
+      "gitlinks": [],
+      "stagedPaths": [
+        "hello.ts"
+      ],
+      "conflictedPaths": []
+    }
+  },
+  "preparation": {
+    "session": {
+      "plan": {
+        "repositories": [
+          {
+            "id": "A",
+            "root": "/workspace/A"
+          },
+          {
+            "id": "A/B",
+            "root": "/workspace/A/B"
+          }
+        ],
+        "message": "commit",
+        "amend": false,
+        "push": true,
+        "includeParentReferences": true,
+        "isRetry": false,
+        "orderedIds": [
+          "A/B",
+          "A"
+        ],
+        "propagatedRelations": [
+          {
+            "parent": "A",
+            "child": "A/B",
+            "path": "B"
+          }
+        ],
+        "dependencyRelations": [
+          {
+            "parent": "A",
+            "child": "A/B",
+            "path": "B"
+          }
+        ],
+        "states": {
+          "A": {
+            "head": "initial",
+            "branch": "refs/heads/main",
+            "indexEntries": "",
+            "gitlinks": [
+              {
+                "path": "B",
+                "revision": "initial"
+              }
+            ],
+            "stagedPaths": [],
+            "conflictedPaths": []
+          },
+          "A/B": {
+            "head": "initial",
+            "branch": "refs/heads/main",
+            "indexEntries": "hello.ts",
+            "gitlinks": [],
+            "stagedPaths": [
+              "hello.ts"
+            ],
+            "conflictedPaths": []
+          }
+        },
+        "committedIds": [],
+        "pendingPushIds": []
+      },
+      "states": {
+        "A": {
+          "head": "initial",
+          "branch": "refs/heads/main",
+          "indexEntries": "",
+          "gitlinks": [
+            {
+              "path": "B",
+              "revision": "initial"
+            }
+          ],
+          "stagedPaths": [],
+          "conflictedPaths": []
+        },
+        "A/B": {
+          "head": "initial",
+          "branch": "refs/heads/main",
+          "indexEntries": "hello.ts",
+          "gitlinks": [],
+          "stagedPaths": [
+            "hello.ts"
+          ],
+          "conflictedPaths": []
+        }
+      },
+      "results": {
+        "A": {
+          "committed": false,
+          "pushed": false,
+          "status": "pending",
+          "detail": ""
+        },
+        "A/B": {
+          "committed": false,
+          "pushed": false,
+          "status": "pending",
+          "detail": ""
+        }
+      },
+      "blocked": [],
+      "cursor": 0,
+      "commandFailed": false,
+      "finished": false,
+      "succeeded": false,
+      "canRetry": true
+    },
+    "reviewChanged": false,
+    "requiresConfirmation": true
+  }
+}

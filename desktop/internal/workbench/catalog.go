@@ -424,6 +424,9 @@ func (a *App) reduceChrome(action core.ChromeAction) {
 		return
 	}
 	a.chrome.apply(layout)
+	if a.project != nil && !a.chrome.isOpen(catalogIndex[itemFind]) {
+		a.cancelProjectSearch(a.project)
+	}
 	if !changed {
 		return
 	}

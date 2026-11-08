@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "hostVersion": "0.3.0",
+  "pluginAPIVersion": 1,
+  "plugins": [
+    {
+      "id": "dev.lithe.fixture.go-support",
+      "displayName": "Go Support Fixture",
+      "version": "0.3.0",
+      "apiVersion": 1,
+      "hostCompatibility": {
+        "minimum": "0.3.0",
+        "maximumExclusive": "0.4.0"
+      },
+      "vendor": {
+        "id": "dev.lithe",
+        "displayName": "Lithe",
+        "signatureRequirement": "sameTeamAsHost"
+      },
+      "entrypoint": {
+        "kind": "nativeBundle",
+        "bundleIdentifier": "dev.lithe.fixture.go-support.bundle",
+        "principalClass": "FixtureGoSupportEntrypoint",
+        "bundlePath": "FixtureGoSupport.bundle"
+      },
+      "moduleIDs": [
+        "dev.lithe.fixture.go.execution",
+        "dev.lithe.fixture.go.language-server"
+      ],
+      "languageSupports": [
+        {
+          "id": "go",
+          "displayName": "Go",
+          "fileExtensions": ["go"],
+          "fileNames": [],
+          "projectFileNames": ["go.mod", "go.work"],
+          "languageServerModuleID": "dev.lithe.fixture.go.language-server",
+          "executionModuleID": "dev.lithe.fixture.go.execution",
+          "testingModuleID": "dev.lithe.fixture.go.execution"
+        }
+      ]
+    }
+  ]
+}

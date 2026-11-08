@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "sourcePath": "/workspace/Example.java",
+  "requestedLine": 3,
+  "response": {
+    "id": 41,
+    "verified": false,
+    "line": 5,
+    "message": "Class not loaded"
+  },
+  "changed": {
+    "id": 41,
+    "verified": true
+  },
+  "expected": {
+    "requestedLine": 3,
+    "line": 5,
+    "sourcePath": "/workspace/Example.java",
+    "verified": true
+  }
+}

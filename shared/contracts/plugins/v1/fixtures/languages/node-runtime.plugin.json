@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.node-runtime",
+  "displayName": "Node Runtime Fixture",
+  "version": "1.0.0",
+  "pluginAPIVersion": 2,
+  "vendor": {
+    "id": "dev.lithe",
+    "displayName": "Lithe",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "languageServer.launch"
+  ],
+  "activationEvents": [
+    "onLanguage:fixture"
+  ],
+  "languages": [
+    {
+      "id": "fixture",
+      "displayName": "Fixture",
+      "fileExtensions": [
+        "fixture"
+      ]
+    }
+  ],
+  "languageServers": [
+    {
+      "languageID": "fixture",
+      "launch": {
+        "kind": "runtime",
+        "tool": "node",
+        "minimumVersion": "18.17",
+        "runtimeArguments": [
+          "--max-old-space-size=${setting:heapMB}",
+          "--require=${pluginDir}/language-server/lib/preload.js"
+        ],
+        "entry": "language-server/lib/server.js"
+      },
+      "arguments": [
+        "--stdio",
+        "--log-level=${setting:logLevel}",
+        "--storage",
+        "${stateDir}/storage",
+        "--workspace-cache",
+        "${workspaceStateDir}"
+      ],
+      "initializationOptions": {
+        "stubs": [
+          "${pluginDir}/language-server/stubs/${arch}"
+        ],
+        "telemetry": "${setting:telemetry}"
+      }
+    }
+  ],
+  "settings": [
+    {
+      "id": "heapMB",
+      "type": "integer",
+      "title": "Maximum memory",
+      "description": "Upper bound of the server's heap.",
+      "default": 2048,
+      "minimum": 512,
+      "maximum": 8192,
+      "unit": "MB"
+    },
+    {
+      "id": "logLevel",
+      "type": "enum",
+      "title": "Log level",
+      "default": "info",
+      "options": [
+        {
+          "value": "error",
+          "title": "Errors only"
+        },
+        {
+          "value": "info",
+          "title": "Information"
+        },
+        {
+          "value": "debug",
+          "title": "Debug"
+        }
+      ]
+    },
+    {
+      "id": "telemetry",
+      "type": "boolean",
+      "title": "Send usage data",
+      "default": false
+    }
+  ]
+}

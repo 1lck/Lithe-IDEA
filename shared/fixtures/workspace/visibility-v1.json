@@ -1,0 +1,589 @@
+{
+  "description": "Hidden-path rules shared by Rust Core, macOS and Windows. isDirectory is true for a folder, false for a file and null when the host does not know. hidden means the tree, search and history leave the path out; watchedDespiteHiding marks hidden paths whose file events must still be delivered. Rule lists are the user's own entries; built-ins are added by Core.",
+  "defaults": {
+    "hiddenDirectoryNames": [
+      ".git",
+      ".svn",
+      ".worktree",
+      ".worktrees",
+      ".build",
+      ".swiftpm",
+      "node_modules",
+      ".venv",
+      "venv",
+      "__pycache__",
+      "target",
+      "build",
+      "DerivedData",
+      ".gradle",
+      ".next",
+      "dist",
+      "coverage",
+      "design-qa-artifacts",
+      ".artifacts"
+    ],
+    "hiddenFilePatterns": [
+      ".DS_Store",
+      "*.pyc",
+      ".lithe/**",
+      ".lithe/run/local.json"
+    ],
+    "builtInPatterns": [
+      "**/.git/",
+      "**/.svn/",
+      "**/.worktree/",
+      "**/.worktrees/",
+      "**/.build/",
+      "**/.swiftpm/",
+      "**/node_modules/",
+      "**/.venv/",
+      "**/venv/",
+      "**/__pycache__/",
+      "**/target/",
+      "**/build/",
+      "**/DerivedData/",
+      "**/.gradle/",
+      "**/.next/",
+      "**/dist/",
+      "**/coverage/",
+      "**/design-qa-artifacts/",
+      "**/.artifacts/",
+      ".DS_Store",
+      "*.pyc",
+      ".lithe/**",
+      ".lithe/run/local.json"
+    ],
+    "configurationDirectory": ".lithe",
+    "configurationPattern": ".lithe/**"
+  },
+  "cases": [
+    {
+      "name": "built-in folders are hidden at any depth, as folders and as ancestors",
+      "hiddenDirectoryNames": [],
+      "hiddenFilePatterns": [],
+      "entries": [
+        {
+          "path": ".git",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": "node_modules",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": "target",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": "a/b/node_modules",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": "node_modules/left-pad/index.js",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "packages/app/target/classes/A.class",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "src",
+          "isDirectory": true,
+          "hidden": false
+        },
+        {
+          "path": "src/main/App.java",
+          "isDirectory": false,
+          "hidden": false
+        },
+        {
+          "path": "README.md",
+          "isDirectory": false,
+          "hidden": false
+        }
+      ]
+    },
+    {
+      "name": "a file named like a built-in folder is hidden too, such as a linked worktree's .git",
+      "hiddenDirectoryNames": [],
+      "hiddenFilePatterns": [],
+      "entries": [
+        {
+          "path": "build",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "scripts/target",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "build",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": "src/dist",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": "build/out.txt",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "build.gradle",
+          "isDirectory": false,
+          "hidden": false
+        },
+        {
+          "path": "app/.git",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "builds",
+          "isDirectory": false,
+          "hidden": false
+        }
+      ]
+    },
+    {
+      "name": "built-in file patterns",
+      "hiddenDirectoryNames": [],
+      "hiddenFilePatterns": [],
+      "entries": [
+        {
+          "path": ".DS_Store",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "src/.DS_Store",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "mod/__init__.pyc",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "a/b/c.pyc",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "main.py",
+          "isDirectory": false,
+          "hidden": false
+        },
+        {
+          "path": ".DS_Store",
+          "isDirectory": true,
+          "hidden": false
+        }
+      ]
+    },
+    {
+      "name": "matching ignores case on every platform",
+      "hiddenDirectoryNames": [],
+      "hiddenFilePatterns": [
+        "*.LOG"
+      ],
+      "entries": [
+        {
+          "path": "Node_Modules/x.js",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "SRC/TARGET",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": "App/.GIT/config",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "run.log",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "Run.Log",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "src/.ds_store",
+          "isDirectory": false,
+          "hidden": true
+        }
+      ]
+    },
+    {
+      "name": "user folder names and globs add to the built-ins",
+      "hiddenDirectoryNames": [
+        "generated",
+        "Out"
+      ],
+      "hiddenFilePatterns": [
+        "*.generated.swift",
+        "docs/**",
+        "cache/",
+        "**/tmp/",
+        "notes",
+        "?.tmp"
+      ],
+      "entries": [
+        {
+          "path": "generated",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": "src/generated/A.swift",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "OUT",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": "Foo.generated.swift",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "src/Foo.generated.swift",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "docs",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": "docs/guide/a.md",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "src/docs",
+          "isDirectory": true,
+          "hidden": false
+        },
+        {
+          "path": "cache",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": "cache/x/y.txt",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "src/cache",
+          "isDirectory": true,
+          "hidden": false
+        },
+        {
+          "path": "tmp",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": "a/b/tmp",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": "a/b/tmp/f",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "notes",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "src/notes",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "notes",
+          "isDirectory": true,
+          "hidden": false
+        },
+        {
+          "path": "a.tmp",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "ab.tmp",
+          "isDirectory": false,
+          "hidden": false
+        },
+        {
+          "path": "src/Main.swift",
+          "isDirectory": false,
+          "hidden": false
+        }
+      ]
+    },
+    {
+      "name": "a bang entry turns a built-in rule off, by name or by displayed form",
+      "hiddenDirectoryNames": [
+        "build"
+      ],
+      "hiddenFilePatterns": [
+        "!node_modules",
+        "!**/target/",
+        "!*.pyc"
+      ],
+      "entries": [
+        {
+          "path": "node_modules/x.js",
+          "isDirectory": false,
+          "hidden": false
+        },
+        {
+          "path": "target",
+          "isDirectory": true,
+          "hidden": false
+        },
+        {
+          "path": "a/target/x",
+          "isDirectory": false,
+          "hidden": false
+        },
+        {
+          "path": "mod/a.pyc",
+          "isDirectory": false,
+          "hidden": false
+        },
+        {
+          "path": "dist",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": "build",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": ".git",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": ".DS_Store",
+          "isDirectory": false,
+          "hidden": true
+        }
+      ]
+    },
+    {
+      "name": "an unknown kind treats every component as a possible folder",
+      "hiddenDirectoryNames": [],
+      "hiddenFilePatterns": [
+        "notes",
+        "cache/"
+      ],
+      "entries": [
+        {
+          "path": "build",
+          "isDirectory": null,
+          "hidden": true
+        },
+        {
+          "path": "src/build",
+          "isDirectory": null,
+          "hidden": true
+        },
+        {
+          "path": "notes",
+          "isDirectory": null,
+          "hidden": true
+        },
+        {
+          "path": "cache",
+          "isDirectory": null,
+          "hidden": true
+        },
+        {
+          "path": "src/Main.swift",
+          "isDirectory": null,
+          "hidden": false
+        },
+        {
+          "path": "",
+          "isDirectory": null,
+          "hidden": false
+        }
+      ]
+    },
+    {
+      "name": "the project configuration folder is hidden but its events stay watched",
+      "hiddenDirectoryNames": [],
+      "hiddenFilePatterns": [],
+      "entries": [
+        {
+          "path": ".lithe",
+          "isDirectory": true,
+          "hidden": true,
+          "watchedDespiteHiding": true
+        },
+        {
+          "path": ".lithe/project.json",
+          "isDirectory": false,
+          "hidden": true,
+          "watchedDespiteHiding": true
+        },
+        {
+          "path": ".lithe/run/configs.json",
+          "isDirectory": false,
+          "hidden": true,
+          "watchedDespiteHiding": true
+        },
+        {
+          "path": ".lithe/run/local.json",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "src/.lithe/project.json",
+          "isDirectory": false,
+          "hidden": false
+        },
+        {
+          "path": "src/.lithe",
+          "isDirectory": true,
+          "hidden": false
+        }
+      ]
+    },
+    {
+      "name": "turning the configuration pattern off shows the folder but keeps the local run noise hidden",
+      "hiddenDirectoryNames": [],
+      "hiddenFilePatterns": [
+        "!.lithe/**"
+      ],
+      "entries": [
+        {
+          "path": ".lithe",
+          "isDirectory": true,
+          "hidden": false
+        },
+        {
+          "path": ".lithe/project.json",
+          "isDirectory": false,
+          "hidden": false
+        },
+        {
+          "path": ".lithe/run/local.json",
+          "isDirectory": false,
+          "hidden": true
+        }
+      ]
+    },
+    {
+      "name": "surrounding whitespace and duplicate entries do not change the answer",
+      "hiddenDirectoryNames": [
+        "  generated  ",
+        "GENERATED",
+        ""
+      ],
+      "hiddenFilePatterns": [
+        " *.log ",
+        "*.LOG",
+        "   "
+      ],
+      "entries": [
+        {
+          "path": "generated",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": "a.log",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "a.txt",
+          "isDirectory": false,
+          "hidden": false
+        }
+      ]
+    },
+    {
+      "name": "batch: every child of one folder is classified by one request",
+      "hiddenDirectoryNames": [],
+      "hiddenFilePatterns": [
+        "*.log"
+      ],
+      "entries": [
+        {
+          "path": "app/.git",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": "app/.DS_Store",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "app/node_modules",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": "app/target",
+          "isDirectory": true,
+          "hidden": true
+        },
+        {
+          "path": "app/src",
+          "isDirectory": true,
+          "hidden": false
+        },
+        {
+          "path": "app/pom.xml",
+          "isDirectory": false,
+          "hidden": false
+        },
+        {
+          "path": "app/debug.log",
+          "isDirectory": false,
+          "hidden": true
+        },
+        {
+          "path": "app/.env",
+          "isDirectory": false,
+          "hidden": false
+        }
+      ]
+    }
+  ]
+}

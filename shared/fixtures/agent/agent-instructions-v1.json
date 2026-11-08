@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "readRequest": {
+    "command": "agent.instructions.read",
+    "payload": {
+      "agentId": "codex-acp"
+    }
+  },
+  "file": {
+    "agentId": "codex-acp",
+    "path": "/fixture/user/.codex/AGENTS.md",
+    "content": "# Working agreements\nUse concise replies.\n",
+    "exists": true,
+    "revision": "5b94dd8e0a4a42bab37c0b1b7bb3d36e15d6cda57bb6cd32de40f2060e051228"
+  },
+  "saveRequest": {
+    "command": "agent.instructions.save",
+    "payload": {
+      "agentId": "codex-acp",
+      "content": "# Updated\n",
+      "expectedPath": "/fixture/user/.codex/AGENTS.md",
+      "expectedRevision": "5b94dd8e0a4a42bab37c0b1b7bb3d36e15d6cda57bb6cd32de40f2060e051228"
+    }
+  },
+  "windowsFile": {
+    "agentId": "claude-acp",
+    "path": "C:\\Users\\fixture\\.claude\\CLAUDE.md",
+    "content": "Claude only",
+    "exists": true,
+    "revision": "6200025904539440f7dde4fa1a3a0ca731c61c31bc8f0d188acf741caf0bdd40"
+  },
+  "conflict": {
+    "ok": false,
+    "error": {
+      "code": "invalid_request",
+      "message": "Global instructions changed outside this editor. Your draft is kept; reload before saving.",
+      "details": "file_changed"
+    }
+  }
+}

@@ -1,0 +1,2 @@
+# Templates are emitted byte-for-byte, so checkouts must not convert line endings.
+* -text

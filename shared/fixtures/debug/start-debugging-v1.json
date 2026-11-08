@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "adapterRequest": {
+    "seq": 61,
+    "type": "request",
+    "command": "startDebugging",
+    "arguments": {
+      "request": "attach",
+      "configuration": {
+        "type": "pwa-node",
+        "name": "Worker 1",
+        "request": "attach",
+        "__pendingTargetId": "target-7",
+        "port": 9230
+      }
+    }
+  },
+  "expectedRequest": {
+    "request": "attach",
+    "configuration": {
+      "type": "pwa-node",
+      "name": "Worker 1",
+      "__pendingTargetId": "target-7",
+      "port": 9230
+    }
+  },
+  "failureMessage": "The child debug transport could not be opened."
+}

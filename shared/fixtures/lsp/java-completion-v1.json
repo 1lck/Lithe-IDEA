@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "pluginCompletion": {
+    "guessMethodArguments": "insertParameterNames",
+    "favoriteStaticMembers": ["java.util.Objects.*"],
+    "filteredTypes": ["example.internal.*"]
+  },
+  "javaSettings": {
+    "completion": {
+      "guessMethodArguments": "off",
+      "favoriteStaticMembers": ["java.util.Objects.*"],
+      "filteredTypes": ["example.internal.*"]
+    }
+  },
+  "workspaceConfigurationSections": [
+    "java",
+    "java.completion",
+    "java.completion.guessMethodArguments",
+    "java.completion.favoriteStaticMembers",
+    "java.completion.filteredTypes",
+    "java.completion.unknown"
+  ]
+}

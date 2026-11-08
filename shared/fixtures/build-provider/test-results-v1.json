@@ -1,0 +1,39 @@
+{
+  "tests": [
+    {
+      "suite": "checkout / HTTP",
+      "case": "accepts(payload)[1]",
+      "status": "passed",
+      "invocations": 2,
+      "durationMillis": 10
+    },
+    {
+      "suite": "checkout / HTTP",
+      "case": "accepts(payload)[2]",
+      "status": "error",
+      "message": "Rejected payload",
+      "durationMillis": 125,
+      "path": "tests/checkout.spec",
+      "line": 7
+    },
+    {
+      "suite": "checkout / HTTP",
+      "case": "disabled",
+      "status": "skipped",
+      "durationMillis": 0
+    },
+    {
+      "suite": "checkout / HTTP",
+      "case": "unmeasured",
+      "status": "passed"
+    }
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 2,
+    "failed": 0,
+    "errors": 1,
+    "skipped": 1
+  },
+  "success": false
+}

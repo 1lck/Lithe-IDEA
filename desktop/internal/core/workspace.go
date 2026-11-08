@@ -68,3 +68,62 @@ func (c *Client) ListDirectories(ctx context.Context, root string, paths []strin
 	}
 	return listings, nil
 }
+
+// WorkspaceSearchRequest is the shared Core search query and its visibility options.
+// Paths in the response are workspace-relative with forward slashes.
+type WorkspaceSearchRequest struct {
+	Root              string `json:"root"`
+	Query             string `json:"query"`
+	CaseSensitive     bool   `json:"caseSensitive,omitempty"`
+	WholeWords        bool   `json:"wholeWords,omitempty"`
+	RegularExpression bool   `json:"regularExpression,omitempty"`
+	FileMask          string `json:"fileMask,omitempty"`
+	MaxResults        int    `json:"maxResults"`
+}
+
+// WorkspaceSearchMatch is a file name or a content line returned by Core.
+type WorkspaceSearchMatch struct {
+	Kind    string `json:"kind"`
+	Path    string `json:"path"`
+	Line    *int   `json:"line"`
+	Preview string `json:"preview"`
+}
+
+// SearchWorkspace asks Core to match a bounded result set; it performs disk I/O
+// and must run away from the window thread.
+func (c *Client) SearchWorkspace(ctx context.Context, request WorkspaceSearchRequest) ([]WorkspaceSearchMatch, error) {
+	var response struct {
+		Matches []WorkspaceSearchMatch `json:"matches"`
+	}
+	if err := c.Execute(ctx, "workspace.search", request, &response); err != nil {
+		return nil, err
+	}
+	return response.Matches, nil
+}
+
+// InvalidateWorkspaceSearch discards Core's cached filesystem inventory, so the
+// next search observes file additions and edits even when native events were lost.
+func (c *Client) InvalidateWorkspaceSearch(ctx context.Context, root string) error {
+	return c.Execute(ctx, "workspace.searchIndex.invalidate", struct {
+		Root string `json:"root"`
+	}{root}, nil)
+}
+
+// FilterWorkspaceChanges applies Core's workspace visibility rules to native
+// watcher paths before deciding whether an incremental update is worthwhile.
+func (c *Client) FilterWorkspaceChanges(ctx context.Context, paths []string) ([]string, error) {
+	var filtered []string
+	if err := c.Execute(ctx, "workspace.filterChanges", paths, &filtered); err != nil {
+		return nil, err
+	}
+	return filtered, nil
+}
+
+// UpdateWorkspaceSearch applies native file events to Core's cached index.
+// Paths are relative to root and are interpreted by Core.
+func (c *Client) UpdateWorkspaceSearch(ctx context.Context, root string, paths []string) error {
+	return c.Execute(ctx, "workspace.searchIndex.update", struct {
+		Root  string   `json:"root"`
+		Paths []string `json:"paths"`
+	}{root, paths}, nil)
+}

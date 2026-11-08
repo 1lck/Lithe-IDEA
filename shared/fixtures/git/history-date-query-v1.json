@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "request": {
+    "entries": [
+      {"id":"east", "date":"2026/09/10 00:30", "utcOffsetMinutes":480},
+      {"id":"west", "date":"2026/09/09 09:30", "utcOffsetMinutes":-420},
+      {"id":"tooEarly", "date":"2026/09/09 16:29", "utcOffsetMinutes":0},
+      {"id":"exclusiveEnd", "date":"2026/09/09 16:31", "utcOffsetMinutes":0},
+      {"id":"invalid", "date":"2026/02/30 12:00", "utcOffsetMinutes":0},
+      {"id":"legacy", "date":"2026/09/10 00:30", "fallbackUnixSeconds":1788971400}
+    ],
+    "afterUnixSeconds": 1788971400,
+    "beforeUnixSeconds": 1788971460
+  },
+  "response": {"matchingIds":["east", "west", "legacy"]}
+}

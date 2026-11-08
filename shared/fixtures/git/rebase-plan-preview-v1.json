@@ -1,0 +1,153 @@
+{
+  "description": "git.rebasePlanPreview validates an interactive rebase draft and derives the messages git.rebaseStart will use. A step message is the user's explicit override; without one a reword keeps the original message and a squash uses the default combined message.",
+  "commits": [
+    { "hash": "2222222222222222222222222222222222222222", "message": "First change\n\nFull body\n" },
+    { "hash": "3333333333333333333333333333333333333333", "message": "Second change\n" },
+    { "hash": "4444444444444444444444444444444444444444", "message": "Third change\n" }
+  ],
+  "cases": [
+    {
+      "name": "default squash trims the preceding message's trailing newlines",
+      "steps": [
+        { "hash": "2222222222222222222222222222222222222222", "action": "edit" },
+        { "hash": "3333333333333333333333333333333333333333", "action": "squash" },
+        { "hash": "4444444444444444444444444444444444444444", "action": "pick" }
+      ],
+      "response": {
+        "issue": null,
+        "steps": [
+          { "hash": "2222222222222222222222222222222222222222", "action": "edit", "message": "First change\n\nFull body\n" },
+          { "hash": "3333333333333333333333333333333333333333", "action": "squash", "message": "First change\n\nFull body\n\nSecond change\n" },
+          { "hash": "4444444444444444444444444444444444444444", "action": "pick", "message": "Third change\n" }
+        ],
+        "startSteps": [
+          { "hash": "2222222222222222222222222222222222222222", "action": "edit" },
+          { "hash": "3333333333333333333333333333333333333333", "action": "squash" },
+          { "hash": "4444444444444444444444444444444444444444", "action": "pick" }
+        ],
+        "outputCommitCount": 2
+      }
+    },
+    {
+      "name": "reword without an override submits the original message and a squash override is kept",
+      "steps": [
+        { "hash": "2222222222222222222222222222222222222222", "action": "reword" },
+        { "hash": "3333333333333333333333333333333333333333", "action": "squash", "message": "Reviewed title\n\nCombined body\n" },
+        { "hash": "4444444444444444444444444444444444444444", "action": "fixup" }
+      ],
+      "response": {
+        "issue": null,
+        "steps": [
+          { "hash": "2222222222222222222222222222222222222222", "action": "reword", "message": "First change\n\nFull body\n" },
+          { "hash": "3333333333333333333333333333333333333333", "action": "squash", "message": "Reviewed title\n\nCombined body\n" },
+          { "hash": "4444444444444444444444444444444444444444", "action": "fixup", "message": "Third change\n" }
+        ],
+        "startSteps": [
+          { "hash": "2222222222222222222222222222222222222222", "action": "reword", "message": "First change\n\nFull body\n" },
+          { "hash": "3333333333333333333333333333333333333333", "action": "squash", "message": "Reviewed title\n\nCombined body\n" },
+          { "hash": "4444444444444444444444444444444444444444", "action": "fixup" }
+        ],
+        "outputCommitCount": 1
+      }
+    },
+    {
+      "name": "squash after only dropped commits has no preceding commit",
+      "steps": [
+        { "hash": "2222222222222222222222222222222222222222", "action": "drop" },
+        { "hash": "3333333333333333333333333333333333333333", "action": "squash" },
+        { "hash": "4444444444444444444444444444444444444444", "action": "pick" }
+      ],
+      "response": {
+        "issue": { "code": "missingPrecedingCommit", "hash": "3333333333333333333333333333333333333333" },
+        "steps": [
+          { "hash": "2222222222222222222222222222222222222222", "action": "drop", "message": "First change\n\nFull body\n" },
+          { "hash": "3333333333333333333333333333333333333333", "action": "squash", "message": "Second change\n" },
+          { "hash": "4444444444444444444444444444444444444444", "action": "pick", "message": "Third change\n" }
+        ],
+        "startSteps": [
+          { "hash": "2222222222222222222222222222222222222222", "action": "drop" },
+          { "hash": "3333333333333333333333333333333333333333", "action": "squash" },
+          { "hash": "4444444444444444444444444444444444444444", "action": "pick" }
+        ],
+        "outputCommitCount": 1
+      }
+    },
+    {
+      "name": "blank reword and squash overrides need a message",
+      "steps": [
+        { "hash": "2222222222222222222222222222222222222222", "action": "reword", "message": " \n" },
+        { "hash": "3333333333333333333333333333333333333333", "action": "squash", "message": "" },
+        { "hash": "4444444444444444444444444444444444444444", "action": "pick" }
+      ],
+      "response": {
+        "issue": { "code": "emptyRewordMessage", "hash": "2222222222222222222222222222222222222222" },
+        "steps": [
+          { "hash": "2222222222222222222222222222222222222222", "action": "reword", "message": " \n" },
+          { "hash": "3333333333333333333333333333333333333333", "action": "squash", "message": "" },
+          { "hash": "4444444444444444444444444444444444444444", "action": "pick", "message": "Third change\n" }
+        ],
+        "startSteps": [
+          { "hash": "2222222222222222222222222222222222222222", "action": "reword", "message": " \n" },
+          { "hash": "3333333333333333333333333333333333333333", "action": "squash", "message": "" },
+          { "hash": "4444444444444444444444444444444444444444", "action": "pick" }
+        ],
+        "outputCommitCount": 2
+      }
+    },
+    {
+      "name": "blank squash override",
+      "steps": [
+        { "hash": "2222222222222222222222222222222222222222", "action": "pick" },
+        { "hash": "3333333333333333333333333333333333333333", "action": "squash", "message": "\n" },
+        { "hash": "4444444444444444444444444444444444444444", "action": "pick" }
+      ],
+      "response": {
+        "issue": { "code": "emptySquashMessage", "hash": "3333333333333333333333333333333333333333" },
+        "steps": [
+          { "hash": "2222222222222222222222222222222222222222", "action": "pick", "message": "First change\n\nFull body\n" },
+          { "hash": "3333333333333333333333333333333333333333", "action": "squash", "message": "\n" },
+          { "hash": "4444444444444444444444444444444444444444", "action": "pick", "message": "Third change\n" }
+        ],
+        "startSteps": [
+          { "hash": "2222222222222222222222222222222222222222", "action": "pick" },
+          { "hash": "3333333333333333333333333333333333333333", "action": "squash", "message": "\n" },
+          { "hash": "4444444444444444444444444444444444444444", "action": "pick" }
+        ],
+        "outputCommitCount": 2
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "a commit missing from the plan",
+      "steps": [
+        { "hash": "2222222222222222222222222222222222222222", "action": "pick" },
+        { "hash": "3333333333333333333333333333333333333333", "action": "pick" }
+      ]
+    },
+    {
+      "name": "a duplicated commit",
+      "steps": [
+        { "hash": "2222222222222222222222222222222222222222", "action": "pick" },
+        { "hash": "2222222222222222222222222222222222222222", "action": "pick" },
+        { "hash": "4444444444444444444444444444444444444444", "action": "pick" }
+      ]
+    },
+    {
+      "name": "a message on a pick",
+      "steps": [
+        { "hash": "2222222222222222222222222222222222222222", "action": "pick", "message": "x" },
+        { "hash": "3333333333333333333333333333333333333333", "action": "pick" },
+        { "hash": "4444444444444444444444444444444444444444", "action": "pick" }
+      ]
+    },
+    {
+      "name": "an unsupported action",
+      "steps": [
+        { "hash": "2222222222222222222222222222222222222222", "action": "exec" },
+        { "hash": "3333333333333333333333333333333333333333", "action": "pick" },
+        { "hash": "4444444444444444444444444444444444444444", "action": "pick" }
+      ]
+    }
+  ]
+}

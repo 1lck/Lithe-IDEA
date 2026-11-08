@@ -65,7 +65,7 @@ var english = Messages{
 		Project:       "Project",
 		Commit:        "Commit",
 		Structure:     "Structure",
-		Find:          "Find",
+		Find:          Shared(English, "search.search"),
 		Git:           "Git",
 		Terminal:      "Terminal",
 		Problems:      "Problems",

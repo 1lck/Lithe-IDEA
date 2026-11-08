@@ -1,0 +1,182 @@
+{
+  "description": "lsp.activationPolicy: 3 consecutive failures require an explicit retry; automatic starts wait 5000 ms after each failure. nowMs is a platform monotonic clock.",
+  "maxConsecutiveFailures": 3,
+  "failureCooldownMs": 5000,
+  "cases": [
+    {
+      "name": "automatic start without history is allowed",
+      "request": {
+        "state": null,
+        "event": "automaticStart",
+        "nowMs": 1000
+      },
+      "response": {
+        "state": null,
+        "decision": "allow",
+        "retryAfterMs": null
+      }
+    },
+    {
+      "name": "first failure starts the cooldown",
+      "request": {
+        "state": null,
+        "event": "startFailed",
+        "nowMs": 1000
+      },
+      "response": {
+        "state": {
+          "consecutiveFailures": 1,
+          "lastFailureAtMs": 1000
+        },
+        "decision": "wait",
+        "retryAfterMs": 5000
+      }
+    },
+    {
+      "name": "automatic start waits for the rest of the cooldown",
+      "request": {
+        "state": {
+          "consecutiveFailures": 1,
+          "lastFailureAtMs": 1000
+        },
+        "event": "automaticStart",
+        "nowMs": 5999
+      },
+      "response": {
+        "state": {
+          "consecutiveFailures": 1,
+          "lastFailureAtMs": 1000
+        },
+        "decision": "wait",
+        "retryAfterMs": 1
+      }
+    },
+    {
+      "name": "automatic start is allowed once the cooldown elapsed",
+      "request": {
+        "state": {
+          "consecutiveFailures": 1,
+          "lastFailureAtMs": 1000
+        },
+        "event": "automaticStart",
+        "nowMs": 6000
+      },
+      "response": {
+        "state": {
+          "consecutiveFailures": 1,
+          "lastFailureAtMs": 1000
+        },
+        "decision": "allow",
+        "retryAfterMs": null
+      }
+    },
+    {
+      "name": "second failure restarts the cooldown",
+      "request": {
+        "state": {
+          "consecutiveFailures": 1,
+          "lastFailureAtMs": 1000
+        },
+        "event": "startFailed",
+        "nowMs": 7000
+      },
+      "response": {
+        "state": {
+          "consecutiveFailures": 2,
+          "lastFailureAtMs": 7000
+        },
+        "decision": "wait",
+        "retryAfterMs": 5000
+      }
+    },
+    {
+      "name": "third consecutive failure requires an explicit retry",
+      "request": {
+        "state": {
+          "consecutiveFailures": 2,
+          "lastFailureAtMs": 7000
+        },
+        "event": "startFailed",
+        "nowMs": 20000
+      },
+      "response": {
+        "state": {
+          "consecutiveFailures": 3,
+          "lastFailureAtMs": 20000
+        },
+        "decision": "explicitRetryRequired",
+        "retryAfterMs": null
+      }
+    },
+    {
+      "name": "exhausted automatic starts never resume by waiting",
+      "request": {
+        "state": {
+          "consecutiveFailures": 3,
+          "lastFailureAtMs": 20000
+        },
+        "event": "automaticStart",
+        "nowMs": 999999
+      },
+      "response": {
+        "state": {
+          "consecutiveFailures": 3,
+          "lastFailureAtMs": 20000
+        },
+        "decision": "explicitRetryRequired",
+        "retryAfterMs": null
+      }
+    },
+    {
+      "name": "explicit start clears the history",
+      "request": {
+        "state": {
+          "consecutiveFailures": 3,
+          "lastFailureAtMs": 20000
+        },
+        "event": "explicitStart",
+        "nowMs": 21000
+      },
+      "response": {
+        "state": null,
+        "decision": "allow",
+        "retryAfterMs": null
+      }
+    },
+    {
+      "name": "ready session clears the history",
+      "request": {
+        "state": {
+          "consecutiveFailures": 2,
+          "lastFailureAtMs": 7000
+        },
+        "event": "ready",
+        "nowMs": 8000
+      },
+      "response": {
+        "state": null,
+        "decision": "allow",
+        "retryAfterMs": null
+      }
+    },
+    {
+      "name": "a clock reading before the last failure restarts the cooldown",
+      "request": {
+        "state": {
+          "consecutiveFailures": 1,
+          "lastFailureAtMs": 10000
+        },
+        "event": "automaticStart",
+        "nowMs": 500
+      },
+      "response": {
+        "state": {
+          "consecutiveFailures": 1,
+          "lastFailureAtMs": 500
+        },
+        "decision": "wait",
+        "retryAfterMs": 5000
+      }
+    }
+  ]
+}

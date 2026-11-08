@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "generated": {
+    "version": 2,
+    "configurations": [
+      {
+        "id": "spring-boot.maven:backend",
+        "name": "backend",
+        "provider": "spring-boot.maven",
+        "execution": "service",
+        "cwd": ".",
+        "toolchains": {
+          "java": "project-jdk",
+          "maven": "project-maven"
+        }
+      },
+      {
+        "id": "npm.script:web/dev",
+        "name": "dev",
+        "provider": "npm.script",
+        "execution": "service",
+        "command": "npm",
+        "args": ["run", "dev"],
+        "cwd": "web",
+        "toolchains": {
+          "runtime": "project-node"
+        }
+      }
+    ]
+  },
+  "requirements": {
+    "version": 1,
+    "toolchains": {
+      "project-jdk": { "type": "java", "minimumVersion": "21" },
+      "project-maven": { "type": "maven", "java": "project-jdk" },
+      "project-node": { "type": "node", "minimumVersion": "22" }
+    }
+  },
+  "expected": {
+    "missingNodeDiagnosticConfigurationIds": ["npm.script:web/dev"],
+    "unblockedConfigurationIds": ["spring-boot.maven:backend"]
+  }
+}

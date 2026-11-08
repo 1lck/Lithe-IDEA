@@ -1,0 +1,39 @@
+{
+  "request": {
+    "root": ".",
+    "run": "application",
+    "project": {
+      "name": "app",
+      "path": "app"
+    },
+    "target": {
+      "name": "Main",
+      "path": "app",
+      "tags": [
+        "application"
+      ]
+    },
+    "options": {
+      "offline": true
+    },
+    "userArguments": [
+      "a b"
+    ]
+  },
+  "result": {
+    "executable": {
+      "kind": "toolchain",
+      "value": "project-jdk"
+    },
+    "arguments": [
+      "-cp",
+      "classes",
+      "example.Main",
+      "a b"
+    ],
+    "workingDirectory": "app",
+    "environment": {
+      "APP_ENV": "test"
+    }
+  }
+}

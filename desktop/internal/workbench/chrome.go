@@ -738,7 +738,7 @@ func (a *App) paintGearMenu(canvas *ui.Canvas, viewport ui.Rect) {
 		// The theme is chosen in the settings window.
 		a.openSettings(surfaceMenu)
 	case plugins:
-		a.notify(a.text.Title.PluginsLater)
+		a.openPluginSettings(surfaceMenu)
 	case logs:
 		a.openLogs()
 	case keymap:

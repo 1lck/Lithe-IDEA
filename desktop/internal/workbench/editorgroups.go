@@ -444,6 +444,9 @@ func (a *App) drawEditorGroup(f *flex.Frame, id string) flex.Box {
 				a.drawSoftWrapSwitch(f, decl.doc.id)
 			}
 		})
+		if decl.doc != nil && decl.doc.conflicted {
+			a.drawDocumentConflict(f, decl.doc)
+		}
 		decl.body = f.Row().Fill()
 		decl.bodySet = true
 	})

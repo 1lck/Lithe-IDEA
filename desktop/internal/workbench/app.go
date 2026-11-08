@@ -14,6 +14,7 @@ package workbench
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -26,6 +27,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/appicon"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildinfo"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
@@ -68,6 +70,15 @@ type Kernel interface {
 	GitDeleteBranch(ctx context.Context, root string, branch core.GitReference) (core.GitBranchDeletion, error)
 	GitBranchNamePreview(ctx context.Context, request core.BranchNameRequest) (core.BranchNamePreview, error)
 	ListDirectories(ctx context.Context, root string, paths []string) ([]core.DirectoryListing, error)
+	PlanDocumentSaveBatch(ctx context.Context, documents []core.SaveBatchDocument) (core.SaveBatchPlan, error)
+	ReduceDocumentSaveBatch(ctx context.Context, members []string, results []core.SaveBatchResult, documents []core.SaveBatchDocument) (core.SaveBatchDecision, error)
+	ReduceDocument(ctx context.Context, state core.DocumentState, event core.DocumentEvent) (core.DocumentDecision, error)
+	SearchWorkspace(ctx context.Context, request core.WorkspaceSearchRequest) ([]core.WorkspaceSearchMatch, error)
+	InvalidateWorkspaceSearch(ctx context.Context, root string) error
+	FilterWorkspaceChanges(ctx context.Context, paths []string) ([]string, error)
+	UpdateWorkspaceSearch(ctx context.Context, root string, paths []string) error
+	ResolveMarketplaceSource(context.Context, string) (core.MarketplaceSource, error)
+	ValidateMarketplaceIndex(context.Context, json.RawMessage, core.MarketplaceSourceKind, string, map[string][]int) (core.MarketplaceIndex, error)
 }
 
 // Options configure a window.
@@ -104,8 +115,9 @@ const logsShortcut = "⇧⌘L"
 // settings are the user's choices, kept in settingsFile.
 type settings struct {
 	// Language is a stored i18n code; empty follows the system.
-	Language string      `json:"language,omitempty"`
-	Theme    themeChoice `json:"theme,omitempty"`
+	Language         string      `json:"language,omitempty"`
+	Theme            themeChoice `json:"theme,omitempty"`
+	MarketplaceWidth float32     `json:"marketplaceWidth,omitempty"`
 }
 
 const (
@@ -133,7 +145,8 @@ type project struct {
 	terms terminalSet
 	// docs are the project's open files. Each is a tab in a group of the editor area, next
 	// to the terminals that were moved there.
-	docs documentSet
+	docs   documentSet
+	search projectSearch
 	// tree is the Project tool window's tree of the project folder.
 	tree fileTree
 }
@@ -167,17 +180,22 @@ type App struct {
 	// missing marks recent projects whose folder was gone when the list last changed.
 	missing map[string]bool
 
-	project *project
-	chrome  chromeState
-	drag    dragState
-	title   titleState
-	layout  layoutState
-	status  statusState
-	logView logView
+	project         *project
+	closingProject  bool
+	documentWriter  func(string, []byte, []byte) error
+	documentCreator func(string, []byte) error
+	documentReader  func(string) ([]byte, error)
+	chrome          chromeState
+	drag            dragState
+	title           titleState
+	layout          layoutState
+	status          statusState
+	logView         logView
 	// branch is the title bar's branch popup and the dialogs it opens.
 	branch branchState
 	// commitView is the Commit tool window's splitter and message input.
 	commitView commitView
+	searchView searchView
 	// delays are how long the log waits before it acts on a selection or a filter.
 	delays logDelays
 	// term is what the frame being painted declared for the terminals, and the gesture that
@@ -219,20 +237,24 @@ func New(options Options) *App {
 		now = time.Now
 	}
 	a := &App{
-		kernel:         options.Kernel,
-		store:          options.Store,
-		now:            now,
-		systemLanguage: i18n.Detect(languages),
-		chrome:         newChromeState(),
-		layout:         newLayoutState(),
-		missing:        map[string]bool{},
-		logView:        newLogView(),
-		commitView:     newCommitView(),
-		delays:         defaultLogDelays,
+		kernel:          options.Kernel,
+		documentWriter:  documentio.WriteGuarded,
+		documentCreator: documentio.WriteMissing,
+		documentReader:  readDocument,
+		store:           options.Store,
+		now:             now,
+		systemLanguage:  i18n.Detect(languages),
+		chrome:          newChromeState(),
+		layout:          newLayoutState(),
+		missing:         map[string]bool{},
+		logView:         newLogView(),
+		commitView:      newCommitView(),
+		delays:          defaultLogDelays,
 	}
 	if _, err := a.store.Load(settingsFile, &a.settings); err != nil {
 		a.settings = settings{}
 	}
+	a.searchView.delay = -1
 	a.version = options.Version
 	a.text = i18n.For(a.language())
 	a.theme, a.colors = look(a.settings.Theme)
@@ -271,6 +293,8 @@ func (a *App) Run() error {
 	// is opened by the application.
 	err := app.RunApplication(func(application *app.Application) error {
 		a.application = application
+		// System Quit bypasses window close requests unless it is intercepted here.
+		application.OnQuitRequest(a.requestCloseProject)
 		if _, err := application.OpenWindow(a.Config(), nil); err != nil {
 			return err
 		}
@@ -290,7 +314,7 @@ func (a *App) Run() error {
 
 // Config is the window's configuration.
 func (a *App) Config() app.Config {
-	a.fields = flex.Fields(&a.welcome.search, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField,
+	a.fields = flex.Fields(&a.welcome.search, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField, &a.searchView.query, &a.searchView.mask,
 		&a.branch.search, &a.branch.name, &a.branch.revision)
 	return app.Config{
 		Title:          a.text.App.Name,
@@ -310,6 +334,7 @@ func (a *App) Config() app.Config {
 		TextInput:      a.textInput,
 		Invalidator:    &a.invalidator,
 		OnWake:         a.drain,
+		OnCloseRequest: func(allow func()) { a.requestCloseProject(allow) },
 		OnClosed:       a.closed,
 	}
 }
@@ -491,6 +516,9 @@ func (a *App) onKey(event ui.KeyEvent) ui.EventResult {
 	if r := a.treeKey(event); r.Handled {
 		return r
 	}
+	if r := a.searchKey(event); r.Handled {
+		return r
+	}
 	if r := a.commitKey(event); r.Handled {
 		return r
 	}
@@ -528,6 +556,11 @@ func (a *App) onShortcut(event ui.KeyEvent) ui.EventResult {
 // windowShortcut handles the window's own command shortcuts: ⌘, opens the settings, ⌘O asks
 // for a project folder, ⇧⌘L shows the log window and ⌘↩ in the commit message commits.
 func (a *App) windowShortcut(event ui.KeyEvent) ui.EventResult {
+	if event.Modifiers == ui.ModifierMeta|ui.ModifierShift && strings.EqualFold(event.Text, "f") && a.project != nil {
+		a.reduceChrome(core.SetChromeOpen(itemFind, true))
+		a.searchView.focus = true
+		return ui.EventResult{Handled: true, Repaint: true}
+	}
 	if event.Modifiers == ui.ModifierMeta && event.Key == ui.KeyEnter && event.Target == commitMessageID && a.project != nil {
 		if a.project.canCommit() {
 			a.startCommit(a.project, false, surfaceShortcut)
@@ -574,6 +607,7 @@ func (a *App) setTheme(choice themeChoice) {
 
 func (a *App) saveSettings() {
 	if err := a.store.Save(settingsFile, a.settings); err != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("settings_save", documentLogError(err)))
 		a.notify(a.text.Errors.SaveFailed(err.Error()))
 	}
 }
@@ -589,6 +623,9 @@ func (a *App) activate(index int) {
 	switch {
 	case it.panel:
 		a.reduceChrome(core.ToggleChrome(it.id))
+		if it.id == itemFind && a.chrome.isOpen(index) {
+			a.searchView.focus = true
+		}
 	case it.id == itemTitleSettings:
 		a.title.gearOpen = !a.title.gearOpen
 		a.title.projectOpen = false
@@ -673,31 +710,54 @@ func (a *App) openProject(path string) {
 		a.notify(a.text.Errors.FolderMissing(root))
 		return
 	}
-	a.reduceRecent(a.recent, core.RecordRecent(root, a.now()), true)
-	a.closeProject()
-	ctx, cancel := context.WithCancel(context.Background())
-	p := &project{root: root, name: filepath.Base(root), ctx: ctx, cancel: cancel, commit: newCommitState()}
-	a.openTerminals(p)
-	a.project = p
-	a.notice = ""
-	a.logView.reset()
-	a.loadGit(p)
-	a.loadLog(p)
+	a.requestCloseProject(func() {
+		a.reduceRecent(a.recent, core.RecordRecent(root, a.now()), true)
+		ctx, cancel := context.WithCancel(context.Background())
+		p := &project{root: root, name: filepath.Base(root), ctx: ctx, cancel: cancel, commit: newCommitState()}
+		a.searchView.reset()
+		a.openTerminals(p)
+		a.project = p
+		a.notice = ""
+		a.logView.reset()
+		a.loadGit(p)
+		a.loadLog(p)
+	})
 }
 
-// closeProject closes the open project and goes back to the start screen.
-func (a *App) closeProject() {
-	if a.project == nil {
+// closeProject retains a dirty project if any save fails.
+func (a *App) closeProject() { a.requestCloseProject(nil) }
+
+// requestCloseProject waits for all document writes before destroying project resources.
+func (a *App) requestCloseProject(after func()) {
+	if a.closingProject {
 		return
 	}
-	a.project.cancel()
-	a.closeDocuments(a.project)
-	a.closeTerminals(a.project)
-	a.project = nil
-	a.cancelDrag()
-	a.cancelTabDrag()
-	a.title = titleState{}
-	a.branch.branchSession = branchSession{}
+	p := a.project
+	if p == nil {
+		if after != nil {
+			after()
+		}
+		return
+	}
+	a.closingProject = true
+	a.saveProjectDocuments(p, func(ok bool) {
+		a.closingProject = false
+		if !ok || a.project != p {
+			return
+		}
+		p.cancel()
+		a.releaseProjectSearch(p)
+		a.closeDocuments(p)
+		a.closeTerminals(p)
+		a.project = nil
+		a.cancelDrag()
+		a.cancelTabDrag()
+		a.title = titleState{}
+		a.branch.branchSession = branchSession{}
+		if after != nil {
+			after()
+		}
+	})
 }
 
 // statusState is what the status bar measures about the window itself.

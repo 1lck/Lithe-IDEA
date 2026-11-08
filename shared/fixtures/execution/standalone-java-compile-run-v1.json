@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "name": "Standalone Java compile-then-run launch plans",
+  "description": "Non-Maven java.main sources compile with javac into a per-configuration cache directory, then launch by qualified class name so JDK 8 (which lacks the JEP 330 single-file source launcher) can run them.",
+  "outputDirectoryPrefix": ".lithe/run/classes/",
+  "cases": [
+    {
+      "name": "default package",
+      "source": "samples/Standalone.java",
+      "package": null,
+      "configurationId": "java-main:Standalone",
+      "outputDirectory": ".lithe/run/classes/java-main-Standalone",
+      "expectedMainClass": "Standalone",
+      "expectedClasspath": [".lithe/run/classes/java-main-Standalone"],
+      "expectedPreLaunchSteps": [
+        {
+          "executable": { "toolchain": "project-jdk", "tool": "javac" },
+          "arguments": ["-d", ".lithe/run/classes/java-main-Standalone", "samples/Standalone.java"]
+        }
+      ],
+      "expectedArguments": ["Standalone"]
+    },
+    {
+      "name": "package qualified",
+      "source": "src/com/example/WorkerMain.java",
+      "package": "com.example",
+      "configurationId": "java-main:com.example.WorkerMain",
+      "outputDirectory": ".lithe/run/classes/java-main-com.example.WorkerMain",
+      "expectedMainClass": "com.example.WorkerMain",
+      "expectedClasspath": [".lithe/run/classes/java-main-com.example.WorkerMain"],
+      "expectedPreLaunchSteps": [
+        {
+          "executable": { "toolchain": "project-jdk", "tool": "javac" },
+          "arguments": ["-d", ".lithe/run/classes/java-main-com.example.WorkerMain", "src/com/example/WorkerMain.java"]
+        }
+      ],
+      "expectedArguments": ["com.example.WorkerMain"]
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "navigation": {
+    "group": "Tools",
+    "title": "Logs and Diagnostics",
+    "macosCategory": "Diagnostics",
+    "windowsCategory": "logs"
+  },
+  "sections": ["Log timeline", "Diagnostics", "Log locations", "Retention and cleanup", "Diagnostic bundle"],
+  "defaults": {"category": null, "session": "current", "minimumLevel": "info"},
+  "previewLimits": {"lines": 2000, "characters": 200000},
+  "clearScope": {"directory": "effective", "modules": "all", "sessions": "all", "managedFilesOnly": true},
+  "export": {"previewRequired": true, "frozenSelection": true, "discardOnCancel": true}
+}

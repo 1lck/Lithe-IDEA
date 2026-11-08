@@ -1,0 +1,48 @@
+{
+  "entries": [
+    {
+      "id": "lithe.featured/example-token",
+      "title": "Example token service",
+      "summary": "Synthetic setup contract",
+      "publisher": "Example",
+      "source": "featured",
+      "version": "",
+      "website": "https://example.invalid/docs",
+      "setup": "bearer-token",
+      "draft": {
+        "name": "example-token",
+        "transport": "http",
+        "command": null,
+        "args": [],
+        "env": [],
+        "url": "https://example.invalid/mcp",
+        "headers": [],
+        "definitionHash": ""
+      }
+    },
+    {
+      "id": "lithe.featured/example-folders",
+      "title": "Example allowed folders",
+      "summary": "Synthetic setup contract",
+      "publisher": "Example",
+      "source": "featured",
+      "version": "1.2.3",
+      "website": null,
+      "setup": "allowed-directories",
+      "draft": {
+        "name": "example-folders",
+        "transport": "stdio",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@example/filesystem@1.2.3"
+        ],
+        "env": [],
+        "url": null,
+        "headers": [],
+        "definitionHash": ""
+      }
+    }
+  ],
+  "nextCursor": null
+}

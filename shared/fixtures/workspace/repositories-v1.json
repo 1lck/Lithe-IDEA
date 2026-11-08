@@ -1,0 +1,16 @@
+{
+  "command": "workspace.repositories",
+  "payload": {
+    "root": "/workspace"
+  },
+  "response": {
+    "repositories": [
+      {
+        "path": "/workspace/service-a"
+      },
+      {
+        "path": "/workspace/service-b"
+      }
+    ]
+  }
+}

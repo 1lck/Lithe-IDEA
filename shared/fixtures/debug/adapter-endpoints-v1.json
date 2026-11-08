@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    { "input": { "host": "127.0.0.1", "port": 5678 }, "remote": false },
+    { "input": { "host": "127.8.9.10", "port": 1 }, "remote": false },
+    { "input": { "host": "LocalHost", "port": 65535 }, "remote": false },
+    { "input": { "host": "::1", "port": 5678 }, "remote": false },
+    { "input": { "host": "2001:db8::1", "port": 5678 }, "remote": true },
+    { "input": { "host": "::ffff:127.0.0.1", "port": 5678 }, "remote": true },
+    { "input": { "host": "debug.example.org", "port": 5678 }, "remote": true },
+    { "input": { "host": "localhost.example.org", "port": 5678 }, "remote": true },
+    { "input": { "host": "10.0.0.5", "port": 5678 }, "remote": true },
+    { "input": { "host": "0.0.0.0", "port": 5678 }, "remote": true },
+    { "input": { "host": "", "port": 5678 } },
+    { "input": { "host": "host", "port": 0 } },
+    { "input": { "host": "host", "port": 65536 } },
+    { "input": { "host": "host", "port": -1 } },
+    { "input": { "host": "host", "port": 1.5 } },
+    { "input": { "host": "host", "port": "5678" } },
+    { "input": { "host": "user@host", "port": 5678 } },
+    { "input": { "host": "http://host", "port": 5678 } },
+    { "input": { "host": "[::1]", "port": 5678 } },
+    { "input": { "host": "fe80::1%en0", "port": 5678 } },
+    { "input": { "host": "host:5678", "port": 5678 } },
+    { "input": { "host": "host/path", "port": 5678 } },
+    { "input": { "host": "host name", "port": 5678 } },
+    { "input": { "host": "-host", "port": 5678 } },
+    { "input": { "host": "1.2.3", "port": 5678 } },
+    { "input": { "host": "host", "port": 5678, "proxy": "unsupported" } },
+    { "input": { "port": 5678 } },
+    { "input": { "host": "host" } }
+  ]
+}

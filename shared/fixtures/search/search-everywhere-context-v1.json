@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "description": "workspace.searchEverywhere file-name results with the optional context { openPaths, recentPaths }. Paths are relative to the request root with '/' separators. Context only breaks ties between equal name matches (open first, then recent by recency); without it the order is unchanged. The ranking code is shared with workspace.rankNames.",
+  "cases": [
+    {
+      "id": "without-context-ties-keep-path-order",
+      "files": ["a/util.ts", "b/util.ts", "c/util.ts", "d/util.ts"],
+      "query": "util",
+      "expectedPaths": ["a/util.ts", "b/util.ts", "c/util.ts", "d/util.ts"]
+    },
+    {
+      "id": "open-then-recent-by-recency-break-ties",
+      "files": ["a/util.ts", "b/util.ts", "c/util.ts", "d/util.ts"],
+      "query": "util",
+      "context": {"openPaths": ["d/util.ts"], "recentPaths": ["c/util.ts", "b/util.ts"]},
+      "expectedPaths": ["d/util.ts", "c/util.ts", "b/util.ts", "a/util.ts"]
+    },
+    {
+      "id": "context-never-outranks-a-better-name-match",
+      "files": ["x/UtilityBelt.ts", "z/util.ts"],
+      "query": "util",
+      "context": {"openPaths": ["x/UtilityBelt.ts"], "recentPaths": []},
+      "expectedPaths": ["z/util.ts", "x/UtilityBelt.ts"]
+    }
+  ]
+}

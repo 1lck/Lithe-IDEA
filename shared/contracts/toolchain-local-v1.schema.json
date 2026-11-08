@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.dev/contracts/toolchain-local-v1.schema.json",
+  "title": "Lithe Local Toolchains v1",
+  "type": "object",
+  "required": ["version", "toolchains"],
+  "properties": {
+    "version": { "const": 1 },
+    "toolchains": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "home": { "type": "string", "minLength": 1 },
+          "executable": { "type": "string", "minLength": 1 },
+          "javaHome": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

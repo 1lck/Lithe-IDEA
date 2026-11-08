@@ -1,0 +1,211 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "legacy scope with explicit progress",
+      "options": {},
+      "expectedOptions": {
+        "remote": null,
+        "prune": true,
+        "submodules": "inherit",
+        "tags": "inherit"
+      },
+      "arguments": [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "-c",
+        "core.quotepath=false",
+        "fetch",
+        "--progress",
+        "--all",
+        "--prune"
+      ]
+    },
+    {
+      "name": "selected nested remote without pruning or submodules",
+      "options": {
+        "remote": "team/origin",
+        "prune": false,
+        "submodules": "no"
+      },
+      "expectedOptions": {
+        "remote": "team/origin",
+        "prune": false,
+        "submodules": "no",
+        "tags": "inherit"
+      },
+      "arguments": [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "-c",
+        "core.quotepath=false",
+        "fetch",
+        "--progress",
+        "--no-prune",
+        "--recurse-submodules=no",
+        "--",
+        "team/origin"
+      ]
+    },
+    {
+      "name": "all remotes and on-demand submodules",
+      "options": {
+        "submodules": "onDemand"
+      },
+      "expectedOptions": {
+        "remote": null,
+        "prune": true,
+        "submodules": "onDemand",
+        "tags": "inherit"
+      },
+      "arguments": [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "-c",
+        "core.quotepath=false",
+        "fetch",
+        "--progress",
+        "--all",
+        "--prune",
+        "--recurse-submodules=on-demand"
+      ]
+    },
+    {
+      "name": "unicode remote with recursive fetch",
+      "options": {
+        "remote": "团队",
+        "submodules": "yes"
+      },
+      "expectedOptions": {
+        "remote": "团队",
+        "prune": true,
+        "submodules": "yes",
+        "tags": "inherit"
+      },
+      "arguments": [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "-c",
+        "core.quotepath=false",
+        "fetch",
+        "--progress",
+        "--prune",
+        "--recurse-submodules=yes",
+        "--",
+        "团队"
+      ]
+    },
+    {
+      "name": "configured remote name with punctuation",
+      "options": {
+        "remote": "mirror+archive"
+      },
+      "expectedOptions": {
+        "remote": "mirror+archive",
+        "prune": true,
+        "submodules": "inherit",
+        "tags": "inherit"
+      },
+      "arguments": [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "-c",
+        "core.quotepath=false",
+        "fetch",
+        "--progress",
+        "--prune",
+        "--",
+        "mirror+archive"
+      ]
+    },
+    {
+      "name": "explicit all tags",
+      "options": {
+        "tags": "all"
+      },
+      "expectedOptions": {
+        "remote": null,
+        "prune": true,
+        "submodules": "inherit",
+        "tags": "all"
+      },
+      "arguments": [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "-c",
+        "core.quotepath=false",
+        "fetch",
+        "--progress",
+        "--all",
+        "--prune",
+        "--tags"
+      ]
+    },
+    {
+      "name": "explicit none tags",
+      "options": {
+        "tags": "none"
+      },
+      "expectedOptions": {
+        "remote": null,
+        "prune": true,
+        "submodules": "inherit",
+        "tags": "none"
+      },
+      "arguments": [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "-c",
+        "core.quotepath=false",
+        "fetch",
+        "--progress",
+        "--all",
+        "--prune",
+        "--no-tags"
+      ]
+    },
+    {
+      "name": "explicit prune tags",
+      "options": {
+        "tags": "prune"
+      },
+      "expectedOptions": {
+        "remote": null,
+        "prune": true,
+        "submodules": "inherit",
+        "tags": "prune"
+      },
+      "arguments": [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "-c",
+        "core.quotepath=false",
+        "fetch",
+        "--progress",
+        "--all",
+        "--prune",
+        "--prune-tags"
+      ]
+    }
+  ],
+  "invalidRemotes": [
+    "",
+    "--upload-pack=evil",
+    "https://example.invalid/repo",
+    "../repo",
+    "/repo",
+    "origin\nother",
+    "origin main",
+    "origin:main",
+    "origin.lock",
+    "origin//team"
+  ]
+}

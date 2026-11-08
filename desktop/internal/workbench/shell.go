@@ -31,7 +31,8 @@ const (
 	shellEditorMin       = 240
 	shellEditorHeightMin = 120
 
-	shellLeftDefault   = 280
+	// The original macOS workbench starts the left tool column at 360 points.
+	shellLeftDefault   = 360
 	shellRightDefault  = 320
 	shellBottomDefault = 260
 	// shellColumnLowerDefault is the height of the lower tool window of the left or the
@@ -457,9 +458,12 @@ func (a *App) drawShellPanel(f *flex.Frame, s slot, index int, hidden *slot) fle
 	commit := tool.id == itemCommit && a.project != nil
 	// The Project tool window of an open project shows the tree of its folder.
 	tree := tool.id == itemProject && a.project != nil
+	search := tool.id == itemFind && a.project != nil
 	header := float32(panelHeaderHeight)
 	if tabbed {
 		header = shellTabsHeaderHeight
+	} else if search {
+		header = 39
 	}
 	return f.Column().Background(a.colors.Panel).Clip().Children(func() {
 		f.Row().Height(header).Items(flex.Center).Gap(shellHeaderGap).PadSides(0, 8, 0, 12).Children(func() {
@@ -478,6 +482,9 @@ func (a *App) drawShellPanel(f *flex.Frame, s slot, index int, hidden *slot) fle
 			}
 			if log {
 				a.drawLogHeaderTrailing(f, a.project)
+			}
+			if search {
+				a.drawSearchRefresh(f, a.project)
 			}
 			// A flex Button cannot show an icon in this version of Viva, so the hide
 			// control is a hit row with an icon, as the notice's dismiss button is.
@@ -505,6 +512,10 @@ func (a *App) drawShellPanel(f *flex.Frame, s slot, index int, hidden *slot) fle
 		}
 		if tree {
 			a.drawProjectTree(f, a.project)
+			return
+		}
+		if search {
+			a.drawProjectSearch(f, a.project)
 			return
 		}
 		f.Row().Fill().Items(flex.Center).PadX(shellContentPad).Children(func() {

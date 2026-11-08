@@ -1,0 +1,54 @@
+{
+  "cases": [
+    {
+      "path": "src/\u0130.txt",
+      "query": "i",
+      "ranges": [
+        {
+          "start": 0,
+          "length": 1
+        }
+      ]
+    },
+    {
+      "path": "src/\u0130.txt",
+      "query": "i\u0307",
+      "ranges": [
+        {
+          "start": 0,
+          "length": 1
+        }
+      ]
+    },
+    {
+      "path": "src/\u0130.txt",
+      "query": "\u0307",
+      "ranges": [
+        {
+          "start": 0,
+          "length": 1
+        }
+      ]
+    },
+    {
+      "path": "src/\ud83d\ude00\u0130x.txt",
+      "query": "i\u0307x",
+      "ranges": [
+        {
+          "start": 2,
+          "length": 2
+        }
+      ]
+    },
+    {
+      "path": "src/\u039f\u03a3",
+      "query": "\u03bf\u03c2",
+      "ranges": [
+        {
+          "start": 0,
+          "length": 2
+        }
+      ]
+    }
+  ]
+}

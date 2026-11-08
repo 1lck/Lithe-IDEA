@@ -1,0 +1,164 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "modifier-order-and-aliases-are-the-same-binding",
+      "platform": "windows",
+      "layers": [
+        { "entries": [
+          { "command": "a", "key": "ctrl+shift+p" },
+          { "command": "b", "key": "Shift+CTRL+P" },
+          { "command": "c", "key": "cmd+shift+p" },
+          { "command": "d", "key": "ctrl+alt+p" }
+        ] }
+      ],
+      "expected": {
+        "conflicts": [{ "key": "ctrl+shift+p", "when": null, "commands": ["a", "b", "c"] }],
+        "invalid": []
+      }
+    },
+    {
+      "name": "cmd-is-meta-on-macos-and-ctrl-on-windows",
+      "platform": "macos",
+      "layers": [
+        { "entries": [
+          { "command": "a", "key": "cmd+s" },
+          { "command": "b", "key": "ctrl+s" },
+          { "command": "c", "key": "meta+s" }
+        ] }
+      ],
+      "expected": {
+        "conflicts": [{ "key": "meta+s", "when": null, "commands": ["a", "c"] }],
+        "invalid": []
+      }
+    },
+    {
+      "name": "user-override-replaces-default-so-default-no-longer-conflicts",
+      "platform": "windows",
+      "layers": [
+        { "entries": [
+          { "command": "a", "key": "ctrl+k" },
+          { "command": "b", "key": "ctrl+j" }
+        ] },
+        { "entries": [{ "command": "b", "key": "ctrl+m" }] }
+      ],
+      "expected": { "conflicts": [], "invalid": [] }
+    },
+    {
+      "name": "user-binding-collides-with-default-and-preset-bindings",
+      "platform": "windows",
+      "layers": [
+        { "entries": [
+          { "command": "default.only", "key": "ctrl+d" },
+          { "command": "preset.replaced", "key": "ctrl+r" },
+          { "command": "preset.disabled", "key": "ctrl+x" }
+        ] },
+        { "entries": [{ "command": "preset.replaced", "key": "ctrl+e" }], "disabledCommands": ["preset.disabled"] },
+        { "entries": [
+          { "command": "user.one", "key": "ctrl+e" },
+          { "command": "user.two", "key": "ctrl+x" },
+          { "command": "user.three", "key": "ctrl+d" }
+        ] }
+      ],
+      "expected": {
+        "conflicts": [
+          { "key": "ctrl+d", "when": null, "commands": ["default.only", "user.three"] },
+          { "key": "ctrl+e", "when": null, "commands": ["preset.replaced", "user.one"] }
+        ],
+        "invalid": []
+      }
+    },
+    {
+      "name": "different-when-clauses-do-not-conflict-but-whitespace-does-not-matter",
+      "platform": "windows",
+      "layers": [
+        { "entries": [
+          { "command": "a", "key": "ctrl+t", "when": "editorFocus" },
+          { "command": "b", "key": "ctrl+t", "when": "terminalFocus" },
+          { "command": "c", "key": "ctrl+t", "when": "editorFocus  " },
+          { "command": "d", "key": "ctrl+t" },
+          { "command": "e", "key": "ctrl+t", "when": "  " }
+        ] }
+      ],
+      "expected": {
+        "conflicts": [
+          { "key": "ctrl+t", "when": null, "commands": ["d", "e"] },
+          { "key": "ctrl+t", "when": "editorFocus", "commands": ["a", "c"] }
+        ],
+        "invalid": []
+      }
+    },
+    {
+      "name": "disabled-entries-and-same-command-repeats-never-conflict",
+      "platform": "windows",
+      "layers": [
+        { "entries": [
+          { "command": "a", "key": "ctrl+g" },
+          { "command": "a", "key": "ctrl+g" },
+          { "command": "b", "key": "ctrl+g", "enabled": false }
+        ] }
+      ],
+      "expected": { "conflicts": [], "invalid": [] }
+    },
+    {
+      "name": "disabled-user-entry-unbinds-the-default",
+      "platform": "windows",
+      "layers": [
+        { "entries": [{ "command": "a", "key": "ctrl+g" }, { "command": "b", "key": "ctrl+h" }] },
+        { "entries": [{ "command": "a", "key": "ctrl+h", "enabled": false }] }
+      ],
+      "expected": { "conflicts": [], "invalid": [] }
+    },
+    {
+      "name": "chords-compare-every-step",
+      "platform": "windows",
+      "layers": [
+        { "entries": [
+          { "command": "a", "key": "ctrl+k ctrl+t" },
+          { "command": "b", "key": "Ctrl+K  Ctrl+T" },
+          { "command": "c", "key": "ctrl+k ctrl+y" }
+        ] }
+      ],
+      "expected": {
+        "conflicts": [{ "key": "ctrl+k ctrl+t", "when": null, "commands": ["a", "b"] }],
+        "invalid": []
+      }
+    },
+    {
+      "name": "double-shift-gesture-conflicts-with-itself-only",
+      "platform": "macos",
+      "layers": [
+        { "entries": [
+          { "command": "search", "key": "doubleshift" },
+          { "command": "other", "key": "doubleshift" },
+          { "command": "plain", "key": "shift+a" }
+        ] }
+      ],
+      "expected": {
+        "conflicts": [{ "key": "doubleshift", "when": null, "commands": ["other", "search"] }],
+        "invalid": []
+      }
+    },
+    {
+      "name": "invalid-bindings-are-reported-and-skipped",
+      "platform": "windows",
+      "layers": [
+        { "entries": [
+          { "command": "a", "key": "" },
+          { "command": "b", "key": "ctrl+" },
+          { "command": "c", "key": "ctrl+a+b" },
+          { "command": "d", "key": "ctrl++" },
+          { "command": "e", "key": "ctrl++" }
+        ] }
+      ],
+      "expected": {
+        "conflicts": [{ "key": "ctrl++", "when": null, "commands": ["d", "e"] }],
+        "invalid": [
+          { "command": "a", "key": "", "code": "empty" },
+          { "command": "b", "key": "ctrl+", "code": "empty_key" },
+          { "command": "c", "key": "ctrl+a+b", "code": "multiple_keys" }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "adapterRequest": {
+    "seq": 44,
+    "type": "request",
+    "command": "runInTerminal",
+    "arguments": {
+      "kind": "integrated",
+      "title": "Debug Main",
+      "cwd": "/workspace/service",
+      "args": [
+        "/opt/jdk/bin/java",
+        "-cp",
+        "/workspace/service/classes",
+        "example.Main"
+      ],
+      "env": {
+        "JAVA_HOME": "/opt/jdk",
+        "LITHE_REMOVE_ME": null
+      },
+      "argsCanBeInterpretedByShell": false
+    }
+  },
+  "expectedRequest": {
+    "kind": "integrated",
+    "title": "Debug Main",
+    "cwd": "/workspace/service",
+    "args": [
+      "/opt/jdk/bin/java",
+      "-cp",
+      "/workspace/service/classes",
+      "example.Main"
+    ],
+    "environment": [
+      {
+        "name": "JAVA_HOME",
+        "value": "/opt/jdk"
+      },
+      {
+        "name": "LITHE_REMOVE_ME",
+        "value": null
+      }
+    ],
+    "argsCanBeInterpretedByShell": false
+  },
+  "successResponse": {
+    "processId": 4242,
+    "shellProcessId": null
+  },
+  "expectedSuccessBody": {
+    "processId": 4242
+  },
+  "failureMessage": "The integrated terminal is unavailable."
+}

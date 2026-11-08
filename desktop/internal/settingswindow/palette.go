@@ -34,28 +34,28 @@ type palette struct {
 
 func lightPalette() palette {
 	return palette{
-		window: ui.RGB24(0xffffff), sidebar: ui.RGB24(0xf6f8fa), titleBar: ui.RGB24(0xeef1f4),
-		card: ui.RGB24(0xf6f8fa),
-		line: ui.RGB24(0xe4e8ec), border: ui.RGB24(0xd0d7de),
-		hover:     ui.RGB24(0xeef1f4),
+		window: ui.RGB24(0xffffff), sidebar: ui.RGB24(0xececee), titleBar: ui.RGB24(0xe8ebef),
+		card: ui.RGB24(0xf7f8fa),
+		line: ui.RGB24(0xd8dae0), border: ui.RGB24(0xc9ccd6),
+		hover:     ui.RGB24(0xf2f3f5),
 		highlight: ui.RGB24(0xddf4ff),
 		selection: ui.RGB24(0xD0DFFE), selectionIdle: ui.RGB24(0xE9EAEE),
 		text: ui.RGB24(0x1f2328), muted: ui.RGB24(0x59636e), subtle: ui.RGB24(0x8c959f),
-		accent: ui.RGB24(0x0969da), danger: ui.RGB24(0xcf222e),
+		accent: ui.RGB24(0x3871e1), danger: ui.RGB24(0xc72d2d),
 		white: ui.RGB24(0xffffff),
 	}
 }
 
 func darkPalette() palette {
 	return palette{
-		window: ui.RGB24(0x0d1117), sidebar: ui.RGB24(0x010409), titleBar: ui.RGB24(0x161b22),
-		card: ui.RGB24(0x161b22),
-		line: ui.RGB24(0x21262d), border: ui.RGB24(0x30363d),
-		hover:     ui.RGB24(0x161b22),
+		window: ui.RGB24(0x191a1c), sidebar: ui.RGB24(0x232427), titleBar: ui.RGB24(0x28292c),
+		card: ui.RGB24(0x2b2d30),
+		line: ui.RGB24(0x2e3036), border: ui.RGB24(0x4e5157),
+		hover:     ui.RGB24(0x303136),
 		highlight: ui.RGB24(0x1f2a3a),
 		selection: ui.RGB24(0x2A4371), selectionIdle: ui.RGB24(0x33353B),
-		text: ui.RGB24(0xc9d1d9), muted: ui.RGB24(0x8b949e), subtle: ui.RGB24(0x6e7681),
-		accent: ui.RGB24(0x58a6ff), danger: ui.RGB24(0xff7b72),
+		text: ui.RGB24(0xdfe1e5), muted: ui.RGB24(0x8c8d8e), subtle: ui.RGB24(0x727375),
+		accent: ui.RGB24(0x3871e1), danger: ui.RGB24(0xea5454),
 		white: ui.RGB24(0xffffff),
 	}
 }

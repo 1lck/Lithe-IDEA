@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "description": "The consumer follows the workspace tool rather than freezing its current home or inheriting an unrelated directory override. A second consumer follows the general tool at the requested directory, without copying the current installation.",
+  "document": {
+    "version": 1,
+    "workspace": {
+      "tools": {
+        "dev.example.runtime:sdk": {
+          "home": "/fixture/sdk-one"
+        }
+      },
+      "consumers": {
+        "dev.example.build/engine": {
+          "dev.example.runtime:sdk": {
+            "inherit": "workspace"
+          }
+        },
+        "dev.example.app/runner": {
+          "dev.example.runtime:sdk": {
+            "inherit": "tool"
+          }
+        }
+      }
+    },
+    "directories": {
+      "nested": {
+        "tools": {
+          "dev.example.runtime:sdk": {
+            "home": "/fixture/directory-sdk"
+          }
+        },
+        "consumers": {
+          "dev.example.build/engine": {
+            "dev.example.runtime:sdk": {
+              "home": "/fixture/parent-choice"
+            }
+          }
+        }
+      },
+      "nested/child": {
+        "consumers": {
+          "dev.example.build/engine": {
+            "dev.example.runtime:sdk": {
+              "inherit": "consumer"
+            }
+          },
+          "dev.example.app/runner": {
+            "dev.example.runtime:sdk": {
+              "inherit": "consumer"
+            }
+          }
+        }
+      }
+    }
+  },
+  "cases": [
+    {
+      "directory": "nested/child",
+      "consumer": "dev.example.build/engine",
+      "expected": {
+        "home": "/fixture/sdk-one"
+      }
+    },
+    {
+      "directory": "nested/other",
+      "consumer": "dev.example.build/engine",
+      "expected": {
+        "home": "/fixture/parent-choice"
+      }
+    },
+    {
+      "directory": "nested/child",
+      "consumer": null,
+      "expected": {
+        "home": "/fixture/directory-sdk"
+      }
+    },
+    {
+      "directory": ".",
+      "consumer": "dev.example.build/engine",
+      "expected": {
+        "home": "/fixture/sdk-one"
+      }
+    },
+    {
+      "directory": "nested/child",
+      "consumer": "dev.example.app/runner",
+      "expected": {
+        "home": "/fixture/directory-sdk"
+      }
+    },
+    {
+      "directory": ".",
+      "consumer": "dev.example.app/runner",
+      "expected": {
+        "home": "/fixture/sdk-one"
+      }
+    }
+  ]
+}

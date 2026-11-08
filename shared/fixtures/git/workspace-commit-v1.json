@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "commitState": {
+    "head": "1111111111111111111111111111111111111111",
+    "branch": "refs/heads/main",
+    "indexEntries": "160000 2222222222222222222222222222222222222222 0\tlibs/B\u0000",
+    "gitlinks": [{ "path": "libs/B", "revision": "2222222222222222222222222222222222222222" }],
+    "stagedPaths": [],
+    "conflictedPaths": []
+  },
+  "dirtySubmodule": { "commitChanged": false, "trackedChanges": true, "untrackedChanges": false },
+  "advancedSubmodule": { "commitChanged": true, "trackedChanges": false, "untrackedChanges": false }
+}

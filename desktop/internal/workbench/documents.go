@@ -12,9 +12,11 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/vivaui/viva/flex"
@@ -24,10 +26,8 @@ import (
 const (
 	// documentMemberPrefix starts the member name of an open file in a tab group: "file:3".
 	documentMemberPrefix = "file:"
-	// documentMaxBytes is the largest file the editor opens, and documentSniff how much of
-	// the start of a file is searched for the NUL byte that marks it as binary.
-	documentMaxBytes = 16 << 20
-	documentSniff    = 8 << 10
+	// documentSniff is how much of a file is searched for the NUL byte that marks it as binary.
+	documentSniff = 8 << 10
 	// documentDirty is the side of the dot a tab shows while its file has unsaved changes.
 	documentDirty = 6
 
@@ -53,8 +53,9 @@ var (
 
 // errNotText and errTooLarge are why a file is not opened, besides the system's errors.
 var (
-	errNotText  = errors.New("not a text file")
-	errTooLarge = errors.New("file too large")
+	errNotText   = errors.New("not a text file")
+	errTooLarge  = documentio.ErrTooLarge
+	errComposing = errors.New("input method composition is active")
 )
 
 // document is a file open in a tab of the editor area.
@@ -62,9 +63,26 @@ type document struct {
 	// id identifies the document for as long as the project is open; it is never reused.
 	id int
 	// path is the file's absolute path, and name its base name, which is the tab's title.
-	path, name string
-	view       *editorview.View
+	path, name         string
+	view               *editorview.View
+	saving             bool
+	saveAgain          bool
+	closeWaiters       []func(bool)
+	checkWaiters       []func(bool)
+	checkFailed        bool
+	savedRevision      int
+	checkPending       bool
+	checking           bool
+	conflicted         bool
+	conflictMissing    bool
+	conflictContent    editorview.ReloadContent
+	conflictGeneration uint64
+	resolvingConflict  bool
+	// recreateMissing records the user's explicit choice to save a deleted file.
+	recreateMissing bool
 }
+
+func (d *document) dirty() bool { return d.view.Dirty() || d.recreateMissing }
 
 // documentSet is the files a project has open. The zero value has none.
 type documentSet struct {
@@ -72,9 +90,13 @@ type documentSet struct {
 	next int
 	// opening are the paths being read, so a second click while one is read opens nothing.
 	opening map[string]bool
+	// locations hold the latest requested one-based line while a document opens.
+	locations map[string]int
 	// group is the editor group a document was last shown or focused in, where the next file
 	// opens while it is still there.
-	group string
+	group    string
+	watches  map[string]*documentWatch
+	checking int
 }
 
 // find is the document with id, and nil when there is none.
@@ -159,27 +181,41 @@ func (a *App) openFile(p *project, path string) {
 		}
 		return func(a *App) {
 			delete(p.docs.opening, path)
+			line := p.docs.locations[path]
+			delete(p.docs.locations, path)
 			if err != nil {
 				a.emit(documentFailedLevel, documentEventOpenFailed, documentOpenFields(err))
 				a.notify(a.text.Editor.OpenFailed(name, a.documentReason(err)))
 				return
 			}
 			a.placeDocument(p, path, name, data, grammar)
+			if d := p.docs.byPath(path); d != nil && line > 0 {
+				d.view.GoToLine(line)
+			}
 		}
 	})
+}
+
+// openFileAt coalesces repeated navigation requests while the file is being read.
+func (a *App) openFileAt(p *project, path string, line int) {
+	if d := p.docs.byPath(path); d != nil {
+		a.selectDocument(p, d.id)
+		if line > 0 {
+			d.view.GoToLine(line)
+		}
+		return
+	}
+	if p.docs.locations == nil {
+		p.docs.locations = make(map[string]int)
+	}
+	p.docs.locations[path] = line
+	a.openFile(p, path)
 }
 
 // readDocument reads the file at path for the editor, refusing one that is too large or
 // holds a NUL byte near its start, the mark of a binary file.
 func readDocument(path string) ([]byte, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-	if info.Size() > documentMaxBytes {
-		return nil, errTooLarge
-	}
-	data, err := os.ReadFile(path)
+	data, err := documentio.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -192,9 +228,36 @@ func readDocument(path string) ([]byte, error) {
 // documentOpenFields are the fields of editor.document.open_failed: the error, and the
 // catalog's token for why the file was not opened.
 func documentOpenFields(err error) map[string]any {
-	fields := logwindow.ErrorFields(err)
+	fields := logwindow.ErrorFields(documentLogError(err))
 	fields["reason"] = documentOpenReason(err)
 	return fields
+}
+
+// documentLogError removes filesystem path wrappers before an error enters a log.
+// Joined failures retain their underlying errors, including any cleanup failure.
+func documentLogError(err error) error {
+	switch e := err.(type) {
+	case *os.PathError:
+		return documentLogError(e.Err)
+	case *os.LinkError:
+		return documentLogError(e.Err)
+	case interface{ Unwrap() []error }:
+		parts := e.Unwrap()
+		clean := make([]error, 0, len(parts))
+		for _, part := range parts {
+			if part != nil {
+				clean = append(clean, documentLogError(part))
+			}
+		}
+		if len(clean) > 0 {
+			return errors.Join(clean...)
+		}
+	case interface{ Unwrap() error }:
+		if cause := e.Unwrap(); cause != nil {
+			return documentLogError(cause)
+		}
+	}
+	return err
 }
 
 // documentOpenReason is the token for why a file could not be opened.
@@ -204,6 +267,10 @@ func documentOpenReason(err error) string {
 		return "not_text"
 	case errors.Is(err, errTooLarge):
 		return "too_large"
+	case errors.Is(err, documentio.ErrNotRegular):
+		return "not_regular"
+	case errors.Is(err, documentio.ErrSymbolicLink):
+		return "symbolic_link"
 	case errors.Is(err, fs.ErrNotExist):
 		return "not_found"
 	case errors.Is(err, fs.ErrPermission):
@@ -220,6 +287,10 @@ func (a *App) documentReason(err error) string {
 		return a.text.Editor.NotText
 	case errors.Is(err, errTooLarge):
 		return a.text.Editor.TooLarge
+	case errors.Is(err, documentio.ErrNotRegular):
+		return i18n.Shared(a.language(), "document.fileAccess.onlyRegularFilesCanBeOpenedAsTextDevicesSocketsAndNamedPipesAreNotSupported")
+	case errors.Is(err, documentio.ErrSymbolicLink):
+		return i18n.Shared(a.language(), "document.fileAccess.openTheTargetFileDirectlySymbolicLinkEditingIsNotSupportedByThisFileAdapter")
 	}
 	var pathErr *os.PathError
 	if errors.As(err, &pathErr) {
@@ -261,6 +332,7 @@ func (a *App) placeDocument(p *project, path, name string, data []byte, grammar 
 		Save:   func() { a.saveDocument(p, id) },
 	})
 	p.docs.list = append(p.docs.list, d)
+	a.watchDocument(p, d)
 	p.docs.group = group
 	a.focusDocument(id)
 }
@@ -302,102 +374,255 @@ func (a *App) focusDocument(id int) {
 	a.term.focus = 0
 }
 
-// saveDocument writes document id's text to its file, away from the window thread, and
-// marks what was written as saved once it is.
+// saveDocument serializes writes for a document. A repeated request is coalesced,
+// and close waiters resume only after the latest editor contents are persisted.
 func (a *App) saveDocument(p *project, id int) {
 	d := p.docs.find(id)
-	if d == nil || !d.view.Dirty() {
+	if d == nil {
+		return
+	}
+	if d.view.IsComposing() {
+		a.saveFailed(id, d.view.Revision(), d.name, errComposing)
+		return
+	}
+	if d.saving {
+		d.saveAgain = true
+		return
+	}
+	if !d.dirty() {
 		return
 	}
 	data, text := d.view.Text()
+	expected := d.view.SavedBytes()
 	path, name, revision := d.path, d.name, d.view.Revision()
+	write := a.documentWriter
+	create := a.documentCreator
+	missing := d.recreateMissing
+	d.saving = true
 	a.background(p, 0, func(context.Context) func(*App) {
-		err := writeDocument(path, data)
+		var err error
+		if missing {
+			err = create(path, data)
+		} else {
+			err = write(path, data, expected)
+		}
 		return func(a *App) {
+			d.saving = false
+			defer a.scheduleDocumentChecks(p)
 			if err != nil {
+				d.saveAgain = false
+				if errors.Is(err, documentio.ErrConflict) {
+					d.checkPending = true
+				}
 				a.saveFailed(id, revision, name, err)
+				waiters := d.closeWaiters
+				d.closeWaiters = nil
+				for _, done := range waiters {
+					done(false)
+				}
 				return
 			}
-			if d := p.docs.find(id); d != nil {
-				d.view.MarkSaved(text)
+			d.view.MarkSaved(text)
+			d.recreateMissing = false
+			d.savedRevision = revision
+			a.clearDocumentConflict(d)
+			if d.view.IsComposing() && len(d.closeWaiters) > 0 {
+				a.saveFailed(id, d.view.Revision(), name, errComposing)
+				waiters := d.closeWaiters
+				d.closeWaiters = nil
+				d.saveAgain = false
+				for _, done := range waiters {
+					done(false)
+				}
+				return
+			}
+			if (d.saveAgain || len(d.closeWaiters) > 0) && d.dirty() {
+				d.saveAgain = false
+				a.saveDocument(p, id)
+				return
+			}
+			d.saveAgain = false
+			waiters := d.closeWaiters
+			d.closeWaiters = nil
+			for _, done := range waiters {
+				done(true)
 			}
 		}
 	})
 }
 
-// writeDocument writes data over the file at path, keeping its permissions.
-func writeDocument(path string, data []byte) error {
-	mode := os.FileMode(0o644)
-	if info, err := os.Stat(path); err == nil {
-		mode = info.Mode().Perm()
+// saveBeforeClose waits asynchronously for any in-flight save and the latest edits.
+func (a *App) saveBeforeClose(p *project, d *document, done func(bool)) {
+	if d.view.IsComposing() {
+		a.saveFailed(d.id, d.view.Revision(), d.name, errComposing)
+		done(false)
+		return
 	}
-	return os.WriteFile(path, data, mode)
+	if !d.saving && !d.dirty() {
+		a.checkBeforeClose(p, d, done)
+		return
+	}
+	d.closeWaiters = append(d.closeWaiters, func(ok bool) {
+		if !ok {
+			done(false)
+			return
+		}
+		a.checkBeforeClose(p, d, done)
+	})
+	if !d.saving {
+		a.saveDocument(p, d.id)
+	}
+}
+
+// checkBeforeClose makes a fresh bounded disk check even if the watcher has not
+// yet delivered an external deletion. Waiters run only after queued checks settle.
+func (a *App) checkBeforeClose(p *project, d *document, done func(bool)) {
+	d.checkWaiters = append(d.checkWaiters, done)
+	d.checkPending = true
+	a.scheduleDocumentChecks(p)
 }
 
 // saveFailed logs that document id could not be saved at revision and shows that the file
 // name was not saved.
 func (a *App) saveFailed(id, revision int, name string, err error) {
 	a.emit(documentFailedLevel, documentEventSaveFailed, documentSaveFields(id, revision, err))
-	a.notify(a.text.Editor.SaveFailed(name, a.documentReason(err)))
+	reason := a.documentReason(err)
+	switch {
+	case errors.Is(err, errComposing):
+		reason = i18n.Shared(a.language(), "editor.completeInputBeforeSaving")
+	case errors.Is(err, documentio.ErrTooLarge):
+		reason = i18n.Shared(a.language(), "editor.fileTooLargeToSave")
+	case errors.Is(err, documentio.ErrUnsupported):
+		reason = i18n.Shared(a.language(), "editor.guardedSaveUnavailable")
+	case errors.Is(err, documentio.ErrNotRegular):
+		reason = i18n.Shared(a.language(), "document.fileAccess.onlyRegularFilesCanBeOpenedAsTextDevicesSocketsAndNamedPipesAreNotSupported")
+	case errors.Is(err, documentio.ErrConflict):
+		reason = i18n.Shared(a.language(), "editor.externalConflict")
+	case errors.Is(err, documentio.ErrHardLink):
+		reason = i18n.Shared(a.language(), "editor.hardLinkSaveUnavailable")
+	case errors.Is(err, documentio.ErrSymbolicLink):
+		reason = i18n.Shared(a.language(), "document.fileAccess.openTheTargetFileDirectlySymbolicLinkEditingIsNotSupportedByThisFileAdapter")
+	}
+	a.notify(a.text.Editor.SaveFailed(name, reason))
 }
 
 // documentSaveFields are the fields of editor.document.save_failed for document id, whose
 // text was at revision when it was written.
 func documentSaveFields(id, revision int, err error) map[string]any {
-	fields := logwindow.ErrorFields(err)
+	fields := logwindow.ErrorFields(documentLogError(err))
 	fields["document"] = strconv.Itoa(id)
 	fields["revision"] = revision
 	fields["stage"] = documentSaveStage
 	return fields
 }
 
-// closeDocument saves document id if it has changes and removes its tab; the group shows
-// the neighbouring tab instead. A file that cannot be saved keeps its tab, so no change is
-// lost.
+// closeDocument keeps the tab and its contents alive until its last save succeeds.
 func (a *App) closeDocument(p *project, id int) {
 	d := p.docs.find(id)
 	if d == nil {
 		return
 	}
-	if d.view.Dirty() {
-		data, text := d.view.Text()
-		if err := writeDocument(d.path, data); err != nil {
-			a.saveFailed(d.id, d.view.Revision(), d.name, err)
+	a.saveBeforeClose(p, d, func(ok bool) {
+		if !ok || a.project != p || p.docs.find(id) != d {
 			return
 		}
-		d.view.MarkSaved(text)
-	}
-	member := documentMember(id)
-	g := p.terms.bench.GroupOf(member)
-	if g == nil {
-		return
-	}
-	group := g.ID
-	if !a.reduceTerminals(p, p.terms.bench, core.CloseEditor(group, member, emptyPolicy(group), core.SelectAdjacent)) {
-		return
-	}
-	d.view.Close()
-	p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == id })
-	if next := p.selectedDocument(group); next != nil {
-		a.focusDocument(next.id)
-	} else if t := p.terms.selected(group); t != nil {
-		a.focusTerminal(t.id)
-	}
+		member := documentMember(id)
+		g := p.terms.bench.GroupOf(member)
+		if g == nil {
+			return
+		}
+		group := g.ID
+		if !a.reduceTerminals(p, p.terms.bench, core.CloseEditor(group, member, emptyPolicy(group), core.SelectAdjacent)) {
+			return
+		}
+		d.view.Close()
+		p.docs.list = slices.DeleteFunc(p.docs.list, func(x *document) bool { return x.id == id })
+		a.unwatchDocument(p, d)
+		if next := p.selectedDocument(group); next != nil {
+			a.focusDocument(next.id)
+		} else if term := p.terms.selected(group); term != nil {
+			a.focusTerminal(term.id)
+		}
+	})
 }
 
-// closeDocuments saves the changes of a project that is being closed and closes its files.
-// A file that cannot be saved is reported; the project closes anyway.
-func (a *App) closeDocuments(p *project) {
-	if p == nil {
+// saveProjectDocuments drains writes and verifies each current document before closing.
+func (a *App) saveProjectDocuments(p *project, done func(bool)) {
+	a.saveProjectPass(p, make(map[int]int), done)
+}
+
+func (a *App) saveProjectPass(p *project, verified map[int]int, done func(bool)) {
+	for _, d := range p.docs.list {
+		if d.saving {
+			a.saveBeforeClose(p, d, func(ok bool) {
+				if !ok {
+					done(false)
+					return
+				}
+				verified[d.id] = d.view.Revision()
+				a.saveProjectPass(p, verified, done)
+			})
+			return
+		}
+	}
+	documents := make([]core.SaveBatchDocument, 0, len(p.docs.list))
+	for _, d := range p.docs.list {
+		documents = append(documents, core.SaveBatchDocument{ID: documentMember(d.id), Dirty: d.dirty() || d.conflicted, ContentSynchronized: !d.view.IsComposing()})
+	}
+	ctx, cancel := context.WithTimeout(p.ctx, kernelCallTimeout)
+	plan, err := a.kernel.PlanDocumentSaveBatch(ctx, documents)
+	cancel()
+	if err != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("document_save_batch", err))
+		a.notify(a.text.Errors.Core(err.Error()))
+		done(false)
 		return
 	}
-	for _, d := range p.docs.list {
-		if d.view.Dirty() {
-			data, _ := d.view.Text()
-			if err := writeDocument(d.path, data); err != nil {
-				a.saveFailed(d.id, d.view.Revision(), d.name, err)
+	var d *document
+	if len(plan.Members) > 0 {
+		id, valid := memberDocument(plan.Members[0])
+		d = p.docs.find(id)
+		if !valid || d == nil {
+			done(false)
+			return
+		}
+	} else {
+		for _, candidate := range p.docs.list {
+			if revision, ok := verified[candidate.id]; !ok || revision != candidate.view.Revision() || candidate.checkPending || candidate.checking {
+				d = candidate
+				break
 			}
 		}
+		if d == nil {
+			ctx, cancel := context.WithTimeout(p.ctx, kernelCallTimeout)
+			decision, err := a.kernel.ReduceDocumentSaveBatch(ctx, plan.Members, nil, documents)
+			cancel()
+			if err != nil {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("document_save_batch", err))
+				a.notify(a.text.Errors.Core(err.Error()))
+				done(false)
+				return
+			}
+			done(decision.Status == core.SaveBatchSaved)
+			return
+		}
+	}
+	a.saveBeforeClose(p, d, func(ok bool) {
+		if !ok {
+			done(false)
+			return
+		}
+		verified[d.id] = d.view.Revision()
+		a.saveProjectPass(p, verified, done)
+	})
+}
+
+// closeDocuments releases views after their saves have completed.
+func (a *App) closeDocuments(p *project) {
+	for _, watch := range p.docs.watches {
+		watch.close()
+	}
+	for _, d := range p.docs.list {
 		d.view.Close()
 	}
 	p.docs = documentSet{}
@@ -482,7 +707,7 @@ func (a *App) drawDocumentTab(f *flex.Frame, d *document, selected bool, pos, si
 		} else {
 			label.Color(a.colors.Subtle).StateFrom(chip).Hover(flex.Look{}.Color(a.colors.Text))
 		}
-		if d.view.Dirty() {
+		if d.dirty() {
 			f.Row().Size(documentDirty, documentDirty).Shrink(0).Radius(documentDirty / 2).Background(a.colors.Accent)
 		}
 		closeButton = f.Row().Size(terminalCloseSize, terminalCloseSize).Shrink(0).Center().

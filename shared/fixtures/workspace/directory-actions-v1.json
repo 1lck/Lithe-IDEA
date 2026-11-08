@@ -1,0 +1,275 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "cancel-then-plain",
+      "steps": [
+        {
+          "action": {
+            "kind": "cancelExclusion"
+          },
+          "role": "plain",
+          "included": true
+        },
+        {
+          "action": {
+            "kind": "setRole",
+            "role": "plain"
+          },
+          "role": "plain",
+          "included": true
+        }
+      ]
+    },
+    {
+      "id": "plain-then-cancel",
+      "steps": [
+        {
+          "action": {
+            "kind": "setRole",
+            "role": "plain"
+          },
+          "role": "plain",
+          "included": false
+        },
+        {
+          "action": {
+            "kind": "cancelExclusion"
+          },
+          "role": "plain",
+          "included": true
+        },
+        {
+          "action": {
+            "kind": "exclude"
+          },
+          "role": "excluded",
+          "included": false
+        },
+        {
+          "action": {
+            "kind": "cancelExclusion"
+          },
+          "role": "plain",
+          "included": true
+        }
+      ]
+    },
+    {
+      "id": "cancel-then-sources",
+      "steps": [
+        {
+          "action": {
+            "kind": "cancelExclusion"
+          },
+          "role": "plain",
+          "included": true
+        },
+        {
+          "action": {
+            "kind": "setRole",
+            "role": "sources"
+          },
+          "role": "sources",
+          "included": true
+        }
+      ]
+    },
+    {
+      "id": "sources-then-cancel",
+      "steps": [
+        {
+          "action": {
+            "kind": "setRole",
+            "role": "sources"
+          },
+          "role": "sources",
+          "included": false
+        },
+        {
+          "action": {
+            "kind": "cancelExclusion"
+          },
+          "role": "sources",
+          "included": true
+        },
+        {
+          "action": {
+            "kind": "exclude"
+          },
+          "role": "excluded",
+          "included": false
+        },
+        {
+          "action": {
+            "kind": "cancelExclusion"
+          },
+          "role": "sources",
+          "included": true
+        }
+      ]
+    },
+    {
+      "id": "cancel-then-resources",
+      "steps": [
+        {
+          "action": {
+            "kind": "cancelExclusion"
+          },
+          "role": "plain",
+          "included": true
+        },
+        {
+          "action": {
+            "kind": "setRole",
+            "role": "resources"
+          },
+          "role": "resources",
+          "included": true
+        }
+      ]
+    },
+    {
+      "id": "resources-then-cancel",
+      "steps": [
+        {
+          "action": {
+            "kind": "setRole",
+            "role": "resources"
+          },
+          "role": "resources",
+          "included": false
+        },
+        {
+          "action": {
+            "kind": "cancelExclusion"
+          },
+          "role": "resources",
+          "included": true
+        },
+        {
+          "action": {
+            "kind": "exclude"
+          },
+          "role": "excluded",
+          "included": false
+        },
+        {
+          "action": {
+            "kind": "cancelExclusion"
+          },
+          "role": "resources",
+          "included": true
+        }
+      ]
+    },
+    {
+      "id": "cancel-then-module",
+      "steps": [
+        {
+          "action": {
+            "kind": "cancelExclusion"
+          },
+          "role": "plain",
+          "included": true
+        },
+        {
+          "action": {
+            "kind": "setRole",
+            "role": "module"
+          },
+          "role": "module",
+          "included": true
+        }
+      ]
+    },
+    {
+      "id": "module-then-cancel",
+      "steps": [
+        {
+          "action": {
+            "kind": "setRole",
+            "role": "module"
+          },
+          "role": "module",
+          "included": false
+        },
+        {
+          "action": {
+            "kind": "cancelExclusion"
+          },
+          "role": "module",
+          "included": true
+        },
+        {
+          "action": {
+            "kind": "exclude"
+          },
+          "role": "excluded",
+          "included": false
+        },
+        {
+          "action": {
+            "kind": "cancelExclusion"
+          },
+          "role": "module",
+          "included": true
+        }
+      ]
+    },
+    {
+      "id": "cancel-then-package",
+      "steps": [
+        {
+          "action": {
+            "kind": "cancelExclusion"
+          },
+          "role": "plain",
+          "included": true
+        },
+        {
+          "action": {
+            "kind": "setRole",
+            "role": "package"
+          },
+          "role": "package",
+          "included": true
+        }
+      ]
+    },
+    {
+      "id": "package-then-cancel",
+      "steps": [
+        {
+          "action": {
+            "kind": "setRole",
+            "role": "package"
+          },
+          "role": "package",
+          "included": false
+        },
+        {
+          "action": {
+            "kind": "cancelExclusion"
+          },
+          "role": "package",
+          "included": true
+        },
+        {
+          "action": {
+            "kind": "exclude"
+          },
+          "role": "excluded",
+          "included": false
+        },
+        {
+          "action": {
+            "kind": "cancelExclusion"
+          },
+          "role": "package",
+          "included": true
+        }
+      ]
+    }
+  ]
+}

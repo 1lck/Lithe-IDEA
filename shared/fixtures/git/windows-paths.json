@@ -1,0 +1,59 @@
+{
+  "accepted": [
+    {
+      "input": "\\\\?\\C:\\work\\repo",
+      "normalized": "C:/work/repo"
+    },
+    {
+      "input": "\\\\?\\UNC\\server\\share\\repo",
+      "normalized": "//server/share/repo"
+    },
+    {
+      "input": "\\\\?\\unc\\server\\share\\repo",
+      "normalized": "//server/share/repo"
+    },
+    {
+      "input": "\\\\server\\share\\repo",
+      "normalized": "//server/share/repo"
+    },
+    {
+      "input": "C:\\项目 space\\repo",
+      "normalized": "C:/项目 space/repo"
+    },
+    {
+      "input": "//?/C:/work/repo",
+      "normalized": "C:/work/repo"
+    },
+    {
+      "input": "C:\\",
+      "normalized": "C:/"
+    },
+    {
+      "input": "/work/repo",
+      "normalized": "/work/repo"
+    },
+    {
+      "input": "\\\\server.example.\\share\\repo",
+      "normalized": "//server.example./share/repo"
+    },
+    {
+      "input": "\\\\?\\UNC\\server.example.\\share\\repo",
+      "normalized": "//server.example./share/repo"
+    }
+  ],
+  "rejected": [
+    "\\\\?\\C:\\work\\repo.",
+    "\\\\?\\C:\\work\\repo ",
+    "\\\\?\\C:\\work.\\repo",
+    "\\\\?\\UNC\\server\\share\\repo.\\src",
+    "\\\\server\\share\\repo ",
+    "C:\\work\\repo.",
+    "//?/C:/work/repo ",
+    "\\\\.\\C:\\work\\repo",
+    "\\\\?\\Volume{fixture}\\repo",
+    "\\\\?\\C:\\work\\NUL.txt",
+    "\\\\?\\C:\\work\\COM1",
+    "\\\\?\\C:\\work\\..\\repo",
+    "\\\\?\\UNC\\server"
+  ]
+}

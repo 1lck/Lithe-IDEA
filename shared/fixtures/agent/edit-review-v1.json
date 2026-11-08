@@ -1,0 +1,1087 @@
+{
+  "description": "Agent edit evidence normalization (Host annotation `_meta.lithe.diffs`) and `agent.edits.reversePlan`. Text values may be {repeat, count, suffix?} and expand to repeat×count followed by suffix. Limits count Unicode scalar values.",
+  "textLimitScalars": 32768,
+  "contentLimit": 100,
+  "evidence": [
+    {
+      "name": "plain diff",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "tool-1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "diff",
+            "path": "a.txt",
+            "oldText": "one",
+            "newText": "two"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "path": "a.txt",
+          "oldText": "one",
+          "newText": "two",
+          "operation": null,
+          "additions": null,
+          "deletions": null,
+          "truncated": false,
+          "revertible": true
+        }
+      ]
+    },
+    {
+      "name": "null previous text without creation metadata is an insertion, not revertible",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "tool-1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "diff",
+            "path": "a.txt",
+            "oldText": null,
+            "newText": "inserted"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "path": "a.txt",
+          "oldText": null,
+          "newText": "inserted",
+          "operation": null,
+          "additions": null,
+          "deletions": null,
+          "truncated": false,
+          "revertible": false
+        }
+      ]
+    },
+    {
+      "name": "explicit creation metadata makes null previous text revertible",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "tool-1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "diff",
+            "path": "a.txt",
+            "oldText": null,
+            "newText": "created",
+            "_meta": {
+              "kind": "add"
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "path": "a.txt",
+          "oldText": null,
+          "newText": "created",
+          "operation": "add",
+          "additions": null,
+          "deletions": null,
+          "truncated": false,
+          "revertible": true
+        }
+      ]
+    },
+    {
+      "name": "missing newText keeps the hunk as incomplete evidence instead of dropping it",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "tool-1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "diff",
+            "path": "a.txt",
+            "oldText": "one"
+          },
+          {
+            "type": "diff",
+            "path": "a.txt",
+            "oldText": "two",
+            "newText": "three"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "path": "a.txt",
+          "oldText": "one",
+          "newText": "",
+          "operation": null,
+          "additions": null,
+          "deletions": null,
+          "truncated": true,
+          "revertible": false
+        },
+        {
+          "path": "a.txt",
+          "oldText": "two",
+          "newText": "three",
+          "operation": null,
+          "additions": null,
+          "deletions": null,
+          "truncated": false,
+          "revertible": true
+        }
+      ]
+    },
+    {
+      "name": "upstream truncation flag",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "tool-1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "diff",
+            "path": "a.txt",
+            "oldText": "one",
+            "newText": "two",
+            "isTruncated": true
+          }
+        ]
+      },
+      "expected": [
+        {
+          "path": "a.txt",
+          "oldText": "one",
+          "newText": "two",
+          "operation": null,
+          "additions": null,
+          "deletions": null,
+          "truncated": true,
+          "revertible": false
+        }
+      ]
+    },
+    {
+      "name": "20000 emoji: 40000 UTF-16 units but 20000 scalars stay complete",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "tool-1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "diff",
+            "path": "a.txt",
+            "oldText": {
+              "repeat": "😀",
+              "count": 20000
+            },
+            "newText": "x"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "path": "a.txt",
+          "oldText": {
+            "repeat": "😀",
+            "count": 20000
+          },
+          "newText": "x",
+          "operation": null,
+          "additions": null,
+          "deletions": null,
+          "truncated": false,
+          "revertible": true
+        }
+      ]
+    },
+    {
+      "name": "20000 combining sequences: 20000 graphemes but 40000 scalars are truncated",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "tool-1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "diff",
+            "path": "a.txt",
+            "oldText": "x",
+            "newText": {
+              "repeat": "é",
+              "count": 20000
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "path": "a.txt",
+          "oldText": "x",
+          "newText": {
+            "repeat": "é",
+            "count": 16384,
+            "suffix": "\n[...]"
+          },
+          "operation": null,
+          "additions": null,
+          "deletions": null,
+          "truncated": true,
+          "revertible": false
+        }
+      ]
+    },
+    {
+      "name": "CJK text exactly at the scalar limit stays complete",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "tool-1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "diff",
+            "path": "a.txt",
+            "oldText": {
+              "repeat": "汉",
+              "count": 32768
+            },
+            "newText": "x"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "path": "a.txt",
+          "oldText": {
+            "repeat": "汉",
+            "count": 32768
+          },
+          "newText": "x",
+          "operation": null,
+          "additions": null,
+          "deletions": null,
+          "truncated": false,
+          "revertible": true
+        }
+      ]
+    },
+    {
+      "name": "CJK text one scalar over the limit is truncated",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "tool-1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "diff",
+            "path": "a.txt",
+            "oldText": {
+              "repeat": "汉",
+              "count": 32769
+            },
+            "newText": "x"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "path": "a.txt",
+          "oldText": {
+            "repeat": "汉",
+            "count": 32768,
+            "suffix": "\n[...]"
+          },
+          "newText": "x",
+          "operation": null,
+          "additions": null,
+          "deletions": null,
+          "truncated": true,
+          "revertible": false
+        }
+      ]
+    },
+    {
+      "name": "version 1 diff statistics are kept",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "tool-1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "diff",
+            "path": "a.txt",
+            "oldText": "a",
+            "newText": "b",
+            "_meta": {
+              "jetbrains": {
+                "air": {
+                  "diffStats": {
+                    "version": 1,
+                    "added": 3,
+                    "removed": 2
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "path": "a.txt",
+          "oldText": "a",
+          "newText": "b",
+          "operation": null,
+          "additions": 3,
+          "deletions": 2,
+          "truncated": false,
+          "revertible": true
+        }
+      ]
+    },
+    {
+      "name": "unknown statistics versions stay unknown",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "tool-1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "diff",
+            "path": "a.txt",
+            "oldText": "a",
+            "newText": "b",
+            "_meta": {
+              "jetbrains": {
+                "air": {
+                  "diffStats": {
+                    "version": 2,
+                    "added": 3,
+                    "removed": 2
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "path": "a.txt",
+          "oldText": "a",
+          "newText": "b",
+          "operation": null,
+          "additions": null,
+          "deletions": null,
+          "truncated": false,
+          "revertible": true
+        }
+      ]
+    },
+    {
+      "name": "Claude Write create replaces newline-less hunks",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "tool-1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "diff",
+            "path": "w.txt",
+            "oldText": null,
+            "newText": "fragment"
+          }
+        ],
+        "_meta": {
+          "claudeCode": {
+            "toolName": "Write",
+            "toolResponse": {
+              "type": "create",
+              "filePath": "w.txt",
+              "content": "whole\nfile\n"
+            }
+          }
+        }
+      },
+      "expected": [
+        {
+          "path": "w.txt",
+          "oldText": null,
+          "newText": "whole\nfile\n",
+          "operation": "add",
+          "additions": null,
+          "deletions": null,
+          "truncated": false,
+          "revertible": true
+        }
+      ]
+    },
+    {
+      "name": "Claude Write update keeps complete statistics of the same update",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "tool-1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "diff",
+            "path": "w.txt",
+            "oldText": "a",
+            "newText": "b",
+            "_meta": {
+              "jetbrains": {
+                "air": {
+                  "diffStats": {
+                    "version": 1,
+                    "added": 1,
+                    "removed": 1
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "_meta": {
+          "claudeCode": {
+            "toolName": "Write",
+            "toolResponse": {
+              "type": "update",
+              "filePath": "w.txt",
+              "content": "b\n",
+              "originalFile": "a\n"
+            }
+          }
+        }
+      },
+      "expected": [
+        {
+          "path": "w.txt",
+          "oldText": "a\n",
+          "newText": "b\n",
+          "operation": "update",
+          "additions": 1,
+          "deletions": 1,
+          "truncated": false,
+          "revertible": true
+        }
+      ]
+    },
+    {
+      "name": "Claude Write update without the original file is ignored",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "tool-1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "diff",
+            "path": "w.txt",
+            "oldText": "a",
+            "newText": "b"
+          }
+        ],
+        "_meta": {
+          "claudeCode": {
+            "toolName": "Write",
+            "toolResponse": {
+              "type": "update",
+              "filePath": "w.txt",
+              "content": "b\n"
+            }
+          }
+        }
+      },
+      "expected": [
+        {
+          "path": "w.txt",
+          "oldText": "a",
+          "newText": "b",
+          "operation": null,
+          "additions": null,
+          "deletions": null,
+          "truncated": false,
+          "revertible": true
+        }
+      ]
+    },
+    {
+      "name": "content without diffs clears the evidence",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "tool-1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "content",
+            "content": {
+              "type": "text",
+              "text": "done"
+            }
+          }
+        ]
+      },
+      "expected": []
+    },
+    {
+      "name": "an update without content keeps earlier evidence",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "tool-1",
+        "status": "completed",
+        "title": "Edit"
+      },
+      "expected": null
+    },
+    {
+      "name": "non-tool updates are not annotated",
+      "update": {
+        "sessionUpdate": "agent_message_chunk",
+        "content": [
+          {
+            "type": "diff",
+            "path": "a.txt",
+            "oldText": "a",
+            "newText": "b"
+          }
+        ]
+      },
+      "expected": null
+    }
+  ],
+  "reversePlan": [
+    {
+      "name": "reverses chained edits newest first around unrelated text",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "one",
+            "newText": "two",
+            "operation": null,
+            "toolKind": null,
+            "truncated": false
+          },
+          {
+            "oldText": "two",
+            "newText": "three",
+            "operation": null,
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "before\nthree\nafter"
+      },
+      "expected": {
+        "action": "write",
+        "text": "before\none\nafter"
+      }
+    },
+    {
+      "name": "complete snapshot matches verbatim",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "A\n",
+            "newText": "B\n",
+            "operation": null,
+            "toolKind": null,
+            "truncated": false
+          },
+          {
+            "oldText": "B\n",
+            "newText": "C\n",
+            "operation": null,
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "C\n"
+      },
+      "expected": {
+        "action": "write",
+        "text": "A\n"
+      }
+    },
+    {
+      "name": "LF evidence reverses inside a CRLF file",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "before\n",
+            "newText": "after\n",
+            "operation": null,
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "before\r\nafter\r\n"
+      },
+      "expected": {
+        "action": "write",
+        "text": "before\r\nbefore\r\n"
+      }
+    },
+    {
+      "name": "LF snapshot reverses a CRLF file",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "before\n",
+            "newText": "after\n",
+            "operation": null,
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "after\r\n"
+      },
+      "expected": {
+        "action": "write",
+        "text": "before\r\n"
+      }
+    },
+    {
+      "name": "mixed line endings rewrite only the matched span",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "before\nend\n",
+            "newText": "after\nend\n",
+            "operation": null,
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "keep\r\nx\nafter\nend\r\n"
+      },
+      "expected": {
+        "action": "write",
+        "text": "keep\r\nx\nbefore\r\nend\r\n"
+      }
+    },
+    {
+      "name": "ambiguous excerpt is a conflict",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "old",
+            "newText": "new",
+            "operation": null,
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "new new"
+      },
+      "expected": {
+        "action": "conflict",
+        "reason": "changed"
+      }
+    },
+    {
+      "name": "missing excerpt is a conflict",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "old",
+            "newText": "new",
+            "operation": null,
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "unrelated"
+      },
+      "expected": {
+        "action": "conflict",
+        "reason": "changed"
+      }
+    },
+    {
+      "name": "overlapping exact excerpts are ambiguous",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "x",
+            "newText": "aba",
+            "operation": null,
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "ababa"
+      },
+      "expected": {
+        "action": "conflict",
+        "reason": "changed"
+      }
+    },
+    {
+      "name": "overlapping canonical excerpts are ambiguous",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "x",
+            "newText": "a\nb\na",
+            "operation": null,
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "a\nb\r\na\nb\r\na"
+      },
+      "expected": {
+        "action": "conflict",
+        "reason": "changed"
+      }
+    },
+    {
+      "name": "empty excerpt never matches",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "x",
+            "newText": "",
+            "operation": null,
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "abc"
+      },
+      "expected": {
+        "action": "conflict",
+        "reason": "changed"
+      }
+    },
+    {
+      "name": "insertion without creation metadata is incomplete",
+      "request": {
+        "diffs": [
+          {
+            "oldText": null,
+            "newText": "inserted",
+            "operation": null,
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "a inserted"
+      },
+      "expected": {
+        "action": "conflict",
+        "reason": "incomplete"
+      }
+    },
+    {
+      "name": "creation removes only the exact created content",
+      "request": {
+        "diffs": [
+          {
+            "oldText": null,
+            "newText": "created",
+            "operation": "add",
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "created"
+      },
+      "expected": {
+        "action": "trash"
+      }
+    },
+    {
+      "name": "creation matches across line endings",
+      "request": {
+        "diffs": [
+          {
+            "oldText": null,
+            "newText": "created\n",
+            "operation": "add",
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "created\r\n"
+      },
+      "expected": {
+        "action": "trash"
+      }
+    },
+    {
+      "name": "edited creation is a conflict",
+      "request": {
+        "diffs": [
+          {
+            "oldText": null,
+            "newText": "created",
+            "operation": "add",
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "created and edited"
+      },
+      "expected": {
+        "action": "conflict",
+        "reason": "changed"
+      }
+    },
+    {
+      "name": "deletion restores a still missing path",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "deleted",
+            "newText": "",
+            "operation": "delete",
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": null
+      },
+      "expected": {
+        "action": "write",
+        "text": "deleted"
+      }
+    },
+    {
+      "name": "deletion never overwrites a recreated path",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "deleted",
+            "newText": "",
+            "operation": "delete",
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "recreated"
+      },
+      "expected": {
+        "action": "conflict",
+        "reason": "changed"
+      }
+    },
+    {
+      "name": "tool-level delete kind marks an operation-less diff as deletion",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "original",
+            "newText": "",
+            "operation": null,
+            "toolKind": "delete",
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": null
+      },
+      "expected": {
+        "action": "write",
+        "text": "original"
+      }
+    },
+    {
+      "name": "explicit update operation wins over a delete tool kind",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "old",
+            "newText": "new",
+            "operation": "update",
+            "toolKind": "delete",
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "new"
+      },
+      "expected": {
+        "action": "write",
+        "text": "old"
+      }
+    },
+    {
+      "name": "editing a missing file is a conflict",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "old",
+            "newText": "new",
+            "operation": null,
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": null
+      },
+      "expected": {
+        "action": "conflict",
+        "reason": "changed"
+      }
+    },
+    {
+      "name": "created then deleted needs no change",
+      "request": {
+        "diffs": [
+          {
+            "oldText": null,
+            "newText": "tmp",
+            "operation": "add",
+            "toolKind": null,
+            "truncated": false
+          },
+          {
+            "oldText": "tmp",
+            "newText": "",
+            "operation": "delete",
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": null
+      },
+      "expected": {
+        "action": "none"
+      }
+    },
+    {
+      "name": "restoring identical text needs no write",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "same",
+            "newText": "same",
+            "operation": null,
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "same"
+      },
+      "expected": {
+        "action": "none"
+      }
+    },
+    {
+      "name": "pending tools are incomplete",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "old",
+            "newText": "new",
+            "operation": null,
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": true,
+        "missingEvidence": false,
+        "disk": "new"
+      },
+      "expected": {
+        "action": "conflict",
+        "reason": "incomplete"
+      }
+    },
+    {
+      "name": "missing or moved evidence is incomplete",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "old",
+            "newText": "new",
+            "operation": null,
+            "toolKind": null,
+            "truncated": false
+          }
+        ],
+        "pending": false,
+        "missingEvidence": true,
+        "disk": "new"
+      },
+      "expected": {
+        "action": "conflict",
+        "reason": "incomplete"
+      }
+    },
+    {
+      "name": "truncated evidence is incomplete",
+      "request": {
+        "diffs": [
+          {
+            "oldText": "old",
+            "newText": "new",
+            "operation": null,
+            "toolKind": null,
+            "truncated": true
+          }
+        ],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "new"
+      },
+      "expected": {
+        "action": "conflict",
+        "reason": "incomplete"
+      }
+    },
+    {
+      "name": "no diffs is incomplete",
+      "request": {
+        "diffs": [],
+        "pending": false,
+        "missingEvidence": false,
+        "disk": "new"
+      },
+      "expected": {
+        "action": "conflict",
+        "reason": "incomplete"
+      }
+    }
+  ]
+}

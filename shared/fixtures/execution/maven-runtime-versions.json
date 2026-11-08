@@ -1,0 +1,10 @@
+{
+  "description": "Maven and mvnd expose the embedded Apache Maven version, never the daemon banner.",
+  "cases": [
+    { "output": "Apache Maven 3.9.11 (fixture)\nMaven home: /fixture/maven\n", "version": "3.9.11" },
+    { "output": "Apache Maven Daemon (mvnd) 1.0.6 darwin-aarch64\nApache Maven 3.9.11 (fixture)\n", "version": "3.9.11" },
+    { "output": "Apache Maven Daemon (mvnd) 1.0.6 windows-amd64\r\nApache Maven 4.0.0-rc-3 (fixture)\r\n", "version": "4.0.0-rc-3" },
+    { "output": "Apache Maven Daemon (mvnd) 1.0.6\n", "version": null },
+    { "output": "Java home is invalid\n", "version": null }
+  ]
+}

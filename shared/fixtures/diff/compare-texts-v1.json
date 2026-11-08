@@ -1,0 +1,697 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "single line edit pairs as a change",
+      "oldText": "before\n",
+      "newText": "after\n",
+      "expected": {
+        "rows": [
+          {
+            "oldLine": 1,
+            "newLine": 1,
+            "left": "before",
+            "right": "after",
+            "kind": "changed"
+          }
+        ],
+        "lines": [
+          {
+            "kind": "removed",
+            "content": "before",
+            "oldLine": 1,
+            "newLine": null
+          },
+          {
+            "kind": "added",
+            "content": "after",
+            "oldLine": null,
+            "newLine": 1
+          }
+        ],
+        "oldLineCount": 1,
+        "newLineCount": 1,
+        "additions": 1,
+        "deletions": 1
+      }
+    },
+    {
+      "name": "CRLF and LF compare equal",
+      "oldText": "alpha\r\nbeta\r\n",
+      "newText": "alpha\nbeta",
+      "expected": {
+        "rows": [
+          {
+            "oldLine": 1,
+            "newLine": 1,
+            "left": "alpha",
+            "kind": "context"
+          },
+          {
+            "oldLine": 2,
+            "newLine": 2,
+            "left": "beta",
+            "kind": "context"
+          }
+        ],
+        "lines": [
+          {
+            "kind": "context",
+            "content": "alpha",
+            "oldLine": 1,
+            "newLine": 1
+          },
+          {
+            "kind": "context",
+            "content": "beta",
+            "oldLine": 2,
+            "newLine": 2
+          }
+        ],
+        "oldLineCount": 2,
+        "newLineCount": 2,
+        "additions": 0,
+        "deletions": 0
+      }
+    },
+    {
+      "name": "lone carriage return terminates a line",
+      "oldText": "alpha\rbeta",
+      "newText": "alpha\nbeta\n",
+      "expected": {
+        "rows": [
+          {
+            "oldLine": 1,
+            "newLine": 1,
+            "left": "alpha",
+            "kind": "context"
+          },
+          {
+            "oldLine": 2,
+            "newLine": 2,
+            "left": "beta",
+            "kind": "context"
+          }
+        ],
+        "lines": [
+          {
+            "kind": "context",
+            "content": "alpha",
+            "oldLine": 1,
+            "newLine": 1
+          },
+          {
+            "kind": "context",
+            "content": "beta",
+            "oldLine": 2,
+            "newLine": 2
+          }
+        ],
+        "oldLineCount": 2,
+        "newLineCount": 2,
+        "additions": 0,
+        "deletions": 0
+      }
+    },
+    {
+      "name": "final terminator does not add an empty line",
+      "oldText": "only\n",
+      "newText": "only",
+      "expected": {
+        "rows": [
+          {
+            "oldLine": 1,
+            "newLine": 1,
+            "left": "only",
+            "kind": "context"
+          }
+        ],
+        "lines": [
+          {
+            "kind": "context",
+            "content": "only",
+            "oldLine": 1,
+            "newLine": 1
+          }
+        ],
+        "oldLineCount": 1,
+        "newLineCount": 1,
+        "additions": 0,
+        "deletions": 0
+      }
+    },
+    {
+      "name": "empty baseline lists every line as added",
+      "oldText": "",
+      "newText": "first\nsecond\n",
+      "expected": {
+        "rows": [
+          {
+            "oldLine": null,
+            "newLine": 1,
+            "left": null,
+            "right": "first",
+            "kind": "addition"
+          },
+          {
+            "oldLine": null,
+            "newLine": 2,
+            "left": null,
+            "right": "second",
+            "kind": "addition"
+          }
+        ],
+        "lines": [
+          {
+            "kind": "added",
+            "content": "first",
+            "oldLine": null,
+            "newLine": 1
+          },
+          {
+            "kind": "added",
+            "content": "second",
+            "oldLine": null,
+            "newLine": 2
+          }
+        ],
+        "oldLineCount": 0,
+        "newLineCount": 2,
+        "additions": 2,
+        "deletions": 0
+      }
+    },
+    {
+      "name": "empty current text lists every line as removed",
+      "oldText": "first\nsecond\n",
+      "newText": "",
+      "expected": {
+        "rows": [
+          {
+            "oldLine": 1,
+            "newLine": null,
+            "left": "first",
+            "kind": "removal"
+          },
+          {
+            "oldLine": 2,
+            "newLine": null,
+            "left": "second",
+            "kind": "removal"
+          }
+        ],
+        "lines": [
+          {
+            "kind": "removed",
+            "content": "first",
+            "oldLine": 1,
+            "newLine": null
+          },
+          {
+            "kind": "removed",
+            "content": "second",
+            "oldLine": 2,
+            "newLine": null
+          }
+        ],
+        "oldLineCount": 2,
+        "newLineCount": 0,
+        "additions": 0,
+        "deletions": 2
+      }
+    },
+    {
+      "name": "blank lines are real lines",
+      "oldText": "a\n\n\nb\n",
+      "newText": "a\n\nb\n",
+      "expected": {
+        "rows": [
+          {
+            "oldLine": 1,
+            "newLine": 1,
+            "left": "a",
+            "kind": "context"
+          },
+          {
+            "oldLine": 2,
+            "newLine": 2,
+            "left": "",
+            "kind": "context"
+          },
+          {
+            "oldLine": 3,
+            "newLine": null,
+            "left": "",
+            "kind": "removal"
+          },
+          {
+            "oldLine": 4,
+            "newLine": 3,
+            "left": "b",
+            "kind": "context"
+          }
+        ],
+        "lines": [
+          {
+            "kind": "context",
+            "content": "a",
+            "oldLine": 1,
+            "newLine": 1
+          },
+          {
+            "kind": "context",
+            "content": "",
+            "oldLine": 2,
+            "newLine": 2
+          },
+          {
+            "kind": "removed",
+            "content": "",
+            "oldLine": 3,
+            "newLine": null
+          },
+          {
+            "kind": "context",
+            "content": "b",
+            "oldLine": 4,
+            "newLine": 3
+          }
+        ],
+        "oldLineCount": 4,
+        "newLineCount": 3,
+        "additions": 0,
+        "deletions": 1
+      }
+    },
+    {
+      "name": "unrelated blocks stay separate removals and additions",
+      "oldText": "keep\nimport Foundation\nimport AppKit\ntail\n",
+      "newText": "keep\nlet x = 1\nlet y = 2\nlet z = 3\ntail\n",
+      "expected": {
+        "rows": [
+          {
+            "oldLine": 1,
+            "newLine": 1,
+            "left": "keep",
+            "kind": "context"
+          },
+          {
+            "oldLine": 2,
+            "newLine": null,
+            "left": "import Foundation",
+            "kind": "removal"
+          },
+          {
+            "oldLine": 3,
+            "newLine": null,
+            "left": "import AppKit",
+            "kind": "removal"
+          },
+          {
+            "oldLine": null,
+            "newLine": 2,
+            "left": null,
+            "right": "let x = 1",
+            "kind": "addition"
+          },
+          {
+            "oldLine": null,
+            "newLine": 3,
+            "left": null,
+            "right": "let y = 2",
+            "kind": "addition"
+          },
+          {
+            "oldLine": null,
+            "newLine": 4,
+            "left": null,
+            "right": "let z = 3",
+            "kind": "addition"
+          },
+          {
+            "oldLine": 4,
+            "newLine": 5,
+            "left": "tail",
+            "kind": "context"
+          }
+        ],
+        "lines": [
+          {
+            "kind": "context",
+            "content": "keep",
+            "oldLine": 1,
+            "newLine": 1
+          },
+          {
+            "kind": "removed",
+            "content": "import Foundation",
+            "oldLine": 2,
+            "newLine": null
+          },
+          {
+            "kind": "removed",
+            "content": "import AppKit",
+            "oldLine": 3,
+            "newLine": null
+          },
+          {
+            "kind": "added",
+            "content": "let x = 1",
+            "oldLine": null,
+            "newLine": 2
+          },
+          {
+            "kind": "added",
+            "content": "let y = 2",
+            "oldLine": null,
+            "newLine": 3
+          },
+          {
+            "kind": "added",
+            "content": "let z = 3",
+            "oldLine": null,
+            "newLine": 4
+          },
+          {
+            "kind": "context",
+            "content": "tail",
+            "oldLine": 4,
+            "newLine": 5
+          }
+        ],
+        "oldLineCount": 4,
+        "newLineCount": 5,
+        "additions": 3,
+        "deletions": 2
+      }
+    },
+    {
+      "name": "similar lines pair even when positions differ",
+      "oldText": "let total = compute(a, b);\n",
+      "newText": "// recompute the total\nlet total = compute(a, b, c);\n",
+      "expected": {
+        "rows": [
+          {
+            "oldLine": null,
+            "newLine": 1,
+            "left": null,
+            "right": "// recompute the total",
+            "kind": "addition"
+          },
+          {
+            "oldLine": 1,
+            "newLine": 2,
+            "left": "let total = compute(a, b);",
+            "right": "let total = compute(a, b, c);",
+            "kind": "changed"
+          }
+        ],
+        "lines": [
+          {
+            "kind": "removed",
+            "content": "let total = compute(a, b);",
+            "oldLine": 1,
+            "newLine": null
+          },
+          {
+            "kind": "added",
+            "content": "// recompute the total",
+            "oldLine": null,
+            "newLine": 1
+          },
+          {
+            "kind": "added",
+            "content": "let total = compute(a, b, c);",
+            "oldLine": null,
+            "newLine": 2
+          }
+        ],
+        "oldLineCount": 1,
+        "newLineCount": 2,
+        "additions": 2,
+        "deletions": 1
+      }
+    },
+    {
+      "name": "insertion keeps surrounding context numbered",
+      "oldText": "one\ntwo\nthree\n",
+      "newText": "one\ntwo\ninserted\nthree\n",
+      "expected": {
+        "rows": [
+          {
+            "oldLine": 1,
+            "newLine": 1,
+            "left": "one",
+            "kind": "context"
+          },
+          {
+            "oldLine": 2,
+            "newLine": 2,
+            "left": "two",
+            "kind": "context"
+          },
+          {
+            "oldLine": null,
+            "newLine": 3,
+            "left": null,
+            "right": "inserted",
+            "kind": "addition"
+          },
+          {
+            "oldLine": 3,
+            "newLine": 4,
+            "left": "three",
+            "kind": "context"
+          }
+        ],
+        "lines": [
+          {
+            "kind": "context",
+            "content": "one",
+            "oldLine": 1,
+            "newLine": 1
+          },
+          {
+            "kind": "context",
+            "content": "two",
+            "oldLine": 2,
+            "newLine": 2
+          },
+          {
+            "kind": "added",
+            "content": "inserted",
+            "oldLine": null,
+            "newLine": 3
+          },
+          {
+            "kind": "context",
+            "content": "three",
+            "oldLine": 3,
+            "newLine": 4
+          }
+        ],
+        "oldLineCount": 3,
+        "newLineCount": 4,
+        "additions": 1,
+        "deletions": 0
+      }
+    },
+    {
+      "name": "patience anchors on unique lines instead of braces",
+      "oldText": "fn a() {\n    one();\n}\n\nfn b() {\n    two();\n}\n",
+      "newText": "fn b() {\n    two();\n}\n\nfn a() {\n    one();\n}\n",
+      "expected": {
+        "rows": [
+          {
+            "oldLine": null,
+            "newLine": 1,
+            "left": null,
+            "right": "fn b() {",
+            "kind": "addition"
+          },
+          {
+            "oldLine": null,
+            "newLine": 2,
+            "left": null,
+            "right": "    two();",
+            "kind": "addition"
+          },
+          {
+            "oldLine": null,
+            "newLine": 3,
+            "left": null,
+            "right": "}",
+            "kind": "addition"
+          },
+          {
+            "oldLine": null,
+            "newLine": 4,
+            "left": null,
+            "right": "",
+            "kind": "addition"
+          },
+          {
+            "oldLine": 1,
+            "newLine": 5,
+            "left": "fn a() {",
+            "kind": "context"
+          },
+          {
+            "oldLine": 2,
+            "newLine": 6,
+            "left": "    one();",
+            "kind": "context"
+          },
+          {
+            "oldLine": 3,
+            "newLine": 7,
+            "left": "}",
+            "kind": "context"
+          },
+          {
+            "oldLine": 4,
+            "newLine": null,
+            "left": "",
+            "kind": "removal"
+          },
+          {
+            "oldLine": 5,
+            "newLine": null,
+            "left": "fn b() {",
+            "kind": "removal"
+          },
+          {
+            "oldLine": 6,
+            "newLine": null,
+            "left": "    two();",
+            "kind": "removal"
+          },
+          {
+            "oldLine": 7,
+            "newLine": null,
+            "left": "}",
+            "kind": "removal"
+          }
+        ],
+        "lines": [
+          {
+            "kind": "added",
+            "content": "fn b() {",
+            "oldLine": null,
+            "newLine": 1
+          },
+          {
+            "kind": "added",
+            "content": "    two();",
+            "oldLine": null,
+            "newLine": 2
+          },
+          {
+            "kind": "added",
+            "content": "}",
+            "oldLine": null,
+            "newLine": 3
+          },
+          {
+            "kind": "added",
+            "content": "",
+            "oldLine": null,
+            "newLine": 4
+          },
+          {
+            "kind": "context",
+            "content": "fn a() {",
+            "oldLine": 1,
+            "newLine": 5
+          },
+          {
+            "kind": "context",
+            "content": "    one();",
+            "oldLine": 2,
+            "newLine": 6
+          },
+          {
+            "kind": "context",
+            "content": "}",
+            "oldLine": 3,
+            "newLine": 7
+          },
+          {
+            "kind": "removed",
+            "content": "",
+            "oldLine": 4,
+            "newLine": null
+          },
+          {
+            "kind": "removed",
+            "content": "fn b() {",
+            "oldLine": 5,
+            "newLine": null
+          },
+          {
+            "kind": "removed",
+            "content": "    two();",
+            "oldLine": 6,
+            "newLine": null
+          },
+          {
+            "kind": "removed",
+            "content": "}",
+            "oldLine": 7,
+            "newLine": null
+          }
+        ],
+        "oldLineCount": 7,
+        "newLineCount": 7,
+        "additions": 4,
+        "deletions": 4
+      }
+    },
+    {
+      "name": "reindentation pairs as a change",
+      "oldText": "    return value\nend\n",
+      "newText": "\t\treturn value\nend\n",
+      "expected": {
+        "rows": [
+          {
+            "oldLine": 1,
+            "newLine": 1,
+            "left": "    return value",
+            "right": "\t\treturn value",
+            "kind": "changed"
+          },
+          {
+            "oldLine": 2,
+            "newLine": 2,
+            "left": "end",
+            "kind": "context"
+          }
+        ],
+        "lines": [
+          {
+            "kind": "removed",
+            "content": "    return value",
+            "oldLine": 1,
+            "newLine": null
+          },
+          {
+            "kind": "added",
+            "content": "\t\treturn value",
+            "oldLine": null,
+            "newLine": 1
+          },
+          {
+            "kind": "context",
+            "content": "end",
+            "oldLine": 2,
+            "newLine": 2
+          }
+        ],
+        "oldLineCount": 2,
+        "newLineCount": 2,
+        "additions": 1,
+        "deletions": 1
+      }
+    }
+  ]
+}

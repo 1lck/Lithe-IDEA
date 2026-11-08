@@ -1,0 +1,13 @@
+{
+  "manifest": { "id": "dev.example.build" },
+  "identity": { "operationEvidence": "fixture-only" },
+  "pluginDirectory": "C:/plugins/example",
+  "workspaceStateDirectory": "C:/state/example",
+  "environment": { "COMPILER_HOME": "C:/tools/compiler" },
+  "tool": { "executable": "C:/tools/builder/bin/build.cmd" },
+  "resolvedExecutables": {
+    "dev.example.tools:builder": "C:/tools/builder/bin/build.cmd",
+    "dev.example.tools:compiler": "C:/tools/compiler/bin/compiler.exe"
+  },
+  "executesProjectCode": false
+}

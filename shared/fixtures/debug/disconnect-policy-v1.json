@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "local launch owns the debuggee",
+      "request": "launch",
+      "expectedArguments": {
+        "restart": false,
+        "terminateDebuggee": true
+      }
+    },
+    {
+      "name": "remote attach does not own the debuggee",
+      "request": "attach",
+      "expectedArguments": {
+        "restart": false,
+        "terminateDebuggee": false
+      }
+    },
+    {
+      "name": "unstarted session has no debuggee ownership",
+      "request": null,
+      "expectedArguments": {
+        "restart": false,
+        "terminateDebuggee": false
+      }
+    }
+  ]
+}

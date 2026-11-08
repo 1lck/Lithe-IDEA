@@ -176,3 +176,45 @@ func TestCellsCountTabsAndWideCharacters(t *testing.T) {
 		t.Errorf("columnAt in a wide character = %d, want its nearer edge %d", got, len("中"))
 	}
 }
+
+func TestReloadKeepsRecoverableOldTextAndRefusesDirtyEdits(t *testing.T) {
+	v := newTestView(t, "first")
+	if !v.Reload(PrepareReload([]byte("second"))) {
+		t.Fatal("clean document did not reload")
+	}
+	if got := v.contents(); got != "second" || v.Dirty() {
+		t.Fatalf("reloaded %q dirty=%v", got, v.Dirty())
+	}
+	if !v.Undo() || v.contents() != "first" || !v.Dirty() {
+		t.Fatal("reload discarded the previous text")
+	}
+	if v.Reload(PrepareReload([]byte("third"))) {
+		t.Fatal("reload replaced dirty input")
+	}
+	if v.contents() != "first" {
+		t.Fatal("dirty input was changed")
+	}
+}
+
+func TestGoToLineClampsAndPreservesComposition(t *testing.T) {
+	v := newTestView(t, "first\nsecond\nthird")
+	if !v.GoToLine(2) {
+		t.Fatal("line navigation was refused")
+	}
+	if line, column := v.Caret(); line != 1 || column != 0 {
+		t.Fatalf("caret = %d:%d", line, column)
+	}
+	if !v.GoToLine(999) {
+		t.Fatal("out-of-range line was refused")
+	}
+	if line, _ := v.Caret(); line != 2 {
+		t.Fatalf("line was not clamped: %d", line)
+	}
+	v.preedit.Composing = true
+	if v.GoToLine(1) {
+		t.Fatal("navigation replaced active input method composition")
+	}
+	if line, _ := v.Caret(); line != 2 {
+		t.Fatal("composition caret changed")
+	}
+}

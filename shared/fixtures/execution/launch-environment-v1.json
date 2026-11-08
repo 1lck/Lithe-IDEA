@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "maven-project-selection",
+      "request": {
+        "toolchain": "project-maven",
+        "javaHome": "jdk17",
+        "mavenJavaHome": "jdk21",
+        "inherited": {
+          "JAVA_HOME": "jdk8"
+        },
+        "overrides": {},
+        "caseInsensitive": false
+      },
+      "expected": {
+        "environment": {
+          "JAVA_HOME": "jdk21"
+        }
+      }
+    },
+    {
+      "name": "java-project-selection",
+      "request": {
+        "toolchain": "project-jdk",
+        "javaHome": "jdk17",
+        "mavenJavaHome": "jdk21",
+        "inherited": {
+          "JAVA_HOME": "jdk8"
+        },
+        "overrides": {},
+        "caseInsensitive": false
+      },
+      "expected": {
+        "environment": {
+          "JAVA_HOME": "jdk17"
+        }
+      }
+    },
+    {
+      "name": "explicit-user-selection",
+      "request": {
+        "toolchain": "project-maven",
+        "javaHome": "jdk17",
+        "mavenJavaHome": "jdk21",
+        "inherited": {
+          "JAVA_HOME": "jdk8"
+        },
+        "overrides": {
+          "JAVA_HOME": "user-jdk"
+        },
+        "caseInsensitive": false
+      },
+      "expected": {
+        "environment": {
+          "JAVA_HOME": "user-jdk"
+        }
+      }
+    },
+    {
+      "name": "maven-plan-binding",
+      "request": {
+        "toolchain": "project-maven",
+        "javaHome": "jdk17",
+        "mavenJavaHome": "jdk21",
+        "inherited": {
+          "JAVA_HOME": "jdk8"
+        },
+        "overrides": {
+          "JAVA_HOME": {
+            "toolchain": "project-maven",
+            "property": "home"
+          }
+        },
+        "caseInsensitive": false
+      },
+      "expected": {
+        "environment": {
+          "JAVA_HOME": "jdk21"
+        }
+      }
+    },
+    {
+      "name": "windows-key-alias",
+      "request": {
+        "toolchain": "project-maven",
+        "javaHome": "jdk17",
+        "mavenJavaHome": "jdk21",
+        "inherited": {
+          "JAVA_HOME": "jdk8"
+        },
+        "overrides": {
+          "java_home": "user-jdk"
+        },
+        "caseInsensitive": true
+      },
+      "expected": {
+        "environment": {
+          "JAVA_HOME": "user-jdk"
+        }
+      }
+    },
+    {
+      "name": "non-java-keeps-inherited",
+      "request": {
+        "toolchain": "project-node",
+        "javaHome": "jdk17",
+        "mavenJavaHome": "jdk21",
+        "inherited": {
+          "JAVA_HOME": "jdk8"
+        },
+        "overrides": {},
+        "caseInsensitive": false
+      },
+      "expected": {
+        "environment": {
+          "JAVA_HOME": "jdk8"
+        }
+      }
+    },
+    {
+      "name": "maven-resource-step-inherits-java-application-binding",
+      "request": {
+        "toolchain": "project-maven",
+        "javaHome": "jdk17",
+        "mavenJavaHome": "jdk21",
+        "inherited": {
+          "JAVA_HOME": "jdk8"
+        },
+        "overrides": {
+          "JAVA_HOME": {
+            "toolchain": "project-jdk",
+            "property": "home"
+          }
+        },
+        "caseInsensitive": false
+      },
+      "expected": {
+        "environment": {
+          "JAVA_HOME": "jdk21"
+        }
+      }
+    }
+  ]
+}

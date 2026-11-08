@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.dev/contracts/maven-portable-configuration-v1.schema.json",
+  "title": "Lithe Maven Portable Configuration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "selectedProfiles", "customProfiles", "skipTests"],
+  "properties": {
+    "version": { "const": 1 },
+    "selectedProfiles": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "customProfiles": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "skipTests": { "type": "boolean" }
+  }
+}

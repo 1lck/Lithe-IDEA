@@ -175,6 +175,9 @@ func (v *View) Owns(id ui.ID) bool { return id == v.cfg.HitID }
 // Close stops the view's background highlighter.
 func (v *View) Close() { v.hl.Close() }
 
+// IsComposing reports input method text that has not been committed to the document.
+func (v *View) IsComposing() bool { return v.preedit.Composing }
+
 // Dirty reports whether the text differs from the text last read or written.
 func (v *View) Dirty() bool { return v.dirty }
 
@@ -190,6 +193,80 @@ func (v *View) Revision() int { return v.revision }
 // Text is the document's current content, and the rope it was taken from for MarkSaved.
 func (v *View) Text() ([]byte, rope.Rope) { return v.text.Bytes(), v.text }
 
+// ReloadContent contains the expensive rope and layout summary prepared away from the
+// window thread. It is immutable and may be discarded when the read becomes stale.
+type ReloadContent struct {
+	text   rope.Rope
+	indent string
+	widest int
+}
+
+// PrepareReload constructs the new document and scans its width on a worker.
+func PrepareReload(data []byte) ReloadContent {
+	text := rope.New(data)
+	view := View{text: text}
+	return ReloadContent{text: text, indent: indentUnit(text), widest: view.scanWidest(0, text.LineCount()-1)}
+}
+
+// SavedSnapshot returns an immutable baseline for background comparison.
+func (v *View) SavedSnapshot() rope.Rope { return v.saved }
+
+// HasSavedSnapshot reports whether a background read still uses the current baseline.
+func (v *View) HasSavedSnapshot(snapshot rope.Rope) bool { return v.saved.Same(snapshot) }
+
+// Reload installs an externally changed file only while no local edit or input-method
+// composition needs protection. Undo retains the previous contents as a recovery path.
+func (v *View) Reload(content ReloadContent) bool {
+	if v.dirty || v.preedit.Composing {
+		return false
+	}
+	return v.replaceFromDisk(content)
+}
+
+// ResolveWithDisk applies an explicit conflict decision while preserving undo history.
+func (v *View) ResolveWithDisk(content ReloadContent) bool {
+	if v.preedit.Composing {
+		return false
+	}
+	return v.replaceFromDisk(content)
+}
+
+// Snapshot returns the immutable disk contents that were prepared on a worker.
+func (c ReloadContent) Snapshot() rope.Rope { return c.text }
+
+func (v *View) replaceFromDisk(content ReloadContent) bool {
+	v.undo = append(v.undo, v.snapshot())
+	if len(v.undo) > undoLimit {
+		v.undo = v.undo[len(v.undo)-undoLimit:]
+	}
+	v.redo = v.redo[:0]
+	v.text = content.text
+	v.saved = v.text
+	v.revision++
+	v.hl.SetText(v.text)
+	v.forgetRows()
+	boundary := func(at int) int {
+		at = min(max(at, 0), v.text.Len())
+		for at > 0 && at < v.text.Len() && !utf8.RuneStart(v.text.ByteAt(at)) {
+			at--
+		}
+		if at > 0 && at < v.text.Len() && v.text.ByteAt(at) == '\n' && v.text.ByteAt(at-1) == '\r' {
+			at--
+		}
+		return at
+	}
+	v.anchor, v.caret = boundary(v.anchor), boundary(v.caret)
+	v.indentUnit = content.indent
+	v.widest = content.widest
+	v.lastKind, v.goal = editOther, -1
+	v.dirty = false
+	v.blinkFrom = v.clock
+	return true
+}
+
+// SavedBytes returns the last persisted content for a guarded save.
+func (v *View) SavedBytes() []byte { return v.saved.Bytes() }
+
 // MarkSaved records that text was written out, so the view is clean while it shows it.
 func (v *View) MarkSaved(text rope.Rope) {
 	v.saved = text
@@ -201,6 +278,19 @@ func (v *View) SetLabel(label string) { v.cfg.Label = label }
 
 // Selection is the selection's start and end, in order.
 func (v *View) Selection() (int, int) { return min(v.anchor, v.caret), max(v.anchor, v.caret) }
+
+// GoToLine selects the start of a one-based line and reveals it on the next paint.
+// Active input-method composition retains its selection until it is committed.
+func (v *View) GoToLine(line int) bool {
+	if v.preedit.Composing {
+		return false
+	}
+	line = min(max(line, 1), v.text.LineCount())
+	v.anchor = v.text.LineStart(line - 1)
+	v.caret = v.anchor
+	v.goal, v.lastKind, v.reveal = -1, editOther, true
+	return true
+}
 
 // Caret is the caret's line and column, both from zero; the column counts bytes.
 func (v *View) Caret() (int, int) {

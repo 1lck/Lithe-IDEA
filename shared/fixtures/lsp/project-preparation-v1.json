@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "snapshots": [
+    { "phase": "starting", "status": "loading", "blocksRun": true },
+    { "phase": "importing", "status": "loading", "blocksRun": true },
+    { "phase": "configuring", "status": "loading", "blocksRun": true },
+    { "phase": "building", "status": "loading", "blocksRun": true },
+    { "phase": "ready", "status": "ready", "blocksRun": false },
+    { "phase": "configuring", "status": "failed", "blocksRun": false },
+    { "phase": "stopped", "status": "idle", "blocksRun": true }
+  ]
+}

@@ -10,9 +10,11 @@
 package settingswindow
 
 import (
+	"context"
 	"sync"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/vivaui/viva/app"
 )
 
@@ -23,10 +25,19 @@ type Values struct {
 	Language string
 	// Theme is "light" or "dark"; empty follows the system's look.
 	Theme string
+	// MarketplaceWidth is a layout preference, applied on completed resize, not a draft setting.
+	MarketplaceWidth float32
 }
 
 // Options configure the settings window.
 type Options struct {
+	// Marketplace fetches the enabled source only while the plugin page is open.
+	Marketplace         func(context.Context) (marketplace.Snapshot, error)
+	MarketplaceError    func(error)
+	MarketplaceRejected func(int)
+	// MarketplaceResized persists a completed splitter gesture or keyboard step.
+	MarketplaceResized func(float32)
+	Language           func() i18n.Language
 	// Text is the interface language the window paints; nil is English. It is read at
 	// every paint, so the window changes language when the language does.
 	Text func() *i18n.Messages
@@ -97,9 +108,22 @@ func (c *Controller) systemDark() bool {
 // draft and page untouched, and current is ignored. It must run on a window thread of
 // application, as app.Application.OpenWindow requires.
 func (c *Controller) Open(application *app.Application, current Values) error {
+	return c.open(application, current, false)
+}
+
+// OpenPlugins opens the plugin page, including when a settings window is already open.
+func (c *Controller) OpenPlugins(application *app.Application, current Values) error {
+	return c.open(application, current, true)
+}
+
+func (c *Controller) open(application *app.Application, current Values, plugins bool) error {
 	c.mu.Lock()
 	if open := c.current; open != nil && open.win != nil && !open.win.Closed() && !open.sess.finished.Load() {
 		win := open.win
+		if plugins {
+			open.requestPlugins.Store(true)
+			open.inv.Invalidate()
+		}
 		c.mu.Unlock()
 		win.Show()
 		return nil
@@ -107,6 +131,9 @@ func (c *Controller) Open(application *app.Application, current Values) error {
 	c.mu.Unlock()
 
 	w := newWindow(c, current)
+	if plugins {
+		w.sess.page = pagePlugins
+	}
 	win, err := application.OpenWindow(w.config(), nil)
 	if err != nil {
 		return err

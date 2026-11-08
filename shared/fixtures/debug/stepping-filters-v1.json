@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "unknown-adapter-is-unfiltered",
+      "payload": {
+        "adapterId": "go"
+      },
+      "expected": {
+        "classNameFilters": [],
+        "skipSynthetics": false,
+        "skipStaticInitializers": false,
+        "skipConstructors": false,
+        "hideFilteredStackFrames": false
+      }
+    },
+    {
+      "name": "unknown-adapter-empty-override-stays-unfiltered",
+      "payload": {
+        "adapterId": "python",
+        "filters": {}
+      },
+      "expected": {
+        "classNameFilters": [],
+        "skipSynthetics": false,
+        "skipStaticInitializers": false,
+        "skipConstructors": false,
+        "hideFilteredStackFrames": false
+      }
+    }
+  ]
+}

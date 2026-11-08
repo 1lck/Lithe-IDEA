@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "parseRequest": {"root":".", "patch":""},
+  "sectionRequest": {"pathspecs":["."], "staged":true, "includeFileSections":true},
+  "expectedTextLines": [
+    {"lineType":"header", "content":"@@ -1,2 +1,2 @@", "oldLine":null, "newLine":null},
+    {"lineType":"removed", "content":"first", "oldLine":1, "newLine":null},
+    {"lineType":"removed", "content":"base", "oldLine":2, "newLine":null},
+    {"lineType":"added", "content":"first", "oldLine":null, "newLine":1},
+    {"lineType":"added", "content":"changed", "oldLine":null, "newLine":2}
+  ]
+}

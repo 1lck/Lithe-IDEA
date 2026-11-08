@@ -1,0 +1,10 @@
+{
+  "defaultScope": { "include": false, "paths": { "A": ["application.yaml"] } },
+  "customScope": { "include": true, "paths": { "A": ["application.yaml"] } },
+  "cases": [
+    { "scope": "defaultScope", "stagedPaths": ["feature.ts"], "allowed": true },
+    { "scope": "defaultScope", "stagedPaths": ["feature.ts", "application.yaml"], "allowed": false },
+    { "scope": "customScope", "stagedPaths": ["application.yaml"], "allowed": true },
+    { "scope": "customScope", "stagedPaths": ["application.yaml", "feature.ts"], "allowed": false }
+  ]
+}

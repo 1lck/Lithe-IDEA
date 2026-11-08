@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    { "name": "missing", "configuration": "", "skipped": false },
+    { "name": "valueless", "configuration": "skipFetchAll", "skipped": true },
+    { "name": "empty", "configuration": "skipFetchAll =", "skipped": false },
+    { "name": "true", "configuration": "skipFetchAll = TrUe", "skipped": true },
+    { "name": "yes", "configuration": "skipFetchAll = yes", "skipped": true },
+    { "name": "on", "configuration": "skipFetchAll = on", "skipped": true },
+    { "name": "positive", "configuration": "skipFetchAll = 2", "skipped": true },
+    { "name": "negative", "configuration": "skipFetchAll = -1", "skipped": true },
+    { "name": "false", "configuration": "skipFetchAll = false", "skipped": false },
+    { "name": "off", "configuration": "skipFetchAll = off", "skipped": false },
+    { "name": "zero", "configuration": "skipFetchAll = 0", "skipped": false }
+  ],
+  "invalid": "skipFetchAll = sometimes"
+}

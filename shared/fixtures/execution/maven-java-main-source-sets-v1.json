@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "Maven Java main source-set launch plans",
+  "cases": [
+    {
+      "name": "test source main",
+      "module": "module-a",
+      "source": "module-a/src/test/java/com/example/App.java",
+      "sourceSet": "test",
+      "configurationId": "java-main:com.example.App:module-a",
+      "mainClass": "com.example.App",
+      "classPaths": ["/workspace/module-a/target/test-classes"],
+      "modulePaths": [],
+      "expectedArguments": ["com.example.App"]
+    },
+    {
+      "name": "main source main",
+      "module": "module-b",
+      "source": "module-b/src/main/java/com/example/App.java",
+      "sourceSet": "main",
+      "configurationId": "java-main:com.example.App:module-b",
+      "mainClass": "module-b/com.example.App",
+      "classPaths": ["/workspace/module-b/target/classes"],
+      "modulePaths": ["/workspace/module-b/target/modules"],
+      "expectedArguments": ["-m", "module-b/com.example.App"]
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.dev/contracts/build-local-options-v1.schema.json",
+  "title": "Lithe machine-local Build preferences",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "document"],
+  "properties": {
+    "version": {"const": 1},
+    "document": {"$ref": "build-project-options-v1.schema.json"},
+    "emptySelections": {
+      "type": "object",
+      "maxProperties": 32,
+      "propertyNames": {"pattern": "^[A-Za-z0-9-]{1,64}$"},
+      "additionalProperties": {
+        "type": "object",
+        "maxProperties": 256,
+        "propertyNames": {
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^(?:\\.|(?!/)(?!.*//)(?!.*/$)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^\\\\:\\x00-\\x1f\\x7f]+)$"
+        },
+        "additionalProperties": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Za-z0-9_.-]{1,128}$"}
+        }
+      }
+    }
+  }
+}

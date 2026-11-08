@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "temporaryConfig": [
+    [
+      "color.ui",
+      "false"
+    ],
+    [
+      "core.quotepath",
+      "false"
+    ],
+    [
+      "log.showSignature",
+      "false"
+    ]
+  ],
+  "precedence": [
+    "singleOperation",
+    "repositoryPreference",
+    "applicationDefault",
+    "gitConfiguration"
+  ],
+  "progress": [
+    {
+      "text": "remote: Counting objects: 50% (5/10)",
+      "expected": {
+        "stage": "counting",
+        "percent": 50,
+        "completed": 5,
+        "total": 10
+      }
+    },
+    {
+      "text": "Receiving objects: 100% (12/12), done.",
+      "expected": {
+        "stage": "receiving",
+        "percent": 100,
+        "completed": 12,
+        "total": 12
+      }
+    },
+    {
+      "text": "Resolving deltas: 0% (0/3)",
+      "expected": {
+        "stage": "resolving",
+        "percent": 0,
+        "completed": 0,
+        "total": 3
+      }
+    },
+    {
+      "text": "fatal: authentication failed",
+      "expected": null
+    }
+  ],
+  "authentication": {
+    "operationId": "fixture",
+    "type": "authentication",
+    "requestId": "fixture-challenge",
+    "prompt": "Password for https://example.invalid:",
+    "secret": true,
+    "attempt": 1
+  },
+  "remoteResult": {
+    "operationId": "fixture",
+    "type": "remoteResult",
+    "remote": "origin",
+    "succeeded": true,
+    "updatedReferences": [
+      "refs/remotes/origin/main"
+    ],
+    "deletedReferences": [
+      "refs/remotes/origin/old"
+    ],
+    "error": null,
+    "updatedReferenceCount": 1,
+    "deletedReferenceCount": 1,
+    "referencesTruncated": false,
+    "referencesAvailable": true
+  },
+  "repositoryPlan": {
+    "options": {
+      "remote": null,
+      "prune": true,
+      "submodules": "inherit",
+      "tags": "inherit"
+    },
+    "enabledRemotes": [
+      "origin",
+      "upstream"
+    ],
+    "commands": [
+      [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "-c",
+        "core.quotepath=false",
+        "fetch",
+        "--progress",
+        "--prune",
+        "--",
+        "origin"
+      ],
+      [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "-c",
+        "core.quotepath=false",
+        "fetch",
+        "--progress",
+        "--prune",
+        "--",
+        "upstream"
+      ]
+    ]
+  }
+}

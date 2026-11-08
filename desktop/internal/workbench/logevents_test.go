@@ -4,9 +4,13 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"os"
+	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/documentio"
 )
 
 // TestLogEventsMatchCatalog encodes the failure events of the editor, the project tree and
@@ -23,15 +27,26 @@ func TestLogEventsMatchCatalog(t *testing.T) {
 	}{
 		{documentFailedLevel, documentEventOpenFailed, documentOpenFields(errNotText)},
 		{documentFailedLevel, documentEventOpenFailed, documentOpenFields(errTooLarge)},
+		{documentFailedLevel, documentEventOpenFailed, documentOpenFields(documentio.ErrNotRegular)},
+		{documentFailedLevel, documentEventOpenFailed, documentOpenFields(documentio.ErrSymbolicLink)},
 		{documentFailedLevel, documentEventOpenFailed, documentOpenFields(&fs.PathError{Op: "open", Path: "a.txt", Err: fs.ErrNotExist})},
 		{documentFailedLevel, documentEventOpenFailed, documentOpenFields(&fs.PathError{Op: "open", Path: "a.txt", Err: fs.ErrPermission})},
 		{documentFailedLevel, documentEventOpenFailed, documentOpenFields(failure)},
 		{documentFailedLevel, documentEventSaveFailed, documentSaveFields(3, 0, failure)},
+		{core.LevelWarn, "editor.document.watch_failed", map[string]any{"stage": "create"}},
+		{core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "document_external_change", "reason": "disk_conflict"}},
 		{documentFailedLevel, documentEventSaveFailed, documentSaveFields(12, 41, failure)},
 		{treeSkippedLevel, treeEventSkipped, treeSkippedFields("", failure)},
 		{treeSkippedLevel, treeEventSkipped, treeSkippedFields("src/main", failure)},
 		{operationFailedLevel, operationFailedEvent, operationFailedFields("git_branch_name_preview", failure)},
 		{operationFailedLevel, operationFailedEvent, operationFailedFields("git_commit", failure)},
+		{operationFailedLevel, operationFailedEvent, operationFailedFields("settings_save", failure)},
+		{operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_search", failure)},
+		{operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_search_cleanup", failure)},
+		{operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_search_watch", failure)},
+		{core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "workspace_search", "reason": "invalid_result_path"}},
+		{core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "workspace_search_incremental_update", "reason": "watch_events_lost"}},
+		{core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "workspace_search_incremental_update", "reason": "event_limit_exceeded"}},
 	}
 	events := make([]core.LogEvent, len(cases))
 	for i, c := range cases {
@@ -59,12 +74,32 @@ func TestDocumentOpenReason(t *testing.T) {
 	}{
 		{errNotText, "not_text"},
 		{errTooLarge, "too_large"},
+		{documentio.ErrNotRegular, "not_regular"},
+		{documentio.ErrSymbolicLink, "symbolic_link"},
 		{&fs.PathError{Op: "open", Path: "a.txt", Err: fs.ErrNotExist}, "not_found"},
 		{&fs.PathError{Op: "open", Path: "a.txt", Err: fs.ErrPermission}, "permission_denied"},
 		{errors.New("is a directory"), "read_failed"},
 	} {
 		if got := documentOpenReason(c.err); got != c.want {
 			t.Errorf("documentOpenReason(%v) = %q, want %q", c.err, got, c.want)
+		}
+	}
+}
+
+// Document diagnostics must not put the user's paths into exported logs.
+func TestDocumentFailureLogsDoNotContainPaths(t *testing.T) {
+	const secretPath = "/private/workspace/document.txt"
+	pathError := &os.PathError{Op: "open", Path: secretPath, Err: syscall.EACCES}
+	linkError := &os.LinkError{Op: "rename", Old: secretPath, New: secretPath + ".tmp", Err: syscall.EACCES}
+	for _, err := range []error{pathError, linkError, errors.Join(pathError, errors.New("sync failed"))} {
+		for _, fields := range []map[string]any{documentOpenFields(err), documentSaveFields(1, 3, err)} {
+			message, ok := fields["error"].(string)
+			if !ok || strings.Contains(message, secretPath) {
+				t.Fatalf("document error leaked its path: %v", fields)
+			}
+			if fields["error_code"] != int(syscall.EACCES) || fields["error_domain"] != "posix" {
+				t.Fatalf("document error lost the native error: %v", fields)
+			}
 		}
 	}
 }

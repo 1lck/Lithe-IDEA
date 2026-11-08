@@ -1,0 +1,114 @@
+{
+  "name": "Framework identity and service classification for detected configurations",
+  "notes": [
+    "A detected configuration carries the framework name in its provider extension so a client can label the service without re-reading the manifest.",
+    "Frameworks are matched most-specific-first, because a meta-framework declares the framework it is built on: a Nuxt app also depends on Vue.",
+    "A script is a service when its body names a program that serves, not when its name looks like `dev` or `start`. A name-only guess is reported as `heuristic` so a detector holding a real declaration wins deduplication.",
+    "Deduplication identity is (cwd, lowercased name); the provider is excluded, so the same service seen by two detectors merges to the higher confidence."
+  ],
+  "requests": [
+    {
+      "command": "runConfig.generate",
+      "payload": { "root": "/workspace" },
+      "workspace": {
+        "web/package.json": "{\"dependencies\":{\"nuxt\":\"^3.11.0\",\"vue\":\"^3.4.0\"},\"scripts\":{\"dev\":\"nuxt dev\",\"build\":\"nuxt build\"}}",
+        "site/package.json": "{\"dependencies\":{\"next\":\"^14.2.0\",\"react\":\"^18.3.0\"},\"scripts\":{\"dev\":\"next dev\"}}",
+        "admin/package.json": "{\"dependencies\":{\"vue\":\"^3.4.0\"},\"devDependencies\":{\"vite\":\"^5.0.0\"},\"scripts\":{\"dev\":\"vite\",\"check\":\"tsc -p .\"}}"
+      },
+      "expected": {
+        "configurations": [
+          {
+            "id": "npm.script:web/dev",
+            "execution": "service",
+            "confidence": "declared",
+            "extensions": { "npm": { "framework": "nuxt", "server": "nuxt" } }
+          },
+          {
+            "id": "npm.script:web/build",
+            "execution": "task",
+            "extensions": { "npm": { "framework": "nuxt" } }
+          },
+          {
+            "id": "npm.script:site/dev",
+            "execution": "service",
+            "extensions": { "npm": { "framework": "next", "server": "next" } }
+          },
+          {
+            "id": "npm.script:admin/dev",
+            "execution": "service",
+            "extensions": { "npm": { "framework": "vue", "server": "vite" } }
+          },
+          {
+            "id": "npm.script:admin/check",
+            "execution": "task",
+            "extensions": { "npm": { "framework": "vue" } }
+          }
+        ]
+      }
+    },
+    {
+      "command": "runConfig.generate",
+      "payload": { "root": "/workspace" },
+      "workspace": {
+        "package.json": "{\"scripts\":{\"start\":\"tsc -p .\",\"local\":\"NODE_ENV=development npx vite --port 3000\",\"legacy\":\"./scripts/dev.sh\"}}"
+      },
+      "expected": {
+        "configurations": [
+          {
+            "id": "npm.script:start",
+            "execution": "task",
+            "reason": "The body names a program that runs to completion, so the conventional `start` name is not trusted."
+          },
+          {
+            "id": "npm.script:local",
+            "execution": "service",
+            "confidence": "declared",
+            "reason": "Environment assignments and `npx` wrap the program without changing it, and bare `vite` serves."
+          },
+          {
+            "id": "npm.script:legacy",
+            "execution": "task",
+            "reason": "An unrecognised body and a name that is not conventionally a server."
+          }
+        ]
+      }
+    },
+    {
+      "command": "runConfig.generate",
+      "payload": { "root": "/workspace" },
+      "workspace": {
+        "declared/pyproject.toml": "[project]\nname = \"declared\"\ndependencies = [\"fastapi>=0.110\", \"uvicorn[standard]\"]\n",
+        "declared/main.py": "from fastapi import FastAPI\napp = FastAPI()\n",
+        "guessed/main.py": "from fastapi import FastAPI\napp = FastAPI()\n",
+        "edge/asgi.py": "from starlette.applications import Starlette\napp = Starlette()\n"
+      },
+      "expected": {
+        "configurations": [
+          {
+            "id": "python.uvicorn:declared/main",
+            "execution": "service",
+            "confidence": "declared",
+            "command": "uvicorn",
+            "args": ["main:app", "--reload"],
+            "extensions": {
+              "python": { "module": "main", "framework": "fastapi" }
+            }
+          },
+          {
+            "id": "python.uvicorn:guessed/main",
+            "confidence": "heuristic",
+            "reason": "No dependency list, so the framework import in one file is the only evidence."
+          },
+          {
+            "id": "python.uvicorn:edge/asgi",
+            "command": "uvicorn",
+            "args": ["asgi:app", "--reload"],
+            "extensions": {
+              "python": { "module": "asgi", "framework": "starlette" }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

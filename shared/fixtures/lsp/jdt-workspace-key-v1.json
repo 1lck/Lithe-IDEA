@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "legacy-workspace-path",
+      "workspaceRoot": "/workspace/demo",
+      "workspaceFingerprint": null,
+      "workspaceKey": "4de1d2f8b60db00ae8307a6fe19690b23893974b259297719107bb84e767148a"
+    },
+    {
+      "name": "maven-modules-and-jdtls-version",
+      "workspaceRoot": "/workspace/demo",
+      "workspaceFingerprint": "build=pom.xml@1700000000000:42|modules=api,core|jdtls=1.38.0",
+      "workspaceKey": "b21826804a57043eec9f155c7ee324870f7df48d7d51a311e25cb04e9671df25"
+    }
+  ]
+}

@@ -1,0 +1,284 @@
+{
+  "description": "Parameters of lithe/host/run/start and what run.decodeStart returns. The host passes the plugin's manifest (`manifest`, a file in this directory), a workspace root that holds the directories in `workspaceDirectories`, and the request's `params`. `start` is the normalized start; `error` is the rejection every host reports. Cases with temporary files depend on the host's temporary directory and are covered by Core's own tests.",
+  "manifest": "tool-reference-launch.plugin.json",
+  "workspaceDirectories": ["app", "app/tools"],
+  "cases": [
+    {
+      "name": "a required tool runs in a workspace directory",
+      "params": {
+        "context": { "contextID": "w-run", "generation": 1 },
+        "label": "Run main.script",
+        "process": {
+          "executable": { "kind": "tool", "tool": "interpreter" },
+          "arguments": ["main.script", "a b"],
+          "workingDirectory": "app",
+          "environment": { "MODE": "test" }
+        }
+      },
+      "start": {
+        "label": "Run main.script",
+        "executable": { "kind": "toolchain", "value": "interpreter" },
+        "arguments": ["main.script", "a b"],
+        "workingDirectory": "app",
+        "environment": { "MODE": "test" },
+        "temporaryFiles": []
+      }
+    },
+    {
+      "name": "a file packaged with the plugin is the executable",
+      "params": {
+        "label": "Run helper",
+        "process": {
+          "executable": { "kind": "packaged", "path": "bin/helper" },
+          "arguments": [],
+          "workingDirectory": ".",
+          "environment": {}
+        }
+      },
+      "start": {
+        "label": "Run helper",
+        "executable": { "kind": "packaged", "value": "bin/helper" },
+        "arguments": [],
+        "workingDirectory": ".",
+        "environment": {},
+        "temporaryFiles": []
+      }
+    },
+    {
+      "name": "a debug connection and a rerun function are kept",
+      "params": {
+        "label": "Debug main.script",
+        "process": {
+          "executable": { "kind": "tool", "tool": "interpreter" },
+          "arguments": ["--listen", "5678", "main.script"],
+          "workingDirectory": "app/tools",
+          "environment": {}
+        },
+        "debug": {
+          "configurationType": "script",
+          "target": { "kind": "connection", "port": 5678 }
+        },
+        "rerun": { "function": "script.rerun", "data": { "file": "main.script" } }
+      },
+      "start": {
+        "label": "Debug main.script",
+        "executable": { "kind": "toolchain", "value": "interpreter" },
+        "arguments": ["--listen", "5678", "main.script"],
+        "workingDirectory": "app/tools",
+        "environment": {},
+        "temporaryFiles": [],
+        "debug": {
+          "configurationType": "script",
+          "target": { "kind": "connection", "port": 5678 }
+        },
+        "rerun": { "function": "script.rerun", "data": { "file": "main.script" } }
+      }
+    },
+    {
+      "name": "a debug launch target needs no port",
+      "params": {
+        "label": "Debug main.script",
+        "process": {
+          "executable": { "kind": "tool", "tool": "interpreter" },
+          "arguments": [],
+          "workingDirectory": "app",
+          "environment": {}
+        },
+        "debug": { "configurationType": "script", "target": { "kind": "launch" } }
+      },
+      "start": {
+        "label": "Debug main.script",
+        "executable": { "kind": "toolchain", "value": "interpreter" },
+        "arguments": [],
+        "workingDirectory": "app",
+        "environment": {},
+        "temporaryFiles": [],
+        "debug": { "configurationType": "script", "target": { "kind": "launch" } }
+      }
+    },
+    {
+      "name": "a tool the manifest does not require",
+      "params": {
+        "label": "Run",
+        "process": {
+          "executable": { "kind": "tool", "tool": "other-tool" },
+          "arguments": [],
+          "workingDirectory": ".",
+          "environment": {}
+        }
+      },
+      "error": { "code": "plugin.run.invalidStart", "field": "process.executable.tool" }
+    },
+    {
+      "name": "an executable of an unknown kind",
+      "params": {
+        "label": "Run",
+        "process": {
+          "executable": { "kind": "command", "command": "sh" },
+          "arguments": [],
+          "workingDirectory": ".",
+          "environment": {}
+        }
+      },
+      "error": { "code": "plugin.run.invalidStart", "field": "process.executable" }
+    },
+    {
+      "name": "a packaged executable leaves the package",
+      "params": {
+        "label": "Run",
+        "process": {
+          "executable": { "kind": "packaged", "path": "../bin/helper" },
+          "arguments": [],
+          "workingDirectory": ".",
+          "environment": {}
+        }
+      },
+      "error": { "code": "plugin.run.invalidStart", "field": "process.executable.path" }
+    },
+    {
+      "name": "a working directory outside the workspace",
+      "params": {
+        "label": "Run",
+        "process": {
+          "executable": { "kind": "tool", "tool": "interpreter" },
+          "arguments": [],
+          "workingDirectory": "../elsewhere",
+          "environment": {}
+        }
+      },
+      "error": { "code": "plugin.run.invalidStart", "field": "process" }
+    },
+    {
+      "name": "a working directory that does not exist",
+      "params": {
+        "label": "Run",
+        "process": {
+          "executable": { "kind": "tool", "tool": "interpreter" },
+          "arguments": [],
+          "workingDirectory": "missing",
+          "environment": {}
+        }
+      },
+      "error": { "code": "plugin.run.invalidStart", "field": "process" }
+    },
+    {
+      "name": "an environment name that is not a variable name",
+      "params": {
+        "label": "Run",
+        "process": {
+          "executable": { "kind": "tool", "tool": "interpreter" },
+          "arguments": [],
+          "workingDirectory": ".",
+          "environment": { "1BAD": "x" }
+        }
+      },
+      "error": { "code": "plugin.run.invalidStart", "field": "process" }
+    },
+    {
+      "name": "a process field the host does not know",
+      "params": {
+        "label": "Run",
+        "process": {
+          "executable": { "kind": "tool", "tool": "interpreter" },
+          "arguments": [],
+          "workingDirectory": ".",
+          "environment": {},
+          "shell": true
+        }
+      },
+      "error": { "code": "plugin.run.invalidStart", "field": "process.shell" }
+    },
+    {
+      "name": "a label with a line break",
+      "params": {
+        "label": "Run\nmain",
+        "process": {
+          "executable": { "kind": "tool", "tool": "interpreter" },
+          "arguments": [],
+          "workingDirectory": ".",
+          "environment": {}
+        }
+      },
+      "error": { "code": "plugin.run.invalidStart", "field": "label" }
+    },
+    {
+      "name": "a debug connection port out of range",
+      "params": {
+        "label": "Debug",
+        "process": {
+          "executable": { "kind": "tool", "tool": "interpreter" },
+          "arguments": [],
+          "workingDirectory": ".",
+          "environment": {}
+        },
+        "debug": {
+          "configurationType": "script",
+          "target": { "kind": "connection", "port": 0 }
+        }
+      },
+      "error": { "code": "plugin.run.invalidStart", "field": "debug.target.port" }
+    },
+    {
+      "name": "a rerun function that is not a function ID",
+      "params": {
+        "label": "Run",
+        "process": {
+          "executable": { "kind": "tool", "tool": "interpreter" },
+          "arguments": [],
+          "workingDirectory": ".",
+          "environment": {}
+        },
+        "rerun": { "function": "Not A Function", "data": null }
+      },
+      "error": { "code": "plugin.run.invalidStart", "field": "rerun.function" }
+    },
+    {
+      "name": "rerun data that is not an object",
+      "params": {
+        "label": "Run",
+        "process": {
+          "executable": { "kind": "tool", "tool": "interpreter" },
+          "arguments": [],
+          "workingDirectory": ".",
+          "environment": {}
+        },
+        "rerun": { "function": "script.rerun", "data": "main.script" }
+      },
+      "error": { "code": "plugin.run.invalidStart", "field": "rerun.data" }
+    },
+    {
+      "name": "more than four temporary files",
+      "params": {
+        "label": "Run",
+        "process": {
+          "executable": { "kind": "tool", "tool": "interpreter" },
+          "arguments": [],
+          "workingDirectory": ".",
+          "environment": {}
+        },
+        "temporaryFiles": [
+          { "name": "a", "contents": "" },
+          { "name": "b", "contents": "" },
+          { "name": "c", "contents": "" },
+          { "name": "d", "contents": "" },
+          { "name": "e", "contents": "" }
+        ]
+      },
+      "error": { "code": "plugin.run.invalidStart", "field": "temporaryFiles" }
+    },
+    {
+      "name": "an unknown start parameter",
+      "params": {
+        "label": "Run",
+        "process": {
+          "executable": { "kind": "tool", "tool": "interpreter" },
+          "arguments": [],
+          "workingDirectory": ".",
+          "environment": {}
+        },
+        "background": true
+      },
+      "error": { "code": "plugin.run.invalidStart", "field": "params" }
+    }
+  ]
+}

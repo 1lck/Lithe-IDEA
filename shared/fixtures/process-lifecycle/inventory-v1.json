@@ -1,0 +1,1304 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "live instance with terminals, a daemon, an Agent and outside processes",
+      "request": {
+        "scope": "S",
+        "mode": "live",
+        "applicationSessionId": 100,
+        "excludedProcessIds": [
+          100,
+          110
+        ],
+        "retained": [
+          {
+            "processId": 600,
+            "startTime": 600
+          }
+        ],
+        "agentConnections": [
+          {
+            "scope": "A",
+            "agentName": "codex-acp",
+            "workspace": "/work/shop",
+            "taskBaseline": 2000
+          }
+        ],
+        "context": "quit",
+        "processes": [
+          {
+            "processId": 100,
+            "startTime": 100,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "Lithe",
+            "processScope": "S"
+          },
+          {
+            "processId": 101,
+            "startTime": 101,
+            "parentProcessId": 100,
+            "sessionId": 100,
+            "name": "java",
+            "executablePath": "/jdk/bin/java",
+            "arguments": [
+              "java",
+              "-jar",
+              "jdtls.jar"
+            ],
+            "processScope": "S"
+          },
+          {
+            "processId": 110,
+            "startTime": 110,
+            "parentProcessId": 1,
+            "sessionId": 110,
+            "name": "Lithe",
+            "arguments": [
+              "Lithe",
+              "--lithe-process-supervisor"
+            ],
+            "processScope": "S"
+          },
+          {
+            "processId": 200,
+            "startTime": 200,
+            "parentProcessId": 100,
+            "sessionId": 200,
+            "hasControllingTerminal": true,
+            "name": "zsh",
+            "executablePath": "/bin/zsh",
+            "arguments": [
+              "-zsh"
+            ],
+            "processScope": "S"
+          },
+          {
+            "processId": 201,
+            "startTime": 201,
+            "parentProcessId": 200,
+            "sessionId": 200,
+            "hasControllingTerminal": true,
+            "name": "java",
+            "executablePath": "/jdk/bin/java",
+            "arguments": [
+              "java",
+              "-jar",
+              "app.jar"
+            ],
+            "processScope": "S",
+            "workingDirectory": "/work/shop"
+          },
+          {
+            "processId": 300,
+            "startTime": 300,
+            "parentProcessId": 1,
+            "sessionId": 300,
+            "name": "redis-server",
+            "executablePath": "/opt/bin/redis-server",
+            "arguments": [
+              "redis-server",
+              "--port",
+              "6380"
+            ],
+            "processScope": "S"
+          },
+          {
+            "processId": 301,
+            "startTime": 301,
+            "parentProcessId": 300,
+            "sessionId": 300,
+            "name": "redis-bg",
+            "processScope": "S"
+          },
+          {
+            "processId": 400,
+            "startTime": 1000,
+            "parentProcessId": 100,
+            "sessionId": 100,
+            "name": "codex-acp",
+            "executablePath": "/data/codex-acp",
+            "arguments": [
+              "codex-acp"
+            ],
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 401,
+            "startTime": 1500,
+            "parentProcessId": 400,
+            "sessionId": 100,
+            "name": "node",
+            "arguments": [
+              "node",
+              "mcp-server.js"
+            ],
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 402,
+            "startTime": 2500,
+            "parentProcessId": 400,
+            "sessionId": 100,
+            "name": "bash",
+            "executablePath": "/bin/bash",
+            "arguments": [
+              "bash",
+              "-c",
+              "npm run migrate"
+            ],
+            "processScope": "S",
+            "agentScope": "A",
+            "workingDirectory": "/work/shop"
+          },
+          {
+            "processId": 403,
+            "startTime": 2600,
+            "parentProcessId": 402,
+            "sessionId": 100,
+            "name": "node",
+            "arguments": [
+              "node",
+              "migrate.js"
+            ],
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 404,
+            "startTime": 3000,
+            "parentProcessId": 1,
+            "sessionId": 404,
+            "name": "vite",
+            "arguments": [
+              "vite",
+              "--port",
+              "5173"
+            ],
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 500,
+            "startTime": 500,
+            "parentProcessId": 1,
+            "sessionId": 500,
+            "name": "docker",
+            "processScope": "OTHER"
+          },
+          {
+            "processId": 501,
+            "startTime": 501,
+            "parentProcessId": 1,
+            "sessionId": 501,
+            "name": "postgres"
+          },
+          {
+            "processId": 600,
+            "startTime": 600,
+            "parentProcessId": 1,
+            "sessionId": 600,
+            "name": "kept",
+            "processScope": "S"
+          }
+        ]
+      },
+      "expected": {
+        "items": [
+          {
+            "id": "agentTask:402:2500",
+            "category": "agentTask",
+            "kind": "agentTask",
+            "detached": false,
+            "name": "bash -c npm run migrate",
+            "detail": "bash -c npm run migrate",
+            "rootProcessId": 402,
+            "startedAt": 2500,
+            "agentName": "codex-acp",
+            "workspace": "/work/shop",
+            "workingDirectory": "/work/shop",
+            "processes": [
+              {
+                "processId": 402,
+                "startTime": 2500
+              },
+              {
+                "processId": 403,
+                "startTime": 2600
+              }
+            ]
+          },
+          {
+            "id": "agentTask:404:3000",
+            "category": "agentTask",
+            "kind": "agentTask",
+            "detached": false,
+            "name": "vite --port 5173",
+            "detail": "vite --port 5173",
+            "rootProcessId": 404,
+            "startedAt": 3000,
+            "agentName": "codex-acp",
+            "workspace": "/work/shop",
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 404,
+                "startTime": 3000
+              }
+            ]
+          },
+          {
+            "id": "agentInfrastructure:A",
+            "category": "agentInfrastructure",
+            "kind": "sidecar",
+            "detached": false,
+            "name": "codex-acp",
+            "detail": "codex-acp",
+            "rootProcessId": 400,
+            "startedAt": 1000,
+            "agentName": "codex-acp",
+            "workspace": "/work/shop",
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 400,
+                "startTime": 1000
+              },
+              {
+                "processId": 401,
+                "startTime": 1500
+              }
+            ]
+          },
+          {
+            "id": "service:300:300",
+            "category": "backgroundService",
+            "kind": "daemon",
+            "detached": true,
+            "name": "redis-server --port 6380",
+            "detail": "redis-server --port 6380",
+            "rootProcessId": 300,
+            "startedAt": 300,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 300,
+                "startTime": 300
+              },
+              {
+                "processId": 301,
+                "startTime": 301
+              }
+            ]
+          },
+          {
+            "id": "terminal:200",
+            "category": "terminal",
+            "kind": "terminal",
+            "detached": false,
+            "name": "zsh",
+            "detail": "-zsh",
+            "rootProcessId": 200,
+            "startedAt": 200,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 200,
+                "startTime": 200
+              },
+              {
+                "processId": 201,
+                "startTime": 201
+              }
+            ]
+          },
+          {
+            "id": "run:other",
+            "category": "other",
+            "kind": "run",
+            "detached": false,
+            "name": "java -jar jdtls.jar",
+            "detail": "java -jar jdtls.jar",
+            "rootProcessId": 101,
+            "startedAt": 101,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 101,
+                "startTime": 101
+              }
+            ]
+          }
+        ],
+        "plan": {
+          "gracefulStopMilliseconds": 5000,
+          "decisions": [
+            {
+              "id": "agentTask:402:2500",
+              "kind": "agentTask",
+              "policy": "confirmEach",
+              "action": "confirm",
+              "reason": "agentTask"
+            },
+            {
+              "id": "agentTask:404:3000",
+              "kind": "agentTask",
+              "policy": "confirmEach",
+              "action": "confirm",
+              "reason": "agentTask"
+            },
+            {
+              "id": "agentInfrastructure:A",
+              "kind": "sidecar",
+              "policy": "terminate",
+              "action": "terminate",
+              "reason": "defaultTerminate"
+            },
+            {
+              "id": "service:300:300",
+              "kind": "daemon",
+              "policy": "askOnExit",
+              "action": "ask",
+              "reason": "detachedProcess"
+            },
+            {
+              "id": "terminal:200",
+              "kind": "terminal",
+              "policy": "confirmEach",
+              "action": "confirm",
+              "reason": "busyTerminal"
+            },
+            {
+              "id": "run:other",
+              "kind": "run",
+              "policy": "terminate",
+              "action": "terminate",
+              "reason": "defaultTerminate"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Agent without a prompt has no tasks",
+      "request": {
+        "scope": "S",
+        "applicationSessionId": 100,
+        "agentConnections": [
+          {
+            "scope": "A",
+            "agentName": "claude",
+            "workspace": "/work"
+          }
+        ],
+        "processes": [
+          {
+            "processId": 400,
+            "startTime": 1000,
+            "parentProcessId": 100,
+            "sessionId": 100,
+            "name": "claude",
+            "processScope": "S",
+            "agentScope": "A"
+          }
+        ]
+      },
+      "expected": {
+        "items": [
+          {
+            "id": "agentInfrastructure:A",
+            "category": "agentInfrastructure",
+            "kind": "sidecar",
+            "detached": false,
+            "name": "claude",
+            "detail": "claude",
+            "rootProcessId": 400,
+            "startedAt": 1000,
+            "agentName": "claude",
+            "workspace": "/work",
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 400,
+                "startTime": 1000
+              }
+            ]
+          }
+        ],
+        "plan": null
+      }
+    },
+    {
+      "name": "leftovers of a crashed instance group every Agent process as one task",
+      "request": {
+        "scope": "S",
+        "mode": "leftover",
+        "applicationSessionId": 999,
+        "agentConnections": [
+          {
+            "scope": "A",
+            "agentName": "ignored",
+            "workspace": "/ignored",
+            "taskBaseline": 1
+          }
+        ],
+        "context": "startupSweep",
+        "processes": [
+          {
+            "processId": 400,
+            "startTime": 1000,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "codex-acp",
+            "arguments": [
+              "codex-acp"
+            ],
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 402,
+            "startTime": 2500,
+            "parentProcessId": 400,
+            "sessionId": 100,
+            "name": "bash",
+            "arguments": [
+              "bash",
+              "-c",
+              "deploy.sh"
+            ],
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 300,
+            "startTime": 300,
+            "parentProcessId": 1,
+            "sessionId": 300,
+            "name": "gradle",
+            "arguments": [
+              "java",
+              "GradleDaemon"
+            ],
+            "processScope": "S"
+          }
+        ]
+      },
+      "expected": {
+        "items": [
+          {
+            "id": "agentTask:400:1000",
+            "category": "agentTask",
+            "kind": "agentTask",
+            "detached": false,
+            "name": "codex-acp",
+            "detail": "codex-acp",
+            "rootProcessId": 400,
+            "startedAt": 1000,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 400,
+                "startTime": 1000
+              },
+              {
+                "processId": 402,
+                "startTime": 2500
+              }
+            ]
+          },
+          {
+            "id": "service:300:300",
+            "category": "backgroundService",
+            "kind": "daemon",
+            "detached": true,
+            "name": "gradle GradleDaemon",
+            "detail": "java GradleDaemon",
+            "rootProcessId": 300,
+            "startedAt": 300,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 300,
+                "startTime": 300
+              }
+            ]
+          }
+        ],
+        "plan": {
+          "gracefulStopMilliseconds": 5000,
+          "decisions": [
+            {
+              "id": "agentTask:400:1000",
+              "kind": "agentTask",
+              "policy": "confirmEach",
+              "action": "confirm",
+              "reason": "agentTaskAlwaysConfirmedAtStartup"
+            },
+            {
+              "id": "service:300:300",
+              "kind": "daemon",
+              "policy": "askOnExit",
+              "action": "ask",
+              "reason": "startupSweepSetting"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "double-fork daemons survive exited session leaders without claiming application or terminal sessions",
+      "request": {
+        "scope": "S",
+        "applicationSessionId": 100,
+        "context": "quit",
+        "processes": [
+          {
+            "processId": 340,
+            "startTime": 310,
+            "parentProcessId": 350,
+            "sessionId": 300,
+            "name": "worker",
+            "processScope": "S"
+          },
+          {
+            "processId": 221,
+            "startTime": 210,
+            "parentProcessId": 220,
+            "sessionId": 200,
+            "name": "terminal-child",
+            "processScope": "S"
+          },
+          {
+            "processId": 450,
+            "startTime": 400,
+            "parentProcessId": 1,
+            "sessionId": 400,
+            "name": "second-daemon",
+            "processScope": "S"
+          },
+          {
+            "processId": 170,
+            "startTime": 170,
+            "parentProcessId": 1,
+            "sessionId": 0,
+            "name": "unknown-session",
+            "processScope": "S"
+          },
+          {
+            "processId": 350,
+            "startTime": 300,
+            "parentProcessId": 1,
+            "sessionId": 300,
+            "name": "daemon",
+            "processScope": "S"
+          },
+          {
+            "processId": 150,
+            "startTime": 150,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "app-orphan",
+            "processScope": "S"
+          },
+          {
+            "processId": 220,
+            "startTime": 200,
+            "parentProcessId": 1,
+            "sessionId": 200,
+            "name": "shell",
+            "processScope": "S",
+            "hasControllingTerminal": true
+          }
+        ]
+      },
+      "expected": {
+        "items": [
+          {
+            "id": "service:350:300",
+            "category": "backgroundService",
+            "kind": "daemon",
+            "detached": true,
+            "name": "daemon",
+            "detail": "daemon",
+            "rootProcessId": 350,
+            "startedAt": 300,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 350,
+                "startTime": 300
+              },
+              {
+                "processId": 340,
+                "startTime": 310
+              }
+            ]
+          },
+          {
+            "id": "service:450:400",
+            "category": "backgroundService",
+            "kind": "daemon",
+            "detached": true,
+            "name": "second-daemon",
+            "detail": "second-daemon",
+            "rootProcessId": 450,
+            "startedAt": 400,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 450,
+                "startTime": 400
+              }
+            ]
+          },
+          {
+            "id": "terminal:200",
+            "category": "terminal",
+            "kind": "terminal",
+            "detached": false,
+            "name": "shell",
+            "detail": "shell",
+            "rootProcessId": 220,
+            "startedAt": 200,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 220,
+                "startTime": 200
+              }
+            ]
+          },
+          {
+            "id": "run:other",
+            "category": "other",
+            "kind": "run",
+            "detached": false,
+            "name": "app-orphan",
+            "detail": "app-orphan",
+            "rootProcessId": 150,
+            "startedAt": 150,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 150,
+                "startTime": 150
+              },
+              {
+                "processId": 170,
+                "startTime": 170
+              },
+              {
+                "processId": 221,
+                "startTime": 210
+              }
+            ]
+          }
+        ],
+        "plan": {
+          "gracefulStopMilliseconds": 5000,
+          "decisions": [
+            {
+              "id": "service:350:300",
+              "kind": "daemon",
+              "policy": "askOnExit",
+              "action": "ask",
+              "reason": "detachedProcess"
+            },
+            {
+              "id": "service:450:400",
+              "kind": "daemon",
+              "policy": "askOnExit",
+              "action": "ask",
+              "reason": "detachedProcess"
+            },
+            {
+              "id": "terminal:200",
+              "kind": "terminal",
+              "policy": "confirmEach",
+              "action": "confirm",
+              "reason": "busyTerminal"
+            },
+            {
+              "id": "run:other",
+              "kind": "run",
+              "policy": "terminate",
+              "action": "terminate",
+              "reason": "defaultTerminate"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "closing A never inventories live B tasks or infrastructure",
+      "request": {
+        "scope": "S",
+        "mode": "live",
+        "applicationSessionId": 100,
+        "agentScopes": [
+          "A"
+        ],
+        "agentConnections": [
+          {
+            "scope": "A",
+            "agentName": "Agent A",
+            "workspace": "/A",
+            "taskBaseline": 10
+          }
+        ],
+        "processes": [
+          {
+            "processId": 10,
+            "startTime": 1,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "host-A",
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 11,
+            "startTime": 20,
+            "parentProcessId": 10,
+            "sessionId": 100,
+            "name": "task-A",
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 20,
+            "startTime": 1,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "host-B",
+            "processScope": "S",
+            "agentScope": "B"
+          },
+          {
+            "processId": 21,
+            "startTime": 20,
+            "parentProcessId": 20,
+            "sessionId": 100,
+            "name": "task-B",
+            "processScope": "S",
+            "agentScope": "B"
+          }
+        ]
+      },
+      "expected": {
+        "items": [
+          {
+            "id": "agentTask:11:20",
+            "category": "agentTask",
+            "kind": "agentTask",
+            "detached": false,
+            "name": "task-A",
+            "detail": "task-A",
+            "rootProcessId": 11,
+            "startedAt": 20,
+            "agentName": "Agent A",
+            "workspace": "/A",
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 11,
+                "startTime": 20
+              }
+            ]
+          },
+          {
+            "id": "agentInfrastructure:A",
+            "category": "agentInfrastructure",
+            "kind": "sidecar",
+            "detached": false,
+            "name": "host-A",
+            "detail": "host-A",
+            "rootProcessId": 10,
+            "startedAt": 1,
+            "agentName": "Agent A",
+            "workspace": "/A",
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 10,
+                "startTime": 1
+              }
+            ]
+          }
+        ],
+        "plan": null
+      }
+    },
+    {
+      "name": "closing taskless A still excludes busy B",
+      "request": {
+        "scope": "S",
+        "mode": "live",
+        "applicationSessionId": 100,
+        "agentScopes": [
+          "A"
+        ],
+        "agentConnections": [
+          {
+            "scope": "A",
+            "agentName": "Agent A",
+            "workspace": "/A",
+            "taskBaseline": 10
+          }
+        ],
+        "processes": [
+          {
+            "processId": 10,
+            "startTime": 1,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "host-A",
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 20,
+            "startTime": 1,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "host-B",
+            "processScope": "S",
+            "agentScope": "B"
+          },
+          {
+            "processId": 21,
+            "startTime": 20,
+            "parentProcessId": 20,
+            "sessionId": 100,
+            "name": "task-B",
+            "processScope": "S",
+            "agentScope": "B"
+          }
+        ]
+      },
+      "expected": {
+        "items": [
+          {
+            "id": "agentInfrastructure:A",
+            "category": "agentInfrastructure",
+            "kind": "sidecar",
+            "detached": false,
+            "name": "host-A",
+            "detail": "host-A",
+            "rootProcessId": 10,
+            "startedAt": 1,
+            "agentName": "Agent A",
+            "workspace": "/A",
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 10,
+                "startTime": 1
+              }
+            ]
+          }
+        ],
+        "plan": null
+      }
+    },
+    {
+      "name": "empty target scope list never broadens to the whole instance",
+      "request": {
+        "scope": "S",
+        "mode": "live",
+        "applicationSessionId": 100,
+        "agentScopes": [],
+        "agentConnections": [
+          {
+            "scope": "A",
+            "agentName": "Agent A",
+            "workspace": "/A",
+            "taskBaseline": 10
+          }
+        ],
+        "processes": [
+          {
+            "processId": 10,
+            "startTime": 1,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "host-A",
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 20,
+            "startTime": 1,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "host-B",
+            "processScope": "S",
+            "agentScope": "B"
+          },
+          {
+            "processId": 21,
+            "startTime": 20,
+            "parentProcessId": 20,
+            "sessionId": 100,
+            "name": "task-B",
+            "processScope": "S",
+            "agentScope": "B"
+          }
+        ]
+      },
+      "expected": {
+        "items": [],
+        "plan": null
+      }
+    },
+    {
+      "name": "final sweep defers unseen lineage and reused PIDs but ends approved siblings and infrastructure",
+      "request": {
+        "scope": "S",
+        "mode": "leftover",
+        "applicationSessionId": 100,
+        "context": "finalSweep",
+        "processes": [
+          {
+            "processId": 111,
+            "startTime": 30,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "unobserved-orphan",
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 112,
+            "startTime": 20,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "approved-sibling",
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 113,
+            "startTime": 99,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "reused-pid",
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 114,
+            "startTime": 1,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "approved-infrastructure",
+            "processScope": "S",
+            "agentScope": "A"
+          }
+        ],
+        "retained": [
+          {
+            "processId": 99,
+            "startTime": 1
+          }
+        ],
+        "approvedTermination": [
+          {
+            "processId": 112,
+            "startTime": 20
+          },
+          {
+            "processId": 113,
+            "startTime": 21
+          },
+          {
+            "processId": 114,
+            "startTime": 1
+          }
+        ]
+      },
+      "expected": {
+        "items": [
+          {
+            "id": "agentTask:111:30",
+            "category": "agentTask",
+            "kind": "agentTask",
+            "detached": false,
+            "name": "unobserved-orphan",
+            "detail": "unobserved-orphan",
+            "rootProcessId": 111,
+            "startedAt": 30,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 111,
+                "startTime": 30
+              }
+            ]
+          },
+          {
+            "id": "agentTask:112:20",
+            "category": "agentTask",
+            "kind": "agentTask",
+            "detached": false,
+            "name": "approved-sibling",
+            "detail": "approved-sibling",
+            "rootProcessId": 112,
+            "startedAt": 20,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 112,
+                "startTime": 20
+              }
+            ]
+          },
+          {
+            "id": "agentTask:113:99",
+            "category": "agentTask",
+            "kind": "agentTask",
+            "detached": false,
+            "name": "reused-pid",
+            "detail": "reused-pid",
+            "rootProcessId": 113,
+            "startedAt": 99,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 113,
+                "startTime": 99
+              }
+            ]
+          },
+          {
+            "id": "agentTask:114:1",
+            "category": "agentTask",
+            "kind": "agentTask",
+            "detached": false,
+            "name": "approved-infrastructure",
+            "detail": "approved-infrastructure",
+            "rootProcessId": 114,
+            "startedAt": 1,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 114,
+                "startTime": 1
+              }
+            ]
+          }
+        ],
+        "plan": {
+          "gracefulStopMilliseconds": 5000,
+          "decisions": [
+            {
+              "id": "agentTask:111:30",
+              "kind": "agentTask",
+              "policy": "confirmEach",
+              "action": "defer",
+              "reason": "agentTaskRequiresStartupConfirmation"
+            },
+            {
+              "id": "agentTask:112:20",
+              "kind": "agentTask",
+              "policy": "confirmEach",
+              "action": "terminate",
+              "reason": "finalSweepApproved"
+            },
+            {
+              "id": "agentTask:113:99",
+              "kind": "agentTask",
+              "policy": "confirmEach",
+              "action": "defer",
+              "reason": "agentTaskRequiresStartupConfirmation"
+            },
+            {
+              "id": "agentTask:114:1",
+              "kind": "agentTask",
+              "policy": "confirmEach",
+              "action": "terminate",
+              "reason": "finalSweepApproved"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "startup independently confirms unknown orphan tasks even with terminate setting",
+      "request": {
+        "scope": "S",
+        "mode": "leftover",
+        "applicationSessionId": 100,
+        "context": "startupSweep",
+        "settings": {
+          "agentTasks": "terminate"
+        },
+        "processes": [
+          {
+            "processId": 111,
+            "startTime": 30,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "unobserved-orphan",
+            "processScope": "S",
+            "agentScope": "A"
+          },
+          {
+            "processId": 113,
+            "startTime": 99,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "reused-pid",
+            "processScope": "S",
+            "agentScope": "A"
+          }
+        ]
+      },
+      "expected": {
+        "items": [
+          {
+            "id": "agentTask:111:30",
+            "category": "agentTask",
+            "kind": "agentTask",
+            "detached": false,
+            "name": "unobserved-orphan",
+            "detail": "unobserved-orphan",
+            "rootProcessId": 111,
+            "startedAt": 30,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 111,
+                "startTime": 30
+              }
+            ]
+          },
+          {
+            "id": "agentTask:113:99",
+            "category": "agentTask",
+            "kind": "agentTask",
+            "detached": false,
+            "name": "reused-pid",
+            "detail": "reused-pid",
+            "rootProcessId": 113,
+            "startedAt": 99,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 113,
+                "startTime": 99
+              }
+            ]
+          }
+        ],
+        "plan": {
+          "gracefulStopMilliseconds": 5000,
+          "decisions": [
+            {
+              "id": "agentTask:111:30",
+              "kind": "agentTask",
+              "policy": "confirmEach",
+              "action": "confirm",
+              "reason": "agentTaskAlwaysConfirmedAtStartup"
+            },
+            {
+              "id": "agentTask:113:99",
+              "kind": "agentTask",
+              "policy": "confirmEach",
+              "action": "confirm",
+              "reason": "agentTaskAlwaysConfirmedAtStartup"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "legacy missing original session asks without claiming detachment",
+      "request": {
+        "scope": "S",
+        "mode": "leftover",
+        "applicationSessionId": 0,
+        "context": "startupSweep",
+        "processes": [
+          {
+            "processId": 150,
+            "startTime": 2,
+            "parentProcessId": 1,
+            "sessionId": 100,
+            "name": "legacy-tool",
+            "processScope": "S"
+          }
+        ]
+      },
+      "expected": {
+        "items": [
+          {
+            "id": "run:other",
+            "category": "other",
+            "kind": "run",
+            "detached": false,
+            "name": "legacy-tool",
+            "detail": "legacy-tool",
+            "rootProcessId": 150,
+            "startedAt": 2,
+            "agentName": null,
+            "workspace": null,
+            "workingDirectory": null,
+            "processes": [
+              {
+                "processId": 150,
+                "startTime": 2
+              }
+            ]
+          }
+        ],
+        "plan": {
+          "gracefulStopMilliseconds": 5000,
+          "decisions": [
+            {
+              "id": "run:other",
+              "kind": "run",
+              "policy": "askOnExit",
+              "action": "ask",
+              "reason": "startupSweepSetting"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

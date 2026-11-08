@@ -1,0 +1,192 @@
+{
+  "description": "Requests of outputLinks.match and the links Core returns, and replies of a matcher's resolve function with what outputLinks.decodeResolution returns. `start` and `length` count UTF-16 code units of the console line. A relative path yields one candidate per workspace root, and a path outside every root yields no link.",
+  "match": [
+    {
+      "name": "a frame in the workspace links to its line",
+      "request": {
+        "scope": "run",
+        "platform": "macos",
+        "workspaceRoots": ["/work/app"],
+        "sources": [
+          {
+            "pluginID": "example.script",
+            "matchers": [
+              { "id": "frame", "pattern": "File \"(?P<path>[^\"]+)\", line (?P<line>\\d+)" }
+            ]
+          }
+        ],
+        "lines": ["  File \"/work/app/main.script\", line 12, in <module>"]
+      },
+      "links": [
+        {
+          "line": 0,
+          "start": 2,
+          "length": 37,
+          "pluginID": "example.script",
+          "matcherID": "frame",
+          "location": { "paths": ["/work/app/main.script"], "line": 12 }
+        }
+      ]
+    },
+    {
+      "name": "a relative path becomes one candidate per workspace root",
+      "request": {
+        "scope": "run",
+        "platform": "linux",
+        "workspaceRoots": ["/work/app", "/work/lib"],
+        "sources": [
+          {
+            "pluginID": "example.script",
+            "matchers": [
+              { "id": "frame", "pattern": "File \"(?P<path>[^\"]+)\", line (?P<line>\\d+)" }
+            ]
+          }
+        ],
+        "lines": ["  File \"./pkg/util.script\", line 3"]
+      },
+      "links": [
+        {
+          "line": 0,
+          "start": 2,
+          "length": 32,
+          "pluginID": "example.script",
+          "matcherID": "frame",
+          "location": {
+            "paths": ["/work/app/pkg/util.script", "/work/lib/pkg/util.script"],
+            "line": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "positions count UTF-16 code units",
+      "request": {
+        "scope": "test",
+        "platform": "linux",
+        "workspaceRoots": ["/work/app"],
+        "sources": [
+          {
+            "pluginID": "example.script",
+            "matchers": [
+              { "id": "frame", "pattern": "File \"(?P<path>[^\"]+)\", line (?P<line>\\d+)" }
+            ]
+          }
+        ],
+        "lines": ["😀 File \"/work/app/a.script\", line 2"]
+      },
+      "links": [
+        {
+          "line": 0,
+          "start": 3,
+          "length": 33,
+          "pluginID": "example.script",
+          "matcherID": "frame",
+          "location": { "paths": ["/work/app/a.script"], "line": 2 }
+        }
+      ]
+    },
+    {
+      "name": "paths outside the workspace are not linked",
+      "request": {
+        "scope": "run",
+        "platform": "linux",
+        "workspaceRoots": ["/work/app"],
+        "sources": [
+          {
+            "pluginID": "example.script",
+            "matchers": [
+              { "id": "frame", "pattern": "File \"(?P<path>[^\"]+)\", line (?P<line>\\d+)" }
+            ]
+          }
+        ],
+        "lines": [
+          "  File \"/usr/lib/script/os.script\", line 1",
+          "  File \"../outside.script\", line 1"
+        ]
+      },
+      "links": []
+    },
+    {
+      "name": "a matcher of the other console does not apply",
+      "request": {
+        "scope": "run",
+        "platform": "linux",
+        "workspaceRoots": ["/work/app"],
+        "sources": [
+          {
+            "pluginID": "example.script",
+            "matchers": [
+              { "id": "test-frame", "pattern": "(?P<path>\\S+\\.script)", "scope": "test" }
+            ]
+          }
+        ],
+        "lines": ["/work/app/main.script"]
+      },
+      "links": []
+    },
+    {
+      "name": "a matcher with a resolve function reports its groups",
+      "request": {
+        "scope": "test",
+        "platform": "linux",
+        "workspaceRoots": ["/work"],
+        "sources": [
+          {
+            "pluginID": "example.script",
+            "matchers": [
+              {
+                "id": "symbol",
+                "pattern": "(?P<package>[\\w/]+)\\.(?P<symbol>\\w+)\\(",
+                "resolve": { "function": "links.resolve" }
+              }
+            ]
+          }
+        ],
+        "lines": ["main.handler(0x1)"]
+      },
+      "links": [
+        {
+          "line": 0,
+          "start": 0,
+          "length": 13,
+          "pluginID": "example.script",
+          "matcherID": "symbol",
+          "resolve": {
+            "function": "links.resolve",
+            "groups": { "package": "main", "symbol": "handler" }
+          }
+        }
+      ]
+    }
+  ],
+  "resolution": [
+    {
+      "name": "a file URI with a 0-based start position",
+      "reply": {
+        "uri": "file:///work/main%20app.script",
+        "range": { "start": { "line": 9, "character": 0 } }
+      },
+      "location": { "path": "/work/main app.script", "line": 10, "column": 1 }
+    },
+    {
+      "name": "a file URI without a range",
+      "reply": { "uri": "file:///work/main.script" },
+      "location": { "path": "/work/main.script" }
+    },
+    {
+      "name": "nothing found",
+      "reply": null,
+      "location": null
+    },
+    {
+      "name": "a URI that is not a local file",
+      "reply": { "uri": "https://example.com/a.script" },
+      "invalid": true
+    },
+    {
+      "name": "a reply member Core does not know",
+      "reply": { "uri": "file:///work/main.script", "extra": 1 },
+      "invalid": true
+    }
+  ]
+}

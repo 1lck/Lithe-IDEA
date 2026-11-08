@@ -1,0 +1,30 @@
+{
+  "name": "merge-graph",
+  "commits": [
+    {
+      "hash": "merge",
+      "parents": ["feature", "root"],
+      "subject": "Merge feature",
+      "decorations": "HEAD -> main"
+    },
+    {
+      "hash": "feature",
+      "parents": ["root"],
+      "subject": "Add feature",
+      "decorations": "feature/orders"
+    },
+    {
+      "hash": "root",
+      "parents": [],
+      "subject": "Initial commit",
+      "decorations": ""
+    }
+  ],
+  "expected": {
+    "rowCount": 3,
+    "mergeRow": 0,
+    "mergeParentCount": 2,
+    "hasMissingParents": false,
+    "headLabel": "HEAD"
+  }
+}

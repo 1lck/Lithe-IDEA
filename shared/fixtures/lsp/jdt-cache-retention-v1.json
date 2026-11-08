@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "expires-only-inactive-cache-older-than-thirty-days",
+      "nowUnixSeconds": 4000000,
+      "activeWorkspaceKey": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "entries": [
+        {
+          "workspaceKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "lastModifiedUnixSeconds": 1000000
+        },
+        {
+          "workspaceKey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "lastModifiedUnixSeconds": 1408000
+        },
+        {
+          "workspaceKey": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "lastModifiedUnixSeconds": 1
+        },
+        {
+          "workspaceKey": "not-a-workspace-key",
+          "lastModifiedUnixSeconds": 1
+        }
+      ],
+      "expected": {
+        "retentionDays": 30,
+        "expiredWorkspaceKeys": [
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ]
+      }
+    },
+    {
+      "name": "duplicate-observations-use-newest-timestamp",
+      "nowUnixSeconds": 4000000,
+      "entries": [
+        {
+          "workspaceKey": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "lastModifiedUnixSeconds": 1
+        },
+        {
+          "workspaceKey": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "lastModifiedUnixSeconds": 3999999
+        }
+      ],
+      "expected": {
+        "retentionDays": 30,
+        "expiredWorkspaceKeys": []
+      }
+    }
+  ]
+}

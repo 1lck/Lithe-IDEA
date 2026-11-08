@@ -1,0 +1,301 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "fetch folds legacy global flags with temporary environment configuration",
+      "arguments": [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "-c",
+        "core.quotepath=false",
+        "fetch",
+        "--progress",
+        "--prune",
+        "--",
+        "origin"
+      ],
+      "temporaryConfig": [
+        [
+          "color.ui",
+          "false"
+        ],
+        [
+          "core.quotepath",
+          "false"
+        ],
+        [
+          "log.showSignature",
+          "false"
+        ]
+      ],
+      "displayArguments": [
+        "fetch",
+        "--progress",
+        "--prune",
+        "--",
+        "origin"
+      ],
+      "globalArguments": [
+        "-c",
+        "color.ui=false",
+        "-c",
+        "core.quotepath=false",
+        "-c",
+        "log.showSignature=false",
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "-c",
+        "core.quotepath=false"
+      ]
+    },
+    {
+      "name": "global working directory and inline config remain inspectable",
+      "arguments": [
+        "-C",
+        "nested repo",
+        "-ccore.quotepath=false",
+        "status"
+      ],
+      "temporaryConfig": [],
+      "displayArguments": [
+        "status"
+      ],
+      "globalArguments": [
+        "-C",
+        "nested repo",
+        "-ccore.quotepath=false"
+      ]
+    },
+    {
+      "name": "commit message and paths are never interpreted as global options",
+      "arguments": [
+        "commit",
+        "-m",
+        "fix -c color.ui=false",
+        "--",
+        "-c"
+      ],
+      "temporaryConfig": [],
+      "displayArguments": [
+        "commit",
+        "-m",
+        "fix -c color.ui=false",
+        "--",
+        "-c"
+      ],
+      "globalArguments": []
+    },
+    {
+      "name": "version flag remains visible",
+      "arguments": [
+        "--version"
+      ],
+      "temporaryConfig": [],
+      "displayArguments": [
+        "--version"
+      ],
+      "globalArguments": []
+    },
+    {
+      "name": "add uses the same inline global option fold",
+      "arguments": [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "add",
+        "--",
+        "notes with spaces.txt"
+      ],
+      "temporaryConfig": [
+        [
+          "core.quotepath",
+          "false"
+        ]
+      ],
+      "displayArguments": [
+        "add",
+        "--",
+        "notes with spaces.txt"
+      ],
+      "globalArguments": [
+        "-c",
+        "core.quotepath=false",
+        "--no-pager",
+        "-c",
+        "color.ui=false"
+      ]
+    },
+    {
+      "name": "commit uses the same inline global option fold",
+      "arguments": [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "commit",
+        "-m",
+        "update notes"
+      ],
+      "temporaryConfig": [
+        [
+          "core.quotepath",
+          "false"
+        ]
+      ],
+      "displayArguments": [
+        "commit",
+        "-m",
+        "update notes"
+      ],
+      "globalArguments": [
+        "-c",
+        "core.quotepath=false",
+        "--no-pager",
+        "-c",
+        "color.ui=false"
+      ]
+    },
+    {
+      "name": "checkout uses the same inline global option fold",
+      "arguments": [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "checkout",
+        "feature"
+      ],
+      "temporaryConfig": [
+        [
+          "core.quotepath",
+          "false"
+        ]
+      ],
+      "displayArguments": [
+        "checkout",
+        "feature"
+      ],
+      "globalArguments": [
+        "-c",
+        "core.quotepath=false",
+        "--no-pager",
+        "-c",
+        "color.ui=false"
+      ]
+    },
+    {
+      "name": "push uses the same inline global option fold",
+      "arguments": [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "push",
+        "origin",
+        "feature"
+      ],
+      "temporaryConfig": [
+        [
+          "core.quotepath",
+          "false"
+        ]
+      ],
+      "displayArguments": [
+        "push",
+        "origin",
+        "feature"
+      ],
+      "globalArguments": [
+        "-c",
+        "core.quotepath=false",
+        "--no-pager",
+        "-c",
+        "color.ui=false"
+      ]
+    },
+    {
+      "name": "stash uses the same inline global option fold",
+      "arguments": [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "stash",
+        "pop"
+      ],
+      "temporaryConfig": [
+        [
+          "core.quotepath",
+          "false"
+        ]
+      ],
+      "displayArguments": [
+        "stash",
+        "pop"
+      ],
+      "globalArguments": [
+        "-c",
+        "core.quotepath=false",
+        "--no-pager",
+        "-c",
+        "color.ui=false"
+      ]
+    },
+    {
+      "name": "rebase uses the same inline global option fold",
+      "arguments": [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "rebase",
+        "main"
+      ],
+      "temporaryConfig": [
+        [
+          "core.quotepath",
+          "false"
+        ]
+      ],
+      "displayArguments": [
+        "rebase",
+        "main"
+      ],
+      "globalArguments": [
+        "-c",
+        "core.quotepath=false",
+        "--no-pager",
+        "-c",
+        "color.ui=false"
+      ]
+    },
+    {
+      "name": "worktree uses the same inline global option fold",
+      "arguments": [
+        "--no-pager",
+        "-c",
+        "color.ui=false",
+        "worktree",
+        "add",
+        "../feature",
+        "feature"
+      ],
+      "temporaryConfig": [
+        [
+          "core.quotepath",
+          "false"
+        ]
+      ],
+      "displayArguments": [
+        "worktree",
+        "add",
+        "../feature",
+        "feature"
+      ],
+      "globalArguments": [
+        "-c",
+        "core.quotepath=false",
+        "--no-pager",
+        "-c",
+        "color.ui=false"
+      ]
+    }
+  ]
+}

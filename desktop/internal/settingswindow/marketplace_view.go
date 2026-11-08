@@ -1,0 +1,240 @@
+package settingswindow
+
+import (
+	"hash/fnv"
+	"strings"
+	"unicode"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/vivaui/viva/flex"
+	"github.com/vivaui/viva/ui"
+)
+
+var (
+	marketDetailID  = tree.ID(root, "marketplace-detail")
+	marketScrollID  = tree.ID(root, "marketplace-list")
+	marketRetryID   = tree.ID(root, "marketplace-retry")
+	marketDividerID = tree.ID(root, "marketplace-divider")
+	marketRows      = tree.Sub(root, tree.Name("marketplace-rows"))
+)
+
+const (
+	marketListWidth       = 320
+	marketDividerWidth    = 5
+	marketDividerHitWidth = 10
+	marketRowHeight       = 50
+	marketOverscan        = 2
+)
+
+// marketWake is called on the window thread when an index fetch completes.
+func (w *window) marketWake() {
+	if w.requestPlugins.Swap(false) {
+		w.search.SetText("")
+		w.sess.page = pagePlugins
+	}
+	previous := w.market.status
+	w.market.drain()
+	if previous == marketLoading && w.market.status == marketFailed && w.ctrl.opts.MarketplaceError != nil {
+		w.ctrl.opts.MarketplaceError(w.market.err)
+	}
+	if previous == marketLoading && w.market.status == marketReady && len(w.market.snapshot.Index.Rejected) > 0 && w.ctrl.opts.MarketplaceRejected != nil {
+		w.ctrl.opts.MarketplaceRejected(len(w.market.snapshot.Index.Rejected))
+	}
+}
+func (w *window) marketText(key string) string {
+	language := i18n.English
+	if w.ctrl.opts.Language != nil {
+		language = w.ctrl.opts.Language()
+	}
+	return i18n.Shared(language, key)
+}
+
+// drawMarketplace paints only visible rows; Core already sorted and validated the index.
+func (w *window) drawMarketplace(f *flex.Frame) {
+	m := w.market
+	if m.status == marketIdle {
+		m.start()
+	}
+	f.Column().FillWidth().Grow(1).Shrink(1).MinHeight(0).Children(func() {
+		f.Row().FillWidth().Height(46).Shrink(0).PadX(16).Items(flex.Center).Children(func() {
+			f.Text(titleOf(&w.text.Settings, pagePlugins)).FontSize(13).Weight(ui.WeightSemibold).Color(w.pal.text)
+			f.Spacer()
+			f.Row().Height(30).PadX(12).Radius(6).Background(w.pal.selection).Center().Children(func() {
+				f.Text(w.marketText("native.marketplace")).FontSize(13).Weight(ui.WeightSemibold).Color(w.pal.text)
+			})
+		})
+		f.Row().FillWidth().Height(1).Shrink(0).Background(w.pal.line)
+		switch m.status {
+		case marketLoading, marketIdle:
+			f.Column().FillWidth().Grow(1).Center().Children(func() { f.Text(w.marketText("native.loading")).Color(w.pal.muted) })
+		case marketFailed:
+			f.Column().FillWidth().Grow(1).Center().Gap(8).Children(func() {
+				f.Text(w.marketText("native.pluginMarketplaceIsNotAvailable")).Color(w.pal.danger)
+				if f.Button(marketRetryID, w.marketText("ui.retry")).Outline().Clicked() {
+					m.start()
+				}
+			})
+		case marketReady:
+			w.marketColumns(f)
+		}
+	})
+}
+
+func (w *window) marketColumns(f *flex.Frame) {
+	m := w.market
+	plugins := m.snapshot.Index.Plugins
+	scroll := w.view.ScrollState(marketScrollID)
+	height := scroll.Viewport
+	if height <= 0 {
+		height = 520
+	}
+	first := max(0, int(scroll.Offset/marketRowHeight)-marketOverscan)
+	last := min(len(plugins), int((scroll.Offset+height)/marketRowHeight)+marketOverscan+1)
+	first = min(first, last)
+	f.Row().FillWidth().Grow(1).Shrink(1).MinHeight(0).Children(func() {
+		f.Column().Width(w.marketSplit.Size(w.marketExtent)).FillHeight().Shrink(0).Children(func() {
+			if len(plugins) == 0 {
+				f.Column().FillWidth().Grow(1).Center().Children(func() { f.Text(w.marketText("native.noPluginsAvailable")).Color(w.pal.muted) })
+			} else {
+				f.Canvas().Container(w.marketListRect, ui.RoleListBox, w.marketText("native.marketplace"))
+				w.marketListBox = f.ScrollArea(marketScrollID).FillWidth().Grow(1).Shrink(1).MinHeight(0).Children(func() {
+					if first > 0 {
+						f.Row().Height(float32(first) * marketRowHeight).Shrink(0)
+					}
+					for i := first; i < last; i++ {
+						w.marketRow(f, i, plugins[i])
+					}
+					if rest := len(plugins) - last; rest > 0 {
+						f.Row().Height(float32(rest) * marketRowHeight).Shrink(0)
+					}
+				})
+			}
+		})
+		w.marketDivider = f.Row().Width(marketDividerWidth).FillHeight().Shrink(0).Center().Children(func() {
+			f.Row().Width(2).FillHeight().Shrink(0).Background(w.pal.line)
+		})
+		f.ScrollArea(marketDetailID).Grow(1).Shrink(1).FillHeight().MinWidth(0).Children(func() {
+			f.Column().FillWidth().Shrink(0).MinWidth(0).Pad(24).Gap(12).Children(func() {
+				index, found := m.index[m.selected]
+				if !found {
+					f.Text(w.marketText("native.selectAPlugin")).Color(w.pal.muted)
+					return
+				}
+				selected := &plugins[index]
+				f.Row().FillWidth().Gap(14).Items(flex.Center).Children(func() {
+					w.marketAvatar(f, *selected, 48)
+					f.Column().Grow(1).Shrink(1).MinWidth(0).Gap(6).Children(func() {
+						f.Text(selected.Name).FontSize(20).Weight(ui.WeightBold).Color(w.pal.text).Ellipsis()
+						f.Text(selected.Author).FontSize(12).Color(w.pal.muted).Ellipsis()
+					})
+				})
+				f.Wrap(w.marketText("desktop.marketplace.hostUnavailable")).FontSize(12).Color(w.pal.muted)
+				description := selected.Description
+				if w.ctrl.opts.Language != nil && w.ctrl.opts.Language() == i18n.Chinese {
+					if value := selected.LocalizedDescriptions["zh-Hans"]; value != "" {
+						description = value
+					}
+				}
+				f.Wrap(description).FontSize(12).Color(w.pal.text)
+				w.marketMetadata(f, "native.version", selected.LatestVersion)
+				w.marketMetadata(f, "native.releaseDate", selected.LatestReleaseDate)
+				w.marketMetadata(f, "native.license", selected.License)
+			})
+		})
+	})
+}
+
+func (w *window) marketRow(f *flex.Frame, index int, plugin core.MarketplacePlugin) {
+	selected := plugin.ID == w.market.selected
+	row := f.Row().FillWidth().Height(marketRowHeight).Shrink(0).PadX(14).Gap(10).Items(flex.Center).
+		HitWith(marketRows.At(index), plugin.Name, ui.HitOptions{Role: ui.RoleOption, Selected: selected, PosInSet: int32(index + 1), SetSize: int32(len(w.market.snapshot.Index.Plugins)), Cursor: ui.PointerCursorHand}).
+		Hover(flex.Look{}.Background(w.pal.hover))
+	if selected {
+		row = row.Background(w.pal.selectionIdle)
+	}
+	row.Children(func() {
+		w.marketAvatar(f, plugin, 32)
+		f.Column().Grow(1).Shrink(1).MinWidth(0).Gap(3).Children(func() {
+			f.Text(plugin.Name).FontSize(13).Weight(ui.WeightSemibold).Color(w.pal.text).Ellipsis()
+			f.Text(plugin.Author + " · " + plugin.LatestVersion).FontSize(11).Color(w.pal.muted).Ellipsis()
+		})
+	})
+	if row.Clicked() {
+		w.market.selected = plugin.ID
+	}
+}
+func (w *window) marketMetadata(f *flex.Frame, key, value string) {
+	f.Row().FillWidth().Gap(12).Children(func() {
+		f.Text(w.marketText(key)).Width(96).Shrink(0).FontSize(12).Color(w.pal.muted)
+		f.Text(value).Grow(1).Shrink(1).FontSize(12).Color(w.pal.text).Ellipsis()
+	})
+}
+
+// The native client uses a stable color per plugin ID and an initials avatar
+// until an index icon is available. Keep these presentation metrics identical.
+func (w *window) marketAvatar(f *flex.Frame, plugin core.MarketplacePlugin, size float32) {
+	colors := [...][2]uint32{
+		{0xe08855, 0xe9806f}, {0xb08b14, 0xbb7f19}, {0xa1a359, 0x87aa59},
+		{0x3b92b8, 0x6183ec}, {0x3574f0, 0x7a64f0}, {0xc84d8f, 0xa956cf},
+		{0x955ae0, 0xa84de0}, {0x24a394, 0x279ccd}, {0x5fad65, 0x3d968b},
+	}
+	hash := fnv.New64a()
+	_, _ = hash.Write([]byte(plugin.ID))
+	color := colors[hash.Sum64()%uint64(len(colors))]
+	label := marketplaceInitials(plugin.Name)
+	f.Row().Size(size, size).Shrink(0).Radius(size*0.235).
+		Gradient(flex.ToBottomRight, ui.RGB24(color[0]), ui.RGB24(color[1])).Center().Children(func() {
+		if label == "" {
+			f.Icon(icons.Cpu).Size(size*0.65, size*0.65).Color(w.pal.white)
+		} else {
+			f.Text(label).FontSize(size * 0.65).Mono().Weight(ui.WeightSemibold).Color(w.pal.white)
+		}
+	})
+}
+
+func marketplaceInitials(name string) string {
+	words := strings.FieldsFunc(name, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsNumber(r) })
+	if len(words) == 0 {
+		return ""
+	}
+	first := []rune(words[0])
+	if unicode.Is(unicode.Han, first[0]) || unicode.Is(unicode.Hiragana, first[0]) || unicode.Is(unicode.Katakana, first[0]) || unicode.Is(unicode.Hangul, first[0]) {
+		return string(first[0])
+	}
+	if len(words) > 1 {
+		second := []rune(words[1])[0]
+		if !unicode.Is(unicode.Han, second) && !unicode.Is(unicode.Hiragana, second) && !unicode.Is(unicode.Katakana, second) && !unicode.Is(unicode.Hangul, second) {
+			return strings.ToUpper(string([]rune{first[0], second}))
+		}
+	}
+	return strings.ToUpper(string(first[:min(2, len(first))]))
+}
+
+// marketKey keeps keyboard selection and the scroll viewport together.
+func (w *window) marketKey(event ui.KeyEvent) ui.EventResult {
+	index, ok := event.Target.In(marketRows)
+	plugins := w.market.snapshot.Index.Plugins
+	if !ok || event.Release || event.Modifiers != 0 || index < 0 || index >= len(plugins) {
+		return ui.EventResult{}
+	}
+	switch event.Key {
+	case ui.KeyUp:
+		index = max(0, index-1)
+	case ui.KeyDown:
+		index = min(len(plugins)-1, index+1)
+	default:
+		return ui.EventResult{}
+	}
+	w.market.selected = plugins[index].ID
+	scroll := w.view.ScrollState(marketScrollID)
+	top, bottom := float32(index)*marketRowHeight, float32(index+1)*marketRowHeight
+	if top < scroll.Offset {
+		scroll.ScrollTo(top)
+	} else if bottom > scroll.Offset+scroll.Viewport {
+		scroll.ScrollTo(bottom - scroll.Viewport)
+	}
+	w.marketFocus = marketRows.At(index)
+	return ui.EventResult{Handled: true, Repaint: true}
+}

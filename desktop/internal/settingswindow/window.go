@@ -1,9 +1,12 @@
 package settingswindow
 
 import (
+	"sync/atomic"
+
 	"github.com/1lck/Lithe-IDEA/desktop/internal/appicon"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/splitpane"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
@@ -102,7 +105,15 @@ type window struct {
 	inv  app.Invalidator
 	view flex.View
 
-	search flex.Field
+	market         *marketplaceState
+	marketFocus    ui.ID
+	marketListBox  flex.Box
+	marketListRect ui.Rect
+	marketDivider  flex.Box
+	marketSplit    splitpane.State
+	marketExtent   float32
+	requestPlugins atomic.Bool
+	search         flex.Field
 	// focusSearch asks the next paint to focus the search field (⌘F).
 	focusSearch bool
 	// language is the state of the language list: whether it is open and the first option
@@ -155,7 +166,14 @@ type labelsKey struct {
 
 // newWindow returns a window whose draft starts from the settings in force.
 func newWindow(c *Controller, current Values) *window {
-	return &window{ctrl: c, sess: newSession(current)}
+	w := &window{ctrl: c, sess: newSession(current)}
+	width := current.MarketplaceWidth
+	if width <= 0 {
+		width = marketListWidth
+	}
+	w.marketSplit = splitpane.New(width, 200, 520, 160, marketDividerWidth)
+	w.market = newMarketplaceState(c.opts.Marketplace, w.inv.Invalidate)
+	return w
 }
 
 // config is the native window's configuration.
@@ -172,10 +190,12 @@ func (w *window) config() app.Config {
 		Tree:           &tree,
 		Paint:          w.paint,
 		OnKey:          w.onKey,
+		OnPointer:      w.onPointer,
 		OnShortcut:     w.onShortcut,
 		OnScroll:       w.onScroll,
 		TextInput:      flex.Fields(&w.search),
 		Invalidator:    &w.inv,
+		OnWake:         w.marketWake,
 		OnClosed:       w.closed,
 	}
 }
@@ -208,6 +228,8 @@ func (w *window) native() *app.Window {
 // the system look is no longer watched and the controller forgets the window, so the next
 // Open makes a new one.
 func (w *window) closed() {
+	w.marketSplit.Cancel()
+	w.market.close()
 	w.sess.finished.Store(true)
 	c := w.ctrl
 	c.mu.Lock()
@@ -248,6 +270,10 @@ func (w *window) closeNative() {
 
 // paint draws the window for the draft as it is now.
 func (w *window) paint(canvas *ui.Canvas, size ui.Size) {
+	w.marketExtent = max(0, size.Width-sidebarWidth-1)
+	if w.sess.page != pagePlugins || w.market.status != marketReady {
+		w.marketSplit.Cancel()
+	}
 	w.text = w.ctrl.text()
 	w.dark = windowDark(w.sess.draft.Theme, w.ctrl.systemDark())
 	w.pal = paletteFor(w.dark)
@@ -269,6 +295,10 @@ func (w *window) paint(canvas *ui.Canvas, size ui.Size) {
 		w.focusSearch = false
 		canvas.RequestFocus(searchID)
 	}
+	if !w.marketFocus.IsZero() {
+		canvas.RequestFocus(w.marketFocus)
+		w.marketFocus = ui.ID{}
+	}
 	_, w.treeFocused = canvas.Focused().In(rowScope)
 
 	w.view.Draw(canvas, w.theme, bounds, func(f *flex.Frame) {
@@ -286,6 +316,21 @@ func (w *window) paint(canvas *ui.Canvas, size ui.Size) {
 		})
 	})
 	w.listRect = w.listBox.Rect()
+	if w.sess.page == pagePlugins && w.market.status == marketReady {
+		rect := w.marketDivider.Rect()
+		rect.X -= (marketDividerHitWidth - rect.Width) / 2
+		rect.Width = marketDividerHitWidth
+		lo, hi := w.marketSplit.Limits(w.marketExtent)
+		canvas.HitWithOptions(marketDividerID, rect, w.marketText("settings.resizePlugins"), ui.HitOptions{
+			Role: ui.RoleSlider, Cursor: ui.PointerCursorResizeHorizontal,
+			Range: ui.ValueRange{Now: float64(w.marketSplit.Size(w.marketExtent)), Min: float64(lo), Max: float64(hi), Step: 16, Set: true},
+		})
+	}
+	if w.sess.page == pagePlugins && w.market.status == marketReady && len(w.market.snapshot.Index.Plugins) > 0 {
+		w.marketListRect = w.marketListBox.Rect()
+	} else {
+		w.marketListRect = ui.Rect{}
+	}
 }
 
 // refreshRows rebuilds the sidebar's rows when the language, the search or the expanded
@@ -416,7 +461,14 @@ func (w *window) drawRowLead(f *flex.Frame, r row) {
 
 // drawContent is the page beside the sidebar: the breadcrumb above the page itself.
 func (w *window) drawContent(f *flex.Frame) {
+	if w.sess.page != pagePlugins && w.market.status == marketLoading {
+		w.market.close()
+	}
 	f.Column().Grow(1).Shrink(1).FillHeight().MinWidth(0).Children(func() {
+		if w.sess.page == pagePlugins && w.ctrl.opts.Marketplace != nil {
+			w.drawMarketplace(f)
+			return
+		}
 		w.drawBreadcrumb(f)
 		if w.sess.page == pageGeneral {
 			w.drawGeneral(f)
@@ -551,6 +603,17 @@ func (w *window) onKey(event ui.KeyEvent) ui.EventResult {
 	if event.Release {
 		return ui.EventResult{}
 	}
+	if w.sess.page == pagePlugins && w.market.status == marketReady {
+		if result, committed := w.marketSplit.Key(event, marketDividerID, w.marketExtent); result.Handled {
+			if committed && w.ctrl.opts.MarketplaceResized != nil {
+				w.ctrl.opts.MarketplaceResized(w.marketSplit.Preferred())
+			}
+			return result
+		}
+		if result := w.marketKey(event); result.Handled {
+			return result
+		}
+	}
 	// The type-ahead of the language list goes first, as the toolkit asks.
 	if result := w.language.Key(event); result.Handled {
 		return result
@@ -583,6 +646,18 @@ func (w *window) onKey(event ui.KeyEvent) ui.EventResult {
 		return ui.EventResult{}
 	}
 	return ui.EventResult{Handled: true, Repaint: true}
+}
+
+func (w *window) onPointer(event ui.PointerEvent) ui.EventResult {
+	if w.sess.page != pagePlugins || w.market.status != marketReady {
+		w.marketSplit.Cancel()
+		return ui.EventResult{}
+	}
+	result, committed := w.marketSplit.Pointer(event, marketDividerID, w.marketExtent)
+	if committed && w.ctrl.opts.MarketplaceResized != nil {
+		w.ctrl.opts.MarketplaceResized(w.marketSplit.Preferred())
+	}
+	return result
 }
 
 // onShortcut handles the window's command shortcuts: ⌘F focuses the search field and ⌘W

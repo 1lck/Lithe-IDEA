@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "cases": [
+    { "id": "unsupported", "saveOption": null, "uri": "file:///workspace/Main.java", "savedText": "saved", "sent": false, "includeText": false },
+    { "id": "disabled", "saveOption": false, "uri": "file:///workspace/Main.java", "savedText": "saved", "sent": false, "includeText": false },
+    { "id": "save-without-text", "saveOption": true, "uri": "file:///C:/workspace/Main.java", "savedText": "saved", "sent": true, "includeText": false },
+    { "id": "save-with-text", "saveOption": { "includeText": true }, "uri": "file:///workspace/Main.java", "savedText": "saved", "sent": true, "includeText": true },
+    { "id": "default-options", "saveOption": {}, "uri": "file:///workspace/Main.java", "savedText": "saved", "sent": true, "includeText": false }
+  ]
+}

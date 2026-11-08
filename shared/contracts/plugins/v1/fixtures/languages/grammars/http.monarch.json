@@ -1,0 +1,44 @@
+{
+  "defaultToken": "",
+  "tokenPostfix": ".http",
+  "methods": ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT"],
+  "brackets": [
+    { "open": "{", "close": "}", "token": "delimiter.curly" },
+    { "open": "[", "close": "]", "token": "delimiter.square" }
+  ],
+  "tokenizer": {
+    "root": [
+      ["###.*$", "comment.separator"],
+      ["\\s*(#|//).*$", "comment"],
+      ["@[A-Za-z_][\\w.-]*", "variable", "@variableValue"],
+      ["([A-Z]+)(\\s+)", [{ "cases": { "@methods": "keyword", "@default": "identifier" } }, ""], "@requestTarget"],
+      { "include": "@variables" },
+      ["[A-Za-z][\\w-]*(?=\\s*:)", "attribute.name", "@headerValue"],
+      ["[{}\\[\\]]", "@brackets"],
+      ["\"([^\"\\\\]|\\\\.)*\"", "string"],
+      ["-?\\d+(\\.\\d+)?([eE][-+]?\\d+)?", "number"],
+      ["\\b(true|false|null)\\b", "keyword"]
+    ],
+    "requestTarget": [
+      { "include": "@variables" },
+      ["\\s+HTTP/[\\d.]+\\s*$", "keyword", "@pop"],
+      ["[^\\s{]+", "string.link"],
+      ["$", "", "@pop"]
+    ],
+    "headerValue": [
+      [":\\s*", "delimiter"],
+      { "include": "@variables" },
+      ["[^{]+", "attribute.value"],
+      ["$", "", "@pop"]
+    ],
+    "variableValue": [
+      ["\\s*=\\s*", "delimiter"],
+      { "include": "@variables" },
+      ["[^{]+", "string"],
+      ["$", "", "@pop"]
+    ],
+    "variables": [
+      ["\\{\\{[^}]*\\}\\}", "variable"]
+    ]
+  }
+}

@@ -1,0 +1,328 @@
+{
+  "description": "Read-only canonical Run tool paths for a Provider root; platforms discover executables after shared selection.",
+  "cases": [
+    {
+      "name": "defaults without generated configurations",
+      "request": {
+        "path": ".",
+        "localDocument": {
+          "version": 2,
+          "configurations": [],
+          "toolchain": {
+            "java": {
+              "homePath": " C:/Example JDK "
+            },
+            "maven": {
+              "executablePath": "C:/Example Maven/bin/mvn.cmd",
+              "javaHomePath": "C:/Maven JDK"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "nearest reactor override",
+      "request": {
+        "path": "reactor/app",
+        "localDocument": {
+          "version": 2,
+          "configurations": [],
+          "toolchain": {
+            "java": {
+              "homePath": " C:/Example JDK "
+            },
+            "maven": {
+              "executablePath": "C:/Example Maven/bin/mvn.cmd",
+              "javaHomePath": "C:/Maven JDK"
+            },
+            "pathOverrides": {
+              "reactor": {
+                "mavenExecutablePath": "C:/Reactor Maven/mvn.cmd"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "nearest empty fields inherit project rather than an ancestor",
+      "request": {
+        "path": "reactor/app/sub",
+        "localDocument": {
+          "version": 2,
+          "configurations": [],
+          "toolchain": {
+            "java": {
+              "homePath": " C:/Example JDK "
+            },
+            "maven": {
+              "executablePath": "C:/Example Maven/bin/mvn.cmd",
+              "javaHomePath": "C:/Maven JDK"
+            },
+            "pathOverrides": {
+              "reactor": {
+                "javaHomePath": "C:/Parent JDK"
+              },
+              "reactor/app": {
+                "mavenExecutablePath": "C:/App Maven/mvn.cmd",
+                "javaHomePath": ""
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "path segments do not match adjacent project names",
+      "request": {
+        "path": "reactor/app2",
+        "localDocument": {
+          "version": 2,
+          "configurations": [],
+          "toolchain": {
+            "java": {
+              "homePath": " C:/Example JDK "
+            },
+            "maven": {
+              "executablePath": "C:/Example Maven/bin/mvn.cmd",
+              "javaHomePath": "C:/Maven JDK"
+            },
+            "pathOverrides": {
+              "reactor/app": {
+                "javaHomePath": "C:/Wrong JDK"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "explicit automatic override inherits project defaults",
+      "request": {
+        "path": "reactor",
+        "localDocument": {
+          "version": 2,
+          "configurations": [],
+          "toolchain": {
+            "java": {
+              "homePath": " C:/Example JDK "
+            },
+            "maven": {
+              "executablePath": "C:/Example Maven/bin/mvn.cmd",
+              "javaHomePath": "C:/Maven JDK"
+            },
+            "pathOverrides": {
+              "reactor": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "missing toolchain stays automatic",
+      "request": {
+        "path": ".",
+        "localDocument": {
+          "version": 2,
+          "configurations": []
+        }
+      }
+    },
+    {
+      "name": "escaping owner",
+      "request": {
+        "path": "../outside",
+        "localDocument": {
+          "version": 2,
+          "configurations": [],
+          "toolchain": {
+            "java": {
+              "homePath": " C:/Example JDK "
+            },
+            "maven": {
+              "executablePath": "C:/Example Maven/bin/mvn.cmd",
+              "javaHomePath": "C:/Maven JDK"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "noncanonical owner",
+      "request": {
+        "path": "reactor\\app",
+        "localDocument": {
+          "version": 2,
+          "configurations": [],
+          "toolchain": {
+            "java": {
+              "homePath": " C:/Example JDK "
+            },
+            "maven": {
+              "executablePath": "C:/Example Maven/bin/mvn.cmd",
+              "javaHomePath": "C:/Maven JDK"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "empty owner",
+      "request": {
+        "path": "",
+        "localDocument": {
+          "version": 2,
+          "configurations": [],
+          "toolchain": {
+            "java": {
+              "homePath": " C:/Example JDK "
+            },
+            "maven": {
+              "executablePath": "C:/Example Maven/bin/mvn.cmd",
+              "javaHomePath": "C:/Maven JDK"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "ambiguous owner",
+      "request": {
+        "path": "reactor/./app",
+        "localDocument": {
+          "version": 2,
+          "configurations": [],
+          "toolchain": {
+            "java": {
+              "homePath": " C:/Example JDK "
+            },
+            "maven": {
+              "executablePath": "C:/Example Maven/bin/mvn.cmd",
+              "javaHomePath": "C:/Maven JDK"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown document version",
+      "request": {
+        "path": ".",
+        "localDocument": {
+          "version": 99
+        }
+      }
+    },
+    {
+      "name": "malformed tool path",
+      "request": {
+        "path": ".",
+        "localDocument": {
+          "version": 2,
+          "configurations": [],
+          "toolchain": {
+            "java": {
+              "homePath": 42
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "malformed override",
+      "request": {
+        "path": "app",
+        "localDocument": {
+          "version": 2,
+          "configurations": [],
+          "toolchain": {
+            "java": {
+              "homePath": " C:/Example JDK "
+            },
+            "maven": {
+              "executablePath": "C:/Example Maven/bin/mvn.cmd",
+              "javaHomePath": "C:/Maven JDK"
+            },
+            "pathOverrides": {
+              "app": {
+                "unknownChoice": "value"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "version": 1,
+  "expected": {
+    "defaults without generated configurations": {
+      "toolchain": {
+        "javaHomePath": "C:/Example JDK",
+        "mavenExecutablePath": "C:/Example Maven/bin/mvn.cmd",
+        "mavenJavaHomePath": "C:/Maven JDK",
+        "runtimeExecutablePaths": {}
+      }
+    },
+    "nearest reactor override": {
+      "toolchain": {
+        "javaHomePath": "C:/Example JDK",
+        "mavenExecutablePath": "C:/Reactor Maven/mvn.cmd",
+        "mavenJavaHomePath": "C:/Maven JDK",
+        "runtimeExecutablePaths": {}
+      }
+    },
+    "nearest empty fields inherit project rather than an ancestor": {
+      "toolchain": {
+        "javaHomePath": "C:/Example JDK",
+        "mavenExecutablePath": "C:/App Maven/mvn.cmd",
+        "mavenJavaHomePath": "C:/Maven JDK",
+        "runtimeExecutablePaths": {}
+      }
+    },
+    "path segments do not match adjacent project names": {
+      "toolchain": {
+        "javaHomePath": "C:/Example JDK",
+        "mavenExecutablePath": "C:/Example Maven/bin/mvn.cmd",
+        "mavenJavaHomePath": "C:/Maven JDK",
+        "runtimeExecutablePaths": {}
+      }
+    },
+    "explicit automatic override inherits project defaults": {
+      "toolchain": {
+        "javaHomePath": "C:/Example JDK",
+        "mavenExecutablePath": "C:/Example Maven/bin/mvn.cmd",
+        "mavenJavaHomePath": "C:/Maven JDK",
+        "runtimeExecutablePaths": {}
+      }
+    },
+    "missing toolchain stays automatic": {
+      "toolchain": {
+        "javaHomePath": "",
+        "mavenExecutablePath": "",
+        "mavenJavaHomePath": "",
+        "runtimeExecutablePaths": {}
+      }
+    },
+    "escaping owner": {
+      "errorCode": "invalid_request"
+    },
+    "noncanonical owner": {
+      "errorCode": "invalid_request"
+    },
+    "empty owner": {
+      "errorCode": "invalid_request"
+    },
+    "ambiguous owner": {
+      "errorCode": "invalid_request"
+    },
+    "unknown document version": {
+      "errorCode": "not_supported"
+    },
+    "malformed tool path": {
+      "errorCode": "parse_failed"
+    },
+    "malformed override": {
+      "errorCode": "invalid_request"
+    }
+  }
+}

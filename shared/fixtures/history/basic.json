@@ -1,0 +1,11 @@
+{
+  "name": "history-basic",
+  "path": "src/Main.java",
+  "reasons": ["projectBaseline", "saved", "beforeBatchReplace", "restored"],
+  "rules": {
+    "deduplicateLatestContent": true,
+    "maximumEntriesPerFile": 100,
+    "retentionDays": 30,
+    "corruptMetadataIsIgnored": true
+  }
+}

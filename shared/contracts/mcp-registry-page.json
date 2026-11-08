@@ -1,0 +1,36 @@
+{
+  "servers": [
+    {
+      "server": {
+        "name": "io.example/documentation",
+        "title": "Documentation",
+        "description": "Example remote documentation service",
+        "version": "1.2.0",
+        "websiteUrl": "https://example.invalid/docs",
+        "remotes": [{"type": "streamable-http", "url": "https://example.invalid/mcp"}]
+      },
+      "_meta": {"io.modelcontextprotocol.registry/official": {"status": "active"}}
+    },
+    {
+      "server": {
+        "name": "io.example/browser",
+        "description": "Example local package",
+        "version": "2.0.0",
+        "packages": [{"registryType": "npm", "identifier": "@example/browser", "version": "2.0.0", "transport": {"type": "stdio"}}]
+      }
+    },
+    {
+      "server": {
+        "name": "io.example/database",
+        "version": "1.0.0",
+        "repository": {"url": "https://example.invalid/database"},
+        "packages": [{"registryType": "npm", "identifier": "@example/database", "version": "1.0.0", "transport": {"type": "stdio"}, "environmentVariables": [{"name": "API_KEY", "isRequired": true, "isSecret": true}]}]
+      }
+    },
+    {
+      "server": {"name": "io.example/removed"},
+      "_meta": {"io.modelcontextprotocol.registry/official": {"status": "deleted"}}
+    }
+  ],
+  "metadata": {"nextCursor": "opaque/+ cursor?"}
+}

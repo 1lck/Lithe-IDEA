@@ -1,0 +1,8 @@
+{
+  "files": ["src/Foo.swift", "src/Bar.swift", "src.swift", "other/Foo.swift"],
+  "cases": [
+    {"query": "src", "paths": ["src.swift", "src/Bar.swift", "src/Foo.swift"], "basenameFirst": "src.swift"},
+    {"query": "Foo", "paths": ["other/Foo.swift", "src/Foo.swift"]},
+    {"query": "src/Foo", "paths": ["src/Foo.swift"]}
+  ]
+}

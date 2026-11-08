@@ -1,0 +1,48 @@
+{
+  "request": {
+    "root": ".",
+    "options": {
+      "offline": true
+    },
+    "project": {
+      "name": "app",
+      "path": "app"
+    },
+    "suite": "ExampleSuite",
+    "case": "checks spaces # [exact]",
+    "userArguments": [
+      "--rerun-tasks"
+    ]
+  },
+  "provider": {
+    "method": "lithe/build/test",
+    "params": {
+      "buildSystemID": "gradle",
+      "root": ".",
+      "options": {
+        "offline": true
+      },
+      "optionArguments": [
+        "--offline"
+      ],
+      "environment": {},
+      "project": {
+        "name": "app",
+        "path": "app",
+        "tags": [],
+        "properties": {}
+      },
+      "suite": "ExampleSuite",
+      "case": "checks spaces # [exact]",
+      "userArguments": [
+        "--rerun-tasks"
+      ]
+    }
+  },
+  "results": {
+    "decoder": "junitXml",
+    "reports": [
+      "app/build/test-results/**/*.xml"
+    ]
+  }
+}

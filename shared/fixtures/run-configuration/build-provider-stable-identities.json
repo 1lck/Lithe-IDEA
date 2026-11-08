@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "reference": {
+    "pluginID": "dev.example.engine",
+    "buildSystemID": "engine",
+    "root": "app",
+    "run": "serve",
+    "projectID": "opaque/project",
+    "targetID": "opaque/target",
+    "execution": "service",
+    "userArguments": []
+  },
+  "expected": {
+    "stableID": "imported:old-stable-id",
+    "duplicateGeneratedEntries": 0
+  }
+}

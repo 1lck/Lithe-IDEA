@@ -13,14 +13,17 @@ reasonix.toml
 # Top-level directories of the in-repository Rust kernel and the SwiftUI and Tauri clients,
 # which this tree no longer has. Checkouts that switch here from an older branch keep their
 # ignored build state (cargo targets, SwiftPM and node_modules directories) on disk; these
-# entries keep it out of git status. Nothing in this tree may be added below them.
+# entries keep it out of git status. Shared contracts, fixtures and i18n remain tracked.
 /rust/
 /macos/
 /windows/
 /frontend/
 /Plugins/
 /third_party/
-/shared/
+/shared/*
+!/shared/i18n/
+!/shared/contracts/
+!/shared/fixtures/
 /node_modules/
 /.build/
 /.swiftpm/

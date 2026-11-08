@@ -1,0 +1,434 @@
+{
+  "schemaVersion": 1,
+  "description": "plugins.marketplace.installReview golden outcomes. `approvedPrograms` absent means a first installation. Edits apply to the base manifest before review. `hostCapabilities`, when present, is sent with the request.",
+  "cases": [
+    {
+      "name": "first installation lists every program",
+      "base": "language-packaged-server.plugin.json",
+      "expectedID": "dev.lithe.fixture.language-packaged-server",
+      "expectedVersion": "0.1.0",
+      "expected": {
+        "permissions": [
+          "languageServer.launch",
+          "process.run",
+          "process.test"
+        ],
+        "programs": [
+          {
+            "kind": "packagedLanguageServer",
+            "languageID": "php",
+            "path": "language-server/bin/intelephense",
+            "arguments": [
+              "--stdio"
+            ],
+            "validationArguments": []
+          },
+          {
+            "kind": "run",
+            "languageID": "php",
+            "executable": {
+              "command": "php"
+            },
+            "arguments": [
+              "${file}",
+              "${userArguments}"
+            ]
+          },
+          {
+            "kind": "runtime",
+            "tool": "node"
+          },
+          {
+            "kind": "test",
+            "languageID": "php",
+            "executable": {
+              "command": "php"
+            },
+            "workspaceArguments": [
+              "vendor/bin/phpunit"
+            ],
+            "fileArguments": [
+              "vendor/bin/phpunit",
+              "${file}"
+            ],
+            "testCaseArguments": [
+              "vendor/bin/phpunit",
+              "--filter",
+              "\\b${testName:regex}\\b",
+              {
+                "value": "${file}",
+                "when": "fileSelected"
+              }
+            ]
+          }
+        ],
+        "newProgramCount": 4
+      }
+    },
+    {
+      "name": "unchanged update needs no new approval",
+      "base": "language-packaged-server.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/version",
+          "value": "0.2.0"
+        }
+      ],
+      "approvedFrom": "language-packaged-server.plugin.json",
+      "expected": {
+        "newProgramCount": 0
+      }
+    },
+    {
+      "name": "changed language server arguments need approval",
+      "base": "language-packaged-server.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/languageServers/0/arguments",
+          "value": [
+            "--stdio",
+            "--log=verbose"
+          ]
+        }
+      ],
+      "approvedFrom": "language-packaged-server.plugin.json",
+      "expected": {
+        "newPrograms": [
+          {
+            "kind": "packagedLanguageServer",
+            "languageID": "php",
+            "path": "language-server/bin/intelephense",
+            "arguments": [
+              "--stdio",
+              "--log=verbose"
+            ],
+            "validationArguments": []
+          }
+        ],
+        "newProgramCount": 1
+      }
+    },
+    {
+      "name": "changed run arguments with the same executable need approval",
+      "base": "language-packaged-server.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/executionProviders/0/run/arguments",
+          "value": [
+            "-r",
+            "${userArguments}"
+          ]
+        }
+      ],
+      "approvedFrom": "language-packaged-server.plugin.json",
+      "expected": {
+        "newPrograms": [
+          {
+            "kind": "run",
+            "languageID": "php",
+            "executable": {
+              "command": "php"
+            },
+            "arguments": [
+              "-r",
+              "${userArguments}"
+            ]
+          }
+        ],
+        "newProgramCount": 1
+      }
+    },
+    {
+      "name": "changed test arguments with the same executable need approval",
+      "base": "language-packaged-server.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/executionProviders/0/test/workspaceArguments",
+          "value": [
+            "vendor/bin/other-runner"
+          ]
+        }
+      ],
+      "approvedFrom": "language-packaged-server.plugin.json",
+      "expected": {
+        "newProgramCount": 1
+      }
+    },
+    {
+      "name": "changed language server validation probe needs approval",
+      "base": "language-packaged-server.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/languageServers/0/validationArguments",
+          "value": [
+            "--version"
+          ]
+        }
+      ],
+      "approvedFrom": "language-packaged-server.plugin.json",
+      "expected": {
+        "newProgramCount": 1
+      }
+    },
+    {
+      "name": "package does not match the index entry",
+      "base": "language-packaged-server.plugin.json",
+      "expectedID": "dev.lithe.fixture.language-packaged-server",
+      "expectedVersion": "9.9.9",
+      "expectedCode": "plugin.package.mismatch"
+    },
+    {
+      "name": "unsigned package in the official namespace",
+      "base": "language-system-command.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/vendor/signatureRequirement",
+          "value": "none"
+        }
+      ],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "unsigned community package",
+      "base": "language-system-command.plugin.json",
+      "edits": [
+        {
+          "op": "set",
+          "path": "/id",
+          "value": "io.example.go-tools"
+        },
+        {
+          "op": "set",
+          "path": "/vendor/signatureRequirement",
+          "value": "none"
+        }
+      ],
+      "expected": {
+        "programs": [
+          {
+            "kind": "run",
+            "languageID": "go",
+            "executable": {
+              "toolchain": "project-go"
+            },
+            "arguments": [
+              "run",
+              "${file}",
+              "${userArguments}"
+            ]
+          },
+          {
+            "kind": "runtime",
+            "tool": "go"
+          },
+          {
+            "kind": "systemLanguageServer",
+            "languageID": "go",
+            "commands": [
+              "gopls"
+            ],
+            "arguments": [],
+            "validationArguments": [
+              "version"
+            ]
+          },
+          {
+            "kind": "test",
+            "languageID": "go",
+            "executable": {
+              "toolchain": "project-go"
+            },
+            "workspaceArguments": [
+              "test",
+              "./..."
+            ],
+            "fileArguments": [
+              "test",
+              "${fileDirectory}"
+            ],
+            "testCaseArguments": [
+              "test",
+              {
+                "value": "${fileDirectory}",
+                "when": "fileSelected"
+              },
+              {
+                "value": "./...",
+                "when": "noFileSelected"
+              },
+              "-run",
+              "^${testName:regex}$"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "template build review does not require buildProviders",
+      "base": "build-static-file.plugin.json",
+      "hostCapabilities": {
+        "buildSystems": [
+          1
+        ]
+      },
+      "expected": {
+        "id": "dev.lithe.fixture.build-static-file"
+      }
+    },
+    {
+      "name": "gradle provider review requires buildProviders even with buildSystems",
+      "base": "build-provider.plugin.json",
+      "hostCapabilities": {
+        "buildSystems": [
+          1
+        ],
+        "languages": [
+          1
+        ],
+        "languageServers": [
+          1
+        ],
+        "serverProcess": [
+          1
+        ],
+        "settings": [
+          1
+        ]
+      },
+      "expectedCode": "plugin.api.unsupported",
+      "expectedField": "requires.buildProviders"
+    },
+    {
+      "name": "gradle provider review rejects unsupported buildProviders version",
+      "base": "build-provider.plugin.json",
+      "hostCapabilities": {
+        "buildProviders": [
+          2
+        ],
+        "buildSystems": [
+          1
+        ],
+        "languages": [
+          1
+        ],
+        "languageServers": [
+          1
+        ],
+        "serverProcess": [
+          1
+        ],
+        "settings": [
+          1
+        ]
+      },
+      "expectedCode": "plugin.api.unsupported",
+      "expectedField": "requires.buildProviders"
+    },
+    {
+      "name": "gradle provider review without a host table uses Core capabilities",
+      "base": "build-provider.plugin.json",
+      "expected": {
+        "id": "dev.lithe.fixture.build-provider"
+      }
+    },
+    {
+      "name": "mix provider review requires buildProviders even with buildSystems",
+      "base": "build-provider-language-server.plugin.json",
+      "hostCapabilities": {
+        "buildSystems": [
+          1
+        ],
+        "languages": [
+          1
+        ],
+        "languageServers": [
+          1
+        ],
+        "serverProcess": [
+          1
+        ],
+        "settings": [
+          1
+        ]
+      },
+      "expectedCode": "plugin.api.unsupported",
+      "expectedField": "requires.buildProviders"
+    },
+    {
+      "name": "mix provider review rejects unsupported buildProviders version",
+      "base": "build-provider-language-server.plugin.json",
+      "hostCapabilities": {
+        "buildProviders": [
+          2
+        ],
+        "buildSystems": [
+          1
+        ],
+        "languages": [
+          1
+        ],
+        "languageServers": [
+          1
+        ],
+        "serverProcess": [
+          1
+        ],
+        "settings": [
+          1
+        ]
+      },
+      "expectedCode": "plugin.api.unsupported",
+      "expectedField": "requires.buildProviders"
+    },
+    {
+      "name": "mix provider review without a host table uses Core capabilities",
+      "base": "build-provider-language-server.plugin.json",
+      "expected": {
+        "id": "dev.lithe.fixture.build-provider-language-server"
+      }
+    },
+    {
+      "name": "own provider review accepts implemented buildProviders",
+      "base": "build-provider.plugin.json",
+      "hostCapabilities": {
+        "buildProviders": [
+          1
+        ],
+        "buildSystems": [
+          1
+        ],
+        "serverProcess": [
+          1
+        ],
+        "settings": [
+          1
+        ]
+      },
+      "expected": {
+        "id": "dev.lithe.fixture.build-provider"
+      }
+    },
+    {
+      "name": "host without build systems refuses a build plugin",
+      "base": "build-provider-language-server.plugin.json",
+      "hostCapabilities": { "languages": [1], "languageServers": [1], "serverProcess": [1] },
+      "expectedCode": "plugin.api.unsupported"
+    },
+    {
+      "name": "host with every required capability reviews a build plugin",
+      "base": "build-provider-language-server.plugin.json",
+      "hostCapabilities": { "buildProviders": [1], "buildSystems": [1], "languages": [1], "languageServers": [1], "serverProcess": [1] },
+      "expected": {
+        "id": "dev.lithe.fixture.build-provider-language-server",
+        "permissions": ["languageServer.launch", "process.build"],
+        "newProgramCount": 2
+      }
+    }
+  ]
+}

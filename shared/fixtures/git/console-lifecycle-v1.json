@@ -1,0 +1,439 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "silent requests never allocate command rows",
+      "steps": [
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "requestStarted",
+            "retention": {
+              "maxRecords": 200,
+              "maxRecordOutputCharacters": 32768,
+              "maxRecordOutputLines": 2000,
+              "maxTotalOutputCharacters": 1048576
+            }
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "requestFinished",
+            "unconfirmedInvocations": [],
+            "failureRecord": false
+          },
+          "commands": [],
+          "running": []
+        }
+      ]
+    },
+    {
+      "name": "clearing preflight suppresses the old request and permits a new one",
+      "steps": [
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "requestStarted",
+            "retention": {
+              "maxRecords": 200,
+              "maxRecordOutputCharacters": 32768,
+              "maxRecordOutputLines": 2000,
+              "maxTotalOutputCharacters": 1048576
+            }
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "clear": true,
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "started",
+            "invocationId": 1,
+            "workingDirectory": "/workspace/repository",
+            "arguments": [
+              "push",
+              "origin",
+              "feature"
+            ]
+          },
+          "commands": [],
+          "running": [
+            "pending"
+          ]
+        },
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "output",
+            "invocationId": 1,
+            "text": "late output",
+            "stream": "stdout"
+          },
+          "commands": [],
+          "running": [
+            "pending"
+          ]
+        },
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "requestFinished",
+            "error": {
+              "code": "cancelled",
+              "message": "Operation was cancelled"
+            },
+            "unconfirmedInvocations": [
+              1
+            ],
+            "failureRecord": false
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "new",
+            "type": "requestStarted",
+            "retention": {
+              "maxRecords": 200,
+              "maxRecordOutputCharacters": 32768,
+              "maxRecordOutputLines": 2000,
+              "maxTotalOutputCharacters": 1048576
+            }
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "new",
+            "type": "started",
+            "invocationId": 1,
+            "workingDirectory": "/workspace/repository",
+            "arguments": [
+              "worktree",
+              "repair"
+            ]
+          },
+          "commands": [
+            [
+              "worktree",
+              "repair"
+            ]
+          ],
+          "running": [
+            "new"
+          ]
+        },
+        {
+          "event": {
+            "operationId": "new",
+            "type": "finished",
+            "invocationId": 1,
+            "exitCode": 0,
+            "state": "completed"
+          },
+          "commands": [
+            [
+              "worktree",
+              "repair"
+            ]
+          ],
+          "running": [
+            "new"
+          ]
+        },
+        {
+          "event": {
+            "operationId": "new",
+            "type": "requestFinished",
+            "unconfirmedInvocations": [],
+            "failureRecord": false
+          },
+          "commands": [
+            [
+              "worktree",
+              "repair"
+            ]
+          ],
+          "running": []
+        }
+      ]
+    },
+    {
+      "name": "cleared started commands stay cancellable until the request finishes",
+      "steps": [
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "requestStarted",
+            "retention": {
+              "maxRecords": 200,
+              "maxRecordOutputCharacters": 32768,
+              "maxRecordOutputLines": 2000,
+              "maxTotalOutputCharacters": 1048576
+            }
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "started",
+            "invocationId": 1,
+            "workingDirectory": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin"
+            ]
+          },
+          "commands": [
+            [
+              "fetch",
+              "origin"
+            ]
+          ],
+          "running": [
+            "pending"
+          ]
+        },
+        {
+          "clear": true,
+          "commands": [],
+          "running": [
+            "pending"
+          ]
+        },
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "finished",
+            "invocationId": 1,
+            "exitCode": 0,
+            "state": "completed"
+          },
+          "commands": [],
+          "running": [
+            "pending"
+          ]
+        },
+        {
+          "event": {
+            "operationId": "pending",
+            "type": "requestFinished",
+            "unconfirmedInvocations": [],
+            "failureRecord": false
+          },
+          "commands": [],
+          "running": []
+        }
+      ]
+    },
+    {
+      "name": "preflight failures retain their reason without a command",
+      "steps": [
+        {
+          "event": {
+            "operationId": "preflight-failure",
+            "type": "requestStarted",
+            "workingDirectory": "/workspace/repository",
+            "retention": {
+              "maxRecords": 200,
+              "maxRecordOutputCharacters": 32768,
+              "maxRecordOutputLines": 2000,
+              "maxTotalOutputCharacters": 1048576
+            }
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "preflight-failure",
+            "type": "requestFinished",
+            "error": {
+              "code": "process_start_failed",
+              "message": "Could not inspect Git executable",
+              "details": "Permission denied"
+            },
+            "unconfirmedInvocations": [],
+            "failureRecord": true
+          },
+          "commands": [
+            []
+          ],
+          "running": [],
+          "errors": [
+            "Could not inspect Git executable\nPermission denied"
+          ],
+          "roots": [
+            "/workspace/repository"
+          ],
+          "states": [
+            "unconfirmed"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cancelled requests without a command leave no failure row",
+      "steps": [
+        {
+          "event": {
+            "operationId": "superseded",
+            "type": "requestStarted",
+            "workingDirectory": "/workspace/repository",
+            "retention": {
+              "maxRecords": 200,
+              "maxRecordOutputCharacters": 32768,
+              "maxRecordOutputLines": 2000,
+              "maxTotalOutputCharacters": 1048576
+            }
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "superseded",
+            "type": "requestFinished",
+            "error": {
+              "code": "cancelled",
+              "message": "Operation was cancelled"
+            },
+            "unconfirmedInvocations": [],
+            "failureRecord": false
+          },
+          "commands": [],
+          "running": [],
+          "errors": [],
+          "roots": [],
+          "states": []
+        }
+      ]
+    },
+    {
+      "name": "a cancelled request keeps the command it had started",
+      "steps": [
+        {
+          "event": {
+            "operationId": "interrupted",
+            "type": "requestStarted",
+            "workingDirectory": "/workspace/repository",
+            "retention": {
+              "maxRecords": 200,
+              "maxRecordOutputCharacters": 32768,
+              "maxRecordOutputLines": 2000,
+              "maxTotalOutputCharacters": 1048576
+            }
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "interrupted",
+            "type": "started",
+            "invocationId": 1,
+            "workingDirectory": "/workspace/repository",
+            "arguments": [
+              "fetch",
+              "origin"
+            ]
+          },
+          "commands": [
+            [
+              "fetch",
+              "origin"
+            ]
+          ],
+          "running": [
+            "interrupted"
+          ]
+        },
+        {
+          "event": {
+            "operationId": "interrupted",
+            "type": "requestFinished",
+            "error": {
+              "code": "cancelled",
+              "message": "Operation was cancelled"
+            },
+            "unconfirmedInvocations": [
+              1
+            ],
+            "failureRecord": false
+          },
+          "commands": [
+            [
+              "fetch",
+              "origin"
+            ]
+          ],
+          "running": [],
+          "errors": [
+            "Operation was cancelled"
+          ],
+          "roots": [
+            "/workspace/repository"
+          ],
+          "states": [
+            "unconfirmed"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cleared preflight failures remain hidden",
+      "steps": [
+        {
+          "event": {
+            "operationId": "preflight-failure",
+            "type": "requestStarted",
+            "workingDirectory": "/workspace/repository",
+            "retention": {
+              "maxRecords": 200,
+              "maxRecordOutputCharacters": 32768,
+              "maxRecordOutputLines": 2000,
+              "maxTotalOutputCharacters": 1048576
+            }
+          },
+          "commands": [],
+          "running": []
+        },
+        {
+          "clear": true,
+          "commands": [],
+          "running": []
+        },
+        {
+          "event": {
+            "operationId": "preflight-failure",
+            "type": "requestFinished",
+            "error": {
+              "code": "process_start_failed",
+              "message": "Could not inspect Git executable",
+              "details": "Permission denied"
+            },
+            "unconfirmedInvocations": [],
+            "failureRecord": true
+          },
+          "commands": [],
+          "running": [],
+          "errors": [],
+          "roots": [],
+          "states": []
+        }
+      ]
+    }
+  ]
+}

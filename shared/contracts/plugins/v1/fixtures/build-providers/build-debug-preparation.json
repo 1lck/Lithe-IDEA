@@ -1,0 +1,28 @@
+{
+  "result": {
+    "program": "app/bin/sample",
+    "arguments": [
+      "a b",
+      "x#y"
+    ],
+    "workingDirectory": "app",
+    "environment": {
+      "SAMPLE": "debug"
+    }
+  },
+  "invalidResults": [
+    {
+      "program": "../sample",
+      "arguments": [],
+      "workingDirectory": "app",
+      "environment": {}
+    },
+    {
+      "program": "app/bin/sample",
+      "arguments": [],
+      "workingDirectory": "app",
+      "environment": {},
+      "adapter": "other/native"
+    }
+  ]
+}

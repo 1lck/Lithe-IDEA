@@ -74,3 +74,15 @@ func For(language Language) *Messages {
 	}
 	return &english
 }
+
+// Shared resolves a key generated from shared/i18n for the current language.
+func Shared(language Language, key string) string {
+	locale := "en-US"
+	if language == Chinese {
+		locale = "zh-CN"
+	}
+	if value, ok := sharedCatalogs[locale][key]; ok {
+		return value
+	}
+	return sharedCatalogs["en-US"][key]
+}

@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "request": {
+    "operationId": "exception-main",
+    "threadId": 13
+  },
+  "adapterResponse": {
+    "exceptionId": "java.lang.IllegalStateException",
+    "description": "java.lang.IllegalStateException: session expired",
+    "breakMode": "always",
+    "details": {
+      "message": "session expired",
+      "typeName": "IllegalStateException",
+      "fullTypeName": "java.lang.IllegalStateException",
+      "evaluateName": "exception",
+      "stackTrace": "java.lang.IllegalStateException: session expired\n\tat example.LoginService.login(LoginService.java:42)",
+      "innerException": [
+        {
+          "message": "token expired",
+          "typeName": "TokenExpiredException",
+          "fullTypeName": "example.TokenExpiredException"
+        }
+      ]
+    }
+  },
+  "expected": {
+    "kind": "exceptionInfo",
+    "exceptionInfo": {
+      "exceptionId": "java.lang.IllegalStateException",
+      "description": "java.lang.IllegalStateException: session expired",
+      "breakMode": "always",
+      "details": {
+        "message": "session expired",
+        "typeName": "IllegalStateException",
+        "fullTypeName": "java.lang.IllegalStateException",
+        "evaluateName": "exception",
+        "stackTrace": "java.lang.IllegalStateException: session expired\n\tat example.LoginService.login(LoginService.java:42)",
+        "innerExceptions": [
+          {
+            "message": "token expired",
+            "typeName": "TokenExpiredException",
+            "fullTypeName": "example.TokenExpiredException",
+            "evaluateName": null,
+            "stackTrace": null,
+            "innerExceptions": []
+          }
+        ]
+      }
+    }
+  }
+}
