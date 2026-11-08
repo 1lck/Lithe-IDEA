@@ -70,6 +70,7 @@ type projectSearch struct {
 	matches          []core.WorkspaceSearchMatch
 	failed           bool
 	watch            *documentWatch
+	watchAttached    bool
 	watchReady       bool
 	watchAvailable   bool
 	fullResync       bool
@@ -86,11 +87,12 @@ func (a *App) cancelProjectSearch(p *project) {
 	if p.search.cancel != nil {
 		p.search.cancel()
 	}
-	if p.search.watch != nil {
+	p.search.watchAttached = false
+	if !p.everywhere.watchAttached && p.search.watch != nil {
 		p.search.watch.close()
 		p.search.watch = nil
+		p.search.watchReady, p.search.watchAvailable = false, false
 	}
-	p.search.watchReady, p.search.watchAvailable = false, false
 	p.search.pending = nil
 	p.search.fullResync = true
 }
@@ -105,6 +107,9 @@ func (a *App) startProjectSearchWatch(p *project) {
 	slot := &documentWatch{}
 	s.watch = slot
 	s.watchReady, s.watchAvailable = false, false
+	if p.everywhere.watchAttached {
+		p.everywhere.watchReady, p.everywhere.watchAvailable = false, false
+	}
 	a.tasks.running.Add(1)
 	wake := func() { a.post(func(a *App) { a.drainProjectSearchWatch(p, slot) }) }
 	go func() {
@@ -127,14 +132,15 @@ func (a *App) drainProjectSearchWatch(p *project, slot *documentWatch) {
 	watch, ready, err := slot.state()
 	if ready {
 		s.watchReady, s.watchAvailable, s.fullResync = true, watch != nil, true
-		if err != nil {
+		if err != nil && s.watchAttached {
 			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_search_watch", err))
 			a.notify(i18n.Shared(a.language(), "desktop.search.watchUnavailable"))
 		}
 	}
 	changed := false
+	var events app.DirectoryChanges
 	if watch != nil {
-		events := watch.Changes(nil)
+		events = watch.Changes(nil)
 		if events.Resync {
 			a.emit(core.LevelWarn, "app.notification.operation_rejected", map[string]any{"operation": "workspace_search_incremental_update", "reason": "watch_events_lost"})
 			// The root may have been replaced, so install a fresh watch before
@@ -155,6 +161,9 @@ func (a *App) drainProjectSearchWatch(p *project, slot *documentWatch) {
 			}
 			changed = true
 		}
+	}
+	if p.everywhere.watchAttached {
+		a.applyEverywhereWatch(p, ready, watch != nil, err, events)
 	}
 	if changed {
 		s.generation++
@@ -189,6 +198,15 @@ func (a *App) updateProjectSearch(p *project, query searchQuery) {
 		return
 	}
 	s.loading = true
+	wasAttached := s.watchAttached
+	s.watchAttached = true
+	if !wasAttached && s.watchReady && !s.watchAvailable && s.watch != nil {
+		_, _, err := s.watch.state()
+		if err != nil {
+			a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("workspace_search_watch", err))
+		}
+		a.notify(i18n.Shared(a.language(), "desktop.search.watchUnavailable"))
+	}
 	if s.watch == nil {
 		a.startProjectSearchWatch(p)
 	}
@@ -248,25 +266,35 @@ func (a *App) runProjectSearch(p *project) {
 		}
 		operation, done := context.WithTimeout(ctx, searchTimeout)
 		defer done()
-		var err error
-		if !full && len(paths) > 0 {
-			var filtered []string
-			filtered, err = kernel.FilterWorkspaceChanges(operation, paths)
-			if err == nil && len(filtered) > searchUpdateLimit {
-				full = true
-			} else if err == nil && len(filtered) > 0 {
-				err = kernel.UpdateWorkspaceSearch(operation, root, filtered)
-			}
-		}
-		if full && err == nil {
-			err = kernel.InvalidateWorkspaceSearch(operation, root)
-		}
+		err := synchronizeSearchIndex(operation, kernel, root, full, paths)
 		var matches []core.WorkspaceSearchMatch
 		if err == nil {
 			matches, err = kernel.SearchWorkspace(operation, core.WorkspaceSearchRequest{Root: root, Query: query.text, FileMask: query.mask, CaseSensitive: query.matchCase, WholeWords: query.wholeWords, RegularExpression: query.regex, MaxResults: searchMaxResults})
 		}
 		return func(a *App) { a.finishProjectSearch(p, generation, matches, err, full || len(paths) > 0) }
 	})
+}
+
+// synchronizeSearchIndex delegates visibility and incremental updates to Core.
+// A lost or excessively large event batch requires a complete rebuild instead.
+func synchronizeSearchIndex(ctx context.Context, kernel Kernel, root string, full bool, paths []string) error {
+	if full {
+		return kernel.InvalidateWorkspaceSearch(ctx, root)
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	filtered, err := kernel.FilterWorkspaceChanges(ctx, paths)
+	if err != nil {
+		return err
+	}
+	if len(filtered) > searchUpdateLimit {
+		return kernel.InvalidateWorkspaceSearch(ctx, root)
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	return kernel.UpdateWorkspaceSearch(ctx, root, filtered)
 }
 
 // releaseProjectSearch drops Core's index after the project closes so switching
@@ -279,12 +307,15 @@ func (a *App) releaseProjectSearch(p *project) {
 	if !p.search.indexUsed {
 		return
 	}
-	kernel, root, sink, finished := a.kernel, p.root, a.logSink, p.search.done
+	kernel, root, sink, finished, everywhereFinished := a.kernel, p.root, a.logSink, p.search.done, p.everywhere.done
 	a.background(nil, kernelCallTimeout, func(ctx context.Context) func(*App) {
 		var err error
-		if finished != nil {
+		for _, job := range []<-chan struct{}{finished, everywhereFinished} {
+			if job == nil || err != nil {
+				continue
+			}
 			select {
-			case <-finished:
+			case <-job:
 			case <-ctx.Done():
 				err = ctx.Err()
 			}

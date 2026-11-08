@@ -83,10 +83,49 @@ type WorkspaceSearchRequest struct {
 
 // WorkspaceSearchMatch is a file name or a content line returned by Core.
 type WorkspaceSearchMatch struct {
-	Kind    string `json:"kind"`
-	Path    string `json:"path"`
-	Line    *int   `json:"line"`
-	Preview string `json:"preview"`
+	Kind            string            `json:"kind"`
+	Path            string            `json:"path"`
+	Line            *int              `json:"line"`
+	Preview         string            `json:"preview"`
+	SymbolName      *string           `json:"symbolName,omitempty"`
+	NameMatchRanges []SearchNameRange `json:"nameMatchRanges,omitempty"`
+}
+
+// SearchNameRange locates one Core-selected highlight in UTF-16 code units.
+type SearchNameRange struct {
+	Start  int `json:"start"`
+	Length int `json:"length"`
+}
+
+// EverywhereSearchRequest selects the bounded sources and continuation cursor
+// of a Core Search Everywhere request. The cursor is opaque and is valid only
+// for the same root, query, options and context.
+type EverywhereSearchRequest struct {
+	Root                      string                   `json:"root"`
+	Query                     string                   `json:"query"`
+	PageSize                  int                      `json:"pageSize"`
+	Cursor                    *string                  `json:"cursor,omitempty"`
+	ResultKinds               []string                 `json:"resultKinds"`
+	IncludeGeneratedFileNames bool                     `json:"includeGeneratedFileNames"`
+	Context                   *EverywhereSearchContext `json:"context,omitempty"`
+}
+
+type EverywhereSearchContext struct {
+	OpenPaths   []string `json:"openPaths,omitempty"`
+	RecentPaths []string `json:"recentPaths,omitempty"`
+}
+
+type EverywhereSearchPage struct {
+	Matches    []WorkspaceSearchMatch `json:"matches"`
+	NextCursor *string                `json:"nextCursor"`
+}
+
+// SearchEverywherePage asks Core to rank and page workspace matches without
+// transferring the complete workspace inventory to the window.
+func (c *Client) SearchEverywherePage(ctx context.Context, request EverywhereSearchRequest) (EverywhereSearchPage, error) {
+	var page EverywhereSearchPage
+	err := c.Execute(ctx, "workspace.searchEverywhere", request, &page)
+	return page, err
 }
 
 // SearchWorkspace asks Core to match a bounded result set; it performs disk I/O

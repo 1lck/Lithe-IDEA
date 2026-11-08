@@ -289,6 +289,7 @@ func TestProjectSearchFallsBackWhenWatchCannotStart(t *testing.T) {
 	p := h.app.project
 	slot := &documentWatch{}
 	p.search.watch = slot
+	p.search.watchAttached = true
 	slot.finish(nil, errors.New("watch unavailable"))
 	h.app.drainProjectSearchWatch(p, slot)
 	if h.app.notice != i18n.Shared(h.app.language(), "desktop.search.watchUnavailable") {

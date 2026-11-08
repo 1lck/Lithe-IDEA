@@ -4,17 +4,23 @@
   "group": "搜索与导航",
   "capability": "全局命令与设置搜索",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/search_everywhere.go",
+      "desktop/internal/workbench/search_everywhere_test.go",
+      "desktop/internal/core/workspace_everywhere_test.go",
+      ".agents/notes/implemented/feature/2026-11-08-viva-project-search.md"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/search_everywhere.go",
+      "desktop/internal/workbench/search_everywhere_test.go",
+      "desktop/internal/core/workspace_everywhere_test.go",
+      ".agents/notes/implemented/feature/2026-11-08-viva-project-search.md"
     ]
   },
   "owner": "Search",
@@ -65,5 +71,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva 已接入 Core 文件名与文本搜索、按需分页、输入法保护、打开结果和共享递归监听；类、符号、操作、双击 Shift、结果高亮、预览、筛选、自动续页及完整 UI 对齐仍未完成。macOS 无头测试不替代两端实机验收。"
 }

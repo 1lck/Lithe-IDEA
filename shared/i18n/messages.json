@@ -98943,6 +98943,56 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.everywhere.title",
+      "description": "Title and input label for the global search dialog.",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.everywhere.all",
+      "description": "All sources tab in global search.",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.everywhere.classes",
+      "description": "Classes tab in global search.",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.everywhere.files",
+      "description": "Files tab in global search.",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.everywhere.symbols",
+      "description": "Symbols tab in global search.",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.everywhere.actions",
+      "description": "Actions tab in global search.",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.everywhere.text",
+      "description": "Text tab in global search.",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.everywhere.more",
+      "description": "Load another page of global search results.",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.everywhere.limit",
+      "description": "Global search result limit has been reached.",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.everywhere.watchUnavailable",
+      "description": "Global search could not monitor changes; reopening the search refreshes it.",
+      "platforms": ["desktop"]
     }
   ]
 }

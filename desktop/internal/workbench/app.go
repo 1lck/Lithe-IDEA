@@ -77,6 +77,7 @@ type Kernel interface {
 	InvalidateWorkspaceSearch(ctx context.Context, root string) error
 	FilterWorkspaceChanges(ctx context.Context, paths []string) ([]string, error)
 	UpdateWorkspaceSearch(ctx context.Context, root string, paths []string) error
+	SearchEverywherePage(ctx context.Context, request core.EverywhereSearchRequest) (core.EverywhereSearchPage, error)
 	ResolveMarketplaceSource(context.Context, string) (core.MarketplaceSource, error)
 	ValidateMarketplaceIndex(context.Context, json.RawMessage, core.MarketplaceSourceKind, string, map[string][]int) (core.MarketplaceIndex, error)
 }
@@ -145,8 +146,9 @@ type project struct {
 	terms terminalSet
 	// docs are the project's open files. Each is a tab in a group of the editor area, next
 	// to the terminals that were moved there.
-	docs   documentSet
-	search projectSearch
+	docs       documentSet
+	search     projectSearch
+	everywhere everywhereSearch
 	// tree is the Project tool window's tree of the project folder.
 	tree fileTree
 }
@@ -194,8 +196,9 @@ type App struct {
 	// branch is the title bar's branch popup and the dialogs it opens.
 	branch branchState
 	// commitView is the Commit tool window's splitter and message input.
-	commitView commitView
-	searchView searchView
+	commitView     commitView
+	searchView     searchView
+	everywhereView everywhereView
 	// delays are how long the log waits before it acts on a selection or a filter.
 	delays logDelays
 	// term is what the frame being painted declared for the terminals, and the gesture that
@@ -255,6 +258,7 @@ func New(options Options) *App {
 		a.settings = settings{}
 	}
 	a.searchView.delay = -1
+	a.everywhereView.delay = -1
 	a.version = options.Version
 	a.text = i18n.For(a.language())
 	a.theme, a.colors = look(a.settings.Theme)
@@ -314,7 +318,7 @@ func (a *App) Run() error {
 
 // Config is the window's configuration.
 func (a *App) Config() app.Config {
-	a.fields = flex.Fields(&a.welcome.search, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField, &a.searchView.query, &a.searchView.mask,
+	a.fields = flex.Fields(&a.welcome.search, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField, &a.searchView.query, &a.searchView.mask, &a.everywhereView.query,
 		&a.branch.search, &a.branch.name, &a.branch.revision)
 	return app.Config{
 		Title:          a.text.App.Name,
@@ -418,6 +422,7 @@ func (a *App) paint(canvas *ui.Canvas, size ui.Size) {
 		f.PopupLayer(1)
 		if a.project != nil {
 			a.drawWorkbench(f)
+			a.drawEverywhere(f, a.project)
 		} else {
 			a.drawWelcome(f)
 		}
@@ -486,6 +491,11 @@ func (a *App) onPointer(event ui.PointerEvent) ui.EventResult {
 }
 
 func (a *App) onKey(event ui.KeyEvent) ui.EventResult {
+	if a.project != nil && a.everywhereView.open {
+		if result := a.everywhereKey(a.project, event); result.Handled {
+			return result
+		}
+	}
 	if !event.Release && event.Key == ui.KeyEscape {
 		// Both are called: at most one gesture is under way, and neither may be left behind.
 		button, tab := a.cancelDrag(), a.cancelTabDrag()
@@ -556,6 +566,11 @@ func (a *App) onShortcut(event ui.KeyEvent) ui.EventResult {
 // windowShortcut handles the window's own command shortcuts: ⌘, opens the settings, ⌘O asks
 // for a project folder, ⇧⌘L shows the log window and ⌘↩ in the commit message commits.
 func (a *App) windowShortcut(event ui.KeyEvent) ui.EventResult {
+	if event.Modifiers == ui.ModifierMeta|ui.ModifierShift && strings.EqualFold(event.Text, "o") && a.project != nil {
+		a.performed("workspace.searchEverywhere.open", surfaceShortcut)
+		a.openEverywhere(a.project)
+		return ui.EventResult{Handled: true, Repaint: true}
+	}
 	if event.Modifiers == ui.ModifierMeta|ui.ModifierShift && strings.EqualFold(event.Text, "f") && a.project != nil {
 		a.reduceChrome(core.SetChromeOpen(itemFind, true))
 		a.searchView.focus = true
@@ -633,7 +648,10 @@ func (a *App) activate(index int) {
 	case it.id == itemRunConfig || it.id == itemTitleRun || it.id == itemTitleDebug:
 		a.notify(a.text.Title.RunLater)
 	case it.id == itemTitleSearch:
-		a.notify(a.text.Welcome.Unavailable)
+		if a.project != nil {
+			a.performed("workspace.searchEverywhere.open", surfaceButton)
+			a.openEverywhere(a.project)
+		}
 	}
 }
 
@@ -745,6 +763,7 @@ func (a *App) requestCloseProject(after func()) {
 		if !ok || a.project != p {
 			return
 		}
+		a.closeEverywhere(p)
 		p.cancel()
 		a.releaseProjectSearch(p)
 		a.closeDocuments(p)

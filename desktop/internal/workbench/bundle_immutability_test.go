@@ -140,4 +140,12 @@ func exercisePackagedWorkbench(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaitDocumentState(t, h, func() bool { return !p.search.loading && len(p.search.matches) > 0 })
+	h.app.everywhereView.delay = 0
+	h.app.openEverywhere(p)
+	h.app.everywhereView.query.SetText("example")
+	h.app.invalidator.Invalidate()
+	if err := h.driver.Pump(); err != nil {
+		t.Fatal(err)
+	}
+	awaitDocumentState(t, h, func() bool { return !p.everywhere.loading && len(p.everywhere.matches) > 0 })
 }
