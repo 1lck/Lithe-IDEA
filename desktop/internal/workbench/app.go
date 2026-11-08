@@ -78,6 +78,7 @@ type Kernel interface {
 	FilterWorkspaceChanges(ctx context.Context, paths []string) ([]string, error)
 	UpdateWorkspaceSearch(ctx context.Context, root string, paths []string) error
 	SearchEverywherePage(ctx context.Context, request core.EverywhereSearchRequest) (core.EverywhereSearchPage, error)
+	ParseNavigationInput(context.Context, string) (*core.NavigationTarget, error)
 	ResolveMarketplaceSource(context.Context, string) (core.MarketplaceSource, error)
 	ValidateMarketplaceIndex(context.Context, json.RawMessage, core.MarketplaceSourceKind, string, map[string][]int) (core.MarketplaceIndex, error)
 }
@@ -199,6 +200,7 @@ type App struct {
 	commitView     commitView
 	searchView     searchView
 	everywhereView everywhereView
+	navigation     navigationView
 	// delays are how long the log waits before it acts on a selection or a filter.
 	delays logDelays
 	// term is what the frame being painted declared for the terminals, and the gesture that
@@ -319,7 +321,7 @@ func (a *App) Run() error {
 // Config is the window's configuration.
 func (a *App) Config() app.Config {
 	a.fields = flex.Fields(&a.welcome.search, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField, &a.searchView.query, &a.searchView.mask, &a.everywhereView.query,
-		&a.branch.search, &a.branch.name, &a.branch.revision)
+		&a.branch.search, &a.branch.name, &a.branch.revision, &a.navigation.input)
 	return app.Config{
 		Title:          a.text.App.Name,
 		Icon:           appicon.Window(),
@@ -423,6 +425,7 @@ func (a *App) paint(canvas *ui.Canvas, size ui.Size) {
 		if a.project != nil {
 			a.drawWorkbench(f)
 			a.drawEverywhere(f, a.project)
+			a.drawNavigation(f, a.project)
 		} else {
 			a.drawWelcome(f)
 		}
@@ -491,6 +494,11 @@ func (a *App) onPointer(event ui.PointerEvent) ui.EventResult {
 }
 
 func (a *App) onKey(event ui.KeyEvent) ui.EventResult {
+	if a.project != nil && a.navigation.open {
+		if result := a.navigationKey(a.project, event); result.Handled {
+			return result
+		}
+	}
 	if a.project != nil && a.everywhereView.open {
 		if result := a.everywhereKey(a.project, event); result.Handled {
 			return result
@@ -545,6 +553,14 @@ func (a *App) onKey(event ui.KeyEvent) ui.EventResult {
 // to the terminal that has the keyboard: Control-C and the other chords of the shell arrive
 // here, not in onKey.
 func (a *App) onShortcut(event ui.KeyEvent) ui.EventResult {
+	if a.navigation.open {
+		// Let the field's text system handle copy, paste, and select-all, while
+		// keeping workbench shortcuts from changing the project behind a modal.
+		if event.Target == navigationField {
+			return ui.EventResult{}
+		}
+		return ui.EventResult{Handled: true}
+	}
 	if !event.Release {
 		if result := a.windowShortcut(event); result.Handled {
 			return result
@@ -566,6 +582,11 @@ func (a *App) onShortcut(event ui.KeyEvent) ui.EventResult {
 // windowShortcut handles the window's own command shortcuts: ⌘, opens the settings, ⌘O asks
 // for a project folder, ⇧⌘L shows the log window and ⌘↩ in the commit message commits.
 func (a *App) windowShortcut(event ui.KeyEvent) ui.EventResult {
+	if event.Modifiers == ui.ModifierMeta && strings.EqualFold(event.Text, "l") && a.project != nil {
+		if a.openNavigation(a.project) {
+			return ui.EventResult{Handled: true, Repaint: true}
+		}
+	}
 	if event.Modifiers == ui.ModifierMeta|ui.ModifierShift && strings.EqualFold(event.Text, "o") && a.project != nil {
 		a.performed("workspace.searchEverywhere.open", surfaceShortcut)
 		a.openEverywhere(a.project)
@@ -651,6 +672,10 @@ func (a *App) activate(index int) {
 		if a.project != nil {
 			a.performed("workspace.searchEverywhere.open", surfaceButton)
 			a.openEverywhere(a.project)
+		}
+	case it.id == itemCaret:
+		if a.project != nil {
+			a.openNavigation(a.project)
 		}
 	}
 }
@@ -764,6 +789,9 @@ func (a *App) requestCloseProject(after func()) {
 			return
 		}
 		a.closeEverywhere(p)
+		if a.navigation.open && a.navigation.project == p {
+			a.closeNavigation()
+		}
 		p.cancel()
 		a.releaseProjectSearch(p)
 		a.closeDocuments(p)

@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/app"
@@ -419,7 +420,12 @@ func (a *App) drawChromeStatusText(f *flex.Frame, text string) {
 func (a *App) chromeStatusText(i int) string {
 	switch catalog[i].id {
 	case itemCaret:
-		// The caret has no editor to follow yet, so it stands at the start of the file.
+		if a.project != nil {
+			if doc := a.project.selectedDocument(a.project.docs.group); doc != nil {
+				line, column := doc.view.CaretUTF16()
+				return fmt.Sprintf("%d:%d", line+1, column+1)
+			}
+		}
 		return "1:1"
 	case itemLSP:
 		return a.text.Status.LSPNotStarted

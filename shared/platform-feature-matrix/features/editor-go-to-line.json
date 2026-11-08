@@ -4,22 +4,30 @@
   "group": "导航",
   "capability": "跳转到行或行列并选择目标",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/navigation.go",
+      "desktop/internal/editorview/view.go",
+      "desktop/internal/workbench/navigation.go",
+      "desktop/internal/workbench/navigation_test.go",
+      "shared/fixtures/editor/navigation-input-v1.json"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/core/navigation.go",
+      "desktop/internal/editorview/view.go",
+      "desktop/internal/workbench/navigation.go",
+      "desktop/internal/workbench/navigation_test.go",
+      "shared/fixtures/editor/navigation-input-v1.json"
     ]
   },
   "owner": "Editor",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
-  "verification": "两端打开实际编辑器，分别输入 120、120:35、12abc、空值及超出文档范围的数字；确认整行选择、UTF-16 列位置、无效输入和活动文档不变。快速修改 macOS 输入确认旧校验不能启用确认按钮；共享 fixture、Windows 命令与行选择和 macOS 模态窗口测试覆盖；完整原生界面验收 pending。",
+  "notes": "Viva 已接入 Core 行列解析、状态栏和快捷键、整行选择及 UTF-16 列定位；原生菜单入口、原生窗口一致性及 Windows 产品级验收仍待完成。",
+  "verification": "共享 fixture 覆盖有效和无效输入；Viva 无头交互覆盖整行、UTF-16、取消、切换文档和过期校验，待两端完整应用及原生界面验收。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

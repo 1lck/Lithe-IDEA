@@ -10229,6 +10229,8 @@
     "desktop.search.first200": "Showing the first 200 results. Narrow your search to see more.",
     "desktop.search.watchUnavailable": "Could not monitor project changes. Refresh search results to check for changes.",
     "desktop.search.fileMaskPlaceholder": "File mask, e.g. *.java, *.kt",
+    "desktop.navigation.title": "Go to Line:Column",
+    "desktop.navigation.label": "[Line] [:column]:",
     "desktop.everywhere.title": "Search Everywhere",
     "desktop.everywhere.all": "All",
     "desktop.everywhere.classes": "Classes",

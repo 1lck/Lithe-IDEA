@@ -218,3 +218,56 @@ func TestGoToLineClampsAndPreservesComposition(t *testing.T) {
 		t.Fatal("composition caret changed")
 	}
 }
+
+func TestGoToNavigationUTF16AndWholeLine(t *testing.T) {
+	v := newTestView(t, "first\nA😀中Z\nlast")
+	for _, tc := range []struct {
+		line, column      int
+		whole             bool
+		start, end, utf16 int
+	}{
+		{1, 0, true, 6, 15, 5},
+		{1, 1, false, 7, 7, 1},
+		{1, 2, false, 7, 7, 1}, // A half surrogate never splits the UTF-8 rune.
+		{1, 3, false, 11, 11, 3},
+		{1, 999, false, 15, 15, 5},
+		{999, 999, false, 20, 20, 4},
+	} {
+		if !v.GoToNavigation(tc.line, tc.column, tc.whole) {
+			t.Fatal("navigation refused")
+		}
+		start, end := v.Selection()
+		_, col := v.CaretUTF16()
+		if start != tc.start || end != tc.end || col != tc.utf16 {
+			t.Errorf("%+v: selection = %d:%d, column = %d", tc, start, end, col)
+		}
+	}
+	v.preedit.Composing = true
+	if v.GoToNavigation(0, 0, true) {
+		t.Fatal("navigation interrupted composition")
+	}
+}
+
+func TestCaretUTF16TracksEditsAndUndo(t *testing.T) {
+	v := newTestView(t, "A😀中Z")
+	v.GoToNavigation(0, 3, false)
+	if _, col := v.CaretUTF16(); col != 3 {
+		t.Fatalf("initial column %d", col)
+	}
+	v.typeText("🚀")
+	if _, col := v.CaretUTF16(); col != 5 {
+		t.Fatalf("after insertion column %d", col)
+	}
+	v.press(ui.KeyBackspace, 0)
+	if _, col := v.CaretUTF16(); col != 3 {
+		t.Fatalf("after deletion column %d", col)
+	}
+	v.Undo()
+	if _, col := v.CaretUTF16(); col != 5 {
+		t.Fatalf("after undo column %d", col)
+	}
+	v.typeText("\n")
+	if line, col := v.CaretUTF16(); line != 1 || col != 0 {
+		t.Fatalf("after newline %d:%d", line, col)
+	}
+}

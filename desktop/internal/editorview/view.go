@@ -92,9 +92,12 @@ type View struct {
 	revision int
 	// anchor and caret are the ends of the selection; they are equal when nothing is
 	// selected. goal is the column, in cells, that up and down keep to; -1 is the caret's.
-	anchor, caret int
-	goal          int
-	undo, redo    []snapshot
+	anchor, caret                                      int
+	goal                                               int
+	caretUTF16Text                                     rope.Rope
+	caretUTF16Offset, caretUTF16Line, caretUTF16Column int
+	caretUTF16Valid                                    bool
+	undo, redo                                         []snapshot
 	// lastKind and lastEnd say what the last edit was and where it left the caret, so that
 	// typing on goes into the same undo step.
 	lastKind editKind
@@ -292,6 +295,72 @@ func (v *View) GoToLine(line int) bool {
 	return true
 }
 
+// GoToNavigation applies Core's zero-based UTF-16 position to the live text.
+// A position inside a surrogate pair snaps to the preceding rune boundary.
+func (v *View) GoToNavigation(line, column int, wholeLine bool) bool {
+	if v.preedit.Composing {
+		return false
+	}
+	line = min(max(line, 0), v.text.LineCount()-1)
+	start, end := v.text.LineStart(line), v.text.LineEnd(line)
+	v.anchor, v.caret = start, start
+	if wholeLine {
+		v.caret = end
+	} else {
+		remaining := max(column, 0)
+		v.text.Chunks(start, end, func(chunk []byte) bool {
+			for len(chunk) > 0 && remaining > 0 {
+				r, size := utf8.DecodeRune(chunk)
+				units := 1
+				if r > 0xffff {
+					units = 2
+				}
+				if units > remaining {
+					return false
+				}
+				remaining -= units
+				v.caret += size
+				chunk = chunk[size:]
+			}
+			return remaining > 0
+		})
+		v.anchor = v.caret
+	}
+	v.goal, v.lastKind, v.reveal = -1, editOther, true
+	return true
+}
+
+// CaretUTF16 is the caret's zero-based line and column in UTF-16 code units.
+func (v *View) CaretUTF16() (int, int) {
+	if v.caretUTF16Valid && v.caretUTF16Offset == v.caret && v.caretUTF16Text.Same(v.text) {
+		return v.caretUTF16Line, v.caretUTF16Column
+	}
+	line := v.text.LineOf(v.caret)
+	column := v.utf16Units(v.text.LineStart(line), v.caret)
+	v.caretUTF16Text, v.caretUTF16Offset = v.text, v.caret
+	v.caretUTF16Line, v.caretUTF16Column, v.caretUTF16Valid = line, column, true
+	return line, column
+}
+
+func utf16Length(data []byte) int {
+	units := 0
+	for len(data) > 0 {
+		r, size := utf8.DecodeRune(data)
+		units++
+		if r > 0xffff {
+			units++
+		}
+		data = data[size:]
+	}
+	return units
+}
+
+func (v *View) utf16Units(start, end int) int {
+	units := 0
+	v.text.Chunks(start, end, func(chunk []byte) bool { units += utf16Length(chunk); return true })
+	return units
+}
+
 // Caret is the caret's line and column, both from zero; the column counts bytes.
 func (v *View) Caret() (int, int) {
 	line := v.text.LineOf(v.caret)
@@ -418,11 +487,23 @@ func (v *View) edit(start, end int, text []byte, kind editKind) {
 	}
 	v.redo = v.redo[:0]
 	firstLine, oldLast, oldCount := v.text.LineOf(start), v.text.LineOf(end), v.text.LineCount()
+	// Keep the status column incremental for ordinary typing and deletion, even
+	// on a very long line. Other edits invalidate the cached rope naturally.
+	cacheEdit := v.caretUTF16Valid && v.caretUTF16Text.Same(v.text) && v.caretUTF16Line == firstLine && firstLine == oldLast &&
+		start <= v.caretUTF16Offset && v.caretUTF16Offset <= end && !bytes.ContainsRune(text, '\n')
+	column := 0
+	if cacheEdit {
+		column = v.caretUTF16Column - v.utf16Units(start, v.caretUTF16Offset) + utf16Length(text)
+	}
 	v.text = v.text.Replace(start, end, text)
 	v.revision++
 	v.hl.Edit(v.text, start, end, start+len(text))
 	v.spliceRows(firstLine, oldLast, v.text.LineOf(start+len(text)), oldCount)
 	v.anchor, v.caret = start+len(text), start+len(text)
+	if cacheEdit {
+		v.caretUTF16Text, v.caretUTF16Offset = v.text, v.caret
+		v.caretUTF16Line, v.caretUTF16Column = firstLine, column
+	}
 	v.lastKind, v.lastEnd = kind, v.caret
 	if kind == editDeleting {
 		v.lastEnd = start

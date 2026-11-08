@@ -10229,6 +10229,8 @@
     "desktop.search.first200": "显示前 200 条结果。请缩小搜索范围以查看更多。",
     "desktop.search.watchUnavailable": "无法监听项目变化。请刷新搜索结果以检查更新。",
     "desktop.search.fileMaskPlaceholder": "文件掩码，例如 *.java、*.kt",
+    "desktop.navigation.title": "跳转到行:列",
+    "desktop.navigation.label": "[行] [:列]:",
     "desktop.everywhere.title": "全局搜索",
     "desktop.everywhere.all": "全部",
     "desktop.everywhere.classes": "类",

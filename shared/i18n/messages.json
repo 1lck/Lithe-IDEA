@@ -98945,6 +98945,16 @@
       ]
     },
     {
+      "id": "desktop.navigation.title",
+      "description": "Title of the go to line and column dialog.",
+      "platforms": ["desktop"]
+    },
+    {
+      "id": "desktop.navigation.label",
+      "description": "Input label for the go to line and column dialog.",
+      "platforms": ["desktop"]
+    },
+    {
       "id": "desktop.everywhere.title",
       "description": "Title and input label for the global search dialog.",
       "platforms": ["desktop"]
