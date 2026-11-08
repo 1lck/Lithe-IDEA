@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/monogrid"
 	"github.com/vivaui/viva/flex"
@@ -799,7 +800,7 @@ func (a *App) drawLogFiles(f *flex.Frame, p *project) flex.Box {
 				depth := 0
 				if dir != "." {
 					f.Row().Height(logItemHeight).FillWidth().Shrink(0).Items(flex.Center).Gap(6).PadX(8).Children(func() {
-						f.Icon(icons.Folder).Size(14, 14).Color(a.colors.Subtle)
+						f.Icon(fileicons.ForDirectory(path.Base(dir), a.colors.Dark)).Size(14, 14).Color(a.colors.Subtle)
 						f.Text(dir).Muted().Ellipsis().Grow(1)
 					})
 					depth = 1
@@ -809,7 +810,7 @@ func (a *App) drawLogFiles(f *flex.Frame, p *project) flex.Box {
 					n++
 					row.Children(func() {
 						f.Text(statusLetter(file.Status)).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.fileStatusColor(file.Status)).Width(14).Shrink(0)
-						f.Icon(icons.File).Size(14, 14).Color(a.colors.Subtle)
+						f.Icon(fileicons.ForFile(path.Base(file.Path), a.colors.Dark)).Size(14, 14).Color(a.colors.Subtle)
 						f.Text(path.Base(file.Path)).Color(a.fileStatusColor(file.Status)).Ellipsis().Grow(1)
 					})
 					if row.Clicked() {

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/vivaui/viva/flex"
@@ -262,12 +263,9 @@ func (a *App) drawTreeRow(f *flex.Frame, p *project, n *treeNode) bool {
 		default:
 			f.Icon(icons.ChevronRight).Size(treeChevron, treeChevron).Shrink(0).Color(a.colors.Subtle)
 		}
-		icon := icons.File
-		switch {
-		case n.dir && n.expanded:
-			icon = icons.FolderOpen
-		case n.dir:
-			icon = icons.Folder
+		icon := fileicons.ForFile(n.name, a.colors.Dark)
+		if n.dir {
+			icon = fileicons.ForDirectory(n.name, a.colors.Dark)
 		}
 		f.Icon(icon).Size(treeIcon, treeIcon).Shrink(0).Color(a.colors.Subtle)
 		t.labels = append(t.labels, f.Text(n.name).Color(a.colors.Text).Shrink(0))

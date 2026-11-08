@@ -51,6 +51,7 @@ jobs:
           bash -n scripts/ci/desktop-release/package-release.sh
           bash -n scripts/ci/desktop-release/resolve-release-version.sh
           zsh -n scripts/desktop/generate-desktop-icons.sh
+          zsh -n scripts/desktop/generate-desktop-file-icons.sh
 
       - name: Run ShellCheck
         run: |

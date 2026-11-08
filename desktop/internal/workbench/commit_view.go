@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/flex"
@@ -166,9 +167,9 @@ func (a *App) drawCommitChange(f *flex.Frame, p *project, i int, change core.Git
 		if f.Checkbox(commitChecks.At(i), change.Staged).Label(label).Disabled(c.busy || !change.CanToggleStaging).Clicked() {
 			a.stageChange(p, change)
 		}
-		icon := icons.File
+		icon := fileicons.ForFile(path.Base(change.Path), a.colors.Dark)
 		if folder {
-			icon = icons.Folder
+			icon = fileicons.ForDirectory(path.Base(strings.TrimSuffix(change.Path, "/")), a.colors.Dark)
 		}
 		f.Icon(icon).Size(14, 14).Color(a.colors.Subtle)
 		f.Text(name).Color(tint).Ellipsis().Shrink(0).MaxWidth(320)
@@ -445,7 +446,7 @@ func (a *App) drawCommitReviewStep(f *flex.Frame, p *project, n int, id string, 
 		}
 		for _, staged := range state.StagedPaths {
 			f.Row().FillWidth().Items(flex.Center).Gap(6).PadX(8).Children(func() {
-				f.Icon(icons.File).Size(14, 14).Color(a.colors.Subtle)
+				f.Icon(fileicons.ForFile(path.Base(staged), a.colors.Dark)).Size(14, 14).Color(a.colors.Subtle)
 				f.Text(staged).FontSize(a.theme.Metrics.FontSizeS).Ellipsis().Grow(1)
 			})
 		}

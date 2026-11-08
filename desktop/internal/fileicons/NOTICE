@@ -1,0 +1,29 @@
+File-type and folder icons of the Lithe desktop client.
+
+The SVGs in svg/ are the file-tree icons the previous Lithe macOS client shipped in
+macos/Resources/IDEAIcons/, restored byte for byte from commit f1e8d8139^ of this
+repository. Except for the two noted below, they come from the JetBrains IntelliJ
+Platform Community repository (https://github.com/JetBrains/intellij-community) and are
+distributed under the Apache License 2.0; see LICENSE-APACHE-2.0.txt. The previous
+client's NOTICE.txt records their source paths and revisions, chiefly:
+
+- fileTypes/*.svg: platform/icons/src/expui/fileTypes/ (revisions
+  e8d21e84ee23f99ae7237fbb4530ff2e7c3b47c5, c7f91397daa3a961b4e78bc634fe467a0a7d9ade,
+  fb72b4df43ab and d67fdc5458cd370ecb1bf7831604a4add781113d); custom.svg is
+  platform/icons/src/fileTypes/custom.svg; lock is expui/general/locked; readme is
+  expui/status/info; nodejs is
+  plugins/kotlin/base/resources/resources/org/jetbrains/kotlin/idea/icons/expui/wizard/nodejs.
+- folder.svg and excludeRoot.svg: platform/icons/src/expui/nodes/ (revision
+  e8d21e84ee23f99ae7237fbb4530ff2e7c3b47c5).
+
+license.svg and makefile.svg (and their _dark siblings) are original Lithe icons,
+because the Community set has no LICENSE or Makefile glyph; they follow the Lithe
+repository license.
+
+Copyright JetBrains s.r.o. and contributors. Lithe does not include JetBrains product
+logos.
+
+Modification: icons.go is not the SVGs themselves. scripts/desktop/generate-desktop-file-icons.sh
+rewrites each SVG into filled paths only (its strokes become outlines of the same color)
+with picosvg and compiles the result into ui.Icon values. The SVG sources in svg/ are
+unmodified.

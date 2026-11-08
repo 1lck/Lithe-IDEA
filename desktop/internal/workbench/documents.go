@@ -13,6 +13,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/vivaui/viva/flex"
@@ -437,7 +438,7 @@ func (a *App) drawDocumentTab(f *flex.Frame, d *document, selected bool, pos, si
 	}
 	var closeButton flex.Box
 	chip.Children(func() {
-		f.Icon(icons.FileCode).Size(terminalChipIcon, terminalChipIcon).Shrink(0).Color(a.colors.Subtle)
+		f.Icon(fileicons.ForFile(d.name, a.colors.Dark)).Size(terminalChipIcon, terminalChipIcon).Shrink(0).Color(a.colors.Subtle)
 		label := f.Text(d.name).Shrink(0)
 		if selected {
 			label.Color(a.colors.Text)
