@@ -1,30 +1,27 @@
 .DS_Store
-.build/
-rust/target/
-rust/*/target/
-# Cargo state left in older checkouts by the shortcut import plugin, which moved
-# to Lithe-IDEA/lithe-plugin-keymap-import; the directory can be deleted locally.
-Plugins/mac/Official/EditorKeymapImport/target/
 /.worktrees/
-.swiftpm/
 .idea/
-DerivedData/
-/windows/build*/
 dist/
 .artifacts/
-shared/fixtures/projects/**/target/
-*.xcuserstate
-*.xcuserdata/
 design-qa-artifacts/
 docs/visual-qa/
 .reasonix/
 reasonix.toml
 .codex/
 .planning/
+
+# Top-level directories of the in-repository Rust kernel and the SwiftUI and Tauri clients,
+# which this tree no longer has. Checkouts that switch here from an older branch keep their
+# ignored build state (cargo targets, SwiftPM and node_modules directories) on disk; these
+# entries keep it out of git status. Nothing in this tree may be added below them.
+/rust/
+/macos/
+/windows/
+/frontend/
+/Plugins/
+/third_party/
+/shared/
 /node_modules/
-
-# Built MCP helper, packaged read-only by Tauri.
-/windows/tauri/src-tauri/helpers/*.exe
-
-# Built from rust/lithe-core-rules by scripts/windows/prepare/prepare-core-rules-wasm.mjs.
-/windows/tauri/public/core-rules/
+/.build/
+/.swiftpm/
+DerivedData/

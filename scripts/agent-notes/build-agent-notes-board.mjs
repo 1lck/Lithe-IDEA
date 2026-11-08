@@ -15,7 +15,7 @@ const __filename = fileURLToPath(import.meta.url);
 const rootDir = resolve(dirname(__filename), "../..");
 const templatePath = resolve(rootDir, "assets/agent-notes-board.html");
 const parserPath = resolve(dirname(__filename), "agent-notes-parser.mjs");
-const logoPath = resolve(rootDir, "macos/Resources/AppIcon.png");
+const logoPath = resolve(rootDir, "desktop/assets/icon.png");
 const args = process.argv.slice(2);
 
 const isInitMode = args.includes("--init");

@@ -6,8 +6,8 @@ import (
 )
 
 // ErrorCode is the kernel's stable failure category. The values are the snake_case names of
-// the Rust ErrorCode enum in rust/lithe-core/src/protocol/error.rs; a code this package does
-// not know (from a newer kernel) is still delivered as is.
+// the Rust ErrorCode enum in rust/lithe-core/src/protocol/error.rs of Lithe-IDEA/Lithe-core-rust;
+// a code this package does not know (from a newer kernel) is still delivered as is.
 type ErrorCode string
 
 const (

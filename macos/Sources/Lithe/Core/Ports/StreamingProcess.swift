@@ -1,4 +1,0 @@
-import Foundation
-import LitheCoreContracts
-
-typealias StreamingProcess = LitheCoreContracts.StreamingProcess
