@@ -1,24 +1,31 @@
-#!/bin/zsh
-# Builds the Lithe-core-rust static library that the Viva desktop client (desktop/) links, and
-# stages exactly what cgo needs under .artifacts/desktop/lithe-core/<rust target>/<profile>/:
+#!/usr/bin/env bash
+# Builds the pinned Lithe-core-rust static library for the Viva desktop client and stages the
+# header, archive, native linker flags and build identity under .artifacts/desktop/lithe-core/:
+#
+# Usage: scripts/desktop/build-desktop-core.sh [--debug|--release]
 #
 #   include/lithe_core.h     the C ABI header of that core revision
-#   lib/liblithe_core.a      the static library only, so the linker never picks a dylib
+#   lib/liblithe_core.a      the static library that cgo links
 #   native-static-libs.txt   the system libraries and frameworks rustc says the archive needs
 #   identity.txt             core revision, dirty flag, rustc, target and profile of the build
 #
-# The core is the pinned Lithe-core-rust revision below, checked out into
-# .artifacts/desktop/lithe-core-rust/source. LITHE_CORE_RUST_DIR points the build at a local
-# checkout instead (for a core change that has not been merged yet). LITHE_CORE_TARGET names the
-# Rust target to build for (x86_64-apple-darwin on an Apple silicon Mac, for example); it defaults
-# to the host, and a different target must be installed with rustup first. Everything written
-# here is build state of this worktree: nothing is shared between worktrees and nothing reaches an
-# app bundle at runtime.
+# LITHE_CORE_RUST_DIR points the build at a local core checkout. LITHE_CORE_TARGET selects a Rust
+# target; Windows uses x86_64-pc-windows-gnu because cgo cannot link an MSVC .lib archive. The
+# staging directory is build state of this worktree and is never written into an app bundle.
 #
 # The staging directory is the only line written to standard output, so a caller can read it.
 set -euo pipefail
 
-ROOT_DIR="${0:A:h:h:h}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+
+native_path() {
+    if command -v cygpath >/dev/null 2>&1; then
+        cygpath -m "$1"
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
 PINNED_CORE_REPOSITORY="https://github.com/Lithe-IDEA/Lithe-core-rust.git"
 # The head of Lithe-IDEA/Lithe-core-rust#1 (workbench.chromeLayout.reduce), which is not merged
 # into main yet; move the pin to the merge commit once it is.
@@ -28,16 +35,27 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --release) PROFILE="release"; shift ;;
         --debug) PROFILE="debug"; shift ;;
-        *) print -u2 -- "Usage: $0 [--debug|--release]"; exit 2 ;;
+        *) printf '%s\n' "Usage: $0 [--debug|--release]" >&2; exit 2 ;;
     esac
 done
 
 HOST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
 RUST_TARGET="${LITHE_CORE_TARGET:-$HOST_TARGET}"
+if [[ "$RUST_TARGET" == *-windows-msvc ]]; then
+    printf '%s\n' "cgo cannot link the MSVC .lib archive for $RUST_TARGET; use x86_64-pc-windows-gnu for Windows." >&2
+    exit 2
+fi
+
 ARTIFACTS_DIR="$ROOT_DIR/.artifacts/desktop"
 STAGE_DIR="$ARTIFACTS_DIR/lithe-core/$RUST_TARGET/$PROFILE"
-export CARGO_TARGET_DIR="$ARTIFACTS_DIR/lithe-core-rust/target"
-export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
+CARGO_TARGET_DIR_BASH="$ARTIFACTS_DIR/lithe-core-rust/target"
+CARGO_TARGET_DIR_NATIVE="$(native_path "$CARGO_TARGET_DIR_BASH")"
+export CARGO_TARGET_DIR="$CARGO_TARGET_DIR_NATIVE"
+if [[ "$RUST_TARGET" == *-apple-darwin ]]; then
+    export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
+else
+    unset MACOSX_DEPLOYMENT_TARGET
+fi
 # The release profile of Lithe-core-rust sets strip = true. On macOS that also strips the
 # proc-macro dylibs cargo builds for the host, and rustc then reports "can't find crate" for
 # tokio_macros and futures_macro. Build scripts and proc macros are never shipped, so they are
@@ -45,13 +63,13 @@ export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
 export CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP="${CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP:-false}"
 
 if [[ -n "${LITHE_CORE_RUST_DIR:-}" ]]; then
-    CORE_DIR="${LITHE_CORE_RUST_DIR:A}"
+    CORE_DIR="$(cd "$LITHE_CORE_RUST_DIR" && pwd -P)"
     CORE_SOURCE="override"
 else
     CORE_SOURCE="pinned"
     CORE_DIR="$ARTIFACTS_DIR/lithe-core-rust/source"
     if [[ ! -d "$CORE_DIR/.git" ]]; then
-        mkdir -p "${CORE_DIR:h}"
+        mkdir -p "$(dirname "$CORE_DIR")"
         git clone --filter=blob:none --no-checkout "$PINNED_CORE_REPOSITORY" "$CORE_DIR" >&2
     fi
     if [[ "$(git -C "$CORE_DIR" rev-parse HEAD 2>/dev/null || true)" != "$PINNED_CORE_REVISION" ]]; then
@@ -59,51 +77,57 @@ else
         git -C "$CORE_DIR" checkout --detach --force "$PINNED_CORE_REVISION" >&2
     fi
 fi
+
 MANIFEST="$CORE_DIR/rust/Cargo.toml"
 if [[ ! -f "$MANIFEST" ]]; then
-    print -u2 -- "No Lithe-core-rust workspace at $CORE_DIR (expected rust/Cargo.toml)."
+    printf '%s\n' "No Lithe-core-rust workspace at $CORE_DIR (expected rust/Cargo.toml)." >&2
     exit 1
 fi
+MANIFEST_NATIVE="$(native_path "$MANIFEST")"
 
 CORE_REVISION="$(git -C "$CORE_DIR" rev-parse HEAD)"
 CORE_DIRTY="clean"
 if [[ -n "$(git -C "$CORE_DIR" status --porcelain --untracked-files=normal -- rust)" ]]; then
     CORE_DIRTY="dirty"
 fi
-# rustc prints the native libraries only when it links the archive. The list is written to a
-# file that survives up-to-date builds; when it is missing the crate is cleaned so rustc runs.
+# rustc prints native libraries only when it links the archive. The file survives up-to-date
+# builds, so a missing one triggers a clean that makes rustc report it again.
 mkdir -p "$STAGE_DIR/include" "$STAGE_DIR/lib"
 NATIVE_LIBS_FILE="$STAGE_DIR/native-static-libs.txt"
+NATIVE_LIBS_FILE_NATIVE="$(native_path "$NATIVE_LIBS_FILE")"
 PROFILE_ARGS=()
 if [[ "$PROFILE" == "release" ]]; then
     PROFILE_ARGS=(--release)
 fi
-# Cargo puts a build for an explicit --target below target/<triple>/, so the host keeps its
-# usual target/<profile>/ directory and the cache of earlier host builds.
-LIBRARY_DIR="$CARGO_TARGET_DIR/$PROFILE"
+# Cargo puts an explicit target below target/<triple>/ and keeps host builds in target/<profile>/.
+LIBRARY_DIR="$CARGO_TARGET_DIR_BASH/$PROFILE"
 if [[ "$RUST_TARGET" != "$HOST_TARGET" ]]; then
     PROFILE_ARGS+=(--target "$RUST_TARGET")
-    LIBRARY_DIR="$CARGO_TARGET_DIR/$RUST_TARGET/$PROFILE"
+    LIBRARY_DIR="$CARGO_TARGET_DIR_BASH/$RUST_TARGET/$PROFILE"
 fi
 if [[ ! -s "$NATIVE_LIBS_FILE" ]]; then
-    cargo clean --manifest-path "$MANIFEST" -p lithe-core "${PROFILE_ARGS[@]}" >&2
+    cargo clean --manifest-path "$MANIFEST_NATIVE" -p lithe-core \
+        "${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"}" >&2
 fi
-cargo rustc --manifest-path "$MANIFEST" -p lithe-core --lib --crate-type staticlib "${PROFILE_ARGS[@]}" \
-    -- --print "native-static-libs=$NATIVE_LIBS_FILE" >&2
+cargo rustc --manifest-path "$MANIFEST_NATIVE" -p lithe-core --lib --crate-type staticlib \
+    "${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"}" \
+    -- --print "native-static-libs=$NATIVE_LIBS_FILE_NATIVE" >&2
 if [[ ! -s "$NATIVE_LIBS_FILE" ]]; then
-    print -u2 -- "rustc did not report the native libraries of liblithe_core.a."
+    printf '%s\n' "rustc did not report the native libraries of liblithe_core.a." >&2
     exit 1
 fi
 
 install -m 0644 "$LIBRARY_DIR/liblithe_core.a" "$STAGE_DIR/lib/liblithe_core.a"
 install -m 0644 "$CORE_DIR/rust/lithe-core/include/lithe_core.h" "$STAGE_DIR/include/lithe_core.h"
 {
-    print -r -- "core-revision=$CORE_REVISION"
-    print -r -- "core-worktree=$CORE_DIRTY"
-    print -r -- "core-source=$CORE_SOURCE"
-    print -r -- "rustc=$(rustc -V)"
-    print -r -- "target=$RUST_TARGET"
-    print -r -- "profile=$PROFILE"
-    print -r -- "macos-deployment-target=$MACOSX_DEPLOYMENT_TARGET"
+    printf 'core-revision=%s\n' "$CORE_REVISION"
+    printf 'core-worktree=%s\n' "$CORE_DIRTY"
+    printf 'core-source=%s\n' "$CORE_SOURCE"
+    printf 'rustc=%s\n' "$(rustc -V)"
+    printf 'target=%s\n' "$RUST_TARGET"
+    printf 'profile=%s\n' "$PROFILE"
+    if [[ "$RUST_TARGET" == *-apple-darwin ]]; then
+        printf 'macos-deployment-target=%s\n' "$MACOSX_DEPLOYMENT_TARGET"
+    fi
 } > "$STAGE_DIR/identity.txt"
-print -r -- "$STAGE_DIR"
+printf '%s\n' "$STAGE_DIR"

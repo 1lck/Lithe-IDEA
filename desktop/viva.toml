@@ -1,6 +1,6 @@
-# How viva package bundles the Lithe desktop client. scripts/desktop/package-desktop.sh (make
-# package) builds the program with the Lithe-core-rust library linked in and hands it to
-# viva package --program, so this file only describes the bundle around it.
+# How viva package builds and bundles the Lithe desktop client. scripts/desktop/package-desktop.sh
+# (make package) supplies the staged Lithe-core-rust cgo environment. The client embeds this file
+# (desktop/version.go), so the version it displays and the package metadata share one source.
 #
 # [app] version is the client's version. The Desktop Release workflow refuses a tag that does
 # not match it, so a release changes it here first.
@@ -20,3 +20,28 @@ icon = "assets/icon.png"
 min_system = "13.0"
 category = "public.app-category.developer-tools"
 copyright = "Copyright 2026 Lithe contributors"
+
+[windows]
+publisher = "Lithe contributors"
+scope = "user"
+url = "https://github.com/1lck/Lithe-IDEA"
+
+[linux]
+category = "Development"
+comment = "Native code editor and project workbench."
+maintainer = "Lithe contributors <noreply@github.com>"
+homepage = "https://github.com/1lck/Lithe-IDEA"
+keywords = ["code", "editor", "development", "IDE"]
+# Viva adds Vulkan, base XCB and Cairo dependencies; these packages provide its remaining dlopen libraries.
+depends = [
+  "libfontconfig1",
+  "libglib2.0-0",
+  "libpango-1.0-0",
+  "libpangocairo-1.0-0",
+  "libpangoft2-1.0-0",
+  "libxcb-cursor0",
+  "libxcb-randr0",
+  "libxcb-render0",
+  "libxcb-shape0",
+  "libxcb-sync1",
+]

@@ -38,20 +38,70 @@ jobs:
         working-directory: desktop
         run: make fmt-check
 
-      - name: Check shell script syntax
+      - name: Install shell check tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y zsh
+          sudo apt-get install -y shellcheck zsh
+
+      - name: Check shell script syntax
+        run: |
+          bash -n scripts/desktop/build-desktop-core.sh
+          bash -n scripts/desktop/desktop-go.sh
+          bash -n scripts/desktop/package-desktop.sh
+          bash -n scripts/ci/desktop-release/package-release.sh
           bash -n scripts/ci/desktop-release/resolve-release-version.sh
-          for script in scripts/desktop/*.sh scripts/ci/desktop-release/package-release.sh; do
-            zsh -n "$script"
-          done
+          zsh -n scripts/desktop/generate-desktop-icons.sh
+
+      - name: Run ShellCheck
+        run: |
+          shellcheck -S warning \
+            scripts/desktop/build-desktop-core.sh \
+            scripts/desktop/desktop-go.sh \
+            scripts/desktop/package-desktop.sh \
+            scripts/ci/desktop-release/package-release.sh \
+            scripts/ci/desktop-release/resolve-release-version.sh
 
       - name: Run script tests
         run: |
           node --test \
             scripts/release/notes/test-validate-stable-release-notes.mjs \
             scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs
+
+  linux-test:
+    name: Vet and test on Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+
+      - name: Set up Rust
+        id: rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore the core build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .artifacts/desktop/lithe-core-rust
+          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-x86_64-unknown-linux-gnu-debug-${{ hashFiles('scripts/desktop/build-desktop-core.sh') }}
+          restore-keys: |
+            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-x86_64-unknown-linux-gnu-debug-
+
+      - name: Vet and test
+        run: |
+          scripts/desktop/desktop-go.sh vet ./...
+          scripts/desktop/desktop-go.sh test ./...
 
   macos:
     name: Vet and test on macOS
@@ -92,3 +142,61 @@ jobs:
       - name: Vet and test
         working-directory: desktop
         run: make check
+
+  windows:
+    name: Vet and test on Windows
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+
+      - name: Set up Rust
+        id: rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Ensure MinGW-w64
+        run: |
+          if ! command -v gcc >/dev/null 2>&1; then
+            choco install mingw -y
+            gcc_path="$(find /c/ProgramData/chocolatey/lib/mingw /c/tools/mingw64 /c/mingw64 \
+              -type f -name gcc.exe -print -quit 2>/dev/null || true)"
+            if [[ -z "$gcc_path" ]]; then
+              printf '%s\n' 'MinGW-w64 installation did not provide gcc.exe.' >&2
+              exit 1
+            fi
+            mingw_bin="$(dirname "$gcc_path")"
+            export PATH="$mingw_bin:$PATH"
+            printf '%s\n' "$(cygpath -m "$mingw_bin")" >> "$GITHUB_PATH"
+          fi
+          gcc --version
+
+      - name: Restore the core build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .artifacts/desktop/lithe-core-rust
+          key: desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-x86_64-pc-windows-gnu-debug-${{ hashFiles('scripts/desktop/build-desktop-core.sh') }}
+          restore-keys: |
+            desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-x86_64-pc-windows-gnu-debug-
+
+      - name: Vet and test
+        run: |
+          scripts/desktop/desktop-go.sh vet ./...
+          scripts/desktop/desktop-go.sh test ./...

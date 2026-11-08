@@ -6,9 +6,9 @@
 #   make run                    debug build, then start the client in the foreground
 #   make test                   all tests
 #   make check                  gofmt, vet and tests, as Desktop CI runs them
-#   make package                release core, app, zip and dmg in dist/desktop/<arch>/
+#   make package                release core and the host formats in dist/desktop/<os>-<arch>/
 #   make package ARCH=amd64 NO_SIGN=1
-#   make release NO_SIGN=1      make package for arm64 and amd64, as Desktop Release does
+#   make release NO_SIGN=1      macOS arm64+amd64, Windows amd64, or the Linux host architecture
 #
 # LITHE_CORE_RUST_DIR=<checkout> builds against a local Lithe-core-rust checkout instead of the
 # pinned revision; see scripts/desktop/build-desktop-core.sh.
@@ -16,30 +16,31 @@
 SCRIPTS := ../scripts/desktop
 BIN := ../.artifacts/desktop/bin/lithe
 ARCH ?= $(shell go env GOARCH)
-FORMAT ?= app,zip,dmg
-# The version in viva.toml, which the client shows; package-desktop.sh reads it the same way.
+FORMAT ?=
+# The version in viva.toml, which the client embeds and displays.
 VERSION := $(shell sed -n 's/^version = "\([0-9.]*\)"$$/\1/p' viva.toml)
-PACKAGE_FLAGS = --arch $(ARCH) --format $(FORMAT) $(if $(NO_SIGN),--no-sign)
+PACKAGE_FLAGS = --arch $(ARCH) $(if $(FORMAT),--format $(FORMAT)) $(if $(NO_SIGN),--no-sign)
 
 .DEFAULT_GOAL := help
-.PHONY: help core build run dev test vet fmt fmt-check check package release clean
+.PHONY: help core build run dev test vet fmt fmt-check check version package release clean
 
 help:
 	@echo "make run | dev     debug build and start the client"
 	@echo "make build         debug build into .artifacts/desktop/bin/lithe"
 	@echo "make core          build and stage the debug Lithe-core-rust library only"
 	@echo "make test | vet    go test or go vet of every package"
+	@echo "make version       print the version in viva.toml"
 	@echo "make fmt           gofmt -w every file; make fmt-check only lists them"
 	@echo "make check         fmt-check, vet and test"
-	@echo "make package       app, zip and dmg in dist/desktop/<arch>/ (ARCH, FORMAT, NO_SIGN=1)"
-	@echo "make release       make package for arm64 and amd64"
+	@echo "make package       host formats in dist/desktop/<os>-<arch>/ (ARCH, FORMAT, NO_SIGN=1)"
+	@echo "make release       macOS arm64+amd64, Windows amd64, or the Linux host architecture"
 	@echo "make clean         remove the client builds and packages (the core cache stays)"
 
 core:
 	$(SCRIPTS)/build-desktop-core.sh --debug
 
 build:
-	$(SCRIPTS)/desktop-go.sh build -ldflags "-X main.version=$(VERSION)" -o $(BIN) ./cmd/lithe
+	$(SCRIPTS)/desktop-go.sh build -o $(BIN) ./cmd/lithe
 
 run dev: build
 	$(BIN)
@@ -58,12 +59,19 @@ fmt-check:
 
 check: fmt-check vet test
 
+version:
+	@printf '%s\n' "$(VERSION)"
+
 package:
 	$(SCRIPTS)/package-desktop.sh $(PACKAGE_FLAGS)
 
 release:
-	$(MAKE) package ARCH=arm64
-	$(MAKE) package ARCH=amd64
+	@case "$$(go env GOOS)" in \
+		darwin) $(MAKE) package ARCH=arm64 && $(MAKE) package ARCH=amd64 ;; \
+		windows) $(MAKE) package ARCH=amd64 ;; \
+		linux) $(MAKE) package ARCH=$(ARCH) ;; \
+		*) echo "unsupported host OS: $$(go env GOOS)" >&2; exit 2 ;; \
+	esac
 
 clean:
 	rm -rf ../.artifacts/desktop/bin ../dist/desktop

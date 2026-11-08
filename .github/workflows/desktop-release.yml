@@ -1,8 +1,8 @@
 name: Desktop Release
 
-# Releases the Viva desktop client (desktop/). Its tags are desktop-vMAJOR.MINOR.PATCH, apart
-# from the v* tags of the SwiftUI and Tauri clients, and each release is a GitHub prerelease, so
-# the "latest release" those clients' updaters read still points at one of theirs.
+# Releases the Viva desktop client (desktop/) for macOS, Windows and Linux. Its tags are
+# desktop-vMAJOR.MINOR.PATCH, apart from the v* tags of the SwiftUI and Tauri clients, and each
+# release is a GitHub prerelease, so those clients' updaters continue to read their own latest release.
 on:
   push:
     tags:
@@ -46,19 +46,37 @@ jobs:
         run: bash scripts/ci/desktop-release/resolve-release-version.sh "$REQUESTED_VERSION"
 
   build:
-    name: Package ${{ matrix.arch }}
+    name: Package ${{ matrix.os }} ${{ matrix.arch }}
     needs: prepare
-    runs-on: macos-26
-    # A cold release build of the core for one architecture takes about half of this.
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: arm64
+          - os: darwin
+            arch: arm64
+            runner: macos-26
             rust-target: aarch64-apple-darwin
-          - arch: amd64
+          - os: darwin
+            arch: amd64
+            runner: macos-26
             rust-target: x86_64-apple-darwin
+          - os: windows
+            arch: amd64
+            runner: windows-2022
+            rust-target: x86_64-pc-windows-gnu
+          - os: linux
+            arch: amd64
+            runner: ubuntu-22.04
+            rust-target: x86_64-unknown-linux-gnu
+          - os: linux
+            arch: arm64
+            runner: ubuntu-22.04-arm
+            rust-target: aarch64-unknown-linux-gnu
 
     steps:
       - name: Check out source
@@ -76,6 +94,48 @@ jobs:
         with:
           targets: ${{ matrix.rust-target }}
 
+      - name: Ensure Windows build tools
+        if: matrix.os == 'windows'
+        run: |
+          if ! command -v gcc >/dev/null 2>&1; then
+            choco install mingw -y
+            gcc_path="$(find /c/ProgramData/chocolatey/lib/mingw /c/tools/mingw64 /c/mingw64 \
+              -type f -name gcc.exe -print -quit 2>/dev/null || true)"
+            if [[ -z "$gcc_path" ]]; then
+              printf '%s\n' 'MinGW-w64 installation did not provide gcc.exe.' >&2
+              exit 1
+            fi
+            mingw_bin="$(dirname "$gcc_path")"
+            export PATH="$mingw_bin:$PATH"
+            printf '%s\n' "$(cygpath -m "$mingw_bin")" >> "$GITHUB_PATH"
+          fi
+          gcc --version
+          nsis_x86='/c/Program Files (x86)/NSIS'
+          nsis_x64='/c/Program Files/NSIS'
+          if ! command -v makensis >/dev/null 2>&1 && \
+              [[ ! -f "$nsis_x86/makensis.exe" && ! -f "$nsis_x64/makensis.exe" ]]; then
+            choco install nsis -y
+          fi
+          if ! command -v makensis >/dev/null 2>&1; then
+            for nsis_dir in "$nsis_x86" "$nsis_x64"; do
+              if [[ -f "$nsis_dir/makensis.exe" ]]; then
+                export PATH="$nsis_dir:$PATH"
+                printf '%s\n' "$(cygpath -m "$nsis_dir")" >> "$GITHUB_PATH"
+                break
+              fi
+            done
+          fi
+          if command -v makensis >/dev/null 2>&1; then
+            makensis /VERSION
+          elif [[ -f "$nsis_x86/makensis.exe" ]]; then
+            "$nsis_x86/makensis.exe" /VERSION
+          elif [[ -f "$nsis_x64/makensis.exe" ]]; then
+            "$nsis_x64/makensis.exe" /VERSION
+          else
+            printf '%s\n' 'NSIS installation did not provide makensis.' >&2
+            exit 1
+          fi
+
       - name: Restore the core build
         uses: actions/cache@v6
         with:
@@ -88,7 +148,9 @@ jobs:
           restore-keys: |
             desktop-core-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-release-${{ matrix.rust-target }}-
 
-      - name: Package and verify
+      - name: Package and verify on macOS
+        if: matrix.os == 'darwin'
+        shell: bash
         env:
           # viva package imports the certificate into a temporary keychain and signs with it.
           APPLE_CERTIFICATE: ${{ secrets.MACOS_SIGNING_CERTIFICATE }}
@@ -96,17 +158,64 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
           DESKTOP_ARCH: ${{ matrix.arch }}
           DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
-        run: zsh scripts/ci/desktop-release/package-release.sh "$DESKTOP_ARCH" "$DESKTOP_VERSION"
+        run: bash scripts/ci/desktop-release/package-release.sh "$DESKTOP_ARCH" "$DESKTOP_VERSION"
 
-      - name: Upload the packages
+      - name: Package and verify on Windows
+        if: matrix.os == 'windows'
+        shell: bash
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+          WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_SERVER }}
+          DESKTOP_ARCH: ${{ matrix.arch }}
+          DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+        run: bash scripts/ci/desktop-release/package-release.sh "$DESKTOP_ARCH" "$DESKTOP_VERSION"
+
+      - name: Package and verify on Linux
+        if: matrix.os == 'linux'
+        shell: bash
+        env:
+          DESKTOP_ARCH: ${{ matrix.arch }}
+          DESKTOP_VERSION: ${{ needs.prepare.outputs.version }}
+        run: bash scripts/ci/desktop-release/package-release.sh "$DESKTOP_ARCH" "$DESKTOP_VERSION"
+
+      - name: Upload macOS packages
+        if: matrix.os == 'darwin'
         uses: actions/upload-artifact@v7
         with:
-          name: desktop-${{ matrix.arch }}
+          name: desktop-${{ matrix.os }}-${{ matrix.arch }}
           path: |
-            dist/desktop/${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-darwin-${{ matrix.arch }}.zip
-            dist/desktop/${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-darwin-${{ matrix.arch }}.zip.sha256
-            dist/desktop/${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-darwin-${{ matrix.arch }}.dmg
-            dist/desktop/${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-darwin-${{ matrix.arch }}.dmg.sha256
+            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-darwin-${{ matrix.arch }}.zip
+            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-darwin-${{ matrix.arch }}.zip.sha256
+            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-darwin-${{ matrix.arch }}.dmg
+            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-darwin-${{ matrix.arch }}.dmg.sha256
+
+          if-no-files-found: error
+
+      - name: Upload Windows packages
+        if: matrix.os == 'windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-windows-${{ matrix.arch }}-setup.exe
+            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-windows-${{ matrix.arch }}-setup.exe.sha256
+            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-windows-${{ matrix.arch }}.zip
+            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-windows-${{ matrix.arch }}.zip.sha256
+
+          if-no-files-found: error
+
+      - name: Upload Linux packages
+        if: matrix.os == 'linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-linux-${{ matrix.arch }}.tar.gz
+            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe-${{ needs.prepare.outputs.version }}-linux-${{ matrix.arch }}.tar.gz.sha256
+            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe_${{ needs.prepare.outputs.version }}_${{ matrix.arch }}.deb
+            dist/desktop/${{ matrix.os }}-${{ matrix.arch }}/lithe_${{ needs.prepare.outputs.version }}_${{ matrix.arch }}.deb.sha256
+
           if-no-files-found: error
 
   publish:
@@ -134,9 +243,13 @@ jobs:
       - name: Verify the checksums
         working-directory: dist
         run: |
-          for checksum in *.sha256; do
-            shasum -a 256 -c "$checksum"
-          done
+          shopt -s nullglob
+          checksums=( *.sha256 )
+          if [[ ${#checksums[@]} -eq 0 ]]; then
+            printf '%s\n' 'No desktop checksum files were downloaded.' >&2
+            exit 1
+          fi
+          sha256sum -c "${checksums[@]}"
 
       - name: Create or update the GitHub prerelease
         env:
@@ -155,5 +268,10 @@ jobs:
               gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null
           fi
           gh release edit "$RELEASE_TAG" "${release_args[@]}"
-          gh release upload "$RELEASE_TAG" dist/*.zip dist/*.dmg dist/*.sha256 \
-            --repo "$GITHUB_REPOSITORY" --clobber
+          shopt -s nullglob
+          release_files=(dist/*.zip dist/*.dmg dist/*.exe dist/*.tar.gz dist/*.deb dist/*.sha256)
+          if [[ ${#release_files[@]} -eq 0 ]]; then
+            printf '%s\n' 'No desktop release artifacts were downloaded.' >&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" "${release_files[@]}" --repo "$GITHUB_REPOSITORY" --clobber

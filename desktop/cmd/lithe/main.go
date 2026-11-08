@@ -7,17 +7,12 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/1lck/Lithe-IDEA/desktop"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logstore"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/workbench"
 )
-
-// version is the client's version: the start screen and the settings window show it, and
-// every log file header carries it. make build and scripts/desktop/package-desktop.sh set it
-// to the version in viva.toml with -ldflags "-X main.version=<version>"; a plain go build
-// keeps 0.0.0.
-var version = "0.0.0"
 
 func main() {
 	// AppKit needs the process's main thread for the application and its windows. Pin the
@@ -28,6 +23,7 @@ func main() {
 		fail(err)
 	}
 	client := core.NewClient()
+	version := desktop.Version()
 	options := workbench.Options{Kernel: client, Store: preferences, LogKernel: client, Version: version}
 	// A log that cannot be opened leaves the client without its log window instead of
 	// keeping it from starting; the window says so when the log is asked for.
