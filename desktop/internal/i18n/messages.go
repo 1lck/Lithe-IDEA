@@ -12,6 +12,7 @@ type Messages struct {
 	Project  ProjectMessages
 	Git      GitMessages
 	Commit   CommitMessages
+	Branch   BranchMessages
 	Terminal TerminalMessages
 	Status   StatusMessages
 	Settings SettingsMessages
@@ -58,15 +59,11 @@ type WelcomeMessages struct {
 
 // TitleMessages are the workbench title bar's words.
 type TitleMessages struct {
-	ProjectMenu    string
-	OpenProject    string
-	CloseProject   string
-	RecentProjects string
-	BranchMenu     string
-	LocalBranches  string
-	RemoteBranches string
-	// CheckoutLater explains that the branch list does not switch branches yet.
-	CheckoutLater    string
+	ProjectMenu      string
+	OpenProject      string
+	CloseProject     string
+	RecentProjects   string
+	BranchMenu       string
 	RunConfiguration string
 	CurrentFile      string
 	Run              string
@@ -315,6 +312,88 @@ type CommitMessages struct {
 	StageFailed    func(reason string) string
 	UnstageFailed  func(reason string) string
 	Failed         func(reason string) string
+}
+
+// BranchMessages are the words of the branch popup the title bar's branch opens: its search,
+// its actions and lists, the menu of one branch, the dialogs that create, rename, check out
+// and delete, and the notices they report.
+type BranchMessages struct {
+	// Popup is the accessible name of the popup, and Search the placeholder of its field.
+	Popup  string
+	Search string
+	// The actions at the top of the popup.
+	NewBranch        string
+	CheckoutRevision string
+	// The sections of the list, and what it shows instead of branches.
+	Recent    string
+	Local     string
+	Remote    string
+	Tags      string
+	Loading   string
+	NoMatches string
+	// LoadFailed replaces the list when the references could not be read.
+	LoadFailed func(reason string) string
+	// Current marks the checked-out branch for assistive technology.
+	Current string
+	// RowMenu is the accessible name of one branch's menu, for example "main actions".
+	RowMenu func(name string) string
+
+	// The menu of one branch.
+	NewBranchFrom func(name string) string
+	Checkout      string
+	Rename        string
+	Delete        string
+
+	// The dialogs that create and rename a branch.
+	NewBranchTitle string
+	CreateFrom     func(name string) string
+	BranchName     string
+	CheckoutAfter  string
+	Create         string
+	RenameTitle    string
+	RenameFrom     func(name string) string
+	RenameButton   string
+	Cancel         string
+	// Why a typed name cannot be used, by the kernel's error codes. NameDirectory's name is
+	// the folder of branches it clashes with, and NamePrefix's branch the existing branch
+	// the name would be stored below.
+	NameEmpty     string
+	NameHead      string
+	NameRemote    func(name string) string
+	NameDirectory func(name string) string
+	NameExists    func(name string) string
+	NamePrefix    func(name, branch string) string
+
+	// The dialog that checks out a tag or a revision.
+	RevisionTitle  string
+	RevisionPrompt string
+	Revision       string
+	DetachedNote   string
+
+	// The dialog that asks what to do with the local changes a checkout would overwrite.
+	ConflictTitle  string
+	ConflictPrompt func(name string) string
+	ConflictHint   string
+	SmartCheckout  string
+	ForceCheckout  string
+
+	// The dialog that confirms deleting a branch. The kernel deletes a branch whether or not
+	// it is merged, so the prompt says what is lost.
+	DeleteTitle  string
+	DeletePrompt func(name string) string
+	DeleteButton string
+
+	// The notices. Deleted names the commit the branch pointed at, so it can be created again.
+	AlreadyOn      func(name string) string
+	CheckedOut     func(name string) string
+	Detached       func(revision string) string
+	Created        func(name string) string
+	Renamed        func(name string) string
+	Deleted        func(name, target string) string
+	CheckoutFailed func(reason string) string
+	CreateFailed   func(reason string) string
+	RenameFailed   func(reason string) string
+	DeleteFailed   func(reason string) string
 }
 
 // TerminalMessages are the words of the terminal in the Terminal tool window.

@@ -13,6 +13,18 @@ type gitWriteRequest struct {
 	Root      string   `json:"root"`
 	Operation string   `json:"operation"`
 	Paths     []string `json:"paths,omitempty"`
+	// GitReference is the reference a branch operation acts on or starts from.
+	GitReference *gitReferenceRequest `json:"gitReference,omitempty"`
+	// Name is the new name of a created or renamed branch.
+	Name string `json:"name,omitempty"`
+	// Revision is the commit, tag or other revision a detached checkout goes to.
+	Revision string `json:"revision,omitempty"`
+	// Checkout switches to a branch right after creating it.
+	Checkout bool `json:"checkout,omitempty"`
+	// Force discards the local changes a checkout would otherwise refuse to overwrite.
+	Force bool `json:"force,omitempty"`
+	// AutoStash stashes the local changes before a checkout and restores them after it.
+	AutoStash bool `json:"autoStash,omitempty"`
 }
 
 // gitWriteResponse is the part of git.write's answer the client reads: whether the operation
@@ -23,6 +35,8 @@ type gitWriteResponse struct {
 	ExitCode int    `json:"exitCode"`
 	// OperationError is a failure the kernel found after it had already started Git.
 	OperationError *wireError `json:"operationError"`
+	// BranchDeletion records the branch a deleteBranch removed, so it can be restored.
+	BranchDeletion *GitBranchDeletion `json:"branchDeletion"`
 }
 
 // failure is the error the answer reports, nil when the operation succeeded. A Git process
@@ -54,11 +68,21 @@ func firstLine(s string) string {
 
 // gitWrite runs one git.write operation and turns a failed answer into an error.
 func (c *Client) gitWrite(ctx context.Context, request gitWriteRequest) error {
+	_, err := c.gitWriteAnswer(ctx, request)
+	return err
+}
+
+// gitWriteAnswer runs one git.write operation and returns its answer, or the error a failed
+// answer reports.
+func (c *Client) gitWriteAnswer(ctx context.Context, request gitWriteRequest) (gitWriteResponse, error) {
 	var response gitWriteResponse
 	if err := c.Execute(ctx, "git.write", request, &response); err != nil {
-		return err
+		return gitWriteResponse{}, err
 	}
-	return response.failure()
+	if err := response.failure(); err != nil {
+		return gitWriteResponse{}, err
+	}
+	return response, nil
 }
 
 // StagingPaths are the paths that stage or unstage change: both sides of a rename or copy, so

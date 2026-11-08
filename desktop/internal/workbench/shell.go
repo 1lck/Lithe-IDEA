@@ -372,6 +372,7 @@ func (a *App) drawWorkbench(f *flex.Frame) {
 		})
 		a.drawStatusBar(f)
 	})
+	a.drawBranchDialog(f)
 	if hidden != slotCount {
 		a.hidePanel(hidden)
 	}

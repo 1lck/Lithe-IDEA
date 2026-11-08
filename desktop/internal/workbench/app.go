@@ -57,6 +57,13 @@ type Kernel interface {
 	GitStageAll(ctx context.Context, root string) error
 	WorkspaceCommitPrepare(ctx context.Context, request core.WorkspaceCommitRequest) (core.WorkspaceCommitPreparation, error)
 	WorkspaceCommitStep(ctx context.Context, session core.WorkspaceCommitSession) (core.WorkspaceCommitSession, error)
+	GitCheckoutPreflight(ctx context.Context, root string, reference core.GitReference) ([]string, error)
+	GitCheckout(ctx context.Context, root string, reference core.GitReference, mode core.CheckoutMode) error
+	GitCheckoutRevision(ctx context.Context, root, revision string) error
+	GitCreateBranch(ctx context.Context, root, name string, from core.GitReference, checkout bool) error
+	GitRenameBranch(ctx context.Context, root string, branch core.GitReference, name string) error
+	GitDeleteBranch(ctx context.Context, root string, branch core.GitReference) (core.GitBranchDeletion, error)
+	GitBranchNamePreview(ctx context.Context, request core.BranchNameRequest) (core.BranchNamePreview, error)
 }
 
 // Options configure a window.
@@ -155,6 +162,8 @@ type App struct {
 	layout  layoutState
 	status  statusState
 	logView logView
+	// branch is the title bar's branch popup and the dialogs it opens.
+	branch branchState
 	// commitView is the Commit tool window's splitter and message input.
 	commitView commitView
 	// delays are how long the log waits before it acts on a selection or a filter.
@@ -256,7 +265,8 @@ func (a *App) Run() error {
 
 // Config is the window's configuration.
 func (a *App) Config() app.Config {
-	a.fields = flex.Fields(&a.welcome.search, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField)
+	a.fields = flex.Fields(&a.welcome.search, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField,
+		&a.branch.search, &a.branch.name, &a.branch.revision)
 	return app.Config{
 		Title:          a.text.App.Name,
 		Width:          1280,
@@ -430,6 +440,9 @@ func (a *App) onKey(event ui.KeyEvent) ui.EventResult {
 		if r := a.projectMenuKey(event); r.Handled {
 			return r
 		}
+		if r := a.branchMenuKey(event); r.Handled {
+			return r
+		}
 	}
 	// The terminal sees the release of a key as well: a program can ask for them.
 	if t := a.focusedTerminal(event.Target); t != nil {
@@ -536,6 +549,7 @@ func (a *App) activate(index int) {
 	case it.id == itemTitleSettings:
 		a.title.gearOpen = !a.title.gearOpen
 		a.title.projectOpen = false
+		a.closeBranches()
 	case it.id == itemRunConfig || it.id == itemTitleRun || it.id == itemTitleDebug:
 		a.notify(a.text.Title.RunLater)
 	case it.id == itemTitleSearch:
@@ -639,6 +653,7 @@ func (a *App) closeProject() {
 	a.cancelDrag()
 	a.cancelTabDrag()
 	a.title = titleState{}
+	a.branch.branchSession = branchSession{}
 }
 
 // statusState is what the status bar measures about the window itself.

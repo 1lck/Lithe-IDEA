@@ -15,7 +15,7 @@ import (
 var (
 	// chromeProjectButton opens the project menu.
 	chromeProjectButton = tree.ID(shellPage, "project-menu")
-	// chromeBranchButton is the branch beside the project, which will list the branches.
+	// chromeBranchButton is the branch beside the project, which opens the branch popup.
 	chromeBranchButton = tree.ID(shellPage, "branch-menu")
 	// chromeMenuDismiss is the window-wide backdrop behind the open project menu: a press
 	// on it closes the menu.
@@ -186,13 +186,13 @@ func (a *App) drawTitleBar(f *flex.Frame) {
 	leading, trailing := app.TitlebarInsets()
 	// What a click asks for is done after the bar is declared. A button changes the
 	// arrangement, which this loop is still reading.
-	clicked, opening := -1, false
-	var project flex.Box
+	clicked, opening, branching, branched := -1, false, false, false
+	var project, branch flex.Box
 	f.Row().FillWidth().Height(titleBarHeight).Shrink(0).Background(a.colors.Chrome).
 		Items(flex.Center).Gap(chromeGap).PadSides(0, trailing+chromeEdge, 0, leading+chromeEdge).
 		MovesWindow().Children(func() {
 		project, opening = a.drawChromeProject(f)
-		a.drawChromeBranch(f)
+		branch, branched, branching = a.drawChromeBranch(f)
 		f.Spacer()
 		zoneBox := f.Row().Items(flex.Center).Gap(chromeGap).Children(func() {
 			for _, i := range a.chrome.items[zoneTitle] {
@@ -215,11 +215,26 @@ func (a *App) drawTitleBar(f *flex.Frame) {
 			a.openProjectMenu()
 		}
 	}
+	if branching {
+		// As with the project menu, a click on the open popup's button is the keyboard's.
+		if a.branch.open {
+			a.closeBranches()
+		} else {
+			a.openBranches()
+		}
+	}
 	if a.title.projectOpen {
 		// The menu is declared in the frame that declared its button, because the button's
 		// box is only valid until the frame ends. It comes after the bar so that its
 		// backdrop and panel are hit before anything in the bar is.
 		a.drawProjectMenu(f, project)
+	}
+	switch {
+	case a.branch.open && !branched:
+		// The project stopped being a repository, so the popup has no branch to hang off.
+		a.closeBranches()
+	case a.branch.open:
+		a.drawBranchPopup(f, branch)
 	}
 	if clicked >= 0 {
 		a.activate(clicked)
@@ -259,30 +274,6 @@ func (a *App) drawChromeProject(f *flex.Frame) (flex.Box, bool) {
 		f.Icon(icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
 	})
 	return button, button.Clicked()
-}
-
-// drawChromeBranch declares the checked-out branch as a button, and shows nothing when the
-// project is not a repository. The list of branches is not offered yet, so a click says so.
-func (a *App) drawChromeBranch(f *flex.Frame) {
-	name := a.project.git.branch()
-	if name == "" {
-		return
-	}
-	button := a.chromeHover(f.Row().Height(chromeIconButton).Shrink(0).Items(flex.Center).Gap(chromeGap).PadX(chromeEdge).
-		Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(chromeBranchButton, a.text.Title.BranchMenu, ui.HitOptions{
-			Role:   ui.RoleButton,
-			Cursor: ui.PointerCursorHand,
-			Value:  name,
-		}))
-	button.Children(func() {
-		f.Icon(icons.GitBranch).Size(chromeIconSize, chromeIconSize).Color(a.colors.Subtle)
-		f.Text(name).Color(a.colors.Subtle).LineHeight(chromeLineHeight).Ellipsis().MaxWidth(chromeBranchMax)
-		f.Icon(icons.ChevronDown).Size(chromeMarkSize, chromeMarkSize).Color(a.colors.Subtle)
-	})
-	if button.Clicked() {
-		a.notify(a.text.Title.CheckoutLater)
-	}
 }
 
 // drawChromeTitleButton declares the title bar button of catalog item i and reports a
@@ -465,6 +456,7 @@ func (a *App) chromeStatusText(i int) string {
 // while the menu is shut; the ones read before are shown until the new answer arrives.
 func (a *App) openProjectMenu() {
 	a.title.projectOpen = true
+	a.closeBranches()
 	var buf [chromeMenuRecents]int
 	for _, i := range a.menuRecents(&buf) {
 		// A folder that is gone has no branch to read, and the menu shows it faded.
