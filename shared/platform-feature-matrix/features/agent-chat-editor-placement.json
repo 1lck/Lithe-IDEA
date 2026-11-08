@@ -4,17 +4,23 @@
   "group": "Agent 对话",
   "capability": "在编辑区标签页与 AI 工具窗口之间移动对话（按钮、右键菜单或把 AI 工具窗口图标拖到编辑区），编辑区使用居中对话布局与会话详情栏，工具窗口展示历史列表，共享会话、标题与未发送草稿，共用原单行标题、独立历史管理与紧凑活动摘要，统计和上下文明细按需展开；macOS 编辑区对话采用 Claude Desktop 式外观：中性灰用户气泡、圆角卡片输入框、卡片下方的审批模式/模型/额度/上下文环状态行，详情栏为可折叠的上下文、更改、会话统计分区；macOS 对话标签同时绑定 Agent 与会话，预创建且无消息、文字或附件草稿的空会话可复用，连接丢弃会话时同步清除失效标签",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/shell.go",
+      "desktop/internal/settingswindow/window.go",
+      "desktop/internal/workbench/app.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/shell.go",
+      "desktop/internal/settingswindow/window.go",
+      "desktop/internal/workbench/app.go"
     ]
   },
   "owner": "Agent",
@@ -64,5 +70,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva 工作台助手面板与对应设置页目前仅为占位，客户端未接入 Agent 会话、配置及宿主流程；Core 或旧客户端已有能力不代表用户入口已迁移。"
 }

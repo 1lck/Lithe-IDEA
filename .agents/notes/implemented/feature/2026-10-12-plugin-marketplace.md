@@ -110,9 +110,17 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 - Lithe 版本 Release 不再附带 `Lithe-PHP-Support-<版本>-<架构>.zip`。发版时只需要兼容 0.6.1 及之后的客户端，它们从官方索引下载插件；0.6.0 及更早的客户端不再从 Lithe Release 获得 PHP 包。
 - 社区插件的内容摘要只能检测批准后的包内容变化，不能证明作者身份；磁盘每次确认增加一次交互和快照复制成本，确认框必须完整列出程序，不能省略。
 - 磁盘包可以离线安装，但没有仓库更新来源；替换需要用户重新选择包并确认，审批记录不可作为工作树缓存搬运。
-- Windows 在本能力中仍为 `partial`，只共享索引契约与 Rust 校验；尚无插件市场 UI、声明式 ZIP/目录磁盘快照或本地来源审批链，不能用现有 Windows worker 插件导入代替此能力。
+- 迁移前的 Windows 客户端在本能力中为 `partial`；Viva 已有跨平台市场目录界面，但仍没有插件安装和宿主链，不能用旧 Windows worker 插件导入代替此能力。
 
 ## 验证
+
+- `scripts/desktop/desktop-go.sh test ./internal/core ./internal/marketplace ./internal/settingswindow`：市场索引校验、获取、详情与分栏交互。
+- `scripts/macos/verify/verify-runtime-bundle-immutability.sh`：统一客户端的资源路径静态检查，不能替代正式发行包的运行前后哈希比较。
+
+## 迁移前的验证记录
+
+以下命令和验收描述针对迁移前的客户端与仓内 Core，保留为历史要求，不能当作
+Viva 插件安装或宿主能力已经接通的证据。
 
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib marketplace_plugins`：索引校验、平台与 API 判断、命名空间、源地址解析、安装审查的标准答案。
 - `./scripts/architecture/verify-shared-contracts.sh`：市场 fixture 与错误码登记。
@@ -126,9 +134,10 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 
 功能矩阵 `shared/platform-feature-matrix/features/plugin-marketplace.json` 的 macOS 验证保持 `pending`，上述步骤是验收方法，不是已完成证据。静态或 Node 资源测试通过不能证明磁盘每次确认、完整 canonical 程序展开项或实际清理行为。
 
-## 适用范围
+## 迁移前的源码范围
 
-- `shared/contracts/plugins/v1/`
+以下是迁移前的源码位置，不代表当前工作树中仍存在。
+
 - `rust/lithe-core/src/plugins/marketplace.rs`
 - `Plugins/marketplace/`
 - 已迁出：原 `scripts/plugins/official-plugin-releases.mjs`。官方插件的源码、组装与发布已移出本仓库（#1495），改由各插件仓库自行构建发布（[lithe-plugin-java](https://github.com/Lithe-IDEA/lithe-plugin-java)、[lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)、[lithe-plugin-gradle](https://github.com/Lithe-IDEA/lithe-plugin-gradle)），Store 索引由 Lithe Store 维护。
@@ -138,3 +147,10 @@ Lithe 的插件管理改成和 IntelliJ IDEA 一样的“插件市场 / 已安�
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/`
 - `macos/Sources/Lithe/Views/App/PluginMarketplaceView.swift`
 - `macos/Sources/Lithe/Views/App/PluginManagementView.swift`
+
+## 适用范围
+
+- `shared/contracts/plugins/v1/`
+- `desktop/internal/core/marketplace.go`
+- `desktop/internal/marketplace/`
+- `desktop/internal/settingswindow/marketplace_view.go`

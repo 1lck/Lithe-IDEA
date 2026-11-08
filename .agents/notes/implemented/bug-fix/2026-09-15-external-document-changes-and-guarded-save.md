@@ -91,13 +91,14 @@ Viva 为打开文档的父目录共享 Viva 原生目录监听；注册后会再
 保存校验发现冲突后也主动排队核对，不依赖监听通知及时到达。用户明确允许重建
 已删除文件后，保存使用同目录暂存文件和平台原生的不覆盖提交；如果新目录项
 先出现，则保留双方内容并重新提示冲突。原权限已无法可靠恢复，Unix 重建文件
-使用私有权限，Windows 继承目录 ACL；Windows 适配器已交叉编译，但尚待真实
-Windows 文件系统验证。
+使用私有权限，Windows 继承目录 ACL；Windows 原生文件读写组件已在真实
+Windows 文件系统验证，完整工作台流程仍待实机验证。
 
 Viva 当前对硬链接采取保守拒绝，尚未接入下节所述的单次确认；应用激活时重新检查
 尚未完成，不能声称与旧 macOS 客户端等价。监听建立失败
 会提示并记录日志，保存前仍独立核对。文件系统没有跨进程的通用比较并替换操作，
-最终校验与替换之间仍有短暂竞态。Windows 的真实系统通知还没有实机验证。
+最终校验与替换之间仍有短暂竞态。Viva 的 Windows 原生监听组件已实测；
+与文档界面的完整接线尚未实机验证。
 
 ### macOS 硬链接打开与单次保存确认（#1419）
 
@@ -254,6 +255,24 @@ Windows 是独立前端实现，写入进行中到期的那次延迟自动保存
 
 ## 验证
 
+共享 fixture 位于 `shared/fixtures/documents/lifecycle-v1.json`。运行
+`scripts/desktop/desktop-go.sh test ./internal/documentio ./internal/workbench` 和
+`scripts/macos/verify/verify-runtime-bundle-immutability.sh`。
+
+Viva 适配器的 `desktop/internal/documentio` 测试已在 Windows Server 2022 上
+执行交叉编译后的测试二进制：受保护写入、冲突、缺失文件和普通读写通过；两项
+符号链接测试因服务器缺少创建链接权限而跳过。这不是 Windows 完整产品验收。
+`TestInstalledResourcesStayUnchanged` 把工作台测试程序放进隔离的程序包目录，
+在包外使用临时工作区和偏好，执行打开、编辑、保存和搜索，再比较包内文件清单
+与 SHA-256；静态门禁同时检查统一客户端的 macOS/Windows 源码。当前 macOS
+夹具已运行，Windows 完整工作台与正式签名发行包仍须分别运行相同场景和哈希验收，
+不能把测试夹具当成 Sparkle 差分更新的最终验收。
+
+## 迁移前的验证记录
+
+以下命令和测试针对迁移前的 Swift、Tauri 和仓内 Rust 源码，保留为历史记录，
+不能当作当前 Viva 产品的运行验证。
+
 共享 fixture 位于 `shared/fixtures/documents/lifecycle-v1.json`。
 运行 `./scripts/architecture/verify-shared-contracts.sh`、`./scripts/rust-core/verify-rust-core.sh`、
 `./scripts/architecture/verify-core.sh` 和 `./scripts/rust-core/verify-rust-core-comments.sh`。
@@ -273,10 +292,6 @@ Windows 使用 `./scripts/windows/build/build-windows.ps1 -Configuration Release
 交替使用有界测试门控制顺序。Windows CI 显式运行文档监听控制器测试，并在
 WindowsRust 范围单独运行 `lithe-project`；只运行宿主不会执行依赖包内的测试。
 
-Viva 适配器的 `desktop/internal/documentio` 测试已在 Windows Server 2022 上
-执行交叉编译后的测试二进制：受保护写入、冲突、缺失文件和普通读写通过；两项
-符号链接测试因服务器缺少创建链接权限而跳过。这不是 Windows 完整产品验收。
-
 `DocumentHardLinkTests` 覆盖真实双硬链接读取、两种保存后的内容与底层文件身份、
 未确认不写盘、同内容替换/链接数变化后的授权失效、确认后外部修改冲突，以及
 大小、权限、解码和特殊文件错误。`DocumentOpenAndHardLinkWorkflowTests` 覆盖
@@ -292,12 +307,9 @@ Viva 适配器的 `desktop/internal/documentio` 测试已在 Windows Server 2022
 `./scripts/windows/verify/verify-windows-boundaries.sh`、`./scripts/agent-notes/verify-agent-notes.sh`。
 实际运行结果和未通过的既有测试写入交付说明；单元测试不冒充完整产品界面验收。
 
-## 适用范围
+## 迁移前的源码范围
 
-- `desktop/internal/documentio/`
-- `desktop/internal/workbench/documents.go`
-- `desktop/internal/workbench/document_observation.go`
-- `desktop/internal/editorview/view.go`
+以下路径属于迁移前基线，不代表当前工作树中仍存在这些文件。
 
 - `windows/tauri/crates/project/src/document_file.rs`
 - `windows/tauri/crates/project/src/document_watcher.rs`
@@ -310,4 +322,11 @@ Viva 适配器的 `desktop/internal/documentio` 测试已在 Windows Server 2022
 - `macos/Sources/Lithe/Platform/MacOS/FileWatching/MacDocumentObservation.swift`
 - `macos/Sources/Lithe/Platform/MacOS/FileSystem/MacWorkspaceFileOperations.swift`
 - `rust/lithe-core/src/project/document_lifecycle.rs`
+
+## 适用范围
+
+- `desktop/internal/documentio/`
+- `desktop/internal/workbench/documents.go`
+- `desktop/internal/workbench/document_observation.go`
+- `desktop/internal/editorview/view.go`
 - `shared/contracts/application-boundary.md`

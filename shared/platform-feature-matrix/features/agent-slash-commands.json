@@ -4,22 +4,28 @@
   "group": "Agent 对话",
   "capability": "输入框以 / 开头（或以 $ 开头选择 Skill）时，按 Agent 为当前会话上报的命令列表（ACP available_commands_update）弹出补全，显示名称、说明与参数提示，选择后填入命令并按普通消息原样发送；长补全列表保留可见输入行，最小输入区中在上方浮出完整列表；中文输入法下 `、` 等同 `/`，`¥`/`￥` 等同 `$` 打开技能列表",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/shell.go",
+      "desktop/internal/settingswindow/window.go",
+      "desktop/internal/workbench/app.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/shell.go",
+      "desktop/internal/settingswindow/window.go",
+      "desktop/internal/workbench/app.go"
     ]
   },
   "owner": "Agent",
   "verification": "macOS：分别连接 Codex 与 Claude，输入 / 确认弹出的命令与 Agent 实际上报一致，不出现 Lithe 内置命令；Codex 上报的 $Skill 补全为 $名称 而不是 /$名称，输入 $ 只列 Skill；继续输入时按前缀优先过滤，无匹配时显示“没有匹配的命令”，输入空格后关闭；鼠标选择或 Return 补全为“/命令 ”，完整命令按 Return 直接发送并由 Agent 执行；macOS 14 及以上方向键和 Tab 可导航，macOS 13 仍可鼠标选择；Esc 先关闭补全、回复中再次 Esc 才停止；切换会话后显示各自命令列表；上游重复上报同名命令时只显示首条定义，断连后清空旧补全，重连加载后以新进程上报为准；在默认和最小输入区高度、有无附带文件、窄宽面板中输入 /，用长列表和空结果确认输入行可见可编辑，浮出的命令可鼠标选择，方向键选中最后一条时列表跟随滚动。Windows 已接入 ACP `available_commands_update`：输入 `/`、`、` 或 `macOS：分别连接 Codex 与 Claude，输入 / 确认弹出的命令与 Agent 实际上报一致，不出现 Lithe 内置命令；Codex 上报的 $Skill 补全为 $名称 而不是 /$名称，输入 $ 只列 Skill；继续输入时按前缀优先过滤，无匹配时显示“没有匹配的命令”，输入空格后关闭；鼠标选择或 Return 补全为“/命令 ”，完整命令按 Return 直接发送并由 Agent 执行；macOS 14 及以上方向键和 Tab 可导航，macOS 13 仍可鼠标选择；Esc 先关闭补全、回复中再次 Esc 才停止；切换会话后显示各自命令列表；上游重复上报同名命令时只显示首条定义，断连后清空旧补全，重连加载后以新进程上报为准；在默认和最小输入区高度、有无附带文件、窄宽面板中输入 /，用长列表和空结果确认输入行可见可编辑，浮出的命令可鼠标选择，方向键选中最后一条时列表跟随滚动。、`¥`、`￥` 时在输入框上方浮出命令列表（最多 168px），显示调用名与说明，前缀匹配优先、其次包含匹配；方向键移动、Tab 或 Return 补全为“/命令 ”或“$skill ”，完整命令 Return 直接发送，Esc 先关闭列表、回复中再次 Esc 才停止；无匹配时显示“没有匹配的命令”，断连后清空旧列表。中文输入法与真机验收待执行。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva 工作台助手面板与对应设置页目前仅为占位，客户端未接入 Agent 会话、配置及宿主流程；Core 或旧客户端已有能力不代表用户入口已迁移。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

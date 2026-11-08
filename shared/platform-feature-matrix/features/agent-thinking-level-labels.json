@@ -4,22 +4,28 @@
   "group": "Agent 对话",
   "capability": "Agent 思考强度英文呈现：Claude/Codex 子菜单、设置行当前值和模型底栏统一使用上游英文名称",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/shell.go",
+      "desktop/internal/settingswindow/window.go",
+      "desktop/internal/workbench/app.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/shell.go",
+      "desktop/internal/settingswindow/window.go",
+      "desktop/internal/workbench/app.go"
     ]
   },
   "owner": "Agent",
   "verification": "2026-10-01 macOS：最新 preview 独立 PR 分支 83 项 Agent 回归通过；含 PR #1007 前置修复的组合构建 87 项回归及真实界面验收通过；中文真实界面确认 Codex 的 Low、Medium、High、Xhigh、Max、Ultra 和 Claude 的 Low、Medium、High、Max 均显示英文。两边分别切换 Low，确认子菜单、设置行当前值和模型底栏同步英文，并恢复 Claude Medium、Codex Xhigh；权限、速度和思考强度标题仍显示中文。不改原始选项 ID、顺序和确认行为，运行前后 bundle 全部 990 个文件 SHA-256 一致。 Windows 已按同一规则实现上述英文呈现，真机验收待执行。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva 工作台助手面板与对应设置页目前仅为占位，客户端未接入 Agent 会话、配置及宿主流程；Core 或旧客户端已有能力不代表用户入口已迁移。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

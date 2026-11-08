@@ -4,17 +4,23 @@
   "group": "语言服务",
   "capability": "跳转、引用、语义标记与编辑",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/shell.go",
+      "desktop/internal/workbench/app.go",
+      "desktop/internal/workbench/chrome.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/shell.go",
+      "desktop/internal/workbench/app.go",
+      "desktop/internal/workbench/chrome.go"
     ]
   },
   "owner": "Language Tooling",
@@ -55,5 +61,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva 当前的运行、调试和问题面板为占位，语言服务状态为静态未启动；桌面客户端尚未接入对应的 LSP、DAP 或构建 Provider 工作流。Core 接口及编辑器内部语义高亮数据结构不能代替端到端接入。"
 }

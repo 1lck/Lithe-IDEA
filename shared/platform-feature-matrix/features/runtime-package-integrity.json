@@ -1,0 +1,27 @@
+{
+  "id": "runtime-package-integrity",
+  "area": "发行",
+  "group": "安装包与更新",
+  "capability": "运行时不改变已安装程序包，保持更新所需的文件基线",
+  "macos": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/bundle_immutability_test.go",
+      "desktop/internal/store/store.go",
+      "scripts/macos/verify/verify-runtime-bundle-immutability.sh"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "desktop/internal/workbench/bundle_immutability_test.go",
+      "desktop/internal/store/store.go",
+      "scripts/macos/verify/verify-runtime-bundle-immutability.sh"
+    ]
+  },
+  "owner": "Desktop",
+  "notes": "macOS 已在隔离的程序包夹具中运行打开、编辑、保存和搜索，核对文件清单和 SHA-256 不变；静态门禁覆盖统一客户端源码。该夹具不是正式签名发行包；Windows 完整工作台及最终发行包的运行时哈希验证尚未完成，插件和语言服务器资源也尚未覆盖。",
+  "verification": "在 macOS 与 Windows 上分别构建正式发行包，记录程序及全部打包资源的相对路径、大小和 SHA-256；启动应用，完成项目打开、编辑保存、搜索及可用的插件/语言服务器流程，退出并检查子进程清理；重新记录清单并逐项比较，任何新增、删除或哈希变化均失败。macOS 另用前一发行包验证 Sparkle 差分更新。"
+}

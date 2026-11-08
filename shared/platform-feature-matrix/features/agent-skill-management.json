@@ -4,17 +4,23 @@
   "group": "Agent 对话",
   "capability": "技能设置：全局与项目分类、Agent 来源筛选、搜索刷新、查看与定位、原生目录新建和导入、原生配置启停开关（点击立即切换、后台确认、失败回滚、不显示加载转圈、保存提示不推动列表、仅待确认行禁用、其他行保持颜色并按序保存）；操作菜单保留所属窗口焦点和开启开关的颜色；技能目录最终发布在 macOS/Linux/Windows 均原子拒绝已有目标（包含空目录）",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/shell.go",
+      "desktop/internal/settingswindow/window.go",
+      "desktop/internal/workbench/app.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/shell.go",
+      "desktop/internal/settingswindow/window.go",
+      "desktop/internal/workbench/app.go"
     ]
   },
   "owner": "Agent",
@@ -51,5 +57,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva 工作台助手面板与对应设置页目前仅为占位，客户端未接入 Agent 会话、配置及宿主流程；Core 或旧客户端已有能力不代表用户入口已迁移。"
 }

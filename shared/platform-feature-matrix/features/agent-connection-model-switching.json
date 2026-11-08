@@ -4,22 +4,28 @@
   "group": "Agent 对话",
   "capability": "Agent 与模型切换：所选连接即时同步，准备期间明确等待会话设置，确认后显示模型，来回切换保留各自会话；模型面板移除搜索框并直接展示上游完整目录与分组，保留滚动和选中标记；思考强度以 Effort 标签与随上游档位变化的单行圆点滑块呈现，支持保持弹窗打开的点击、拖动和键盘连续调整",
   "macos": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/shell.go",
+      "desktop/internal/settingswindow/window.go",
+      "desktop/internal/workbench/app.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
-    "verificationStatus": "pending",
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/catalog.go",
+      "desktop/internal/workbench/shell.go",
+      "desktop/internal/settingswindow/window.go",
+      "desktop/internal/workbench/app.go"
     ]
   },
   "owner": "Agent",
   "verification": "macOS：不触发 AppModel 通知或替换宿主根视图，切换 Claude/Codex，确认品牌、当前连接和模型列表立即同步；切到未准备的连接时保持会话设置加载提示，不闪现本地保存的默认模型；进程 ready 后继续等待会话确认，过期响应不解除等待；加载历史等待其配置，创建/加载/连接失败和不提供配置能力时退出加载，回车与发送按钮都禁止准备期间发送；已准备的连接来回切换不重复加载；分别在 Claude/Codex 关闭最后一个已准备标签，确认连接保持 ready、立即且只发一次 newSession，过期确认不恢复旧会话，新确认后底栏退出等待且消息发送到新会话；仍有标签时切到已有会话，断连时不创建。选择模型后等待上游确认，重新展开检查勾选，来回切换确认模型和会话分别保留；打开模型菜单后无搜索框且立即展示全部上游名称、顺序与分组，空目录有明确提示且仍能调整 Effort，当前 Agent 移除后正确回退，实际模型切换后发送最小消息验证回复。模型入口位于输入框下方 Agent 右侧，模式入口保留框内；深浅主题及280/540pt面板验证两个菜单可选择且模型与Agent同行。模型弹框至少 300pt 宽，长内容继续测量至共享宽度上限，顶部直接显示模型标题，不留搜索框占位；验证左侧勾选与hover、思考强度单行圆点滑块：中英文界面统一显示 Effort，Medium 与最长档位名称不省略；2/4/6 档及未知上游名称按实际目录显示、点击首尾档、调整强度后同一弹窗保持，等待期间禁用，拒绝后仍用已确认值，确认后能继续调整；Esc、外部点击及选择模型仍关闭；拖动仅在松开时提交一次、方向键和辅助功能可调整、禁用态不提交、确认后重新打开保持当前值、空模型目录仍可改强度、长模型列表最后一项可选择，其他配置子菜单仍按触发行定位并可关闭。 Windows 已实现连接身份切换、会话快照保留与配置确认前等待，真机往返切换验收待执行。模型入口位于输入框下方 Agent 右侧，模式入口保留框内；深浅主题及280/540pt面板验证两个菜单可选择且模型与Agent同行。模型弹框按内容测量宽度而非固定330pt，搜索框使用共享28pt控件；验证左侧勾选与hover、思考强度同级选择、名称搜索及空结果仍可改强度、长模型列表最后一项可选择，其他配置子菜单仍按触发行定位并可关闭。 Windows：用可控传输挂起首次启动，在完成前切换 Agent 或认证方式，确认先关闭旧进程再启动新配置；停止后立即重开也不得越过清理。 编辑区与侧栏同时请求相同身份时只启动一次，两个请求均在所有权登记后完成。 Windows：在真实 Tauri 窗口执行 Windows Agent 配置独立保留，切回恢复会话；模型目录完整显示，Effort 使用可访问的档位滑块。响应中预选模型、权限和 Effort，只在下一轮开始前按顺序等待 ACK，失败保留未确认状态且不发送。模型选项来自上游，不推测目录。 单元测试不替代运行时验收，未执行的真实服务及平台动作保持 pending。",
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "notes": "Viva 工作台助手面板与对应设置页目前仅为占位，客户端未接入 Agent 会话、配置及宿主流程；Core 或旧客户端已有能力不代表用户入口已迁移。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

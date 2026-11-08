@@ -248,6 +248,9 @@ try {
   const base = gitIn("rev-parse", "HEAD");
   rmSync(path.join(sourceDirectory, "old.rs"));
   writeFileSync(path.join(sourceDirectory, "new.rs"), movedTest);
+  // An unrelated large text diff exceeded the gate's bounded git buffer
+  // before path filtering, even though the Rust move itself is tiny.
+  writeFileSync(path.join(gateRepository, "unrelated.txt"), "x".repeat(65 * 1024 * 1024));
   gitIn("add", "-A");
   gitIn("commit", "-q", "-m", "move");
   const head = gitIn("rev-parse", "HEAD");
@@ -261,6 +264,22 @@ try {
   ]);
   // Revision mode reads committed content, so the dirty working tree is invisible to it.
   assert.deepEqual(runGate({ root: gateRepository, base, head, platform: "all" }), { violations: [], moved: 1 });
+
+  // Every supported language remains visible to the filtered committed diff.
+  writeFileSync(path.join(sourceDirectory, "new.rs"), movedTest);
+  const swiftDirectory = path.join(gateRepository, "macos", "Tests", "LitheTests");
+  const tsDirectory = path.join(gateRepository, "windows", "tests");
+  mkdirSync(swiftDirectory, { recursive: true });
+  mkdirSync(tsDirectory, { recursive: true });
+  writeFileSync(path.join(swiftDirectory, "Example.swift"), "func testWait() {\n gate.wait()\n}\n");
+  writeFileSync(path.join(tsDirectory, "example.test.ts"), 'test("timer", async () => { await new Promise((r) => setTimeout(r, 10)); });\n');
+  writeFileSync(path.join(tsDirectory, "example.spec.tsx"), 'test("timer", async () => { await new Promise((r) => setTimeout(r, 10)); });\n');
+  gitIn("add", "-A");
+  gitIn("commit", "-q", "-m", "add tests");
+  const withTests = runGate({ root: gateRepository, base, head: gitIn("rev-parse", "HEAD"), platform: "all" });
+  assert.deepEqual(withTests.violations.map(({ file }) => file).sort(), [
+    "macos/Tests/LitheTests/Example.swift", "windows/tests/example.spec.tsx", "windows/tests/example.test.ts",
+  ]);
 } finally {
   rmSync(gateRepository, { recursive: true, force: true });
 }
