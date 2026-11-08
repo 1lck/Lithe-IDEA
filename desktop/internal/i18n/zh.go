@@ -96,6 +96,11 @@ var chinese = Messages{
 		FindInFiles:      "在项目中查找",
 		RecentFiles:      "最近文件",
 		DropFiles:        "将文件拖到此处打开",
+		CloseTab:         "关闭标签页",
+		OpenFailed:       func(name, reason string) string { return "无法打开 " + name + "：" + reason },
+		SaveFailed:       func(name, reason string) string { return "无法保存 " + name + "：" + reason },
+		NotText:          "不是文本文件",
+		TooLarge:         "文件过大，编辑器无法打开",
 	},
 	Project: ProjectMessages{
 		Loading: "正在读取…",

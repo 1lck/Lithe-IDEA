@@ -141,6 +141,15 @@ type EditorMessages struct {
 	FindInFiles      string
 	RecentFiles      string
 	DropFiles        string
+	// CloseTab names the close button of a file's tab.
+	CloseTab string
+	// OpenFailed and SaveFailed say a file could not be read or written, and why.
+	OpenFailed func(name, reason string) string
+	SaveFailed func(name, reason string) string
+	// NotText says a file is not text the editor can show: it holds binary data.
+	NotText string
+	// TooLarge says a file is larger than the editor opens.
+	TooLarge string
 }
 
 // ProjectMessages are the project tree's words.

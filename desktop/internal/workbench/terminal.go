@@ -113,6 +113,11 @@ func (a *App) onScroll(event ui.ScrollEvent) ui.EventResult {
 			return result
 		}
 	}
+	if v := a.focusedDocument(event.Target); v != nil {
+		if result, ok := v.Scroll(event); ok {
+			return result
+		}
+	}
 	if event.Target == commitMessageID && a.project != nil {
 		a.project.commit.layout.ScrollBy(event.DeltaY)
 		return ui.EventResult{Handled: true, Repaint: true}
@@ -127,6 +132,9 @@ func (a *App) onScroll(event ui.ScrollEvent) ui.EventResult {
 func (a *App) textInput(ctx app.TextInputContext) *app.TextInput {
 	if t := a.focusedTerminal(ctx.ID); t != nil {
 		return t.TextInput(ctx)
+	}
+	if v := a.focusedDocument(ctx.ID); v != nil {
+		return v.TextInput(ctx)
 	}
 	if ctx.ID == commitMessageID && a.project != nil {
 		a.commitView.input.Editor = a.project.commit.editor

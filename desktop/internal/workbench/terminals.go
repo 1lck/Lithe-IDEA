@@ -150,6 +150,10 @@ const (
 	actionClose
 	// actionNew opens another terminal in the Terminal tool window.
 	actionNew
+	// actionSelectDocument and actionCloseDocument show and close the open file of the
+	// clicked tab; the action's term is then the document's id.
+	actionSelectDocument
+	actionCloseDocument
 )
 
 // tabAction is a click recorded while the frame was declared. It is done after the frame
@@ -176,6 +180,8 @@ type groupDecl struct {
 	stripSet, bodySet bool
 	tabs              []tabDecl
 	selected          *terminal
+	// doc is the open file the group shows instead, and nil when it shows a terminal.
+	doc *document
 }
 
 // place is where the group was laid out, for a drag to aim at.
@@ -221,9 +227,9 @@ type terminalUI struct {
 	emptyRect ui.Rect
 	// actions are the clicks the frame recorded, done after it is painted.
 	actions []tabAction
-	// focus is the terminal that is to receive the keyboard once it is painted, and focusAge
-	// how many frames it has waited.
-	focus, focusAge int
+	// focus is the terminal and docFocus the document that is to receive the keyboard once it
+	// is painted, at most one of them, and focusAge how many frames it has waited.
+	focus, docFocus, focusAge int
 	// autoFailed says opening a terminal for an open Terminal tool window with none failed, so
 	// it is not tried again every frame. The next time the tool window is shown it is tried
 	// afresh.
@@ -322,23 +328,39 @@ func (a *App) drawTerminal(f *flex.Frame) {
 
 // drawTerminalChips declares the tabs of the terminals that group lists, in the group's
 // order, and returns them for the drag. It is called inside the box of the group's strip.
+//
+// The group's open files get their tabs among the terminals', in the same order; they are not
+// returned, as a file's tab cannot be dragged yet.
 func (a *App) drawTerminalChips(f *flex.Frame, group string) []tabDecl {
-	set := &a.project.terms
+	p := a.project
+	set := &p.terms
 	g := set.bench.Group(group)
 	if g == nil {
 		return nil
 	}
-	var shown []*terminal
+	type shownTab struct {
+		term *terminal
+		doc  *document
+	}
+	var shown []shownTab
 	for _, member := range g.Members {
 		if id, ok := memberTerminal(member); ok {
 			if t := set.find(id); t != nil {
-				shown = append(shown, t)
+				shown = append(shown, shownTab{term: t})
+			}
+		} else if id, ok := memberDocument(member); ok {
+			if d := p.docs.find(id); d != nil {
+				shown = append(shown, shownTab{doc: d})
 			}
 		}
 	}
 	tabs := make([]tabDecl, 0, len(shown))
-	for i, t := range shown {
-		tabs = append(tabs, a.drawTerminalTab(f, t, g.Selected == terminalMember(t.id), i, len(shown)))
+	for i, s := range shown {
+		if s.doc != nil {
+			a.drawDocumentTab(f, s.doc, g.Selected == documentMember(s.doc.id), i, len(shown))
+			continue
+		}
+		tabs = append(tabs, a.drawTerminalTab(f, s.term, g.Selected == terminalMember(s.term.id), i, len(shown)))
 	}
 	return tabs
 }
@@ -443,14 +465,30 @@ func (a *App) paintTerminal(canvas *ui.Canvas) {
 	// The words are handed over each frame so a change of language reaches the terminals at
 	// once; what a terminal already wrote into its grid stays in the language it was
 	// written in.
-	messages, look := a.terminalMessages(), a.terminalLook()
+	messages, look, editorLook := a.terminalMessages(), a.terminalLook(), a.editorLook()
 	u.each(func(g *groupDecl) {
-		t := g.selected
-		if t == nil || !g.bodySet {
+		if !g.bodySet {
 			return
 		}
 		rect := g.body.Rect()
 		if rect.Width <= 0 || rect.Height <= 0 {
+			return
+		}
+		if d := g.doc; d != nil {
+			d.view.Paint(canvas, rect, editorLook)
+			hit := docViews.At(d.id)
+			if canvas.Focused() == hit {
+				p.docs.group = g.id
+			}
+			if u.docFocus == d.id {
+				canvas.RequestFocus(hit)
+				p.docs.group = g.id
+				u.docFocus = 0
+			}
+			return
+		}
+		t := g.selected
+		if t == nil {
 			return
 		}
 		t.view.SetMessages(messages)
@@ -460,12 +498,12 @@ func (a *App) paintTerminal(canvas *ui.Canvas) {
 			u.focus = 0
 		}
 	})
-	if u.focus != 0 {
-		// The terminal was not painted: it is behind another tab, or its group has no room
-		// yet. Give it a few frames to appear before the request is dropped.
+	if u.focus != 0 || u.docFocus != 0 {
+		// The terminal or the file was not painted: it is behind another tab, or its group
+		// has no room yet. Give it a few frames to appear before the request is dropped.
 		u.focusAge++
 		if u.focusAge > terminalFocusFrames {
-			u.focus = 0
+			u.focus, u.docFocus = 0, 0
 		}
 	}
 
@@ -482,6 +520,10 @@ func (a *App) paintTerminal(canvas *ui.Canvas) {
 			if t := a.newTerminal(p); t != nil {
 				a.focusTerminal(t.id)
 			}
+		case actionSelectDocument:
+			a.selectDocument(p, action.term)
+		case actionCloseDocument:
+			a.closeDocument(p, action.term)
 		}
 	}
 	u.actions = u.actions[:0]
@@ -492,6 +534,7 @@ func (a *App) paintTerminal(canvas *ui.Canvas) {
 // is what a person who just picked, opened or moved a terminal expects to type into.
 func (a *App) focusTerminal(id int) {
 	a.term.focus, a.term.focusAge = id, 0
+	a.term.docFocus = 0
 }
 
 // reduceTerminals applies action to state through the kernel and, if the kernel accepts

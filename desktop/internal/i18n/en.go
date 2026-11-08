@@ -96,6 +96,11 @@ var english = Messages{
 		FindInFiles:      "Find in Files",
 		RecentFiles:      "Recent Files",
 		DropFiles:        "Drop files here to open them",
+		CloseTab:         "Close Tab",
+		OpenFailed:       func(name, reason string) string { return "Could not open " + name + ": " + reason },
+		SaveFailed:       func(name, reason string) string { return "Could not save " + name + ": " + reason },
+		NotText:          "it is not a text file",
+		TooLarge:         "it is too large to open in the editor",
 	},
 	Project: ProjectMessages{
 		Loading: "Loading…",

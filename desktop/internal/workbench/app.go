@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
@@ -127,6 +128,9 @@ type project struct {
 	// window or in a group of the editor area. A terminal's shell starts when it is first
 	// painted, and every shell ends when the project closes.
 	terms terminalSet
+	// docs are the project's open files. Each is a tab in a group of the editor area, next
+	// to the terminals that were moved there.
+	docs documentSet
 }
 
 // App is the state of the window.
@@ -137,6 +141,8 @@ type App struct {
 	invalidator app.Invalidator
 	view        flex.View
 	tasks       taskQueue
+	// languages are the languages the editor knows, made when the first file is opened.
+	languages *syntax.Registry
 
 	settings       settings
 	systemLanguage i18n.Language
@@ -431,6 +437,9 @@ func (a *App) onPointer(event ui.PointerEvent) ui.EventResult {
 	if result, handled := a.terminalPointer(event); handled {
 		return result
 	}
+	if result, handled := a.documentPointer(event); handled {
+		return result
+	}
 	return ui.EventResult{}
 }
 
@@ -451,6 +460,11 @@ func (a *App) onKey(event ui.KeyEvent) ui.EventResult {
 	// The terminal sees the release of a key as well: a program can ask for them.
 	if t := a.focusedTerminal(event.Target); t != nil {
 		if result, handled := t.Key(event); handled {
+			return result
+		}
+	}
+	if v := a.focusedDocument(event.Target); v != nil {
+		if result, handled := v.Key(event); handled {
 			return result
 		}
 	}
@@ -480,6 +494,11 @@ func (a *App) onShortcut(event ui.KeyEvent) ui.EventResult {
 	}
 	if t := a.focusedTerminal(event.Target); t != nil {
 		if result, handled := t.Shortcut(event); handled {
+			return result
+		}
+	}
+	if v := a.focusedDocument(event.Target); v != nil {
+		if result, handled := v.Shortcut(event); handled {
 			return result
 		}
 	}
@@ -652,6 +671,7 @@ func (a *App) closeProject() {
 		return
 	}
 	a.project.cancel()
+	a.closeDocuments(a.project)
 	a.closeTerminals(a.project)
 	a.project = nil
 	a.cancelDrag()

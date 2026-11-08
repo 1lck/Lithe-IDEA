@@ -436,6 +436,7 @@ func (a *App) drawEditorGroup(f *flex.Frame, id string) flex.Box {
 		decl.bodySet = true
 	})
 	decl.selected = a.project.terms.selected(id)
+	decl.doc = a.project.selectedDocument(id)
 	u.groups = append(u.groups, decl)
 	return group
 }
