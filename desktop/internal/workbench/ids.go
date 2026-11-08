@@ -12,8 +12,6 @@ var (
 	welcomePage = tree.Feature("welcome")
 	// shellPage is the workbench of an open project.
 	shellPage = tree.Feature("workbench")
-	// settingsPage is the settings dialog, which both screens open.
-	settingsPage = tree.Feature("settings")
 
 	// chromeButtons identifies the rearrangeable buttons: chromeButtons.At(i) is
 	// catalog[i], wherever it currently sits.

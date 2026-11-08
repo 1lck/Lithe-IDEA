@@ -24,7 +24,9 @@ func (a *App) post(apply func(*App)) {
 	a.invalidator.Invalidate()
 }
 
-// drain applies the queued results on the window thread. It is the window's OnWake.
+// drain applies the queued results on the window thread, then takes in the output the
+// project's shell produced. It is the window's OnWake, which runs before every repaint a
+// wake asks for, so output reaches the screen without a timer.
 func (a *App) drain() {
 	a.tasks.mu.Lock()
 	pending := a.tasks.pending
@@ -33,6 +35,7 @@ func (a *App) drain() {
 	for _, apply := range pending {
 		apply(a)
 	}
+	a.pumpTerminal()
 }
 
 // background runs work on its own goroutine and applies the function it returns on the

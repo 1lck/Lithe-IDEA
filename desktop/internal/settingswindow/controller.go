@@ -1,0 +1,133 @@
+// Package settingswindow is the desktop client's settings window: an operating system
+// window of its own, laid out like the settings dialog of an IDE and like the macOS
+// client's, with a sidebar of pages that can be searched and the page itself beside it.
+//
+// The window edits a draft of the settings. Nothing takes effect while the user changes
+// the controls; OK hands the draft to Options.Apply and closes, Cancel closes without
+// applying and Restore Defaults puts the defaults in the draft for the user to confirm.
+// The package knows nothing of the workbench: the workbench gives it the settings in force
+// and a function to apply the new ones with.
+package settingswindow
+
+import (
+	"sync"
+
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/vivaui/viva/app"
+)
+
+// Values are the settings the window edits. A field is the value that is stored, so the
+// empty string is the one that follows the system.
+type Values struct {
+	// Language is a stored i18n language code ("en", "zh-Hans"); empty follows the system.
+	Language string
+	// Theme is "light" or "dark"; empty follows the system's look.
+	Theme string
+}
+
+// Options configure the settings window.
+type Options struct {
+	// Text is the interface language the window paints; nil is English. It is read at
+	// every paint, so the window changes language when the language does.
+	Text func() *i18n.Messages
+	// Dark says whether the client is painted dark now; nil is light. The window uses it
+	// for the look "follow the system" resolves to when SystemDark is nil.
+	Dark func() bool
+	// SystemDark says whether the system is set to a dark look, which is what the choice
+	// "follow the system" shows and what a draft that follows the system is painted in.
+	// Dark cannot stand in for it once the user has picked a look of their own, because
+	// then Dark reports that pick and not the system. Nil falls back to Dark.
+	SystemDark func() bool
+	// SystemLanguage is the language the system asks for, which the choice "follow the
+	// system" resolves to and names.
+	SystemLanguage i18n.Language
+	// Version is the application's version, shown on the About card.
+	Version string
+	// Apply receives the draft when the user confirms with OK. It runs on the settings
+	// window's thread, so it must hand the values to the thread that owns the settings and
+	// return; it may be called from any goroutine's point of view.
+	Apply func(Values)
+	// ResetLayout puts the workbench's buttons back where the catalog puts them. It runs
+	// at once, on the settings window's thread, when the user presses the button, because
+	// the layout is not one of the draft's settings: pressing it is its own confirmation.
+	ResetLayout func()
+}
+
+// Controller opens the settings window and keeps at most one open: opening it again brings
+// the open one to the front and leaves its draft as it was.
+type Controller struct {
+	opts Options
+
+	// mu guards current: Open runs on the window thread of the window that asks, and
+	// OnClosed on the settings window's.
+	mu      sync.Mutex
+	current *window
+}
+
+// NewController returns a controller with no window open.
+func NewController(opts Options) *Controller {
+	return &Controller{opts: opts}
+}
+
+// text is the language the window paints now.
+func (c *Controller) text() *i18n.Messages {
+	if c.opts.Text != nil {
+		if text := c.opts.Text(); text != nil {
+			return text
+		}
+	}
+	return i18n.For(i18n.English)
+}
+
+// dark says whether the client is painted dark now.
+func (c *Controller) dark() bool {
+	return c.opts.Dark != nil && c.opts.Dark()
+}
+
+// systemDark says whether the system is set to a dark look.
+func (c *Controller) systemDark() bool {
+	if c.opts.SystemDark != nil {
+		return c.opts.SystemDark()
+	}
+	return c.dark()
+}
+
+// Open shows the settings window, opening it when none is open. A new window starts its
+// draft from current, the settings in force; one that is already open is raised with its
+// draft and page untouched, and current is ignored. It must run on a window thread of
+// application, as app.Application.OpenWindow requires.
+func (c *Controller) Open(application *app.Application, current Values) error {
+	c.mu.Lock()
+	if open := c.current; open != nil && open.win != nil && !open.win.Closed() && !open.sess.finished.Load() {
+		win := open.win
+		c.mu.Unlock()
+		win.Show()
+		return nil
+	}
+	c.mu.Unlock()
+
+	w := newWindow(c, current)
+	win, err := application.OpenWindow(w.config(), nil)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	w.win = win
+	c.current = w
+	c.mu.Unlock()
+	// A draft that follows the system is painted in the system's look, so the window
+	// repaints when the system switches.
+	w.watchSystem()
+	return nil
+}
+
+// Close closes the open window, if any, without applying its draft. It is safe from any
+// goroutine.
+func (c *Controller) Close() {
+	c.mu.Lock()
+	current := c.current
+	c.mu.Unlock()
+	if current != nil && current.win != nil {
+		current.win.Close()
+	}
+}

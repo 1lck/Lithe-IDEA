@@ -7,7 +7,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
 )
@@ -32,6 +31,9 @@ var (
 const (
 	welcomeSidebarWidth = 240
 	welcomeRowHeight    = 48
+	// welcomeAvatarSize is the side of the badge that starts a recent project's row; the
+	// row is 16 pixels taller, so the badge has 8 above and below it.
+	welcomeAvatarSize = 32
 )
 
 // welcomeState is what the start screen remembers between frames.
@@ -66,6 +68,8 @@ type welcomeRow struct {
 	name, path string
 	// needle is the full path folded for matching the search text.
 	needle string
+	// identity is the project's badge, derived with the text because it hashes the path.
+	identity projectIdentity
 }
 
 // row returns what the project at path shows. listed is the length of the recent list;
@@ -79,10 +83,12 @@ func (w *welcomeState) row(path string, listed int) welcomeRow {
 		w.home, _ = os.UserHomeDir()
 		w.homeRead = true
 	}
+	name := filepath.Base(path)
 	r := welcomeRow{
-		name:   filepath.Base(path),
-		path:   welcomeShorten(path, w.home),
-		needle: strings.ToLower(path),
+		name:     name,
+		path:     welcomeShorten(path, w.home),
+		needle:   strings.ToLower(path),
+		identity: identityOf(path, name),
 	}
 	if w.rows == nil {
 		w.rows = make(map[string]welcomeRow, 32)
@@ -158,7 +164,7 @@ func (a *App) drawWelcomeSidebar(f *flex.Frame) {
 			// place; Settings opens the dialog.
 			f.Button(welcomeNavProjects, a.text.Welcome.Projects).Secondary().FillWidth()
 			if f.Button(welcomeNavSettings, a.text.Welcome.Settings).Ghost().FillWidth().Clicked() {
-				a.settingsOpen = true
+				a.openSettings(surfaceButton)
 			}
 		})
 	})
@@ -216,7 +222,11 @@ func (a *App) drawWelcomeProjects(f *flex.Frame) {
 				Hover(flex.Look{}.Background(a.colors.Hover)).
 				Pressed(flex.Look{}.Background(a.colors.Active))
 			item.Children(func() {
-				f.Icon(icons.Folder).Color(a.colors.Subtle)
+				avatar := drawProjectAvatar(f, row.identity, welcomeAvatarSize)
+				if missing != "" {
+					// The warning beside the name says why; the faded badge says it at a glance.
+					avatar.Opacity(identityMissingOpacity)
+				}
 				f.Column().Grow(1).Children(func() {
 					f.Text(row.name).Ellipsis()
 					f.Text(row.path).Ellipsis().Muted().FontSize(a.theme.Metrics.FontSizeS)

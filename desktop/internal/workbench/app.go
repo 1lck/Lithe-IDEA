@@ -1,5 +1,6 @@
-// Package workbench is the window of the Lithe desktop client: the start screen, the
-// workbench of an open project and the settings dialog, painted with Viva.
+// Package workbench is the window of the Lithe desktop client: the start screen and the
+// workbench of an open project, painted with Viva. The settings and the logs open in windows
+// of their own (packages settingswindow and logwindow).
 //
 // The package keeps the state of the window and turns user gestures into kernel calls.
 // It decides nothing the kernel decides: the order of recent projects, the arrangement
@@ -27,6 +28,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/monogrid"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/flex"
@@ -49,6 +51,7 @@ type Kernel interface {
 	GitGraph(ctx context.Context, request core.GraphRequest) (core.Graph, error)
 	GitReferenceTree(ctx context.Context, names []string, prioritized map[string]bool) ([]core.ReferenceTreeNode, error)
 	GitHistoryDates(ctx context.Context, entries []core.HistoryDateEntry, after, before *int64) ([]string, error)
+	ReduceEditorWorkbench(ctx context.Context, state core.EditorWorkbench, action core.EditorAction) (core.EditorWorkbench, []string, error)
 }
 
 // Options configure a window.
@@ -106,6 +109,10 @@ type project struct {
 	cancel context.CancelFunc
 	git    gitState
 	log    gitLogState
+	// terms are the project's terminals and where each one is placed: in the Terminal tool
+	// window or in a group of the editor area. A terminal's shell starts when it is first
+	// painted, and every shell ends when the project closes.
+	terms terminalSet
 }
 
 // App is the state of the window.
@@ -126,8 +133,9 @@ type App struct {
 	colors palette
 
 	// notice is the message of the banner, empty when there is none.
-	notice       string
-	settingsOpen bool
+	notice string
+	// settingsWindow opens the settings window and keeps at most one open.
+	settingsWindow *settingswindow.Controller
 
 	welcome welcomeState
 	recent  []core.RecentProject
@@ -143,6 +151,12 @@ type App struct {
 	logView logView
 	// delays are how long the log waits before it acts on a selection or a filter.
 	delays logDelays
+	// term is what the frame being painted declared for the terminals, and the gesture that
+	// drags a terminal's tab (see terminal.go and tabdrag.go).
+	term terminalUI
+	// fields answers Config.TextInput for the window's text fields; the terminal's grid is
+	// told apart from them in textInput.
+	fields func(app.TextInputContext) *app.TextInput
 
 	// application is the running application the log window opens in; it is nil until
 	// Run has started it.
@@ -205,6 +219,7 @@ func New(options Options) *App {
 			Shortcut: logsShortcut,
 		})
 	}
+	a.settingsWindow = a.newSettingsWindow()
 	a.loadRecent()
 	a.loadChrome()
 	return a
@@ -232,6 +247,7 @@ func (a *App) Run() error {
 
 // Config is the window's configuration.
 func (a *App) Config() app.Config {
+	a.fields = flex.Fields(&a.welcome.search, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField)
 	return app.Config{
 		Title:          a.text.App.Name,
 		Width:          1280,
@@ -245,8 +261,8 @@ func (a *App) Config() app.Config {
 		OnPointer:      a.onPointer,
 		OnKey:          a.onKey,
 		OnShortcut:     a.onShortcut,
-		OnScroll:       a.view.Wheel,
-		TextInput:      flex.Fields(&a.welcome.search, &a.logView.search, &a.logView.refSearch, &a.logView.userSearch, &a.logView.pathField),
+		OnScroll:       a.onScroll,
+		TextInput:      a.textInput,
 		Invalidator:    &a.invalidator,
 		OnWake:         a.drain,
 		OnClosed:       a.closed,
@@ -257,6 +273,7 @@ func (a *App) Config() app.Config {
 // which would otherwise keep the application running without the window it belongs to.
 func (a *App) closed() {
 	a.closeProject()
+	a.settingsWindow.Close()
 	if a.logs != nil {
 		a.logs.Close()
 	}
@@ -323,6 +340,7 @@ func (a *App) paint(canvas *ui.Canvas, size ui.Size) {
 	a.status.frame(canvas, a.now())
 	a.chrome.beginFrame()
 	a.logView.beginFrame()
+	a.beginTerminalFrame()
 	a.view.Draw(canvas, a.theme, bounds, func(f *flex.Frame) {
 		// Popups go on a layer of their own so the commit rows painted after Draw stay
 		// under them.
@@ -332,18 +350,19 @@ func (a *App) paint(canvas *ui.Canvas, size ui.Size) {
 		} else {
 			a.drawWelcome(f)
 		}
-		if a.settingsOpen {
-			a.drawSettings(f)
-		}
 		a.drawNotice(f)
 	})
 	a.chrome.capture()
 	a.layout.capture()
 	a.logView.capture()
 	a.paintGitLog(canvas)
-	// The menus and the dragged button float above everything Draw painted.
+	// Like the commit rows, the terminal is painted into a box of the frame that was just
+	// laid out, under the menus and the dragged button.
+	a.paintTerminal(canvas)
+	// The menus and the dragged buttons and tabs float above everything Draw painted.
 	a.paintChromeMenus(canvas, bounds)
 	a.paintDrag(canvas)
+	a.paintTabDrag(canvas)
 }
 
 // notify shows message in the banner until it is dismissed or replaced.
@@ -376,31 +395,69 @@ func (a *App) drawNotice(f *flex.Frame) {
 }
 
 func (a *App) onPointer(event ui.PointerEvent) ui.EventResult {
+	// A drag of a tool button or of a terminal's tab comes first, so it keeps its gestures
+	// over a terminal.
 	if result, handled := a.dragPointer(event); handled {
+		return result
+	}
+	if result, handled := a.tabDragPointer(event); handled {
+		return result
+	}
+	if result, handled := a.terminalPointer(event); handled {
 		return result
 	}
 	return ui.EventResult{}
 }
 
 func (a *App) onKey(event ui.KeyEvent) ui.EventResult {
+	if !event.Release && event.Key == ui.KeyEscape {
+		// Both are called: at most one gesture is under way, and neither may be left behind.
+		button, tab := a.cancelDrag(), a.cancelTabDrag()
+		if button || tab {
+			return ui.EventResult{Handled: true, Repaint: true}
+		}
+		if r := a.projectMenuKey(event); r.Handled {
+			return r
+		}
+	}
+	// The terminal sees the release of a key as well: a program can ask for them.
+	if t := a.focusedTerminal(event.Target); t != nil {
+		if result, handled := t.Key(event); handled {
+			return result
+		}
+	}
 	if event.Release {
 		return ui.EventResult{}
 	}
-	if event.Key == ui.KeyEscape && a.cancelDrag() {
-		return ui.EventResult{Handled: true, Repaint: true}
-	}
 	if r := a.logKey(event); r.Handled {
+		return r
+	}
+	if r := a.editorSplitKey(event); r.Handled {
 		return r
 	}
 	return a.layout.key(event)
 }
 
-// onShortcut handles the window's command shortcuts: ⌘, opens the settings, ⌘O asks
-// for a project folder and ⇧⌘L shows the log window.
+// onShortcut handles the window's command shortcuts, and gives the ones that are not its own
+// to the terminal that has the keyboard: Control-C and the other chords of the shell arrive
+// here, not in onKey.
 func (a *App) onShortcut(event ui.KeyEvent) ui.EventResult {
-	if event.Release {
-		return ui.EventResult{}
+	if !event.Release {
+		if result := a.windowShortcut(event); result.Handled {
+			return result
+		}
 	}
+	if t := a.focusedTerminal(event.Target); t != nil {
+		if result, handled := t.Shortcut(event); handled {
+			return result
+		}
+	}
+	return ui.EventResult{}
+}
+
+// windowShortcut handles the window's own command shortcuts: ⌘, opens the settings, ⌘O asks
+// for a project folder and ⇧⌘L shows the log window.
+func (a *App) windowShortcut(event ui.KeyEvent) ui.EventResult {
 	if event.Modifiers == ui.ModifierMeta|ui.ModifierShift && strings.EqualFold(event.Text, "l") {
 		a.openLogs()
 		return ui.EventResult{Handled: true, Repaint: true}
@@ -410,7 +467,7 @@ func (a *App) onShortcut(event ui.KeyEvent) ui.EventResult {
 	}
 	switch event.Text {
 	case ",":
-		a.settingsOpen = true
+		a.openSettings(surfaceShortcut)
 	case "o":
 		a.chooseProject(surfaceShortcut)
 	default:
@@ -543,6 +600,7 @@ func (a *App) openProject(path string) {
 	a.closeProject()
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &project{root: root, name: filepath.Base(root), ctx: ctx, cancel: cancel}
+	a.openTerminals(p)
 	a.project = p
 	a.notice = ""
 	a.logView.reset()
@@ -556,8 +614,10 @@ func (a *App) closeProject() {
 		return
 	}
 	a.project.cancel()
+	a.closeTerminals(a.project)
 	a.project = nil
 	a.cancelDrag()
+	a.cancelTabDrag()
 	a.title = titleState{}
 }
 

@@ -486,7 +486,7 @@ func (m *Model) exportFailure(stage string, err error) {
 }
 
 func (m *Model) emitExportFailure(stage string, err error) {
-	fields := errorFields(err)
+	fields := ErrorFields(err)
 	fields["stage"] = stage
 	m.opts.Source.Emit(core.LevelError, exportFailedEvent, "", fields)
 }

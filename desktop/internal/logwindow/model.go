@@ -1391,13 +1391,13 @@ func (m *Model) report(err error) {
 	if err == nil || errors.Is(err, context.Canceled) {
 		return
 	}
-	m.opts.Source.Emit(core.LevelWarn, diagnosticsFailed, "", errorFields(err))
+	m.opts.Source.Emit(core.LevelWarn, diagnosticsFailed, "", ErrorFields(err))
 	m.failed = true
 }
 
-// errorFields encodes an error the way the event catalog asks: a bounded message without
+// ErrorFields encodes an error the way the event catalog asks: a bounded message without
 // control characters, a code and the domain the code belongs to.
-func errorFields(err error) map[string]any {
+func ErrorFields(err error) map[string]any {
 	message := strings.Map(func(r rune) rune {
 		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
 			return ' '

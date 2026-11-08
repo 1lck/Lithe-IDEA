@@ -4410,6 +4410,29 @@ public struct TerminalRendererFallbackSelected: LogEvent {
     }
 }
 
+public struct TerminalSessionStartFailed: LogEvent {
+    public static let id = "terminal.session.start_failed"
+    public static let level: LogLevel = .warn
+    public static let messageTemplate = "Terminal shell session failed to start"
+    public static let ratePerMinute = 60
+    public static let owner = "Lithe"
+    public static let debugOnly = false
+    public let channel: LogChannel
+    public let fields: [String: LogFieldValue]
+    public let operationID: String?
+    public var reference: LogRecordReference {
+        LogRecordReference(channel: channel.rawValue, event: Self.id, op: operationID)
+    }
+
+    public init(`error`: any Error, operationID: String? = nil) {
+        self.operationID = operationID
+        self.channel = LogChannel(.terminal, segments: [])
+        var _logValues: [String: LogFieldValue] = [:]
+        _logValues["error"] = .error(`error`)
+        self.fields = _logValues
+    }
+}
+
 public struct TerminalShellDiscoveryFailed: LogEvent {
     public static let id = "terminal.shell.discovery_failed"
     public static let level: LogLevel = .warn

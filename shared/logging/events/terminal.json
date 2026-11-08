@@ -51,6 +51,21 @@
       },
       "rate": 60,
       "owner": "Lithe"
+    },
+    {
+      "id": "terminal.session.start_failed",
+      "channel": "terminal",
+      "level": "warn",
+      "message": "Terminal shell session failed to start",
+      "fields": {
+        "error": {
+          "type": "error",
+          "required": true,
+          "description": "Pseudo-terminal or process start error raised while opening the terminal's shell"
+        }
+      },
+      "rate": 60,
+      "owner": "Lithe"
     }
   ]
 }

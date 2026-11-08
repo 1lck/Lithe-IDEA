@@ -440,14 +440,18 @@ func (a *App) drawShellSplitter(f *flex.Frame, which shellSplit) flex.Box {
 }
 
 // drawShellPanel declares the tool window open in slot s, the catalog item index: a
-// header with its name and a button that hides it, over a body. The tool windows have no
-// contents yet, so every body says so, in the middle. The Git tool window is the one
-// that has more in its header: the tabs its views will be shown under.
+// header with its name and a button that hides it, over a body. Most tool windows have no
+// contents yet, so their body says so, in the middle. The Git tool window has more in its
+// header, the tabs its views will be shown under, and a body of its own on the log tab; the
+// Terminal tool window of an open project holds that project's terminals, one tab each in
+// its header, and the body shows the selected one.
 func (a *App) drawShellPanel(f *flex.Frame, s slot, index int, hidden *slot) flex.Box {
 	tool := catalog[index]
 	tabbed := tool.id == itemGit
 	// The log tab of the Git tool window has its own body and adds buttons to the header.
 	log := tabbed && a.layout.gitTab == 0 && a.project != nil
+	// The Terminal tool window of an open project shows its terminals' tabs in its header.
+	terminals := tool.id == itemTerminal && a.project != nil
 	header := float32(panelHeaderHeight)
 	if tabbed {
 		header = shellTabsHeaderHeight
@@ -461,7 +465,12 @@ func (a *App) drawShellPanel(f *flex.Frame, s slot, index int, hidden *slot) fle
 			if log {
 				a.drawLogHeaderLeading(f, a.project)
 			}
-			f.Spacer()
+			if terminals {
+				// The tabs of the open project's terminals take the room a spacer would.
+				a.drawTerminalTabs(f)
+			} else {
+				f.Spacer()
+			}
 			if log {
 				a.drawLogHeaderTrailing(f, a.project)
 			}
@@ -479,6 +488,10 @@ func (a *App) drawShellPanel(f *flex.Frame, s slot, index int, hidden *slot) fle
 		})
 		if log {
 			a.drawGitLog(f, a.project)
+			return
+		}
+		if terminals {
+			a.drawTerminal(f)
 			return
 		}
 		f.Row().Fill().Items(flex.Center).PadX(shellContentPad).Children(func() {
@@ -502,17 +515,22 @@ func (a *App) drawShellGitTabs(f *flex.Frame) {
 	}
 }
 
-// drawShellEditor declares the editor area. There is no editor yet, so it shows what an
-// empty one shows: the commands that open something and where to drop files. The
-// shortcuts are key symbols, not words, and so are not translated.
+// drawShellEditor declares the editor area. Once a terminal has been dragged into it, it is
+// the groups of tabs those terminals are in (see drawEditorGroups). Until then there is no
+// editor, so it shows what an empty one shows: the commands that open something and where
+// to drop files, which is also where a dragged tab opens the first group. The shortcuts are
+// key symbols, not words, and so are not translated.
 func (a *App) drawShellEditor(f *flex.Frame) {
+	if a.drawEditorGroups(f) {
+		return
+	}
 	hints := [...]struct{ label, keys string }{
 		{a.text.Editor.SearchEverywhere, "⇧⇧"},
 		{a.text.Editor.GoToFile, "⇧⌘O"},
 		{a.text.Editor.FindInFiles, "⇧⌘F"},
 		{a.text.Editor.RecentFiles, "⌘E"},
 	}
-	f.Column().Fill().Clip().Center().Pad(shellContentPad).Background(a.colors.Editor).Children(func() {
+	editor := f.Column().Fill().Clip().Center().Pad(shellContentPad).Background(a.colors.Editor).Children(func() {
 		f.Column().FillWidth().MaxWidth(shellHintWidth).Children(func() {
 			// Labels end and shortcuts start at one line down the middle, so the two
 			// read as columns however long the words are.
@@ -527,4 +545,5 @@ func (a *App) drawShellEditor(f *flex.Frame) {
 			})
 		})
 	})
+	a.declareEmptyEditor(editor)
 }

@@ -36,17 +36,7 @@ func TestShellEnvironmentOverridesInheritedValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer shell.Close()
-	var output []byte
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		output = shell.Drain(output)
-		if strings.Contains(string(output), "proxy=") {
-			if strings.TrimSpace(string(output)) != "proxy=" {
-				t.Fatalf("output = %q", output)
-			}
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	if output := waitForExit(t, shell, 5*time.Second); strings.TrimSpace(output) != "proxy=" {
+		t.Fatalf("output = %q, want proxy= with the inherited value overridden", output)
 	}
-	t.Fatalf("no proxy output: %q", output)
 }

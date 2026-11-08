@@ -1,121 +1,55 @@
 package workbench
 
 import (
-	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/settingswindow"
 	"github.com/vivaui/viva/app"
-	"github.com/vivaui/viva/flex"
 )
 
-// The identities of the settings dialog's controls.
-var (
-	// settingsDialogScope is the focus scope Tab stays inside while the dialog is open.
-	settingsDialogScope = tree.ID(settingsPage, "dialog")
-	settingsClose       = tree.ID(settingsPage, "close")
-	// settingsDone is also the dialog's dismiss target, so the Done button, a press on
-	// the scrim and Escape all end in the one Dismissed check in drawSettings.
-	settingsDone        = tree.ID(settingsPage, "done")
-	settingsResetLayout = tree.ID(settingsPage, "reset-layout")
-	// settingsLanguage and settingsTheme identify the segments of the two choices:
-	// scope.At(i) is segment i.
-	settingsLanguage = tree.Sub(settingsPage, tree.Name("language"))
-	settingsTheme    = tree.Sub(settingsPage, tree.Name("theme"))
-)
-
-// settingsDialogWidth fits the widest choice (language, with its three segments) and
-// its label on one line in both catalogs.
-const settingsDialogWidth = 480
-
-// settingsThemes lists the segments of the theme choice, in the order they are shown.
-var settingsThemes = [...]themeChoice{themeSystem, themeLight, themeDark}
-
-// settingsLanguageIndex is the segment of the language choice for a stored code. Segment
-// 0 follows the system, which is what an empty or unknown code does; the languages
-// follow in the order i18n lists them.
-func settingsLanguageIndex(code string) int {
-	language, ok := i18n.Parse(code)
-	if !ok {
-		return 0
-	}
-	for index, candidate := range i18n.Languages {
-		if candidate == language {
-			return index + 1
-		}
-	}
-	return 0
-}
-
-// settingsLanguageCode is the code to store for a segment of the language choice, the
-// reverse of settingsLanguageIndex.
-func settingsLanguageCode(index int) string {
-	if index < 1 || index > len(i18n.Languages) {
-		return ""
-	}
-	return i18n.Languages[index-1].Code()
-}
-
-// settingsThemeIndex is the segment of the theme choice for the stored look.
-func settingsThemeIndex(choice themeChoice) int {
-	for index, candidate := range settingsThemes {
-		if candidate == choice {
-			return index
-		}
-	}
-	return 0
-}
-
-// drawSettings is the settings dialog, declared only while it is open. A choice applies
-// the moment it is clicked, the way the rest of the window reacts to a preference, so the
-// dialog has nothing to confirm: Done just closes it.
-func (a *App) drawSettings(f *flex.Frame) {
-	words := &a.text.Settings
-	// Each language is named in its own language whatever the window is shown in, so a
-	// reader who cannot read the current one still finds theirs. Choice copies the labels
-	// it is given, so the arrays are plain locals rebuilt every frame (the window's own
-	// words may change between frames when the language does).
-	var languages [len(i18n.Languages) + 1]string
-	languages[0] = words.FollowSystem(a.systemLanguage.Native())
-	for index, language := range i18n.Languages {
-		languages[index+1] = language.Native()
-	}
-	systemLook := words.Light
-	if app.SystemAppearance() == app.AppearanceDark {
-		systemLook = words.Dark
-	}
-	themes := [len(settingsThemes)]string{words.FollowSystem(systemLook), words.Light, words.Dark}
-
-	dialog := f.Dialog(flex.DialogSpec{
-		Title:     words.Title,
-		Width:     settingsDialogWidth,
-		Scope:     settingsDialogScope,
-		DismissID: settingsDone,
-		CloseID:   settingsClose,
-	})
-	dialog.Body(func() {
-		f.Column().Gap(16).Children(func() {
-			f.Row().Items(flex.Center).Gap(16).Children(func() {
-				f.Text(words.Language).Grow(1)
-				choice := f.Choice(settingsLanguage, languages[:], settingsLanguageIndex(a.settings.Language)).Shrink(0)
-				if index, ok := choice.ChosenIndex(); ok {
-					a.setLanguage(settingsLanguageCode(index))
-				}
+// newSettingsWindow makes the controller of the settings window. The settings are a window
+// of their own, like the log window, so the controller is handed what it may read from its
+// own thread (the language and the look of the frame last painted) and two ways back into
+// the workbench, both of which only queue the work for the workbench's window thread.
+func (a *App) newSettingsWindow() *settingswindow.Controller {
+	return settingswindow.NewController(settingswindow.Options{
+		Text: a.shared.text.Load,
+		Dark: a.shared.dark.Load,
+		// The look "follow the system" resolves to is the system's own, which Dark cannot
+		// tell once the user has picked a look: then it reports that pick.
+		SystemDark:     func() bool { return app.SystemAppearance() == app.AppearanceDark },
+		SystemLanguage: a.systemLanguage,
+		Version:        appVersion,
+		// OK arrives on the settings window's thread, and the settings belong to the
+		// workbench's, so the draft is queued and applied there.
+		Apply: func(values settingswindow.Values) {
+			a.post(func(a *App) {
+				a.setLanguage(values.Language)
+				a.setTheme(themeChoice(values.Theme))
 			})
-			f.Row().Items(flex.Center).Gap(16).Children(func() {
-				f.Text(words.Theme).Grow(1)
-				choice := f.Choice(settingsTheme, themes[:], settingsThemeIndex(a.settings.Theme)).Shrink(0)
-				if index, ok := choice.ChosenIndex(); ok {
-					a.setTheme(settingsThemes[index])
-				}
-			})
-			// Self keeps the button as wide as its label; a column would stretch it.
-			if f.Button(settingsResetLayout, words.ResetLayout).Outline().Self(flex.Start).Clicked() {
-				a.resetLayout()
-			}
-		})
+		},
+		ResetLayout: func() {
+			a.post(func(a *App) { a.resetLayout() })
+		},
 	})
-	dialog.Footer(func() {
-		f.Button(settingsDone, words.Done)
-	})
-	if dialog.Dismissed() {
-		a.settingsOpen = false
+}
+
+// openSettings shows the settings window, or raises it when it is already open. surface is
+// where the user started the action from, written as the catalog's token.
+//
+// The window is opened from a queued task because the toolkit only opens a window from a
+// window thread, which the task runs on. The settings in force are read there, at the
+// moment the window opens, so a window that has to be made starts from the latest ones.
+func (a *App) openSettings(surface string) {
+	a.performed("settings.open", surface)
+	if a.application == nil {
+		return
 	}
+	a.post(func(a *App) {
+		if a.application == nil {
+			return
+		}
+		current := settingswindow.Values{Language: a.settings.Language, Theme: string(a.settings.Theme)}
+		if err := a.settingsWindow.Open(a.application, current); err != nil {
+			a.notify(a.text.Errors.SettingsFailed(err.Error()))
+		}
+	})
 }

@@ -446,8 +446,8 @@ func TestSettingsButtonOpensItsMenu(t *testing.T) {
 	}
 	h.settle()
 
-	if h.app.settingsOpen {
-		t.Fatal("the settings button opened the settings instead of its menu")
+	if !h.app.title.gearOpen {
+		t.Fatal("the settings button did not open its menu")
 	}
 	for _, label := range []string{h.app.text.Title.Preferences, h.app.text.Title.Plugins, h.app.text.Title.LogsAndDiagnostics, h.app.text.Title.ThemeMenu, h.app.text.Title.Keymap} {
 		if !h.shows(label) {
@@ -467,6 +467,7 @@ func TestSettingsButtonOpensItsMenu(t *testing.T) {
 	if h.app.notice != h.app.text.Title.LogsUnavailable {
 		t.Fatalf("notice = %q, want the log is unavailable", h.app.notice)
 	}
+	h.app.notice = ""
 
 	if err := h.driver.Click(gear.X, gear.Y); err != nil {
 		t.Fatal(err)
@@ -477,7 +478,12 @@ func TestSettingsButtonOpensItsMenu(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.settle()
-	if !h.app.settingsOpen {
-		t.Fatal("choosing Settings… did not open the settings")
+	// The settings open in a window of their own, which a window made without an application
+	// cannot open; choosing the item closes the menu and reports nothing.
+	if h.app.title.gearOpen {
+		t.Fatal("the menu stayed open after Settings… was chosen")
+	}
+	if h.app.notice != "" {
+		t.Fatalf("notice = %q, want none", h.app.notice)
 	}
 }

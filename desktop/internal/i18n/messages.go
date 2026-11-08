@@ -11,6 +11,7 @@ type Messages struct {
 	Editor   EditorMessages
 	Project  ProjectMessages
 	Git      GitMessages
+	Terminal TerminalMessages
 	Status   StatusMessages
 	Settings SettingsMessages
 	Logs     LogMessages
@@ -61,8 +62,6 @@ type TitleMessages struct {
 	CloseProject   string
 	RecentProjects string
 	BranchMenu     string
-	// NoRepository is the branch button of a project outside Git.
-	NoRepository   string
 	LocalBranches  string
 	RemoteBranches string
 	// CheckoutLater explains that the branch list does not switch branches yet.
@@ -86,6 +85,15 @@ type TitleMessages struct {
 	KeymapLater  string
 	// LogsUnavailable says the client started without its log, so there is nothing to show.
 	LogsUnavailable string
+	// The project menu: its actions, its two lists and their empty state.
+	NewProjectItem   string
+	OpenItem         string
+	CloneItem        string
+	OpenProjects     string
+	NoRecentProjects string
+	// NewProjectLater and CloneLater explain project menu items that come later.
+	NewProjectLater string
+	CloneLater      string
 }
 
 // ToolMessages name the tool windows on the stripes.
@@ -224,6 +232,28 @@ type GitMessages struct {
 	Failed func(reason string) string
 }
 
+// TerminalMessages are the words of the terminal in the Terminal tool window.
+type TerminalMessages struct {
+	// Label is the accessible name of the grid, and ScrollbarLabel that of its scrollbar.
+	Label          string
+	ScrollbarLabel string
+	// SessionEnded is written into the grid when the shell exits cleanly.
+	SessionEnded string
+	// SessionEndedStatus is written when the shell exits with a status other than 0.
+	SessionEndedStatus func(status int) string
+	// RestartHint follows the end of a session: Enter starts a new shell.
+	RestartHint string
+	// StartFailed is written when the shell cannot be started.
+	StartFailed func(reason string) string
+	// Tab is the title of the n-th terminal of a project, counted from 1: "Local",
+	// "Local (2)" and so on.
+	Tab      func(n int) string
+	NewTab   string
+	CloseTab string
+	// NoTerminals is the Terminal tool window when every terminal was moved to the editor.
+	NoTerminals string
+}
+
 // StatusMessages are the status bar's words. Numbers and the caret position are shown
 // as they are; these are their labels.
 type StatusMessages struct {
@@ -243,22 +273,54 @@ type StatusMessages struct {
 	Healthy   string
 }
 
-// SettingsMessages are the settings dialog's words.
+// SettingsMessages are the settings window's words.
 type SettingsMessages struct {
-	Title       string
-	Description string
-	Language    string
-	Theme       string
-	// FollowSystem names the choice that follows the system, with what it currently
-	// resolves to (a language's own name, or the Light or Dark word).
+	Title string
+	// Search is the sidebar's search field; NoMatches is the sidebar when it finds no page.
+	Search    string
+	NoMatches string
+	// Categories names the sidebar's tree of pages for assistive technology.
+	Categories string
+
+	// The sidebar's groups and the pages under them.
+	AppearanceBehavior string
+	General            string
+	Updates            string
+	Network            string
+	Editor             string
+	Keymap             string
+	ProcessTermination string
+	Plugins            string
+	VersionControl     string
+	Build              string
+	Languages          string
+	Tools              string
+	AI                 string
+	// PageLater is the body of a page the new desktop client does not offer yet.
+	PageLater string
+
+	// The General page: its cards and their settings.
+	Appearance     string
+	AppearanceHelp string
+	AppearanceMode string
+	// System is the appearance mode that follows the system.
+	System string
+	// FollowSystem names the language choice that follows the system, with what it
+	// currently resolves to (a language's own name).
 	FollowSystem func(effective string) string
 	Light        string
 	Dark         string
-	Layout       string
+	Language     string
+	LanguageHelp string
+	Workbench    string
 	LayoutHint   string
 	ResetLayout  string
 	About        string
-	Done         string
+
+	// The bottom bar.
+	RestoreDefaults string
+	Cancel          string
+	OK              string
 }
 
 // LogMessages are the log window's words. Level names (ERROR, WARN, INFO, DEBUG), the
@@ -448,4 +510,6 @@ type ErrorMessages struct {
 	SaveFailed    func(reason string) string
 	// LogsFailed is a log window that could not be opened.
 	LogsFailed func(reason string) string
+	// SettingsFailed is a settings window that could not be opened.
+	SettingsFailed func(reason string) string
 }

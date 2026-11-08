@@ -31,14 +31,21 @@ func TestLocalCommandUsesArgvAndInteractiveInput(t *testing.T) {
 	if !shell.Write([]byte("auth-code\r")) {
 		t.Fatal("input refused")
 	}
-	var out []byte
-	deadline := time.Now().Add(6 * time.Second)
-	for time.Now().Before(deadline) {
-		out = shell.Drain(out)
-		if strings.Contains(string(out), "received:auth-code") {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	if out := waitForExit(t, shell, 6*time.Second); !strings.Contains(out, "received:auth-code") {
+		t.Fatalf("auth executable did not receive interactive input; it printed %q", out)
 	}
-	t.Fatal("auth executable did not receive interactive input")
+}
+
+// waitForExit waits, at most limit, for shell to end and returns everything it printed.
+// Done closes only once the output is complete, so one Drain after it reads all of it.
+func waitForExit(t *testing.T, shell *Shell, limit time.Duration) string {
+	t.Helper()
+	deadline := time.NewTimer(limit)
+	defer deadline.Stop()
+	select {
+	case <-shell.Done():
+	case <-deadline.C:
+		t.Fatalf("shell did not end within %v; it printed %q so far", limit, shell.Drain(nil))
+	}
+	return string(shell.Drain(nil))
 }

@@ -2436,6 +2436,18 @@ pub static EVENTS: &[EventMetadata] = &[
         owner: "Lithe",
     },
     EventMetadata {
+        id: "terminal.session.start_failed",
+        channel: "terminal",
+        level: LogLevel::Warn,
+        message: "Terminal shell session failed to start",
+        fields: &[
+            FieldMetadata { name: "error", field_type: FieldType::Error, required: true, description: "Pseudo-terminal or process start error raised while opening the terminal's shell", reason: None },
+        ],
+        span: None,
+        rate: 60,
+        owner: "Lithe",
+    },
+    EventMetadata {
         id: "terminal.shell.discovery_failed",
         channel: "terminal",
         level: LogLevel::Warn,
