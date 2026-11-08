@@ -113,15 +113,24 @@ func (a *App) onScroll(event ui.ScrollEvent) ui.EventResult {
 			return result
 		}
 	}
+	if event.Target == commitMessageID && a.project != nil {
+		a.project.commit.layout.ScrollBy(event.DeltaY)
+		return ui.EventResult{Handled: true, Repaint: true}
+	}
 	return a.view.Wheel(event)
 }
 
 // textInput answers Config.TextInput: the platform asks which editor belongs to the focused
 // control. A terminal's grid takes typed text and input method composition itself; every
-// other control is a field the window declared.
+// other control is a field the window declared, or the message box of the Commit tool
+// window, whose editor is the open project's.
 func (a *App) textInput(ctx app.TextInputContext) *app.TextInput {
 	if t := a.focusedTerminal(ctx.ID); t != nil {
 		return t.TextInput(ctx)
+	}
+	if ctx.ID == commitMessageID && a.project != nil {
+		a.commitView.input.Editor = a.project.commit.editor
+		return &a.commitView.input
 	}
 	return a.fields(ctx)
 }

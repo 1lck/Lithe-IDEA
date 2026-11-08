@@ -52,6 +52,11 @@ type Kernel interface {
 	GitReferenceTree(ctx context.Context, names []string, prioritized map[string]bool) ([]core.ReferenceTreeNode, error)
 	GitHistoryDates(ctx context.Context, entries []core.HistoryDateEntry, after, before *int64) ([]string, error)
 	ReduceEditorWorkbench(ctx context.Context, state core.EditorWorkbench, action core.EditorAction) (core.EditorWorkbench, []string, error)
+	GitStage(ctx context.Context, root string, paths []string) error
+	GitUnstage(ctx context.Context, root string, paths []string) error
+	GitStageAll(ctx context.Context, root string) error
+	WorkspaceCommitPrepare(ctx context.Context, request core.WorkspaceCommitRequest) (core.WorkspaceCommitPreparation, error)
+	WorkspaceCommitStep(ctx context.Context, session core.WorkspaceCommitSession) (core.WorkspaceCommitSession, error)
 }
 
 // Options configure a window.
@@ -109,6 +114,7 @@ type project struct {
 	cancel context.CancelFunc
 	git    gitState
 	log    gitLogState
+	commit commitState
 	// terms are the project's terminals and where each one is placed: in the Terminal tool
 	// window or in a group of the editor area. A terminal's shell starts when it is first
 	// painted, and every shell ends when the project closes.
@@ -149,6 +155,8 @@ type App struct {
 	layout  layoutState
 	status  statusState
 	logView logView
+	// commitView is the Commit tool window's splitter and message input.
+	commitView commitView
 	// delays are how long the log waits before it acts on a selection or a filter.
 	delays logDelays
 	// term is what the frame being painted declared for the terminals, and the gesture that
@@ -192,6 +200,7 @@ func New(options Options) *App {
 		layout:         newLayoutState(),
 		missing:        map[string]bool{},
 		logView:        newLogView(),
+		commitView:     newCommitView(),
 		delays:         defaultLogDelays,
 	}
 	if _, err := a.store.Load(settingsFile, &a.settings); err != nil {
@@ -340,6 +349,7 @@ func (a *App) paint(canvas *ui.Canvas, size ui.Size) {
 	a.status.frame(canvas, a.now())
 	a.chrome.beginFrame()
 	a.logView.beginFrame()
+	a.commitView.beginFrame()
 	a.beginTerminalFrame()
 	a.view.Draw(canvas, a.theme, bounds, func(f *flex.Frame) {
 		// Popups go on a layer of their own so the commit rows painted after Draw stay
@@ -355,6 +365,7 @@ func (a *App) paint(canvas *ui.Canvas, size ui.Size) {
 	a.chrome.capture()
 	a.layout.capture()
 	a.logView.capture()
+	a.commitView.capture()
 	a.paintGitLog(canvas)
 	// Like the commit rows, the terminal is painted into a box of the frame that was just
 	// laid out, under the menus and the dragged button.
@@ -429,6 +440,9 @@ func (a *App) onKey(event ui.KeyEvent) ui.EventResult {
 	if event.Release {
 		return ui.EventResult{}
 	}
+	if r := a.commitKey(event); r.Handled {
+		return r
+	}
 	if r := a.logKey(event); r.Handled {
 		return r
 	}
@@ -456,8 +470,14 @@ func (a *App) onShortcut(event ui.KeyEvent) ui.EventResult {
 }
 
 // windowShortcut handles the window's own command shortcuts: ⌘, opens the settings, ⌘O asks
-// for a project folder and ⇧⌘L shows the log window.
+// for a project folder, ⇧⌘L shows the log window and ⌘↩ in the commit message commits.
 func (a *App) windowShortcut(event ui.KeyEvent) ui.EventResult {
+	if event.Modifiers == ui.ModifierMeta && event.Key == ui.KeyEnter && event.Target == commitMessageID && a.project != nil {
+		if a.project.canCommit() {
+			a.startCommit(a.project, false, surfaceShortcut)
+		}
+		return ui.EventResult{Handled: true, Repaint: true}
+	}
 	if event.Modifiers == ui.ModifierMeta|ui.ModifierShift && strings.EqualFold(event.Text, "l") {
 		a.openLogs()
 		return ui.EventResult{Handled: true, Repaint: true}
@@ -599,7 +619,7 @@ func (a *App) openProject(path string) {
 	a.reduceRecent(a.recent, core.RecordRecent(root, a.now()), true)
 	a.closeProject()
 	ctx, cancel := context.WithCancel(context.Background())
-	p := &project{root: root, name: filepath.Base(root), ctx: ctx, cancel: cancel}
+	p := &project{root: root, name: filepath.Base(root), ctx: ctx, cancel: cancel, commit: newCommitState()}
 	a.openTerminals(p)
 	a.project = p
 	a.notice = ""

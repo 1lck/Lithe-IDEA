@@ -11,6 +11,7 @@ type Messages struct {
 	Editor   EditorMessages
 	Project  ProjectMessages
 	Git      GitMessages
+	Commit   CommitMessages
 	Terminal TerminalMessages
 	Status   StatusMessages
 	Settings SettingsMessages
@@ -230,6 +231,90 @@ type GitMessages struct {
 	On func(date string) string
 
 	Failed func(reason string) string
+}
+
+// CommitMessages are the Commit tool window's words: its change list, its commit area, the
+// review that confirms a commit before it runs, and the notices they report.
+type CommitMessages struct {
+	// The toolbar and the change list.
+	Refresh    string
+	StageAll   string
+	UnstageAll string
+	ChangeList string
+	// Files counts the changes of the change list, for example "3 files".
+	Files func(count int) string
+	// StageFile and UnstageFile name the checkbox of a change by what a click does, for
+	// example "Stage src/main.go".
+	StageFile   func(path string) string
+	UnstageFile func(path string) string
+	// StagedState, PartlyStagedState and UnstagedState follow each change in the list. A
+	// change is partly staged when it has changes both in the index and in the worktree.
+	StagedState       string
+	PartlyStagedState string
+	UnstagedState     string
+	Clean             string
+
+	// The commit area.
+	Amend string
+	// Staged counts the staged changes, for example "2 staged".
+	Staged             func(count int) string
+	MessageLabel       string
+	MessagePlaceholder string
+	Commit             string
+	CommitAndPush      string
+	Committing         string
+	// Result is one repository's line in the results, for example "lithe: Push failed".
+	Result  func(repository, status string) string
+	Dismiss string
+	Retry   string
+
+	// The review: its titles, notes, steps and buttons.
+	ReviewTitle     string
+	ReviewPushTitle string
+	ReviewRetry     string
+	Order           string
+	// MessageLine repeats the commit message, for example "Commit message: Fix the build".
+	MessageLine func(message string) string
+	AmendNote   string
+	// Step is one repository of the plan, for example "1. Commit and push: lithe".
+	Step         func(n int, action, repository string) string
+	StepCommit   string
+	StepPush     string
+	StepPushOnly string
+	// Where joins a repository's branch and commit, for example "main · 1a2b3c4d5e".
+	Where        func(branch, head string) string
+	DetachedHead string
+	NoCommits    string
+	// TracksDifferent asks where to push a branch whose upstream has another name.
+	TracksDifferent func(local, upstream string) string
+	PublishTo       func(remote, branch string) string
+	PushTo          func(upstream string) string
+	Continue        string
+	Cancel          string
+
+	// Where each repository stands, by the kernel's status keys.
+	Pending              string
+	NotIncluded          string
+	Committed            string
+	CommittedPushPending string
+	CommittedAndPushed   string
+	CommitFailed         string
+	HeadAdvanced         string
+	OutcomeUnknown       string
+	PushFailed           string
+	ReviewRequired       string
+	WaitingForSubmodule  string
+
+	// The notices.
+	EnterMessage   string
+	ChooseTarget   string
+	PlanChanged    string
+	Done           string
+	Pushed         string
+	NeedsAttention string
+	StageFailed    func(reason string) string
+	UnstageFailed  func(reason string) string
+	Failed         func(reason string) string
 }
 
 // TerminalMessages are the words of the terminal in the Terminal tool window.

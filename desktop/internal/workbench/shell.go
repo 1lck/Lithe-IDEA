@@ -452,6 +452,8 @@ func (a *App) drawShellPanel(f *flex.Frame, s slot, index int, hidden *slot) fle
 	log := tabbed && a.layout.gitTab == 0 && a.project != nil
 	// The Terminal tool window of an open project shows its terminals' tabs in its header.
 	terminals := tool.id == itemTerminal && a.project != nil
+	// The Commit tool window of an open project shows its changes and the commit area.
+	commit := tool.id == itemCommit && a.project != nil
 	header := float32(panelHeaderHeight)
 	if tabbed {
 		header = shellTabsHeaderHeight
@@ -492,6 +494,10 @@ func (a *App) drawShellPanel(f *flex.Frame, s slot, index int, hidden *slot) fle
 		}
 		if terminals {
 			a.drawTerminal(f)
+			return
+		}
+		if commit {
+			a.drawCommitPanel(f, a.project)
 			return
 		}
 		f.Row().Fill().Items(flex.Center).PadX(shellContentPad).Children(func() {
