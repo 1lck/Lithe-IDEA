@@ -1,0 +1,43 @@
+{
+  "id": "github-pull-request-checkout",
+  "area": "协作",
+  "group": "GitHub",
+  "capability": "GitHub 拉取请求安全检出",
+  "macos": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "owner": "GitHub",
+  "verification": "在临时本地仓库验证同名分支不被重置、过期预览被拒绝和确认后的新分支检出；真实 GitHub 远程认证仍需实机验收。",
+  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Platform/MacOS/GitHub/MacGitHubGitOperations.swift",
+        "shared/fixtures/github/pr-checkout-plan-v1.json"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/config/backend-capabilities.ts",
+        "shared/contracts/github.md"
+      ],
+      "implementationStatus": "missing",
+      "verificationStatus": "not-applicable"
+    },
+    "notes": "Windows 的 GitHub 后端能力当前关闭；不得把共享 Core 命令误记为 Windows 产品入口。"
+  }
+}

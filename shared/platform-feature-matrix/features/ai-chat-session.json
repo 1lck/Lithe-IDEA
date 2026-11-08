@@ -1,0 +1,41 @@
+{
+  "id": "ai-chat-session",
+  "area": "AI",
+  "group": "AI 对话",
+  "capability": "对话会话与流式响应",
+  "macos": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "owner": "AI",
+  "verification": "Windows 验证新建会话、流式输出、取消和失败恢复；macOS 需要先定义产品范围。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Platform/MacOS/AI"
+      ],
+      "implementationStatus": "missing",
+      "verificationStatus": "not-applicable"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/ai/components/chat/ai-chat.tsx",
+        "windows/tauri/src/features/ai/services/ai-chat-service.ts"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    }
+  },
+  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+}

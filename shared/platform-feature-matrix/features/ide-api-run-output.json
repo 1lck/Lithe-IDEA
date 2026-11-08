@@ -1,0 +1,46 @@
+{
+  "id": "ide-api-run-output",
+  "area": "AI",
+  "group": "IDE MCP",
+  "capability": "插件与 MCP 列举运行配置、启动重启，按执行 ID 查询和停止 Run 及 macOS 插件 Build 输出",
+  "macos": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "运行服务、读增量输出、清空日志验证 reset、重启后拒绝旧 ID，停止正确进程，检查退出码及资源清理。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。 macOS Build 快照保留完成后的身份、退出码和任务输出；模型/依赖控制台日志不混入该任务，新运行或工作区重开后旧 ID 返回 OPERATION_EXPIRED，旧停止不得取消替换操作。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift",
+        "macos/Sources/Lithe/Views/App/McpSettingsView.swift",
+        "macos/Tests/LitheTests/IdeCapabilitiesTests.swift",
+        "rust/lithe-ide-host/src/lib.rs"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "windows/tauri/src/features/host-api/ide-capabilities.ts",
+        "windows/tauri/src/features/host-api/mcp-settings.tsx",
+        "windows/tauri/src/features/host-api/ide-capabilities.test.ts",
+        "rust/lithe-ide-host/src/lib.rs"
+      ]
+    }
+  },
+  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+}

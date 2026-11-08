@@ -1,0 +1,43 @@
+{
+  "id": "github-device-authorization",
+  "area": "协作",
+  "group": "GitHub",
+  "capability": "GitHub 设备授权",
+  "macos": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "owner": "GitHub",
+  "verification": "使用可控时钟验证待授权、退避、过期和成功授权；实际 GitHub OAuth 与钥匙串流程仍需在 macOS 上验收。",
+  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Services/GitHub/GitHubService.swift",
+        "macos/Tests/LitheTests/GitHubServiceTests.swift"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/config/backend-capabilities.ts",
+        "shared/contracts/github.md"
+      ],
+      "implementationStatus": "missing",
+      "verificationStatus": "not-applicable"
+    },
+    "notes": "Windows 的 GitHub 后端能力当前关闭；不得把共享 Core 命令误记为 Windows 产品入口。"
+  }
+}

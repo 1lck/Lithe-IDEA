@@ -1,0 +1,44 @@
+{
+  "id": "ide-api-plugins",
+  "area": "插件与扩展",
+  "group": "IDE API / MCP",
+  "capability": "插件调用已授权项目的环境、Maven 与运行 API",
+  "owner": "IDE API",
+  "macos": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "verification": "双端插件枚举显式授权的项目，读取环境并调用已允许的操作；撤销项目权限后拒绝调用，Windows 未声明 permissions.ide 的 Worker 无法访问。",
+  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "macos/Sources/LitheModuleAPI/Plugins/IDECapabilities.swift",
+        "macos/Sources/Lithe/Application/Composition/IdeCapabilityRegistry.swift"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "Plugins/win/SDK/ide-capabilities.ts",
+        "windows/tauri/src/extensions/ui/services/ide-extension-host.ts",
+        "windows/tauri/src/extensions/ui/services/ide-extension-host.test.ts"
+      ]
+    },
+    "notes": "复用 MCP 的同一应用功能和参数校验，不扩张语言包权限；原生运行验收待完成。"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "id": "editor-git-gutter-stage",
+  "area": "编辑器",
+  "group": "Git 变更",
+  "capability": "从编辑器行变更入口暂存单处修改",
+  "macos": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "owner": "Editor / Git",
+  "verification": "保存含多处增删改的已跟踪文件，单独暂存后一处修改，检查 index 只包含选中修改，邻近与前方未暂存修改保留；未保存或只读时禁用暂存。Windows 与 macOS 均需实机验证。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
+        "frontend/editor/src/workbench.ts"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "windows/tauri/src/features/git/services/git-gutter-actions.ts",
+        "windows/tauri/src/features/git/api/git-diff-block-api.ts",
+        "rust/lithe-core/src/git/diff_blocks.rs",
+        "windows/tauri/src/features/git/utils/git-gutter-changes.test.ts"
+      ]
+    }
+  },
+  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+}

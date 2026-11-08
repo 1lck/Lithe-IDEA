@@ -1,0 +1,49 @@
+{
+  "id": "plugin-editor-providers",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "普通工具插件的编辑器语言功能：运行期把跳转、悬浮、补全、CodeLens、折叠、语义着色、文档链接绑定到同插件函数；语言服务器先答，插件只补充；不接 LSP/Build/Run/Debug",
+  "macos": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "owner": "Extensions",
+  "verification": "用一个资源 key 在模板与 .properties 之间跳转的第二工具插件注册 definition、hover、completion、codeLens、semanticTokens；验证语言服务器的答案先出现、插件的位置只追加、重复位置只显示一次、服务器只指回自身时让位；悬浮和补全超过期限、文档已变化、注册被撤回时安静丢弃；触发字符只问声明过它的注册；点击 CodeLens 与文档链接只回传宿主生成的键，command: 链接不会被执行，工作区外的 file: 目标不会打开；只读预览不询问插件；停用、卸载、关闭项目后旧结果不再出现。",
+  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "partial",
+      "verificationStatus": "pending",
+      "evidence": [
+        "rust/lithe-core/src/plugins/editor_providers.rs",
+        "macos/Sources/Lithe/Application/Features/PluginEditorProviderHostService.swift",
+        "macos/Sources/Lithe/Models/AppModel/AppModel+PluginDefinitions.swift",
+        "macos/Sources/Lithe/Platform/MacOS/MonacoPluginEditorProviders.swift",
+        "frontend/editor/src/plugin-editor-providers.ts",
+        "frontend/editor/src/plugin-editor-provider-rules.ts",
+        "macos/Tests/LitheTests/PluginEditorProviderTests.swift",
+        "shared/contracts/plugins/v1/fixtures/editor/editor-providers.json",
+        "shared/contracts/plugins/v1/fixtures/editor/editor-providers.plugin.json"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "missing",
+      "verificationStatus": "not-applicable",
+      "evidence": [
+        "shared/contracts/plugins/v1/README.md"
+      ]
+    },
+    "notes": "当前仅 macOS 接线，真机和完整用户流程仍待验证。需要 editor.providers 权限，每个插件最多 32 个注册；诊断（API-26）、符号、格式化、重命名、Code Action、签名帮助、内联提示未做，对应类型返回 unsupportedOption。共享校验通过不代表 Windows 已实现。"
+  }
+}

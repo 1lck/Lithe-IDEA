@@ -1,0 +1,42 @@
+{
+  "id": "terminal-long-command-input",
+  "area": "工作台",
+  "group": "终端",
+  "capability": "Windows Shell 超长命令输入",
+  "macos": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "owner": "Terminal",
+  "verification": "在 Windows cmd.exe 和 PowerShell 中执行超过 Shell 单行限制的 IDE 多行命令，确认脚本执行、原始命令内容和终端关闭后的临时文件清理。",
+  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Views/Terminal"
+      ],
+      "implementationStatus": "platform-specific",
+      "verificationStatus": "not-applicable"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/crates/terminal/src/connection.rs",
+        "windows/tauri/src-tauri/src/terminal.rs"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "notes": "仅在 IDE 后端为 cmd.exe/PowerShell 的超长多行文本创建一次性脚本；不修改系统 Shell 配置。"
+  }
+}

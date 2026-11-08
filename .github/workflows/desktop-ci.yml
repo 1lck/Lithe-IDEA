@@ -68,6 +68,11 @@ jobs:
           node scripts/i18n/generate-i18n.mjs --check
           node --test --test-timeout=60000 scripts/i18n/test-i18n.mjs
 
+      - name: Check installed resource paths
+        run: |
+          ./scripts/macos/verify/verify-runtime-bundle-immutability.sh
+          node --test scripts/macos/verify/test-runtime-bundle-immutability.mjs
+
       - name: Run script tests
         run: |
           node --test \

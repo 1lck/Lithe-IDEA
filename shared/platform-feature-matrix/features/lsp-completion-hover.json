@@ -1,0 +1,54 @@
+{
+  "id": "lsp-completion-hover",
+  "area": "Java",
+  "group": "语言服务",
+  "capability": "补全与 Hover",
+  "macos": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "owner": "Language Tooling",
+  "verification": "在相同 Java fixture 中验证补全、Hover、排序、超时和空结果。Java 构造器和方法补全使用 JDT LS 的 guessMethodArguments=off：输入 new No 后接受 Node 候选应得到 Node()，光标在括号内；方法调用同样不插入参数名，构造器重载候选由 JDT LS 合并为类型候选。验证 initialize、didChangeConfiguration 与 workspace/configuration 三个配置入口一致，父级和叶级 section 均保留插件 favoriteStaticMembers、filteredTypes 等其他补全配置，其他语言 snippet、Java 方法补全签名展示及自动导入仍正常。 连续输入时保留 isIncomplete 并通过 LSP triggerKind=3 重新请求候选；验证空未完整列表、完整/空响应、触发字符、快速修改及文档关闭/会话替换后的过期结果。 #1662 LSP-09：多个补全来源的合并由 Core 的 lsp.mergeCompletions 决定：同一来源的候选全部保留（同名不同签名的重载不再被丢弃），低优先级来源中与高优先级来源同 label 的候选被遮蔽。Windows 只有一个补全来源，原样显示服务器列表，不调用该命令。macOS 删除私有的 Go/Swift/Rust/Python/JS/TS 关键词表，关键词改由语言服务器或插件提供，与 Windows 一致。在 macOS 打开有重载方法的 Java/TS 文件，确认同名重载全部出现；未运行语言服务器的 Go 文件不再出现内置关键词候选，当前文件标识符仍会出现。",
+  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Core/Language",
+        "rust/lithe-core/src/lsp/interface/engine.rs",
+        "shared/fixtures/lsp/java-completion-v1.json",
+        "shared/fixtures/lsp",
+        "shared/fixtures/lsp/completion-refresh-v1.json",
+        "rust/lithe-core/src/lsp/host_policy/completion_merge.rs",
+        "shared/fixtures/lsp/completion-merge-v1.json",
+        "macos/Tests/LitheTests/LanguageFeatureProviderTests.swift"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features",
+        "rust/lithe-core/src/lsp/interface/engine.rs",
+        "shared/fixtures/lsp/java-completion-v1.json",
+        "shared/fixtures/lsp",
+        "shared/fixtures/lsp/completion-refresh-v1.json",
+        "rust/lithe-core/src/lsp/host_policy/completion_merge.rs",
+        "shared/fixtures/lsp/completion-merge-v1.json"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "notes": "补全多 provider 合并（lsp.mergeCompletions）只有 macOS 存在多 provider 与按 label 去重；Windows 只有单一 LSP 补全来源，没有对应的 TS 合并/去重实现可删除，未来出现多来源时直接调用同一命令与 fixture。"
+  }
+}

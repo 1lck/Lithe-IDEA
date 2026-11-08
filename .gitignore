@@ -24,6 +24,7 @@ reasonix.toml
 !/shared/i18n/
 !/shared/contracts/
 !/shared/fixtures/
+!/shared/platform-feature-matrix/
 /node_modules/
 /.build/
 /.swiftpm/

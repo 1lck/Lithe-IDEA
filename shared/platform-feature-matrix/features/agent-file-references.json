@@ -1,0 +1,68 @@
+{
+  "id": "agent-file-references",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "从 Finder 或项目树拖入文件、⌘V 粘贴 Finder 文件或剪贴板图片、单独输入 @ 或全角 ＠ 展示工作区文件候选、继续输入关键字筛选并附加到 Agent 输入框，文件选择器、图片缩略图与可移除标签、多文件去重和数量限制、文件引用随消息发送及失败保留草稿",
+  "macos": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "macOS：从 Finder、项目树拖入临时文件（多文件、中文/空格名）到输入区与上下文栏，检查高亮和可移除标签、去重、数量限制、会话切换和发送失败保留草稿；用隔离项目验证文字+文件与纯文件发送、历史加载后引用正确送到原会话、Agent 读取与权限流程。在 Finder 复制文件后于输入框 ⌘V 应附加文件，截图后 ⌘V 应生成带缩略图的图片附件（保存在 Caches/AgentPastedImages，仍被任一会话引用的图片不清理，未引用且超过一周的才清理，不写 app bundle），复制普通文字时 ⌘V 照常粘贴，Caps Lock 开启时附件 ⌘V 同样生效；切到另一窗口或同窗口其他输入框后，附件粘贴不得进入原 Agent 草稿；在深色和浅色主题下单独输入 @ 或全角 ＠ 应立即列出已加载工作区的文件候选（最多 20 项，不重新扫描）；扫描结束前输入 @，文件清单就绪后应自动出现候选，无需重输；继续输入关键字应筛选文件，旧查询不得覆盖新候选；方向键切换、回车/Tab 选中后移除 @ 查询并附加该文件，Esc 只关闭候选且保留草稿。图片按文件引用处理，无多模态上传。Windows 原生拖放和 Claude 端到端待验证。 macOS 裸 @ 与 @Name 共享项目文件可见性，均不显示 .build/node_modules 生成文件，不受 Search exclusions（例如 *.log）影响；全局搜索仍可单独包含生成目录名称。 Unicode 回归：@i 能找到 src/İ.txt，小写展开和希腊字母上下文转换不丢失候选；与共享 unicode-contiguous fixture 核对。 Windows：在真实 Tauri 窗口执行 Windows 支持拖放、选择器、当前文件、@ 引用、原生 CF_HDROP 文件粘贴与图片粘贴缩略图。图片按数量、类型和大小限制写入平台缓存，失败或放弃的粘贴立即清理，未被任何会话引用且超过一周的图片在首次使用时清理，已接受引用的图片保留。目录不递归展开。 单元测试不替代运行时验收，未执行的真实服务及平台动作保持 pending。",
+  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Views/Agent/AgentComposerView.swift",
+        "macos/Sources/Lithe/Views/Agent/AgentFileReferenceList.swift",
+        "macos/Sources/LitheAgentConversationModule/Application/AgentFileReference.swift",
+        "macos/Tests/LitheTests/AgentFileReferenceTests.swift",
+        "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
+        "rust/lithe-agent-host/src/tests.rs",
+        "macos/Sources/Lithe/Views/Agent/AgentComposerPaste.swift",
+        "macos/Sources/Lithe/Views/Agent/AgentCommandCompletion.swift",
+        "macos/Sources/Lithe/Models/AppModel/AppModel+AgentConversation.swift",
+        "macos/Tests/LitheTests/AgentConversationPresentationTests.swift",
+        "macos/Tests/LitheTests/AgentComposerPasteTests.swift",
+        "macos/Sources/Lithe/Application/Features/SearchWorkflowCoordinator.swift",
+        "macos/Tests/LitheTests/SearchEverywhereBehaviorTests.swift",
+        "shared/fixtures/search/unicode-contiguous.json",
+        "shared/fixtures/agent/attachment-retention-v1.json",
+        "macos/Tests/LitheTests/AgentAttachmentRetentionTests.swift"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "rust/lithe-agent-host/src/prompt.rs",
+        "shared/fixtures/agent/acp-events-v1.json",
+        "windows/tauri/src/features/agent/components/agent-composer.tsx",
+        "windows/tauri/src/features/agent/types/agent-file-uri.ts",
+        "windows/tauri/src/features/agent/services/agent-composer-mentions.ts",
+        "windows/tauri/src/features/agent/services/agent-composer-mentions.test.ts",
+        "windows/tauri/src/features/file-system/utils/file-system-dropped-paths.ts",
+        "windows/tauri/src/features/file-system/utils/file-system-drop-controller.ts",
+        "windows/tauri/src/features/file-system/utils/file-system-drop-controller.test.ts",
+        "windows/tauri/src-tauri/src/agent_clipboard.rs",
+        "windows/tauri/src/platform/agent-pasted-images.ts",
+        "windows/tauri/tests/agent-pasted-images.test.ts",
+        "shared/fixtures/agent/attachment-retention-v1.json"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "notes": "#1662 AGT-06：粘贴图片的保留计划统一由 Core `agent.attachments.retentionPlan` 决定：被会话接受的引用（平台缓存目录内的账本文件，两端发送成功后追加）永不删除，放弃或失败的粘贴立即删除，未引用且超过 7 天的删除。删除了 macOS 每次粘贴按 7 天清理而不看引用的规则；Windows 首次使用时新增按同一计划清理的过期图片，放弃批次也改走 Core 计划。账本与图片都在平台缓存目录，不触碰 app bundle 或安装目录。 2026-10-22：Windows 支持拖放、选择器、当前文件、@ 引用、原生 CF_HDROP 文件粘贴与图片粘贴缩略图。图片按数量、类型和大小限制写入平台缓存，过期或失败粘贴清理自身文件；已接收图片为历史保留。目录不递归展开。"
+  }
+}

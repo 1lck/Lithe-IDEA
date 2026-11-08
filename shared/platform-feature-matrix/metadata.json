@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 4,
+  "lastReviewed": "2026-11-08",
+  "review": {
+    "status": "viva-migration-in-progress",
+    "method": "保留迁移前能力清单；未经新客户端核对的能力标为尚未盘点，历史状态与证据单独保留，不能视为 Viva 证据。",
+    "nextStep": "按能力核对 Viva 接入及 macOS、Windows 运行情况，逐项更新状态与当前证据。"
+  },
+  "statusDefinitions": {
+    "implementation": {
+      "implemented": {
+        "label": "已实现",
+        "icon": "✅",
+        "description": "代码入口和产品接入均已存在。"
+      },
+      "partial": {
+        "label": "部分实现",
+        "icon": "🟡",
+        "description": "已有实现，但范围、入口、平台能力或用户体验仍不完全一致。"
+      },
+      "missing": {
+        "label": "未实现",
+        "icon": "❌",
+        "description": "当前没有足够的实现入口或产品接入证据。"
+      },
+      "platform-specific": {
+        "label": "平台专属",
+        "icon": "🧩",
+        "description": "刻意只属于某个平台，不以跨平台对齐为目标。"
+      },
+      "plugin-provided": {
+        "label": "插件提供",
+        "icon": "🔌",
+        "description": "宿主只保留通用能力入口和契约，该能力由独立插件实现；运行时验证记录归插件仓库。"
+      },
+      "unassessed": {
+        "label": "尚未盘点",
+        "icon": "❔",
+        "description": "Viva 客户端尚未逐项核实，不能推断为已实现或未实现。"
+      }
+    },
+    "verification": {
+      "verified": {
+        "label": "已验证",
+        "icon": "✔️",
+        "description": "已按该能力点的验证方式完成运行时验证。"
+      },
+      "pending": {
+        "label": "待验证",
+        "icon": "🔍",
+        "description": "静态代码无法替代运行时验证，仍需按验证方式确认。"
+      },
+      "not-applicable": {
+        "label": "不适用",
+        "icon": "—",
+        "description": "当前没有可运行的实现入口，暂不适用运行时验证。"
+      }
+    }
+  }
+}

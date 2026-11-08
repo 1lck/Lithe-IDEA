@@ -1,0 +1,42 @@
+{
+  "id": "markdown-images-links",
+  "area": "编辑器",
+  "group": "Markdown",
+  "capability": "图片导入与链接定位",
+  "macos": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "owner": "Editor",
+  "verification": "验证本地图片、远程图片、相对链接和打开源文件行为。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Services/Markdown",
+        "macos/Sources/Lithe/Platform/MacOS/MarkdownPreviewWebView.swift"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/editor/markdown",
+        "windows/tauri/src/features/viewer"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    }
+  },
+  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+}

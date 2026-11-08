@@ -1,0 +1,44 @@
+{
+  "id": "github-prs",
+  "area": "协作",
+  "group": "GitHub",
+  "capability": "Pull Request 列表与详情",
+  "macos": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "owner": "GitHub",
+  "verification": "使用测试仓库验证 PR 列表、筛选、详情、分支比较和浏览器跳转。",
+  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Views/GitHub",
+        "macos/Sources/Lithe/Services/GitHub"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/github",
+        "shared/contracts/application-boundary.md",
+        "windows/tauri/src/config/backend-capabilities.ts"
+      ],
+      "implementationStatus": "partial",
+      "verificationStatus": "pending"
+    },
+    "notes": "Windows 存在界面代码，但 GitHub 后端能力当前关闭，不能作为已接入的产品能力。"
+  }
+}

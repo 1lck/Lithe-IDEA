@@ -1,0 +1,43 @@
+{
+  "id": "editor-git-gutter-peek",
+  "area": "编辑器",
+  "group": "Git 变更",
+  "capability": "编辑器 Git 行变更标记、点击预览与变更导航",
+  "macos": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "owner": "Editor / Git",
+  "verification": "在 Windows 打开已跟踪文件，新增、修改、删除内容并保存，点击标记查看差异、切换前后变更、按 Escape 关闭；确认多仓库同名文件互不影响。切换浅色、深色及自定义主色，检查面板边框、焦点和 Git 语义色；关闭 Git 标记设置后标记消失。macOS 检查对应行变更入口。Linux 单元测试不替代目标平台运行验证。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
+        "frontend/editor/src/workbench.ts"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "windows/tauri/src/features/editor/engines/monaco/git-gutter-controller.ts",
+        "windows/tauri/src/features/editor/engines/monaco/git-gutter-peek-widget.ts",
+        "windows/tauri/src/features/git/utils/git-gutter-changes.test.ts"
+      ]
+    }
+  },
+  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+}

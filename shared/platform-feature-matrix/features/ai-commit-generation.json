@@ -1,0 +1,47 @@
+{
+  "id": "ai-commit-generation",
+  "area": "AI",
+  "group": "AI 提交信息",
+  "capability": "Provider 配置与提交信息生成",
+  "macos": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "owner": "Git / AI",
+  "verification": "用相同 diff、规则和 Provider 配置比较请求计划、取消、错误和生成文本。 共享提交上下文的真实 Git 回归覆盖同路径重新暂存、未缓存工作区变化、截断外内容、多仓库同名文件、敏感重命名及目录展开；macOS 确认替换时再次核对并保留新输入，Windows 测试验证同一路径的内容变化和取消。两端原生完整界面验收仍为 pending。",
+  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Application/Features/CommitWorkflowCoordinator.swift",
+        "macos/Sources/Lithe/Platform/MacOS/AI",
+        "rust/lithe-core/src/git/commit_message_context.rs",
+        "shared/fixtures/git/commit-message-context-v1.json"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/git/services/ai-commit-service.ts",
+        "shared/contracts/ai-commit.md",
+        "rust/lithe-core/src/git/commit_message_context.rs",
+        "shared/fixtures/git/commit-message-context-v1.json"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "notes": "macOS 使用暂存区、Windows 使用勾选路径的工作区内容；生成完成及确认替换前由 Core 比较完整内容令牌，字符预算及截断说明由共享 AI 规划器维护。"
+  }
+}

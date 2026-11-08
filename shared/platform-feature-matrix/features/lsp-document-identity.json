@@ -1,0 +1,48 @@
+{
+  "id": "lsp-document-identity",
+  "area": "语言智能",
+  "group": "语言服务器",
+  "capability": "语言服务器文档路径与 URI 身份",
+  "macos": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "owner": "Language Intelligence",
+  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "verification": "使用包含 #、百分号、空格和 Unicode 的真实项目文件验证打开、修改、诊断及跳转；Windows 另验证 UNC 路径和重开同名文档。共享 fixture、模拟语言服务器及两端桥接测试覆盖协议，真实产品与远程工作区验收 pending。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift",
+        "macos/Tests/LitheTests/LanguageServerSyncBridgeTests.swift",
+        "macos/Tests/LitheTests/RustLanguageServerLaunchTests.swift",
+        "rust/lithe-core/src/lsp/interface/document_uri.rs"
+      ]
+    },
+    "windows": {
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending",
+      "evidence": [
+        "windows/tauri/src/platform/lsp-core-adapter.ts",
+        "windows/tauri/src/platform/lsp-core-adapter.test.ts",
+        "rust/lithe-core/src/lsp/tests.rs",
+        "shared/fixtures/lsp/document-uri-v1.json",
+        "rust/lithe-core/src/lsp/interface/document_uri.rs"
+      ]
+    },
+    "notes": "两端在原有语言服务器请求中传递本机路径，Core 转换为 URI 并区分编码后的保留字符与分隔符；虚拟 URI 保持原样。 导航命令在各自协议边界解析路径，通用 URI 转换器不依赖具体语言。"
+  }
+}

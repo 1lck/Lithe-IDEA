@@ -1,0 +1,42 @@
+{
+  "id": "updates-failure-rollback",
+  "area": "发行与更新",
+  "group": "应用更新",
+  "capability": "失败重试与回滚",
+  "macos": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "owner": "Release",
+  "verification": "macOS StableRollbackTests、UpdateCheckerTests 与 AppUpdateChannelTests 覆盖下载/校验失败、取消与恢复、忙碌期间禁止换渠道、旧提示失效及全量回退。Windows store 与 selector 测试覆盖保存失败、未确认拒绝 AutoBuild、手动下载浏览器失败、原生 handle 释放及未保存文件预检查互斥。真实安装器回退仍待验证。",
+  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Platform/MacOS/Updates"
+      ],
+      "implementationStatus": "partial",
+      "verificationStatus": "pending"
+    },
+    "windows": {
+      "evidence": [
+        "docs/releases/windows-updater.md",
+        "windows/tauri/src/features/settings/hooks/use-updater.ts"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    },
+    "notes": "macOS AutoBuild 提供独立的签名全量返回正式版入口，允许版本降低并保留项目与设置，但新设置可能无法被旧版识别。Windows AutoBuild 与跨渠道通过明确提示的发布页全量安装，不宣称支持原生自动回滚或签名滚动更新。"
+  }
+}

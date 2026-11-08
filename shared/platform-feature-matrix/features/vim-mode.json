@@ -1,0 +1,41 @@
+{
+  "id": "vim-mode",
+  "area": "编辑器",
+  "group": "编辑模式",
+  "capability": "Vim 模式与命令状态",
+  "macos": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "unassessed",
+    "verificationStatus": "pending",
+    "evidence": [
+      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+    ]
+  },
+  "owner": "Editor",
+  "verification": "Windows 验证 Normal/Insert/Visual 模式、命令执行和设置持久化；macOS 需要确认产品范围。",
+  "legacy": {
+    "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
+    "macos": {
+      "evidence": [
+        "macos/Sources/Lithe/Views/Editor"
+      ],
+      "implementationStatus": "missing",
+      "verificationStatus": "not-applicable"
+    },
+    "windows": {
+      "evidence": [
+        "windows/tauri/src/features/vim",
+        "windows/tauri/src/features/editor"
+      ],
+      "implementationStatus": "implemented",
+      "verificationStatus": "pending"
+    }
+  },
+  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+}
