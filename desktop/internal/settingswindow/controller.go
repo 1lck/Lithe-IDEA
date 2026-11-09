@@ -37,7 +37,19 @@ type Values struct {
 	Theme string
 	// MarketplaceWidth is a layout preference, applied on completed resize, not a draft setting.
 	MarketplaceWidth float32
+	// EditorTabRows is TabRowsMultiple when an editor group's tabs wrap onto more rows; empty
+	// keeps them in one row. EditorTabOverflow says what one row does with tabs that do not
+	// fit: TabOverflowSqueeze makes them narrower, and empty scrolls them sideways.
+	EditorTabRows     string
+	EditorTabOverflow string
 }
+
+// The stored values of Values.EditorTabRows and Values.EditorTabOverflow besides the empty
+// ones, which are the defaults: one row that scrolls.
+const (
+	TabRowsMultiple    = "multiple"
+	TabOverflowSqueeze = "squeeze"
+)
 
 // ToolchainLoader reads and writes the toolchain facts the Build settings page
 // shows. Both calls run off the window thread.
@@ -91,6 +103,10 @@ type Options struct {
 	// individual changes to the settings owner without waiting for its window thread.
 	SetLanguage func(string)
 	SetTheme    func(string)
+	// SetTabRows and SetTabOverflow hand a change of Values.EditorTabRows and
+	// Values.EditorTabOverflow to the settings owner in the same way.
+	SetTabRows     func(string)
+	SetTabOverflow func(string)
 	// ResetLayout puts the workbench's buttons back where the catalog puts them. It runs
 	// at once, on the settings window's thread, when the user presses the button, because
 	// pressing it is its own confirmation.

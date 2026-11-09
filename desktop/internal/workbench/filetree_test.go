@@ -727,7 +727,7 @@ func TestProjectTreeRootIsVisibleAndCollapsible(t *testing.T) {
 	}
 	styledRoot := false
 	for _, label := range h.driver.Snapshot().Labels {
-		if label.Value == p.tree.root.name && label.Bounds.Y >= p.tree.areaRect.Y && label.Bounds.Y < p.tree.areaRect.Y+p.tree.areaRect.Height && label.FontSize == 13 && label.Weight == gfx.WeightSemibold && label.Color == gfx.RGB24(0xD1D3D9) {
+		if label.Value == p.tree.root.name && label.Bounds.Y >= p.tree.scroll.Area.Y && label.Bounds.Y < p.tree.scroll.Area.Y+p.tree.scroll.Area.Height && label.FontSize == 13 && label.Weight == gfx.WeightSemibold && label.Color == gfx.RGB24(0xD1D3D9) {
 			styledRoot = true
 		}
 	}
@@ -784,7 +784,7 @@ func TestProjectTreeLightThemeUsesNativeLabelColor(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, label := range h.driver.Snapshot().Labels {
-		if label.Value == p.tree.root.name && label.Bounds.Y >= p.tree.areaRect.Y && label.Bounds.Y < p.tree.areaRect.Y+p.tree.areaRect.Height && label.Color == gfx.RGB24(0x000000) {
+		if label.Value == p.tree.root.name && label.Bounds.Y >= p.tree.scroll.Area.Y && label.Bounds.Y < p.tree.scroll.Area.Y+p.tree.scroll.Area.Height && label.Color == gfx.RGB24(0x000000) {
 			return
 		}
 	}
@@ -805,18 +805,18 @@ func TestProjectTreeLongRootCanScrollToNameEnd(t *testing.T) {
 	}
 	var right float32
 	for _, label := range h.driver.Snapshot().Labels {
-		if label.Value == p.tree.root.name && label.Bounds.Y >= p.tree.areaRect.Y && label.Bounds.Y < p.tree.areaRect.Y+p.tree.areaRect.Height {
-			right = max(right, label.Bounds.X+label.Bounds.Width-p.tree.areaRect.X)
+		if label.Value == p.tree.root.name && label.Bounds.Y >= p.tree.scroll.Area.Y && label.Bounds.Y < p.tree.scroll.Area.Y+p.tree.scroll.Area.Height {
+			right = max(right, label.Bounds.X+label.Bounds.Width-p.tree.scroll.Area.X)
 		}
 	}
-	if right <= p.tree.viewport || p.tree.width < right {
-		t.Fatalf("long root end=%v width=%v viewport=%v", right, p.tree.width, p.tree.viewport)
+	if right <= p.tree.scroll.Viewport() || p.tree.scroll.Content < right {
+		t.Fatalf("long root end=%v width=%v viewport=%v", right, p.tree.scroll.Content, p.tree.scroll.Viewport())
 	}
-	area := p.tree.areaRect
+	area := p.tree.scroll.Area
 	if err := h.driver.Scroll(gfx.ScrollEvent{X: area.X + 20, Y: area.Y + 20, DeltaX: 10000, Precise: true}); err != nil {
 		t.Fatal(err)
 	}
-	if p.tree.scrollX <= 0 || right-p.tree.scrollX > p.tree.viewport {
+	if p.tree.scroll.Offset <= 0 || right-p.tree.scroll.Offset > p.tree.scroll.Viewport() {
 		t.Fatal("horizontal scroll cannot expose the end of the root name")
 	}
 }
@@ -848,7 +848,7 @@ func TestProjectTreeKeyboardKeepsSelectionVisible(t *testing.T) {
 	if visibleHits == 0 || visibleHits >= len(p.tree.rows) {
 		t.Fatalf("viewport declared %d of %d rows", visibleHits, len(p.tree.rows))
 	}
-	if p.tree.width <= p.tree.viewport {
+	if p.tree.scroll.Content <= p.tree.scroll.Viewport() {
 		t.Fatal("offscreen long filename did not extend the horizontal scroll range")
 	}
 	first := p.tree.root.children[0]
@@ -880,11 +880,11 @@ func TestProjectTreeKeyboardKeepsSelectionVisible(t *testing.T) {
 	if p.tree.selected != p.tree.root.children[34] {
 		t.Fatal("keyboard focus was lost after scrolling")
 	}
-	area := p.tree.areaRect
+	area := p.tree.scroll.Area
 	if err := h.driver.Scroll(gfx.ScrollEvent{X: area.X + 20, Y: area.Y + 20, DeltaX: 200, Precise: true}); err != nil {
 		t.Fatal(err)
 	}
-	if p.tree.scrollX <= 0 {
+	if p.tree.scroll.Offset <= 0 {
 		t.Fatal("long name could not be reached by horizontal scrolling")
 	}
 }

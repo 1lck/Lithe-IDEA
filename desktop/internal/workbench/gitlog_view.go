@@ -8,6 +8,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/hscroll"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/monogrid"
@@ -152,6 +153,16 @@ type logView struct {
 	fileRows     []treelist.Row
 	fileItems    []logFileItem
 	fileSelected int
+	// fileScroll scrolls the changed files sideways, so a long name is never cut short.
+	// fileArea is their list in the frame being drawn, and filesDrawn says the frame
+	// declared it. fileWidthKeys, fileWidthOf and fileWidthFont are the rows, the commit
+	// and the font size fileScroll.Content was measured for.
+	fileScroll    hscroll.State
+	fileArea      ui.Box
+	filesDrawn    bool
+	fileWidthKeys []int
+	fileWidthOf   string
+	fileWidthFont float32
 	// focus is the field to give the keyboard to in the next frame.
 	focus gfx.ID
 
@@ -806,11 +817,20 @@ func (a *App) drawLogFiles(f *ui.Frame, p *project) ui.Box {
 			return
 		}
 		a.collectLogFiles(p)
-		result := logFileList.Draw(f, &a.view, v.fileRows, v.fileSelected, treelist.Options{
-			Dark:     a.colors.Dark,
-			Expand:   i18n.Shared(a.language(), "native.expandDirectory"),
-			Collapse: i18n.Shared(a.language(), "native.collapseDirectory"),
-		}, func(i int) { a.drawLogFileContent(f, p, v.fileItems[i]) })
+		// Names are never cut short: the column is as wide as the widest row, and the list
+		// scrolls sideways to show the rest of it, as the project tree does.
+		var result treelist.Result
+		f.Column().Fill().Children(func() {
+			result = logFileList.Draw(f, &a.view, v.fileRows, v.fileSelected, treelist.Options{
+				Dark:     a.colors.Dark,
+				Expand:   i18n.Shared(a.language(), "native.expandDirectory"),
+				Collapse: i18n.Shared(a.language(), "native.collapseDirectory"),
+				Width:    max(v.fileScroll.Content, v.fileScroll.Viewport()),
+				OffsetX:  v.fileScroll.Offset,
+			}, func(i int) { a.drawLogFileContent(f, p, v.fileItems[i]) })
+			a.drawSidewaysThumb(f, &v.fileScroll, false)
+		})
+		v.fileArea, v.filesDrawn = result.Area, true
 		if i := result.Clicked; i >= 0 {
 			l.listFocus = false
 			a.selectLogFileRow(p, i)
@@ -859,21 +879,67 @@ func (a *App) collectLogFiles(p *project) {
 	}
 }
 
+// logFileStatus is the width of the letter of a changed file's change, before its icon.
+const logFileStatus = 14
+
 // drawLogFileContent declares what a row of the changed files shows after its arrow: a
 // folder's icon and path, or a file's change, icon and name in the color of its change.
+// Names are laid out whole; captureLogFiles measures them the same way.
 func (a *App) drawLogFileContent(f *ui.Frame, p *project, item logFileItem) {
 	l := &p.log
 	if item.file < 0 {
 		dir := l.folders[item.folder].dir
 		f.Icon(fileicons.ForDirectory(path.Base(dir), a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
-		f.Text(dir).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Ellipsis().Grow(1)
+		f.Text(dir).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Shrink(0)
 		return
 	}
 	file := l.files[item.file]
 	color := a.fileStatusColor(file.Status)
-	f.Text(statusLetter(file.Status)).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(color).Width(14).Shrink(0)
+	f.Text(statusLetter(file.Status)).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(color).Width(logFileStatus).Shrink(0)
 	f.Icon(fileicons.ForFile(path.Base(file.Path), a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
-	f.Text(path.Base(file.Path)).FontSize(treeFontSize).Color(color).Ellipsis().Grow(1)
+	f.Text(path.Base(file.Path)).FontSize(treeFontSize).Color(color).Shrink(0)
+}
+
+// captureLogFiles reads what the frame just laid out for the changed files: how wide their
+// widest row is and how wide their list, keeping the sideways scroll in range. The rows are
+// measured again only when they, the commit or the font change; another commit starts
+// scrolled to the left.
+func (a *App) captureLogFiles(canvas *gfx.Canvas) {
+	v := &a.logView
+	if !v.filesDrawn || a.project == nil {
+		v.fileScroll.Area = gfx.Rect{}
+		return
+	}
+	v.filesDrawn = false
+	l := &a.project.log
+	width := v.fileScroll.Content
+	font := float32(treeFontSize)
+	same := slices.EqualFunc(v.fileWidthKeys, v.fileRows, func(key int, row treelist.Row) bool { return key == row.Key })
+	if v.fileWidthOf != l.selected || v.fileWidthFont != font || !same {
+		if v.fileWidthOf != l.selected {
+			v.fileScroll.Offset = 0
+		}
+		width = 0
+		for i, row := range v.fileRows {
+			item := v.fileItems[i]
+			if item.file < 0 {
+				name := canvas.TextWidthWeight(l.folders[item.folder].dir, font, gfx.WeightRegular)
+				width = max(width, treelist.Width(row.Depth, treelist.Icon+treelist.Gap+name))
+				continue
+			}
+			name := canvas.TextWidthWeight(path.Base(l.files[item.file].Path), font, gfx.WeightRegular)
+			width = max(width, treelist.Width(row.Depth, logFileStatus+treelist.Gap+treelist.Icon+treelist.Gap+name))
+		}
+		width += treeScrollPad
+		v.fileWidthKeys = v.fileWidthKeys[:0]
+		for _, row := range v.fileRows {
+			v.fileWidthKeys = append(v.fileWidthKeys, row.Key)
+		}
+		v.fileWidthOf, v.fileWidthFont = l.selected, font
+	}
+	if v.fileScroll.Fit(v.fileArea.Rect(), width) {
+		canvas.RequestFrame()
+	}
 }
 
 // selectLogFileRow selects the folder or the file of row i of the changed files.
@@ -975,7 +1041,7 @@ func (a *App) fileStatusColor(status string) gfx.Color {
 	case "A":
 		return a.colors.Success
 	case "D":
-		return a.colors.Subtle
+		return a.colors.Deleted
 	case "M", "R", "C":
 		return a.colors.Accent
 	}

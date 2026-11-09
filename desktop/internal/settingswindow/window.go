@@ -41,6 +41,11 @@ var (
 	themeScope    = tree.Sub(root, tree.Name("theme"))
 	languageScope = tree.Sub(root, tree.Name("language"))
 	infoScope     = tree.Sub(root, tree.Name("info"))
+	// tabRowsScope holds the two choices of how many rows an editor group's tabs take,
+	// item 0 one row and item 1 several; tabOverflowScope the two choices of what one row
+	// does with tabs that do not fit, item 0 scrolling and item 1 squeezing.
+	tabRowsScope     = tree.Sub(root, tree.Name("tab-rows"))
+	tabOverflowScope = tree.Sub(root, tree.Name("tab-overflow"))
 )
 
 // The metrics of the window, after the macOS client's settings window and the log window.
@@ -87,6 +92,14 @@ const (
 	cardGap    = 12
 	// selectWidth is the width of the language list.
 	selectWidth = 190
+	// radioHeight is the height of one option of a radio group, radioSize the circle in
+	// front of its words and radioDot the dot that fills the circle of the chosen one.
+	// radioIndent is how far an option that refines another is set in, so its circle sits
+	// under the words of the option it refines.
+	radioHeight = 24
+	radioSize   = 14
+	radioDot    = 6
+	radioIndent = radioSize + 8
 	// emptyWidth is the width the sentence of a page that is not available yet wraps at.
 	emptyWidth = 360
 	// footerHeight is the height of the bar with the buttons.
@@ -307,7 +320,9 @@ func (w *window) paint(canvas *gfx.Canvas, size gfx.Size) {
 		// The language list lives on the general page. One left open there would go on
 		// taking Enter and Escape from the window with nothing on the screen to show why.
 		w.language.Open = false
-		w.pinnedInfo = gfx.ID{}
+		if w.sess.page != pageEditor {
+			w.pinnedInfo = gfx.ID{}
+		}
 	}
 	if w.sess.page != pagePlugins {
 		w.marketSource.Open = false
@@ -516,6 +531,8 @@ func (w *window) drawContent(f *ui.Frame) {
 		switch {
 		case w.sess.page == pageGeneral:
 			w.drawGeneral(f)
+		case w.sess.page == pageEditor:
+			w.drawEditor(f)
 		case w.sess.page == pageBuild && w.ctrl.opts.Toolchains != nil:
 			w.drawToolchains(f)
 		default:
@@ -574,6 +591,90 @@ func (w *window) setTheme(value string, force bool) {
 	if w.ctrl.opts.SetTheme != nil {
 		w.ctrl.opts.SetTheme(value)
 	}
+}
+
+// setTabRows and setTabOverflow notify the change of one of the two tab settings in the
+// same way.
+func (w *window) setTabRows(value string, force bool) {
+	if w.sess.finished.Load() || (!force && w.sess.values.EditorTabRows == value) {
+		return
+	}
+	w.sess.values.EditorTabRows = value
+	if w.ctrl.opts.SetTabRows != nil {
+		w.ctrl.opts.SetTabRows(value)
+	}
+}
+
+func (w *window) setTabOverflow(value string, force bool) {
+	if w.sess.finished.Load() || (!force && w.sess.values.EditorTabOverflow == value) {
+		return
+	}
+	w.sess.values.EditorTabOverflow = value
+	if w.ctrl.opts.SetTabOverflow != nil {
+		w.ctrl.opts.SetTabOverflow(value)
+	}
+}
+
+// drawEditor is the editor page. Its card says where an editor group's tabs go when they
+// do not all fit, as the IDE's setting does: one row that scrolls, one row whose tabs are
+// squeezed, or as many rows as they need. The two choices for one row refine the first
+// option and are set in under it; they are dimmed while several rows are chosen, which
+// keeps what was picked for one row for when the user goes back to it.
+func (w *window) drawEditor(f *ui.Frame) {
+	p := &w.pal
+	settings := &w.text.Settings
+	values := &w.sess.values
+	scroll := pageScrollScope.At(int(pageEditor))
+	f.ScrollArea(scroll).Grow(1).Shrink(1).MinHeight(0).PadSides(18, contentPad, contentPad, contentPad).Gap(cardGap).Children(func() {
+		w.card(f, 4, settings.EditorTabs, settings.EditorTabsHelp, func() {
+			f.Column().FillWidth().Gap(2).Children(func() {
+				f.Row().FillWidth().Height(radioHeight).Items(ui.Center).Children(func() {
+					f.Text(settings.TabsShowIn).FontSize(12).Color(p.text).Ellipsis()
+				})
+				multiple := values.EditorTabRows == TabRowsMultiple
+				if w.radio(f, tabRowsScope.At(0), settings.TabsOneRow, !multiple, false) {
+					w.setTabRows("", false)
+				}
+				f.Column().FillWidth().PadSides(0, 0, 0, radioIndent).Gap(2).Children(func() {
+					squeeze := values.EditorTabOverflow == TabOverflowSqueeze
+					if w.radio(f, tabOverflowScope.At(0), settings.TabsScroll, !squeeze, multiple) {
+						w.setTabOverflow("", false)
+					}
+					if w.radio(f, tabOverflowScope.At(1), settings.TabsSqueeze, squeeze, multiple) {
+						w.setTabOverflow(TabOverflowSqueeze, false)
+					}
+				})
+				if w.radio(f, tabRowsScope.At(1), settings.TabsMultipleRows, multiple, false) {
+					w.setTabRows(TabRowsMultiple, false)
+				}
+			})
+		})
+	})
+}
+
+// radio is one option of a radio group: a circle, filled with a dot when the option is
+// chosen, in front of its words. A disabled option is dimmed, ignores clicks and tells
+// assistive technology so. It reports whether this paint delivers a click on the option.
+func (w *window) radio(f *ui.Frame, id gfx.ID, label string, chosen, disabled bool) bool {
+	p := &w.pal
+	words, ring, dot := p.text, p.border, p.accent
+	if chosen {
+		ring = p.accent
+	}
+	if disabled {
+		words, ring, dot = p.subtle, p.subtle, p.subtle
+	}
+	option := f.Row().FillWidth().Height(radioHeight).Gap(8).Items(ui.Center).Radius(4).
+		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleRadio, Value: label, Checked: chosen, Selected: chosen, Disabled: disabled})
+	option.Children(func() {
+		f.Row().Size(radioSize, radioSize).Shrink(0).Radius(radioSize/2).Stroke(1, ring).Center().Children(func() {
+			if chosen {
+				f.Row().Size(radioDot, radioDot).Shrink(0).Radius(radioDot / 2).Background(dot)
+			}
+		})
+		f.Text(label).FontSize(12).Color(words).Ellipsis()
+	})
+	return !disabled && option.Clicked()
 }
 
 // drawGeneral is the general page: the cards that edit settings, then the one that
@@ -672,6 +773,8 @@ func (w *window) drawFooter(f *ui.Frame) {
 			// system default. Forward it so the owner's real setting is cleared.
 			w.setLanguage("", true)
 			w.setTheme("", true)
+			w.setTabRows("", true)
+			w.setTabOverflow("", true)
 		}
 		f.Spacer()
 		if f.Button(cancelID, settings.Cancel).Outline().Clicked() {

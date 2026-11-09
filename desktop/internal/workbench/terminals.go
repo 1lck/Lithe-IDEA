@@ -182,6 +182,18 @@ type groupDecl struct {
 	selected          *terminal
 	// doc is the open file the group shows instead, and nil when it shows a terminal.
 	doc *document
+
+	// What an editor group's strip declared for captureStrips (see tabstrip.go). state is the
+	// strip's remembered state and current the member the group selects. chips are all its
+	// tabs, files' included. view is the part of the strip that shows the tabs and content
+	// the row of them inside it, which scrolls; more is the button that lists the hidden
+	// tabs. A box is read only when its flag says it was declared.
+	state            *tabStrip
+	current          string
+	chips            []chipDecl
+	view, content    ui.Box
+	more             ui.Box
+	viewSet, moreSet bool
 }
 
 // place is where the group was laid out, for a drag to aim at.
@@ -235,6 +247,13 @@ type terminalUI struct {
 	// afresh.
 	autoFailed bool
 	drag       tabDrag
+	// strips is what each editor group's strip of tabs remembers between frames, by group
+	// (see tabstrip.go). hiddenScratch, tabWidths and tabStarts are reused by every frame so
+	// laying the strips out allocates nothing once they have grown.
+	strips        map[string]*tabStrip
+	hiddenScratch []string
+	tabWidths     []float32
+	tabStarts     []int
 }
 
 // each calls fn for every group the frame declared: the Terminal tool window, if it was
@@ -328,39 +347,19 @@ func (a *App) drawTerminal(f *ui.Frame) {
 
 // drawTerminalChips declares the tabs of the terminals that group lists, in the group's
 // order, and returns them for the drag. It is called inside the box of the group's strip.
+// The editor's groups lay their strips out with drawGroupStrip instead.
 //
 // The group's open files get their tabs among the terminals', in the same order; they are not
 // returned, as a file's tab cannot be dragged yet.
 func (a *App) drawTerminalChips(f *ui.Frame, group string) []tabDecl {
-	p := a.project
-	set := &p.terms
-	g := set.bench.Group(group)
-	if g == nil {
-		return nil
-	}
-	type shownTab struct {
-		term *terminal
-		doc  *document
-	}
-	var shown []shownTab
-	for _, member := range g.Members {
-		if id, ok := memberTerminal(member); ok {
-			if t := set.find(id); t != nil {
-				shown = append(shown, shownTab{term: t})
-			}
-		} else if id, ok := memberDocument(member); ok {
-			if d := p.docs.find(id); d != nil {
-				shown = append(shown, shownTab{doc: d})
-			}
-		}
-	}
+	shown, current := a.groupTabs(group)
 	tabs := make([]tabDecl, 0, len(shown))
 	for i, s := range shown {
 		if s.doc != nil {
-			a.drawDocumentTab(f, s.doc, g.Selected == documentMember(s.doc.id), i, len(shown))
+			a.drawDocumentTab(f, s.doc, current == s.member(), i, len(shown), false)
 			continue
 		}
-		tabs = append(tabs, a.drawTerminalTab(f, s.term, g.Selected == terminalMember(s.term.id), i, len(shown)))
+		tabs = append(tabs, a.drawTerminalTab(f, s.term, current == s.member(), i, len(shown)))
 	}
 	return tabs
 }
@@ -422,7 +421,7 @@ func (a *App) drawTerminalTab(f *ui.Frame, t *terminal, selected bool, pos, size
 // captureTerminals reads what the frame that was just laid out gave the terminals: where
 // each group and the empty editor are, which is what the drag aims at, and how much room
 // each split gave its first child.
-func (a *App) captureTerminals() {
+func (a *App) captureTerminals() bool {
 	u := &a.term
 	u.places = u.places[:0]
 	u.each(func(g *groupDecl) { u.places = append(u.places, g.place()) })
@@ -436,6 +435,7 @@ func (a *App) captureTerminals() {
 	if !u.toolDrawn {
 		u.autoFailed = false
 	}
+	return a.captureStrips()
 }
 
 // paintTerminal paints the shown terminals into the boxes the frame declared for them and
@@ -452,7 +452,11 @@ func (a *App) paintTerminal(canvas *gfx.Canvas) {
 	}
 	u := &a.term
 	set := &p.terms
-	a.captureTerminals()
+	if a.captureTerminals() {
+		// A strip of tabs scrolled, or what it hides changed: the frame that shows it is
+		// declared from what was just captured.
+		canvas.RequestFrame()
+	}
 	if u.toolDrawn && len(set.list) == 0 && !u.autoFailed {
 		if t := a.newTerminal(p); t != nil {
 			a.focusTerminal(t.id)

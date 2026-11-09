@@ -248,12 +248,34 @@ func TestInsertionIndex(t *testing.T) {
 		want int
 	}{{-10, 0}, {10, 0}, {49, 0}, {50, 1}, {120, 1}, {200, 2}, {300, 3}, {900, 3}}
 	for _, c := range cases {
-		if got := insertionIndex(others, c.x); got != c.want {
+		if got := insertionIndex(others, c.x, 0); got != c.want {
 			t.Errorf("insertionIndex(x = %v) = %d, want %d", c.x, got, c.want)
 		}
 	}
-	if got := insertionIndex(nil, 50); got != 0 {
+	if got := insertionIndex(nil, 50, 0); got != 0 {
 		t.Errorf("insertionIndex with no tabs = %d, want 0", got)
+	}
+}
+
+// TestInsertionIndexAcrossRows drags over a strip whose tabs wrap: two tabs on a first row
+// around height 16 and one on a second row around height 48.
+func TestInsertionIndexAcrossRows(t *testing.T) {
+	others := []tabSlot{
+		{term: 1, rect: gfx.Rect{X: 0, Y: 4, Width: 100, Height: 24}},
+		{term: 2, rect: gfx.Rect{X: 104, Y: 4, Width: 100, Height: 24}},
+		{term: 3, rect: gfx.Rect{X: 0, Y: 36, Width: 100, Height: 24}},
+	}
+	cases := []struct {
+		x, y float32
+		want int
+	}{
+		{10, 0, 0}, {10, 16, 0}, {120, 16, 1}, {300, 16, 2},
+		{10, 48, 2}, {60, 48, 3}, {300, 60, 3},
+	}
+	for _, c := range cases {
+		if got := insertionIndex(others, c.x, c.y); got != c.want {
+			t.Errorf("insertionIndex(%v, %v) = %d, want %d", c.x, c.y, got, c.want)
+		}
 	}
 }
 
@@ -288,7 +310,28 @@ func TestInsertionMark(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
-		if got := insertionMark(c.strip, c.others, c.index); got != c.want {
+		if got := insertionMark(c.strip, c.others, c.index, 36); got != c.want {
+			t.Errorf("%s: insertionMark = %v, want %v", c.name, got, c.want)
+		}
+	}
+
+	// On a strip of two rows the line stands on the pointer's row: in front of the first tab
+	// of the second row while the pointer is there, and after the last tab of the first row
+	// while it is at the end of the first.
+	rows := gfx.Rect{X: 10, Y: 20, Width: 400, Height: 64}
+	wrapped := []tabSlot{
+		{term: 1, rect: gfx.Rect{X: 20, Y: 24, Width: 100, Height: 24}},
+		{term: 2, rect: gfx.Rect{X: 20, Y: 56, Width: 100, Height: 24}},
+	}
+	for _, c := range []struct {
+		name string
+		y    float32
+		want gfx.Rect
+	}{
+		{"second row", 68, gfx.Rect{X: 17, Y: 56, Width: 2, Height: 24}},
+		{"end of the first row", 36, gfx.Rect{X: 121, Y: 24, Width: 2, Height: 24}},
+	} {
+		if got := insertionMark(rows, wrapped, 1, c.y); got != c.want {
 			t.Errorf("%s: insertionMark = %v, want %v", c.name, got, c.want)
 		}
 	}

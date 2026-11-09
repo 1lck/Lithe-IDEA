@@ -780,12 +780,14 @@ func (a *App) documentPointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 }
 
 // drawDocumentTab declares one open file's tab: its icon, its full name, a dot while it has
-// unsaved changes, and a close button. A click on the tab or its close button is recorded
-// for paintTerminal to do. pos is the tab's place among size tabs, for assistive technology.
-func (a *App) drawDocumentTab(f *ui.Frame, d *document, selected bool, pos, size int) {
+// unsaved changes, and a close button, and returns it. A click on the tab or its close button
+// is recorded for paintTerminal to do. pos is the tab's place among size tabs, for assistive
+// technology. squeeze lets the tab give up width, down to the least width of a tab, with its
+// name cut short; otherwise the tab is as wide as its full name.
+func (a *App) drawDocumentTab(f *ui.Frame, d *document, selected bool, pos, size int, squeeze bool) ui.Box {
 	u := &a.term
 	chip := f.Row().Height(rowHeight).Items(ui.Center).Gap(terminalChipGap).PadSides(0, 2, 0, 8).
-		Shrink(0).Radius(a.theme.Metrics.RadiusItem()).
+		Radius(a.theme.Metrics.RadiusItem()).
 		HitWith(docTabs.At(d.id), d.name, gfx.HitOptions{
 			Role:     gfx.RoleTab,
 			Cursor:   gfx.PointerCursorHand,
@@ -794,6 +796,11 @@ func (a *App) drawDocumentTab(f *ui.Frame, d *document, selected bool, pos, size
 			SetSize:  int32(size),
 		}).
 		Pressed(ui.Look{}.Background(a.colors.Active))
+	if squeeze {
+		chip = chip.Shrink(1).MinWidth(terminalChipMinWidth)
+	} else {
+		chip = chip.Shrink(0)
+	}
 	if selected {
 		chip = chip.Background(a.colors.Active)
 	} else {
@@ -802,7 +809,12 @@ func (a *App) drawDocumentTab(f *ui.Frame, d *document, selected bool, pos, size
 	var closeButton ui.Box
 	chip.Children(func() {
 		f.Icon(fileicons.ForFile(d.name, a.colors.Dark)).Size(terminalChipIcon, terminalChipIcon).Shrink(0).Color(a.colors.Subtle)
-		label := f.Text(d.name).Shrink(0)
+		label := f.Text(d.name)
+		if squeeze {
+			label.Ellipsis()
+		} else {
+			label.Shrink(0)
+		}
 		if selected {
 			label.Color(a.colors.Text)
 		} else {
@@ -826,4 +838,5 @@ func (a *App) drawDocumentTab(f *ui.Frame, d *document, selected bool, pos, size
 	case chip.Clicked():
 		u.actions = append(u.actions, tabAction{kind: actionSelectDocument, term: d.id})
 	}
+	return chip
 }

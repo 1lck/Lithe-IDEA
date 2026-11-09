@@ -161,6 +161,9 @@ type EditorMessages struct {
 	// SoftWrap names the button at the end of the tab bar that wraps long lines at the
 	// editor's width instead of scrolling them sideways.
 	SoftWrap string
+	// HiddenTabs names the button at the end of a tab strip that lists the tabs scrolled or
+	// squeezed out of view.
+	HiddenTabs string
 	// Minimap names the small picture of the file down the editor's right side, and
 	// HideMinimap and ShowMinimap the button beside it that hides it, and shows it again, in
 	// every editor.
@@ -530,6 +533,17 @@ type SettingsMessages struct {
 	LayoutHint   string
 	ResetLayout  string
 	About        string
+
+	// The Editor page: the card that lays out the tabs of an editor group. TabsShowIn leads
+	// the choice between TabsOneRow, which TabsScroll and TabsSqueeze refine, and
+	// TabsMultipleRows.
+	EditorTabs       string
+	EditorTabsHelp   string
+	TabsShowIn       string
+	TabsOneRow       string
+	TabsScroll       string
+	TabsSqueeze      string
+	TabsMultipleRows string
 
 	// The bottom bar.
 	RestoreDefaults string

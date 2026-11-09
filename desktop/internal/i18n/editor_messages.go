@@ -10,6 +10,7 @@ func editorMessages(language Language) EditorMessages {
 		DropFiles:           Shared(language, "desktop.editor.dropFiles"),
 		CloseTab:            Shared(language, "menu.closeTab"),
 		SoftWrap:            Shared(language, "desktop.editor.softWrap"),
+		HiddenTabs:          Shared(language, "desktop.editor.hiddenTabs"),
 		Minimap:             Shared(language, "desktop.editor.minimap"),
 		HideMinimap:         Shared(language, "desktop.editor.hideMinimap"),
 		ShowMinimap:         Shared(language, "desktop.editor.showMinimap"),

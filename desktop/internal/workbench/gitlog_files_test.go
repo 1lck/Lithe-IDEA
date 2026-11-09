@@ -2,10 +2,13 @@ package workbench
 
 import (
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
+	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 )
 
@@ -13,17 +16,24 @@ import (
 // top, shows the Git log with that commit selected, and waits for its changed files.
 func (h *harness) openLogFiles(t *testing.T) (*project, string, string) {
 	t.Helper()
+	return h.openLogFilesWith(t, "src/a.txt", "src/b.txt", "top.txt")
+}
+
+// openLogFilesWith opens a repository whose last commit adds names, which are in src or at
+// the top, shows the Git log with that commit selected, and waits for its changed files.
+func (h *harness) openLogFilesWith(t *testing.T, names ...string) (*project, string, string) {
+	t.Helper()
 	dir := newTestRepository(t)
 	initial := gitRun(t, dir, "rev-parse", "HEAD")
 	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"src/a.txt", "src/b.txt", "top.txt"} {
+	for _, name := range names {
 		if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(name)), []byte(name+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	gitRun(t, dir, "add", "src", "top.txt")
+	gitRun(t, dir, append([]string{"add"}, names...)...)
 	gitRun(t, dir, "commit", "-m", "files")
 	head := gitRun(t, dir, "rev-parse", "HEAD")
 	h.app.delays = logDelays{}
@@ -41,7 +51,7 @@ func (h *harness) openLogFiles(t *testing.T) (*project, string, string) {
 	h.app.selectCommit(p, head)
 	h.settle()
 	h.settle()
-	if p.log.filesState != logFilesReady || len(p.log.files) != 3 {
+	if p.log.filesState != logFilesReady || len(p.log.files) != len(names) {
 		t.Fatalf("files %v of %q: %+v", p.log.filesState, head, p.log.files)
 	}
 	return p, head, initial
@@ -143,5 +153,63 @@ func TestGroupLogFilesSortsFoldersAndKeepsGitOrder(t *testing.T) {
 				t.Fatalf("folder %d is %+v, want %+v", i, got[i], want[i])
 			}
 		}
+	}
+}
+
+// logFileLabel is the label the last frame drew for a changed file or folder named name.
+func (h *harness) logFileLabel(name string) (app.Label, bool) {
+	area := h.app.logView.fileScroll.Area
+	for _, label := range h.driver.Snapshot().Labels {
+		if label.Value == name && label.Bounds.Y >= area.Y && label.Bounds.Y < area.Bottom() {
+			return label, true
+		}
+	}
+	return app.Label{}, false
+}
+
+func TestLogChangedFilesScrollSideways(t *testing.T) {
+	h := newHarness(t, gitKernel{core.NewClient()})
+	long := "src/" + strings.Repeat("n", 160) + ".txt"
+	p, _, initial := h.openLogFilesWith(t, long, "top.txt")
+	h.settle()
+	v := &h.app.logView
+	if !v.fileScroll.Overflows() {
+		t.Fatalf("a name %v wide fits a list %v wide", v.fileScroll.Content, v.fileScroll.Viewport())
+	}
+	area := v.fileScroll.Area
+	label, ok := h.logFileLabel(path.Base(long))
+	if !ok || label.Bounds.Right() <= area.Right() {
+		t.Fatalf("the long name is cut short: label %+v drawn %v, list %+v", label, ok, area)
+	}
+	if label.Bounds.Right()-area.X > v.fileScroll.Content {
+		t.Fatalf("the name ends at %v, past the measured width %v", label.Bounds.Right()-area.X, v.fileScroll.Content)
+	}
+
+	if err := h.driver.Scroll(gfx.ScrollEvent{X: area.X + 20, Y: area.Y + 10, DeltaX: 10000, Precise: true}); err != nil {
+		t.Fatal(err)
+	}
+	h.settle()
+	if v.fileScroll.Offset <= 0 || v.fileScroll.Offset != v.fileScroll.Max() {
+		t.Fatalf("offset %v after scrolling to the end, max %v", v.fileScroll.Offset, v.fileScroll.Max())
+	}
+	if label, ok = h.logFileLabel(path.Base(long)); !ok || label.Bounds.Right() > area.Right() {
+		t.Fatalf("scrolled to the end, the name ends at %v past the list's %v", label.Bounds.Right(), area.Right())
+	}
+
+	// An up and down swipe is the list's vertical scroll, not a sideways one.
+	before := v.fileScroll.Offset
+	if err := h.driver.Scroll(gfx.ScrollEvent{X: area.X + 20, Y: area.Y + 10, DeltaX: -2, DeltaY: 30, Precise: true}); err != nil {
+		t.Fatal(err)
+	}
+	if v.fileScroll.Offset != before {
+		t.Fatalf("an up and down swipe moved the list sideways to %v", v.fileScroll.Offset)
+	}
+
+	// Another commit starts at the left.
+	h.app.selectCommit(p, initial)
+	h.settle()
+	h.settle()
+	if v.fileScroll.Offset != 0 {
+		t.Fatalf("another commit kept the offset %v", v.fileScroll.Offset)
 	}
 }

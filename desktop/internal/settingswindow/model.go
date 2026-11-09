@@ -294,6 +294,12 @@ func sanitize(v Values) Values {
 	if v.Theme != themeLight && v.Theme != themeDark {
 		v.Theme = ""
 	}
+	if v.EditorTabRows != TabRowsMultiple {
+		v.EditorTabRows = ""
+	}
+	if v.EditorTabOverflow != TabOverflowSqueeze {
+		v.EditorTabOverflow = ""
+	}
 	return v
 }
 

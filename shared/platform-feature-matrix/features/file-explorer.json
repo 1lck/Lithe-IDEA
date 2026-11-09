@@ -15,7 +15,10 @@
       "desktop/internal/workbench/filetree_actions.go",
       "desktop/internal/workbench/filetree_actions_test.go",
       "desktop/internal/treelist/treelist.go",
-      "desktop/internal/treelist/treelist_test.go"
+      "desktop/internal/treelist/treelist_test.go",
+      "desktop/internal/hscroll/hscroll.go",
+      "desktop/internal/hscroll/hscroll_test.go",
+      "desktop/internal/workbench/sideways.go"
     ]
   },
   "windows": {
@@ -30,12 +33,15 @@
       "desktop/internal/workbench/filetree_actions.go",
       "desktop/internal/workbench/filetree_actions_test.go",
       "desktop/internal/treelist/treelist.go",
-      "desktop/internal/treelist/treelist_test.go"
+      "desktop/internal/treelist/treelist_test.go",
+      "desktop/internal/hscroll/hscroll.go",
+      "desktop/internal/hscroll/hscroll_test.go",
+      "desktop/internal/workbench/sideways.go"
     ]
   },
   "owner": "Workspace",
   "verification": "macOS 和 Windows 无头测试覆盖目录选择、展开、键盘、虚拟绘制、长文件名滚动、外部新增删除、空目录变化、超过 128 个目录、隐藏路径过滤、视口锚定、过期读取以及与搜索共享监听的关闭和重试；真实 Core 测试覆盖共享自然排序样例及 Python 隐藏路径。运行 scripts/desktop/desktop-go.sh test -race ./internal/workbench -run 'TestProjectTree|TestProjectSearch|TestEverywhere' -count=3 和 scripts/desktop/desktop-go.sh test -race ./internal/core -run TestWorkspaceDirectory -count=3。完整文件树和原生窗口行为仍待验收。 标题栏按钮：运行 scripts/desktop/desktop-go.sh test ./internal/workbench -run 'TestProjectTree(Locate|ExpandsAndCollapses|ExpandAll|Refresh)' -count=1 和 scripts/desktop/desktop-go.sh test ./internal/treelist -count=1；实机打开深层文件后折叠祖先，点击定位确认展开、选中并滚动到中间，键盘焦点在该行；在超过 512 个目录的项目中全部展开出现提示；删除并恢复项目根目录后点击刷新恢复树。",
-  "notes": "Viva 接入 Core 按需列目录、单选、方向键及虚拟绘制；项目根节点（包括空项目）可显示和选择，树行尺寸与展开图标参照旧版，批量列目录失败只记录一次宿主错误；新增根节点和失败日志回归仅在 macOS 验证，Windows 待重跑。可见行投影及导航目标仍在 Go，Core 下沉跟踪 #1800，Viva 日志生成与使用门禁跟踪 #1802。macOS 和 Windows 用一个项目级递归监听，供项目树和搜索共用，事件经 Core 过滤，重读保持节点及视口锚点。Linux 暂用最多 128 个按需目录监听，超限提示。多选、批量移动、上下文菜单、完整旧版增量行为与平台差异仍需迁移，macOS 和 Windows 原生窗口、逐像素对照及大项目性能均待验收。 Project 标题栏有定位当前文件、刷新、全部展开、全部折叠四个按钮：定位逐级列出并展开祖先目录后选中、居中并聚焦目标行，路径不可见时放弃并记录 operation_rejected；刷新重读已展开目录，根目录读取失败时重新监听并读取；全部展开按广度优先最多打开 512 个目录，超出时提示；全部折叠保留根目录，被隐藏的选择移到其所在的顶层目录。树行绘制与键盘导航已抽成 desktop/internal/treelist，Git Log 改动文件共用。",
+  "notes": "Viva 接入 Core 按需列目录、单选、方向键及虚拟绘制；项目根节点（包括空项目）可显示和选择，树行尺寸与展开图标参照旧版，批量列目录失败只记录一次宿主错误；新增根节点和失败日志回归仅在 macOS 验证，Windows 待重跑。可见行投影及导航目标仍在 Go，Core 下沉跟踪 #1800，Viva 日志生成与使用门禁跟踪 #1802。macOS 和 Windows 用一个项目级递归监听，供项目树和搜索共用，事件经 Core 过滤，重读保持节点及视口锚点。Linux 暂用最多 128 个按需目录监听，超限提示。多选、批量移动、上下文菜单、完整旧版增量行为与平台差异仍需迁移，macOS 和 Windows 原生窗口、逐像素对照及大项目性能均待验收。 Project 标题栏有定位当前文件、刷新、全部展开、全部折叠四个按钮：定位逐级列出并展开祖先目录后选中、居中并聚焦目标行，路径不可见时放弃并记录 operation_rejected；刷新重读已展开目录，根目录读取失败时重新监听并读取；全部展开按广度优先最多打开 512 个目录，超出时提示；全部折叠保留根目录，被隐藏的选择移到其所在的顶层目录。树行绘制与键盘导航已抽成 desktop/internal/treelist，Git Log 改动文件共用。 项目树横向滚动改用与 Git Log 改动文件、编辑器标签栏共用的 desktop/internal/hscroll 和细滚动条绘制。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {

@@ -198,7 +198,7 @@ func (a *App) changeColor(change core.GitChange) gfx.Color {
 	case 'A', 'C':
 		return a.colors.Success
 	case 'D':
-		return a.colors.Subtle
+		return a.colors.Deleted
 	case 'M', 'R', 'T':
 		return a.colors.Accent
 	}

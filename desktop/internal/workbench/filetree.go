@@ -8,6 +8,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/hscroll"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
 	"github.com/vivaui/viva/gfx"
@@ -62,18 +63,17 @@ type fileTree struct {
 	rows []*treeNode
 	list []treelist.Row
 	// The tree scrolls sideways itself, as a ui scroll area scrolls only up and down: the
-	// rows are laid out on a column as wide as the widest row, moved left by scrollX. width
-	// is that widest row and viewport the width of the list, as the last frame measured them.
-	scrollX, width, viewport float32
+	// rows are laid out on a column as wide as the widest row, scroll.Content, and moved
+	// left by scroll.Offset. scroll.Area is where the list was painted, for the wheel, and
+	// empty when the tree is not shown.
+	scroll hscroll.State
 	// area and content are the list and its column in the frame being drawn; drawn says the
-	// frame declared them. areaRect is where the list was
-	// painted, for the wheel, and empty when the tree is not shown.
+	// frame declared them.
 	area, content ui.Box
 	focus         gfx.ID
 	measureDirty  bool
 	measureFont   float32
 	drawn         bool
-	areaRect      gfx.Rect
 	// pending and reading coalesce native events into one bounded Core request.
 	pending map[string]*treeNode
 	reading bool
@@ -319,7 +319,7 @@ func (a *App) pumpTreeListings(p *project) {
 // listing inserts or removes rows above it. Selection is independent of this
 // anchor: the selected row may be outside the viewport.
 func (a *App) treeViewportAnchor(t *fileTree) (*treeNode, float32) {
-	if t.areaRect.Width <= 0 || len(t.rows) == 0 {
+	if t.scroll.Area.Width <= 0 || len(t.rows) == 0 {
 		return nil, 0
 	}
 	index, offset := treeList.TopRow(&a.view, len(t.rows))
@@ -436,13 +436,17 @@ func (a *App) drawProjectTree(f *ui.Frame, p *project) {
 	}
 	// Names are never cut short: the column is as wide as the widest row, and the list
 	// scrolls sideways to show the rest of it.
-	result := treeList.Draw(f, &a.view, t.list, selected, treelist.Options{
-		Dark:     a.colors.Dark,
-		Expand:   i18n.Shared(a.language(), "native.expandDirectory"),
-		Collapse: i18n.Shared(a.language(), "native.collapseDirectory"),
-		Width:    max(t.width, t.viewport),
-		OffsetX:  t.scrollX,
-	}, func(i int) { a.drawTreeContent(f, p, t.rows[i]) })
+	var result treelist.Result
+	f.Column().Fill().Children(func() {
+		result = treeList.Draw(f, &a.view, t.list, selected, treelist.Options{
+			Dark:     a.colors.Dark,
+			Expand:   i18n.Shared(a.language(), "native.expandDirectory"),
+			Collapse: i18n.Shared(a.language(), "native.collapseDirectory"),
+			Width:    max(t.scroll.Content, t.scroll.Viewport()),
+			OffsetX:  t.scroll.Offset,
+		}, func(i int) { a.drawTreeContent(f, p, t.rows[i]) })
+		a.drawSidewaysThumb(f, &t.scroll, false)
+	})
 	t.area, t.content, t.drawn = result.Area, result.Content, true
 	if result.Clicked >= 0 {
 		if n := t.rows[result.Clicked]; n.dir {
@@ -547,15 +551,11 @@ func (a *App) treeKey(event gfx.KeyEvent) gfx.EventResult {
 }
 
 // treeScrollPad is the room after the end of the widest name when the tree is scrolled to its
-// right end, and treeBar the thickness of the sideways scrollbar's thumb.
-const (
-	treeScrollPad = 12
-	treeBar       = 6
-)
+// right end.
+const treeScrollPad = 12
 
 // captureTree reads what the frame just laid out for the project tree: how wide its widest
-// row is and how wide its list, keeping the sideways scroll in range. It paints the thumb of
-// the sideways scrollbar along the bottom of the list while there is more to scroll to.
+// row is and how wide its list, keeping the sideways scroll in range.
 func (a *App) captureTree(canvas *gfx.Canvas) {
 	p := a.project
 	if p == nil {
@@ -563,12 +563,11 @@ func (a *App) captureTree(canvas *gfx.Canvas) {
 	}
 	t := &p.tree
 	if !t.drawn {
-		t.areaRect = gfx.Rect{}
+		t.scroll.Area = gfx.Rect{}
 		return
 	}
 	t.drawn = false
-	area := t.area.Rect()
-	width := t.width
+	width := t.scroll.Content
 	fontSize := float32(treeFontSize)
 	if t.measureDirty || t.measureFont != fontSize {
 		width = 0
@@ -582,47 +581,17 @@ func (a *App) captureTree(canvas *gfx.Canvas) {
 		width += treeScrollPad
 		t.measureDirty, t.measureFont = false, fontSize
 	}
-	viewport := area.Width
-	scrollX := min(max(t.scrollX, 0), max(width-viewport, 0))
-	if width != t.width || viewport != t.viewport || scrollX != t.scrollX {
-		t.width, t.viewport, t.scrollX = width, viewport, scrollX
+	if t.scroll.Fit(t.area.Rect(), width) {
 		canvas.RequestFrame()
 	}
-	t.areaRect = area
-	if width <= viewport+0.5 || viewport <= 0 {
-		return
-	}
-	length := max(viewport*viewport/width, 24)
-	x := area.X + (viewport-length)*(t.scrollX/(width-viewport))
-	thumb := a.colors.Subtle
-	thumb.Alpha *= 0.45
-	canvas.Rounded(gfx.Rect{X: x, Y: area.Y + area.Height - treeBar - 2, Width: length, Height: treeBar}, treeBar/2, thumb)
 }
 
 // treeScroll scrolls the project tree sideways with a sideways swipe, or the wheel with Shift
 // held, over the list. Up and down scrolling is the scroll area's own. The second result says
 // whether the event was the tree's.
 func (a *App) treeScroll(event gfx.ScrollEvent) (gfx.EventResult, bool) {
-	p := a.project
-	if p == nil {
+	if a.project == nil {
 		return gfx.EventResult{}, false
 	}
-	t := &p.tree
-	r := t.areaRect
-	if r.Width <= 0 || event.X < r.X || event.X >= r.X+r.Width || event.Y < r.Y || event.Y >= r.Y+r.Height {
-		return gfx.EventResult{}, false
-	}
-	dx := event.DeltaX
-	if dx == 0 && event.Modifiers&gfx.ModifierShift != 0 {
-		dx = event.DeltaY
-	}
-	if dx == 0 || absFloat32(dx) < absFloat32(event.DeltaY) && event.Modifiers&gfx.ModifierShift == 0 {
-		return gfx.EventResult{}, false
-	}
-	if !event.Precise && absFloat32(dx) < rowHeight {
-		dx = rowHeight * dx / absFloat32(dx)
-	}
-	before := t.scrollX
-	t.scrollX = min(max(t.scrollX+dx, 0), max(t.width-t.viewport, 0))
-	return gfx.EventResult{Handled: true, Repaint: t.scrollX != before}, true
+	return a.project.tree.scroll.Wheel(event, rowHeight, false)
 }

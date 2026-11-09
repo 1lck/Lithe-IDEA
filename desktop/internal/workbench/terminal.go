@@ -105,8 +105,10 @@ func (a *App) terminalPointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 }
 
 // onScroll gives a wheel turn over a terminal to the terminal, which scrolls its history
-// or reports the wheel to a program that asked for the mouse; anything else scrolls the
-// view under the pointer.
+// or reports the wheel to a program that asked for the mouse. A sideways swipe over the
+// project tree or the Git log's changed files scrolls them sideways, which Viva's scroll
+// areas do not, and any wheel over an editor group's strip of tabs that does not fit scrolls
+// the strip; anything else scrolls the view under the pointer.
 func (a *App) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 	if t := a.focusedTerminal(event.Target); t != nil {
 		if result, ok := t.Scroll(event); ok {
@@ -123,7 +125,13 @@ func (a *App) onScroll(event gfx.ScrollEvent) gfx.EventResult {
 		a.project.commit.layout.ScrollBy(event.DeltaY)
 		return gfx.EventResult{Handled: true, Repaint: true}
 	}
+	if result, ok := a.term.stripWheel(event); ok {
+		return result
+	}
 	if result, ok := a.treeScroll(event); ok {
+		return result
+	}
+	if result, ok := a.logView.fileScroll.Wheel(event, rowHeight, false); ok {
 		return result
 	}
 	return a.view.Wheel(event)

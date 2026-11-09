@@ -256,10 +256,10 @@ func dropAt(places []dropPlace, empty gfx.Rect, dragged int, x, y float32) dropT
 		}
 		others := p.others(dragged)
 		if inStrip {
-			index := insertionIndex(others, x)
+			index := insertionIndex(others, x, y)
 			return dropTarget{
 				kind: dropJoin, group: p.group, index: index, preview: p.strip,
-				line: insertionMark(p.strip, others, index), hasLine: true,
+				line: insertionMark(p.strip, others, index, y), hasLine: true,
 			}
 		}
 		if !p.tool {
@@ -278,33 +278,52 @@ func dropAt(places []dropPlace, empty gfx.Rect, dragged int, x, y float32) dropT
 	return dropTarget{}
 }
 
-// insertionIndex is the place a tab dragged to x would take among others, the tabs of the
-// strip without the dragged one: in front of the first whose middle is past x, or last.
-func insertionIndex(others []tabSlot, x float32) int {
+// insertionIndex is the place a tab dragged to (x, y) would take among others, the tabs of
+// the strip without the dragged one, in order. A strip whose tabs wrap onto several rows has
+// a row of panelHeaderHeight around each tab's middle: the dragged tab goes after every tab
+// of the rows above the pointer, and on the pointer's own row in front of the first tab
+// whose middle is past x. On a strip of one row that is in front of the first tab whose
+// middle is past x, or last.
+func insertionIndex(others []tabSlot, x, y float32) int {
 	index := 0
 	for _, t := range others {
-		if x >= t.rect.X+t.rect.Width/2 {
+		mid := t.rect.Y + t.rect.Height/2
+		switch {
+		case y >= mid+panelHeaderHeight/2:
+			index++
+		case y >= mid-panelHeaderHeight/2 && x >= t.rect.X+t.rect.Width/2:
 			index++
 		}
 	}
 	return index
 }
 
+// sameTabRow says the point at height y is on the row of the strip that holds the tab at r.
+func sameTabRow(r gfx.Rect, y float32) bool {
+	mid := r.Y + r.Height/2
+	return y >= mid-panelHeaderHeight/2 && y < mid+panelHeaderHeight/2
+}
+
 // insertionMark is the line that shows where a tab dragged to place index among others
-// would stand: in the middle of the gap in front of the tab it precedes, or after the last
-// one. It runs along the strip's height, like the line of a dragged tool button, and
-// stays inside the strip.
-func insertionMark(strip gfx.Rect, others []tabSlot, index int) gfx.Rect {
-	x := strip.X + dragMarkLead
+// would stand, the pointer being at height y: in the middle of the gap in front of the tab
+// it precedes, or after the tab it follows when that one ends the pointer's row or the
+// strip. It runs along the height of the row it is on, like the line of a dragged tool
+// button, and stays inside the strip.
+func insertionMark(strip gfx.Rect, others []tabSlot, index int, y float32) gfx.Rect {
+	x, top := strip.X+dragMarkLead, strip.Y
 	switch {
 	case len(others) == 0:
-	case index < len(others):
-		x = others[max(index, 0)].rect.X - (chromeGap+dragMark)/2
+	case index < len(others) && (index <= 0 || sameTabRow(others[index].rect, y)):
+		r := others[max(index, 0)].rect
+		x, top = r.X-(chromeGap+dragMark)/2, r.Y+r.Height/2-panelHeaderHeight/2
 	default:
-		x = others[len(others)-1].rect.Right() + (chromeGap-dragMark)/2
+		r := others[min(index, len(others))-1].rect
+		x, top = r.Right()+(chromeGap-dragMark)/2, r.Y+r.Height/2-panelHeaderHeight/2
 	}
+	row := min(float32(panelHeaderHeight), strip.Height)
+	top = min(max(top, strip.Y), strip.Bottom()-row)
 	x = min(max(x, strip.X), strip.Right()-dragMark)
-	return gfx.Rect{X: x, Y: strip.Y + tabMarkInset, Width: dragMark, Height: max(strip.Height-2*tabMarkInset, 0)}
+	return gfx.Rect{X: x, Y: top + tabMarkInset, Width: dragMark, Height: max(row-2*tabMarkInset, 0)}
 }
 
 // splitEdgeAt is the edge of body the point (x, y) is within splitBand of, as a share of
@@ -429,20 +448,33 @@ func (a *App) drawEditorGroup(f *ui.Frame, id string) ui.Box {
 	decl := groupDecl{id: id}
 	decl.selected = a.project.terms.selected(id)
 	decl.doc = a.project.selectedDocument(id)
+	decl.state = u.stripOf(id)
+	decl.state.seen = true
+	index := len(u.groups)
 	group := f.Column().Background(a.colors.Editor).Clip()
 	group.Children(func() {
-		decl.strip = f.Row().FillWidth().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).
+		// The strip is one row high, or as high as the rows its tabs wrap onto when the
+		// setting asks for several.
+		tabs, current := a.groupTabs(id)
+		decl.current = current
+		layout := a.tabLayout()
+		var rows []int
+		height := float32(panelHeaderHeight)
+		if layout == tabsRows {
+			rows = a.tabRows(f, tabs, decl.state.scroll.Viewport())
+			height *= float32(len(rows))
+		}
+		decl.strip = f.Row().FillWidth().Height(height).Shrink(0).Items(ui.Start).
 			Gap(chromeGap).PadX(chromeGap).Background(a.colors.Panel).Clip()
 		decl.stripSet = true
 		decl.strip.Children(func() {
-			// The tabs fill the strip and give up their room before the switch does, so it
-			// stays at the strip's end however many files are open.
-			f.Row().Fill().Items(ui.Center).Gap(chromeGap).Clip().Children(func() {
-				decl.tabs = a.drawTerminalChips(f, id)
+			// The tabs fill the strip and give up their room before the buttons do, so they
+			// stay at the end of the strip's first row however many files are open.
+			a.drawGroupStrip(f, &decl, index, tabs, layout, rows, func() {
+				if decl.doc != nil {
+					a.drawSoftWrapSwitch(f, decl.doc.id)
+				}
 			})
-			if decl.doc != nil {
-				a.drawSoftWrapSwitch(f, decl.doc.id)
-			}
 		})
 		if decl.doc != nil && decl.doc.conflicted {
 			a.drawDocumentConflict(f, decl.doc)

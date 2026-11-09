@@ -89,6 +89,12 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetTheme: func(theme string) {
 			a.post(func(a *App) { a.setTheme(themeChoice(theme)) })
 		},
+		SetTabRows: func(value string) {
+			a.post(func(a *App) { a.setTabRows(value) })
+		},
+		SetTabOverflow: func(value string) {
+			a.post(func(a *App) { a.setTabOverflow(value) })
+		},
 		ResetLayout: func() {
 			a.post(func(a *App) { a.resetLayout() })
 		},
@@ -132,7 +138,10 @@ func (a *App) openSettingsPage(surface string, plugins bool) {
 		if a.application == nil {
 			return
 		}
-		current := settingswindow.Values{Language: a.settings.Language, Theme: string(a.settings.Theme), MarketplaceWidth: a.settings.MarketplaceWidth}
+		current := settingswindow.Values{
+			Language: a.settings.Language, Theme: string(a.settings.Theme), MarketplaceWidth: a.settings.MarketplaceWidth,
+			EditorTabRows: a.settings.EditorTabRows, EditorTabOverflow: a.settings.EditorTabOverflow,
+		}
 		var err error
 		if plugins {
 			err = a.settingsWindow.OpenPlugins(a.application, current)

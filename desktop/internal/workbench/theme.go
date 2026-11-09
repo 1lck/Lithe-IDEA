@@ -41,6 +41,9 @@ type palette struct {
 	// Success and Warning tint status marks.
 	Success gfx.Color
 	Warning gfx.Color
+	// Deleted is the name of a file a change deletes. It is red rather than the gray of
+	// secondary text, which on the dark editor reads as dimmed instead of deleted.
+	Deleted gfx.Color
 	// Dark is set in the dark look, for the few colors that are not a theme surface, such
 	// as the commit graph's lane colors.
 	Dark bool
@@ -74,6 +77,7 @@ func lightLook() (gfx.Theme, palette) {
 		Accent:    accent,
 		Success:   gfx.RGB24(0x208A3C),
 		Warning:   gfx.RGB24(0xC27D04),
+		Deleted:   gfx.RGB24(0xDB3B4B),
 	}
 	theme := gfx.LightTheme()
 	theme.Background = p.Editor
@@ -109,6 +113,7 @@ func darkLook() (gfx.Theme, palette) {
 		Accent:    gfx.RGB24(0x548AF7),
 		Success:   gfx.RGB24(0x5FB865),
 		Warning:   gfx.RGB24(0xE0A33B),
+		Deleted:   gfx.RGB24(0xDB5C5C),
 		Dark:      true,
 	}
 	theme := gfx.DarkTheme()

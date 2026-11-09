@@ -99501,6 +99501,55 @@
       ]
     },
     {
+      "id": "desktop.settings.editorTabs",
+      "description": "Desktop settings: the card of the editor page that lays out editor tabs",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.editorTabsHelp",
+      "description": "Desktop settings: help of the editor tabs card",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.tabsShowIn",
+      "description": "Desktop settings: the label in front of the choice between one row and multiple rows of tabs",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.tabsOneRow",
+      "description": "Desktop settings: the choice of one row of tabs, followed by what happens when they do not fit",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.tabsScroll",
+      "description": "Desktop settings: tabs that do not fit in one row scroll sideways",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.tabsSqueeze",
+      "description": "Desktop settings: tabs that do not fit in one row are made narrower",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.tabsMultipleRows",
+      "description": "Desktop settings: tabs that do not fit in one row wrap onto more rows",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.settings.followSystemEffective",
       "description": "Current system appearance or language in the settings selector.",
       "platforms": [
@@ -99834,6 +99883,13 @@
     {
       "id": "desktop.editor.minimap",
       "description": "Desktop editor: the small picture of the file down the editor's right side",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.editor.hiddenTabs",
+      "description": "Desktop editor: the button at the end of a tab strip that lists the tabs out of view",
       "platforms": [
         "desktop"
       ]

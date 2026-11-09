@@ -172,6 +172,10 @@ type settings struct {
 	MarketplaceWidth float32     `json:"marketplaceWidth,omitempty"`
 	// HideMinimap hides the minimap of every editor; the editors show it by default.
 	HideMinimap bool `json:"hideMinimap,omitempty"`
+	// EditorTabRows and EditorTabOverflow say how an editor group lays out tabs that do not
+	// fit in one row, as settingswindow.Values does; see App.tabLayout.
+	EditorTabRows     string `json:"editorTabRows,omitempty"`
+	EditorTabOverflow string `json:"editorTabOverflow,omitempty"`
 }
 
 const (
@@ -617,6 +621,7 @@ func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 	// laid out, under the menus and the dragged button.
 	a.paintTerminal(canvas)
 	a.captureTree(canvas)
+	a.captureLogFiles(canvas)
 	// The menus and the dragged buttons and tabs float above everything Draw painted.
 	a.paintChromeMenus(canvas, bounds)
 	a.paintDrag(canvas)
@@ -721,6 +726,9 @@ func (a *App) onKey(event gfx.KeyEvent) gfx.EventResult {
 		// Both are called: at most one gesture is under way, and neither may be left behind.
 		button, tab := a.cancelDrag(), a.cancelTabDrag()
 		if button || tab {
+			return gfx.EventResult{Handled: true, Repaint: true}
+		}
+		if a.term.closeStripMenus() {
 			return gfx.EventResult{Handled: true, Repaint: true}
 		}
 		if r := a.projectMenuKey(event); r.Handled {
