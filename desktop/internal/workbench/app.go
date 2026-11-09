@@ -32,6 +32,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editor/syntax"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugindiag"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
@@ -176,6 +177,9 @@ type settings struct {
 	// fit in one row, as settingswindow.Values does; see App.tabLayout.
 	EditorTabRows     string `json:"editorTabRows,omitempty"`
 	EditorTabOverflow string `json:"editorTabOverflow,omitempty"`
+	// TerminalShell is the executable a new terminal runs, as settingswindow.Values says;
+	// empty runs the user's default shell (localshell.DefaultShell).
+	TerminalShell string `json:"terminalShell,omitempty"`
 }
 
 const (
@@ -316,6 +320,12 @@ type App struct {
 	// term is what the frame being painted declared for the terminals, and the gesture that
 	// drags a terminal's tab (see terminal.go and tabdrag.go).
 	term terminalUI
+	// sideways is the sideways scrollbars the last frame declared and the drag of a thumb
+	// (see sideways.go).
+	sideways sidewaysBars
+	// listShells finds the installed shells for the new-terminal menu and the Terminal
+	// settings page. It runs off the window thread; tests replace it.
+	listShells func() []localshell.Choice
 	// softWrap says the open files wrap their long lines at the width of their group instead
 	// of scrolling sideways. The switch at the end of each group's strip of tabs turns it on
 	// and off for every file at once; it lasts until the client quits.
@@ -366,6 +376,7 @@ func New(options Options) *App {
 		commitView:      newCommitView(),
 		delays:          defaultLogDelays,
 		agentKernel:     options.AgentKernel,
+		listShells:      localshell.InstalledShells,
 	}
 	if _, err := a.store.Load(settingsFile, &a.settings); err != nil {
 		a.settings = settings{}
@@ -578,6 +589,7 @@ func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 	a.logView.beginFrame()
 	a.commitView.beginFrame()
 	a.beginTerminalFrame()
+	a.sideways.beginFrame()
 	paintTheme := a.theme
 	if a.clone.open || a.newProject.open {
 		// The original centered clone panel opens without a fade. The rest of
@@ -667,6 +679,9 @@ func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 		return result
 	}
 	if result, handled := a.tabDragPointer(event); handled {
+		return result
+	}
+	if result, handled := a.sidewaysPointer(event); handled {
 		return result
 	}
 	if result, handled := a.terminalPointer(event); handled {

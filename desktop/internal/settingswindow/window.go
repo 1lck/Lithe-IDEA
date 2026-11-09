@@ -130,9 +130,15 @@ type window struct {
 	marketDivider  ui.Box
 	marketSplit    splitpane.State
 	marketExtent   float32
-	requestPlugins atomic.Bool
+	// requestedPage is the page Controller.open asked an already open window to switch to,
+	// as the pageID plus one so that zero means no request. It is atomic because the
+	// controller sets it from the thread of whichever window asked; wake takes it on the
+	// window's own thread.
+	requestedPage atomic.Uint32
 	// toolchains is the Build settings page's draft and loaded snapshot.
-	toolchains  toolchainState
+	toolchains toolchainState
+	// terminal is the Terminal page's list of installed shells.
+	terminal    terminalShellState
 	search      ui.Field
 	marketQuery ui.Field
 	// focusSearch asks the next paint to focus the search field (⌘F).
@@ -203,6 +209,7 @@ func newWindow(c *Controller, current Values) *window {
 	w.market.search.wake = w.inv.Invalidate
 	w.market.search.report = c.opts.MarketplaceError
 	w.toolchains = newToolchainState(c.opts.Toolchains, w.inv.Invalidate)
+	w.terminal = newTerminalShellState(c.opts.TerminalShells, w.inv.Invalidate, w.sess.finished.Load)
 	return w
 }
 
@@ -226,9 +233,27 @@ func (w *window) config() app.Config {
 		OnScroll:       w.onScroll,
 		TextInput:      ui.Fields(&w.search, &w.marketQuery),
 		Invalidator:    &w.inv,
-		OnWake:         w.marketWake,
+		OnWake:         w.wake,
 		OnClosed:       w.closed,
 	}
+}
+
+// requestPage asks the window to show page. It is safe from any goroutine: the switch
+// happens on the window's thread at the repaint it requests, where it also empties the
+// search, because a search that does not list the page would leave no row selected.
+func (w *window) requestPage(page pageID) {
+	w.requestedPage.Store(uint32(page) + 1)
+	w.inv.Invalidate()
+}
+
+// wake runs on the window thread right before each repaint an Invalidate requested. It
+// takes a page request first, then lets the marketplace take what its workers finished.
+func (w *window) wake() {
+	if requested := w.requestedPage.Swap(0); requested != 0 {
+		w.search.SetText("")
+		w.sess.show(pageID(requested - 1))
+	}
+	w.marketWake()
 }
 
 // watchSystem makes the window repaint when the system switches between its light and dark
@@ -303,6 +328,7 @@ func (w *window) closeNative() {
 // paint draws the window for its current settings.
 func (w *window) paint(canvas *gfx.Canvas, size gfx.Size) {
 	w.toolchains.drain()
+	w.terminal.drain()
 	w.marketExtent = max(0, size.Width-sidebarWidth-1)
 	if w.sess.page != pagePlugins || w.market.status != marketReady {
 		w.marketSplit.Cancel()
@@ -320,7 +346,7 @@ func (w *window) paint(canvas *gfx.Canvas, size gfx.Size) {
 		// The language list lives on the general page. One left open there would go on
 		// taking Enter and Escape from the window with nothing on the screen to show why.
 		w.language.Open = false
-		if w.sess.page != pageEditor {
+		if w.sess.page != pageEditor && w.sess.page != pageTerminal {
 			w.pinnedInfo = gfx.ID{}
 		}
 	}
@@ -535,6 +561,8 @@ func (w *window) drawContent(f *ui.Frame) {
 			w.drawEditor(f)
 		case w.sess.page == pageBuild && w.ctrl.opts.Toolchains != nil:
 			w.drawToolchains(f)
+		case w.sess.page == pageTerminal && w.ctrl.opts.TerminalShells != nil:
+			w.drawTerminal(f)
 		default:
 			w.drawUnavailable(f)
 		}
@@ -612,6 +640,18 @@ func (w *window) setTabOverflow(value string, force bool) {
 	w.sess.values.EditorTabOverflow = value
 	if w.ctrl.opts.SetTabOverflow != nil {
 		w.ctrl.opts.SetTabOverflow(value)
+	}
+}
+
+// setTerminalShell notifies the change of the default shell in the same way. An empty value
+// is automatic.
+func (w *window) setTerminalShell(value string, force bool) {
+	if w.sess.finished.Load() || (!force && w.sess.values.TerminalShell == value) {
+		return
+	}
+	w.sess.values.TerminalShell = value
+	if w.ctrl.opts.SetTerminalShell != nil {
+		w.ctrl.opts.SetTerminalShell(value)
 	}
 }
 
@@ -775,6 +815,7 @@ func (w *window) drawFooter(f *ui.Frame) {
 			w.setTheme("", true)
 			w.setTabRows("", true)
 			w.setTabOverflow("", true)
+			w.setTerminalShell("", true)
 		}
 		f.Spacer()
 		if f.Button(cancelID, settings.Cancel).Outline().Clicked() {

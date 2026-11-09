@@ -49,10 +49,24 @@ func TestParentsTableKeepsGroupsBesideTheirPages(t *testing.T) {
 	}
 }
 
-func TestOnlyAppearanceIsAGroup(t *testing.T) {
+func TestOnlyAppearanceAndToolsAreGroups(t *testing.T) {
 	for id := pageID(0); id < pageCount; id++ {
-		if got, want := isGroup(id), id == pageAppearance; got != want {
+		if got, want := isGroup(id), id == pageAppearance || id == pageTools; got != want {
 			t.Errorf("isGroup(%d) = %v, want %v", id, got, want)
+		}
+	}
+}
+
+func TestTerminalIsTheOnePageOfTheToolsGroup(t *testing.T) {
+	if parents[pageTerminal] != pageTools {
+		t.Fatalf("the Terminal page is in group %d, want Tools", parents[pageTerminal])
+	}
+	if pageTerminal != pageTools+1 {
+		t.Fatal("the Terminal page does not directly follow its group, which appendVisible relies on")
+	}
+	for id := pageID(0); id < pageCount; id++ {
+		if id != pageTerminal && parents[id] == pageTools {
+			t.Errorf("page %d is also in Tools", id)
 		}
 	}
 }
@@ -104,7 +118,7 @@ func TestDefaultSidebarListsTheTopLevelWithAppearanceExpanded(t *testing.T) {
 		{page: pageVersionControl},
 		{page: pageBuild},
 		{page: pageLanguages},
-		{page: pageTools},
+		{page: pageTools, group: true},
 		{page: pageAI},
 	}
 	if !slices.Equal(rows, want) {
@@ -116,15 +130,65 @@ func TestCollapsedGroupHidesItsPages(t *testing.T) {
 	var open [pageCount]bool
 	rows := appendVisible(nil, english(), &open, "")
 	if len(rows) != 7 {
-		t.Fatalf("rows = %v, want the group and the six pages on the top level", rows)
+		t.Fatalf("rows = %v, want the two groups and the five pages on the top level", rows)
 	}
-	if first := rows[0]; first.page != pageAppearance || !first.group || first.expanded {
-		t.Fatalf("first row = %+v, want the collapsed group", first)
-	}
-	for _, r := range rows[1:] {
-		if r.level != 0 || r.group {
-			t.Fatalf("row %+v should be a page on the top level", r)
+	for _, r := range rows {
+		if r.level != 0 || r.expanded {
+			t.Fatalf("row %+v should be on the top level and not expanded", r)
 		}
+		if want := r.page == pageAppearance || r.page == pageTools; r.group != want {
+			t.Fatalf("row %+v: group = %v, want %v", r, r.group, want)
+		}
+	}
+}
+
+func TestExpandedToolsGroupListsTerminal(t *testing.T) {
+	open := initialOpen()
+	open[pageTools] = true
+	rows := appendVisible(nil, english(), &open, "")
+	if len(rows) != 14 {
+		t.Fatalf("rows = %v, want the 13 of the default sidebar and the Terminal page", rows)
+	}
+	for i, r := range rows {
+		if r.page != pageTools {
+			continue
+		}
+		if !r.group || !r.expanded {
+			t.Fatalf("Tools row = %+v, want an expanded group", r)
+		}
+		if want := (row{page: pageTerminal, level: 1}); rows[i+1] != want {
+			t.Fatalf("row after Tools = %+v, want %+v", rows[i+1], want)
+		}
+		return
+	}
+	t.Fatal("the sidebar does not list Tools")
+}
+
+func TestSearchFindsTerminalInsideItsGroup(t *testing.T) {
+	// The group starts collapsed; the search expands it, so the match is not hidden.
+	for _, tc := range []struct {
+		messages *i18n.SettingsMessages
+		query    string
+	}{
+		{english(), "terminal"},
+		{english(), "  TERMINAL "},
+		{chinese(), "终端"},
+	} {
+		open := initialOpen()
+		rows := appendVisible(nil, tc.messages, &open, foldQuery(tc.query))
+		want := []row{{page: pageTools, group: true, expanded: true}, {page: pageTerminal, level: 1}}
+		if !slices.Equal(rows, want) {
+			t.Errorf("search %q: rows = %v, want %v", tc.query, rows, want)
+		}
+	}
+}
+
+func TestSearchOnTheToolsGroupKeepsTerminal(t *testing.T) {
+	open := initialOpen()
+	rows := appendVisible(nil, english(), &open, foldQuery("tools"))
+	want := []pageID{pageTools, pageTerminal}
+	if got := pagesOf(rows); !slices.Equal(got, want) {
+		t.Fatalf("pages = %v, want %v", got, want)
 	}
 }
 
@@ -222,6 +286,8 @@ func TestBreadcrumb(t *testing.T) {
 		{pageAppearance, []string{"Appearance & Behavior"}},
 		{pagePlugins, []string{"Plugins"}},
 		{pageAI, []string{"AI"}},
+		{pageTools, []string{"Tools"}},
+		{pageTerminal, []string{"Tools", "Terminal"}},
 	}
 	for _, tc := range cases {
 		if got := appendBreadcrumb(nil, english(), tc.page); !slices.Equal(got, tc.want) {
@@ -244,6 +310,14 @@ func TestToggleGroup(t *testing.T) {
 	toggleGroup(&open, pageAppearance, false)
 	if !open[pageAppearance] {
 		t.Fatal("toggling a collapsed group did not expand it")
+	}
+	toggleGroup(&open, pageTools, false)
+	if !open[pageTools] {
+		t.Fatal("toggling the collapsed Tools group did not expand it")
+	}
+	toggleGroup(&open, pageTerminal, false)
+	if open[pageTerminal] {
+		t.Fatal("toggling the Terminal page, which is no group, changed the open groups")
 	}
 }
 
@@ -374,6 +448,44 @@ func TestNewSessionStartsFromTheSettingsInForce(t *testing.T) {
 	}
 	if got := newSession(Values{Language: "fr", Theme: "sepia"}).values; got != (Values{}) {
 		t.Errorf("displayed unknown settings = %+v, want the defaults", got)
+	}
+}
+
+func TestSanitizeKeepsTheStoredTerminalShell(t *testing.T) {
+	// A path that no installed shell has is shown as not found, so it must reach the page
+	// as it is stored and not be replaced by the automatic choice.
+	for _, shell := range []string{"", "/bin/zsh", "/no/such/shell"} {
+		if got := sanitize(Values{TerminalShell: shell}).TerminalShell; got != shell {
+			t.Errorf("sanitize changed the stored shell %q into %q", shell, got)
+		}
+	}
+}
+
+func TestSessionShowOpensThePageAndItsGroup(t *testing.T) {
+	s := newSession(Values{})
+	if s.open[pageTools] {
+		t.Fatal("the Tools group starts expanded")
+	}
+	s.show(pageTerminal)
+	if s.page != pageTerminal || !s.open[pageTools] {
+		t.Fatalf("page = %d, open = %v, want the Terminal page with Tools expanded", s.page, s.open)
+	}
+	if !s.open[pageAppearance] {
+		t.Fatal("showing a page collapsed another group")
+	}
+	s.show(pagePlugins)
+	if s.page != pagePlugins || !s.open[pageTools] {
+		t.Fatalf("page = %d, open = %v, want Plugins and Tools left expanded", s.page, s.open)
+	}
+}
+
+func TestSessionShowIgnoresWhatHasNoPage(t *testing.T) {
+	s := newSession(Values{})
+	for _, page := range []pageID{pageAppearance, pageTools, noPage, noPage + 1} {
+		s.show(page)
+		if s.page != initialPage || s.open != initialOpen() {
+			t.Fatalf("show(%d): page = %d, open = %v, want the session untouched", page, s.page, s.open)
+		}
 	}
 }
 

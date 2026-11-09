@@ -32,9 +32,14 @@ const (
 	shellEditorHeightMin = 120
 
 	// The original macOS workbench starts the left tool column at 360 points.
-	shellLeftDefault   = 360
-	shellRightDefault  = 320
-	shellBottomDefault = 260
+	shellLeftDefault  = 360
+	shellRightDefault = 320
+	// shellBottomShare is the part of the main column's height the bottom area opens at
+	// until the user drags it: about two fifths, which leaves a log or a terminal room for
+	// a screenful of lines and keeps the tool windows above it usable in a small window,
+	// where a fixed height would squeeze them. The share is taken of the height of each
+	// frame, so the area grows and shrinks with the window until it is dragged.
+	shellBottomShare = 0.42
 	// shellColumnLowerDefault is the height of the lower tool window of the left or the
 	// right column while both of its tool windows are open.
 	shellColumnLowerDefault = 240
@@ -131,15 +136,24 @@ type layoutState struct {
 
 func newLayoutState() layoutState {
 	return layoutState{
-		left:        shellLeftDefault,
-		right:       shellRightDefault,
-		leftLower:   shellColumnLowerDefault,
-		rightLower:  shellColumnLowerDefault,
-		bottom:      shellBottomDefault,
+		left:       shellLeftDefault,
+		right:      shellRightDefault,
+		leftLower:  shellColumnLowerDefault,
+		rightLower: shellColumnLowerDefault,
+		// bottom is 0 until the user drags the bottom splitter: see bottomFor.
 		bottomShare: 0.5,
 		insetW:      2 * stripeWidth,
 		insetH:      titleBarHeight + statusBarHeight,
 	}
+}
+
+// bottomFor is the height the bottom area asks for in a main column height high: the height
+// the user dragged it to or, until they do, its share of the column.
+func (l *layoutState) bottomFor(height float32) float32 {
+	if l.bottom > 0 {
+		return l.bottom
+	}
+	return shellSnap(height * shellBottomShare)
 }
 
 // shellPlan is one frame's division of the main column, in whole pixels.
@@ -239,7 +253,7 @@ func (l *layoutState) arrange(window gfx.Rect, open [slotCount]int) shellPlan {
 	}
 	p.topH = p.height
 	if p.bottom() {
-		p.bottomH = shellSnap(shellClamp(l.bottom, shellPanelHeightMin, p.height-shellSplitter-p.topMin))
+		p.bottomH = shellSnap(shellClamp(l.bottomFor(p.height), shellPanelHeightMin, p.height-shellSplitter-p.topMin))
 		p.topH = p.height - shellSplitter - p.bottomH
 	}
 

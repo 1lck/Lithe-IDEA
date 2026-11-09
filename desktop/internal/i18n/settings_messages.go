@@ -40,11 +40,23 @@ func settingsMessages(language Language) SettingsMessages {
 		TabsScroll:         Shared(language, "desktop.settings.tabsScroll"),
 		TabsSqueeze:        Shared(language, "desktop.settings.tabsSqueeze"),
 		TabsMultipleRows:   Shared(language, "desktop.settings.tabsMultipleRows"),
+		Terminal:           Shared(language, "workbench.terminal"),
+		TerminalShell:      Shared(language, "settings.terminal.defaultShell"),
+		TerminalShellHelp:  Shared(language, "desktop.settings.terminalShellHelp"),
+		DetectingShells:    Shared(language, "terminal.detectingShells"),
+		NoShells:           Shared(language, "native.shellNotFound"),
 		RestoreDefaults:    Shared(language, "settings.mac.restoreDefaults"),
 		Cancel:             Shared(language, "agent.state.cancel"),
 		OK:                 Shared(language, "desktop.settings.ok"),
 		FollowSystem: func(effective string) string {
 			return SharedFormat(language, "desktop.settings.followSystemEffective", map[string]string{"effective": effective})
+		},
+		TerminalShellAuto: func(effective string) string {
+			return SharedFormat(language, "desktop.toolchains.automatic", map[string]string{"value": effective})
+		},
+		ShellWithPath: func(name, path string) string { return terminalShellWithPath(language, name, path) },
+		TerminalShellMissing: func(path string) string {
+			return SharedFormat(language, "desktop.settings.terminalShellMissing", map[string]string{"path": path})
 		},
 	}
 }

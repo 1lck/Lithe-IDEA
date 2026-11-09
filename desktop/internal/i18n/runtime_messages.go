@@ -10,6 +10,10 @@ func terminalStartFailed(language Language, reason string) string {
 	return SharedFormat(language, "desktop.terminal.startFailed", map[string]string{"reason": reason})
 }
 
+func terminalShellWithPath(language Language, name, path string) string {
+	return SharedFormat(language, "desktop.terminal.shellWithPath", map[string]string{"name": name, "path": path})
+}
+
 func terminalTab(language Language, number int) string {
 	if number <= 1 {
 		return Shared(language, "native.local")

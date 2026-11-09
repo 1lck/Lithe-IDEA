@@ -445,7 +445,7 @@ func (a *App) drawProjectTree(f *ui.Frame, p *project) {
 			Width:    max(t.scroll.Content, t.scroll.Viewport()),
 			OffsetX:  t.scroll.Offset,
 		}, func(i int) { a.drawTreeContent(f, p, t.rows[i]) })
-		a.drawSidewaysThumb(f, &t.scroll, false)
+		a.drawSidewaysThumb(f, treeScrollbar, &t.scroll, false)
 	})
 	t.area, t.content, t.drawn = result.Area, result.Content, true
 	if result.Clicked >= 0 {

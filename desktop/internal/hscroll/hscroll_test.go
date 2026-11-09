@@ -143,3 +143,34 @@ func TestVerticalWheelScrollsAStripThatOverflows(t *testing.T) {
 		t.Fatal("a strip that fits does not take the wheel")
 	}
 }
+
+func TestGrabAndDragMoveTheThumbWithThePointer(t *testing.T) {
+	// The thumb is 40 long on a bar of 200, so it travels 160 while the content moves 800.
+	s := State{Area: area, Content: 1000}
+	grab, changed, ok := s.Grab(110)
+	if !ok || changed || grab != 10 {
+		t.Fatalf("a press on the thumb keeps the point it took: grab %v, changed %v, ok %v", grab, changed, ok)
+	}
+	if !s.DragTo(190, grab) || s.Offset != 400 {
+		t.Fatalf("half the travel is half the content, offset %v", s.Offset)
+	}
+	if s.DragTo(190, grab) {
+		t.Fatal("a drag that does not move is not a change")
+	}
+	if !s.DragTo(1000, grab) || s.Offset != 800 {
+		t.Fatalf("a drag past the end stops at the end, offset %v", s.Offset)
+	}
+	if !s.DragTo(0, grab) || s.Offset != 0 {
+		t.Fatalf("a drag past the start stops at the start, offset %v", s.Offset)
+	}
+
+	grab, changed, ok = s.Grab(280)
+	if !ok || !changed || grab != 20 || s.Offset != 800 {
+		t.Fatalf("a press beside the thumb centres it there: grab %v, changed %v, offset %v", grab, changed, s.Offset)
+	}
+
+	fits := State{Area: area, Content: 150}
+	if _, _, ok := fits.Grab(150); ok || fits.DragTo(150, 0) {
+		t.Fatal("content that fits has no thumb to drag")
+	}
+}

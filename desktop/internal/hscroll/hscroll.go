@@ -84,6 +84,40 @@ func (s *State) Thumb() (left, length float32, ok bool) {
 	return left, length, true
 }
 
+// Grab starts a drag of the thumb by a press at window x. A press on the thumb keeps the
+// point of the thumb it took; a press on the bar beside the thumb takes the thumb by its
+// middle and moves it there at once, so the content jumps to that place. It returns the
+// point of the thumb that was taken, measured from the thumb's left edge, for DragTo, and
+// whether the offset changed. ok is false while there is no thumb.
+func (s *State) Grab(x float32) (grab float32, changed, ok bool) {
+	left, length, ok := s.Thumb()
+	if !ok {
+		return 0, false, false
+	}
+	at := x - s.Area.X
+	if at >= left && at <= left+length {
+		return at - left, false, true
+	}
+	grab = length / 2
+	return grab, s.DragTo(x, grab), true
+}
+
+// DragTo moves the thumb so that its point grab, as Grab returned it, is at window x, and
+// scrolls the content to match. It reports whether the offset changed.
+func (s *State) DragTo(x, grab float32) bool {
+	_, length, ok := s.Thumb()
+	if !ok {
+		return false
+	}
+	track := s.Area.Width - length
+	if track <= 0 {
+		return false
+	}
+	before := s.Offset
+	s.Offset = clamp((x-s.Area.X-grab)/track*s.Max(), 0, s.Max())
+	return s.Offset != before
+}
+
 // Wheel scrolls by a wheel event over Area: a sideways swipe, or the wheel with Shift held.
 // When vertical is set, as on a strip of tabs, which has nothing to scroll up and down, a
 // plain turn of the wheel scrolls sideways as well. A wheel that turns in steps rather than

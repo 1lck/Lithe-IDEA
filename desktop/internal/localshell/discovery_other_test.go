@@ -12,7 +12,7 @@ import (
 // TestUnixShellDiscoveryFindsTheStandardShells checks the non-Windows list the
 // settings offer: at least the platform's /bin/sh, by an absolute path.
 func TestUnixShellDiscoveryFindsTheStandardShells(t *testing.T) {
-	choices := InstalledWindowsShells()
+	choices := InstalledShells()
 	if len(choices) == 0 {
 		t.Fatal("no local shells were discovered")
 	}
@@ -46,7 +46,7 @@ func TestUnixShellDiscoveryReadsTheSystemShellFile(t *testing.T) {
 	restoreShellFile := pointShellFileAt(t, shellFile)
 	defer restoreShellFile()
 
-	choices := InstalledWindowsShells()
+	choices := InstalledShells()
 	if !hasShell(choices, installed) {
 		t.Fatalf("shells %+v do not include %q from the system shell file", choices, installed)
 	}
@@ -76,7 +76,7 @@ func TestUnixShellDiscoveryFindsShellsOutsidePATH(t *testing.T) {
 		}
 	}
 
-	choices := InstalledWindowsShells()
+	choices := InstalledShells()
 	if !hasShell(choices, fish) {
 		t.Fatalf("shells %+v do not include %q found by searching %q", choices, fish, homebrew)
 	}
@@ -85,26 +85,58 @@ func TestUnixShellDiscoveryFindsShellsOutsidePATH(t *testing.T) {
 	}
 }
 
-// TestUnixShellDiscoveryKeepsOneEntryPerFamily checks the list's shape: two
-// installations of the same shell are one menu entry, because the settings
-// choose a family, not a copy of it.
-func TestUnixShellDiscoveryKeepsOneEntryPerFamily(t *testing.T) {
+// TestUnixShellDiscoveryListsEachInstallation checks the list's shape: the
+// system's bash and Homebrew's are separate programs, often of different
+// versions, so the new-terminal menu offers both, in the order the places are
+// searched.
+func TestUnixShellDiscoveryListsEachInstallation(t *testing.T) {
 	first := t.TempDir()
 	second := t.TempDir()
-	writeExecutable(t, first, "fish")
-	writeExecutable(t, second, "fish")
+	older := writeExecutable(t, first, "fish")
+	newer := writeExecutable(t, second, "fish")
 
 	restorePrefixes := pointShellPrefixesAt(t, first, second)
 	defer restorePrefixes()
+	restoreShellFile := pointShellFileAt(t, filepath.Join(first, "no-shells"))
+	defer restoreShellFile()
+	t.Setenv("PATH", t.TempDir())
 
-	count := 0
-	for _, choice := range InstalledWindowsShells() {
+	var fish []string
+	for _, choice := range InstalledShells() {
 		if choice.Name == "fish" {
-			count++
+			fish = append(fish, choice.Path)
 		}
 	}
-	if count > 1 {
-		t.Fatalf("fish appears %d times; the settings want one entry per family", count)
+	if len(fish) != 2 || fish[0] != older || fish[1] != newer {
+		t.Fatalf("fish entries = %q, want %q then %q", fish, older, newer)
+	}
+}
+
+// TestUnixShellDiscoveryMergesPlacesOfOneFile checks the other half of that
+// shape: a shell reached by a symbolic link from another prefix, and again by
+// its bare name on PATH, is one installation and keeps the first place found.
+func TestUnixShellDiscoveryMergesPlacesOfOneFile(t *testing.T) {
+	cellar := t.TempDir()
+	linked := t.TempDir()
+	fish := writeExecutable(t, cellar, "fish")
+	if err := os.Symlink(fish, filepath.Join(linked, "fish")); err != nil {
+		t.Skipf("symbolic links are not available: %v", err)
+	}
+
+	restorePrefixes := pointShellPrefixesAt(t, cellar, linked)
+	defer restorePrefixes()
+	restoreShellFile := pointShellFileAt(t, filepath.Join(cellar, "no-shells"))
+	defer restoreShellFile()
+	t.Setenv("PATH", linked)
+
+	var entries []string
+	for _, choice := range InstalledShells() {
+		if choice.Name == "fish" {
+			entries = append(entries, choice.Path)
+		}
+	}
+	if len(entries) != 1 || entries[0] != fish {
+		t.Fatalf("fish entries = %q, want only %q", entries, fish)
 	}
 }
 
@@ -125,7 +157,7 @@ func TestUnixShellDiscoveryCollapsesCShellHardLinks(t *testing.T) {
 	defer restoreShellFile()
 	t.Setenv("PATH", t.TempDir())
 
-	choices := InstalledWindowsShells()
+	choices := InstalledShells()
 	count := 0
 	for _, choice := range choices {
 		if choice.Name == "csh" || choice.Name == "tcsh" {
@@ -154,7 +186,7 @@ func TestUnixShellDiscoveryKeepsShWithItsTarget(t *testing.T) {
 	defer restoreShellFile()
 	t.Setenv("PATH", t.TempDir())
 
-	choices := InstalledWindowsShells()
+	choices := InstalledShells()
 	if !hasShell(choices, dash) || !hasShell(choices, sh) {
 		t.Fatalf("shells = %+v, want both %q and %q", choices, dash, sh)
 	}

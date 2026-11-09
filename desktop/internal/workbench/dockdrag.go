@@ -9,12 +9,6 @@ const (
 	// dragResnapPadding extends the stripe's outer edge into the workbench by this many
 	// pixels, leaving a stable band between the detach and re-snap boundaries.
 	dragResnapPadding = 8
-	// dragFallbackBottomMinimum is the least height of the virtual bottom dock area when
-	// no bottom height has been remembered yet.
-	dragFallbackBottomMinimum = 200
-	// dragFallbackBottomFraction is the part of the workspace height used for a virtual
-	// bottom dock area when no bottom height has been remembered yet.
-	dragFallbackBottomFraction = 0.25
 )
 
 // dragPhase is whether a stripe button stays attached to a stripe or floats with the
@@ -392,11 +386,11 @@ func (a *App) dragDockAnchors(viewport gfx.Size) [dockAnchorCount]dragDockAnchor
 		}
 	}
 
-	bottomHeight := a.layout.bottom
+	// A closed bottom area is shown where it would open: the height it was dragged to or
+	// its share of the column.
+	bottomHeight := a.layout.bottomFor(workspaceHeight)
 	if plan.bottom() {
 		bottomHeight = plan.bottomH
-	} else if bottomHeight <= 0 {
-		bottomHeight = max(dragFallbackBottomMinimum, main.Height*dragFallbackBottomFraction)
 	}
 	bottomHeight = min(max(bottomHeight, 0), workspaceHeight)
 	bottomArea := gfx.Rect{

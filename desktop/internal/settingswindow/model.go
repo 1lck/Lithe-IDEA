@@ -31,7 +31,9 @@ const (
 	pageVersionControl
 	pageBuild
 	pageLanguages
+	// pageTools is the group "Tools"; the page after it belongs to it.
 	pageTools
+	pageTerminal
 	pageAI
 	// pageCount is how many entries there are. As a parent it means "none": the parent
 	// of an entry on the top level.
@@ -54,6 +56,7 @@ var parents = [pageCount]pageID{
 	pageBuild:              noPage,
 	pageLanguages:          noPage,
 	pageTools:              noPage,
+	pageTerminal:           pageTools,
 	pageAI:                 noPage,
 }
 
@@ -105,6 +108,8 @@ func titleOf(messages *i18n.SettingsMessages, id pageID) string {
 		return messages.Languages
 	case pageTools:
 		return messages.Tools
+	case pageTerminal:
+		return messages.Terminal
 	case pageAI:
 		return messages.AI
 	}
@@ -324,6 +329,19 @@ type session struct {
 // values starting from the settings in force.
 func newSession(current Values) *session {
 	return &session{values: sanitize(current), page: initialPage, open: initialOpen()}
+}
+
+// show opens page and expands the group it is in, so the row that is selected is on the
+// screen. An entry that is a group or does not exist is left alone: a group has no page of
+// its own.
+func (s *session) show(page pageID) {
+	if page >= pageCount || isGroup(page) {
+		return
+	}
+	s.page = page
+	if parent := parents[page]; parent != noPage {
+		s.open[parent] = true
+	}
 }
 
 // accept ends the session once, so a click and an Enter cannot close it twice.

@@ -207,6 +207,28 @@ func TestTerminalAndStatusValuesPreserveExistingWording(t *testing.T) {
 	}
 }
 
+func TestTerminalShellWordingUsesSharedLanguage(t *testing.T) {
+	for _, test := range []struct {
+		language Language
+		menu     string
+		noShells string
+		withPath string
+		auto     string
+		missing  string
+	}{
+		{English, "New terminal with shell", "Shell not found", "bash (/opt/bin/bash)", "Automatic (zsh)", "/opt/bin/bash (not found)"},
+		{Chinese, "使用 Shell 新建终端", "未找到 Shell", "bash (/opt/bin/bash)", "自动（zsh）", "/opt/bin/bash（未找到）"},
+	} {
+		messages := For(test.language)
+		if messages.Terminal.ShellMenu != test.menu || messages.Terminal.NoShells != test.noShells || messages.Terminal.ShellWithPath("bash", "/opt/bin/bash") != test.withPath {
+			t.Fatalf("language %s: terminal shell menu wording changed", test.language.Code())
+		}
+		if messages.Settings.NoShells != test.noShells || messages.Settings.ShellWithPath("bash", "/opt/bin/bash") != test.withPath || messages.Settings.TerminalShellAuto("zsh") != test.auto || messages.Settings.TerminalShellMissing("/opt/bin/bash") != test.missing {
+			t.Fatalf("language %s: terminal settings wording changed", test.language.Code())
+		}
+	}
+}
+
 func TestCommitAndBranchMessagesKeepNamesLiteral(t *testing.T) {
 	for _, test := range []struct {
 		language Language

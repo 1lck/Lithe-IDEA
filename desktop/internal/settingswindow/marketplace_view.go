@@ -36,10 +36,6 @@ const (
 
 // marketWake is called on the window thread when an index fetch completes.
 func (w *window) marketWake() {
-	if w.requestPlugins.Swap(false) {
-		w.search.SetText("")
-		w.sess.page = pagePlugins
-	}
 	previous := w.market.status
 	w.market.drain()
 	w.market.search.drain(w.market, w.marketQuery.Text())

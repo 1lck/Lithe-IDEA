@@ -51,8 +51,12 @@ var (
 	termClose = tree.Sub(shellPage, tree.Name("terminal-close"))
 	termGrids = tree.Sub(shellPage, tree.Name("terminal-grids"))
 	termBars  = tree.Sub(shellPage, tree.Name("terminal-bars"))
-	// termNew identifies the button that opens another terminal.
-	termNew = tree.ID(shellPage, "terminal-new")
+	// termNew identifies the button that opens another terminal. termTabMore and
+	// termTabScrollbar are the button that lists the tool window's hidden tabs and the
+	// scrollbar of its strip.
+	termNew          = tree.ID(shellPage, "terminal-new")
+	termTabMore      = tree.ID(shellPage, "terminal-tab-more")
+	termTabScrollbar = tree.ID(shellPage, "terminal-tab-scrollbar")
 )
 
 // terminal is one shell of a project: the view that draws it and what the tabs call it.
@@ -63,7 +67,10 @@ type terminal struct {
 	// number is the n of the title "Local (n)": the lowest number no other terminal of the
 	// project has, so a closed terminal's number is handed out again.
 	number int
-	view   *termview.View
+	// shell is the program the terminal runs, as it was asked for: a path from the
+	// new-terminal menu or the Terminal setting, or empty for the user's login shell.
+	shell string
+	view  *termview.View
 }
 
 // terminalSet is the terminals of a project and where each one is placed. The zero value is
@@ -148,7 +155,8 @@ const (
 	actionSelect tabActionKind = iota
 	// actionClose closes the terminal of the clicked tab.
 	actionClose
-	// actionNew opens another terminal in the Terminal tool window.
+	// actionNew opens another terminal in the Terminal tool window, running the action's
+	// shell, or the Terminal setting's when the action names none.
 	actionNew
 	// actionSelectDocument and actionCloseDocument show and close the open file of the
 	// clicked tab; the action's term is then the document's id.
@@ -159,8 +167,9 @@ const (
 // tabAction is a click recorded while the frame was declared. It is done after the frame
 // is painted, because it changes the groups the frame was declared from.
 type tabAction struct {
-	kind tabActionKind
-	term int
+	kind  tabActionKind
+	term  int
+	shell string
 }
 
 // tabDecl is a terminal's tab as the frame declared it.
@@ -183,7 +192,7 @@ type groupDecl struct {
 	// doc is the open file the group shows instead, and nil when it shows a terminal.
 	doc *document
 
-	// What an editor group's strip declared for captureStrips (see tabstrip.go). state is the
+	// What a group's strip declared for captureStrips (see tabstrip.go). state is the
 	// strip's remembered state and current the member the group selects. chips are all its
 	// tabs, files' included. view is the part of the strip that shows the tabs and content
 	// the row of them inside it, which scrolls; more is the button that lists the hidden
@@ -254,6 +263,8 @@ type terminalUI struct {
 	hiddenScratch []string
 	tabWidths     []float32
 	tabStarts     []int
+	// shells is the new-terminal menu of the Terminal tool window (see terminal_shells.go).
+	shells shellMenu
 }
 
 // each calls fn for every group the frame declared: the Terminal tool window, if it was
@@ -273,7 +284,7 @@ func (u *terminalUI) each(fn func(*groupDecl)) {
 func (a *App) openTerminals(p *project) {
 	a.term = terminalUI{}
 	p.terms = terminalSet{}
-	a.newTerminal(p)
+	a.newTerminal(p, "")
 }
 
 // closeTerminals ends the shells of a project that is being closed and forgets where its
@@ -303,29 +314,40 @@ func (a *App) beginTerminalFrame() {
 }
 
 // drawTerminalTabs declares the tabs in the header of the Terminal tool window, after its
-// title: a tab for each terminal of the tool window's group and a button that opens another.
-// The strip is recorded as the place a dragged tab can join the group. The tabs shrink, down
-// to their least width, before the button is pushed out of a narrow panel.
+// title: a tab for each terminal and open file of the tool window's group, then the buttons
+// that open another terminal, and the room left over. The tabs keep their width and, when
+// they do not fit, scroll sideways in one row, whatever the editor's tab setting says, with a
+// thin bar along their top and a button that lists the tabs out of sight, as an editor
+// group's strip does (see drawGroupStrip). The strip is recorded as the place a dragged tab
+// can join the group.
 func (a *App) drawTerminalTabs(f *ui.Frame) {
 	u := &a.term
-	strip := f.Row().Fill().Items(ui.Center).Gap(chromeGap).Clip()
-	var tabs []tabDecl
-	strip.Children(func() {
-		tabs = a.drawTerminalChips(f, toolGroup)
-		// A ui Button cannot show an icon in this version of Viva, so this is a hit row
-		// with an icon, like the tool window's hide control.
-		add := f.Row().Size(shellHideSize, shellHideSize).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
-			HitWith(termNew, a.text.Terminal.NewTab, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).
-			Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
-		add.Children(func() {
-			f.Icon(icons.Plus).Size(shellIconSize, shellIconSize).Color(a.colors.Subtle).
-				StateFrom(add).Hover(ui.Look{}.Color(a.colors.Text))
+	decl := &u.tool
+	decl.state = u.stripOf(toolGroup)
+	decl.state.seen = true
+	tabs, current := a.groupTabs(toolGroup)
+	decl.current = current
+	decl.strip = f.Row().Fill().Items(ui.Center).Gap(chromeGap).Clip()
+	decl.stripSet = true
+	decl.strip.Children(func() {
+		controls := stripControls{more: termTabMore, bar: termTabScrollbar, moreIcon: icons.Ellipsis}
+		a.drawGroupStrip(f, decl, controls, tabs, tabsScroll, nil, func() {
+			// A ui Button cannot show an icon in this version of Viva, so this is a hit row
+			// with an icon, like the tool window's hide control.
+			add := f.Row().Size(shellHideSize, shellHideSize).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
+				HitWith(termNew, a.text.Terminal.NewTab, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).
+				Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
+			add.Children(func() {
+				f.Icon(icons.Plus).Size(shellIconSize, shellIconSize).Color(a.colors.Subtle).
+					StateFrom(add).Hover(ui.Look{}.Color(a.colors.Text))
+			})
+			if add.Clicked() {
+				u.actions = append(u.actions, tabAction{kind: actionNew})
+			}
+			a.drawShellMenuButton(f)
 		})
-		if add.Clicked() {
-			u.actions = append(u.actions, tabAction{kind: actionNew})
-		}
+		f.Spacer()
 	})
-	u.tool.strip, u.tool.stripSet, u.tool.tabs = strip, true, tabs
 }
 
 // drawTerminal declares the body of the Terminal tool window: an empty box that fills the
@@ -343,25 +365,6 @@ func (a *App) drawTerminal(f *ui.Frame) {
 		})
 	}
 	u.tool.body, u.tool.bodySet, u.toolDrawn = body, true, true
-}
-
-// drawTerminalChips declares the tabs of the terminals that group lists, in the group's
-// order, and returns them for the drag. It is called inside the box of the group's strip.
-// The editor's groups lay their strips out with drawGroupStrip instead.
-//
-// The group's open files get their tabs among the terminals', in the same order; they are not
-// returned, as a file's tab cannot be dragged yet.
-func (a *App) drawTerminalChips(f *ui.Frame, group string) []tabDecl {
-	shown, current := a.groupTabs(group)
-	tabs := make([]tabDecl, 0, len(shown))
-	for i, s := range shown {
-		if s.doc != nil {
-			a.drawDocumentTab(f, s.doc, current == s.member(), i, len(shown), false)
-			continue
-		}
-		tabs = append(tabs, a.drawTerminalTab(f, s.term, current == s.member(), i, len(shown)))
-	}
-	return tabs
 }
 
 // drawTerminalTab declares one terminal's tab: an icon, the title and a close button. The
@@ -435,6 +438,7 @@ func (a *App) captureTerminals() bool {
 	if !u.toolDrawn {
 		u.autoFailed = false
 	}
+	u.endShellMenuFrame()
 	return a.captureStrips()
 }
 
@@ -458,7 +462,7 @@ func (a *App) paintTerminal(canvas *gfx.Canvas) {
 		canvas.RequestFrame()
 	}
 	if u.toolDrawn && len(set.list) == 0 && !u.autoFailed {
-		if t := a.newTerminal(p); t != nil {
+		if t := a.newTerminal(p, ""); t != nil {
 			a.focusTerminal(t.id)
 			canvas.RequestFrame()
 		} else {
@@ -530,7 +534,7 @@ func (a *App) paintTerminal(canvas *gfx.Canvas) {
 		case actionClose:
 			a.closeTerminal(p, action.term)
 		case actionNew:
-			if t := a.newTerminal(p); t != nil {
+			if t := a.newTerminal(p, action.shell); t != nil {
 				a.focusTerminal(t.id)
 			}
 		case actionSelectDocument:
@@ -570,14 +574,18 @@ func (a *App) reduceTerminals(p *project, state core.EditorWorkbench, action cor
 	return true
 }
 
-// newTerminal opens a terminal at the end of the Terminal tool window's tabs and shows it.
-// It is nil when the kernel refuses. Opening it starts nothing: its shell starts when it is
+// newTerminal opens a terminal at the end of the Terminal tool window's tabs and shows it,
+// running shell, or the shell the Terminal setting names when shell is empty, or the user's
+// login shell when that is empty too. It is nil when the kernel refuses. Opening it starts nothing: its shell starts when it is
 // first painted. The shell's output arrives on another goroutine, and Invalidate is what
 // wakes the window to take it in (see pumpTerminal).
 //
 // The tool window's group is made if the state has none, so a project is never without
 // the group the tool window's tabs are listed in.
-func (a *App) newTerminal(p *project) *terminal {
+func (a *App) newTerminal(p *project, shell string) *terminal {
+	if shell == "" {
+		shell = a.settings.TerminalShell
+	}
 	set := &p.terms
 	state := set.bench
 	if state.Group(toolGroup) == nil {
@@ -591,8 +599,10 @@ func (a *App) newTerminal(p *project) *terminal {
 	t := &terminal{
 		id:     id,
 		number: set.freeNumber(),
+		shell:  shell,
 		view: termview.New(termview.Config{
 			Dir:      p.root,
+			Shell:    shell,
 			HitID:    termGrids.At(id),
 			BarID:    termBars.At(id),
 			Messages: a.terminalMessages(),

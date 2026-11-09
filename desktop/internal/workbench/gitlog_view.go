@@ -43,6 +43,18 @@ const (
 	logListMaxHeight = 320
 )
 
+// The reference chips under the author line of the commit details. drawLogRefChip lays a
+// chip out and refRows measures it with the same numbers, so they must change together: a
+// chip is logRefChipPad on either side of a logRefIconSize tag icon, logRefChipGap and the
+// name, and chips stand logRefChipGap apart along a line and between the lines they wrap
+// onto.
+const (
+	logRefChipHeight = 20
+	logRefChipPad    = 6
+	logRefIconSize   = 12
+	logRefChipGap    = 4
+)
+
 var (
 	logSearchID     = tree.ID(shellPage, "log-search")
 	logRefSearchID  = tree.ID(shellPage, "log-ref-search")
@@ -144,6 +156,11 @@ type logView struct {
 	subjectOf    string
 	subjectWidth float32
 	subjectFonts uint32
+	// refWidths are the widths refRows measured the selected commit's reference chips at, and
+	// refStarts the index of the first chip of each line they wrap onto; both are kept so the
+	// next frame reuses their arrays.
+	refWidths []float32
+	refStarts []int
 
 	// file is the path of the selected changed file, and folder the path of the selected
 	// folder of the changed files; at most one of them is set.
@@ -828,7 +845,7 @@ func (a *App) drawLogFiles(f *ui.Frame, p *project) ui.Box {
 				Width:    max(v.fileScroll.Content, v.fileScroll.Viewport()),
 				OffsetX:  v.fileScroll.Offset,
 			}, func(i int) { a.drawLogFileContent(f, p, v.fileItems[i]) })
-			a.drawSidewaysThumb(f, &v.fileScroll, false)
+			a.drawSidewaysThumb(f, logFilesScrollbar, &v.fileScroll, false)
 		})
 		v.fileArea, v.filesDrawn = result.Area, true
 		if i := result.Clicked; i >= 0 {
@@ -1086,11 +1103,19 @@ func (a *App) drawLogCommitDetail(f *ui.Frame, p *project) ui.Box {
 				f.Text(g.On(a.logView.date(d.Commit))).Muted().Ellipsis().Shrink(1)
 			})
 			if chips := slices.DeleteFunc(slices.Clone(labels), func(x core.GraphLabel) bool { return x.Kind == "head" }); len(chips) > 0 {
-				f.Row().FillWidth().Gap(4).Clip().Children(func() {
-					for _, label := range chips {
-						f.Row().Height(20).Shrink(0).Items(ui.Center).Gap(4).PadX(6).Radius(a.theme.Metrics.RadiusItem()).Background(a.colors.Hover).Children(func() {
-							f.Icon(icons.Tag).Size(12, 12).Color(referenceColor(label.Kind, a.colors.Dark))
-							f.Text(label.Title).FontSize(a.theme.Metrics.FontSizeS)
+				// Viva has no wrapping row, so the chips are broken into lines here, each line
+				// a row of the chips that fit it whole.
+				starts := a.logView.refRows(f.Canvas(), chips, a.theme.Metrics.FontSizeS)
+				f.Column().FillWidth().Gap(logRefChipGap).Children(func() {
+					for line, start := range starts {
+						end := len(chips)
+						if line+1 < len(starts) {
+							end = starts[line+1]
+						}
+						f.Row().FillWidth().Gap(logRefChipGap).Clip().Children(func() {
+							for _, label := range chips[start:end] {
+								a.drawLogRefChip(f, label)
+							}
 						})
 					}
 				})
@@ -1114,6 +1139,41 @@ func (v *logView) subjectLines(canvas *gfx.Canvas, subject string) []string {
 		v.subjectOf, v.subjectWidth, v.subjectFonts = subject, width, fonts
 	}
 	return v.subject
+}
+
+// refRows is where the lines of reference chips start when the commit details wrap labels,
+// drawn at font size size: the index of the first chip of each line. Each chip is measured
+// as drawLogRefChip lays it out, and the lines are as wide as subjectLines breaks the
+// subject at, the details less their padding; the details pane is given exactly
+// detailWidth, so the width is known before the frame is laid out. A line holds the chips
+// that fit it whole, so none is cut off by the pane's edge, and a chip wider than a line
+// has one to itself. Without a canvas to measure with the chips stay in one line.
+func (v *logView) refRows(canvas *gfx.Canvas, labels []core.GraphLabel, size float32) []int {
+	avail := v.detailWidth - 2*logDetailPad
+	v.refWidths = v.refWidths[:0]
+	if canvas == nil || avail <= 0 {
+		v.refStarts = append(v.refStarts[:0], 0)
+		return v.refStarts
+	}
+	for _, label := range labels {
+		width := 2*logRefChipPad + logRefIconSize + logRefChipGap + canvas.TextWidth(label.Title, size)
+		v.refWidths = append(v.refWidths, width)
+	}
+	v.refStarts = wrapTabs(v.refStarts[:0], v.refWidths, avail, logRefChipGap)
+	return v.refStarts
+}
+
+// drawLogRefChip declares one reference chip of the commit details, laid out with the
+// numbers refRows measures it by. Its name is drawn whole unless the chip is wider than a
+// line, which refRows gives it alone; then the chip gives way to the line and its name
+// ends in an ellipsis.
+func (a *App) drawLogRefChip(f *ui.Frame, label core.GraphLabel) {
+	chip := f.Row().Height(logRefChipHeight).Shrink(1).Items(ui.Center).Gap(logRefChipGap).PadX(logRefChipPad).
+		Radius(a.theme.Metrics.RadiusItem()).Background(a.colors.Hover)
+	chip.Children(func() {
+		f.Icon(icons.Tag).Size(logRefIconSize, logRefIconSize).Color(referenceColor(label.Kind, a.colors.Dark))
+		f.Text(label.Title).FontSize(a.theme.Metrics.FontSizeS).Ellipsis()
+	})
 }
 
 // toggleLogPopover opens a popover of the log tab, or closes it when it is open.

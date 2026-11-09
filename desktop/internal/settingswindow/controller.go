@@ -13,6 +13,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 	"github.com/vivaui/viva/app"
@@ -42,6 +43,10 @@ type Values struct {
 	// fit: TabOverflowSqueeze makes them narrower, and empty scrolls them sideways.
 	EditorTabRows     string
 	EditorTabOverflow string
+	// TerminalShell is the executable path of the shell a new terminal runs; empty is
+	// automatic, the system's default shell. A path no installed shell has is kept as stored
+	// and shown as not found, not replaced by one that exists.
+	TerminalShell string
 }
 
 // The stored values of Values.EditorTabRows and Values.EditorTabOverflow besides the empty
@@ -107,6 +112,13 @@ type Options struct {
 	// Values.EditorTabOverflow to the settings owner in the same way.
 	SetTabRows     func(string)
 	SetTabOverflow func(string)
+	// TerminalShells lists the installed shells for the Terminal page and names the
+	// program automatic runs (localshell.InstalledShells and localshell.DefaultShell).
+	// It runs off the window thread. Nil leaves the page unavailable.
+	TerminalShells func() (shells []localshell.Choice, automatic string)
+	// SetTerminalShell hands a change of Values.TerminalShell to the settings owner,
+	// like SetTabRows.
+	SetTerminalShell func(string)
 	// ResetLayout puts the workbench's buttons back where the catalog puts them. It runs
 	// at once, on the settings window's thread, when the user presses the button, because
 	// pressing it is its own confirmation.
@@ -159,21 +171,27 @@ func (c *Controller) systemDark() bool {
 // values and page untouched, and current is ignored. It must run on a window thread of
 // application, as app.Application.OpenWindow requires.
 func (c *Controller) Open(application *app.Application, current Values) error {
-	return c.open(application, current, false)
+	return c.open(application, current, noPage)
 }
 
 // OpenPlugins opens the plugin page, including when a settings window is already open.
 func (c *Controller) OpenPlugins(application *app.Application, current Values) error {
-	return c.open(application, current, true)
+	return c.open(application, current, pagePlugins)
 }
 
-func (c *Controller) open(application *app.Application, current Values, plugins bool) error {
+// OpenTerminal opens the Terminal page under Tools, including when a settings window is
+// already open: that window switches to the page and is raised, keeping its other values.
+func (c *Controller) OpenTerminal(application *app.Application, current Values) error {
+	return c.open(application, current, pageTerminal)
+}
+
+// open shows the window on page, or, with noPage, on the page it already has or starts on.
+func (c *Controller) open(application *app.Application, current Values, page pageID) error {
 	c.mu.Lock()
 	if open := c.current; open != nil && open.win != nil && !open.win.Closed() && !open.sess.finished.Load() {
 		win := open.win
-		if plugins {
-			open.requestPlugins.Store(true)
-			open.inv.Invalidate()
+		if page != noPage {
+			open.requestPage(page)
 		}
 		c.mu.Unlock()
 		win.Show()
@@ -182,8 +200,8 @@ func (c *Controller) open(application *app.Application, current Values, plugins 
 	c.mu.Unlock()
 
 	w := newWindow(c, current)
-	if plugins {
-		w.sess.page = pagePlugins
+	if page != noPage {
+		w.sess.show(page)
 	}
 	win, err := application.OpenWindow(w.config(), nil)
 	if err != nil {

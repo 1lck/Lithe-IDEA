@@ -6,6 +6,7 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/logwindow"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
@@ -95,6 +96,14 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		SetTabOverflow: func(value string) {
 			a.post(func(a *App) { a.setTabOverflow(value) })
 		},
+		// The Terminal page lists the shells the new-terminal menu offers, found the same
+		// way, and names the login shell a terminal runs while the setting is automatic.
+		TerminalShells: func() ([]localshell.Choice, string) {
+			return a.listShells(), localshell.DefaultShell()
+		},
+		SetTerminalShell: func(value string) {
+			a.post(func(a *App) { a.setTerminalShell(value) })
+		},
 		ResetLayout: func() {
 			a.post(func(a *App) { a.resetLayout() })
 		},
@@ -116,19 +125,36 @@ func (a *App) setMarketplaceWidth(width float32) {
 // window thread, which the task runs on. The settings in force are read there, at the
 // moment the window opens, so a window that has to be made starts from the latest ones.
 func (a *App) openSettings(surface string) {
-	a.openSettingsPage(surface, false)
+	a.openSettingsPage(surface, settingsHome)
 }
 
+// openPluginSettings shows the settings window on its plugin page.
 func (a *App) openPluginSettings(surface string) {
-	a.openSettingsPage(surface, true)
+	a.openSettingsPage(surface, settingsPlugins)
 }
 
-func (a *App) openSettingsPage(surface string, plugins bool) {
+// openTerminalSettings shows the settings window on its Terminal page, where the shell new
+// terminals run is picked.
+func (a *App) openTerminalSettings(surface string) {
+	a.openSettingsPage(surface, settingsTerminal)
+}
+
+// settingsPage is the page of the settings window an action opens it on.
+type settingsPage uint8
+
+const (
+	// settingsHome opens the window where it was left, or on its first page.
+	settingsHome settingsPage = iota
+	settingsPlugins
+	settingsTerminal
+)
+
+func (a *App) openSettingsPage(surface string, page settingsPage) {
 	a.performed("settings.open", surface)
 	if a.application == nil {
 		return
 	}
-	if plugins {
+	if page == settingsPlugins {
 		// The plugin page paints from memory, so its state is reloaded when the
 		// page is asked for rather than on every paint.
 		a.refreshPluginState()
@@ -141,11 +167,15 @@ func (a *App) openSettingsPage(surface string, plugins bool) {
 		current := settingswindow.Values{
 			Language: a.settings.Language, Theme: string(a.settings.Theme), MarketplaceWidth: a.settings.MarketplaceWidth,
 			EditorTabRows: a.settings.EditorTabRows, EditorTabOverflow: a.settings.EditorTabOverflow,
+			TerminalShell: a.settings.TerminalShell,
 		}
 		var err error
-		if plugins {
+		switch page {
+		case settingsPlugins:
 			err = a.settingsWindow.OpenPlugins(a.application, current)
-		} else {
+		case settingsTerminal:
+			err = a.settingsWindow.OpenTerminal(a.application, current)
+		default:
 			err = a.settingsWindow.Open(a.application, current)
 		}
 		if err != nil {

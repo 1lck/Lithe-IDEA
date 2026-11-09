@@ -435,8 +435,7 @@ func TestMarketplaceRequestSwitchesOpenSettingsWindow(t *testing.T) {
 		}
 	})
 	w.search.SetText("general")
-	w.requestPlugins.Store(true)
-	w.inv.Invalidate()
+	w.requestPage(pagePlugins)
 	if err := driver.Pump(); err != nil {
 		t.Fatal(err)
 	}

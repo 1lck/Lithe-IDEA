@@ -28,12 +28,72 @@ var shellPrefixes = []string{"/bin", "/usr/bin", "/usr/local/bin", "/opt/homebre
 // system shell file names them, in the order the settings offer them.
 var shellFamilies = []string{"zsh", "bash", "fish", "nu", "elvish", "xonsh", "tcsh", "csh", "ksh", "dash", "sh"}
 
-// InstalledWindowsShells is the cross-platform name for local shell discovery.
-// On non-Windows systems it lists the shells the system shell file accepts,
-// the standard installation prefixes and PATH, keeping one entry per family.
-func InstalledWindowsShells() []Choice {
+// InstalledShells lists the shells the system shell file accepts, the standard
+// installation prefixes hold and PATH finds, for the terminal's new-terminal menu
+// and its default shell setting. Every installation is an entry of its own: bash
+// from the system and bash from Homebrew are different programs, often of
+// different versions, and the user picks one of them, as the macOS client did.
+func InstalledShells() []Choice {
 	paths := shellPathsByFamily(systemShellFile, shellPrefixes)
-	return collapseCShellAlias(discoverShells(candidatesFrom(paths), defaultShell(), exec.LookPath))
+	return collapseCShellAlias(discoverInstallations(candidatesFrom(paths), defaultShell(), exec.LookPath))
+}
+
+// discoverInstallations keeps every distinct executable of each family, in the
+// order the family's places are tried. Places that reach the same file are one
+// installation and keep the first place: a symbolic link into Homebrew's cellar,
+// the bare name PATH resolves, /bin and /usr/bin on a merged /usr. Families never
+// merge, so sh stays beside the shell it links to; collapseCShellAlias handles
+// the one pair that is the same shell under two names.
+//
+// Default marks the preferred program by its path or, when the preferred path is
+// not one of the places, by the entry of its family that is the same file.
+func discoverInstallations(candidates []shellCandidate, preferred string, lookup func(string) (string, error)) []Choice {
+	preferred = filepath.Clean(preferred)
+	preferredInfo, preferredErr := os.Stat(preferred)
+	var choices []Choice
+	for _, candidate := range candidates {
+		var kept []os.FileInfo
+		for _, program := range candidate.paths {
+			if program == "" {
+				continue
+			}
+			path, err := lookup(program)
+			if err != nil {
+				continue
+			}
+			if path, err = filepath.Abs(path); err != nil {
+				continue
+			}
+			info, err := os.Stat(path)
+			if err != nil || info.IsDir() || hasPath(choices, path) || sameAsAny(kept, info) {
+				continue
+			}
+			kept = append(kept, info)
+			isDefault := path == preferred || (preferredErr == nil && candidate.name == filepath.Base(preferred) && os.SameFile(preferredInfo, info))
+			choices = append(choices, Choice{Name: candidate.name, Path: path, Default: isDefault})
+		}
+	}
+	return choices
+}
+
+// hasPath says whether a choice already runs path.
+func hasPath(choices []Choice, path string) bool {
+	for _, choice := range choices {
+		if choice.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
+// sameAsAny says whether info is the same file as one of kept.
+func sameAsAny(kept []os.FileInfo, info os.FileInfo) bool {
+	for _, other := range kept {
+		if os.SameFile(other, info) {
+			return true
+		}
+	}
+	return false
 }
 
 // collapseCShellAlias keeps one entry when csh and tcsh are two names for the

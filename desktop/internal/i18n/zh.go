@@ -287,6 +287,11 @@ var chinese = Messages{
 		NewTab:             Shared(Chinese, "terminal.newTerminal"),
 		CloseTab:           Shared(Chinese, "terminal.contextClose"),
 		NoTerminals:        Shared(Chinese, "desktop.terminal.noTerminals"),
+		ShellMenu:          Shared(Chinese, "native.newTerminalWithShell"),
+		DetectingShells:    Shared(Chinese, "terminal.detectingShells"),
+		NoShells:           Shared(Chinese, "native.shellNotFound"),
+		ShellWithPath:      func(name, path string) string { return terminalShellWithPath(Chinese, name, path) },
+		Settings:           Shared(Chinese, "menu.settings"),
 	},
 
 	Agent: agentMessages(Chinese),

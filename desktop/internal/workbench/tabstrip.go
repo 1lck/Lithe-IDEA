@@ -212,11 +212,26 @@ func (a *App) drawStripTab(f *ui.Frame, decl *groupDecl, s shownTab, current str
 	decl.chips = append(decl.chips, chipDecl{member: member, box: box})
 }
 
-// drawGroupStrip declares the strip of tabs of editor group decl, the index-th group of the
-// frame, in layout: tabs are the group's tabs and, for tabsRows, rows where each row of them
-// starts (see tabRows). It is called inside the box of the strip; buttons declares the
-// strip's own buttons, which end its first row.
-func (a *App) drawGroupStrip(f *ui.Frame, decl *groupDecl, index int, tabs []shownTab, layout tabLayout, rows []int, buttons func()) {
+// stripControls are the identities of a strip's own controls, the button that lists its
+// hidden tabs and its scrollbar, and the icon of that button.
+type stripControls struct {
+	more, bar gfx.ID
+	moreIcon  gfx.Icon
+}
+
+// editorStripControls are the controls of the strip of the index-th editor group the frame
+// declares.
+func editorStripControls(index int) stripControls {
+	return stripControls{more: tabMore.At(index), bar: tabScrollbar.At(index), moreIcon: icons.ChevronDown}
+}
+
+// drawGroupStrip declares the strip of tabs of group decl in layout: tabs are the group's
+// tabs and, for tabsRows, rows where each row of them starts (see tabRows). It is called
+// inside the box of the strip; buttons declares the strip's own buttons, which end its first
+// row. An editor group's tabs fill the strip, so its buttons are at the strip's end; the
+// Terminal tool window's take only the room they need, up to what the strip has, and its
+// buttons follow them.
+func (a *App) drawGroupStrip(f *ui.Frame, decl *groupDecl, ids stripControls, tabs []shownTab, layout tabLayout, rows []int, buttons func()) {
 	s, current := decl.state, decl.current
 	if layout == tabsRows {
 		decl.view = f.Column().Fill().Clip()
@@ -240,7 +255,18 @@ func (a *App) drawGroupStrip(f *ui.Frame, decl *groupDecl, index int, tabs []sho
 		return
 	}
 	squeeze := layout == tabsSqueeze
-	decl.view = f.Row().Fill().Items(ui.Center).Clip()
+	decl.view = f.Row().FillHeight().Items(ui.Center).Clip()
+	switch {
+	case !decl.tool:
+		decl.view.FillWidth()
+	case s.scroll.Content > 0:
+		// The view is as wide as the row of tabs the last frame measured, and gives way
+		// when the strip is narrower. Its own content, moved left by the offset, would make
+		// it narrower by the offset and keep it from widening again.
+		decl.view.Width(s.scroll.Content).Shrink(1).MinWidth(0)
+	default:
+		decl.view.Shrink(1).MinWidth(0)
+	}
 	decl.view.Children(func() {
 		// The row of tabs is moved left by the offset and clipped to the view. Squeezed, it
 		// is as wide as the view was in the last frame, so the tabs give up their width to
@@ -259,12 +285,12 @@ func (a *App) drawGroupStrip(f *ui.Frame, decl *groupDecl, index int, tabs []sho
 				a.drawStripTab(f, decl, t, current, i, len(tabs), squeeze)
 			}
 		})
-		a.drawSidewaysThumb(f, &s.scroll, true)
+		a.drawSidewaysThumb(f, ids.bar, &s.scroll, true)
 	})
 	decl.viewSet = true
 	f.Row().Height(panelHeaderHeight).Shrink(0).Items(ui.Center).Gap(chromeGap).Children(func() {
 		if len(s.hidden) > 0 {
-			if a.toolIconButton(f, tabMore.At(index), a.text.Editor.HiddenTabs, icons.ChevronDown, s.menu, false, &decl.more) {
+			if a.toolIconButton(f, ids.more, a.text.Editor.HiddenTabs, ids.moreIcon, s.menu, false, &decl.more) {
 				open := !s.menu
 				a.term.closeStripMenus()
 				s.menu = open
@@ -423,10 +449,11 @@ func (a *App) drawHiddenTab(f *ui.Frame, t shownTab, selected bool) hiddenClick 
 	return hiddenNone
 }
 
-// closeStripMenus closes the list of hidden tabs of every strip and reports whether one was
-// open.
+// closeStripMenus closes the list of hidden tabs of every strip and the Terminal tool
+// window's new-terminal menu, and reports whether one was open.
 func (u *terminalUI) closeStripMenus() bool {
-	closed := false
+	closed := u.shells.open
+	u.shells.open = false
 	for _, s := range u.strips {
 		closed = closed || s.menu
 		s.menu = false
@@ -445,59 +472,20 @@ func (u *terminalUI) stripWheel(event gfx.ScrollEvent) (gfx.EventResult, bool) {
 	return gfx.EventResult{}, false
 }
 
-// captureStrips reads where the frame that was just laid out put each editor group's tabs:
-// how wide the row of them is against the part of the strip that shows it, which of them it
-// does not show in full, and where the selected one is, which is scrolled into view when the
-// selection has changed. A strip the frame did not declare forgets where it was and closes
-// its list, and the strip of a group that is gone is dropped. It reports whether what the
-// strip shows changed, so the caller asks for another frame.
+// captureStrips reads where the frame that was just laid out put the tabs of each editor
+// group and of the Terminal tool window (see captureStrip). A strip the frame did not declare
+// forgets where it was and closes its list, and the strip of a group that is gone is
+// dropped. It reports whether what a strip shows changed, so the caller asks for another
+// frame.
 func (a *App) captureStrips() bool {
 	u := &a.term
 	again := false
+	rows := a.tabLayout() == tabsRows
 	for i := range u.groups {
-		g := &u.groups[i]
-		if g.state == nil || !g.viewSet {
-			continue
-		}
-		s := g.state
-		view := g.view.Rect()
-		if a.tabLayout() == tabsRows {
-			// The tabs are wrapped at the width of the strip, so there is nothing to scroll;
-			// a change of width wraps them again in the next frame.
-			again = s.scroll.Fit(view, view.Width) || again
-			if len(s.hidden) > 0 {
-				s.hidden, again = s.hidden[:0], true
-			}
-			continue
-		}
-		content := g.content.Rect()
-		width := float32(0)
-		if n := len(g.chips); n > 0 {
-			width = g.chips[n-1].box.Rect().Right() - content.X
-		}
-		again = s.scroll.Fit(view, width) || again
-		u.hiddenScratch = u.hiddenScratch[:0]
-		for _, c := range g.chips {
-			r := c.box.Rect()
-			if r.X < view.X-tabHideSlack || r.Right() > view.Right()+tabHideSlack {
-				u.hiddenScratch = append(u.hiddenScratch, c.member)
-			}
-		}
-		if !slices.Equal(u.hiddenScratch, s.hidden) {
-			s.hidden = append(s.hidden[:0], u.hiddenScratch...)
-			again = true
-		}
-		if g.current != s.revealed && view.Width > 0 {
-			for _, c := range g.chips {
-				if c.member == g.current {
-					r := c.box.Rect()
-					again = s.scroll.Reveal(r.X-content.X, r.Right()-content.X) || again
-					break
-				}
-			}
-			s.revealed = g.current
-		}
+		again = a.captureStrip(&u.groups[i], rows) || again
 	}
+	// The tool window's tabs always scroll in one row: the editor's setting is not theirs.
+	again = a.captureStrip(&u.tool, false) || again
 	for id, s := range u.strips {
 		switch {
 		case a.project == nil || a.project.terms.bench.Group(id) == nil:
@@ -506,6 +494,55 @@ func (a *App) captureStrips() bool {
 			s.scroll.Area, s.menu, s.revealed = gfx.Rect{}, false, ""
 		}
 		s.seen = false
+	}
+	return again
+}
+
+// captureStrip reads where the frame put group g's tabs: how wide the row of them is
+// against the part of the strip that shows it, which of them it does not show in full, and
+// where the selected one is, which is scrolled into view when the selection has changed.
+// rows says the tabs were wrapped onto rows. It reports whether what the strip shows changed.
+func (a *App) captureStrip(g *groupDecl, rows bool) bool {
+	if g.state == nil || !g.viewSet {
+		return false
+	}
+	u, s, again := &a.term, g.state, false
+	view := g.view.Rect()
+	if rows {
+		// The tabs are wrapped at the width of the strip, so there is nothing to scroll; a
+		// change of width wraps them again in the next frame.
+		again = s.scroll.Fit(view, view.Width)
+		if len(s.hidden) > 0 {
+			s.hidden, again = s.hidden[:0], true
+		}
+		return again
+	}
+	content := g.content.Rect()
+	width := float32(0)
+	if n := len(g.chips); n > 0 {
+		width = g.chips[n-1].box.Rect().Right() - content.X
+	}
+	again = s.scroll.Fit(view, width)
+	u.hiddenScratch = u.hiddenScratch[:0]
+	for _, c := range g.chips {
+		r := c.box.Rect()
+		if r.X < view.X-tabHideSlack || r.Right() > view.Right()+tabHideSlack {
+			u.hiddenScratch = append(u.hiddenScratch, c.member)
+		}
+	}
+	if !slices.Equal(u.hiddenScratch, s.hidden) {
+		s.hidden = append(s.hidden[:0], u.hiddenScratch...)
+		again = true
+	}
+	if g.current != s.revealed && view.Width > 0 {
+		for _, c := range g.chips {
+			if c.member == g.current {
+				r := c.box.Rect()
+				again = s.scroll.Reveal(r.X-content.X, r.Right()-content.X) || again
+				break
+			}
+		}
+		s.revealed = g.current
 	}
 	return again
 }

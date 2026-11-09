@@ -58376,7 +58376,8 @@
       "id": "native.newTerminalWithShell",
       "description": "Native UI: New terminal with shell",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "New terminal with shell",
@@ -71508,7 +71509,8 @@
       "id": "native.shellNotFound",
       "description": "Native UI: Shell not found",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Shell not found",
@@ -95021,7 +95023,8 @@
       "id": "settings.terminal.defaultShell",
       "description": "Windows UI: settings.terminal.defaultShell",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -95826,7 +95829,8 @@
       "id": "terminal.detectingShells",
       "description": "Windows UI: terminal.detectingShells",
       "platforms": [
-        "windows"
+        "windows",
+        "desktop"
       ]
     },
     {
@@ -99550,6 +99554,23 @@
       ]
     },
     {
+      "id": "desktop.settings.terminalShellHelp",
+      "description": "Settings › Tools › Terminal: help under the default shell choice.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.settings.terminalShellMissing",
+      "description": "Settings › Tools › Terminal: the stored default shell when no installed shell has that path. {path} is the stored executable path.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
       "id": "desktop.settings.followSystemEffective",
       "description": "Current system appearance or language in the settings selector.",
       "platforms": [
@@ -100853,6 +100874,17 @@
       ],
       "parameters": {
         "number": "integer"
+      }
+    },
+    {
+      "id": "desktop.terminal.shellWithPath",
+      "description": "Terminal new-terminal menu: an installed shell whose name another installation shares. {name} is the shell's name, {path} its executable.",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "name": "string",
+        "path": "string"
       }
     },
     {

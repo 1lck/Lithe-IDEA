@@ -181,6 +181,46 @@ func TestEditorTabsScrollAndListTheHiddenOnes(t *testing.T) {
 	}
 }
 
+// The thin bar along the top of a strip that scrolls can be dragged: dragging its thumb to
+// the start scrolls the tabs to the start, and a press on the bar beside the thumb moves the
+// thumb there at once. Neither presses the tab under the bar.
+func TestEditorTabStripThumbDrags(t *testing.T) {
+	h := newHarness(t, &testKernel{Client: core.NewClient()})
+	docs, group := h.openTabs(t, 12)
+	s := h.app.term.strips[group]
+	if s == nil || s.scroll.Offset == 0 || s.scroll.Offset != s.scroll.Max() {
+		t.Fatalf("the strip is not scrolled to its selected last tab: %+v", s)
+	}
+	view := s.scroll.Area
+	bar := h.hit(tabScrollbar.At(0))
+	if bar.X != view.X || bar.Width != view.Width || bar.Y != view.Y || bar.Height != sidewaysTabGrip {
+		t.Fatalf("the bar %+v does not run along the top of the strip %+v", bar, view)
+	}
+	selected := h.selectedMember(group)
+
+	left, length, _ := s.scroll.Thumb()
+	y := bar.Y + bar.Height/2
+	h.drag(gfx.Point{X: view.X + left + length/2, Y: y}, gfx.Point{X: view.X, Y: y})
+	h.frames()
+	if s.scroll.Offset != 0 {
+		t.Fatalf("dragging the thumb to the start left the strip at %v", s.scroll.Offset)
+	}
+	if tab := h.hit(docTabs.At(docs[0].id)); !inside(tab, view) {
+		t.Fatalf("dragged to the start, the first tab %+v is not in the strip %+v", tab, view)
+	}
+	if h.app.sideways.drag.scroll != nil {
+		t.Fatal("the release did not end the drag")
+	}
+
+	h.press(gfx.Rect{X: view.Right() - 2, Y: bar.Y, Width: 1, Height: bar.Height})
+	if s.scroll.Offset != s.scroll.Max() {
+		t.Fatalf("a press at the end of the bar left the strip at %v of %v", s.scroll.Offset, s.scroll.Max())
+	}
+	if h.selectedMember(group) != selected {
+		t.Fatal("a press on the bar selected the tab under it")
+	}
+}
+
 // The editor's tab setting squeezes the tabs of one row, or wraps them onto as many rows as
 // they need with the strip's buttons at the end of the first, and back.
 func TestEditorTabsSqueezeOrWrapByTheSetting(t *testing.T) {

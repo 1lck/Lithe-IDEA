@@ -287,6 +287,11 @@ var english = Messages{
 		NewTab:             Shared(English, "terminal.newTerminal"),
 		CloseTab:           Shared(English, "terminal.contextClose"),
 		NoTerminals:        Shared(English, "desktop.terminal.noTerminals"),
+		ShellMenu:          Shared(English, "native.newTerminalWithShell"),
+		DetectingShells:    Shared(English, "terminal.detectingShells"),
+		NoShells:           Shared(English, "native.shellNotFound"),
+		ShellWithPath:      func(name, path string) string { return terminalShellWithPath(English, name, path) },
+		Settings:           Shared(English, "menu.settings"),
 	},
 
 	Agent: agentMessages(English),

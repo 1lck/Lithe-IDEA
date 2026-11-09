@@ -470,7 +470,7 @@ func (a *App) drawEditorGroup(f *ui.Frame, id string) ui.Box {
 		decl.strip.Children(func() {
 			// The tabs fill the strip and give up their room before the buttons do, so they
 			// stay at the end of the strip's first row however many files are open.
-			a.drawGroupStrip(f, &decl, index, tabs, layout, rows, func() {
+			a.drawGroupStrip(f, &decl, editorStripControls(index), tabs, layout, rows, func() {
 				if decl.doc != nil {
 					a.drawSoftWrapSwitch(f, decl.doc.id)
 				}

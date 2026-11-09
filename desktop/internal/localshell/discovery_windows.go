@@ -64,6 +64,14 @@ func cygwinRecordedRoots() []string {
 	return roots
 }
 
+// InstalledShells is InstalledWindowsShells: on Windows each family is one entry,
+// because its candidates are versions or routes to one product (PowerShell 7 under
+// several version directories, Git Bash found beside the Git executable) rather than
+// installations a user tells apart.
+func InstalledShells() []Choice {
+	return InstalledWindowsShells()
+}
+
 // InstalledWindowsShells looks in PATH and standard machine/per-user install
 // locations. It checks executable files without starting the user's programs.
 func InstalledWindowsShells() []Choice {

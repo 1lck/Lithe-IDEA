@@ -27,3 +27,18 @@ func TestShellDiscoveryUsesExistingExecutablesAndDeduplicates(t *testing.T) {
 		t.Fatalf("discovered shells: %+v", choices)
 	}
 }
+
+// TestShellLabelsAddThePathOnlyToRepeatedNames checks the words the menu shows:
+// a name only one installation has stands alone, repeated names carry the path.
+func TestShellLabelsAddThePathOnlyToRepeatedNames(t *testing.T) {
+	choices := []Choice{
+		{Name: "zsh", Path: "/bin/zsh"},
+		{Name: "bash", Path: "/bin/bash"},
+		{Name: "bash", Path: "/opt/homebrew/bin/bash"},
+	}
+	got := Labels(choices, func(name, path string) string { return name + " (" + path + ")" })
+	want := []string{"zsh", "bash (/bin/bash)", "bash (/opt/homebrew/bin/bash)"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("labels = %q, want %q", got, want)
+	}
+}

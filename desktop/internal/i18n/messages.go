@@ -466,6 +466,16 @@ type TerminalMessages struct {
 	CloseTab string
 	// NoTerminals is the Terminal tool window when every terminal was moved to the editor.
 	NoTerminals string
+	// ShellMenu is the accessible name of the button beside NewTab that lists the
+	// installed shells. DetectingShells and NoShells stand in that list while it is being
+	// made and when it found none. ShellWithPath names an installation whose name another
+	// one shares, for example "bash (/opt/homebrew/bin/bash)". Settings is the list's last
+	// entry, which opens the terminal's settings.
+	ShellMenu       string
+	DetectingShells string
+	NoShells        string
+	ShellWithPath   func(name, path string) string
+	Settings        string
 }
 
 // StatusMessages are the status bar's words. Numbers and the caret position are shown
@@ -544,6 +554,18 @@ type SettingsMessages struct {
 	TabsScroll       string
 	TabsSqueeze      string
 	TabsMultipleRows string
+
+	// The Terminal page under Tools: the choice of the shell a new terminal runs.
+	// TerminalShellAuto is the choice that follows the system, with the shell it
+	// currently runs; TerminalShellMissing is a stored shell no installation has.
+	Terminal             string
+	TerminalShell        string
+	TerminalShellHelp    string
+	DetectingShells      string
+	NoShells             string
+	TerminalShellAuto    func(effective string) string
+	ShellWithPath        func(name, path string) string
+	TerminalShellMissing func(path string) string
 
 	// The bottom bar.
 	RestoreDefaults string
