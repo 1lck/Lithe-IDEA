@@ -57,9 +57,25 @@ type Capabilities map[string][]int
 // A plugin language needs nothing but a grammar file and a few editor delimiters,
 // and both are wired: the grammar is decoded by Core and registered with the
 // editor, and the delimiters reach the language's comment and bracket rules.
-// Everything else a manifest can ask for — a backend process, user interface
-// contributions, build, debug, toolchains — is not served yet, and claiming one
-// would let a plugin install and then fail the first time a user reaches for it.
+//
+// A language server is deliberately not declared yet, even though this client can
+// start one, sync documents to it and draw its diagnostics. Three things the
+// contract requires are still missing:
+//
+//   - serverProcess 1 covers a packaged program and a system command, and the
+//     second needs the host's tool discovery (PATH, project toolchains, user
+//     overrides); this client resolves neither, so a plugin that launches a
+//     command it expects the host to find would fail at start.
+//   - languageServers 3 adds requestMethods, commands, serializedCommands,
+//     forwardNotifications, state and remote, which let a plugin backend drive its
+//     own server; nothing forwards those requests yet.
+//   - only diagnostics are presented. Completion, hover, navigation, rename and
+//     formatting have no editor surface, so a server would start and appear to do
+//     almost nothing.
+//
+// Everything else a manifest can ask for — user interface contributions, build,
+// debug, toolchains — is not served either, and claiming one would let a plugin
+// install and then fail the first time a user reaches for it.
 func Declared() Capabilities {
 	return Capabilities{"languages": {1, 3}}
 }
