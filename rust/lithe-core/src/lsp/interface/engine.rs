@@ -1400,9 +1400,25 @@ impl LspEngine {
         } else {
             None
         };
+        // Exclusions the initial settings are built from; a refresh that leaves
+        // them unchanged must not cancel a start that already spent minutes.
+        let indexing_baseline = indexing_root
+            .as_deref()
+            .map(crate::project::indexing::excluded_roots)
+            .unwrap_or_default();
+        let indexing_context = Mutex::new(indexing_context);
         let check_indexing = || {
-            if let Some(context) = &indexing_context {
-                return context.check();
+            let mut prepared = indexing_context.lock().map_err(|_| {
+                CoreError::new(ErrorCode::Unknown, "Indexing start lock was poisoned")
+            })?;
+            if let (Some(context), Some(root)) = (prepared.as_ref(), &indexing_root) {
+                let current = crate::project::indexing::continue_provider_start(
+                    root,
+                    context,
+                    &indexing_baseline,
+                )?;
+                *prepared = Some(current);
+                return Ok(());
             }
             if indexing_root.as_ref().is_some_and(|root| {
                 crate::project::indexing::active_provider_context(root).is_some()
