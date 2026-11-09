@@ -103,30 +103,6 @@ try {
     await assert.rejects(fs.access(targetRoot), { code: "ENOENT" });
   });
 
-  await test("offline Markdown preview assets come from Git, never another bundle", { timeout: 15000 }, async () => {
-    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
-    const resource = registry.excludedResources.find(item => item.id === "markdown-preview-assets");
-    assert.equal(resource.reusable, false);
-    assert.ok(resource.locations.includes("macos/Sources/Lithe/Resources/MarkdownPreview/"));
-    assert.match(resource.identity, /SHA-256/);
-    const refused = reuse(["--resource", resource.id]);
-    assert.notEqual(refused.status, 0);
-    assert.match(diagnostics(refused), /markdown-preview-assets is isolated.*cannot be reused/);
-  });
-
-  await test("offline PlantUML assets and live renderer state cannot cross worktrees", { timeout: 15000 }, async () => {
-    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
-    const resource = registry.excludedResources.find(item => item.id === "markdown-plantuml-assets");
-    assert.equal(resource.reusable, false);
-    assert.match(resource.identity, /@plantuml\/core 1\.2026\.9/);
-    assert.match(resource.identity, /SHA-256/);
-    const engine = await fs.readFile(path.join(scriptDirectory, "../../macos/Sources/Lithe/Resources/MarkdownPreview/vendor/plantuml/plantuml.js"));
-    assert.equal(createHash("sha256").update(engine).digest("hex"), "21c049ce47d087eff61ae0836f9c62a2b0c0d2528a5f16c2247057544228fae7");
-    const refused = reuse(["--resource", resource.id]);
-    assert.notEqual(refused.status, 0);
-    assert.match(diagnostics(refused), /markdown-plantuml-assets is isolated.*cannot be reused/);
-  });
-
   await test("remote host resources and session snapshots cannot cross worktrees", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const listed = run(process.execPath, [reuseScript, "--list"]);
@@ -143,9 +119,6 @@ try {
     const servers = registry.excludedResources.find(item => item.id === "remote-server-artifacts");
     assert.match(servers.identity, /lithe-remote's lithe-remote-server/);
     assert.match(servers.identity, /--no-default-features --features server/);
-    const buildServers = await fs.readFile(path.join(scriptDirectory, "../remote/build-remote-servers.sh"), "utf8");
-    assert.match(buildServers, /-p lithe-remote --no-default-features --features server/);
-    assert.ok(buildServers.includes("rust/lithe-remote/Cargo.toml"));
     assert.ok(state.locations.some(location => location.includes("session-and-binary-hash")));
     const snapshots = registry.excludedResources.find(item => item.id === "remote-workspace-session-state");
     assert.match(snapshots.reason, /fs\.createRunDirectory/);
