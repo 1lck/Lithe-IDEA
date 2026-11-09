@@ -91,3 +91,56 @@ func TestToolchainSettingsSaveRereadsItsCapturedProject(t *testing.T) {
 		t.Fatalf("save created state in the newly selected project: %v", err)
 	}
 }
+
+func TestToolchainSettingsRejectsReplacedWorkspaceAtTheSamePath(t *testing.T) {
+	testToolchainSettingsWorkspaceReplacement(t, false)
+}
+
+func TestToolchainSettingsRejectsWorkspaceReplacementDuringCoreEdit(t *testing.T) {
+	testToolchainSettingsWorkspaceReplacement(t, true)
+}
+
+func testToolchainSettingsWorkspaceReplacement(t *testing.T, duringEdit bool) {
+	t.Helper()
+	original := filepath.Join(t.TempDir(), "workspace")
+	if err := os.Mkdir(original, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	kernel := &settingsScopeKernel{testKernel: &testKernel{Client: core.NewClient()}, onEdit: func() {}}
+	app := &App{kernel: kernel}
+	app.toolchainRoot.Store(&original)
+	plugins, err := pluginservice.Open(core.NewClient(), store.At(t.TempDir()), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.plugins = plugins
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snapshot, err := (settingsToolchains{app: app}).Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retired := original + "-retired"
+	replace := func() {
+		if err := os.Rename(original, retired); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(original, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if duringEdit {
+		kernel.onEdit = replace
+	} else {
+		replace()
+	}
+	_, err = (settingsToolchains{app: app}).Save(ctx, snapshot, []toolchain.Edit{{Tool: "dev.example:compiler"}})
+	if !errors.Is(err, toolchain.ErrPinConflict) {
+		t.Fatalf("replaced workspace save = %v, want conflict", err)
+	}
+	for _, root := range []string{original, retired} {
+		if _, err := os.Stat(filepath.Join(root, ".lithe")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("replaced workspace was written: %s: %v", root, err)
+		}
+	}
+}

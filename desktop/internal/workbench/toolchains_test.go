@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
+	"runtime"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -17,8 +17,13 @@ type invocationKernel struct {
 	invocation core.BuildInvocation
 }
 
-func (k *invocationKernel) PlanBuildInvocation(context.Context, json.RawMessage, string, string, string) (core.BuildInvocation, error) {
+func (k *invocationKernel) PlanBuildInvocation(context.Context, json.RawMessage, string, core.BuildInvocationRequest) (core.BuildInvocation, error) {
 	return k.invocation, nil
+}
+
+// These candidate-execution tests inject the invocation independently of a manifest.
+func (k *invocationKernel) ReadPluginSettingsState(context.Context, json.RawMessage, *string, *string) (core.PluginSettingsState, error) {
+	return core.PluginSettingsState{}, nil
 }
 
 func TestApplyToolchainSelectionKeepsConsumerValues(t *testing.T) {
@@ -89,11 +94,25 @@ func TestResolveBuildExecutableUsesToolchainSelection(t *testing.T) {
 }
 
 func TestResolveBuildExecutableFallsBackFromAnUnavailableToolchain(t *testing.T) {
+	// Only command discovery is under test; this fixture is never started.
+	bin := t.TempDir()
+	name := "fixture-fallback"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	fallback := filepath.Join(bin, name)
+	if err := writeFakeExecutable(fallback); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(filepath.ListSeparator)+os.Getenv("PATH"))
+	if runtime.GOOS == "windows" {
+		t.Setenv("PATHEXT", ".EXE")
+	}
 	kernel := &invocationKernel{
 		testKernel: &testKernel{Client: core.NewClient()},
 		invocation: core.BuildInvocation{Executables: []core.BuildExecutableCandidate{
 			{Kind: "toolchain", ToolchainID: "dev.example:compiler"},
-			{Kind: "command", Command: "sh"},
+			{Kind: "command", Command: "fixture-fallback"},
 		}},
 	}
 	h := newHarness(t, kernel)
@@ -108,7 +127,7 @@ func TestResolveBuildExecutableFallsBackFromAnUnavailableToolchain(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(execution.Executable, "sh") {
+	if execution.Executable != fallback {
 		t.Fatalf("executable = %q, want the command fallback", execution.Executable)
 	}
 }

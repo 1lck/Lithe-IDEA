@@ -13,7 +13,6 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginhost"
-	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
 
@@ -35,11 +34,7 @@ type preparedDebugLaunch struct {
 // prepareDebugLaunch runs off the window thread. The Core owns template expansion
 // and DAP argument bindings; this adapter only verifies and opens native resources.
 func (a *App) prepareDebugLaunch(ctx context.Context, adapter debugAdapter, stateDirectory, root, targetPath string, generation uint64, unavailable string) (preparedDebugLaunch, error) {
-	preferenceRoot := ""
-	if a.store != nil {
-		preferenceRoot = a.store.Dir()
-	}
-	settings, err := pluginsettings.New(a.kernel, preferenceRoot).Load(ctx, adapter.Manifest, root)
+	settings, err := a.loadPluginPreferenceSources(ctx, adapter.Manifest, root)
 	if err != nil {
 		return preparedDebugLaunch{}, &debugSettingsError{cause: err}
 	}
@@ -74,7 +69,7 @@ func (a *App) prepareDebugLaunch(ctx context.Context, adapter debugAdapter, stat
 		if _, err := pluginhost.ResolvePackagePaths(adapter.Directory, plan.RequiredPackagePaths); err != nil {
 			return preparedDebugLaunch{}, err
 		}
-		manifests, err := a.toolchainManifests()
+		manifests, err := a.toolchainManifests(ctx)
 		if err != nil {
 			return preparedDebugLaunch{}, err
 		}

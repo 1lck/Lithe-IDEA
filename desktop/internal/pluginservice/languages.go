@@ -49,7 +49,11 @@ func (s *Service) LoadLanguages(ctx context.Context, entries []pluginmanager.Ent
 	}
 	var languages []syntax.PluginLanguage
 	var failures []error
-	for _, entry := range newestVersions(entries) {
+	selected, selectionErr := s.selectInstalled(ctx, entries, false)
+	if selectionErr != nil {
+		failures = append(failures, selectionErr)
+	}
+	for _, entry := range selected {
 		loaded, err := s.pluginLanguages(ctx, entry.Installed.Path)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))
@@ -57,33 +61,6 @@ func (s *Service) LoadLanguages(ctx context.Context, entries []pluginmanager.Ent
 		languages = append(languages, loaded...)
 	}
 	return languages, errors.Join(failures...)
-}
-
-// newestVersions keeps one entry per plugin, its newest version.
-//
-// Installing a version does not remove an earlier one, so an upgrade leaves both
-// on disk. Registering both would make the editor keep whichever came first — the
-// older one — while the plugin page reports the newer one.
-func newestVersions(entries []pluginmanager.Entry) []pluginmanager.Entry {
-	latest := make(map[string]pluginmanager.Entry, len(entries))
-	order := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.Enabled {
-			continue
-		}
-		id := entry.Installed.ID
-		if _, seen := latest[id]; !seen {
-			order = append(order, id)
-		}
-		// pluginpkg.List sorts by plugin then version, so a later entry of the same
-		// plugin is the newer version.
-		latest[id] = entry
-	}
-	newest := make([]pluginmanager.Entry, 0, len(order))
-	for _, id := range order {
-		newest = append(newest, latest[id])
-	}
-	return newest
 }
 
 // languageDeclaration is the part of a manifest this package reads.

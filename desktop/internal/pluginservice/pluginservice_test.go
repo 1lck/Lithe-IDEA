@@ -396,3 +396,29 @@ func TestLoadLanguagesRefusesAnEscapingGrammarPath(t *testing.T) {
 		t.Fatalf("languages = %+v", languages)
 	}
 }
+
+// These package-assembly tests use minimal manifests, not declaration rules.
+// Settings-specific tests override this method with the real Core bridge.
+func (k *fakeKernel) ReadPluginSettingsState(context.Context, json.RawMessage, *string, *string) (core.PluginSettingsState, error) {
+	return core.PluginSettingsState{}, nil
+}
+
+func (k *fakeKernel) EditPluginSettings(context.Context, json.RawMessage, string, *string, []core.PluginSettingEdit) (core.PluginSettingsEditPlan, error) {
+	return core.PluginSettingsEditPlan{}, errors.New("this assembly fixture does not edit preferences")
+}
+
+func (k *fakeKernel) ExpandPluginWorkspaceConfiguration(context.Context, json.RawMessage, string, map[string]json.RawMessage, map[string]json.RawMessage) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (k *fakeKernel) UpdatePluginWorkspaceConfiguration(context.Context, string, json.RawMessage) (bool, error) {
+	return false, nil
+}
+
+func (k *fakeKernel) SelectInstalledPluginVersions(ctx context.Context, entries []core.InstalledPluginFact, includeDisabled bool) (core.InstalledPluginSelection, error) {
+	return core.NewClient().SelectInstalledPluginVersions(ctx, entries, includeDisabled)
+}
+
+func (k *fakeKernel) ReadInstalledPluginSettingsState(ctx context.Context, manifest json.RawMessage, id, version string) (core.PluginSettingsState, error) {
+	return core.NewClient().ReadInstalledPluginSettingsState(ctx, manifest, id, version)
+}

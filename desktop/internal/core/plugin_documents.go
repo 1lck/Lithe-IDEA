@@ -141,3 +141,24 @@ func (c *Client) RequestPluginSemantics(ctx context.Context, request PluginSeman
 	}
 	return response.OperationID, nil
 }
+
+// PluginDocumentIdentity places a server document in its workspace. Path uses
+// native separators; RelativePath is Core's slash-separated display identity.
+type PluginDocumentIdentity struct {
+	Path         string `json:"path"`
+	RelativePath string `json:"relativePath"`
+}
+
+// ResolvePluginDocumentIdentity delegates URI parsing and lexical containment to
+// Core. A nil document is an expected outside/unsupported identity, not an error.
+func (c *Client) ResolvePluginDocumentIdentity(ctx context.Context, root, input, platform string) (*PluginDocumentIdentity, error) {
+	var response struct {
+		Document *PluginDocumentIdentity `json:"document"`
+	}
+	err := c.Execute(ctx, "lsp.documentIdentity", struct {
+		WorkspaceRoot string `json:"workspaceRoot"`
+		Input         string `json:"input"`
+		Platform      string `json:"platform"`
+	}{root, input, platform}, &response)
+	return response.Document, err
+}

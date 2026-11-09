@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +14,7 @@ import (
 	"github.com/vivaui/viva/gfx"
 )
 
-// requireTestGit skips the test without Git and gives Git an empty, isolated
+// requireTestGit skips the test without Git and gives Git an isolated
 // configuration and a fixed identity, so the user's settings never change a result.
 func requireTestGit(t *testing.T) {
 	t.Helper()
@@ -22,7 +23,13 @@ func requireTestGit(t *testing.T) {
 	}
 	home := t.TempDir()
 	config := filepath.Join(home, ".gitconfig")
-	if err := os.WriteFile(config, nil, 0o600); err != nil {
+	var configuration []byte
+	if runtime.GOOS == "windows" {
+		// Keep long filename layout fixtures independent of the machine's Git
+		// configuration. This changes only the test-owned configuration file.
+		configuration = []byte("[core]\n\tlongpaths = true\n")
+	}
+	if err := os.WriteFile(config, configuration, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)

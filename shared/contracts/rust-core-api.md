@@ -1422,6 +1422,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.activationPolicy` | Decide whether a language server may start automatically after failures, using a platform monotonic clock |
 | `lsp.problems.query` | Filter, order, and group Problems tool-window diagnostics and count them by severity |
 | `lsp.documentUri` | Convert a native absolute path into a canonical file URI |
+| `lsp.documentIdentity` | Resolve a diagnostic URI or path strictly inside its workspace |
 | `lsp.startServer` | Start one Rust-owned process/session and begin initialization |
 | `lsp.jdtWorkspaceKey` | Derive the deterministic JDT LS workspace-state directory key |
 | `java.workspacePolicy` | Decide Java workspace activation and classify changed paths |
@@ -1579,6 +1580,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `debug.adapters.startArguments` | Check one debug start against a plugin's `debugAdapters[]` entry and return its DAP launch arguments |
 | `debug.adapters.executablePlan` | Say where to look for the program a launch debugs: the user's setting and the adapter's candidate paths |
 | `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
+| `plugins.installed.select` | Select numeric installed versions from native facts without reading paths |
 | `plugins.declarative.settingsState` | Read complete plugin preference documents into Core-normalized rows, sources, and bounded native read plans |
 | `plugins.declarative.editSettings` | Validate one atomic setting edit batch and return replacement text while preserving unrelated plugins and dormant values |
 | `plugins.declarative.workspaceConfiguration` | Expand a language server's `workspaceConfiguration` with the merged setting values |
@@ -3729,6 +3731,18 @@ returns deterministically sorted `expiredWorkspaceKeys` older than the fixed
 enumeration, revalidation, deletion, and error logging; Core performs no cache
 filesystem I/O. See `shared/fixtures/lsp/jdt-cache-retention-v1.json`.
 
+`lsp.documentIdentity` accepts `{ workspaceRoot, input, platform }` with the same
+`posix | windows | auto` path syntax. It returns `{ document: { path, relativePath } | null }`.
+`input` may be a file URI, native absolute path, or workspace-relative path.
+Core reuses URI normalization and workspace containment; `path` uses the native
+separator and `relativePath` uses `/`. File URIs decode percent escapes and
+`localhost`; Windows drive/UNC aliases use existing case rules. Empty identities,
+non-file URIs, URI queries/fragments, drive-relative/rooted-without-drive Windows
+paths, the workspace root itself and outside targets return null. Native roots
+must be absolute; invalid requests return `invalid_request`. This is lexical
+placement only: it performs no I/O and grants no symlink or file access permission.
+See `shared/fixtures/lsp/document-identity-v1.json`.
+
 `lsp.documentUri` accepts `{ path, platform }` and returns `{ uri }`. `platform`
 is `posix`, `windows`, or `auto`; `auto` recognizes drive and UNC paths and
 otherwise treats an absolute path as POSIX. Paths must be absolute, contain no
@@ -5457,12 +5471,18 @@ without a server of the plugin is refused with `plugin.launch.unavailable`.
 Hosts never merge layers themselves.
 
 `plugins.declarative.settingsState` accepts
-`{ manifest, globalDocument?: string|null, projectDocument?: string|null }`.
+`{ manifest, globalDocument?: string|null, projectDocument?: string|null,
+  owner?: { pluginID, version } }`.
 Send each complete captured UTF-8 document; null or omission means a missing
 file. An existing empty, malformed, oversized, or duplicate-key document is an
 error, not an empty layer. Native adapters must reject undecodable bytes rather
 than replacing them before JSON transport. Storage remains
 `{ pluginID: { settingID: value } }`, including dormant values.
+
+For an installed package, pass its captured registration as `owner`. Core
+rejects a mismatched manifest ID or version with `plugin.settings.ownerChanged`
+before returning editable sources or catalog metadata. This binds native package
+identity; it neither enables capabilities nor grants process execution.
 
 Success returns `{ status: "ok", state }`. The state contains:
 
@@ -5470,6 +5490,19 @@ Success returns `{ status: "ok", state }`. The state contains:
   `declaration`, normalized `scope` and `effect`, `global` and `effective`
   `{ id, value, source }`, and `globalStored`/`projectStored` flags. `global` is
   the value without project overrides; `effective` uses the existing resolver.
+- `metadata`: `{ displayName, version, vendor }` from the validated manifest,
+  for installed-plugin presentation without reinterpreting the manifest in a host.
+- `sections`: `{ title, rows: number[], actions: number[] }[]`, ordered by
+  section title (the empty heading first). References are zero-based indices
+  into `rows` and `actions`; declaration order is retained within each section.
+- `editors`: `{ global, project }`, each an array in exactly `rows` order.
+  Every entry contains `value`, `resetValue`, `source`, `editable`, `overridden`
+  and `invalidStored`, plus `input`/`resetInput` native-control projections.
+  These use `text` for integer/string/path fields, `on` for booleans, `selected`
+  for enum option index, or `checks` in multi-select option order. Core supplies the scope-specific value, inheritance after
+  reset, edit permission and invalid stored-value indication. Global-only rows
+  remain visible but read-only in the project projection. Hosts select a scope
+  and render this projection; they do not recompute grouping or inheritance.
 - `settings` and `projectSettings`: raw stored values for declared IDs only.
   Pass these to launch planners. Do not replace them with effective values:
   executable planning must still reject an explicitly invalid stored path.
@@ -5483,10 +5516,19 @@ Success returns `{ status: "ok", state }`. The state contains:
 
 `plugins.declarative.editSettings` accepts
 `{ manifest, scope: "global"|"project", document?: string|null,
-  edits: [{ id, value }] }`. The batch has 1–32 unique declared IDs.
+  edits: [{ id, value, text?: string|null }] }`. The batch has 1–32 unique declared IDs.
 Null removes only that layer's override. Other values must satisfy the current
 setting declaration; a global-only setting cannot be edited in project scope.
 All edits are validated before any replacement is returned.
+
+Native text fields may supply `text` with `value: null`. Core parses trimmed
+signed decimal integer text for an integer declaration; other kinds receive a
+string and still pass the ordinary declaration validator. A non-null `value`
+and `text` cannot be combined. In this mode null is a transport placeholder,
+not a reset; without `text`, `value: null` keeps its existing reset meaning.
+Malformed integer text, overflow, range violations and unsupported shapes reject
+all edits. Editor text is bounded by the document byte limit. Hosts must not
+validate or clamp declaration limits in a second implementation.
 
 Success returns `{ status: "ok", edit: { document: string, delete: bool,
 changed: bool, effects: string[] } }`. `document` is complete UTF-8 JSON text.
@@ -5509,6 +5551,24 @@ values, or edit scopes use `plugin.settings.invalidEdit`, with a safe `field`.
 Malformed envelopes use `invalid_request`; manifest failures retain existing
 rejection codes. Rejection never includes partial replacement text. Rust and
 desktop consumers share `shared/fixtures/plugins/settings-documents.json`.
+
+`plugins.installed.select` accepts `{ entries: [{ pluginID, version, enabled }],
+includeDisabled?: bool }`, with at most 4096 native records. It returns
+`{ selected: number[], rejected: [{ index, code }], maximumEntries: 4096 }`.
+Indices refer to the supplied native array; paths stay in the host. Core reuses
+its existing three-component `PluginVersion` comparator (numeric u32 components)
+and returns one newest valid version per opaque native identity, ordered by ID.
+Equal numeric versions retain the first input record; an exact duplicate version
+is rejected rather than replacing that record. Enablement filters only after the
+newest version is chosen, so a disabled newer version cannot revive an older one.
+`includeDisabled: true` is for settings/inventory, not permission to execute.
+Invalid identity/version records and later exact duplicates use
+`plugin.installed.invalidIdentity`, `plugin.installed.invalidVersion`, and
+`plugin.installed.duplicateVersion` indexed diagnostics. Healthy selections remain
+available; the native owner must report diagnostics and must not abandon a
+successfully started session merely because other plugins failed discovery.
+This is metadata selection, not manifest validation, approval or admission.
+Shared cases are in `shared/fixtures/plugins/installed-versions.json`.
 
 `plugins.declarative.checkRuntimeVersion` accepts
 `{ tool, minimumVersion, output }`, where `output` is what the runtime printed

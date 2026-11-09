@@ -277,24 +277,27 @@ func (c *Client) DetectBuildSystems(ctx context.Context, workspaceRoot string, m
 	return *result.Detection, nil
 }
 
+// BuildInvocationRequest supplies native facts and the actual global plugin layer.
+// Core validates executable settings; project values cannot select local tools.
+type BuildInvocationRequest struct {
+	Root     string                     `json:"root"`
+	Platform string                     `json:"platform"`
+	Settings map[string]json.RawMessage `json:"settings,omitempty"`
+}
+
 // PlanBuildInvocation returns the ordered executable candidates Core chose for
 // this platform. The host resolves them and must not invent another order.
-func (c *Client) PlanBuildInvocation(ctx context.Context, manifest json.RawMessage, buildSystemID, root, platform string) (BuildInvocation, error) {
+func (c *Client) PlanBuildInvocation(ctx context.Context, manifest json.RawMessage, buildSystemID string, request BuildInvocationRequest) (BuildInvocation, error) {
 	const command = "build.invocationPlan"
 	var result buildOutcome
 	if err := c.Execute(ctx, command, struct {
-		Manifest      json.RawMessage `json:"manifest"`
-		BuildSystemID string          `json:"buildSystemID"`
-		Request       struct {
-			Root     string `json:"root"`
-			Platform string `json:"platform"`
-		} `json:"request"`
-	}{manifest, buildSystemID, struct {
-		Root     string `json:"root"`
-		Platform string `json:"platform"`
-	}{root, platform}}, &result); err != nil {
+		Manifest      json.RawMessage        `json:"manifest"`
+		BuildSystemID string                 `json:"buildSystemID"`
+		Request       BuildInvocationRequest `json:"request"`
+	}{manifest, buildSystemID, request}, &result); err != nil {
 		return BuildInvocation{}, err
 	}
+
 	if err := result.failure(command); err != nil {
 		return BuildInvocation{}, err
 	}

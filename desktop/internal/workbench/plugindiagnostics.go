@@ -1,9 +1,9 @@
 package workbench
 
 import (
-	"path/filepath"
+	"context"
+	"errors"
 	"sort"
-	"strings"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
@@ -193,31 +193,40 @@ func (a *App) refreshOpenDocumentMarkers() {
 // path, so both shapes are accepted. A document outside the project is refused.
 func (a *App) pluginDocumentResolver() pluginservice.Resolver {
 	root := ""
+	owner := context.Background()
 	if a.project != nil {
 		root = a.project.root
+		if a.project.ctx != nil {
+			owner = a.project.ctx
+		}
 	}
+	// The two diagnostics projections ask for the same URI. Cache only the last
+	// result within this event, avoiding a second C ABI call without retaining a
+	// workspace-wide identity cache that could outlive its source.
+	var last string
+	var identity *core.PluginDocumentIdentity
+	loaded := false
 	return func(uri string) (string, string, bool) {
 		if root == "" || uri == "" {
 			return "", "", false
 		}
-		path := strings.TrimPrefix(uri, "file://")
-		if path == "" {
+		if !loaded || last != uri {
+			ctx, cancel := context.WithTimeout(owner, kernelCallTimeout)
+			result, err := a.kernel.ResolvePluginDocumentIdentity(ctx, root, uri, "auto")
+			cancel()
+			identity, last, loaded = result, uri, true
+			if err != nil {
+				// log-exempt: 用户取消：关闭工作区后迟到的诊断不再需要归属。
+				if !errors.Is(err, context.Canceled) {
+					a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_diagnostic_identity", err))
+				}
+				identity = nil
+			}
+		}
+		if identity == nil {
 			return "", "", false
 		}
-		// A URI may spell the separator differently from the file system; Clean folds
-		// a doubled leading slash that would otherwise name a different path.
-		path = filepath.Clean(filepath.FromSlash(path))
-		if path == "" {
-			return "", "", false
-		}
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(root, path)
-		}
-		relative, err := filepath.Rel(root, path)
-		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			return "", "", false
-		}
-		return path, filepath.ToSlash(relative), true
+		return identity.Path, identity.RelativePath, true
 	}
 }
 

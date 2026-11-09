@@ -102894,6 +102894,179 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "desktop.marketplace.installedSource",
+      "description": "Local installed plugin source in settings; available offline.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.title",
+      "description": "Installed plugin settings editor: title",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.reload",
+      "description": "Installed plugin settings editor: reload",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.save",
+      "description": "Installed plugin settings editor: save",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.reset",
+      "description": "Installed plugin settings editor: reset",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.browse",
+      "description": "Installed plugin settings editor: browse",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.global",
+      "description": "Installed plugin settings editor: global",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.project",
+      "description": "Installed plugin settings editor: project",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.scope",
+      "description": "Installed plugin settings editor: scope",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.scopeHelp",
+      "description": "Installed plugin settings editor: scopeHelp",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.failed",
+      "description": "Installed plugin settings editor: failed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.conflict",
+      "description": "Installed plugin settings editor: conflict",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.saved",
+      "description": "Installed plugin settings editor: saved",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.openProject",
+      "description": "Installed plugin settings editor: openProject",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.empty",
+      "description": "Installed plugin settings editor: empty",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.invalidStored",
+      "description": "Installed plugin settings editor: invalidStored",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.globalOnly",
+      "description": "Installed plugin settings editor: globalOnly",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.inherited",
+      "description": "Installed plugin settings editor: inherited",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.restartRequired",
+      "description": "Installed plugin settings: restartRequired",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.restart",
+      "description": "Installed plugin settings: restart",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.restartFailed",
+      "description": "Installed plugin settings: restartFailed",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.invalidEdit",
+      "description": "Installed plugin settings: invalidEdit",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.invalidDocument",
+      "description": "Installed plugin settings: invalidDocument",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.pluginSettings.range",
+      "description": "Installed plugin settings: range",
+      "platforms": [
+        "desktop"
+      ],
+      "parameters": {
+        "minimum": "string",
+        "maximum": "string",
+        "unit": "string"
+      }
     }
   ]
 }

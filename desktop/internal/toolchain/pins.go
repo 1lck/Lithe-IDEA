@@ -61,11 +61,31 @@ func SavePin(ctx context.Context, kernel Kernel, root, directory, tool string, p
 // commit order, validation and cancellation rules as one pin apply, so a page
 // Save either publishes all changed tools or leaves the document untouched.
 func SavePins(ctx context.Context, kernel Kernel, root, directory string, edits []Edit, baseline []byte) (json.RawMessage, []byte, error) {
+	identity, err := directoryIdentity(ctx, root)
+	if err != nil {
+		return nil, nil, err
+	}
+	return savePins(ctx, kernel, root, directory, edits, baseline, func() error {
+		return checkDirectoryIdentity(ctx, root, identity)
+	})
+}
+
+// SavePins binds a loaded settings draft to its original native workspace.
+func (s Snapshot) SavePins(ctx context.Context, kernel Kernel, edits []Edit) (json.RawMessage, []byte, error) {
+	return savePins(ctx, kernel, s.Root, s.Directory, edits, s.Baseline, func() error {
+		return checkDirectoryIdentity(ctx, s.Root, s.rootIdentity)
+	})
+}
+
+func savePins(ctx context.Context, kernel Kernel, root, directory string, edits []Edit, baseline []byte, checkRoot func() error) (json.RawMessage, []byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
 	if len(edits) == 0 {
 		return nil, nil, fmt.Errorf("toolchain: no pin edits were supplied")
+	}
+	if err := checkRoot(); err != nil {
+		return nil, nil, err
 	}
 	path := documentPath(root)
 	current, err := os.ReadFile(path)
@@ -94,6 +114,9 @@ func SavePins(ctx context.Context, kernel Kernel, root, directory string, edits 
 		return nil, nil, err
 	}
 	checkBaseline := func() error {
+		if err := checkRoot(); err != nil {
+			return err
+		}
 		current, err := os.ReadFile(path)
 		if errors.Is(err, os.ErrNotExist) {
 			if baseline == nil {

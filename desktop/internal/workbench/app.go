@@ -58,7 +58,7 @@ type Kernel interface {
 	GitReferences(ctx context.Context, root string) (core.GitReferences, error)
 	GitHistoryPage(ctx context.Context, root, reference, cursor string, limit int) (core.GitHistoryPage, error)
 	DetectBuildSystems(ctx context.Context, workspaceRoot string, manifests []json.RawMessage) (core.BuildDetection, error)
-	PlanBuildInvocation(ctx context.Context, manifest json.RawMessage, buildSystemID, root, platform string) (core.BuildInvocation, error)
+	PlanBuildInvocation(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildInvocationRequest) (core.BuildInvocation, error)
 	CheckBuildToolVersion(ctx context.Context, manifest json.RawMessage, buildSystemID, runtime, output string) (core.BuildToolVersion, error)
 	PlanBuildModel(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
 	PlanBuildTask(ctx context.Context, manifest json.RawMessage, buildSystemID string, request core.BuildPlanRequest) (core.BuildPlan, error)
@@ -122,6 +122,7 @@ type Kernel interface {
 	RankNames(context.Context, string, []core.RankCandidate) ([]int, error)
 	ParseNavigationInput(context.Context, string) (*core.NavigationTarget, error)
 	PluginDocumentURI(ctx context.Context, path, platform string) (string, error)
+	ResolvePluginDocumentIdentity(ctx context.Context, root, input, platform string) (*core.PluginDocumentIdentity, error)
 	ApplyPluginTextEdits(ctx context.Context, text string, edits []core.PluginTextEdit) (string, error)
 	PlainPluginSnippet(ctx context.Context, value string) (string, error)
 	QueryProblems(ctx context.Context, request core.ProblemsQuery) (core.ProblemsResult, error)
@@ -272,6 +273,10 @@ type App struct {
 	agentClosing sync.WaitGroup
 	// pluginServers are the language servers this window started, keyed by plugin.
 	pluginServers map[string]*pluginServer
+	// Native restart tokens prevent a late stop completion from restarting a
+	// plugin that the user disabled or whose workspace has since closed.
+	pluginServerRestarting map[string]*pluginServer
+	pluginSettingsRestart  sync.Map
 	// pluginServerLanguages maps a language to the plugin serving it, so opening a
 	// second file does not resolve the provider again.
 	pluginServerLanguages map[string]string

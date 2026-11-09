@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cp, mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, writeFile, rm, rename } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -551,4 +551,17 @@ test("desktop localization verifier checks marketplace wrapper keys", { timeout:
   assert.match(verify().stderr, /desktop key requires SharedFormat/);
   await writeFile(sample, 'package settingswindow\nvar s = w.marketText("native.marketplace")\n');
   assert.equal(verify().status, 0);
+});
+
+test("desktop localization verifier resolves filesystem roots with spaces and Unicode", { timeout: 15000 }, async (t) => {
+  const original = await fixture(t);
+  const root = `${original} space 中文`;
+  await rename(original, root);
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const dir = path.join(root, "desktop/internal/sample");
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, "sample.go"), 'package sample\nvar s = i18n.Shared(language, "editor.notRegistered")\n');
+  const result = spawnSync(process.execPath, [path.join(root, "scripts/i18n/verify-app-language-localization.mjs")], { encoding: "utf8", timeout: 5000 });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /desktop key missing from shared\/i18n/);
 });

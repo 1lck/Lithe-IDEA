@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -119,6 +120,21 @@ func backendPackage(t *testing.T) string {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The production Windows adapter validates a native image even when the
+	// process transport is fake. Reuse the already built test executable.
+	if runtime.GOOS == "windows" {
+		current, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		image, err := os.ReadFile(current)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "bin", "server"), image, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -481,5 +497,34 @@ func TestStartUsesLanguageServerPlanAndRole(t *testing.T) {
 	}
 	if !kernel.startedLanguageServer {
 		t.Fatal("the runner used the plugin backend start entry point")
+	}
+}
+
+func TestLanguageServerStartPreservesCoreWorkspaceConfiguration(t *testing.T) {
+	// Read a real wire-shaped plan so the test also catches a missing bridge field.
+	var plan core.PluginBackendPlan
+	if err := json.Unmarshal([]byte(`{"launch":{"kind":"systemCommand","commands":["fixture-server"]},"arguments":[],"initializationOptions":{"mode":"fixture"},"workspaceConfiguration":{"fixture":{"enabled":true,"checks":["lint"]}}}`), &plan); err != nil {
+		t.Fatal(err)
+	}
+	kernel := &fakeKernel{plan: plan, started: core.PluginBackendStarted{SessionID: "settings-session"}}
+	runner := New(kernel, nil)
+	// The fake Core only records start; no process is spawned. The native
+	// executable belongs to this test invocation and is available on every OS.
+	runner.lookup = func(string) (string, error) { return os.Executable() }
+	request := startRequest(t.TempDir())
+	request.LanguageID = "fixture"
+	if _, err := runner.Start(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	wire, err := json.Marshal(kernel.started_)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var actual map[string]json.RawMessage
+	if err := json.Unmarshal(wire, &actual); err != nil {
+		t.Fatal(err)
+	}
+	if string(actual["workspaceConfiguration"]) != `{"fixture":{"enabled":true,"checks":["lint"]}}` {
+		t.Fatalf("Core workspace configuration disappeared before start: %s", wire)
 	}
 }

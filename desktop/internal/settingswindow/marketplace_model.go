@@ -31,6 +31,7 @@ const marketMaxInFlight = 2
 type marketplaceState struct {
 	fetch           func(context.Context) (marketplace.Snapshot, error)
 	official        func(context.Context) (marketplace.Snapshot, error)
+	installed       func(context.Context) (marketplace.Snapshot, error)
 	reportDiscarded func(error)
 	source          int
 	wake            func()
@@ -56,6 +57,8 @@ func (m *marketplaceState) start() {
 	fetch := m.fetch
 	if m.source == 1 {
 		fetch = m.official
+	} else if m.source == 2 {
+		fetch = m.installed
 	}
 	if fetch == nil || m.status == marketLoading {
 		return
@@ -75,6 +78,8 @@ func (m *marketplaceState) launch() {
 	fetch := m.fetch
 	if m.source == 1 {
 		fetch = m.official
+	} else if m.source == 2 {
+		fetch = m.installed
 	}
 	if fetch == nil {
 		m.pending = false
@@ -105,7 +110,7 @@ func (m *marketplaceState) launch() {
 }
 
 func (m *marketplaceState) chooseSource(source int) {
-	if source == m.source || (source == 1 && m.official == nil) || source < 0 || source > 1 {
+	if source == m.source || (source == 1 && m.official == nil) || (source == 2 && m.installed == nil) || source < 0 || source > 2 {
 		return
 	}
 	m.close()

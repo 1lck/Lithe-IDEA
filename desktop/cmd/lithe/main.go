@@ -24,13 +24,7 @@ func main() {
 	}
 	client := core.NewClient()
 	version := desktop.Version()
-	options := workbench.Options{
-		Kernel:      client,
-		Store:       preferences,
-		LogKernel:   client,
-		Version:     version,
-		AgentKernel: workbench.CoreAgentKernel{Client: client},
-	}
+	options := workbench.DesktopOptions(client, preferences, version)
 	// A log that cannot be opened leaves the client without its log window instead of
 	// keeping it from starting; the window says so when the log is asked for.
 	logs, err := logstore.Open(logstore.Options{Kernel: client, Settings: preferences, Version: version})

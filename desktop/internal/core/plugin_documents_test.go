@@ -2,7 +2,9 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
+	"reflect"
 	"testing"
 )
 
@@ -85,6 +87,44 @@ func TestPluginDocumentURIUsesCoreFixture(t *testing.T) {
 			}
 			if got != *c.URI {
 				t.Fatalf("uri = %q, want %q", got, *c.URI)
+			}
+		})
+	}
+}
+
+func TestPluginDocumentIdentityUsesCoreFixture(t *testing.T) {
+	data, err := os.ReadFile("../../../shared/fixtures/lsp/document-identity-v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Cases []struct {
+			Name     string                                          `json:"name"`
+			Request  struct{ WorkspaceRoot, Input, Platform string } `json:"request"`
+			Expected struct {
+				Document *PluginDocumentIdentity `json:"document"`
+			} `json:"expected"`
+			Error ErrorCode `json:"error"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range fixture.Cases {
+		t.Run(c.Name, func(t *testing.T) {
+			actual, err := NewClient().ResolvePluginDocumentIdentity(testContext(t), c.Request.WorkspaceRoot, c.Request.Input, c.Request.Platform)
+			if c.Error != "" {
+				var failure *Error
+				if !errors.As(err, &failure) || failure.Code != c.Error {
+					t.Fatalf("error=%v, want %s", err, c.Error)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(actual, c.Expected.Document) {
+				t.Fatalf("identity=%+v, want %+v", actual, c.Expected.Document)
 			}
 		})
 	}

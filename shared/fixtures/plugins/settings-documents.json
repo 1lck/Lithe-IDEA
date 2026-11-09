@@ -459,6 +459,102 @@
         }
       ],
       "errorCode": "plugin.settings.invalidDocument"
+    },
+    {
+      "name": "integer-editor-text",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "count",
+          "value": null,
+          "text": " 6 "
+        }
+      ],
+      "expected": {
+        "dev.example.settings": {
+          "count": 6
+        }
+      },
+      "effects": [
+        "restart"
+      ]
+    },
+    {
+      "name": "file-editor-text",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "program",
+          "value": null,
+          "text": "/fixture tools/app"
+        }
+      ],
+      "expected": {
+        "dev.example.settings": {
+          "program": "/fixture tools/app"
+        }
+      },
+      "effects": [
+        "restart"
+      ]
+    },
+    {
+      "name": "integer-editor-text-rejects-fraction",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "count",
+          "value": null,
+          "text": "3.5"
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "integer-editor-text-enforces-bounds",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "count",
+          "value": null,
+          "text": "11"
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "editor-text-and-value-are-exclusive",
+      "scope": "global",
+      "document": null,
+      "edits": [
+        {
+          "id": "count",
+          "value": 4,
+          "text": "6"
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
+    },
+    {
+      "name": "editor-text-rejection-is-atomic",
+      "scope": "global",
+      "document": "{\"dev.other\":{\"keep\":true}}",
+      "edits": [
+        {
+          "id": "flag",
+          "value": false
+        },
+        {
+          "id": "count",
+          "value": null,
+          "text": "not a number"
+        }
+      ],
+      "errorCode": "plugin.settings.invalidEdit"
     }
   ]
 }

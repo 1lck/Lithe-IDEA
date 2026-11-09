@@ -3,6 +3,7 @@ package workbench
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/buildprovider"
@@ -21,7 +22,11 @@ const (
 
 // pluginServer is one running language server the window started.
 type pluginServer struct {
-	session *pluginservice.LanguageSession
+	// Serialize native preference reread plus Core publication for this session.
+	// A newer revision supersedes queued work without starting another process.
+	settingsGate     chan struct{}
+	settingsRevision atomic.Uint64
+	session          *pluginservice.LanguageSession
 	// project is the project the server was started for. An event that arrives
 	// after the window moved to another project is stale and is dropped.
 	project *project
@@ -165,6 +170,9 @@ func (a *App) finishPluginServerStart(p *project, languageID string, session *pl
 	if session == nil {
 		return
 	}
+	if session.Warnings != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_server_selection", session.Warnings))
+	}
 	if a.plugins == nil {
 		a.stopPluginSession(session)
 		return
@@ -193,6 +201,10 @@ func (a *App) finishPluginServerStart(p *project, languageID string, session *pl
 	ctx, cancel := context.WithCancel(context.Background())
 	server := &pluginServer{session: session, project: a.project, cancel: cancel, done: make(chan struct{})}
 	a.pluginServers[session.PluginID] = server
+	a.pluginSettingsRestart.Delete(session.PluginID)
+	if a.settingsWindow != nil {
+		a.settingsWindow.Invalidate()
+	}
 	a.pluginServerLanguages[languageID] = session.PluginID
 	a.pluginServerMu.Unlock()
 	// A restarted server has to republish everything: keeping the previous
@@ -285,6 +297,8 @@ func (a *App) pluginServerExited(pluginID string, server *pluginServer) {
 // tracked.
 func (a *App) stopPluginServer(pluginID string) {
 	a.pluginServerMu.Lock()
+	delete(a.pluginServerRestarting, pluginID)
+	a.pluginSettingsRestart.Delete(pluginID)
 	if a.pluginServerSuppressed == nil {
 		a.pluginServerSuppressed = make(map[string]bool)
 	}
@@ -309,6 +323,11 @@ func (a *App) stopPluginServer(pluginID string) {
 // the project closes and when the client quits.
 func (a *App) stopAllPluginServers() {
 	a.pluginServerMu.Lock()
+	for id := range a.pluginServerRestarting {
+		delete(a.pluginServerSuppressed, id)
+	}
+	a.pluginServerRestarting = nil
+	a.pluginSettingsRestart.Clear()
 	if len(a.pluginServers) == 0 {
 		a.releaseAllPluginDocuments()
 		a.pluginServers = nil

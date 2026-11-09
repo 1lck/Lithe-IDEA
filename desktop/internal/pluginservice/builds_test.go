@@ -80,8 +80,8 @@ func TestBuildPluginsReadsProviderTasksAndRuns(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(directory, pluginpkg.ManifestFile), manifest, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{}
-	plugins, err := service.BuildPlugins([]pluginmanager.Entry{{
+	service := &Service{kernel: &fakeKernel{}}
+	plugins, err := service.BuildPlugins(context.Background(), []pluginmanager.Entry{{
 		Installed: pluginpkg.Installed{ID: "dev.lithe.fixture.run", Version: "1.0.0", Path: directory},
 		Enabled:   true,
 	}})
@@ -116,8 +116,8 @@ func TestBuildPluginsSkipsDisabledPlugins(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(directory, pluginpkg.ManifestFile), manifest, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{}
-	plugins, err := service.BuildPlugins([]pluginmanager.Entry{{
+	service := &Service{kernel: &fakeKernel{}}
+	plugins, err := service.BuildPlugins(context.Background(), []pluginmanager.Entry{{
 		Installed: pluginpkg.Installed{ID: "disabled", Version: "1.0.0", Path: directory},
 		Enabled:   false,
 	}})

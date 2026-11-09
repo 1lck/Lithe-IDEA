@@ -1,6 +1,7 @@
 package pluginservice
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -67,10 +68,14 @@ type BuildRunDeclaration struct {
 
 // BuildPlugins reads the newest enabled version of every plugin that declares
 // build systems. A broken manifest is reported without hiding the others.
-func (s *Service) BuildPlugins(entries []pluginmanager.Entry) ([]BuildPlugin, error) {
+func (s *Service) BuildPlugins(ctx context.Context, entries []pluginmanager.Entry) ([]BuildPlugin, error) {
 	var plugins []BuildPlugin
 	var failures []error
-	for _, entry := range newestVersions(entries) {
+	selected, selectionErr := s.selectInstalled(ctx, entries, false)
+	if selectionErr != nil {
+		failures = append(failures, selectionErr)
+	}
+	for _, entry := range selected {
 		manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))

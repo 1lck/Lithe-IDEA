@@ -54,6 +54,12 @@ Windows 只替换一轮占位符，避免把用户传入的 `{name}` 当成另�
 资源，所以不改变代码签名及 Sparkle 增量更新基线。资源复用清单明确拒绝复制这类文件，
 每个工作树根据自己的源版本重新生成。
 
+### Viva 的源码检查必须定位到真实目录
+
+Viva 使用同一共享词条生成 Go 字典。`verify-app-language-localization.mjs` 对真实桌面源码检查未注册 key、错误参数、手写界面文案和包装函数，不能只验证生成文件是否最新。
+
+检查器从模块 URL 定位仓库时必须调用 Node 的 `fileURLToPath`，不能直接用 URL 的 `pathname`。后者在 Windows 带额外的盘符前导斜杠，在空格或中文目录下也会保留 URL 转义；结果可能是找不到源码目录，却返回“检查通过”。回归把夹具移入带空格和中文的目录，写入未注册 key，要求确实扫描并拒绝；Windows 原有四类桌面检查也必须通过，不能靠目录不存在跳过。
+
 ## 考虑过的备选方案
 
 - 两端运行时读取共享 JSON：需要新增原生加载与回退路径，破坏现有 SwiftUI 字符串表
@@ -100,6 +106,8 @@ Node 22 会把命令行超时同时应用到整份文件。词条增加后，mac
 - `shared/i18n/`
 - `shared/fixtures/i18n/format-v1.json`
 - `scripts/i18n/generate-i18n.mjs`
+- `scripts/i18n/verify-app-language-localization.mjs`
+- `scripts/i18n/test-i18n.mjs`
 - `scripts/macos/package/package-macos-localizations.sh`
 - ~~`windows/tauri/src/i18n/`~~（已随 #1794 移除）
 - ~~`macos/Resources/en.lproj/Localizable.strings`~~（已随 #1794 移除）

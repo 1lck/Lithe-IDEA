@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -60,12 +61,14 @@ func (a *App) refreshPluginState() {
 	if a.plugins == nil {
 		return
 	}
-	a.background(nil, pluginStateTimeout, func(context.Context) func(*App) {
-		entries, err := a.plugins.Manager.Installed()
+	a.background(nil, pluginStateTimeout, func(ctx context.Context) func(*App) {
+		entries, err := a.plugins.CurrentInstalled(ctx)
 		return func(a *App) {
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_list", err))
-				return
+				if entries == nil {
+					return
+				}
 			}
 			states := make(map[string]settingswindow.PluginState, len(entries))
 			for _, entry := range entries {
@@ -75,7 +78,12 @@ func (a *App) refreshPluginState() {
 					Enabled:   entry.Enabled,
 				}
 			}
+			previous := a.pluginState.Load()
+			changed := previous == nil || !maps.Equal(*previous, states)
 			a.pluginState.Store(&states)
+			if changed && a.settingsWindow != nil {
+				a.settingsWindow.PluginRegistryChanged()
+			}
 		}
 	})
 }

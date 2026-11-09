@@ -22,6 +22,24 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 	service := marketplace.New(a.kernel, nil)
 	return settingswindow.NewController(settingswindow.Options{
 		MarketplaceRank: a.kernel.RankNames,
+		PluginRuntime:   a.pluginSettingsRuntime,
+		RestartPlugin: func(id, version, scope, workspace string) {
+			a.post(func(a *App) { a.restartSettingsPlugin(id, version, scope, workspace) })
+		},
+		MarketplaceInstalled: func(ctx context.Context) (marketplace.Snapshot, error) {
+			plugins, err := a.plugins.SettingsCatalog(ctx)
+			if err != nil {
+				if plugins == nil {
+					return marketplace.Snapshot{}, err
+				}
+				a.post(func(a *App) {
+					fields := logwindow.ErrorFields(err)
+					fields["operation"] = "plugin_settings_catalog"
+					a.emit(core.LevelError, "app.notification.operation_failed", fields)
+				})
+			}
+			return marketplace.Snapshot{Index: core.MarketplaceIndex{Plugins: plugins}}, nil
+		},
 		Marketplace: func(ctx context.Context) (marketplace.Snapshot, error) {
 			arch := runtime.GOARCH
 			if arch == "amd64" {
@@ -107,7 +125,8 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		ResetLayout: func() {
 			a.post(func(a *App) { a.resetLayout() })
 		},
-		Toolchains: settingsToolchains{app: a},
+		Toolchains:     settingsToolchains{app: a},
+		PluginSettings: pluginSettingsSources{app: a},
 	})
 }
 
@@ -151,13 +170,13 @@ const (
 
 func (a *App) openSettingsPage(surface string, page settingsPage) {
 	a.performed("settings.open", surface)
+	// Users can enter Plugins from any settings page. Publish native installed
+	// state when the window opens, including its general-settings entry point.
+	a.refreshPluginState()
 	if a.application == nil {
 		return
 	}
 	if page == settingsPlugins {
-		// The plugin page paints from memory, so its state is reloaded when the
-		// page is asked for rather than on every paint.
-		a.refreshPluginState()
 		a.reloadPluginLanguages()
 	}
 	a.post(func(a *App) {

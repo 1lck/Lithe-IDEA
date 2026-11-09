@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 )
@@ -86,6 +87,8 @@ type Snapshot struct {
 	// Baseline is the exact bytes of .lithe/toolchains/local.json that the
 	// snapshot was built from, nil when the file did not exist.
 	Baseline []byte `json:"-"`
+	// rootIdentity belongs to the loaded native workspace, not its pathname.
+	rootIdentity os.FileInfo
 }
 
 // Options configure one load. The zero value uses the host platform, the user's

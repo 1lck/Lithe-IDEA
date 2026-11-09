@@ -19,6 +19,7 @@ type PluginBackendStart struct {
 	WorkingDirectory              string            `json:"workingDirectory"`
 	HostServices                  []string          `json:"hostServices,omitempty"`
 	InitializationOptions         json.RawMessage   `json:"initializationOptions,omitempty"`
+	WorkspaceConfiguration        json.RawMessage   `json:"workspaceConfiguration,omitempty"`
 	InitializeTimeoutMilliseconds int               `json:"initializeTimeoutMilliseconds,omitempty"`
 	RequestTimeoutMilliseconds    int               `json:"requestTimeoutMilliseconds,omitempty"`
 	ShutdownTimeoutMilliseconds   int               `json:"shutdownTimeoutMilliseconds,omitempty"`
@@ -52,14 +53,15 @@ type PluginBackendPlan struct {
 		RuntimeArguments []string `json:"runtimeArguments"`
 		VersionArguments []string `json:"versionArguments"`
 	} `json:"launch"`
-	Arguments             []string        `json:"arguments"`
-	ValidationArguments   []string        `json:"validationArguments"`
-	RequiredDirectories   []string        `json:"requiredDirectories"`
-	RequiredPackagePaths  []string        `json:"requiredPackagePaths"`
-	RuntimeRequirements   json.RawMessage `json:"runtimeRequirements"`
-	InitializationOptions json.RawMessage `json:"initializationOptions"`
-	Settings              json.RawMessage `json:"settings"`
-	Backend               struct {
+	Arguments              []string        `json:"arguments"`
+	ValidationArguments    []string        `json:"validationArguments"`
+	RequiredDirectories    []string        `json:"requiredDirectories"`
+	RequiredPackagePaths   []string        `json:"requiredPackagePaths"`
+	RuntimeRequirements    json.RawMessage `json:"runtimeRequirements"`
+	InitializationOptions  json.RawMessage `json:"initializationOptions"`
+	WorkspaceConfiguration json.RawMessage `json:"workspaceConfiguration"`
+	Settings               json.RawMessage `json:"settings"`
+	Backend                struct {
 		HostServices []string `json:"hostServices"`
 		Version      int      `json:"version"`
 	} `json:"backend"`

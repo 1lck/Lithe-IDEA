@@ -97,6 +97,8 @@ type StartRequest struct {
 	Architecture string
 	// Settings are the plugin's own settings, opaque to this package.
 	Settings map[string]json.RawMessage
+	// ProjectSettings is the separately captured project override layer.
+	ProjectSettings map[string]json.RawMessage
 	// Environment is added to the provider process environment. It is for host
 	// integration tests and host-owned facts, never plugin-controlled secrets.
 	Environment map[string]string
@@ -153,6 +155,7 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		TemporaryDirectory:      request.TemporaryDirectory,
 		Architecture:            request.Architecture,
 		Settings:                request.Settings,
+		ProjectSettings:         request.ProjectSettings,
 	}
 	var plan core.PluginBackendPlan
 	var err error
@@ -215,16 +218,17 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 		role = "backend"
 	}
 	start := core.PluginBackendStart{
-		ProviderID:            request.ProviderID,
-		PluginID:              request.PluginID,
-		Role:                  role,
-		ExecutablePath:        executable,
-		Arguments:             Arguments(plan, resolved.Entry),
-		Environment:           request.Environment,
-		RootURI:               request.RootURI,
-		WorkingDirectory:      request.WorkingDirectory,
-		HostServices:          granted,
-		InitializationOptions: plan.InitializationOptions,
+		ProviderID:             request.ProviderID,
+		PluginID:               request.PluginID,
+		Role:                   role,
+		ExecutablePath:         executable,
+		Arguments:              Arguments(plan, resolved.Entry),
+		Environment:            request.Environment,
+		RootURI:                request.RootURI,
+		WorkingDirectory:       request.WorkingDirectory,
+		HostServices:           granted,
+		InitializationOptions:  plan.InitializationOptions,
+		WorkspaceConfiguration: plan.WorkspaceConfiguration,
 	}
 	var started core.PluginBackendStarted
 	if request.LanguageID != "" {

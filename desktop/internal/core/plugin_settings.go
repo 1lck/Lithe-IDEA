@@ -73,9 +73,54 @@ type PluginSettingsStorage struct {
 	ReadRequired        bool   `json:"readRequired"`
 }
 
+// PluginSettingsMetadata is validated installed-plugin presentation metadata.
+type PluginSettingsMetadata struct {
+	DisplayName string `json:"displayName"`
+	Version     string `json:"version"`
+	Vendor      string `json:"vendor"`
+}
+
+// PluginSettingsSection references rows/actions in Core's presentation order.
+type PluginSettingsSection struct {
+	Title   string `json:"title"`
+	Rows    []int  `json:"rows"`
+	Actions []int  `json:"actions"`
+}
+
+// PluginSettingInput is Core's ready-to-render native control state.
+// Integer fields use Text; Core parses uncommitted edits on save.
+type PluginSettingInput struct {
+	Text     string `json:"text"`
+	On       bool   `json:"on"`
+	Selected int    `json:"selected"`
+	Checks   []bool `json:"checks"`
+}
+
+// PluginSettingEditorValue is Core's projection for one editor scope.
+// The view does not compute inheritance, reset values or editing permission.
+type PluginSettingEditorValue struct {
+	Value         json.RawMessage    `json:"value"`
+	ResetValue    json.RawMessage    `json:"resetValue"`
+	Input         PluginSettingInput `json:"input"`
+	ResetInput    PluginSettingInput `json:"resetInput"`
+	Source        string             `json:"source"`
+	Editable      bool               `json:"editable"`
+	Overridden    bool               `json:"overridden"`
+	InvalidStored bool               `json:"invalidStored"`
+}
+
+// PluginSettingsEditors supplies both scope projections without native reads.
+type PluginSettingsEditors struct {
+	Global  []PluginSettingEditorValue `json:"global"`
+	Project []PluginSettingEditorValue `json:"project"`
+}
+
 // PluginSettingsState is a read-only projection, not permission to start a plugin.
 type PluginSettingsState struct {
 	PluginID        string                     `json:"pluginID"`
+	Metadata        PluginSettingsMetadata     `json:"metadata"`
+	Sections        []PluginSettingsSection    `json:"sections"`
+	Editors         PluginSettingsEditors      `json:"editors"`
 	Rows            []PluginSettingRow         `json:"rows"`
 	Actions         []PluginSettingAction      `json:"actions"`
 	Settings        map[string]json.RawMessage `json:"settings"`
@@ -83,10 +128,12 @@ type PluginSettingsState struct {
 	Storage         PluginSettingsStorage      `json:"storage"`
 }
 
-// PluginSettingEdit is one explicit override; a nil Value requests removal.
+// PluginSettingEdit supplies a typed override or unparsed editor Text.
+// A nil Value removes the override only when Text is nil; Core validates both.
 type PluginSettingEdit struct {
 	ID    string          `json:"id"`
 	Value json.RawMessage `json:"value"`
+	Text  *string         `json:"text,omitempty"`
 }
 
 // PluginSettingsEditPlan contains complete text and declaration-owned effects.
@@ -101,6 +148,19 @@ type PluginSettingsEditPlan struct {
 // ReadPluginSettingsState asks Core to decode whole documents. Nil identifies a
 // missing file; an existing empty file must be passed as a non-nil empty string.
 func (c *Client) ReadPluginSettingsState(ctx context.Context, manifest json.RawMessage, global, project *string) (PluginSettingsState, error) {
+	return c.readPluginSettingsState(ctx, manifest, global, project, nil)
+}
+
+// ReadInstalledPluginSettingsState binds declaration metadata to native package
+// registration facts. It does not admit capabilities or launch the package.
+func (c *Client) ReadInstalledPluginSettingsState(ctx context.Context, manifest json.RawMessage, id, version string) (PluginSettingsState, error) {
+	return c.readPluginSettingsState(ctx, manifest, nil, nil, &struct {
+		PluginID string `json:"pluginID"`
+		Version  string `json:"version"`
+	}{id, version})
+}
+
+func (c *Client) readPluginSettingsState(ctx context.Context, manifest json.RawMessage, global, project *string, owner any) (PluginSettingsState, error) {
 	const command = "plugins.declarative.settingsState"
 	var result struct {
 		Status string                `json:"status"`
@@ -109,9 +169,10 @@ func (c *Client) ReadPluginSettingsState(ctx context.Context, manifest json.RawM
 	}
 	if err := c.Execute(ctx, command, struct {
 		Manifest json.RawMessage `json:"manifest"`
+		Owner    any             `json:"owner,omitempty"`
 		Global   *string         `json:"globalDocument"`
 		Project  *string         `json:"projectDocument"`
-	}{manifest, global, project}, &result); err != nil {
+	}{manifest, owner, global, project}, &result); err != nil {
 		return PluginSettingsState{}, err
 	}
 	if result.Status == "rejected" && result.Error != nil {
@@ -120,7 +181,23 @@ func (c *Client) ReadPluginSettingsState(ctx context.Context, manifest json.RawM
 	if result.Status != "ok" || result.State == nil {
 		return PluginSettingsState{}, newParseError(command, "invalid settings state outcome", "")
 	}
-	return *result.State, nil
+	state := result.State
+	if state.Metadata.DisplayName == "" || state.Metadata.Version == "" || len(state.Editors.Global) != len(state.Rows) || len(state.Editors.Project) != len(state.Rows) {
+		return PluginSettingsState{}, newParseError(command, "invalid editor projection", "")
+	}
+	for _, section := range state.Sections {
+		for _, row := range section.Rows {
+			if row < 0 || row >= len(state.Rows) {
+				return PluginSettingsState{}, newParseError(command, "invalid editor row reference", "")
+			}
+		}
+		for _, action := range section.Actions {
+			if action < 0 || action >= len(state.Actions) {
+				return PluginSettingsState{}, newParseError(command, "invalid editor action reference", "")
+			}
+		}
+	}
+	return *state, nil
 }
 
 // EditPluginSettings validates the complete edit batch and preserves other
@@ -147,4 +224,46 @@ func (c *Client) EditPluginSettings(ctx context.Context, manifest json.RawMessag
 		return PluginSettingsEditPlan{}, newParseError(command, "invalid settings edit outcome", "")
 	}
 	return *result.Edit, nil
+}
+
+// ExpandPluginWorkspaceConfiguration reuses Core's existing declaration template
+// and inheritance rules. A nil configuration means this server declares none.
+func (c *Client) ExpandPluginWorkspaceConfiguration(ctx context.Context, manifest json.RawMessage, languageID string, global, project map[string]json.RawMessage) (json.RawMessage, error) {
+	const command = "plugins.declarative.workspaceConfiguration"
+	var result struct {
+		Status        string                `json:"status"`
+		Error         *MarketplaceRejection `json:"error"`
+		Configuration json.RawMessage       `json:"configuration"`
+	}
+	if err := c.Execute(ctx, command, struct {
+		Manifest        json.RawMessage            `json:"manifest"`
+		LanguageID      string                     `json:"languageID"`
+		Settings        map[string]json.RawMessage `json:"settings,omitempty"`
+		ProjectSettings map[string]json.RawMessage `json:"projectSettings,omitempty"`
+	}{manifest, languageID, global, project}, &result); err != nil {
+		return nil, err
+	}
+	if result.Status == "rejected" && result.Error != nil {
+		return nil, result.Error
+	}
+	if result.Status != "ok" || len(result.Configuration) == 0 {
+		return nil, newParseError(command, "invalid workspace configuration outcome", "")
+	}
+	if string(result.Configuration) == "null" {
+		return nil, nil
+	}
+	return result.Configuration, nil
+}
+
+// UpdatePluginWorkspaceConfiguration replaces a running plugin session's
+// configuration through Core. sent=false means Core retained it until initialize.
+func (c *Client) UpdatePluginWorkspaceConfiguration(ctx context.Context, session string, configuration json.RawMessage) (bool, error) {
+	var result struct {
+		Sent bool `json:"sent"`
+	}
+	err := c.Execute(ctx, "lsp.updateWorkspaceConfiguration", struct {
+		SessionID     string          `json:"sessionId"`
+		Configuration json.RawMessage `json:"configuration"`
+	}{session, configuration}, &result)
+	return result.Sent, err
 }

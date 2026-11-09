@@ -22,7 +22,7 @@ type buildExecution struct {
 
 // toolchainManifests reads the enabled plugins' manifests off the window
 // thread. It is the only host-owned input the shared registry receives.
-func (a *App) toolchainManifests() ([]json.RawMessage, error) {
+func (a *App) toolchainManifests(ctx context.Context) ([]json.RawMessage, error) {
 	if a.plugins == nil {
 		return nil, errors.New("the plugin host is not available")
 	}
@@ -30,7 +30,7 @@ func (a *App) toolchainManifests() ([]json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	plugins, err := a.plugins.ToolchainPlugins(entries)
+	plugins, err := a.plugins.ToolchainPlugins(ctx, entries)
 	manifests := make([]json.RawMessage, 0, len(plugins))
 	for _, plugin := range plugins {
 		manifests = append(manifests, plugin.Manifest)
@@ -48,7 +48,7 @@ func (a *App) resolveToolchainSelection(ctx context.Context, root, directory, to
 }
 
 func (a *App) defaultToolchainSelection(ctx context.Context, root, directory, tool, minimumVersion string) (core.ToolchainSelection, error) {
-	manifests, err := a.toolchainManifests()
+	manifests, err := a.toolchainManifests(ctx)
 	if err != nil {
 		return core.ToolchainSelection{}, err
 	}

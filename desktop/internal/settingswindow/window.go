@@ -134,9 +134,11 @@ type window struct {
 	// as the pageID plus one so that zero means no request. It is atomic because the
 	// controller sets it from the thread of whichever window asked; wake takes it on the
 	// window's own thread.
-	requestedPage atomic.Uint32
+	requestedPage         atomic.Uint32
+	pluginRegistryChanged atomic.Bool
 	// toolchains is the Build settings page's draft and loaded snapshot.
-	toolchains toolchainState
+	toolchains     toolchainState
+	pluginSettings pluginSettingsForm
 	// terminal is the Terminal page's list of installed shells.
 	terminal    terminalShellState
 	search      ui.Field
@@ -204,10 +206,13 @@ func newWindow(c *Controller, current Values) *window {
 	w.marketSplit = splitpane.New(width, 200, 520, 160, marketDividerWidth)
 	w.market = newMarketplaceState(c.opts.Marketplace, w.inv.Invalidate)
 	w.market.official = c.opts.MarketplaceOfficial
+	w.market.installed = c.opts.MarketplaceInstalled
 	w.market.reportDiscarded = c.opts.MarketplaceError
 	w.market.search.rank = c.opts.MarketplaceRank
 	w.market.search.wake = w.inv.Invalidate
 	w.market.search.report = c.opts.MarketplaceError
+	w.pluginSettings = newPluginSettingsForm(c.opts.PluginSettings, w.inv.Invalidate)
+	w.pluginSettings.report = c.opts.MarketplaceError
 	w.toolchains = newToolchainState(c.opts.Toolchains, w.inv.Invalidate)
 	w.terminal = newTerminalShellState(c.opts.TerminalShells, w.inv.Invalidate, w.sess.finished.Load)
 	return w
@@ -231,7 +236,7 @@ func (w *window) config() app.Config {
 		OnPointer:      w.onPointer,
 		OnShortcut:     w.onShortcut,
 		OnScroll:       w.onScroll,
-		TextInput:      ui.Fields(&w.search, &w.marketQuery),
+		TextInput:      w.pluginSettingsTextInput,
 		Invalidator:    &w.inv,
 		OnWake:         w.wake,
 		OnClosed:       w.closed,
@@ -249,6 +254,10 @@ func (w *window) requestPage(page pageID) {
 // wake runs on the window thread right before each repaint an Invalidate requested. It
 // takes a page request first, then lets the marketplace take what its workers finished.
 func (w *window) wake() {
+	if w.pluginRegistryChanged.Swap(false) && w.market.source == 2 {
+		w.market.close()
+		w.market.start()
+	}
 	if requested := w.requestedPage.Swap(0); requested != 0 {
 		w.search.SetText("")
 		w.sess.show(pageID(requested - 1))
@@ -285,6 +294,7 @@ func (w *window) native() *app.Window {
 // Open makes a new one.
 func (w *window) closed() {
 	w.toolchains.close()
+	w.pluginSettings.close()
 	w.marketSplit.Cancel()
 	w.market.close()
 	w.sess.finished.Store(true)
@@ -328,6 +338,7 @@ func (w *window) closeNative() {
 // paint draws the window for its current settings.
 func (w *window) paint(canvas *gfx.Canvas, size gfx.Size) {
 	w.toolchains.drain()
+	w.pluginSettings.drain()
 	w.terminal.drain()
 	w.marketExtent = max(0, size.Width-sidebarWidth-1)
 	if w.sess.page != pagePlugins || w.market.status != marketReady {
@@ -400,6 +411,7 @@ func (w *window) paint(canvas *gfx.Canvas, size gfx.Size) {
 	}
 	w.listRect = w.listBox.Rect()
 	if w.sess.page == pagePlugins && w.market.status == marketReady {
+
 		rect := w.marketDivider.Rect()
 		rect.X -= (marketDividerHitWidth - rect.Width) / 2
 		rect.Width = marketDividerHitWidth
@@ -545,6 +557,10 @@ func (w *window) drawRowLead(f *ui.Frame, r row) {
 
 // drawContent is the page beside the sidebar: the breadcrumb above the page itself.
 func (w *window) drawContent(f *ui.Frame) {
+	if w.sess.page != pagePlugins && w.pluginSettings.id != "" {
+		w.pluginSettings.close()
+		w.pluginSettings.id, w.pluginSettings.loaded = "", false
+	}
 	if w.sess.page != pagePlugins && w.market.status == marketLoading {
 		w.market.close()
 	}
@@ -855,6 +871,14 @@ func (w *window) onKey(event gfx.KeyEvent) gfx.EventResult {
 			return gfx.EventResult{Handled: true, Repaint: true}
 		}
 	}
+	if result := w.pluginSettings.scopeSelect.Key(event); result.Handled {
+		return result
+	}
+	for i := range w.pluginSettings.controls[w.pluginSettings.scope] {
+		if result := w.pluginSettings.controls[w.pluginSettings.scope][i].selectState.Key(event); result.Handled {
+			return result
+		}
+	}
 	if w.sess.page == pagePlugins && w.market.status == marketReady {
 		if result, committed := w.marketSplit.Key(event, marketDividerID, w.marketExtent); result.Handled {
 			if committed && w.ctrl.opts.MarketplaceResized != nil {
@@ -943,6 +967,14 @@ func (w *window) onShortcut(event gfx.KeyEvent) gfx.EventResult {
 // onScroll scrolls the open language list when there is one, and otherwise the area under
 // the pointer.
 func (w *window) onScroll(event gfx.ScrollEvent) gfx.EventResult {
+	if result := w.pluginSettings.scopeSelect.Wheel(event); result.Handled {
+		return result
+	}
+	for i := range w.pluginSettings.controls[w.pluginSettings.scope] {
+		if result := w.pluginSettings.controls[w.pluginSettings.scope][i].selectState.Wheel(event); result.Handled {
+			return result
+		}
+	}
 	if result := w.marketSource.Wheel(event); result.Handled {
 		return result
 	}

@@ -52,6 +52,10 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 	if err != nil {
 		return Snapshot{}, err
 	}
+	rootIdentity, err := directoryIdentity(ctx, workspace.root)
+	if err != nil {
+		return Snapshot{}, err
+	}
 	registryRequest, err := rawRegistry(manifests)
 	if err != nil {
 		return Snapshot{}, err
@@ -73,10 +77,11 @@ func Load(ctx context.Context, kernel Kernel, root, directory string, manifests 
 		return Snapshot{}, err
 	}
 	snapshot := Snapshot{
-		Root:      workspace.root,
-		Directory: directory,
-		Conflicts: registry.Conflicts,
-		Baseline:  baseline,
+		Root:         workspace.root,
+		rootIdentity: rootIdentity,
+		Directory:    directory,
+		Conflicts:    registry.Conflicts,
+		Baseline:     baseline,
 	}
 	sequence := loadSequence.Add(1)
 	for index, planned := range plan.Tools {

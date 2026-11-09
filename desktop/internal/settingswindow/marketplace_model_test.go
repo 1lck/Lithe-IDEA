@@ -227,3 +227,27 @@ func TestMarketplaceReportsRejectedEntries(t *testing.T) {
 		t.Fatalf("reported %d rejected entries, want one", count)
 	}
 }
+
+func TestInstalledMarketplaceSourceWorksWithoutRemoteFetch(t *testing.T) {
+	ready := make(chan struct{}, 1)
+	m := newMarketplaceState(func(context.Context) (marketplace.Snapshot, error) {
+		t.Error("offline installed source requested a remote index")
+		return marketplace.Snapshot{}, errors.New("offline")
+	}, func() { ready <- struct{}{} })
+	m.installed = func(context.Context) (marketplace.Snapshot, error) {
+		return marketplace.Snapshot{Index: core.MarketplaceIndex{Plugins: []core.MarketplacePlugin{{ID: "local", Name: "Local", LatestVersion: "0.10.0"}}}}, nil
+	}
+	t.Cleanup(m.close)
+	m.chooseSource(2)
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-ready:
+	case <-timer.C:
+		t.Fatal("installed source did not complete")
+	}
+	m.drain()
+	if m.source != 2 || m.status != marketReady || m.selected != "local" {
+		t.Fatalf("installed source=%d status=%d selected=%q error=%v", m.source, m.status, m.selected, m.err)
+	}
+}

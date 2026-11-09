@@ -3,7 +3,6 @@ package workbench
 import (
 	"context"
 	"errors"
-	"os"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 )
@@ -27,7 +26,7 @@ func (s settingsToolchains) Load(ctx context.Context) (snapshot toolchain.Snapsh
 }
 
 func (s settingsToolchains) loadAt(ctx context.Context, root string) (toolchain.Snapshot, error) {
-	manifests, err := s.app.toolchainManifests()
+	manifests, err := s.app.toolchainManifests(ctx)
 	if err != nil && len(manifests) == 0 {
 		return toolchain.Snapshot{}, err
 	}
@@ -42,20 +41,10 @@ func (s settingsToolchains) Save(ctx context.Context, snapshot toolchain.Snapsho
 	if root == nil || *root == "" || snapshot.Root == "" {
 		return snapshot, toolchain.ErrPinConflict
 	}
-	// Compare native directory identity, not path spelling: Load canonicalizes
-	// the root, while the window may have opened it through a platform alias.
-	source, err := os.Stat(snapshot.Root)
-	if err != nil {
+	if err := snapshot.CheckWorkspace(ctx, *root); err != nil {
 		return snapshot, errors.Join(toolchain.ErrPinConflict, err)
 	}
-	current, err := os.Stat(*root)
-	if err != nil {
-		return snapshot, errors.Join(toolchain.ErrPinConflict, err)
-	}
-	if !source.IsDir() || !current.IsDir() || !os.SameFile(source, current) {
-		return snapshot, toolchain.ErrPinConflict
-	}
-	if _, _, err := toolchain.SavePins(ctx, s.app.kernel, snapshot.Root, snapshot.Directory, edits, snapshot.Baseline); err != nil {
+	if _, _, err := snapshot.SavePins(ctx, s.app.kernel, edits); err != nil {
 		return snapshot, err
 	}
 	// A project switch during an already confirmed save must not retarget its

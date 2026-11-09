@@ -2,23 +2,55 @@
   "id": "declarative-plugin-settings",
   "area": "插件",
   "group": "插件管理",
-  "capability": "声明式插件可以在 plugin.json 里声明用户可调的选项（整数、枚举、布尔），在“设置 › 插件”的插件详情页里编辑，值按插件保存一份并在下次启动语言服务器时代入启动模板；Java 插件据此声明 JDT LS 最大堆内存和日志级别",
+  "capability": "声明式插件通过 Core 校验的设置声明提供整数、枚举、布尔、多选、文本、文件和目录设置，支持全局/项目继承、真实来源保存、通用界面、页面/动作注册及 restart/immediate/reload/nextRun 生效；实际启动与运行消费者必须读取同一来源。",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/configfile/configfile.go",
+      "desktop/internal/pluginsettings/store.go",
+      "desktop/internal/core/plugin_settings.go",
+      "desktop/internal/pluginservice/backends.go",
+      "desktop/internal/pluginservice/settings.go",
+      "desktop/internal/workbench/plugin_settings.go",
+      "desktop/internal/workbench/build_settings_test.go",
+      "desktop/internal/pluginservice/settings_start_test.go",
+      ".agents/notes/implemented/architecture/2026-11-09-viva-plugin-preference-native-storage.md",
+      "desktop/internal/pluginservice/settings_editor.go",
+      "desktop/internal/pluginservice/settings_editor_test.go",
+      "desktop/internal/settingswindow/plugin_settings_model.go",
+      "desktop/internal/settingswindow/plugin_settings_view.go",
+      "desktop/internal/settingswindow/plugin_settings_view_test.go",
+      "desktop/internal/settingswindow/plugin_settings_model_test.go",
+      "desktop/internal/workbench/settings_plugin_effects.go",
+      "desktop/internal/workbench/settings_plugin_effects_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/configfile/configfile.go",
+      "desktop/internal/pluginsettings/store.go",
+      "desktop/internal/core/plugin_settings.go",
+      "desktop/internal/pluginservice/backends.go",
+      "desktop/internal/pluginservice/settings.go",
+      "desktop/internal/workbench/plugin_settings.go",
+      "desktop/internal/workbench/build_settings_test.go",
+      "desktop/internal/pluginservice/settings_start_test.go",
+      ".agents/notes/implemented/architecture/2026-11-09-viva-plugin-preference-native-storage.md",
+      "desktop/internal/pluginservice/settings_editor.go",
+      "desktop/internal/pluginservice/settings_editor_test.go",
+      "desktop/internal/settingswindow/plugin_settings_model.go",
+      "desktop/internal/settingswindow/plugin_settings_view.go",
+      "desktop/internal/settingswindow/plugin_settings_view_test.go",
+      "desktop/internal/settingswindow/plugin_settings_model_test.go",
+      "desktop/internal/workbench/settings_plugin_effects.go",
+      "desktop/internal/workbench/settings_plugin_effects_test.go"
     ]
   },
   "owner": "Plugin Platform",
-  "verification": "macOS：打开设置 › 插件，选中 Java Support，切到“设置”页签，确认显示“最大内存”（默认 1024 MB）和“语言服务器日志级别”（默认全部消息）。把最大内存改成 3072：输入 3072 后点“重启语言服务器”，用 ps 查看 JDT LS 的 java 进程参数，确认 -Xmx3072m 且只出现一次；输入 100 时出现范围提示且没有保存，失焦后回到上一个合法值。把日志级别改成“仅错误”并重启，确认进程参数里是 -Dlog.level=SEVERE。点“恢复默认值”后重启，确认回到 -Xmx1024m 和 -Dlog.level=ALL。退出并重新打开 Lithe，确认修改过的值仍在。卸载并恢复 Java Support，值仍在。Windows：契约设置页与双层存储已接入，须完成下述实机验证。 Windows：启动契约语言服务器，修改 immediate 设置，确认 lsp.startServer 和即时更新都带独立 pluginId，已启动会话收到 workspace/didChangeConfiguration；禁用后旧会话不能继续接收。设置双层持久化和界面验收仍 pending。 Windows 两个窗口并发保存不同设置时，完整读改写事务必须保留两个修改；删除空文件也使用同一互斥，成功或失败后无临时文件残留。",
+  "verification": "Viva：共享 settings-documents fixture 经真实 Core C ABI 验证类型、作用层、整批拒绝及文档保留；原生来源覆盖权限/元数据、冲突、取消、捕获来源回读、提交后回读失败。Build/Debug 读取实际文件，明确失效路径不能静默回退；Build 全局专属程序不能被项目文件替换。LSP 启动同时传全局/项目设置、初始化选项与 Core 展开的 workspaceConfiguration。真实协议子进程在同一 Core 会话接收更新通知并重新拉取值；保存来源后服务层回读、展开并更新现有会话，损坏来源不推空配置。macOS 有定向测试与真实子进程证据；本次新增运行消费者的 Windows 复验仍 pending。已安装本地目录独立于商店网络，Core 绑定注册 ID/版本；原生快照拒绝安装替换。七种控件与全局/项目草稿已接线，macOS 无头驱动验证原生文本输入、明确保存回读、冲突保留、重新加载；共享模型验证七种类型及非法整数原文。保存后的即时通知与所属插件模型刷新已接线，旧模型回包不会覆盖待刷新状态，运行任务及无关模型保持。动态页面/动作、重启与完整生效状态、跨窗口全局更新、目标平台原生 UI 及正式市场准入尚未验收，宿主仍不声明 settings 2。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",
     "macos": {
@@ -50,5 +82,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "当前 partial 表示 Core 规则、原生双层存储、运行消费、离线目录和七类通用控件已有接线；macOS 无头交互通过，完整 settings v2 及本次 Windows 原生复验仍 pending。旧 Swift/Tauri 验证保存在 legacy，不能替代 Viva。"
 }

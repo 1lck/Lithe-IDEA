@@ -144,6 +144,7 @@ func TestPluginBackendHelper(t *testing.T) {
 	reader := bufio.NewReader(os.Stdin)
 	var pending json.RawMessage
 	var hostPending json.RawMessage
+	configurationQueries := 0
 	send := func(message any) {
 		body, err := json.Marshal(message)
 		if err != nil {
@@ -189,6 +190,17 @@ func TestPluginBackendHelper(t *testing.T) {
 		}
 		if json.Unmarshal(body, &request) != nil {
 			os.Exit(6)
+		}
+		if os.Getenv("LITHE_TEST_PLUGIN_CONFIGURATION") == "1" {
+			if request.Method == "workspace/didChangeConfiguration" {
+				configurationQueries++
+				send(map[string]any{"jsonrpc": "2.0", "id": fmt.Sprintf("configuration-%d", configurationQueries), "method": "workspace/configuration", "params": map[string]any{"items": []any{map[string]any{"section": "elixirLS"}}}})
+				continue
+			}
+			if request.Method == "" && strings.HasPrefix(string(request.ID), `"configuration-`) {
+				send(map[string]any{"jsonrpc": "2.0", "method": "window/logMessage", "params": map[string]any{"type": 3, "message": "configuration:" + string(request.Result)}})
+				continue
+			}
 		}
 		if request.Method == "" && string(request.ID) == `"host-read"` && len(hostPending) != 0 {
 			reply(hostPending, request.Result)

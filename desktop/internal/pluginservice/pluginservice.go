@@ -22,6 +22,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugininstall"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginpkg"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginstate"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
@@ -35,6 +36,11 @@ var ErrAssembly = errors.New("plugin service cannot be assembled")
 type Kernel interface {
 	pluginhost.ManifestValidator
 	pluginbackend.Kernel
+	pluginsettings.Kernel
+	ReadInstalledPluginSettingsState(context.Context, json.RawMessage, string, string) (core.PluginSettingsState, error)
+	SelectInstalledPluginVersions(context.Context, []core.InstalledPluginFact, bool) (core.InstalledPluginSelection, error)
+	ExpandPluginWorkspaceConfiguration(context.Context, json.RawMessage, string, map[string]json.RawMessage, map[string]json.RawMessage) (json.RawMessage, error)
+	UpdatePluginWorkspaceConfiguration(context.Context, string, json.RawMessage) (bool, error)
 	ReviewMarketplaceInstall(ctx context.Context, manifest json.RawMessage, expectedID, expectedVersion string, approvedPrograms []json.RawMessage, hostCapabilities map[string][]int) (core.MarketplaceReview, error)
 	DecodePluginGrammar(ctx context.Context, manifest json.RawMessage, languageID, source string) (core.PluginEditorLanguage, error)
 	SyncPluginDocument(ctx context.Context, request core.PluginDocumentSyncRequest) (core.PluginDocumentSync, error)
@@ -52,6 +58,8 @@ type Service struct {
 	Installer *plugininstall.Service
 	// Backend starts and stops plugin backends and answers their host requests.
 	Backend *pluginbackend.Runner
+	// Settings reads actual plugin-owned preference layers from native storage.
+	Settings *pluginsettings.Store
 	// HostServices is the registry a backend's grants are narrowed against.
 	HostServices *pluginhost.Services
 	// kernel reads what only Core can validate, such as a plugin's grammar.
@@ -82,6 +90,7 @@ func Open(kernel Kernel, preferences *store.Store, root string) (*Service, error
 		Manager:      pluginmanager.New(root, approvals, state),
 		Installer:    plugininstall.New(kernel, NewReviewer(kernel), approvals, pluginhost.Declared()),
 		Backend:      pluginbackend.New(kernel, hostServices),
+		Settings:     pluginsettings.New(kernel, preferences.Dir()),
 		HostServices: hostServices,
 		kernel:       kernel,
 	}, nil

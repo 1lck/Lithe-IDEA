@@ -150,7 +150,7 @@ func (a *App) loadDebugAdapters(p *project) {
 		if err != nil {
 			return func(a *App) { a.finishDebugAdapters(p, nil, err) }
 		}
-		plugins, pluginErr := a.plugins.DebugPlugins(entries)
+		plugins, pluginErr := a.plugins.DebugPlugins(ctx, entries)
 		var adapters []debugAdapter
 		for _, plugin := range plugins {
 			for _, declaration := range plugin.Adapters {

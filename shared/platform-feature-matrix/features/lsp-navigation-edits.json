@@ -11,7 +11,8 @@
       "desktop/internal/workbench/pluginsemantics_test.go",
       "desktop/internal/workbench/pluginsemantics_e2e_test.go",
       "desktop/internal/editorview/semantics.go",
-      "desktop/internal/core/plugin_semantics.go"
+      "desktop/internal/core/plugin_semantics.go",
+      "shared/fixtures/lsp/document-identity-v1.json"
     ]
   },
   "windows": {
@@ -22,7 +23,8 @@
       "desktop/internal/workbench/pluginsemantics_test.go",
       "desktop/internal/workbench/pluginsemantics_e2e_test.go",
       "desktop/internal/editorview/semantics.go",
-      "desktop/internal/core/plugin_semantics.go"
+      "desktop/internal/core/plugin_semantics.go",
+      "shared/fixtures/lsp/document-identity-v1.json"
     ]
   },
   "owner": "Language Tooling",
@@ -63,5 +65,5 @@
       "verificationStatus": "pending"
     }
   },
-  "notes": "Viva 已接入定义跳转（F12、Command/Ctrl+点击、多目标列表）和 Hover；引用、语义标记、格式化与重命名仍未接入。无头 clangd 测试不是原生窗口验收，平台验证保持 pending。"
+  "notes": "Viva 已接入定义跳转（F12、Command/Ctrl+点击、多目标列表）和 Hover；引用、语义标记、格式化与重命名仍未接入。无头 clangd 测试不是原生窗口验收，平台验证保持 pending。 Windows 真实 clangd 的跳转曾因 Core location 返回 /C:/... 而被原生绝对路径检查拒绝；Core 现复用 workspace-edit 解码返回有效盘符路径，低层回归已先失败后通过。原生完整工作流仍按实际报告验收。"
 }

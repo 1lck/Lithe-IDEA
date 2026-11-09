@@ -1,6 +1,7 @@
 package pluginservice
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -42,7 +43,7 @@ func TestLanguageServerProviderFindsAnEnabledPlugin(t *testing.T) {
 		t.Fatalf("open: %v", err)
 	}
 	entry := serverPackage(t, "1.0.0", true, "java")
-	found, ok, err := service.LanguageServerProvider([]pluginmanager.Entry{entry}, "java")
+	found, ok, err := service.LanguageServerProvider(context.Background(), []pluginmanager.Entry{entry}, "java")
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestLanguageServerProviderSkipsDisabledPlugins(t *testing.T) {
 		t.Fatalf("open: %v", err)
 	}
 	entry := serverPackage(t, "1.0.0", false, "java")
-	if _, ok, err := service.LanguageServerProvider([]pluginmanager.Entry{entry}, "java"); ok || err != nil {
+	if _, ok, err := service.LanguageServerProvider(context.Background(), []pluginmanager.Entry{entry}, "java"); ok || err != nil {
 		t.Fatalf("ok = %v, err = %v", ok, err)
 	}
 }
@@ -68,10 +69,10 @@ func TestLanguageServerProviderIgnoresUndeclaredLanguages(t *testing.T) {
 		t.Fatalf("open: %v", err)
 	}
 	entry := serverPackage(t, "1.0.0", true, "java")
-	if _, ok, err := service.LanguageServerProvider([]pluginmanager.Entry{entry}, "kotlin"); ok || err != nil {
+	if _, ok, err := service.LanguageServerProvider(context.Background(), []pluginmanager.Entry{entry}, "kotlin"); ok || err != nil {
 		t.Fatalf("ok = %v, err = %v", ok, err)
 	}
-	if _, ok, err := service.LanguageServerProvider([]pluginmanager.Entry{entry}, ""); ok || err != nil {
+	if _, ok, err := service.LanguageServerProvider(context.Background(), []pluginmanager.Entry{entry}, ""); ok || err != nil {
 		t.Fatalf("ok = %v, err = %v", ok, err)
 	}
 }
@@ -84,7 +85,7 @@ func TestLanguageServerProviderUsesTheNewestVersion(t *testing.T) {
 	// Both versions are installed and enabled; the newer one must answer.
 	older := serverPackage(t, "1.0.0", true, "java")
 	newer := serverPackage(t, "1.1.0", true, "java")
-	found, ok, err := service.LanguageServerProvider([]pluginmanager.Entry{older, newer}, "java")
+	found, ok, err := service.LanguageServerProvider(context.Background(), []pluginmanager.Entry{older, newer}, "java")
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
@@ -103,12 +104,33 @@ func TestLanguageServerProviderReportsABrokenPackage(t *testing.T) {
 		Enabled:   true,
 	}
 	healthy := serverPackage(t, "1.0.0", true, "java")
-	found, ok, err := service.LanguageServerProvider([]pluginmanager.Entry{broken, healthy}, "java")
+	found, ok, err := service.LanguageServerProvider(context.Background(), []pluginmanager.Entry{broken, healthy}, "java")
 	if !errors.Is(err, ErrPackageRead) {
 		t.Fatalf("err = %v", err)
 	}
 	// A broken package does not hide the working provider.
 	if !ok || found.Installed.Version != "1.0.0" {
 		t.Fatalf("found = %+v, ok = %v", found, ok)
+	}
+}
+
+func TestLanguageServerProviderSelectsNumericNewestVersionIndependentlyOfDirectoryOrder(t *testing.T) {
+	for _, reverse := range []bool{false, true} {
+		t.Run(map[bool]string{false: "numeric-order", true: "lexical-directory-order"}[reverse], func(t *testing.T) {
+			service, err := Open(&fakeKernel{}, store.At(t.TempDir()), t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			older := serverPackage(t, "0.9.0", true, "fixture")
+			newer := serverPackage(t, "0.10.0", true, "fixture")
+			entries := []pluginmanager.Entry{older, newer}
+			if reverse {
+				entries = []pluginmanager.Entry{newer, older}
+			}
+			selected, ok, err := service.LanguageServerProvider(context.Background(), entries, "fixture")
+			if err != nil || !ok || selected.Installed.Version != "0.10.0" {
+				t.Fatalf("numeric newest version not selected: version=%q, found=%v, error=%v", selected.Installed.Version, ok, err)
+			}
+		})
 	}
 }

@@ -15,6 +15,8 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/localshell"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/marketplace"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginservice"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginsettings"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/toolchain"
 	"github.com/vivaui/viva/app"
 )
@@ -27,6 +29,15 @@ type PluginState struct {
 	Version string
 	// Enabled says the user turned the plugin on.
 	Enabled bool
+}
+
+// PluginRuntimeState is a memory-only view of the current native session.
+type PluginRuntimeState struct {
+	Running         bool
+	RestartRequired bool
+	Restarting      bool
+	Version         string
+	Workspace       string
 }
 
 // Values are the settings the window edits. A field is the value that is stored, so the
@@ -63,13 +74,21 @@ type ToolchainLoader interface {
 	Save(context.Context, toolchain.Snapshot, []toolchain.Edit) (toolchain.Snapshot, error)
 }
 
+// PluginSettingsLoader reads and publishes captured native sources off the UI thread.
+type PluginSettingsLoader interface {
+	Load(context.Context, string) (pluginservice.SettingsEditor, error)
+	Save(context.Context, pluginservice.SettingsEditor, string, []core.PluginSettingEdit) (pluginsettings.SaveResult, error)
+}
+
 // Options configure the settings window.
 type Options struct {
 	// Marketplace fetches the enabled source only while the plugin page is open.
 	Marketplace func(context.Context) (marketplace.Snapshot, error)
 	// MarketplaceOfficial fetches the separately validated official source.
 	MarketplaceOfficial func(context.Context) (marketplace.Snapshot, error)
-	MarketplaceRank     func(context.Context, string, []core.RankCandidate) ([]int, error)
+	// MarketplaceInstalled reads only local installed metadata, without a network request.
+	MarketplaceInstalled func(context.Context) (marketplace.Snapshot, error)
+	MarketplaceRank      func(context.Context, string, []core.RankCandidate) ([]int, error)
 	// MarketplaceError must be safe from a worker: a cancelled request may fail
 	// after the window has discarded its result.
 	MarketplaceError    func(error)
@@ -124,7 +143,10 @@ type Options struct {
 	// pressing it is its own confirmation.
 	ResetLayout func()
 	// Toolchains is the Build settings page's loader. Nil leaves the page unavailable.
-	Toolchains ToolchainLoader
+	Toolchains     ToolchainLoader
+	PluginSettings PluginSettingsLoader
+	PluginRuntime  func(string) PluginRuntimeState
+	RestartPlugin  func(id, version, scope, workspace string)
 }
 
 // Controller opens the settings window and keeps at most one open: opening it again brings
@@ -235,5 +257,16 @@ func (c *Controller) Invalidate() {
 	c.mu.Unlock()
 	if current != nil {
 		current.inv.Invalidate()
+	}
+}
+
+// PluginRegistryChanged wakes the page after an atomic installed-state update.
+// Native discovery remains on the page's bounded worker, never this caller.
+func (c *Controller) PluginRegistryChanged() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.current != nil {
+		c.current.pluginRegistryChanged.Store(true)
+		c.current.inv.Invalidate()
 	}
 }

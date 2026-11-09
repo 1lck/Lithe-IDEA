@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -57,6 +58,15 @@ func extractInto(t *testing.T, entries []archiveEntry) (Package, string, error) 
 	return pkg, target, err
 }
 
+// Windows exposes the read-only attribute through permission bits; Unix
+// exposes the archive's owner/group/other permissions.
+func extractedFilePermissions() fs.FileMode {
+	if runtime.GOOS == "windows" {
+		return 0o666
+	}
+	return 0o644
+}
+
 func TestExtractWritesFilesInPathOrder(t *testing.T) {
 	pkg, target, err := extractInto(t, []archiveEntry{
 		{name: "plugin.json", body: []byte(`{"id":"example"}`), mode: 0o644},
@@ -90,7 +100,7 @@ func TestExtractWritesFilesInPathOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o644 {
+	if info.Mode().Perm() != extractedFilePermissions() {
 		t.Fatalf("mode = %v", info.Mode().Perm())
 	}
 }
@@ -126,7 +136,7 @@ func TestExtractDefaultsPermissionWithoutMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o644 {
+	if info.Mode().Perm() != extractedFilePermissions() {
 		t.Fatalf("on-disk mode = %v", info.Mode().Perm())
 	}
 }

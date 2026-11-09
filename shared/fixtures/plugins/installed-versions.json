@@ -1,0 +1,172 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "numeric-minor-over-directory-order",
+      "entries": [
+        {
+          "pluginID": "example",
+          "version": "0.10.0",
+          "enabled": true
+        },
+        {
+          "pluginID": "example",
+          "version": "0.9.0",
+          "enabled": true
+        }
+      ],
+      "selected": [
+        0
+      ],
+      "rejected": []
+    },
+    {
+      "name": "numeric-order-independent",
+      "entries": [
+        {
+          "pluginID": "example",
+          "version": "0.9.0",
+          "enabled": true
+        },
+        {
+          "pluginID": "example",
+          "version": "0.10.0",
+          "enabled": true
+        }
+      ],
+      "selected": [
+        1
+      ],
+      "rejected": []
+    },
+    {
+      "name": "numeric-major-and-patch",
+      "entries": [
+        {
+          "pluginID": "example",
+          "version": "2.99.99",
+          "enabled": true
+        },
+        {
+          "pluginID": "example",
+          "version": "10.0.9",
+          "enabled": true
+        },
+        {
+          "pluginID": "example",
+          "version": "10.0.10",
+          "enabled": true
+        }
+      ],
+      "selected": [
+        2
+      ],
+      "rejected": []
+    },
+    {
+      "name": "disabled-latest-does-not-revive-older",
+      "entries": [
+        {
+          "pluginID": "example",
+          "version": "1.0.0",
+          "enabled": true
+        },
+        {
+          "pluginID": "example",
+          "version": "2.0.0",
+          "enabled": false
+        }
+      ],
+      "selected": [],
+      "rejected": []
+    },
+    {
+      "name": "settings-may-list-disabled-latest",
+      "includeDisabled": true,
+      "entries": [
+        {
+          "pluginID": "example",
+          "version": "1.0.0",
+          "enabled": true
+        },
+        {
+          "pluginID": "example",
+          "version": "2.0.0",
+          "enabled": false
+        }
+      ],
+      "selected": [
+        1
+      ],
+      "rejected": []
+    },
+    {
+      "name": "invalid-fact-does-not-hide-another-plugin",
+      "entries": [
+        {
+          "pluginID": "broken",
+          "version": "invalid",
+          "enabled": true
+        },
+        {
+          "pluginID": "healthy",
+          "version": "1.0.0",
+          "enabled": true
+        }
+      ],
+      "selected": [
+        1
+      ],
+      "rejected": [
+        {
+          "index": 0,
+          "code": "plugin.installed.invalidVersion"
+        }
+      ]
+    },
+    {
+      "name": "selection-orders-plugin-identities",
+      "entries": [
+        {
+          "pluginID": "zeta",
+          "version": "1.0.0",
+          "enabled": true
+        },
+        {
+          "pluginID": "alpha",
+          "version": "1.0.0",
+          "enabled": true
+        }
+      ],
+      "selected": [
+        1,
+        0
+      ],
+      "rejected": []
+    },
+    {
+      "name": "duplicate-version-cannot-overwrite-first-fact",
+      "entries": [
+        {
+          "pluginID": "example",
+          "version": "1.0.0",
+          "enabled": true
+        },
+        {
+          "pluginID": "example",
+          "version": "1.0.0",
+          "enabled": false
+        }
+      ],
+      "selected": [
+        0
+      ],
+      "rejected": [
+        {
+          "index": 1,
+          "code": "plugin.installed.duplicateVersion"
+        }
+      ]
+    }
+  ]
+}

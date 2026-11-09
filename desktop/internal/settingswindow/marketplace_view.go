@@ -108,9 +108,12 @@ func (w *window) marketColumns(f *ui.Frame) {
 					})
 				})
 			}
-			if m.official != nil {
+			if m.official != nil || m.installed != nil {
 				f.Row().FillWidth().Height(44).Shrink(0).PadX(12).Items(ui.Center).Children(func() {
 					labels := []string{i18n.Shared(w.marketLanguage(), "desktop.marketplace.communitySource"), i18n.Shared(w.marketLanguage(), "desktop.marketplace.officialSource")}
+					if m.installed != nil {
+						labels = append(labels, i18n.Shared(w.marketLanguage(), "desktop.marketplace.installedSource"))
+					}
 					pick := f.Select(marketSourceScope, &w.marketSource, labels, m.source).Width(150).Label(i18n.Shared(w.marketLanguage(), "desktop.marketplace.source"))
 					if index, ok := pick.Picked(); ok {
 						previous := m.source
@@ -178,18 +181,29 @@ func (w *window) marketColumns(f *ui.Frame) {
 						f.Text(selected.Author).FontSize(12).Color(w.pal.muted).Ellipsis()
 					})
 				})
-				f.Wrap(i18n.Shared(w.marketLanguage(), "desktop.marketplace.hostUnavailable")).FontSize(12).Color(w.pal.muted)
+				if w.ctrl.opts.PluginSettings == nil {
+					f.Wrap(i18n.Shared(w.marketLanguage(), "desktop.marketplace.hostUnavailable")).FontSize(12).Color(w.pal.muted)
+				}
 				description := selected.Description
 				if w.ctrl.opts.Language != nil && w.ctrl.opts.Language() == i18n.Chinese {
 					if value := selected.LocalizedDescriptions["zh-Hans"]; value != "" {
 						description = value
 					}
 				}
-				f.Wrap(description).FontSize(12).Color(w.pal.text)
+				if description != "" {
+					f.Wrap(description).FontSize(12).Color(w.pal.text)
+				}
 				w.marketMetadata(f, i18n.Shared(w.marketLanguage(), "native.version"), selected.LatestVersion)
-				w.marketMetadata(f, i18n.Shared(w.marketLanguage(), "native.releaseDate"), selected.LatestReleaseDate)
-				w.marketMetadata(f, i18n.Shared(w.marketLanguage(), "native.license"), selected.License)
+				if selected.LatestReleaseDate != "" {
+					w.marketMetadata(f, i18n.Shared(w.marketLanguage(), "native.releaseDate"), selected.LatestReleaseDate)
+				}
+				if selected.License != "" {
+					w.marketMetadata(f, i18n.Shared(w.marketLanguage(), "native.license"), selected.License)
+				}
 				w.marketPluginActions(f, *selected)
+				if w.ctrl.opts.PluginState != nil && w.ctrl.opts.PluginState(selected.ID).Installed {
+					w.drawPluginSettings(f, selected.ID)
+				}
 			})
 		})
 	})

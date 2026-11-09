@@ -358,7 +358,23 @@ func prependPath(home, template string) (string, bool) {
 // select. Probes are bounded in count, concurrency and time, and every process
 // is owned by this call.
 func (w *workspace) probeAll(ctx context.Context, definition core.ToolchainToolDefinition, executables []string) []core.ToolchainProbe {
-	executables = uniqueSorted(executables)
+	// Core returns native absolute paths with portable separators. Pins and
+	// filesystem discovery can name the same Windows file with backslashes or
+	// different case. Probe each native identity once; Core rejects duplicates.
+	seen := make(map[string]bool, len(executables))
+	paths := make([]string, 0, len(executables))
+	for _, executable := range uniqueSorted(executables) {
+		cleaned := filepath.Clean(executable)
+		key := cleaned
+		if !w.caseSensitive {
+			key = strings.ToLower(key)
+		}
+		if !seen[key] {
+			seen[key] = true
+			paths = append(paths, cleaned)
+		}
+	}
+	executables = paths
 	const maxProbes = 64
 	if len(executables) > maxProbes {
 		executables = executables[:maxProbes]

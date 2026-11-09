@@ -5,8 +5,9 @@
 // (any `bundle:` other than `.main` / `.appLanguage`, for example a test or Agent language bundle).
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = new URL("../..", import.meta.url).pathname;
+const root = fileURLToPath(new URL("../..", import.meta.url));
 const sourceRoot = join(root, "macos/Sources");
 
 // Returns the index just past the string literal that starts at `i`, skipping `\( … )` interpolation.

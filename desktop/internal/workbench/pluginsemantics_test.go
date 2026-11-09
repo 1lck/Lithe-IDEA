@@ -107,6 +107,8 @@ func (f *semanticFixture) deliver(t *testing.T, operation, method string, result
 		Method:      method,
 		Result:      result,
 	})
+	// Directly injected events bypass App.post, which normally requests a frame.
+	f.h.app.invalidator.Invalidate()
 	if err := f.h.driver.Pump(); err != nil {
 		t.Fatal(err)
 	}

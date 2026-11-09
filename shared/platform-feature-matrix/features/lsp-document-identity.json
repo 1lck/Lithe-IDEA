@@ -4,27 +4,39 @@
   "group": "语言服务器",
   "capability": "语言服务器文档路径与 URI 身份",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/catalog.go",
       "desktop/internal/workbench/shell.go",
       "desktop/internal/workbench/app.go",
-      "desktop/internal/workbench/chrome.go"
+      "desktop/internal/workbench/chrome.go",
+      "desktop/internal/core/plugin_documents.go",
+      "desktop/internal/core/plugin_documents_test.go",
+      "desktop/internal/workbench/plugindiagnostics.go",
+      "desktop/internal/workbench/plugindiagnostics_test.go",
+      "shared/fixtures/lsp/document-identity-v1.json",
+      "shared/contracts/rust-core-api.md"
     ]
   },
   "windows": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
     "evidence": [
       "desktop/internal/workbench/catalog.go",
       "desktop/internal/workbench/shell.go",
       "desktop/internal/workbench/app.go",
-      "desktop/internal/workbench/chrome.go"
+      "desktop/internal/workbench/chrome.go",
+      "desktop/internal/core/plugin_documents.go",
+      "desktop/internal/core/plugin_documents_test.go",
+      "desktop/internal/workbench/plugindiagnostics.go",
+      "desktop/internal/workbench/plugindiagnostics_test.go",
+      "shared/fixtures/lsp/document-identity-v1.json",
+      "shared/contracts/rust-core-api.md"
     ]
   },
   "owner": "Language Intelligence",
-  "notes": "Viva 当前的运行、调试和问题面板为占位，语言服务状态为静态未启动；桌面客户端尚未接入对应的 LSP、DAP 或构建 Provider 工作流。Core 接口及编辑器内部语义高亮数据结构不能代替端到端接入。",
+  "notes": "Viva 的文档同步、真实语言服务、诊断与 Debug 已接入原 Rust Core。诊断的 URI/原生路径/工作区相对路径现在由 Core lsp.documentIdentity 统一解码、规范化和检查归属，复用既有 file URI 与 WorkspaceScope，Go 不再把 Windows 无盘符的绝对 URI 错拼到工作区内。共享 fixture 覆盖空格、Unicode、localhost、驱动器、UNC、大小写、相邻前缀与越界；此为词法归属，不授予符号链接或文件访问权限。完整原生工作流、远程身份、重开同名文档和 Windows 全量验收仍待完成。",
   "verification": "使用包含 #、百分号、空格和 Unicode 的真实项目文件验证打开、修改、诊断及跳转；Windows 另验证 UNC 路径和重开同名文档。共享 fixture、模拟语言服务器及两端桥接测试覆盖协议，真实产品与远程工作区验收 pending。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",

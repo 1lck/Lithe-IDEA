@@ -50,7 +50,7 @@ func fixtureOptions(home, vmHome string, outputs map[string]string) Options {
 			"FICTIONAL_VM_HOME": vmHome,
 		},
 		Probe: func(_ context.Context, executable string, _ []string) (string, int, error) {
-			output, ok := outputs[executable]
+			output, ok := outputs[filepath.Clean(executable)]
 			if !ok {
 				return "", 1, nil
 			}
@@ -101,7 +101,7 @@ func TestLoadDiscoversTwoSemanticallyDifferentTools(t *testing.T) {
 	if filepath.Base(compilerTool.Effective.Executable) != "cc" || compilerTool.Effective.Layer != "automatic" {
 		t.Fatalf("compiler selection = %+v", compilerTool.Effective)
 	}
-	if compilerTool.Effective.Environment["FICTIONAL_CC_HOME"] != filepath.Dir(filepath.Dir(compiler)) {
+	if filepath.Clean(compilerTool.Effective.Environment["FICTIONAL_CC_HOME"]) != filepath.Dir(filepath.Dir(compiler)) {
 		t.Fatalf("compiler environment = %+v", compilerTool.Effective.Environment)
 	}
 	if len(compilerTool.Effective.PathPrepend) != 1 {
@@ -125,7 +125,7 @@ func TestLoadDiscoversTwoSemanticallyDifferentTools(t *testing.T) {
 	if filepath.Base(vmTool.Effective.Executable) != "vm" {
 		t.Fatalf("vm executable = %q", vmTool.Effective.Executable)
 	}
-	if vmTool.Effective.Environment["FICTIONAL_VM_HOME"] != canonical(t, vmHome) {
+	if filepath.Clean(vmTool.Effective.Environment["FICTIONAL_VM_HOME"]) != canonical(t, vmHome) {
 		t.Fatalf("vm environment = %+v", vmTool.Effective.Environment)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".lithe")); !errors.Is(err, os.ErrNotExist) {
@@ -143,7 +143,16 @@ func TestSavedPinAppliesToTheProjectAndSubdirectories(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ".lithe", "toolchains"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	document := []byte(`{"version":1,"toolchains":{"legacy":{"home":"/fixture/legacy"}},"pins":{".":{"dev.example.toolsmith:compiler":{"home":"` + compilerHome + `","version":"3.2.1","provider":"host:system"}}}}`)
+	document, err := json.Marshal(map[string]any{
+		"version":    1,
+		"toolchains": map[string]any{"legacy": map[string]string{"home": "/fixture/legacy"}},
+		"pins": map[string]any{".": map[string]core.ToolchainPin{
+			"dev.example.toolsmith:compiler": {Home: compilerHome, Version: "3.2.1", Provider: "host:system"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(root, ".lithe", "toolchains", "local.json"), document, 0o600); err != nil {
 		t.Fatal(err)
 	}

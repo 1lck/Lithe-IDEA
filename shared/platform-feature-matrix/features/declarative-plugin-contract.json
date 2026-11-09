@@ -10,7 +10,13 @@
       "desktop/internal/core/plugin_session.go",
       "desktop/internal/core/plugin_session_test.go",
       "shared/contracts/plugins/v1/plugin-manifest.schema.json",
-      ".agents/notes/implemented/architecture/2026-11-08-viva-plugin-backend-bridge.md"
+      ".agents/notes/implemented/architecture/2026-11-08-viva-plugin-backend-bridge.md",
+      "desktop/internal/core/plugin_installed.go",
+      "desktop/internal/core/plugin_installed_test.go",
+      "desktop/internal/pluginservice/settings_editor.go",
+      "desktop/internal/pluginservice/settings_editor_test.go",
+      "desktop/internal/workbench/startup.go",
+      "desktop/internal/workbench/startup_test.go"
     ]
   },
   "windows": {
@@ -20,11 +26,17 @@
       "desktop/internal/core/plugin_session.go",
       "desktop/internal/core/plugin_session_test.go",
       "shared/contracts/plugins/v1/plugin-manifest.schema.json",
-      ".agents/notes/implemented/architecture/2026-11-08-viva-plugin-backend-bridge.md"
+      ".agents/notes/implemented/architecture/2026-11-08-viva-plugin-backend-bridge.md",
+      "desktop/internal/core/plugin_installed.go",
+      "desktop/internal/core/plugin_installed_test.go",
+      "desktop/internal/pluginservice/settings_editor.go",
+      "desktop/internal/pluginservice/settings_editor_test.go",
+      "desktop/internal/workbench/startup.go",
+      "desktop/internal/workbench/startup_test.go"
     ]
   },
   "owner": "Extensions",
-  "notes": "Viva 已有 Core 清单校验、后端启动计划与会话的类型化桥接；固定 Core 支持 languages 3 TextMate 并撤回 languages 2。真实插件发现、可信安装、授权服务分发及产品生命周期尚未接通，不能由桥接测试推断插件已可用。公开插件文档须在本 PR 合并后按规则同步。",
+  "notes": "Viva 的生产启动入口现通过 DesktopOptions 装配同一个原有 Core client，插件发现、Build/Debug/LSP 计划和会话生命周期不再只存在于注入测试选项中。安装目录的版本选择复用 Core 既有数字版本规则，选择最新版本后再检查启用状态，不能回退启用旧版；清单设置投影绑定安装注册的 ID/版本，保存另校验原生目录身份和清单字节。固定 Core 支持 languages 3 TextMate 并撤回 languages 2；settings 2、完整宿主 UI、可信市场安装和全部真实插件生命周期仍未验收，不声明完整支持。公开插件文档须在本 PR 合并后按规则同步。",
   "verification": "macOS Core 桥接测试覆盖能力拒绝、启动计划、受控后端进程和会话清理，并验证 TextMate 声明与编辑器解析；旧 Core 固定版本的 Windows 桥接测试已运行，更新后的 Core 尚待 Windows 重跑。完整验收需在两平台安装、启停真实插件，验证权限、路径、安全、进程清理及发行目录不变。",
   "legacy": {
     "revision": "5a54c41aa37a4e6e6b68918a4b05765b9dd07a36",

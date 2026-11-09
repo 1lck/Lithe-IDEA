@@ -22,8 +22,6 @@ type BackendRequest struct {
 	WorkingDirectory string
 	// Architecture is the platform architecture Core plans for.
 	Architecture string
-	// Settings are the plugin's own settings, opaque to this package.
-	Settings map[string]json.RawMessage
 }
 
 // LanguageSession is one running language server.
@@ -31,6 +29,12 @@ type LanguageSession struct {
 	// PluginID and Version identify the package that is running.
 	PluginID string
 	Version  string
+	// LanguageID identifies the exact declaration used by this session.
+	LanguageID string
+	// Warnings preserves partial discovery failures for the owning log boundary.
+	Warnings  error
+	manifest  json.RawMessage
+	workspace string
 	// Session is Core's session.
 	Session pluginbackend.Session
 	// Documents keeps the session's open documents in step with the editor.
@@ -43,7 +47,7 @@ type LanguageSession struct {
 // It returns a nil session and no error when nothing serves the language: that is
 // the ordinary case for most files, not a failure.
 func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanager.Entry, languageID string, request BackendRequest) (*LanguageSession, error) {
-	entry, ok, err := s.LanguageServerProvider(entries, languageID)
+	entry, ok, err := s.LanguageServerProvider(ctx, entries, languageID)
 	if !ok {
 		return nil, err
 	}
@@ -51,12 +55,16 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 	if readErr != nil {
 		return nil, errors.Join(err, readErr)
 	}
+	settings, settingsErr := s.Settings.Load(ctx, manifest, request.WorkingDirectory)
+	if settingsErr != nil {
+		return nil, errors.Join(err, settingsErr)
+	}
 	// State lives beside the installed versions, never inside one: an installed
 	// package is read-only for the host, and a version directory that changed
 	// would no longer match the digest the user approved.
 	stateDirectory := filepath.Join(s.Root, pluginStateDirectory, entry.Installed.ID, entry.Installed.Version)
-	if err := os.MkdirAll(stateDirectory, 0o700); err != nil {
-		return nil, errors.Join(err, err)
+	if stateErr := os.MkdirAll(stateDirectory, 0o700); stateErr != nil {
+		return nil, errors.Join(err, stateErr)
 	}
 	started, startErr := s.Backend.Start(ctx, pluginbackend.StartRequest{
 		Manifest:         manifest,
@@ -66,7 +74,8 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 		LanguageID:       languageID,
 		StateDirectory:   stateDirectory,
 		Architecture:     request.Architecture,
-		Settings:         request.Settings,
+		Settings:         settings.State.Settings,
+		ProjectSettings:  settings.State.ProjectSettings,
 		RootURI:          request.RootURI,
 		WorkingDirectory: request.WorkingDirectory,
 	})
@@ -74,10 +83,14 @@ func (s *Service) StartLanguageServer(ctx context.Context, entries []pluginmanag
 		return nil, errors.Join(err, startErr)
 	}
 	return &LanguageSession{
-		PluginID:  entry.Installed.ID,
-		Version:   entry.Installed.Version,
-		Session:   started,
-		Documents: pluginlsp.New(s.kernel, started.ID),
+		PluginID:   entry.Installed.ID,
+		Version:    entry.Installed.Version,
+		LanguageID: languageID,
+		Warnings:   err,
+		manifest:   append(json.RawMessage(nil), manifest...),
+		workspace:  request.WorkingDirectory,
+		Session:    started,
+		Documents:  pluginlsp.New(s.kernel, started.ID),
 	}, nil
 }
 
@@ -126,12 +139,16 @@ type languageServerDeclaration struct {
 //
 // The error summarises plugins whose manifests could not be read; the others are
 // still searched, so one broken package does not hide a working provider.
-func (s *Service) LanguageServerProvider(entries []pluginmanager.Entry, languageID string) (pluginmanager.Entry, bool, error) {
+func (s *Service) LanguageServerProvider(ctx context.Context, entries []pluginmanager.Entry, languageID string) (pluginmanager.Entry, bool, error) {
 	if s == nil || languageID == "" {
 		return pluginmanager.Entry{}, false, nil
 	}
 	var failures []error
-	for _, entry := range newestVersions(entries) {
+	selected, selectionErr := s.selectInstalled(ctx, entries, false)
+	if selectionErr != nil {
+		failures = append(failures, selectionErr)
+	}
+	for _, entry := range selected {
 		manifest, err := readBounded(filepath.Join(entry.Installed.Path, pluginpkg.ManifestFile), MaxManifestBytes)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", entry.Installed.ID, err))

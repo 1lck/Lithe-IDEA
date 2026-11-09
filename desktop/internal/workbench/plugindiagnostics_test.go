@@ -1,9 +1,11 @@
 package workbench
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/editorview"
@@ -68,7 +70,13 @@ func TestPluginDocumentResolver(t *testing.T) {
 
 	// Core may report a URI or a bare path; both place the same document. A relative
 	// path is a workspace-relative identity, not an absolute one.
-	for _, uri := range []string{"file://" + filepath.ToSlash(path), path, "src/Main.java"} {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	uri, err := core.NewClient().PluginDocumentURI(ctx, path, "auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, uri := range []string{uri, path, "src/Main.java"} {
 		key, display, ok := resolve(uri)
 		if !ok {
 			t.Fatalf("%q did not resolve", uri)

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,15 +63,16 @@ func (s *buildState) reset() {
 
 type buildInstance struct {
 	core.BuildInstance
-	PluginID         string
-	Version          string
-	Manifest         json.RawMessage
-	PackageDirectory string
-	System           pluginservice.BuildSystemDeclaration
-	Model            core.BuildModel
-	modelLoaded      bool
-	modelLoading     bool
-	modelError       string
+	PluginID           string
+	Version            string
+	Manifest           json.RawMessage
+	PackageDirectory   string
+	System             pluginservice.BuildSystemDeclaration
+	Model              core.BuildModel
+	modelLoaded        bool
+	modelLoading       bool
+	modelReloadPending bool
+	modelError         string
 }
 
 // buildOperation is the one provider request or host process the window is
@@ -106,7 +106,7 @@ type buildRuntime struct {
 	closed bool
 }
 
-func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runner, pluginRoot, root string, instance buildInstance) (*buildprovider.Client, error) {
+func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runner, pluginRoot, root, rootURI string, instance buildInstance, settings core.PluginSettingsState) (*buildprovider.Client, error) {
 	key := instance.PluginID + "\x00" + instance.BuildSystemID
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -134,7 +134,6 @@ func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runne
 			return nil, err
 		}
 	}
-	rootURI := (&url.URL{Scheme: "file", Path: root}).String()
 	client, err := buildprovider.Start(ctx, runner, pluginbackend.StartRequest{
 		Manifest:                instance.Manifest,
 		PackageDirectory:        instance.PackageDirectory,
@@ -147,6 +146,8 @@ func (r *buildRuntime) provider(ctx context.Context, runner *pluginbackend.Runne
 		LogDirectory:            logDirectory,
 		TemporaryDirectory:      temporaryDirectory,
 		Architecture:            core.PluginArchitecture(),
+		Settings:                settings.Settings,
+		ProjectSettings:         settings.ProjectSettings,
 		RootURI:                 rootURI,
 		WorkingDirectory:        root,
 	})
@@ -187,7 +188,15 @@ func buildStateDirectory(pluginRoot, workspace string, instance buildInstance) s
 // buildProvider starts a provider process, or attaches to the language server
 // that shares it. The caller runs this away from the window thread.
 func (a *App) buildProvider(ctx context.Context, p *project, instance buildInstance) (*buildprovider.Client, error) {
-	client, err := p.build.runtime.provider(ctx, a.plugins.Backend, a.plugins.Root, p.root, instance)
+	settings, err := a.loadPluginPreferenceSources(ctx, instance.Manifest, p.root)
+	if err != nil {
+		return nil, err
+	}
+	rootURI, err := a.kernel.PluginDocumentURI(ctx, p.root, "auto")
+	if err != nil {
+		return nil, err
+	}
+	client, err := p.build.runtime.provider(ctx, a.plugins.Backend, a.plugins.Root, p.root, rootURI, instance, settings.State)
 	var shared *pluginbackend.SharedProviderError
 	if !errors.As(err, &shared) {
 		return client, err
@@ -232,6 +241,9 @@ func (a *App) sharedBuildProvider(ctx context.Context, p *project, instance buil
 	}
 	if session == nil {
 		return nil, errors.New("no enabled plugin serves the shared provider language")
+	}
+	if session.Warnings != nil {
+		a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_server_selection", session.Warnings))
 	}
 	server := &pluginServer{session: session, project: p, done: make(chan struct{})}
 	serveCtx, serveCancel := context.WithCancel(context.Background())
@@ -319,7 +331,7 @@ func (a *App) loadBuildSystems(p *project) {
 		if err != nil {
 			return func(a *App) { a.finishBuildDetection(p, generation, nil, err) }
 		}
-		plugins, pluginErr := a.plugins.BuildPlugins(entries)
+		plugins, pluginErr := a.plugins.BuildPlugins(ctx, entries)
 		manifests := make([]json.RawMessage, 0, len(plugins))
 		byPlugin := make(map[string]pluginservice.BuildPlugin, len(plugins))
 		for _, plugin := range plugins {
@@ -487,7 +499,19 @@ func (a *App) finishBuildModel(p *project, id string, model core.BuildModel, err
 		if p.build.instances[index].ID != id {
 			continue
 		}
-		p.build.instances[index].modelLoading = false
+		instance := &p.build.instances[index]
+		instance.modelLoading = false
+		if instance.modelReloadPending {
+			instance.modelReloadPending = false
+			instance.modelLoaded = false
+			if err != nil {
+				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_model_superseded", err))
+			}
+			if index == p.build.selected {
+				a.loadBuildModel(p, index)
+			}
+			return
+		}
 		if err != nil {
 			p.build.instances[index].modelError = err.Error()
 			p.build.status = err.Error()
@@ -624,7 +648,11 @@ func (a *App) runCommandTask(ctx context.Context, p *project, instance buildInst
 // that order, and probes the declared minimum version. It never falls back to
 // a guessed tool name.
 func (a *App) resolveBuildExecutable(ctx context.Context, p *project, instance buildInstance, messages i18n.BuildMessages) (buildExecution, error) {
-	invocation, err := a.kernel.PlanBuildInvocation(ctx, instance.Manifest, instance.BuildSystemID, instance.Root, buildPlatform())
+	settings, err := a.loadPluginPreferenceSources(ctx, instance.Manifest, p.root)
+	if err != nil {
+		return buildExecution{}, err
+	}
+	invocation, err := a.kernel.PlanBuildInvocation(ctx, instance.Manifest, instance.BuildSystemID, core.BuildInvocationRequest{Root: instance.Root, Platform: buildPlatform(), Settings: settings.State.Settings})
 	if err != nil {
 		return buildExecution{}, err
 	}
@@ -652,9 +680,14 @@ func (a *App) resolveBuildExecutable(ctx context.Context, p *project, instance b
 			if candidate.Path == "" {
 				continue
 			}
-			if info, statErr := os.Stat(candidate.Path); statErr == nil && info.Mode().IsRegular() {
-				execution.Executable = candidate.Path
+			// An explicit setting is terminal: native lookup failure must not
+			// silently select a different installed program.
+			path, lookupErr := exec.LookPath(candidate.Path)
+			if lookupErr != nil {
+				return buildExecution{}, lookupErr
 			}
+			execution.Executable = path
+			execution.PathPrepend = []string{filepath.Dir(path)}
 		case "command":
 			if path, lookupErr := exec.LookPath(candidate.Command); lookupErr == nil {
 				execution.Executable = path
