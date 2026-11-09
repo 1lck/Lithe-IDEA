@@ -59,29 +59,43 @@ func (m *Manager) Installed() ([]Entry, error) {
 	return entries, nil
 }
 
-// Uninstall removes one installed version, drops its approval and, when it was
-// the last installed version of that plugin, drops the enablement choice too so
-// a later installation starts disabled.
+// Uninstall removes every installed version of a plugin, drops their approvals and
+// the enablement choice, so a later installation starts disabled.
 //
-// The package is removed before anything else, so a failure to clean up a record
-// never leaves a half-removed package that still looks installed. Such a failure
-// is returned and the caller should log it; the next installation of the same
+// Every version goes: installing does not remove an earlier one, and the plugin
+// page shows one row per plugin, so leaving an older version behind would keep the
+// plugin installed after the user removed it.
+//
+// The packages are removed before anything else, so a failure to clean up a record
+// never leaves a half-removed package that still looks installed. Such a failure is
+// returned and the caller should log it; the next installation of an affected
 // version asks the user again.
-func (m *Manager) Uninstall(id, version string) error {
-	if err := pluginpkg.Uninstall(m.root, id, version); err != nil {
+func (m *Manager) Uninstall(id string) error {
+	installed, err := pluginpkg.List(m.root)
+	if err != nil {
 		return err
 	}
-	var failures []error
-	if err := m.approvals.Forget(id, version); err != nil {
-		failures = append(failures, fmt.Errorf("forget the approval of %s %s: %w", id, version, err))
-	}
-	remaining, err := pluginpkg.List(m.root)
-	if err != nil {
-		failures = append(failures, fmt.Errorf("list installed plugins: %w", err))
-	} else if !installsID(remaining, id) {
-		if err := m.state.Forget(id); err != nil {
-			failures = append(failures, fmt.Errorf("forget the enablement of %s: %w", id, err))
+	var versions []string
+	for _, entry := range installed {
+		if entry.ID == id {
+			versions = append(versions, entry.Version)
 		}
+	}
+	if len(versions) == 0 {
+		return fmt.Errorf("%w: %s", ErrUnknownPlugin, id)
+	}
+	var failures []error
+	for _, version := range versions {
+		if err := pluginpkg.Uninstall(m.root, id, version); err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		if err := m.approvals.Forget(id, version); err != nil {
+			failures = append(failures, fmt.Errorf("forget the approval of %s %s: %w", id, version, err))
+		}
+	}
+	if err := m.state.Forget(id); err != nil {
+		failures = append(failures, fmt.Errorf("forget the enablement of %s: %w", id, err))
 	}
 	return errors.Join(failures...)
 }

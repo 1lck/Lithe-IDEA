@@ -147,9 +147,11 @@ func (s *Service) pluginLanguages(ctx context.Context, directory string) ([]synt
 			language.AutoClosing = delimiterPairs(configuration.AutoClosingPairs)
 		}
 		if len(language.Extensions) == 0 && len(language.FileNames) == 0 {
-			// The editor only matches a language by extension or base name. A language
-			// that declares neither is invisible, which the user would read as "the
-			// plugin does nothing".
+			// The editor matches a language by extension or base name only. A
+			// declaration that names nothing but projectFileNames is a project
+			// signal, which this client does not use to choose a language, so the
+			// language would be invisible. Reporting it is better than registering a
+			// language that can never match.
 			failures = append(failures, fmt.Errorf("%s: declares no file extensions or file names", item.ID))
 			continue
 		}

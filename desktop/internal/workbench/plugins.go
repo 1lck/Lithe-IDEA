@@ -206,7 +206,7 @@ func (a *App) setPluginEnabled(id string, enabled bool) {
 	})
 }
 
-// uninstallPlugin removes the installed version of a plugin.
+// uninstallPlugin removes every installed version of a plugin.
 func (a *App) uninstallPlugin(id string) {
 	if a.plugins == nil {
 		return
@@ -215,12 +215,11 @@ func (a *App) uninstallPlugin(id string) {
 	if states == nil {
 		return
 	}
-	state := (*states)[id]
-	if !state.Installed || state.Version == "" {
+	if state := (*states)[id]; !state.Installed {
 		return
 	}
 	a.background(nil, pluginInstallTimeout, func(context.Context) func(*App) {
-		err := a.plugins.Manager.Uninstall(id, state.Version)
+		err := a.plugins.Manager.Uninstall(id)
 		return func(a *App) {
 			if err != nil {
 				a.emit(operationFailedLevel, operationFailedEvent, operationFailedFields("plugin_uninstall", err))

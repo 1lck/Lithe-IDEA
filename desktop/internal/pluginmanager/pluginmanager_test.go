@@ -87,7 +87,7 @@ func TestUninstallRemovesPackageAndApproval(t *testing.T) {
 	manager, approvals, _, root := newManager(t)
 	install(t, root, "example", "1.0.0")
 	approve(t, approvals, "example", "1.0.0")
-	if err := manager.Uninstall("example", "1.0.0"); err != nil {
+	if err := manager.Uninstall("example"); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "example")); !errors.Is(err, os.ErrNotExist) {
@@ -98,13 +98,13 @@ func TestUninstallRemovesPackageAndApproval(t *testing.T) {
 	}
 }
 
-func TestUninstallLastVersionForgetsEnablement(t *testing.T) {
+func TestUninstallForgetsEnablement(t *testing.T) {
 	manager, _, state, root := newManager(t)
 	install(t, root, "example", "1.0.0")
 	if err := manager.SetEnabled("example", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.Uninstall("example", "1.0.0"); err != nil {
+	if err := manager.Uninstall("example"); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
 	enabled, err := state.Enabled("example")
@@ -113,25 +113,30 @@ func TestUninstallLastVersionForgetsEnablement(t *testing.T) {
 	}
 }
 
-func TestUninstallKeepsEnablementWhileAnotherVersionRemains(t *testing.T) {
-	manager, _, _, root := newManager(t)
+func TestUninstallRemovesEveryVersion(t *testing.T) {
+	manager, approvals, _, root := newManager(t)
 	install(t, root, "example", "1.0.0")
 	install(t, root, "example", "1.1.0")
-	if err := manager.SetEnabled("example", true); err != nil {
-		t.Fatal(err)
-	}
-	if err := manager.Uninstall("example", "1.0.0"); err != nil {
+	approve(t, approvals, "example", "1.0.0")
+	approve(t, approvals, "example", "1.1.0")
+	if err := manager.Uninstall("example"); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
-	enabled, err := manager.Enabled("example")
-	if err != nil || !enabled {
-		t.Fatalf("enabled = %v, err = %v", enabled, err)
+	// Installing leaves the earlier version on disk, and the plugin page shows one
+	// row per plugin, so removing only the newest would keep the plugin installed.
+	if _, err := os.Stat(filepath.Join(root, "example")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a version survived: %v", err)
+	}
+	for _, version := range []string{"1.0.0", "1.1.0"} {
+		if _, found, err := approvals.Record("example", version); err != nil || found {
+			t.Fatalf("the approval of %s survived: found = %v, err = %v", version, found, err)
+		}
 	}
 }
 
-func TestUninstallRefusesMissingVersion(t *testing.T) {
+func TestUninstallRefusesAnUnknownPlugin(t *testing.T) {
 	manager, _, _, _ := newManager(t)
-	if err := manager.Uninstall("example", "1.0.0"); !errors.Is(err, pluginpkg.ErrNotInstalled) {
+	if err := manager.Uninstall("example"); !errors.Is(err, ErrUnknownPlugin) {
 		t.Fatalf("err = %v", err)
 	}
 }
