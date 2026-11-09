@@ -117,6 +117,57 @@ func TestVerifyLaunchRefusesSymlinkedProgram(t *testing.T) {
 	}
 }
 
+func TestResolveCommand(t *testing.T) {
+	lookup := func(name string) (string, error) {
+		if name == "gopls" {
+			return "/usr/local/bin/gopls", nil
+		}
+		return "", errors.New("not found")
+	}
+	// The first available command wins, in the order the plan offers them.
+	if path, err := ResolveCommand([]string{"pylsp", "gopls"}, lookup); err != nil || path != "/usr/local/bin/gopls" {
+		t.Fatalf("path = %q, err = %v", path, err)
+	}
+	if _, err := ResolveCommand([]string{"pylsp"}, lookup); !errors.Is(err, ErrPackagePath) {
+		t.Fatalf("err = %v", err)
+	}
+	// The contract lists bare command names; a path would name a file the host never
+	// checked.
+	if _, err := ResolveCommand([]string{"/bin/sh", `..\sh`}, lookup); !errors.Is(err, ErrPackagePath) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := ResolveCommand([]string{"gopls"}, nil); !errors.Is(err, ErrPackagePath) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := ResolveCommand(nil, lookup); !errors.Is(err, ErrPackagePath) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestVerifyLaunchSystemCommand(t *testing.T) {
+	root := launchPackage(t)
+	resolved, err := VerifyLaunch(root, Launch{
+		Kind:     LaunchSystemCommand,
+		Commands: []string{"gopls"},
+		Required: []string{"lib/data.js"},
+	})
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	// The host resolves the command itself, so verification leaves it empty and only
+	// proves the package files the launch needs.
+	if resolved.Executable != "" || resolved.Runtime != "" {
+		t.Fatalf("resolved = %+v", resolved)
+	}
+	if len(resolved.Required) != 1 || resolved.Required[0] != filepath.Join(root, "lib", "data.js") {
+		t.Fatalf("required = %v", resolved.Required)
+	}
+	// Required package paths are still verified.
+	if _, err := VerifyLaunch(root, Launch{Kind: LaunchSystemCommand, Required: []string{"lib/absent"}}); !errors.Is(err, ErrPackagePath) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestGrantServicesIntersects(t *testing.T) {
 	services := NewServices()
 	for _, method := range []string{MethodPrefix + "workspace/stat", MethodPrefix + "documents/list"} {

@@ -273,6 +273,43 @@ func TestServeStopsWhenTheContextEnds(t *testing.T) {
 	}
 }
 
+func TestStartResolvesASystemCommand(t *testing.T) {
+	root := backendPackage(t)
+	plan := core.PluginBackendPlan{}
+	plan.Launch.Kind = pluginhost.LaunchSystemCommand
+	plan.Launch.Commands = []string{"missing", "gopls"}
+	kernel := &fakeKernel{plan: plan, started: core.PluginBackendStarted{SessionID: "session-1"}}
+	runner := New(kernel, echoServices(t))
+	runner.lookup = func(name string) (string, error) {
+		if name == "gopls" {
+			return "/opt/gopls", nil
+		}
+		return "", errors.New("not found")
+	}
+	if _, err := runner.Start(context.Background(), startRequest(root)); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if kernel.started_.ExecutablePath != "/opt/gopls" {
+		t.Fatalf("executable = %q", kernel.started_.ExecutablePath)
+	}
+}
+
+func TestStartRefusesAnUnavailableSystemCommand(t *testing.T) {
+	root := backendPackage(t)
+	plan := core.PluginBackendPlan{}
+	plan.Launch.Kind = pluginhost.LaunchSystemCommand
+	plan.Launch.Commands = []string{"missing"}
+	kernel := &fakeKernel{plan: plan, started: core.PluginBackendStarted{SessionID: "session-1"}}
+	runner := New(kernel, echoServices(t))
+	runner.lookup = func(string) (string, error) { return "", errors.New("not found") }
+	if _, err := runner.Start(context.Background(), startRequest(root)); !errors.Is(err, pluginhost.ErrPackagePath) {
+		t.Fatalf("err = %v", err)
+	}
+	if kernel.started_.ExecutablePath != "" {
+		t.Fatal("a process was started for an unavailable command")
+	}
+}
+
 func TestArgumentsComposition(t *testing.T) {
 	packaged := core.PluginBackendPlan{}
 	packaged.Launch.Kind = pluginhost.LaunchPackaged

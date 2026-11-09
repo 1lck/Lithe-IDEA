@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
@@ -89,6 +90,9 @@ type Session struct {
 type Runner struct {
 	kernel   Kernel
 	services *pluginhost.Services
+	// lookup resolves a bare command name for a system-command launch. It is
+	// exec.LookPath in production and a test replaces it to describe a machine.
+	lookup func(name string) (string, error)
 }
 
 // New returns a runner that answers host requests with services.
@@ -98,7 +102,7 @@ func New(kernel Kernel, services *pluginhost.Services) *Runner {
 		// backend asked the host for anything.
 		services = pluginhost.NewServices()
 	}
-	return &Runner{kernel: kernel, services: services}
+	return &Runner{kernel: kernel, services: services, lookup: exec.LookPath}
 }
 
 // Start resolves Core's launch plan, verifies every path it names against the
@@ -130,10 +134,20 @@ func (r *Runner) Start(ctx context.Context, request StartRequest) (Session, erro
 	}
 	granted := pluginhost.GrantServices(plan.Backend.HostServices, r.services)
 	// A packaged launch runs the program the package ships; a runtime launch runs the
-	// packaged runtime, which VerifyLaunch put in Runtime.
+	// packaged runtime, which VerifyLaunch put in Runtime; a system-command launch
+	// names a bare command the host resolves itself.
 	executable := resolved.Executable
 	if executable == "" {
 		executable = resolved.Runtime
+	}
+	if executable == "" && plan.Launch.Kind == pluginhost.LaunchSystemCommand {
+		executable, err = pluginhost.ResolveCommand(plan.Launch.Commands, r.lookup)
+		if err != nil {
+			return Session{}, err
+		}
+	}
+	if executable == "" {
+		return Session{}, fmt.Errorf("%w: the plan names no program", ErrRequest)
 	}
 	started, err := r.kernel.StartPluginBackend(ctx, core.PluginBackendStart{
 		ProviderID:            request.ProviderID,
@@ -267,6 +281,7 @@ func LaunchFromPlan(plan core.PluginBackendPlan) pluginhost.Launch {
 		Path:            plan.Launch.Path,
 		Entry:           plan.Launch.Entry,
 		PackagedRuntime: plan.Launch.PackagedRuntime,
+		Commands:        plan.Launch.Commands,
 		Required:        plan.RequiredPackagePaths,
 	}
 }

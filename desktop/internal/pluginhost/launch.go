@@ -2,6 +2,7 @@ package pluginhost
 
 import (
 	"fmt"
+	"strings"
 )
 
 // Launch kinds the contract defines.
@@ -10,6 +11,9 @@ const (
 	LaunchPackaged = "packaged"
 	// LaunchRuntime starts a packaged runtime that loads an entry file.
 	LaunchRuntime = "runtime"
+	// LaunchSystemCommand starts a bare command the host resolves itself, such as
+	// `gopls` or `pylsp`.
+	LaunchSystemCommand = "systemCommand"
 )
 
 // Launch is the part of a Core launch plan this package verifies: which program
@@ -19,7 +23,7 @@ const (
 // core.PluginBackendPlan, so the verification stays testable without the kernel.
 // The caller that owns the Core client fills it from the plan it received.
 type Launch struct {
-	// Kind is LaunchPackaged or LaunchRuntime.
+	// Kind is LaunchPackaged, LaunchRuntime or LaunchSystemCommand.
 	Kind string
 	// Path is the packaged program, relative to the package.
 	Path string
@@ -27,6 +31,9 @@ type Launch struct {
 	Entry string
 	// PackagedRuntime is the runtime executable, relative to the package.
 	PackagedRuntime string
+	// Commands are the bare command names a system-command launch offers, in the
+	// order the host should try them.
+	Commands []string
 	// Required are the package-relative paths the launch needs.
 	Required []string
 }
@@ -87,9 +94,43 @@ func VerifyLaunch(packageDirectory string, launch Launch) (Resolved, error) {
 		}
 		resolved.Required = required
 		return resolved, nil
+	case LaunchSystemCommand:
+		// A system-command launch names no package program: the host resolves a bare
+		// command itself, so there is nothing here to verify beyond the package files
+		// the launch still needs.
+		required, err := ResolvePackagePaths(packageDirectory, launch.Required)
+		if err != nil {
+			return Resolved{}, err
+		}
+		return Resolved{Required: required}, nil
 	default:
 		return Resolved{}, fmt.Errorf("%w: unknown launch kind %q", ErrPackagePath, launch.Kind)
 	}
+}
+
+// ResolveCommand returns the first command the host can find, in the order the
+// plan offers them.
+//
+// A system-command launch names bare commands and the host resolves them with its
+// own tool discovery. This client resolves PATH; project toolchains and user
+// overrides are not consulted yet, so a plan that depends on them is refused rather
+// than started with whatever PATH happens to hold.
+//
+// A name that carries a separator is refused: the contract lists bare command
+// names, and a path would let a plan name a file the host never checked.
+func ResolveCommand(commands []string, lookup func(name string) (string, error)) (string, error) {
+	if lookup == nil {
+		return "", fmt.Errorf("%w: no command lookup", ErrPackagePath)
+	}
+	for _, command := range commands {
+		if command == "" || strings.ContainsAny(command, `/\`) {
+			continue
+		}
+		if path, err := lookup(command); err == nil && path != "" {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("%w: none of the plan's commands is available", ErrPackagePath)
 }
 
 // GrantServices narrows the host services a launch asks for to those this host
