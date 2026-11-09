@@ -51,6 +51,24 @@ func (a *App) newSettingsWindow() *settingswindow.Controller {
 		MarketplaceResized: func(width float32) {
 			a.post(func(a *App) { a.setMarketplaceWidth(width) })
 		},
+		// The plugin page paints from memory and hands every action back, so the
+		// window never installs, enables or removes anything on its own thread.
+		PluginState: func(id string) settingswindow.PluginState {
+			states := a.pluginState.Load()
+			if states == nil {
+				return settingswindow.PluginState{}
+			}
+			return (*states)[id]
+		},
+		InstallPlugin: func(plugin core.MarketplacePlugin) {
+			a.post(func(a *App) { a.installPlugin(plugin) })
+		},
+		SetPluginEnabled: func(id string, enabled bool) {
+			a.post(func(a *App) { a.setPluginEnabled(id, enabled) })
+		},
+		UninstallPlugin: func(id string) {
+			a.post(func(a *App) { a.uninstallPlugin(id) })
+		},
 		Language: func() i18n.Language {
 			if a.shared.text.Load() == i18n.For(i18n.Chinese) {
 				return i18n.Chinese
@@ -101,6 +119,11 @@ func (a *App) openSettingsPage(surface string, plugins bool) {
 	a.performed("settings.open", surface)
 	if a.application == nil {
 		return
+	}
+	if plugins {
+		// The plugin page paints from memory, so its state is reloaded when the
+		// page is asked for rather than on every paint.
+		a.refreshPluginState()
 	}
 	a.post(func(a *App) {
 		if a.application == nil {

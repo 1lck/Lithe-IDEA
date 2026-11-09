@@ -3,6 +3,8 @@ package plugininstall
 import (
 	"archive/zip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -14,6 +16,17 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/plugintrust"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/store"
 )
+
+// digestOf returns the SHA-256 of a file, the way a marketplace index carries it.
+func digestOf(t *testing.T, path string) string {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:])
+}
 
 // fakeValidator records the capabilities it was given and returns the manifest
 // unchanged unless a test overrides it.
@@ -141,11 +154,12 @@ func sampleReviewer() *fakeReviewer {
 
 func TestPrepareAsksForApprovalOnFirstInstall(t *testing.T) {
 	service, _, root := newService(t, &fakeValidator{}, sampleReviewer())
+	archive := writeArchive(t, sampleManifest, map[string]string{"lib/a.txt": "code"})
 	plan, err := service.Prepare(context.Background(), Request{
-		ArchivePath:   writeArchive(t, sampleManifest, map[string]string{"lib/a.txt": "code"}),
+		ArchivePath:   archive,
 		Root:          root,
 		Source:        plugintrust.Marketplace,
-		ArchiveSHA256: "aa11",
+		ArchiveSHA256: digestOf(t, archive),
 	})
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
@@ -209,11 +223,11 @@ func TestPrepareReusesAnEarlierApproval(t *testing.T) {
 	reviewer := sampleReviewer()
 	service, _, root := newService(t, &fakeValidator{}, reviewer)
 	request := Request{
-		ArchivePath:   writeArchive(t, sampleManifest, map[string]string{"lib/a.txt": "code"}),
-		Root:          root,
-		Source:        plugintrust.Marketplace,
-		ArchiveSHA256: "aa11",
+		ArchivePath: writeArchive(t, sampleManifest, map[string]string{"lib/a.txt": "code"}),
+		Root:        root,
+		Source:      plugintrust.Marketplace,
 	}
+	request.ArchiveSHA256 = digestOf(t, request.ArchivePath)
 	first, err := service.Prepare(context.Background(), request)
 	if err != nil {
 		t.Fatalf("first prepare: %v", err)
@@ -240,11 +254,11 @@ func TestPrepareReusesAnEarlierApproval(t *testing.T) {
 func TestPrepareAsksAgainForADiskPackage(t *testing.T) {
 	service, _, root := newService(t, &fakeValidator{}, sampleReviewer())
 	request := Request{
-		ArchivePath:   writeArchive(t, sampleManifest, map[string]string{"lib/a.txt": "code"}),
-		Root:          root,
-		Source:        plugintrust.Marketplace,
-		ArchiveSHA256: "aa11",
+		ArchivePath: writeArchive(t, sampleManifest, map[string]string{"lib/a.txt": "code"}),
+		Root:        root,
+		Source:      plugintrust.Marketplace,
 	}
+	request.ArchiveSHA256 = digestOf(t, request.ArchivePath)
 	first, err := service.Prepare(context.Background(), request)
 	if err != nil {
 		t.Fatalf("first prepare: %v", err)
@@ -369,11 +383,13 @@ func TestPrepareRefusesAnArchiveWithoutManifest(t *testing.T) {
 
 func TestCommitInstallsAndRecordsTheApproval(t *testing.T) {
 	service, approvals, root := newService(t, &fakeValidator{}, sampleReviewer())
+	archive := writeArchive(t, sampleManifest, map[string]string{"lib/a.txt": "code"})
+	digest := digestOf(t, archive)
 	plan, err := service.Prepare(context.Background(), Request{
-		ArchivePath:   writeArchive(t, sampleManifest, map[string]string{"lib/a.txt": "code"}),
+		ArchivePath:   archive,
 		Root:          root,
 		Source:        plugintrust.Marketplace,
-		ArchiveSHA256: "aa11",
+		ArchiveSHA256: digest,
 	})
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
@@ -392,8 +408,48 @@ func TestCommitInstallsAndRecordsTheApproval(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("record: %v, found = %v", err, found)
 	}
-	if record.ContentDigest != plan.ContentDigest || record.ArchiveSHA256 != "aa11" {
+	if record.ContentDigest != plan.ContentDigest || record.ArchiveSHA256 != digest {
 		t.Fatalf("record = %+v", record)
+	}
+}
+
+func TestPrepareRefusesAReplacedArchive(t *testing.T) {
+	service, _, root := newService(t, &fakeValidator{}, sampleReviewer())
+	archive := writeArchive(t, sampleManifest, map[string]string{"lib/a.txt": "code"})
+	digest := digestOf(t, archive)
+	// The bytes on disk changed after the download layer checked them.
+	replacement := writeArchive(t, sampleManifest, map[string]string{"lib/a.txt": "other"})
+	if err := os.Rename(replacement, archive); err != nil {
+		t.Fatal(err)
+	}
+	_, err := service.Prepare(context.Background(), Request{
+		ArchivePath:   archive,
+		Root:          root,
+		Source:        plugintrust.Marketplace,
+		ArchiveSHA256: digest,
+	})
+	if !errors.Is(err, ErrArchiveDigest) {
+		t.Fatalf("err = %v", err)
+	}
+	entries, readErr := os.ReadDir(filepath.Join(root, ".staging"))
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		t.Fatalf("read staging: %v", readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("a refused archive left %d staging entries", len(entries))
+	}
+}
+
+func TestPrepareRefusesAMalformedDigest(t *testing.T) {
+	service, _, root := newService(t, &fakeValidator{}, sampleReviewer())
+	archive := writeArchive(t, sampleManifest, nil)
+	if _, err := service.Prepare(context.Background(), Request{
+		ArchivePath:   archive,
+		Root:          root,
+		Source:        plugintrust.Marketplace,
+		ArchiveSHA256: "not-a-digest",
+	}); !errors.Is(err, ErrArchiveDigest) {
+		t.Fatalf("err = %v", err)
 	}
 }
 

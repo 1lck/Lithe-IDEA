@@ -17,6 +17,16 @@ import (
 	"github.com/vivaui/viva/app"
 )
 
+// PluginState is what the plugin page shows about one plugin.
+type PluginState struct {
+	// Installed says a version of the plugin is on disk.
+	Installed bool
+	// Version is the installed version, empty when nothing is installed.
+	Version string
+	// Enabled says the user turned the plugin on.
+	Enabled bool
+}
+
 // Values are the settings the window edits. A field is the value that is stored, so the
 // empty string is the one that follows the system.
 type Values struct {
@@ -41,7 +51,18 @@ type Options struct {
 	MarketplaceRejected func(int)
 	// MarketplaceResized persists a completed splitter gesture or keyboard step.
 	MarketplaceResized func(float32)
-	Language           func() i18n.Language
+	// PluginState reports what the plugin page shows about one plugin. It is read
+	// while painting, so it must answer from memory rather than from disk. Nil
+	// treats every plugin as not installed and hides the plugin actions.
+	PluginState func(id string) PluginState
+	// InstallPlugin starts an installation for the selected plugin. It runs on the
+	// settings window's thread and must hand the work to its owner.
+	InstallPlugin func(plugin core.MarketplacePlugin)
+	// SetPluginEnabled turns an installed plugin on or off.
+	SetPluginEnabled func(id string, enabled bool)
+	// UninstallPlugin removes the installed version of a plugin.
+	UninstallPlugin func(id string)
+	Language        func() i18n.Language
 	// Text is the interface language the window paints; nil is English. It is read at
 	// every paint, so the window changes language when the language does.
 	Text func() *i18n.Messages

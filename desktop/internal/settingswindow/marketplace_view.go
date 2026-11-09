@@ -18,6 +18,10 @@ var (
 	marketScrollID    = tree.ID(root, "marketplace-list")
 	marketRetryID     = tree.ID(root, "marketplace-retry")
 	marketDividerID   = tree.ID(root, "marketplace-divider")
+	marketInstallID   = tree.ID(root, "marketplace-install")
+	marketUninstallID = tree.ID(root, "marketplace-uninstall")
+	marketEnableID    = tree.ID(root, "marketplace-enable")
+	marketDisableID   = tree.ID(root, "marketplace-disable")
 	marketRows        = tree.Sub(root, tree.Name("marketplace-rows"))
 	marketSourceScope = tree.Sub(root, tree.Name("marketplace-source"))
 )
@@ -189,8 +193,44 @@ func (w *window) marketColumns(f *ui.Frame) {
 				w.marketMetadata(f, i18n.Shared(w.marketLanguage(), "native.version"), selected.LatestVersion)
 				w.marketMetadata(f, i18n.Shared(w.marketLanguage(), "native.releaseDate"), selected.LatestReleaseDate)
 				w.marketMetadata(f, i18n.Shared(w.marketLanguage(), "native.license"), selected.License)
+				w.marketPluginActions(f, *selected)
 			})
 		})
+	})
+}
+
+// marketPluginActions declares what the user may do with the selected plugin.
+//
+// The page decides nothing about installation: it asks the owner for the state it
+// paints and hands every action back, so the window cannot install, enable or
+// remove anything on its own thread.
+func (w *window) marketPluginActions(f *ui.Frame, plugin core.MarketplacePlugin) {
+	if w.ctrl.opts.PluginState == nil {
+		return
+	}
+	language := w.marketLanguage()
+	state := w.ctrl.opts.PluginState(plugin.ID)
+	f.Row().FillWidth().Gap(8).Items(ui.Center).Children(func() {
+		if !state.Installed {
+			if w.ctrl.opts.InstallPlugin == nil {
+				return
+			}
+			if f.Button(marketInstallID, i18n.Shared(language, "desktop.marketplace.install")).Clicked() {
+				w.ctrl.opts.InstallPlugin(plugin)
+			}
+			return
+		}
+		f.Text(i18n.Shared(language, "desktop.marketplace.installed")).FontSize(12).Color(w.pal.muted)
+		if state.Enabled {
+			if w.ctrl.opts.SetPluginEnabled != nil && f.Button(marketDisableID, i18n.Shared(language, "desktop.marketplace.disable")).Outline().Clicked() {
+				w.ctrl.opts.SetPluginEnabled(plugin.ID, false)
+			}
+		} else if w.ctrl.opts.SetPluginEnabled != nil && f.Button(marketEnableID, i18n.Shared(language, "desktop.marketplace.enable")).Outline().Clicked() {
+			w.ctrl.opts.SetPluginEnabled(plugin.ID, true)
+		}
+		if w.ctrl.opts.UninstallPlugin != nil && f.Button(marketUninstallID, i18n.Shared(language, "desktop.marketplace.uninstall")).Outline().Clicked() {
+			w.ctrl.opts.UninstallPlugin(plugin.ID)
+		}
 	})
 }
 

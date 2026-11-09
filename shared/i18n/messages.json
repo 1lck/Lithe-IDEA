@@ -99139,6 +99139,104 @@
       ]
     },
     {
+      "id": "desktop.marketplace.install",
+      "description": "Button that starts installing the selected plugin.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.uninstall",
+      "description": "Button that removes the installed version of the selected plugin.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.enable",
+      "description": "Button that turns an installed plugin on.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.disable",
+      "description": "Button that turns an installed plugin off.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.installed",
+      "description": "Badge saying the selected plugin is installed.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.installing",
+      "description": "Status while a plugin archive is being downloaded and reviewed.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.installFailed",
+      "description": "Notification that a plugin installation failed.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.reviewTitle",
+      "description": "Title of the sheet that shows what a plugin asks for before it is installed.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.reviewPermissions",
+      "description": "Heading of the permissions a plugin asks for.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.reviewPrograms",
+      "description": "Heading of the programs a plugin may start.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.reviewEmpty",
+      "description": "Shown when a plugin asks for no permissions and starts no programs.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.reviewReused",
+      "description": "Shown when an earlier approval covers this exact package.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.confirmInstall",
+      "description": "Button that installs the reviewed plugin package.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.marketplace.cancel",
+      "description": "Button that closes the review without installing.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
       "id": "desktop.document.watchUnavailable",
       "description": "Open-document watching failed; guarded saves still check the disk.",
       "platforms": [

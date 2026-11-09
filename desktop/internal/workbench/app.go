@@ -196,6 +196,11 @@ type App struct {
 	// plugins is the plugin stack, nil when the window was built without a plugin
 	// kernel or without a writable plugin root.
 	plugins *pluginservice.Service
+	// pluginInstall is the install the user started.
+	pluginInstall pluginInstallState
+	// pluginState is what the settings window reads from its own thread about
+	// installed plugins; it is replaced whole, never mutated in place.
+	pluginState atomic.Pointer[map[string]settingswindow.PluginState]
 
 	welcome    welcomeState
 	clone      cloneState
@@ -502,6 +507,7 @@ func (a *App) paint(canvas *gfx.Canvas, size gfx.Size) {
 		}
 		a.drawCloneDialog(f)
 		a.drawNewProjectDialog(f)
+		a.drawPluginReview(f)
 		if a.newProject.restoreFocus {
 			f.Canvas().RequestFocus(a.newProject.returnFocus)
 			a.newProject.restoreFocus = false

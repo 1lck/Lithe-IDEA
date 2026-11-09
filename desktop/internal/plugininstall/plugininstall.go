@@ -17,6 +17,7 @@ package plugininstall
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -44,6 +45,9 @@ var (
 	ErrManifest = errors.New("plugin package manifest is not readable")
 	// ErrNotPrepared reports a commit or discard without a prepared package.
 	ErrNotPrepared = errors.New("plugin package was not prepared")
+	// ErrArchiveDigest reports an archive that no longer matches the digest the
+	// download layer verified.
+	ErrArchiveDigest = errors.New("plugin archive does not match the verified digest")
 )
 
 // Reviewer is Core's install review. Review is a local shape rather than
@@ -131,6 +135,14 @@ func (s *Service) Prepare(ctx context.Context, request Request) (plan Plan, err 
 	}
 	if s.validator == nil || s.reviewer == nil || s.approvals == nil {
 		return Plan{}, errors.New("plugininstall: the service is missing a collaborator")
+	}
+	// The download layer checked the digest of the bytes it received. This checks
+	// the bytes that are about to be extracted, so an archive replaced in between
+	// is refused rather than installed.
+	if request.ArchiveSHA256 != "" {
+		if err := verifyArchive(request.ArchivePath, request.ArchiveSHA256); err != nil {
+			return Plan{}, err
+		}
 	}
 	staging, err := pluginpkg.NewStaging(request.Root)
 	if err != nil {
@@ -236,7 +248,7 @@ func ContentDigest(directory string, files []pluginpkg.File) (string, error) {
 	for _, file := range files {
 		hash.Write([]byte(file.Path))
 		hash.Write([]byte{0})
-		if err := hashFile(hash, filepath.Join(directory, filepath.FromSlash(file.Path))); err != nil {
+		if err := hashPath(hash, filepath.Join(directory, filepath.FromSlash(file.Path))); err != nil {
 			return "", err
 		}
 		hash.Write([]byte{0})
@@ -244,17 +256,51 @@ func ContentDigest(directory string, files []pluginpkg.File) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-func hashFile(writer io.Writer, path string) error {
+// hashPath streams one file into writer.
+func hashPath(writer io.Writer, path string) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	copied, copyErr := io.Copy(writer, file)
+	copyErr := hashFile(writer, file)
+	closeErr := file.Close()
+	return errors.Join(copyErr, closeErr)
+}
+
+func hashFile(writer io.Writer, source io.Reader) error {
+	copied, copyErr := io.Copy(writer, source)
+	if copyErr != nil {
+		return copyErr
+	}
+	if copied < 0 {
+		return errors.New("plugininstall: negative byte count")
+	}
+	return nil
+}
+
+// verifyArchive hashes the archive as it sits on disk and compares it with the
+// digest the download layer checked against the index.
+//
+// The download layer covered the bytes it received; this covers the bytes about
+// to be extracted, which is the pair the marketplace contract asks for.
+func verifyArchive(path, want string) error {
+	expected, err := hex.DecodeString(want)
+	if err != nil || len(expected) != sha256.Size {
+		return fmt.Errorf("%w: %q is not a SHA-256 digest", ErrArchiveDigest, want)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	hash := sha256.New()
+	copyErr := hashFile(hash, file)
 	closeErr := file.Close()
 	if copyErr != nil || closeErr != nil {
 		return errors.Join(copyErr, closeErr)
 	}
-	_ = copied
+	if subtle.ConstantTimeCompare(hash.Sum(nil), expected) != 1 {
+		return fmt.Errorf("%w: %s", ErrArchiveDigest, path)
+	}
 	return nil
 }
 
