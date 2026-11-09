@@ -13,9 +13,13 @@
 #
 # LITHE_CORE_RUST_DIR=<checkout> builds against a local Lithe-core-rust checkout instead of the
 # pinned revision; see scripts/desktop/build-desktop-core.sh.
+#
+# On Windows, run it from Git Bash; MinGW-w64 provides GNU make as mingw32-make.
 
 SCRIPTS := ../scripts/desktop
-BIN := ../.artifacts/desktop/bin/lithe
+# go build -o writes the exact name it is given, so the Windows build needs the .exe suffix that
+# go env GOEXE reports; it is empty on macOS and Linux.
+BIN := ../.artifacts/desktop/bin/lithe$(shell go env GOEXE)
 ARCH ?= $(shell go env GOARCH)
 FORMAT ?=
 # The version in viva.toml, which the client embeds and displays.
