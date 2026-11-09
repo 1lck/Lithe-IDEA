@@ -490,6 +490,9 @@ func (a *App) drawShellPanel(f *ui.Frame, s slot, index int, hidden *slot) ui.Bo
 			if search {
 				a.drawSearchRefresh(f, a.project)
 			}
+			if tree {
+				a.drawProjectTreeActions(f, a.project)
+			}
 			// A ui Button cannot show an icon in this version of Viva, so the hide
 			// control is a hit row with an icon, as the notice's dismiss button is.
 			hide := f.Row().Size(shellHideSize, shellHideSize).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
@@ -538,6 +541,33 @@ func (a *App) drawShellPanel(f *ui.Frame, s slot, index int, hidden *slot) ui.Bo
 			f.Paragraph(a.text.Panel.Placeholder, 3).Grow(1).TextCenter().Color(a.colors.Subtle)
 		})
 	})
+}
+
+// toolIconButton declares an icon button of a tool window and reports a click on it. on
+// shows it pressed, for the buttons that toggle a view; a disabled one is dimmed and takes no
+// click. out, when not nil, receives the button's box, for a popover to hang from. A ui
+// Button cannot show an icon in this version of Viva, so the button is a hit row with one;
+// a box's Disabled dims only what it draws, so the hit says it is disabled itself.
+func (a *App) toolIconButton(f *ui.Frame, id gfx.ID, label string, icon gfx.Icon, on, disabled bool, out *ui.Box) bool {
+	button := f.Row().Size(shellHideSize, shellHideSize).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
+		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Disabled: disabled}).Disabled(disabled)
+	switch {
+	case on:
+		button = button.Background(a.colors.Active)
+	case !disabled:
+		button = button.Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
+	}
+	tint := a.colors.Subtle
+	if disabled {
+		tint.Alpha *= 0.4
+	}
+	button.Children(func() {
+		f.Icon(icon).Size(shellIconSize, shellIconSize).Color(tint).StateFrom(button).Hover(ui.Look{}.Color(a.colors.Text))
+	})
+	if out != nil {
+		*out = button
+	}
+	return !disabled && button.Clicked()
 }
 
 // drawShellGitTabs declares the tabs of the Git tool window's header and takes a click

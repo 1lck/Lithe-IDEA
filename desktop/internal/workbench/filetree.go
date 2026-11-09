@@ -9,21 +9,9 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
-)
-
-// Sizes of the project tree's rows.
-const (
-	// treeIndent is how far each level of the tree is moved in from its parent.
-	treeIndent = 19
-	// treeChevron is the size of the arrow before a folder, and of the room it takes before a
-	// file, so the names of a folder's files line up with its subfolders' names.
-	treeChevron = 17
-	// treeIcon is the size of a row's file or folder icon.
-	treeIcon = 16
-	// treeGutter is the shared horizontal inset of the native tree list.
-	treeGutter = 12
 )
 
 // The identities of the project tree's controls: the list scrolls, and treeRows.At(n) is the
@@ -33,6 +21,9 @@ var (
 	treeRetryID = tree.ID(shellPage, "project-tree-retry")
 	treeRows    = tree.Sub(shellPage, tree.Name("project-tree-rows"))
 	treeArrows  = tree.Sub(shellPage, tree.Name("project-tree-arrows"))
+	treeList    = treelist.List{Scroll: treeListID, Rows: treeRows, Arrows: treeArrows}
+	// treeActions.At(n) is the header button treeAction n.
+	treeActions = tree.Sub(shellPage, tree.Name("project-tree-actions"))
 )
 
 // treeNode is a file or a folder of the project tree. A folder's children are listed by the
@@ -66,10 +57,10 @@ type fileTree struct {
 	// failed is why the root could not be listed; empty otherwise.
 	failed string
 	next   int
-	// rows are the rows the last frame declared, top to bottom, and byID finds the node of
-	// a row's hit, for the keyboard.
+	// rows are the nodes the last frame showed, top to bottom, and list the same rows as the
+	// tree list draws them; the list declares only the ones in view.
 	rows []*treeNode
-	byID map[gfx.ID]*treeNode
+	list []treelist.Row
 	// The tree scrolls sideways itself, as a ui scroll area scrolls only up and down: the
 	// rows are laid out on a column as wide as the widest row, moved left by scrollX. width
 	// is that widest row and viewport the width of the list, as the last frame measured them.
@@ -98,6 +89,20 @@ type fileTree struct {
 	eventPending    []string
 	eventFiltering  bool
 	eventEpoch      uint64
+	// reveal is the path of the file the locate button is bringing into view while the
+	// folders above it are still being listed, and empty otherwise; revealAsked is the
+	// folder whose listing it waits for. show is a row the next frame scrolls to the middle
+	// of the list, unless it is in view already.
+	reveal      string
+	revealAsked *treeNode
+	show        *treeNode
+	// expandingAll says Expand All is still opening folders as their listings arrive.
+	// expandSeen is the ids of the folders it opened, each of them once and no more than
+	// treeExpandAllLimit of them. refreshing says the refresh button is reading the
+	// listings again.
+	expandingAll bool
+	expandSeen   map[int]bool
+	refreshing   bool
 }
 
 // node makes a node of the tree from what the kernel listed.
@@ -305,6 +310,7 @@ func (a *App) pumpTreeListings(p *project) {
 				}
 			}
 			a.pumpTreeListings(p)
+			a.continueTreeActions(p)
 		}
 	})
 }
@@ -316,9 +322,8 @@ func (a *App) treeViewportAnchor(t *fileTree) (*treeNode, float32) {
 	if t.areaRect.Width <= 0 || len(t.rows) == 0 {
 		return nil, 0
 	}
-	offset := a.view.ScrollState(treeListID).Offset
-	index := min(len(t.rows)-1, int(max(0, offset-4)/rowHeight))
-	return t.rows[index], offset - (4 + float32(index)*rowHeight)
+	index, offset := treeList.TopRow(&a.view, len(t.rows))
+	return t.rows[index], offset
 }
 
 func (a *App) restoreTreeViewportAnchor(t *fileTree, anchor *treeNode, offset float32) {
@@ -344,7 +349,7 @@ func (a *App) restoreTreeViewportAnchor(t *fileTree, anchor *treeNode, offset fl
 	}
 	visit([]*treeNode{t.root})
 	if found {
-		a.view.ScrollState(treeListID).ScrollTo(4 + float32(index)*rowHeight + offset)
+		treeList.ScrollToRow(&a.view, index, offset)
 	}
 }
 
@@ -391,22 +396,13 @@ func (a *App) drawProjectTree(f *ui.Frame, p *project) {
 		t.measureDirty = true
 		a.listTree(p, "")
 	}
-	t.rows = t.rows[:0]
-	if t.byID == nil {
-		t.byID = map[gfx.ID]*treeNode{}
-	}
-	clear(t.byID)
+	t.rows, t.list = t.rows[:0], t.list[:0]
 	switch {
 	case t.failed != "":
 		f.Column().Fill().Center().Gap(8).Children(func() {
 			f.Paragraph(a.text.Project.Failed(t.failed), 3).TextCenter().Color(a.colors.Subtle)
 			if f.Button(treeRetryID, i18n.Shared(a.language(), "ui.retry")).Outline().Clicked() {
-				if slot := t.watches[""]; slot != nil {
-					slot.close()
-					delete(t.watches, "")
-				}
-				t.failed, t.root.listed, t.root.expanded = "", false, true
-				a.listTree(p, "")
+				a.retryProjectTree(p)
 			}
 		})
 		return
@@ -414,66 +410,51 @@ func (a *App) drawProjectTree(f *ui.Frame, p *project) {
 		a.drawTreeMessage(f, a.text.Project.Loading)
 		return
 	}
-	// Flatten the already loaded rows for keyboard navigation, but declare
-	// controls only for the viewport and a small overscan. Expanding a folder
-	// never enumerates its unexpanded descendants.
+	// Flatten the already loaded rows for keyboard navigation; the list declares controls
+	// only for the viewport and a small overscan. Expanding a folder never enumerates its
+	// unexpanded descendants.
+	selected := -1
 	var collect func([]*treeNode)
 	collect = func(nodes []*treeNode) {
 		for _, n := range nodes {
-			t.rows = append(t.rows, n)
-			t.byID[treeRows.At(n.id)] = n
-			if n.dir && !n.empty {
-				t.byID[treeArrows.At(n.id)] = n
+			if n == t.selected {
+				selected = len(t.rows)
 			}
+			t.rows = append(t.rows, n)
+			t.list = append(t.list, treelist.Row{Key: n.id, Label: n.name, Depth: n.depth, Branch: n.dir && !n.empty, Expanded: n.dir && n.expanded})
 			if n.dir && n.expanded {
 				collect(n.children)
 			}
 		}
 	}
 	collect([]*treeNode{t.root})
-	scroll := a.view.ScrollState(treeListID)
-	height := scroll.Viewport
-	if height <= 0 {
-		height = 500
+	if t.show != nil {
+		if i := treelist.Index(t.list, t.show.id); i >= 0 {
+			treeList.Center(&a.view, i)
+		}
+		t.show = nil
 	}
-	first := max(0, int(max(0, scroll.Offset-4)/rowHeight)-2)
-	last := min(len(t.rows), int((scroll.Offset+height)/rowHeight)+3)
-	first = min(first, last)
-	var clicked, arrow *treeNode
-	t.area = f.ScrollArea(treeListID).Fill().PadY(4)
-	t.area.Children(func() {
-		// Names are never cut short: the column is as wide as the widest row, and the list
-		// scrolls sideways to show the rest of it.
-		t.content = f.Column().Width(max(t.width, t.viewport)).Shrink(0).MarginSides(0, 0, 0, -t.scrollX)
-		t.content.Children(func() {
-			if first > 0 {
-				f.Row().Height(float32(first) * rowHeight).Shrink(0)
-			}
-			for _, n := range t.rows[first:last] {
-				rowClicked, arrowClicked := a.drawTreeRow(f, p, n)
-				if rowClicked {
-					clicked = n
-				}
-				if arrowClicked {
-					arrow = n
-				}
-			}
-			if rest := len(t.rows) - last; rest > 0 {
-				f.Row().Height(float32(rest) * rowHeight).Shrink(0)
-			}
-		})
-	})
-	t.drawn = true
-	if clicked != nil {
-		if clicked.dir {
-			t.selected = clicked
+	// Names are never cut short: the column is as wide as the widest row, and the list
+	// scrolls sideways to show the rest of it.
+	result := treeList.Draw(f, &a.view, t.list, selected, treelist.Options{
+		Dark:     a.colors.Dark,
+		Expand:   i18n.Shared(a.language(), "native.expandDirectory"),
+		Collapse: i18n.Shared(a.language(), "native.collapseDirectory"),
+		Width:    max(t.width, t.viewport),
+		OffsetX:  t.scrollX,
+	}, func(i int) { a.drawTreeContent(f, p, t.rows[i]) })
+	t.area, t.content, t.drawn = result.Area, result.Content, true
+	if result.Clicked >= 0 {
+		if n := t.rows[result.Clicked]; n.dir {
+			t.selected = n
 		} else {
-			a.activateTreeNode(p, clicked)
+			a.activateTreeNode(p, n)
 		}
 	}
-	if arrow != nil {
-		t.selected = arrow
-		a.toggleFolder(p, arrow)
+	if result.Toggled >= 0 {
+		n := t.rows[result.Toggled]
+		t.selected = n
+		a.toggleFolder(p, n)
 	}
 }
 
@@ -484,75 +465,43 @@ func (a *App) drawTreeMessage(f *ui.Frame, message string) {
 	})
 }
 
-// drawTreeRow declares one row of the tree: the arrow of a folder, its icon and its name,
-// moved in by its depth. The disclosure arrow is a separate hit target.
-func (a *App) drawTreeRow(f *ui.Frame, p *project, n *treeNode) (bool, bool) {
-	t := &p.tree
-	id := treeRows.At(n.id)
-	selected := t.selected == n
-	_, rowFocused := f.Canvas().Focused().In(treeRows)
-	_, arrowFocused := f.Canvas().Focused().In(treeArrows)
-	focusedColor, inactiveColor := gfx.RGB24(0xD0DFFE), gfx.RGB24(0xE9EAEE)
-	textColor := gfx.RGB24(0x000000)
-	hover := gfx.RGB24(0x000000)
-	hover.Alpha = 8.0 / 255
-	if a.colors.Dark {
-		focusedColor, inactiveColor = gfx.RGB24(0x2A4371), gfx.RGB24(0x33353B)
-		textColor = gfx.RGB24(0xD1D3D9)
-		hover = gfx.RGB24(0xFFFFFF)
-		hover.Alpha = 16.0 / 255
+// drawTreeContent declares what a row of the tree shows after its arrow: the node's icon and
+// its name, the root's in bold.
+func (a *App) drawTreeContent(f *ui.Frame, p *project, n *treeNode) {
+	icon := fileicons.ForFile(n.name, a.colors.Dark)
+	if n.dir {
+		icon = fileicons.ForDirectory(n.name, a.colors.Dark)
 	}
-	row := f.Row().Height(rowHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(2).
-		MarginSides(0, treeGutter, 0, treeGutter).Radius(4).
-		PadSides(0, 8, 0, float32(n.depth*treeIndent)).
-		HitWith(id, n.name, gfx.HitOptions{Role: gfx.RoleOption, Selected: selected, Expandable: n.dir && !n.empty, Expanded: n.dir && n.expanded}).
-		Pressed(ui.Look{}.Background(focusedColor))
-	if selected {
-		color := inactiveColor
-		if rowFocused || arrowFocused {
-			color = focusedColor
-		}
-		row = row.Background(color)
-	} else {
-		row = row.Hover(ui.Look{}.Background(hover))
+	f.Icon(icon).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
+	name := f.Text(n.name).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Shrink(0)
+	if n == p.tree.root {
+		name.Bold()
 	}
-	arrowClicked := false
-	row.Children(func() {
-		switch {
-		case !n.dir || n.empty:
-			f.Row().Size(treeChevron, treeChevron).Shrink(0)
-		default:
-			label := i18n.Shared(a.language(), "native.expandDirectory")
-			if n.expanded {
-				label = i18n.Shared(a.language(), "native.collapseDirectory")
-			}
-			button := f.Row().Size(treeChevron, treeIcon).Shrink(0).Items(ui.Center).HitWith(treeArrows.At(n.id), label+" "+n.name, gfx.HitOptions{Role: gfx.RoleButton})
-			button.Children(func() { f.Icon(fileicons.TreeChevron(n.expanded, a.colors.Dark)).Size(treeIcon, treeIcon) })
-			arrowClicked = button.Clicked()
-		}
-		icon := fileicons.ForFile(n.name, a.colors.Dark)
-		if n.dir {
-			icon = fileicons.ForDirectory(n.name, a.colors.Dark)
-		}
-		f.Icon(icon).Size(treeIcon, treeIcon).Shrink(0).Color(a.colors.Subtle)
-		name := f.Text(n.name).FontSize(13).Color(textColor).Shrink(0)
-		if n == t.root {
-			name.Bold()
-		}
-	})
-	return row.Clicked(), arrowClicked
+}
+
+// treeFontSize is the size of the names in the tree.
+const treeFontSize = 13
+
+// treeNodeAt is the node of the row with key, the id of its node, among the rows the last
+// frame showed; nil when it is not one of them.
+func (t *fileTree) treeNodeAt(key int) *treeNode {
+	if i := treelist.Index(t.list, key); i >= 0 {
+		return t.rows[i]
+	}
+	return nil
 }
 
 // A folder name selects on one click and toggles on the second press, matching
 // the native tree. The ensuing release must not toggle it again.
 func (a *App) treePointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
-	if a.project == nil || event.Kind != gfx.PointerDown || event.Button != gfx.PointerButtonPrimary || event.Modifiers != 0 || event.ClickCount != 2 {
+	if a.project == nil {
 		return gfx.EventResult{}, false
 	}
-	if _, ok := event.Target.In(treeRows); !ok {
+	key, ok := treeList.DoubleClicked(event)
+	if !ok {
 		return gfx.EventResult{}, false
 	}
-	n := a.project.tree.byID[event.Target]
+	n := a.project.tree.treeNodeAt(key)
 	if n == nil || !n.dir {
 		return gfx.EventResult{}, false
 	}
@@ -565,76 +514,36 @@ func (a *App) treePointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
 
 // treeKey moves through the tree with the keyboard while one of its rows has the focus: the
 // up and down arrows step between rows, right expands a folder or steps into it, left
-// collapses it or steps out to its parent, and Enter opens the row.
+// collapses it or steps out to its parent, Home, End and the page keys jump, and Enter opens
+// the row. The keyboard stays on the row that was clicked while the arrows move the
+// selection, so the keys act on the selected row.
 func (a *App) treeKey(event gfx.KeyEvent) gfx.EventResult {
 	p := a.project
-	if p == nil || event.Release {
+	if p == nil {
 		return gfx.EventResult{}
 	}
 	t := &p.tree
-	n, ok := t.byID[event.Target]
-	if !ok || event.Modifiers != 0 {
+	current := -1
+	if t.selected != nil {
+		current = treelist.Index(t.list, t.selected.id)
+	}
+	action, i, ok := treeList.Key(event, &a.view, t.list, current)
+	if !ok {
 		return gfx.EventResult{}
 	}
-	// The keyboard stays on the row that was clicked, and the arrows move the selection, so
-	// the keys act on the selected row.
-	if t.selected != nil {
-		n = t.selected
-	}
-	at := -1
-	for i, row := range t.rows {
-		if row == n {
-			at = i
-			break
-		}
-	}
-	move := func(i int) gfx.EventResult {
-		if i >= 0 && i < len(t.rows) {
-			t.selected = t.rows[i]
-			t.focus = treeRows.At(t.selected.id)
-			scroll := a.view.ScrollState(treeListID)
-			top := float32(4) + float32(i)*rowHeight
-			bottom := top + rowHeight
-			if top < scroll.Offset {
-				scroll.ScrollTo(top)
-			} else if bottom > scroll.Offset+scroll.Viewport {
-				scroll.ScrollTo(bottom - scroll.Viewport)
-			}
-		}
-		return gfx.EventResult{Handled: true, Repaint: true}
-	}
-	switch event.Key {
-	case gfx.KeyUp:
-		return move(at - 1)
-	case gfx.KeyDown:
-		return move(at + 1)
-	case gfx.KeyRight:
-		if n.dir && !n.expanded {
-			t.selected = n
-			a.toggleFolder(p, n)
-			return gfx.EventResult{Handled: true, Repaint: true}
-		}
-		if n.dir && len(n.children) > 0 {
-			return move(at + 1)
-		}
+	switch action {
+	case treelist.Select:
+		t.selected = t.rows[i]
+		t.focus = treeRows.At(t.selected.id)
+	case treelist.Expand, treelist.Collapse:
+		t.selected = t.rows[i]
+		a.toggleFolder(p, t.rows[i])
+	case treelist.Activate:
+		a.activateTreeNode(p, t.rows[i])
+	default:
 		return gfx.EventResult{Handled: true}
-	case gfx.KeyLeft:
-		if n.dir && n.expanded {
-			t.selected = n
-			a.toggleFolder(p, n)
-			return gfx.EventResult{Handled: true, Repaint: true}
-		}
-		for i := at - 1; i >= 0; i-- {
-			if t.rows[i].depth < n.depth {
-				return move(i)
-			}
-		}
-		return gfx.EventResult{Handled: true}
-	case gfx.KeyEnter:
-		a.activateTreeNode(p, n)
-		return gfx.EventResult{Handled: true, Repaint: true}
 	}
-	return gfx.EventResult{}
+	return gfx.EventResult{Handled: true, Repaint: true}
 }
 
 // treeScrollPad is the room after the end of the widest name when the tree is scrolled to its
@@ -660,16 +569,15 @@ func (a *App) captureTree(canvas *gfx.Canvas) {
 	t.drawn = false
 	area := t.area.Rect()
 	width := t.width
-	fontSize := float32(13)
+	fontSize := float32(treeFontSize)
 	if t.measureDirty || t.measureFont != fontSize {
 		width = 0
 		for _, n := range t.rows {
-			prefix := float32(2*treeGutter + n.depth*treeIndent + treeChevron + treeIcon + 4 + 8)
 			weight := gfx.WeightRegular
 			if n == t.root {
 				weight = gfx.WeightSemibold
 			}
-			width = max(width, prefix+canvas.TextWidthWeight(n.name, fontSize, weight))
+			width = max(width, treelist.Width(n.depth, treelist.Icon+treelist.Gap+canvas.TextWidthWeight(n.name, fontSize, weight)))
 		}
 		width += treeScrollPad
 		t.measureDirty, t.measureFont = false, fontSize

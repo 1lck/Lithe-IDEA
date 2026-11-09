@@ -12,6 +12,7 @@ import (
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
@@ -231,11 +232,7 @@ func (a *App) refreshProjectSearch(p *project) {
 
 func (a *App) drawSearchRefresh(f *ui.Frame, p *project) {
 	disabled := strings.TrimSpace(p.search.want.text) == ""
-	button := f.Row().Size(shellHideSize, shellHideSize).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(searchRefreshID, i18n.Shared(a.language(), "ui.refresh"), gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand, Disabled: disabled}).
-		Hover(ui.Look{}.Background(a.colors.Hover))
-	button.Children(func() { f.Icon(icons.RefreshCw).Size(shellIconSize, shellIconSize).Color(a.colors.Subtle) })
-	if !disabled && button.Clicked() {
+	if a.toolIconButton(f, searchRefreshID, i18n.Shared(a.language(), "ui.refresh"), icons.RefreshCw, false, disabled, nil) {
 		a.performed("workspace.search.refresh", surfaceButton)
 		a.refreshProjectSearch(p)
 	}
@@ -498,7 +495,7 @@ func (a *App) drawSearchResults(f *ui.Frame, p *project) {
 			row.Children(func() {
 				f.Row().FillWidth().Items(ui.Center).Gap(6).Children(func() {
 					name := filepath.Base(filepath.FromSlash(result.Path))
-					f.Icon(fileicons.ForFile(name, a.colors.Dark)).Size(treeIcon, treeIcon).Shrink(0).Color(a.colors.Subtle)
+					f.Icon(fileicons.ForFile(name, a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
 					f.Text(name).Grow(1).Shrink(1).FontSize(12.5).Color(a.colors.Text).Ellipsis()
 					if result.Line != nil {
 						f.Text(":" + strconv.Itoa(*result.Line)).FontSize(12).Color(a.colors.Subtle)

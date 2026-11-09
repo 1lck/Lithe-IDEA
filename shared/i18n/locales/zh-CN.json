@@ -10262,6 +10262,7 @@
     "desktop.everywhere.watchUnavailable": "无法监听项目变化。请重新打开搜索以刷新结果。",
     "desktop.project.rootUnavailable": "项目目录不可用。",
     "desktop.project.watchUnavailable": "项目文件可能无法自动更新。",
+    "desktop.project.expandAllIncomplete": "项目文件夹太多，部分文件夹没有展开。",
     "desktop.settings.noMatches": "没有匹配的设置",
     "desktop.settings.categories": "设置页面",
     "desktop.settings.pageLater": "新桌面端暂未提供此页面",

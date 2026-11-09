@@ -13058,7 +13058,8 @@
       "description": "Windows UI: files.collapseAll",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Collapse All",
@@ -68533,7 +68534,8 @@
       "id": "native.revealActiveFileInProjectTree",
       "description": "Native UI: Reveal Active File in Project Tree",
       "platforms": [
-        "macos"
+        "macos",
+        "desktop"
       ],
       "macos": {
         "key": "Reveal Active File in Project Tree",
@@ -86879,7 +86881,8 @@
       "description": "Windows UI: outline.expandAll",
       "platforms": [
         "macos",
-        "windows"
+        "windows",
+        "desktop"
       ],
       "macos": {
         "key": "Expand All",
@@ -99413,6 +99416,13 @@
     {
       "id": "desktop.project.watchUnavailable",
       "description": "Project tree directory monitoring failed or reached its resource limit.",
+      "platforms": [
+        "desktop"
+      ]
+    },
+    {
+      "id": "desktop.project.expandAllIncomplete",
+      "description": "Expand All in the project tree stopped at its folder limit, leaving some folders closed.",
       "platforms": [
         "desktop"
       ]

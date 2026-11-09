@@ -4,17 +4,21 @@
   "group": "项目侧边栏",
   "capability": "项目侧边栏标题与项目树行块左缘对齐，只显示右侧 IDEA Community 下拉箭头；定位当前文件与刷新按钮使用 16pt 明暗 SVG",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/shell.go",
+      "desktop/internal/workbench/filetree_actions.go",
+      "desktop/internal/workbench/filetree_actions_test.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/workbench/shell.go",
+      "desktop/internal/workbench/filetree_actions.go",
+      "desktop/internal/workbench/filetree_actions_test.go"
     ]
   },
   "owner": "Workbench",
@@ -39,5 +43,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva 的 Project 标题栏在隐藏按钮前显示定位当前文件、刷新、全部展开、全部折叠四个按钮，使用 Lucide 图标和共用的工具栏图标按钮（禁用状态同时写入命中与无障碍树）；按钮常显，尚未实现 IDEA SVG 图标、悬停渐显、标题下拉箭头，也未核对标题与树行左缘对齐。legacy 是迁移前基线，不代表当前实现。"
 }

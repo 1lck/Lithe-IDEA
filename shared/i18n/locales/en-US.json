@@ -10262,6 +10262,7 @@
     "desktop.everywhere.watchUnavailable": "Could not monitor project changes. Reopen search to refresh results.",
     "desktop.project.rootUnavailable": "The project directory is unavailable.",
     "desktop.project.watchUnavailable": "Project files may not update automatically.",
+    "desktop.project.expandAllIncomplete": "Some folders were not expanded: the project has too many.",
     "desktop.settings.noMatches": "No matching settings",
     "desktop.settings.categories": "Settings pages",
     "desktop.settings.pageLater": "This page is not available in the new desktop client yet",

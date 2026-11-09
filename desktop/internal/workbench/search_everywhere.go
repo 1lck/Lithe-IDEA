@@ -130,8 +130,8 @@ func (a *App) updateEverywhere(p *project, query string, scope int) {
 	}
 	openPaths := make([]string, 0, len(p.docs.list))
 	for _, doc := range p.docs.list {
-		if relative, err := filepath.Rel(p.root, doc.path); err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			openPaths = append(openPaths, filepath.ToSlash(relative))
+		if relative, ok := projectRelativePath(p.root, doc.path); ok {
+			openPaths = append(openPaths, relative)
 		}
 	}
 	s.request = core.EverywhereSearchRequest{Root: p.root, Query: query, PageSize: everywherePageSize, ResultKinds: kinds,

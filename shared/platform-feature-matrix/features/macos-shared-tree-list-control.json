@@ -4,17 +4,23 @@
   "group": "公共控件",
   "capability": "macOS 原生树与列表使用完整公共入口，统一焦点、两侧留白、悬停、活动/失焦选择、方向键、范围多选、双击展开及回车；项目树与插件树共用展开箭头控件；既有页面与声明式插件共用；保留原生视口、拖放、业务加载与输入编辑；右键选择与数据库打开分离，空节点菜单不拦截行内业务菜单，无障碍默认按下执行激活并保留独立行内按钮；外部选择更新同步键盘游标及范围锚点，Shift扩缩选保留锚点，上下键跳过普通不可选标题并保留可展开分组导航",
   "macos": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/treelist/treelist.go",
+      "desktop/internal/treelist/treelist_test.go",
+      "desktop/internal/workbench/filetree.go",
+      "desktop/internal/workbench/gitlog_view.go"
     ]
   },
   "windows": {
-    "implementationStatus": "unassessed",
+    "implementationStatus": "partial",
     "verificationStatus": "pending",
     "evidence": [
-      ".agents/notes/implemented/process/2026-09-24-cross-platform-feature-parity-matrix.md"
+      "desktop/internal/treelist/treelist.go",
+      "desktop/internal/treelist/treelist_test.go",
+      "desktop/internal/workbench/filetree.go",
+      "desktop/internal/workbench/gitlog_view.go"
     ]
   },
   "owner": "Workbench UI",
@@ -41,5 +47,5 @@
       ]
     }
   },
-  "notes": "Viva 客户端尚未逐项盘点；legacy 是迁移前基线，不代表当前实现。"
+  "notes": "Viva 的公共树列表 desktop/internal/treelist 由项目树和 Git Log 改动文件共用：两侧留白、悬停、键盘焦点与失焦两种选择色、展开箭头、方向键/Home/End/翻页导航、双击展开及 Enter 激活，只声明可见行。尚未支持范围多选、拖放、行内编辑、右键选择分离和插件树；Git Log 分支面板仍是独立实现，迁移跟踪 #1815。legacy 是迁移前基线，不代表当前实现。"
 }

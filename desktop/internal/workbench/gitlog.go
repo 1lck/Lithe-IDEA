@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"context"
+	"path"
 	"slices"
 	"strings"
 	"time"
@@ -125,9 +126,13 @@ type gitLogState struct {
 	selected   string
 	files      []core.GitCommitFile
 	filesState logFiles
-	detail     *core.GitCommitDetail
-	selGen     int
-	selStop    chan struct{}
+	// folders are the folders of files, grouped once when they arrive, and closedFolders the
+	// ones the user closed in this commit's files.
+	folders       []logFolder
+	closedFolders map[string]bool
+	detail        *core.GitCommitDetail
+	selGen        int
+	selStop       chan struct{}
 
 	showDetails    bool
 	decorations    bool
@@ -555,7 +560,8 @@ func (a *App) selectCommit(p *project, hash string) {
 		close(l.selStop)
 		l.selStop = nil
 	}
-	l.files, l.detail = nil, nil
+	l.files, l.folders, l.detail = nil, nil, nil
+	clear(l.closedFolders)
 	if hash == "" {
 		l.filesState = logFilesIdle
 		return
@@ -584,13 +590,39 @@ func (a *App) selectCommit(p *project, hash string) {
 			if err != nil {
 				l.filesState = logFilesFailed
 			} else {
-				l.files, l.filesState = files, logFilesReady
+				l.files, l.folders, l.filesState = files, groupLogFiles(files), logFilesReady
 			}
 			if detailErr == nil {
 				l.detail = &detail
 			}
 		}
 	})
+}
+
+// logFolder is one folder of the selected commit's changed files: its path from the top of
+// the repository, "." for the top itself, and the indices into the files of the ones in it, in
+// the order Git listed them.
+type logFolder struct {
+	dir   string
+	files []int
+}
+
+// groupLogFiles groups files by their folder, the folders sorted by path.
+func groupLogFiles(files []core.GitCommitFile) []logFolder {
+	at := map[string]int{}
+	var folders []logFolder
+	for i, file := range files {
+		dir := path.Dir(file.Path)
+		j, ok := at[dir]
+		if !ok {
+			j = len(folders)
+			at[dir] = j
+			folders = append(folders, logFolder{dir: dir})
+		}
+		folders[j].files = append(folders[j].files, i)
+	}
+	slices.SortFunc(folders, func(a, b logFolder) int { return strings.Compare(a.dir, b.dir) })
+	return folders
 }
 
 // moveLogSelection moves the selection by delta rows of the graph.

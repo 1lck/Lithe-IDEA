@@ -8,8 +8,10 @@ import (
 
 	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/fileicons"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/i18n"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/icons"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/monogrid"
+	"github.com/1lck/Lithe-IDEA/desktop/internal/treelist"
 	"github.com/vivaui/viva/gfx"
 	"github.com/vivaui/viva/ui"
 )
@@ -23,7 +25,6 @@ const (
 	logToolbarHeight = 38
 	logStripeWidth   = 36
 	logButtonSize    = 24
-	logIconSize      = 16
 	logRefsWidth     = 220
 	logRefsMin       = 160
 	logCommitsMin    = 340
@@ -63,12 +64,18 @@ var (
 	logPathCancel   = tree.ID(shellPage, "log-path-cancel")
 	logPathApply    = tree.ID(shellPage, "log-path-apply")
 
-	logRows     = tree.Sub(shellPage, tree.Name("log-rows"))
-	logRefRows  = tree.Sub(shellPage, tree.Name("log-ref-rows"))
-	logFileRows = tree.Sub(shellPage, tree.Name("log-file-rows"))
-	logButtons  = tree.Sub(shellPage, tree.Name("log-buttons"))
-	logChips    = tree.Sub(shellPage, tree.Name("log-chips"))
-	logItems    = tree.Sub(shellPage, tree.Name("log-popover-items"))
+	logRows       = tree.Sub(shellPage, tree.Name("log-rows"))
+	logRefRows    = tree.Sub(shellPage, tree.Name("log-ref-rows"))
+	logFileRows   = tree.Sub(shellPage, tree.Name("log-file-rows"))
+	logFileArrows = tree.Sub(shellPage, tree.Name("log-file-arrows"))
+	logButtons    = tree.Sub(shellPage, tree.Name("log-buttons"))
+	logChips      = tree.Sub(shellPage, tree.Name("log-chips"))
+	logItems      = tree.Sub(shellPage, tree.Name("log-popover-items"))
+
+	// logFileList is the tree of the selected commit's changed files. A folder's row has the
+	// key of its index in the commit's folders, and a file's row the number of folders plus
+	// its index in the commit's files.
+	logFileList = treelist.List{Scroll: logFilesID, Rows: logFileRows, Arrows: logFileArrows}
 )
 
 // The icon buttons of the log tab, for logButtons.At.
@@ -137,8 +144,14 @@ type logView struct {
 	subjectWidth float32
 	subjectFonts uint32
 
-	// file is the path of the selected changed file.
-	file string
+	// file is the path of the selected changed file, and folder the path of the selected
+	// folder of the changed files; at most one of them is set.
+	file, folder string
+	// fileRows are the rows of the changed files as the tree list draws them, and fileItems
+	// what each row is; fileSelected is the index of the selected row, -1 for none.
+	fileRows     []treelist.Row
+	fileItems    []logFileItem
+	fileSelected int
 	// focus is the field to give the keyboard to in the next frame.
 	focus gfx.ID
 
@@ -168,7 +181,7 @@ func (v *logView) reset() {
 	for _, field := range []*ui.Field{&v.search, &v.refSearch, &v.userSearch, &v.pathField} {
 		field.SetText("")
 	}
-	v.file = ""
+	v.file, v.folder = "", ""
 	v.dates = nil
 	v.upstream = nil
 }
@@ -224,6 +237,11 @@ func (a *App) logKey(event gfx.KeyEvent) gfx.EventResult {
 	case logSearchID, logRefSearchID, logUserSearchID, logPathID:
 		return gfx.EventResult{}
 	}
+	if l.popover == logPopoverNone {
+		if r, ok := a.logFilesKey(p, event); ok {
+			return r
+		}
+	}
 	if !l.listFocus || l.popover != logPopoverNone {
 		return gfx.EventResult{}
 	}
@@ -257,7 +275,7 @@ func (a *App) drawLogHeaderLeading(f *ui.Frame, p *project) {
 // drawLogHeaderTrailing declares the log tab's menu button before the hide button.
 func (a *App) drawLogHeaderTrailing(f *ui.Frame, p *project) {
 	var button ui.Box
-	if a.logIconButtonBox(f, logButtons.At(logButtonMenu), a.text.Git.Actions, icons.EllipsisVertical, p.log.popover == logPopoverMenu, false, &button) {
+	if a.toolIconButton(f, logButtons.At(logButtonMenu), a.text.Git.Actions, icons.EllipsisVertical, p.log.popover == logPopoverMenu, false, &button) {
 		a.toggleLogPopover(p, logPopoverMenu)
 	}
 	a.logView.menu, a.logView.hasMenu = button, true
@@ -520,7 +538,7 @@ func (a *App) drawLogRefRow(f *ui.Frame, p *project, n *int, depth int, icon gfx
 	}
 }
 
-// logTreeRow is a row of the reference pane or of the changed files, indented by depth.
+// logTreeRow is a row of the reference pane, indented by depth.
 func (a *App) logTreeRow(f *ui.Frame, id gfx.ID, label string, depth int, selected bool) ui.Box {
 	row := f.Row().Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(4).
 		PadSides(0, 8, 0, float32(6+depth*logIndent)).
@@ -750,6 +768,9 @@ func (a *App) drawLogFiles(f *ui.Frame, p *project) ui.Box {
 	if !slices.ContainsFunc(l.files, func(file core.GitCommitFile) bool { return file.Path == v.file }) {
 		v.file = ""
 	}
+	if !slices.ContainsFunc(l.folders, func(folder logFolder) bool { return folder.dir == v.folder }) {
+		v.folder = ""
+	}
 	return f.Column().FillWidth().Clip().Children(func() {
 		f.Row().Height(logToolbarHeight).Shrink(0).Items(ui.Center).Gap(4).PadX(6).Children(func() {
 			if a.logIconButton(f, logButtons.At(logButtonCompareFile), g.CompareChanges, icons.ArrowLeftRight, false, v.file == "") {
@@ -784,42 +805,161 @@ func (a *App) drawLogFiles(f *ui.Frame, p *project) ui.Box {
 			a.logEmpty(f, g.NoChangedFiles)
 			return
 		}
-		folders := map[string][]core.GitCommitFile{}
-		for _, file := range l.files {
-			dir := path.Dir(file.Path)
-			folders[dir] = append(folders[dir], file)
+		a.collectLogFiles(p)
+		result := logFileList.Draw(f, &a.view, v.fileRows, v.fileSelected, treelist.Options{
+			Dark:     a.colors.Dark,
+			Expand:   i18n.Shared(a.language(), "native.expandDirectory"),
+			Collapse: i18n.Shared(a.language(), "native.collapseDirectory"),
+		}, func(i int) { a.drawLogFileContent(f, p, v.fileItems[i]) })
+		if i := result.Clicked; i >= 0 {
+			l.listFocus = false
+			a.selectLogFileRow(p, i)
 		}
-		dirs := make([]string, 0, len(folders))
-		for dir := range folders {
-			dirs = append(dirs, dir)
+		if i := result.Toggled; i >= 0 {
+			l.listFocus = false
+			a.selectLogFileRow(p, i)
+			a.toggleLogFolder(p, v.fileItems[i].folder)
 		}
-		slices.Sort(dirs)
-		n := 0
-		f.ScrollArea(logFilesID).Grow(1).PadY(4).Children(func() {
-			for _, dir := range dirs {
-				depth := 0
-				if dir != "." {
-					f.Row().Height(logItemHeight).FillWidth().Shrink(0).Items(ui.Center).Gap(6).PadX(8).Children(func() {
-						f.Icon(fileicons.ForDirectory(path.Base(dir), a.colors.Dark)).Size(14, 14).Color(a.colors.Subtle)
-						f.Text(dir).Muted().Ellipsis().Grow(1)
-					})
-					depth = 1
-				}
-				for _, file := range folders[dir] {
-					row := a.logTreeRow(f, logFileRows.At(n), file.Path, depth, v.file == file.Path)
-					n++
-					row.Children(func() {
-						f.Text(statusLetter(file.Status)).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(a.fileStatusColor(file.Status)).Width(14).Shrink(0)
-						f.Icon(fileicons.ForFile(path.Base(file.Path), a.colors.Dark)).Size(14, 14).Color(a.colors.Subtle)
-						f.Text(path.Base(file.Path)).Color(a.fileStatusColor(file.Status)).Ellipsis().Grow(1)
-					})
-					if row.Clicked() {
-						v.file = file.Path
-					}
-				}
-			}
-		})
 	})
+}
+
+// logFileItem is what a row of the changed files is: the folder of the commit's folders at
+// index folder, or the file at index file of the commit's files; file is -1 for a folder.
+type logFileItem struct {
+	folder, file int
+}
+
+// collectLogFiles lists the rows of the changed files the way they show: each folder, but
+// the top of the repository, as a row of its own, and the files of the open ones under them.
+func (a *App) collectLogFiles(p *project) {
+	l, v := &p.log, &a.logView
+	v.fileRows, v.fileItems, v.fileSelected = v.fileRows[:0], v.fileItems[:0], -1
+	for g, folder := range l.folders {
+		depth := 0
+		if folder.dir != "." {
+			open := !l.closedFolders[folder.dir]
+			if v.folder == folder.dir {
+				v.fileSelected = len(v.fileRows)
+			}
+			v.fileRows = append(v.fileRows, treelist.Row{Key: g, Label: folder.dir, Branch: true, Expanded: open})
+			v.fileItems = append(v.fileItems, logFileItem{folder: g, file: -1})
+			if !open {
+				continue
+			}
+			depth = 1
+		}
+		for _, i := range folder.files {
+			file := l.files[i].Path
+			if v.file == file {
+				v.fileSelected = len(v.fileRows)
+			}
+			v.fileRows = append(v.fileRows, treelist.Row{Key: len(l.folders) + i, Label: file, Depth: depth})
+			v.fileItems = append(v.fileItems, logFileItem{folder: g, file: i})
+		}
+	}
+}
+
+// drawLogFileContent declares what a row of the changed files shows after its arrow: a
+// folder's icon and path, or a file's change, icon and name in the color of its change.
+func (a *App) drawLogFileContent(f *ui.Frame, p *project, item logFileItem) {
+	l := &p.log
+	if item.file < 0 {
+		dir := l.folders[item.folder].dir
+		f.Icon(fileicons.ForDirectory(path.Base(dir), a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
+		f.Text(dir).FontSize(treeFontSize).Color(treelist.Text(a.colors.Dark)).Ellipsis().Grow(1)
+		return
+	}
+	file := l.files[item.file]
+	color := a.fileStatusColor(file.Status)
+	f.Text(statusLetter(file.Status)).Mono().FontSize(a.theme.Metrics.FontSizeS).Color(color).Width(14).Shrink(0)
+	f.Icon(fileicons.ForFile(path.Base(file.Path), a.colors.Dark)).Size(treelist.Icon, treelist.Icon).Shrink(0).Color(a.colors.Subtle)
+	f.Text(path.Base(file.Path)).FontSize(treeFontSize).Color(color).Ellipsis().Grow(1)
+}
+
+// selectLogFileRow selects the folder or the file of row i of the changed files.
+func (a *App) selectLogFileRow(p *project, i int) {
+	v, item := &a.logView, a.logView.fileItems[i]
+	if item.file < 0 {
+		v.file, v.folder = "", p.log.folders[item.folder].dir
+	} else {
+		v.file, v.folder = p.log.files[item.file].Path, ""
+	}
+}
+
+// toggleLogFolder closes the folder at index g of the changed files when it is open and opens
+// it when it is closed. A selected file the folder closes over passes the selection, and the
+// keyboard, to the folder.
+func (a *App) toggleLogFolder(p *project, g int) {
+	l, v := &p.log, &a.logView
+	dir := l.folders[g].dir
+	if l.closedFolders[dir] {
+		delete(l.closedFolders, dir)
+		return
+	}
+	if l.closedFolders == nil {
+		l.closedFolders = map[string]bool{}
+	}
+	l.closedFolders[dir] = true
+	if v.file != "" && path.Dir(v.file) == dir {
+		v.file, v.folder = "", dir
+		v.focus = logFileRows.At(g)
+	}
+}
+
+// logFilesKey gives a key pressed on a row of the changed files to their tree: the arrows
+// move between the rows and open and close the folders, and Enter opens or closes a folder.
+// The rows are listed again from the commit's files, as the key may come before the frame
+// that shows a change to them. The second result says whether the key was the tree's.
+func (a *App) logFilesKey(p *project, event gfx.KeyEvent) (gfx.EventResult, bool) {
+	if !p.log.showDetails {
+		return gfx.EventResult{}, false
+	}
+	v := &a.logView
+	a.collectLogFiles(p)
+	action, i, ok := logFileList.Key(event, &a.view, v.fileRows, v.fileSelected)
+	if !ok {
+		return gfx.EventResult{}, false
+	}
+	switch action {
+	case treelist.Select:
+		a.selectLogFileRow(p, i)
+		v.focus = logFileRows.At(v.fileRows[i].Key)
+	case treelist.Expand, treelist.Collapse:
+		a.selectLogFileRow(p, i)
+		a.toggleLogFolder(p, v.fileItems[i].folder)
+	case treelist.Activate:
+		if v.fileItems[i].file >= 0 {
+			return gfx.EventResult{Handled: true}, true
+		}
+		a.selectLogFileRow(p, i)
+		a.toggleLogFolder(p, v.fileItems[i].folder)
+	default:
+		return gfx.EventResult{Handled: true}, true
+	}
+	return gfx.EventResult{Handled: true, Repaint: true}, true
+}
+
+// logFilesPointer opens or closes a folder of the changed files on a double click on its
+// row; the click before it selected the folder. The second result says whether the event was
+// the tree's.
+func (a *App) logFilesPointer(event gfx.PointerEvent) (gfx.EventResult, bool) {
+	p := a.project
+	if p == nil || a.layout.gitTab != 0 || !p.log.showDetails {
+		return gfx.EventResult{}, false
+	}
+	key, ok := logFileList.DoubleClicked(event)
+	if !ok {
+		return gfx.EventResult{}, false
+	}
+	v := &a.logView
+	a.collectLogFiles(p)
+	i := treelist.Index(v.fileRows, key)
+	if i < 0 || v.fileItems[i].file >= 0 {
+		return gfx.EventResult{}, false
+	}
+	a.selectLogFileRow(p, i)
+	a.toggleLogFolder(p, v.fileItems[i].folder)
+	return gfx.EventResult{Handled: true, Repaint: true}, true
 }
 
 // statusLetter is the one letter Git gives a file's change.
@@ -1157,27 +1297,5 @@ func (a *App) logMenuItem(f *ui.Frame, id gfx.ID, label string, checked, disable
 // logIconButton declares an icon button of the log tab and reports a click on it. on
 // shows it pressed, for the buttons that toggle a view.
 func (a *App) logIconButton(f *ui.Frame, id gfx.ID, label string, icon gfx.Icon, on, disabled bool) bool {
-	return a.logIconButtonBox(f, id, label, icon, on, disabled, nil)
-}
-
-func (a *App) logIconButtonBox(f *ui.Frame, id gfx.ID, label string, icon gfx.Icon, on, disabled bool, out *ui.Box) bool {
-	button := f.Row().Size(logButtonSize, logButtonSize).Shrink(0).Center().Radius(a.theme.Metrics.RadiusItem()).
-		HitWith(id, label, gfx.HitOptions{Role: gfx.RoleButton, Cursor: gfx.PointerCursorHand}).Disabled(disabled)
-	switch {
-	case on:
-		button = button.Background(a.colors.Active)
-	case !disabled:
-		button = button.Hover(ui.Look{}.Background(a.colors.Hover)).Pressed(ui.Look{}.Background(a.colors.Active))
-	}
-	tint := a.colors.Subtle
-	if disabled {
-		tint.Alpha *= 0.4
-	}
-	button.Children(func() {
-		f.Icon(icon).Size(logIconSize, logIconSize).Color(tint).StateFrom(button).Hover(ui.Look{}.Color(a.colors.Text))
-	})
-	if out != nil {
-		*out = button
-	}
-	return !disabled && button.Clicked()
+	return a.toolIconButton(f, id, label, icon, on, disabled, nil)
 }

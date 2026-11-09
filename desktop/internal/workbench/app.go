@@ -649,6 +649,9 @@ func (a *App) onPointer(event gfx.PointerEvent) gfx.EventResult {
 	if result, handled := a.treePointer(event); handled {
 		return result
 	}
+	if result, handled := a.logFilesPointer(event); handled {
+		return result
+	}
 	return gfx.EventResult{}
 }
 
