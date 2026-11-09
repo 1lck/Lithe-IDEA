@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/1lck/Lithe-IDEA/desktop/internal/core"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginbackend"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginlsp"
 	"github.com/1lck/Lithe-IDEA/desktop/internal/pluginmanager"
@@ -86,6 +87,15 @@ func (s *Service) ServeLanguageSession(ctx context.Context, session *LanguageSes
 		return nil
 	}
 	return s.Backend.Serve(ctx, session.Session, observe)
+}
+
+// RequestLanguageSession submits one semantic request to the session and returns
+// the operation ID a later requestCompleted event carries.
+func (s *Service) RequestLanguageSession(ctx context.Context, session *LanguageSession, request core.PluginSemanticRequest) (string, error) {
+	if session == nil {
+		return "", pluginbackend.ErrNoSession
+	}
+	return s.Backend.Request(ctx, session.Session, request)
 }
 
 // StopLanguageServer shuts a session down and disposes it.

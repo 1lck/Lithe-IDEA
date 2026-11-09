@@ -49,6 +49,7 @@ type Kernel interface {
 	StopPluginBackend(ctx context.Context, session string) error
 	DestroyPluginBackend(ctx context.Context, session string) error
 	RespondPluginHostRequest(ctx context.Context, session, requestID string, result json.RawMessage, failure *core.PluginHostFailure) error
+	RequestPluginSemantics(ctx context.Context, request core.PluginSemanticRequest) (string, error)
 }
 
 // StartRequest is everything the host must supply before a backend can run.
@@ -272,6 +273,27 @@ func (r *Runner) answer(ctx context.Context, session Session, event core.Backend
 		}
 	}
 	return r.kernel.RespondPluginHostRequest(ctx, session.ID, payload.HostRequestID, result, hostFailure)
+}
+
+// Request submits one semantic request to a session and returns Core's operation
+// ID.
+//
+// The request is asynchronous: the operation ID is what a later requestCompleted
+// event carries, so the caller keeps it to match the answer. A request that names
+// no operation is refused here rather than sent, because Core would answer with a
+// protocol error that reads like a server problem.
+func (r *Runner) Request(ctx context.Context, session Session, request core.PluginSemanticRequest) (string, error) {
+	if r == nil || r.kernel == nil {
+		return "", errors.New("pluginbackend: no kernel")
+	}
+	if session.ID == "" {
+		return "", ErrNoSession
+	}
+	if request.Operation == "" {
+		return "", fmt.Errorf("%w: the request names no operation", ErrRequest)
+	}
+	request.SessionID = session.ID
+	return r.kernel.RequestPluginSemantics(ctx, request)
 }
 
 // LaunchFromPlan extracts the fields pluginhost verifies from a Core plan.

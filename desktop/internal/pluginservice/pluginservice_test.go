@@ -16,24 +16,25 @@ import (
 
 // fakeKernel records what the stack asked Core to do.
 type fakeKernel struct {
-	review          core.MarketplaceReview
-	reviewErr       error
-	reviewManifest  json.RawMessage
-	reviewExpected  [2]string
-	reviewApproved  []json.RawMessage
-	reviewCaps      map[string][]int
-	plan            core.PluginBackendPlan
-	planErr         error
-	started         core.PluginBackendStarted
-	startErr        error
-	events          [][]core.BackendEvent
-	stopErr         error
-	destroyErr      error
-	hostResponseErr error
-	decoded         []string
-	grammarErr      error
-	synced          []string
-	documentVersion int64
+	review           core.MarketplaceReview
+	reviewErr        error
+	reviewManifest   json.RawMessage
+	reviewExpected   [2]string
+	reviewApproved   []json.RawMessage
+	reviewCaps       map[string][]int
+	plan             core.PluginBackendPlan
+	planErr          error
+	started          core.PluginBackendStarted
+	startErr         error
+	events           [][]core.BackendEvent
+	stopErr          error
+	destroyErr       error
+	hostResponseErr  error
+	decoded          []string
+	grammarErr       error
+	synced           []string
+	documentVersion  int64
+	semanticRequests []core.PluginSemanticRequest
 }
 
 func (k *fakeKernel) ValidatePluginManifest(_ context.Context, manifest json.RawMessage, _ map[string][]int) (json.RawMessage, error) {
@@ -95,6 +96,11 @@ func (k *fakeKernel) SavePluginDocument(context.Context, string, string, string)
 }
 
 func (k *fakeKernel) ClosePluginDocument(context.Context, string, string) error { return nil }
+
+func (k *fakeKernel) RequestPluginSemantics(_ context.Context, request core.PluginSemanticRequest) (string, error) {
+	k.semanticRequests = append(k.semanticRequests, request)
+	return "operation-1", nil
+}
 
 func TestOpenAssemblesEveryPart(t *testing.T) {
 	service, err := Open(&fakeKernel{}, store.At(t.TempDir()), t.TempDir())

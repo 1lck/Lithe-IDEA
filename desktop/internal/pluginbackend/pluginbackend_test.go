@@ -14,17 +14,20 @@ import (
 
 // fakeKernel records what the runner asked Core to do.
 type fakeKernel struct {
-	plan       core.PluginBackendPlan
-	planErr    error
-	started    core.PluginBackendStarted
-	startErr   error
-	started_   core.PluginBackendStart
-	events     [][]core.BackendEvent
-	answered   []answeredRequest
-	stopErr    error
-	destroyErr error
-	stopped    bool
-	destroyed  bool
+	plan             core.PluginBackendPlan
+	planErr          error
+	started          core.PluginBackendStarted
+	startErr         error
+	started_         core.PluginBackendStart
+	events           [][]core.BackendEvent
+	answered         []answeredRequest
+	stopErr          error
+	destroyErr       error
+	stopped          bool
+	destroyed        bool
+	semanticRequests []core.PluginSemanticRequest
+	semanticErr      error
+	operationID      string
 }
 
 type answeredRequest struct {
@@ -65,6 +68,14 @@ func (k *fakeKernel) DestroyPluginBackend(context.Context, string) error {
 func (k *fakeKernel) RespondPluginHostRequest(_ context.Context, session, requestID string, result json.RawMessage, failure *core.PluginHostFailure) error {
 	k.answered = append(k.answered, answeredRequest{session: session, requestID: requestID, result: result, failure: failure})
 	return nil
+}
+
+func (k *fakeKernel) RequestPluginSemantics(_ context.Context, request core.PluginSemanticRequest) (string, error) {
+	if k.semanticErr != nil {
+		return "", k.semanticErr
+	}
+	k.semanticRequests = append(k.semanticRequests, request)
+	return k.operationID, nil
 }
 
 // backendPackage creates a package holding an executable and a data file.
@@ -269,6 +280,55 @@ func TestServeStopsWhenTheContextEnds(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := New(kernel, echoServices(t)).Serve(ctx, Session{ID: "session-1"}, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRequestFillsTheSessionAndReturnsTheOperation(t *testing.T) {
+	kernel := &fakeKernel{operationID: "operation-7"}
+	runner := New(kernel, echoServices(t))
+	position := core.PluginDocumentPosition{Line: 4, Character: 9}
+	operation, err := runner.Request(context.Background(), Session{ID: "session-1"}, core.PluginSemanticRequest{
+		Operation: "definition",
+		URI:       "file:///workspace/A.java",
+		Position:  &position,
+	})
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	if operation != "operation-7" {
+		t.Fatalf("operation = %q", operation)
+	}
+	if len(kernel.semanticRequests) != 1 {
+		t.Fatalf("requests = %+v", kernel.semanticRequests)
+	}
+	sent := kernel.semanticRequests[0]
+	// The caller does not know Core's session identity, so the runner fills it.
+	if sent.SessionID != "session-1" || sent.Operation != "definition" {
+		t.Fatalf("request = %+v", sent)
+	}
+	if sent.Position == nil || sent.Position.Line != 4 || sent.Position.Character != 9 {
+		t.Fatalf("position = %+v", sent.Position)
+	}
+}
+
+func TestRequestRefusesAnIncompleteRequest(t *testing.T) {
+	runner := New(&fakeKernel{}, echoServices(t))
+	if _, err := runner.Request(context.Background(), Session{}, core.PluginSemanticRequest{Operation: "definition"}); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := runner.Request(context.Background(), Session{ID: "session-1"}, core.PluginSemanticRequest{}); !errors.Is(err, ErrRequest) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := New(nil, nil).Request(context.Background(), Session{ID: "session-1"}, core.PluginSemanticRequest{Operation: "definition"}); err == nil {
+		t.Fatal("a runner without a kernel submitted a request")
+	}
+}
+
+func TestRequestPropagatesCoreErrors(t *testing.T) {
+	refusal := errors.New("plugin.lsp.requestRefused")
+	runner := New(&fakeKernel{semanticErr: refusal}, echoServices(t))
+	if _, err := runner.Request(context.Background(), Session{ID: "session-1"}, core.PluginSemanticRequest{Operation: "hover"}); !errors.Is(err, refusal) {
 		t.Fatalf("err = %v", err)
 	}
 }
