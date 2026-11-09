@@ -202,6 +202,27 @@ func TestExtractRefusesUnsafeArchives(t *testing.T) {
 	}
 }
 
+func TestExtractReportsAFileSystemNameCollision(t *testing.T) {
+	// Two spellings of one name that the package treats as distinct but a
+	// normalising file system collapses.
+	_, target, err := extractInto(t, []archiveEntry{
+		{name: ManifestFile, body: []byte("{}"), mode: 0o644},
+		{name: "caf\u00e9.txt", body: []byte("a"), mode: 0o644},
+		{name: "cafe\u0301.txt", body: []byte("b"), mode: 0o644},
+	})
+	if err == nil {
+		// A file system that keeps both forms apart extracts both, which is not a
+		// collision to report.
+		t.Skip("this file system keeps both normalisation forms apart")
+	}
+	if !errors.Is(err, ErrDuplicatePath) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, statErr := os.Stat(target); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Fatalf("a refused extraction left its directory behind: %v", statErr)
+	}
+}
+
 func TestExtractRefusesUnreadableArchive(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "package.zip")
 	if err := os.WriteFile(path, []byte("not a zip archive"), 0o600); err != nil {

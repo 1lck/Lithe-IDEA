@@ -185,6 +185,13 @@ func writeEntry(entry *zip.File, root, name string, total int64) (File, int64, e
 	file, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		source.Close()
+		if errors.Is(err, fs.ErrExist) {
+			// The name already exists although no earlier entry had it: the file
+			// system collapsed two spellings the archive treats as distinct, such as
+			// two Unicode normalisation forms of one name. Reporting it as a
+			// duplicate is clearer than the bare EEXIST.
+			return File{}, 0, fmt.Errorf("%w: %q collides with an extracted file", ErrDuplicatePath, name)
+		}
 		return File{}, 0, err
 	}
 	written, copyErr := io.Copy(file, io.LimitReader(source, limit+1))
