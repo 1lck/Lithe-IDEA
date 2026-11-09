@@ -241,8 +241,8 @@ func BenchmarkEditorViewEnter(b *testing.B) {
 }
 
 // BenchmarkEditorViewUndoRedo is Undo and Redo of one typed character, each with the frame that
-// shows it. Undo puts a whole text back, so the highlighter drops everything it knows and the view
-// scans the widest line again over the whole document: the cost a user waits for on the undo chord.
+// shows it: the cost a user waits for on the undo chord. Undo puts back a whole earlier text, so
+// this is where finding what it changed, and keeping the colors and the layout of the rest, counts.
 func BenchmarkEditorViewUndoRedo(b *testing.B) {
 	for _, size := range editorperf.Sizes() {
 		b.Run("go/"+size.Name, func(b *testing.B) {

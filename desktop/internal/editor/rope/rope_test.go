@@ -336,6 +336,164 @@ func TestEqualMatchesComparingTheBytes(t *testing.T) {
 	}
 }
 
+// diffModel is Diff on strings, byte by byte: the longest common prefix, backed up over the bytes
+// that continue a character, then the longest common suffix that does not reach into the prefix,
+// cut back to where a character of a starts.
+func diffModel(a, b string) (start, aEnd, bEnd int) {
+	continues := func(text string, at int) bool { return at < len(text) && !utf8.RuneStart(text[at]) }
+	for start < len(a) && start < len(b) && a[start] == b[start] {
+		start++
+	}
+	for k := 1; k < utf8.UTFMax && start > 0 && (continues(a, start) || continues(b, start)); k++ {
+		start--
+	}
+	limit := min(len(a), len(b)) - start
+	tail := 0
+	for tail < limit && a[len(a)-1-tail] == b[len(b)-1-tail] {
+		tail++
+	}
+	for k := 1; k < utf8.UTFMax && tail > 0 && continues(a, len(a)-tail); k++ {
+		tail--
+	}
+	return start, len(a) - tail, len(b) - tail
+}
+
+// Diff of any two versions is what comparing their bytes gives: the bytes before start and after
+// the two ends are the same, and neither start nor an end cuts a character, whether the versions
+// share their unedited nodes, are built separately with other leaf boundaries, or differ in
+// characters that share their first bytes.
+func TestDiffFindsTheChangedBytes(t *testing.T) {
+	random := rand.New(rand.NewPCG(5, 6))
+	model := strings.Repeat("hello 世界 é\n", 2000)
+	r := FromString(model)
+	type version struct {
+		rope Rope
+		text string
+	}
+	versions := []version{{r, model}, {FromString(model), model}}
+	// boundary is where the character at or after at starts.
+	boundary := func(at int) int {
+		for at < len(model) && !utf8.RuneStart(model[at]) {
+			at++
+		}
+		return at
+	}
+	for step := range 240 {
+		at := boundary(random.IntN(len(model) + 1))
+		switch random.IntN(5) {
+		case 0:
+			// A character typed and deleted again: equal text, a new path to the leaf.
+			r = r.Insert(at, []byte("é")).Delete(at, at+2)
+		case 1:
+			// A character replaced by one of the same length that differs in its last byte, as 世
+			// and 丗 do: the bytes before it are the same, and cut it.
+			if at < len(model) {
+				_, size := utf8.DecodeRuneInString(model[at:])
+				other := []byte(model[at : at+size])
+				other[size-1] ^= 1
+				r = r.Replace(at, at+size, other)
+				model = model[:at] + string(other) + model[at+size:]
+			}
+		case 2:
+			insert := strings.Repeat("xy 世é\n", random.IntN(40))
+			r = r.Insert(at, []byte(insert))
+			model = model[:at] + insert + model[at:]
+		case 3:
+			end := boundary(min(len(model), at+random.IntN(300)))
+			r = r.Delete(at, end)
+			model = model[:at] + model[end:]
+		default:
+			// A line the text repeats, put in at a line start: the text after the edit is the
+			// text before it shifted, so its bytes match well past the edit.
+			at = strings.LastIndexByte(model[:at], '\n') + 1
+			r = r.Insert(at, []byte("hello 世界 é\n"))
+			model = model[:at] + "hello 世界 é\n" + model[at:]
+		}
+		if step%20 == 0 {
+			versions = append(versions, version{r, model}, version{FromString(model), model})
+		}
+	}
+	versions = append(versions, version{r, model}, version{Rope{}, ""}, version{FromString(""), ""})
+	whole := func(text string, at int) bool { return at == len(text) || utf8.RuneStart(text[at]) }
+	for i, a := range versions {
+		for j, b := range versions {
+			start, aEnd, bEnd := Diff(a.rope, b.rope)
+			wantStart, wantAEnd, wantBEnd := diffModel(a.text, b.text)
+			if start != wantStart || aEnd != wantAEnd || bEnd != wantBEnd {
+				t.Fatalf("versions %d and %d: Diff = (%d, %d, %d), want (%d, %d, %d)", i, j, start, aEnd, bEnd, wantStart, wantAEnd, wantBEnd)
+			}
+			if start > aEnd || start > bEnd || a.text[:start] != b.text[:start] || a.text[aEnd:] != b.text[bEnd:] {
+				t.Fatalf("versions %d and %d: Diff = (%d, %d, %d) leaves changed bytes outside it", i, j, start, aEnd, bEnd)
+			}
+			if !whole(a.text, start) || !whole(b.text, start) || !whole(a.text, aEnd) || !whole(b.text, bEnd) {
+				t.Fatalf("versions %d and %d: Diff = (%d, %d, %d) cuts a character", i, j, start, aEnd, bEnd)
+			}
+		}
+	}
+}
+
+// Diff of small texts is what the rules give: the changed bytes widen to whole characters, the
+// common suffix never reaches into the common prefix, and bytes that are not UTF-8 are backed up
+// over at most three at a time.
+func TestDiffOfSmallTexts(t *testing.T) {
+	for _, c := range []struct {
+		name              string
+		a, b              string
+		start, aEnd, bEnd int
+	}{
+		{"both empty", "", "", 0, 0, 0},
+		{"equal", "abc", "abc", 3, 3, 3},
+		{"a byte added to nothing", "", "x", 0, 0, 1},
+		{"the only byte removed", "x", "", 0, 1, 0},
+		{"one byte differs", "abc", "axc", 1, 2, 2},
+		{"a byte added at the end", "aaa", "aaaa", 3, 3, 4},
+		{"a character added at the end", "é", "éé", 2, 2, 4},
+		{"a character removed from the middle", "a世b", "ab", 1, 4, 1},
+		{"characters that share two bytes", "世", "丗", 0, 3, 3},
+		{"characters that share two bytes between others", "a世b", "a丗b", 1, 4, 4},
+		{"characters that share one byte", "xéy", "xèy", 1, 3, 3},
+		{"characters that share their last two bytes", "世", "帖", 0, 3, 3},
+		{"invalid bytes, then an ordinary one", "\x80\x80\x80\x80\x80x", "\x80\x80\x80\x80\x80y", 5, 6, 6},
+		{"invalid bytes backed up over three at most", "\x80\x80\x80\x80\x80\x80", "\x80\x80\x80\x80\x80\x80\x80", 3, 6, 7},
+	} {
+		for _, build := range []func(string) Rope{FromString, func(s string) Rope { return New([]byte(s)) }} {
+			start, aEnd, bEnd := Diff(build(c.a), build(c.b))
+			if start != c.start || aEnd != c.aEnd || bEnd != c.bEnd {
+				t.Errorf("%s: Diff(%q, %q) = (%d, %d, %d), want (%d, %d, %d)", c.name, c.a, c.b, start, aEnd, bEnd, c.start, c.aEnd, c.bEnd)
+			}
+		}
+		if start, aEnd, bEnd := diffModel(c.a, c.b); start != c.start || aEnd != c.aEnd || bEnd != c.bEnd {
+			t.Errorf("%s: diffModel(%q, %q) = (%d, %d, %d), want (%d, %d, %d)", c.name, c.a, c.b, start, aEnd, bEnd, c.start, c.aEnd, c.bEnd)
+		}
+	}
+}
+
+// Diff of two versions a few edits apart passes over the nodes they share, so it finds the
+// changed bytes of a megabyte of text without reading it or allocating.
+func TestDiffOfNearbyVersionsAllocatesNothing(t *testing.T) {
+	a := FromString(strings.Repeat("0123456789 abcdefghij\n", 50_000))
+	n := a.Len()
+	b := a.Insert(n/2, []byte("x"))
+	c := b.Delete(n/4, n/4+7).Replace(n*3/4, n*3/4+2, []byte("QQQ"))
+	cStart, cAEnd, cBEnd := diffModel(a.String(), c.String())
+	for _, k := range []struct {
+		name              string
+		a, b              Rope
+		start, aEnd, bEnd int
+	}{
+		{"the same version", a, a, n, n, n},
+		{"one insertion", a, b, n / 2, n / 2, n/2 + 1},
+		{"three edits", a, c, cStart, cAEnd, cBEnd},
+	} {
+		if start, aEnd, bEnd := Diff(k.a, k.b); start != k.start || aEnd != k.aEnd || bEnd != k.bEnd {
+			t.Fatalf("%s: Diff = (%d, %d, %d), want (%d, %d, %d)", k.name, start, aEnd, bEnd, k.start, k.aEnd, k.bEnd)
+		}
+		if allocs := testing.AllocsPerRun(100, func() { Diff(k.a, k.b) }); allocs != 0 {
+			t.Fatalf("%s: Diff allocates %v times, want none", k.name, allocs)
+		}
+	}
+}
+
 func TestDeletingEverythingLeavesAnEmptyRope(t *testing.T) {
 	r := FromString(strings.Repeat("abc\n", 5000))
 	r = r.Delete(0, r.Len())

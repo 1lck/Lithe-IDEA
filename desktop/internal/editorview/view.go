@@ -747,13 +747,19 @@ func (v *View) snapshot() snapshot {
 	return snapshot{text: v.text, anchor: v.anchor, caret: v.caret, scroll: v.scroll, scrollX: v.scrollX, widest: v.widest}
 }
 
-// restore makes s the view's text and selection.
+// restore makes s the view's text and selection. The texts of an undo step are versions of one
+// text, so rope.Diff finds the bytes the step changes by reading little more than them, and the
+// view and the highlighter follow it as they follow an edit, keeping what they know of the rest.
 func (v *View) restore(s snapshot) {
 	edit := v.wholeDocumentEdit(s.text)
+	start, oldEnd, newEnd := rope.Diff(v.text, s.text)
+	firstLine, oldLast, oldCount := v.text.LineOf(start), v.text.LineOf(oldEnd), v.text.LineCount()
 	v.text = s.text
 	v.revision++
-	v.hl.SetText(s.text)
-	v.forgetRows()
+	newLast := v.text.LineOf(newEnd)
+	v.keepStops(firstLine, oldLast, newLast, start-v.text.LineStart(firstLine))
+	v.hl.Edit(v.text, start, oldEnd, newEnd)
+	v.spliceRows(firstLine, oldLast, newLast, oldCount)
 	v.anchor, v.caret = s.anchor, s.caret
 	v.lastKind = editOther
 	v.widest = max(v.widest, s.widest)

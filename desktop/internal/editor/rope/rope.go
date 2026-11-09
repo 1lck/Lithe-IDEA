@@ -91,41 +91,109 @@ func (r Rope) Equal(other Rope) bool {
 	if r.Len() != other.Len() || r.LineCount() != other.LineCount() {
 		return false
 	}
-	var aPath, bPath [walkDepth]step
-	a := walker{path: aPath[:0], node: r.root}
-	b := walker{path: bPath[:0], node: other.root}
-	// Both walkers are always at the same offset: they move past a node they share, or past the
-	// same number of bytes of the leaves they are in.
-	for a.node != nil && b.node != nil {
+	return common(r, other, false, r.Len()) == r.Len()
+}
+
+// Diff returns where a and b differ: b is a with the bytes from start to aEnd replaced by those
+// of b from start to bEnd, and the bytes before start and after the two ends are the same. As
+// Equal does, it passes over a node both texts share without reading it, from the start and
+// then from the end, so two versions a few edits apart cost a few leaves, not the document. It
+// never cuts a character of valid UTF-8: start, aEnd and bEnd are where characters begin. Equal
+// texts give start = aEnd = bEnd = their length.
+func Diff(a, b Rope) (start, aEnd, bEnd int) {
+	aLen, bLen := a.Len(), b.Len()
+	start = common(a, b, false, min(aLen, bLen))
+	// The bytes before start are the same in both, so a character cut at start began in them.
+	for k := 1; k < utf8.UTFMax && start > 0 && (inside(a, start) || inside(b, start)); k++ {
+		start--
+	}
+	same := common(a, b, true, min(aLen, bLen)-start)
+	// The last same bytes are the same in both, so one text says where a character in them starts.
+	for k := 1; k < utf8.UTFMax && same > 0 && inside(a, aLen-same); k++ {
+		same--
+	}
+	return start, aLen - same, bLen - same
+}
+
+// inside reports whether the byte of r at offset continues a character, so that a character
+// would be cut there.
+func inside(r Rope, offset int) bool {
+	return offset < r.Len() && !utf8.RuneStart(r.ByteAt(offset))
+}
+
+// common is how many bytes a and b have in common from their starts, or from their ends when
+// back is set, counted up to limit.
+func common(a, b Rope, back bool, limit int) int {
+	if limit <= 0 {
+		return 0
+	}
+	x := walker{node: a.root, back: back}
+	y := walker{node: b.root, back: back}
+	n := 0
+	// Both walkers are always as far from where they began: they move past a node they share, or
+	// past the same number of bytes of the leaves they are in.
+	for x.node != nil && y.node != nil && n < limit {
 		switch {
-		case a.node == b.node && a.skip == 0 && b.skip == 0:
-			a.next()
-			b.next()
-		case a.node.children != nil && (b.node.children == nil || a.node.height >= b.node.height):
-			a.down()
-		case b.node.children != nil:
-			b.down()
+		case x.node == y.node && x.skip == 0 && y.skip == 0:
+			n += x.node.length
+			x.next()
+			y.next()
+		case x.node.children != nil && (y.node.children == nil || x.node.height >= y.node.height):
+			x.down()
+		case y.node.children != nil:
+			y.down()
 		default:
-			x, y := a.node.text[a.skip:], b.node.text[b.skip:]
-			n := min(len(x), len(y))
-			if x[:n] != y[:n] {
-				return false
+			p, q := x.rest(), y.rest()
+			k := min(len(p), len(q))
+			var same int
+			if back {
+				same = sameSuffix(p[len(p)-k:], q[len(q)-k:])
+			} else {
+				same = samePrefix(p[:k], q[:k])
 			}
-			if a.skip += n; a.skip == a.node.length {
-				a.next()
+			if n += same; same < k {
+				return min(n, limit)
 			}
-			if b.skip += n; b.skip == b.node.length {
-				b.next()
+			if x.skip += k; x.skip == x.node.length {
+				x.next()
+			}
+			if y.skip += k; y.skip == y.node.length {
+				y.next()
 			}
 		}
 	}
-	// One walker passed the end, so both did: they compared or shared every byte. An empty leaf
-	// the other may still be at holds none.
-	return true
+	// One walker passed its tree's end, or both did; an empty leaf the other may still be at
+	// holds no bytes.
+	return min(n, limit)
 }
 
-// walkDepth is the path a walker keeps without allocating: deeper than any tree of a text
-// that fits in memory, as a tree of n leaves is about log4(n) levels deep.
+// samePrefix is how many bytes p and q, of one length, have in common from their starts.
+func samePrefix(p, q string) int {
+	if p == q {
+		return len(p)
+	}
+	i := 0
+	for i < len(p) && p[i] == q[i] {
+		i++
+	}
+	return i
+}
+
+// sameSuffix is how many bytes p and q, of one length, have in common from their ends.
+func sameSuffix(p, q string) int {
+	if p == q {
+		return len(p)
+	}
+	i := 0
+	for i < len(p) && p[len(p)-1-i] == q[len(q)-1-i] {
+		i++
+	}
+	return i
+}
+
+// walkDepth bounds the path a walker keeps in place, so that walking allocates nothing. Every
+// inner node but the root has at least minChildren children and every leaf of a tree of more
+// than one at least minLeaf bytes, so a tree 16 levels deep holds about a terabyte of text.
 const walkDepth = 16
 
 // step is an inner node on a walker's path and the child of it the walker is in.
@@ -137,32 +205,54 @@ type step struct {
 // walker steps through a tree a subtree at a time, so that two walkers can pass over what their
 // trees share without visiting it.
 type walker struct {
-	// path is the inner nodes above node, from the root.
-	path []step
+	// path[:depth] is the inner nodes above node, from the root.
+	path  [walkDepth]step
+	depth int
 	// node is the subtree the walker is at; nil past the end.
 	node *node
 	// skip is how many bytes of node, a leaf, have been passed.
 	skip int
+	// back makes the walker go from the tree's end to its start; skip then counts from a leaf's
+	// end.
+	back bool
 }
 
-// down moves to the first child of node, an inner node.
+// down moves to the first child of node, an inner node, or to its last when going back.
 func (w *walker) down() {
-	w.path = append(w.path, step{node: w.node})
-	w.node = w.node.children[0]
+	child := 0
+	if w.back {
+		child = len(w.node.children) - 1
+	}
+	w.path[w.depth] = step{node: w.node, child: child}
+	w.depth++
+	w.node = w.node.children[child]
 }
 
-// next moves past node to the subtree after it.
+// next moves past node to the subtree after it, or before it when going back.
 func (w *walker) next() {
 	w.skip = 0
-	for len(w.path) > 0 {
-		top := &w.path[len(w.path)-1]
-		if top.child++; top.child < len(top.node.children) {
+	for w.depth > 0 {
+		top := &w.path[w.depth-1]
+		if w.back {
+			top.child--
+		} else {
+			top.child++
+		}
+		if top.child >= 0 && top.child < len(top.node.children) {
 			w.node = top.node.children[top.child]
 			return
 		}
-		w.path = w.path[:len(w.path)-1]
+		w.depth--
 	}
 	w.node = nil
+}
+
+// rest is the part of node, a leaf, the walker has not passed.
+func (w *walker) rest() string {
+	if w.back {
+		return w.node.text[:w.node.length-w.skip]
+	}
+	return w.node.text[w.skip:]
 }
 
 // LineStart returns the offset at which line (counted from 0) begins. A line past the last one
